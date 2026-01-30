@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scope.schema.json",
+  "title": "Scope",
+  "description": "Scope metadata and tickets",
+  "type": "object",
+  "required": ["id", "name", "status", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}-[a-z0-9]{4}$",
+      "description": "Scope ID in format YYYY-MM-DD-XXXX"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable scope name"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "closed"],
+      "default": "draft",
+      "description": "Scope status (one-way: draft → active → closed)"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when scope was created"
+    },
+    "activatedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "default": null,
+      "description": "ISO 8601 timestamp when scope was activated"
+    },
+    "closedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "default": null,
+      "description": "ISO 8601 timestamp when scope was closed"
+    },
+    "tickets": {
+      "type": "array",
+      "default": [],
+      "description": "External issue references",
+      "items": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Ticket ID (e.g., TICKET-001)"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Ticket title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Ticket description"
+          },
+          "link": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to external issue tracker"
+          }
+        }
+      }
+    }
+  }
+}

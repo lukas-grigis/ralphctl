@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "config.schema.json",
+  "title": "Config",
+  "description": "RalphCTL configuration",
+  "type": "object",
+  "properties": {
+    "activeScope": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Currently active scope ID"
+    }
+  }
+}

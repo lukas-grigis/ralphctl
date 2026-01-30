@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tasks.schema.json",
+  "title": "Tasks",
+  "description": "Array of tasks in a scope",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "status", "order"],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Task ID (e.g., task-001)"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Task name"
+      },
+      "description": {
+        "type": "string",
+        "description": "Task description"
+      },
+      "steps": {
+        "type": "array",
+        "default": [],
+        "description": "Implementation steps",
+        "items": {
+          "type": "string"
+        }
+      },
+      "status": {
+        "type": "string",
+        "enum": ["todo", "in_progress", "testing", "done"],
+        "default": "todo",
+        "description": "Task status (kanban: todo → in_progress → testing → done)"
+      },
+      "order": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Task priority order"
+      },
+      "ticketId": {
+        "type": "string",
+        "description": "Reference to parent ticket"
+      }
+    }
+  }
+}
