@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-import.schema.json",
+  "title": "Task Import",
+  "description": "Schema for importing tasks via ralphctl task import or scope plan",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "projectPath"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Task name - concise, actionable description"
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed description of what the task accomplishes"
+      },
+      "steps": {
+        "type": "array",
+        "description": "Implementation steps - specific, actionable items",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ticketId": {
+        "type": "string",
+        "description": "Reference to parent ticket ID (e.g., TICKET-001)"
+      },
+      "id": {
+        "type": "string",
+        "description": "Local ID for referencing this task in blockedBy (e.g., '1', 'auth-setup'). Converted to real ID on import."
+      },
+      "blockedBy": {
+        "type": "array",
+        "description": "IDs of tasks that must complete first. Reference tasks by their 'id' field.",
+        "items": {
+          "type": "string"
+        }
+      },
+      "projectPath": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Absolute path to the repository where this task should execute. Must be one of the project's paths."
+      }
+    }
+  }
+}

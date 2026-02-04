@@ -5,10 +5,10 @@
   "description": "RalphCTL configuration",
   "type": "object",
   "properties": {
-    "activeScope": {
+    "currentSprint": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Currently active scope ID"
+      "description": "Current sprint ID (which sprint CLI commands target)"
     }
   }
 }
