@@ -323,6 +323,85 @@ pnpm test:coverage     # Tests with coverage report
 Keep CLAUDE.md updated with CLI Commands and concepts as they evolve.
 Update [json schemas](/schemas) for config files when edited.
 
+## Development Agents
+
+This project uses specialized Claude Code agents to assist with development. These are **not** part of ralphctl's runtime—they help YOU build ralphctl.
+
+### Agent Roster
+
+| Agent           | Role                       | Tools       | When to Invoke                                         |
+| --------------- | -------------------------- | ----------- | ------------------------------------------------------ |
+| **planner**     | Break work into steps      | Read-only   | "How should I implement X?", "Break down this feature" |
+| **designer**    | UX design + implementation | All         | New commands, prompts, output formatting, theme code   |
+| **implementer** | Business logic             | All         | Features, bugs, refactoring, services                  |
+| **tester**      | Test strategy + writing    | All         | Write tests, improve coverage, debug test failures     |
+| **reviewer**    | Code quality review        | Read + Bash | Pre-merge review, check for issues                     |
+| **auditor**     | Security scanning          | Read + Bash | Security-sensitive changes, audit for vulnerabilities  |
+
+### Development Workflow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  DEVELOPMENT WORKFLOW                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. PLAN              2. DESIGN           3. IMPLEMENT      │
+│  ┌──────────┐         ┌──────────┐        ┌─────────────┐   │
+│  │ planner  │ ──────► │ designer │ ─────► │ implementer │   │
+│  └──────────┘         └──────────┘        └─────────────┘   │
+│  "Break this           "How should         "Write the       │
+│   into steps"           the UX work?"       code"           │
+│                                                    │        │
+│                                                    ▼        │
+│  5. AUDIT             4. REVIEW           4. TEST           │
+│  ┌──────────┐         ┌──────────┐        ┌──────────┐      │
+│  │ auditor  │ ◄────── │ reviewer │ ◄───── │ tester   │      │
+│  └──────────┘         └──────────┘        └──────────┘      │
+│  "Security             "Quality            "Write tests,    │
+│   issues?"              check"              coverage"       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### When Agents Are Invoked
+
+Agents are invoked automatically based on the task, or explicitly by request:
+
+**Automatic delegation** (based on what you ask):
+
+- "Add a --json flag to task list" → **designer** (command structure) + **implementer** (logic)
+- "Fix the bug where sprints don't close" → **implementer**
+- "Review my changes" → **reviewer**
+- "Write tests for the ticket service" → **tester**
+
+**Explicit invocation** (you can request directly):
+
+- "Use the planner to break down the archive feature"
+- "Have the auditor check the file handling code"
+- "Ask the designer how the export command should work"
+
+### Agent Capabilities
+
+**Read-only agents** (reviewer, auditor, planner):
+
+- Can explore code, run checks (`pnpm test`, `pnpm lint`)
+- Cannot modify files—provide feedback only
+- Safe for review tasks
+
+**Full-access agents** (designer, implementer, tester):
+
+- Can read, write, and edit files
+- Can run commands
+- Used for implementation work
+
+### Best Practices
+
+1. **Start with design** - For new commands/features, consult designer first
+2. **Plan complex work** - Use planner for multi-file changes
+3. **Review before merge** - Run reviewer on your branch
+4. **Test coverage** - Use tester after implementing features
+5. **Security check** - Run auditor on auth, file I/O, user input handling
+
 ## Theme & UX
 
 ralphctl uses a Ralph Wiggum theme with:
@@ -362,7 +441,7 @@ showEmpty('tasks', 'Add one with: ralphctl task add');
 await input({ message: `${icons.sprint} Sprint name:` });
 ```
 
-See `.claude/agents/ux-expert.md` for complete UX guidelines.
+See `.claude/agents/designer.md` for complete UX guidelines.
 
 ## Claude CLI Invocation from Node.js
 
