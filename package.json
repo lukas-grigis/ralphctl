@@ -13,7 +13,10 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -21,7 +24,8 @@
   "dependencies": {
     "@inquirer/prompts": "^7.3.2",
     "colorette": "^2.0.20",
-    "nanoid": "^5.1.5",
+    "commander": "^14.0.3",
+    "ora": "^9.1.0",
     "zod": "^3.24.3"
   },
   "devDependencies": {
@@ -33,6 +37,7 @@
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.21.0"
+    "typescript-eslint": "^8.21.0",
+    "vitest": "^4.0.18"
   }
 }
