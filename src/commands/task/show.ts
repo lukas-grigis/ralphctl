@@ -1,43 +1,47 @@
-import { info, muted, error } from '@src/utils/colors.ts';
-import { getTask, formatTaskStatus, TaskNotFoundError } from '@src/services/task.ts';
+import { getTask, TaskNotFoundError } from '@src/store/task.ts';
+import { field, formatTaskStatus, log, printHeader, showError } from '@src/theme/ui.ts';
+import { selectTask } from '@src/interactive/selectors.ts';
 
 export async function taskShowCommand(args: string[]): Promise<void> {
-  const taskId = args[0];
+  let taskId = args[0];
 
   if (!taskId) {
-    console.log(error('\nTask ID required.'));
-    console.log(muted('Usage: ralphctl task show <task-id>\n'));
-    return;
+    const selected = await selectTask('Select task to show:');
+    if (!selected) return;
+    taskId = selected;
   }
 
   try {
     const task = await getTask(taskId);
 
-    console.log(info('\nTask Details:\n'));
-    console.log(info('  ID:          ') + task.id);
-    console.log(info('  Name:        ') + task.name);
-    console.log(info('  Status:      ') + formatTaskStatus(task.status));
-    console.log(info('  Order:       ') + String(task.order));
+    printHeader('Task Details');
+    console.log(field('ID', task.id));
+    console.log(field('Name', task.name));
+    console.log(field('Status', formatTaskStatus(task.status)));
+    console.log(field('Order', String(task.order)));
+    console.log(field('Project', task.projectPath));
 
     if (task.ticketId) {
-      console.log(info('  Ticket:      ') + task.ticketId);
+      console.log(field('Ticket', task.ticketId));
     }
 
     if (task.description) {
-      console.log(info('  Description: ') + task.description);
+      console.log(field('Description', task.description));
     }
 
     if (task.steps.length > 0) {
-      console.log(info('\n  Steps:'));
+      log.newline();
+      console.log(field('Steps', ''));
       task.steps.forEach((step, i) => {
-        console.log(`    ${String(i + 1)}. ${step}`);
+        log.raw(`${String(i + 1)}. ${step}`, 2);
       });
     }
 
-    console.log('');
+    log.newline();
   } catch (err) {
     if (err instanceof TaskNotFoundError) {
-      console.log(error(`\nTask not found: ${taskId}\n`));
+      showError(`Task not found: ${taskId}`);
+      log.newline();
     } else {
       throw err;
     }

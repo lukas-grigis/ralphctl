@@ -1,36 +1,45 @@
-import { info, muted, warning } from '@src/utils/colors.ts';
-import { getNextTask, formatTaskStatus } from '@src/services/task.ts';
+import { getNextTask } from '@src/store/task.ts';
+import { field, formatTaskStatus, log, printHeader, showEmpty, showNextStep } from '@src/theme/ui.ts';
 
 export async function taskNextCommand(): Promise<void> {
   const task = await getNextTask();
 
   if (!task) {
-    console.log(warning('\nNo pending tasks.'));
-    console.log(muted('All tasks are done, or add more with: ralphctl task add\n'));
+    showEmpty('pending tasks', 'All tasks are done, or add more with: ralphctl task add');
     return;
   }
 
-  console.log(info('\nNext task:\n'));
-  console.log(info('  ID:     ') + task.id);
-  console.log(info('  Name:   ') + task.name);
-  console.log(info('  Status: ') + formatTaskStatus(task.status));
-  console.log(info('  Order:  ') + String(task.order));
+  printHeader('Next Task');
+  console.log(field('ID', task.id));
+  console.log(field('Name', task.name));
+  console.log(field('Status', formatTaskStatus(task.status)));
+  console.log(field('Order', String(task.order)));
 
   if (task.ticketId) {
-    console.log(info('  Ticket: ') + task.ticketId);
+    console.log(field('Ticket', task.ticketId));
   }
 
   if (task.description) {
-    console.log(info('\n  Description:'));
-    console.log(`    ${task.description}`);
+    log.newline();
+    console.log(field('Description', ''));
+    log.raw(task.description, 2);
   }
 
   if (task.steps.length > 0) {
-    console.log(info('\n  Steps:'));
+    log.newline();
+    console.log(field('Steps', ''));
     task.steps.forEach((step, i) => {
-      console.log(`    ${String(i + 1)}. ${step}`);
+      log.raw(`${String(i + 1)}. ${step}`, 2);
     });
   }
 
-  console.log(muted(`\nStart with: ralphctl task status ${task.id} in_progress\n`));
+  if (task.blockedBy.length > 0) {
+    log.newline();
+    console.log(field('Blocked By', ''));
+    task.blockedBy.forEach((dep) => {
+      log.item(dep);
+    });
+  }
+
+  showNextStep(`ralphctl task status ${task.id} in_progress`, 'Start working on this task');
 }
