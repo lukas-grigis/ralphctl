@@ -1,13 +1,9 @@
 import { getConfigPath } from '@src/utils/paths.ts';
-import {
-  readValidatedJson,
-  writeValidatedJson,
-  fileExists,
-} from '@src/utils/storage.ts';
-import { ConfigSchema, type Config } from '@src/schemas/index.ts';
+import { fileExists, readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
+import { type Config, ConfigSchema } from '@src/schemas/index.ts';
 
 const DEFAULT_CONFIG: Config = {
-  activeScope: null,
+  currentSprint: null,
 };
 
 export async function getConfig(): Promise<Config> {
@@ -22,13 +18,19 @@ export async function saveConfig(config: Config): Promise<void> {
   await writeValidatedJson(getConfigPath(), config, ConfigSchema);
 }
 
-export async function getActiveScope(): Promise<string | null> {
+/**
+ * Get the current sprint ID (which sprint commands target).
+ */
+export async function getCurrentSprint(): Promise<string | null> {
   const config = await getConfig();
-  return config.activeScope;
+  return config.currentSprint;
 }
 
-export async function setActiveScope(scopeId: string | null): Promise<void> {
+/**
+ * Set the current sprint ID.
+ */
+export async function setCurrentSprint(sprintId: string | null): Promise<void> {
   const config = await getConfig();
-  config.activeScope = scopeId;
+  config.currentSprint = sprintId;
   await saveConfig(config);
 }

@@ -1,0 +1,289 @@
+import { basename, resolve } from 'node:path';
+import { getProjectsFilePath, validateProjectPath } from '../utils/paths.js';
+import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/storage.js';
+import { type Project, type Projects, type Repository, ProjectsSchema } from '../schemas/index.js';
+
+export class ProjectNotFoundError extends Error {
+  public readonly projectName: string;
+
+  constructor(projectName: string) {
+    super(`Project not found: ${projectName}`);
+    this.name = 'ProjectNotFoundError';
+    this.projectName = projectName;
+  }
+}
+
+export class ProjectExistsError extends Error {
+  public readonly projectName: string;
+
+  constructor(projectName: string) {
+    super(`Project already exists: ${projectName}`);
+    this.name = 'ProjectExistsError';
+    this.projectName = projectName;
+  }
+}
+
+/**
+ * Migration: Convert old paths format to new repositories format.
+ * Detects old format and converts in place.
+ */
+interface LegacyProject {
+  name: string;
+  displayName: string;
+  paths?: string[];
+  repositories?: Repository[];
+  description?: string;
+  setupScript?: string;
+  verifyScript?: string;
+}
+
+function migrateProjectIfNeeded(project: LegacyProject): Project {
+  // Already in new format
+  if (project.repositories && !project.paths) {
+    return project as Project;
+  }
+
+  // Old format detected - migrate
+  if (project.paths && !project.repositories) {
+    const repositories: Repository[] = project.paths.map((p) => ({
+      name: basename(p),
+      path: p,
+    }));
+
+    const migrated: Project = {
+      name: project.name,
+      displayName: project.displayName,
+      repositories,
+      description: project.description,
+      setupScript: project.setupScript,
+      verifyScript: project.verifyScript,
+    };
+
+    return migrated;
+  }
+
+  // Has both - prefer repositories (shouldn't happen, but be safe)
+  if (project.repositories) {
+    return project as Project;
+  }
+
+  // Neither - shouldn't happen with valid data
+  throw new Error(`Invalid project data: no paths or repositories for ${project.name}`);
+}
+
+/**
+ * Get all projects.
+ * Handles migration from old paths format to new repositories format.
+ */
+export async function listProjects(): Promise<Projects> {
+  const filePath = getProjectsFilePath();
+  if (!(await fileExists(filePath))) {
+    return [];
+  }
+
+  // Read raw data to check for migration needs
+  const { readFile } = await import('node:fs/promises');
+  const content = await readFile(filePath, 'utf-8');
+  const rawData = JSON.parse(content) as LegacyProject[];
+
+  // Check if any projects need migration
+  const needsMigration = rawData.some((p) => p.paths && !p.repositories);
+
+  if (needsMigration) {
+    // Migrate all projects
+    const migrated = rawData.map(migrateProjectIfNeeded);
+
+    // Validate and save
+    const validated = ProjectsSchema.parse(migrated);
+    await writeValidatedJson(filePath, validated, ProjectsSchema);
+
+    return validated;
+  }
+
+  // No migration needed - use normal validation
+  return readValidatedJson(filePath, ProjectsSchema);
+}
+
+/**
+ * Get a project by name.
+ * @throws ProjectNotFoundError if project doesn't exist
+ */
+export async function getProject(name: string): Promise<Project> {
+  const projects = await listProjects();
+  const project = projects.find((p) => p.name === name);
+  if (!project) {
+    throw new ProjectNotFoundError(name);
+  }
+  return project;
+}
+
+/**
+ * Check if a project exists.
+ */
+export async function projectExists(name: string): Promise<boolean> {
+  const projects = await listProjects();
+  return projects.some((p) => p.name === name);
+}
+
+/**
+ * Create a new project.
+ * @throws ProjectExistsError if project already exists
+ */
+export async function createProject(project: Project): Promise<Project> {
+  const projects = await listProjects();
+
+  if (projects.some((p) => p.name === project.name)) {
+    throw new ProjectExistsError(project.name);
+  }
+
+  // Validate that all repository paths exist
+  const pathErrors: string[] = [];
+  for (const repo of project.repositories) {
+    const resolved = resolve(repo.path);
+    const validation = await validateProjectPath(resolved);
+    if (validation !== true) {
+      pathErrors.push(`  ${repo.path}: ${validation}`);
+    }
+  }
+  if (pathErrors.length > 0) {
+    throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+  }
+
+  // Resolve all paths to absolute and derive names
+  const normalizedProject: Project = {
+    ...project,
+    repositories: project.repositories.map((repo) => ({
+      name: repo.name || basename(repo.path),
+      path: resolve(repo.path),
+    })),
+  };
+
+  projects.push(normalizedProject);
+  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+
+  return normalizedProject;
+}
+
+/**
+ * Update an existing project.
+ * @throws ProjectNotFoundError if project doesn't exist
+ */
+export async function updateProject(name: string, updates: Partial<Omit<Project, 'name'>>): Promise<Project> {
+  const projects = await listProjects();
+  const index = projects.findIndex((p) => p.name === name);
+
+  if (index === -1) {
+    throw new ProjectNotFoundError(name);
+  }
+
+  // Validate new repositories if provided
+  if (updates.repositories) {
+    const pathErrors: string[] = [];
+    for (const repo of updates.repositories) {
+      const resolved = resolve(repo.path);
+      const validation = await validateProjectPath(resolved);
+      if (validation !== true) {
+        pathErrors.push(`  ${repo.path}: ${validation}`);
+      }
+    }
+    if (pathErrors.length > 0) {
+      throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+    }
+    // Resolve paths to absolute and ensure names
+    updates.repositories = updates.repositories.map((repo) => ({
+      name: repo.name || basename(repo.path),
+      path: resolve(repo.path),
+    }));
+  }
+
+  const existingProject = projects[index];
+  if (!existingProject) {
+    throw new ProjectNotFoundError(name);
+  }
+
+  const updatedProject: Project = {
+    name: existingProject.name,
+    displayName: updates.displayName ?? existingProject.displayName,
+    repositories: updates.repositories ?? existingProject.repositories,
+    description: updates.description ?? existingProject.description,
+    setupScript: updates.setupScript ?? existingProject.setupScript,
+    verifyScript: updates.verifyScript ?? existingProject.verifyScript,
+  };
+
+  projects[index] = updatedProject;
+  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+
+  return updatedProject;
+}
+
+/**
+ * Remove a project.
+ * @throws ProjectNotFoundError if project doesn't exist
+ */
+export async function removeProject(name: string): Promise<void> {
+  const projects = await listProjects();
+  const index = projects.findIndex((p) => p.name === name);
+
+  if (index === -1) {
+    throw new ProjectNotFoundError(name);
+  }
+
+  projects.splice(index, 1);
+  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+}
+
+/**
+ * Get all repositories for a project.
+ * @throws ProjectNotFoundError if project doesn't exist
+ */
+export async function getProjectRepos(name: string): Promise<Repository[]> {
+  const project = await getProject(name);
+  return project.repositories;
+}
+
+/**
+ * Add a repository to an existing project.
+ * @throws ProjectNotFoundError if project doesn't exist
+ */
+export async function addProjectRepo(name: string, path: string): Promise<Project> {
+  const project = await getProject(name);
+  const resolvedPath = resolve(path);
+  const repoName = basename(resolvedPath);
+
+  // Validate the path
+  const validation = await validateProjectPath(resolvedPath);
+  if (validation !== true) {
+    throw new Error(`Invalid path ${path}: ${validation}`);
+  }
+
+  // Check if path already exists
+  if (project.repositories.some((r) => r.path === resolvedPath)) {
+    return project; // Already exists, no-op
+  }
+
+  return updateProject(name, {
+    repositories: [...project.repositories, { name: repoName, path: resolvedPath }],
+  });
+}
+
+/**
+ * Remove a repository from an existing project.
+ * @throws ProjectNotFoundError if project doesn't exist
+ * @throws Error if trying to remove the last repository
+ */
+export async function removeProjectRepo(name: string, path: string): Promise<Project> {
+  const project = await getProject(name);
+  const resolvedPath = resolve(path);
+
+  const newRepos = project.repositories.filter((r) => r.path !== resolvedPath);
+
+  if (newRepos.length === 0) {
+    throw new Error('Cannot remove the last repository from a project');
+  }
+
+  if (newRepos.length === project.repositories.length) {
+    return project; // Path wasn't in the list, no-op
+  }
+
+  return updateProject(name, { repositories: newRepos });
+}
