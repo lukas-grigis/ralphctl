@@ -1,56 +1,171 @@
-import { input } from '@inquirer/prompts';
-import { success, info, error } from '@src/utils/colors.ts';
-import { addTicket, DuplicateTicketError } from '@src/services/ticket.ts';
+import { input, select } from '@inquirer/prompts';
+import { error, muted } from '@src/theme/index.ts';
+import { field, fieldMultiline, icons, showEmpty, showError, showSuccess } from '@src/theme/ui.ts';
+import { multilineInput } from '@src/utils/multiline.ts';
+import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
+import { listProjects, projectExists } from '@src/store/project.ts';
+import { SprintStatusError } from '@src/store/sprint.ts';
 
-export async function ticketAddCommand(): Promise<void> {
-  const id = await input({
-    message: 'Ticket ID (e.g., TICKET-001):',
-    validate: (v) => (v.trim().length > 0 ? true : 'ID is required'),
-  });
+export interface TicketAddOptions {
+  externalId?: string;
+  title?: string;
+  description?: string;
+  link?: string;
+  project?: string;
+  useEditor?: boolean;
+  interactive?: boolean; // Set by REPL or CLI (default true unless --no-interactive)
+}
 
-  const title = await input({
-    message: 'Title:',
-    validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
-  });
+function validateUrl(url: string): boolean {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  const description = await input({
-    message: 'Description (optional):',
-  });
+export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<void> {
+  const { useEditor = false } = options;
 
-  const link = await input({
-    message: 'Link (optional):',
-    validate: (v) => {
-      if (!v) return true;
-      try {
-        new URL(v);
-        return true;
-      } catch {
-        return 'Invalid URL format';
+  let externalId: string | undefined;
+  let title: string;
+  let description: string | undefined;
+  let link: string | undefined;
+  let projectName: string;
+
+  if (options.interactive === false) {
+    // Non-interactive mode: validate required params
+    const errors: string[] = [];
+    const trimmedTitle = options.title?.trim();
+    const trimmedProject = options.project?.trim();
+
+    if (!trimmedTitle) {
+      errors.push('--title is required');
+    }
+    if (!trimmedProject) {
+      errors.push('--project is required');
+    } else if (!(await projectExists(trimmedProject))) {
+      errors.push(`Project '${trimmedProject}' does not exist. Add it first with 'ralphctl project add'.`);
+    }
+    if (options.link && !validateUrl(options.link)) {
+      errors.push('--link must be a valid URL');
+    }
+
+    if (errors.length > 0 || !trimmedTitle || !trimmedProject) {
+      showError('Validation failed');
+      for (const e of errors) {
+        console.log(error(`  ${e}`));
       }
-    },
-  });
+      console.log('');
+      process.exit(1);
+    }
+
+    const trimmedExternalId = options.externalId?.trim();
+    externalId = trimmedExternalId === '' ? undefined : trimmedExternalId;
+    title = trimmedTitle;
+    const trimmedDesc = options.description?.trim();
+    description = trimmedDesc === '' ? undefined : trimmedDesc;
+    const trimmedLink = options.link?.trim();
+    link = trimmedLink === '' ? undefined : trimmedLink;
+    projectName = trimmedProject;
+  } else {
+    // Interactive mode (default): prompt for missing params, use provided values as defaults
+
+    // Show project selector
+    const projects = await listProjects();
+
+    if (projects.length === 0) {
+      showEmpty('projects', 'Add one first with: ralphctl project add');
+      return;
+    }
+
+    const defaultProjectIndex = options.project ? projects.findIndex((p) => p.name === options.project) : -1;
+
+    projectName = await select({
+      message: `${icons.project} Project:`,
+      default: defaultProjectIndex >= 0 ? defaultProjectIndex : 0,
+      choices: projects.map((p) => ({
+        name: `${icons.project} ${p.name} ${muted(`- ${p.displayName}`)}`,
+        value: p.name,
+      })),
+    });
+
+    externalId = await input({
+      message: `${icons.info} External ID (optional, e.g., JIRA-123):`,
+      default: options.externalId?.trim(),
+    });
+
+    title = await input({
+      message: `${icons.ticket} Title:`,
+      default: options.title?.trim(),
+      validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
+    });
+
+    if (useEditor) {
+      // Use external editor via dynamic import
+      const { editor } = await import('@inquirer/prompts');
+      description = await editor({
+        message: `${icons.edit} Description (opens editor):`,
+        default: options.description?.trim(),
+      });
+    } else {
+      description = await multilineInput({
+        message: 'Description (recommended):',
+        default: options.description?.trim(),
+      });
+    }
+
+    link = await input({
+      message: `${icons.info} Link (optional):`,
+      default: options.link?.trim(),
+      validate: (v) => {
+        if (!v) return true;
+        return validateUrl(v) ? true : 'Invalid URL format';
+      },
+    });
+
+    const trimmedExternalId = externalId.trim();
+    externalId = trimmedExternalId === '' ? undefined : trimmedExternalId;
+    title = title.trim();
+    const trimmedDescription = description.trim();
+    description = trimmedDescription === '' ? undefined : trimmedDescription;
+    const trimmedLinkInteractive = link.trim();
+    link = trimmedLinkInteractive === '' ? undefined : trimmedLinkInteractive;
+  }
 
   try {
     const ticket = await addTicket({
-      id: id.trim(),
-      title: title.trim(),
-      description: description.trim() || undefined,
-      link: link.trim() || undefined,
+      externalId,
+      title,
+      description,
+      link,
+      projectName,
     });
 
-    console.log(success('\nTicket added successfully!'));
-    console.log(info('  ID:    ') + ticket.id);
-    console.log(info('  Title: ') + ticket.title);
+    showSuccess('Ticket added!', [
+      ['ID', ticket.id],
+      ['Title', ticket.title],
+      ['Project', ticket.projectName],
+    ]);
+
+    if (ticket.externalId) {
+      console.log(field('External', ticket.externalId));
+    }
     if (ticket.description) {
-      console.log(info('  Desc:  ') + ticket.description);
+      console.log(fieldMultiline('Description', ticket.description));
     }
     if (ticket.link) {
-      console.log(info('  Link:  ') + ticket.link);
+      console.log(field('Link', ticket.link));
     }
     console.log('');
   } catch (err) {
     if (err instanceof DuplicateTicketError) {
-      console.log(error(`\nTicket with ID "${id}" already exists.\n`));
+      showError(`Ticket with external ID "${externalId ?? ''}" already exists`);
+    } else if (err instanceof SprintStatusError) {
+      showError(err.message);
+    } else if (err instanceof Error && err.message.includes('does not exist')) {
+      showError(err.message);
     } else {
       throw err;
     }

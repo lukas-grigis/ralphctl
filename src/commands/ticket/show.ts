@@ -1,35 +1,59 @@
-import { info, muted, error } from '@src/utils/colors.ts';
-import { getTicket, TicketNotFoundError } from '@src/services/ticket.ts';
+import { muted } from '@src/theme/index.ts';
+import { getTicket, TicketNotFoundError } from '@src/store/ticket.ts';
+import { getProject } from '@src/store/project.ts';
+import { selectTicket } from '@src/interactive/selectors.ts';
+import { badge, field, log, printHeader, showError } from '@src/theme/ui.ts';
 
 export async function ticketShowCommand(args: string[]): Promise<void> {
-  const ticketId = args[0];
+  let ticketId = args[0];
 
   if (!ticketId) {
-    console.log(error('\nTicket ID required.'));
-    console.log(muted('Usage: ralphctl ticket show <ticket-id>\n'));
-    return;
+    const selected = await selectTicket('Select ticket to show:');
+    if (!selected) return;
+    ticketId = selected;
   }
 
   try {
     const ticket = await getTicket(ticketId);
 
-    console.log(info('\nTicket Details:\n'));
-    console.log(info('  ID:    ') + ticket.id);
-    console.log(info('  Title: ') + ticket.title);
+    const specBadge = ticket.specStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
+
+    printHeader('Ticket Details');
+    console.log(field('ID', ticket.id));
+    if (ticket.externalId) {
+      console.log(field('External', ticket.externalId));
+    }
+    console.log(field('Title', ticket.title));
+    console.log(field('Project', ticket.projectName));
+    console.log(field('Specs', specBadge));
+
+    // Get project repositories
+    try {
+      const project = await getProject(ticket.projectName);
+      console.log(field('Repositories', ''));
+      for (const repo of project.repositories) {
+        log.item(`${repo.name} → ${repo.path}`);
+      }
+    } catch {
+      console.log(field('Repositories', muted('(project not found)')));
+    }
 
     if (ticket.description) {
-      console.log(info('\n  Description:'));
-      console.log('    ' + ticket.description);
+      log.newline();
+      console.log(field('Description', ''));
+      log.raw(ticket.description, 2);
     }
 
     if (ticket.link) {
-      console.log(info('\n  Link: ') + ticket.link);
+      log.newline();
+      console.log(field('Link', ticket.link));
     }
 
-    console.log('');
+    log.newline();
   } catch (err) {
     if (err instanceof TicketNotFoundError) {
-      console.log(error(`\nTicket not found: ${ticketId}\n`));
+      showError(`Ticket not found: ${ticketId}`);
+      log.newline();
     } else {
       throw err;
     }
