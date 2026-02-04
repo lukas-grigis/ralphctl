@@ -1,16 +1,44 @@
-import { editor } from '@inquirer/prompts';
-import { success, error } from '@src/utils/colors.ts';
-import { logProgress } from '@src/services/progress.ts';
+import { error, success } from '@src/theme/index.ts';
+import { log, showError, showNextStep } from '@src/theme/ui.ts';
+import { logProgress } from '@src/store/progress.ts';
+import {
+  assertSprintStatus,
+  getSprint,
+  NoCurrentSprintError,
+  resolveSprintId,
+  SprintStatusError,
+} from '@src/store/sprint.ts';
+import { multilineInput } from '@src/utils/multiline.ts';
 
 export async function progressLogCommand(args: string[]): Promise<void> {
+  // FAIL FAST: Check sprint status before collecting any input
+  try {
+    const sprintId = await resolveSprintId();
+    const sprint = await getSprint(sprintId);
+    assertSprintStatus(sprint, ['active'], 'log progress');
+  } catch (err) {
+    if (err instanceof SprintStatusError) {
+      const mainError = err.message.split('\n')[0] ?? err.message;
+      showError(mainError);
+      showNextStep('ralphctl sprint start', 'activate the sprint');
+      log.newline();
+      return;
+    }
+    if (err instanceof NoCurrentSprintError) {
+      showError('No current sprint set.');
+      showNextStep('ralphctl sprint create', 'create a new sprint');
+      log.newline();
+      return;
+    }
+    throw err;
+  }
+
+  // Validation passed - now collect input
   let message = args.join(' ').trim();
 
-  // If no message provided, open editor
   if (!message) {
-    message = await editor({
+    message = await multilineInput({
       message: 'Progress message:',
-      default: '',
-      waitForUserInput: false,
     });
     message = message.trim();
   }
@@ -20,6 +48,15 @@ export async function progressLogCommand(args: string[]): Promise<void> {
     return;
   }
 
-  await logProgress(message);
-  console.log(success('\nProgress logged successfully.\n'));
+  try {
+    await logProgress(message);
+    console.log(success('\nProgress logged successfully.\n'));
+  } catch (err) {
+    if (err instanceof SprintStatusError) {
+      // Fallback handler (shouldn't reach here due to early check)
+      console.log(error(`\n${err.message}\n`));
+    } else {
+      throw err;
+    }
+  }
 }

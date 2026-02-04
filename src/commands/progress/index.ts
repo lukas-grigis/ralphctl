@@ -1,37 +1,25 @@
-import { info, muted, error } from '@src/utils/colors.ts';
+import type { Command } from 'commander';
 import { progressLogCommand } from '@src/commands/progress/log.ts';
 import { progressShowCommand } from '@src/commands/progress/show.ts';
 
-function showProgressUsage(): void {
-  console.log(info('\nUsage: ralphctl progress <command> [options]\n'));
-  console.log(info('Commands:'));
-  console.log('  log [message]    Append to progress.md (opens editor if no message)');
-  console.log('  show             Display progress.md content');
-  console.log(muted('\nExamples:'));
-  console.log(muted('  $ ralphctl progress log "Completed user authentication"'));
-  console.log(muted('  $ ralphctl progress show\n'));
-}
+export function registerProgressCommands(program: Command): void {
+  const progress = program.command('progress').description('Log and view progress');
 
-export async function progressCommand(args: string[]): Promise<void> {
-  const subcommand = args[0];
-  const subArgs = args.slice(1);
+  progress.addHelpText(
+    'after',
+    `
+Examples:
+  $ ralphctl progress log "Completed auth flow"
+  $ ralphctl progress show
+`
+  );
 
-  switch (subcommand) {
-    case 'log':
-      await progressLogCommand(subArgs);
-      break;
-    case 'show':
-      await progressShowCommand();
-      break;
-    case 'help':
-    case '--help':
-    case '-h':
-    case undefined:
-      showProgressUsage();
-      break;
-    default:
-      console.log(error(`Unknown progress command: ${subcommand}\n`));
-      showProgressUsage();
-      process.exit(1);
-  }
+  progress
+    .command('log [message]')
+    .description('Append to progress log (opens editor if no message)')
+    .action(async (message?: string) => {
+      await progressLogCommand(message ? [message] : []);
+    });
+
+  progress.command('show').description('Display progress log').action(progressShowCommand);
 }
