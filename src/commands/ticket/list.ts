@@ -1,47 +1,66 @@
-import { info, muted, warning, highlight } from '@src/utils/colors.ts';
-import { listTickets } from '@src/services/ticket.ts';
+import { muted, success, warning } from '@src/theme/index.ts';
+import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
+import { getProject } from '@src/store/project.ts';
 
 export async function ticketListCommand(args: string[]): Promise<void> {
-  const verbose = args.includes('-v') || args.includes('--verbose');
+  const brief = args.includes('-b') || args.includes('--brief');
   const tickets = await listTickets();
 
   if (tickets.length === 0) {
-    console.log(warning('\nNo tickets found in the active scope.'));
-    console.log(muted('Add one with: ralphctl ticket add\n'));
+    console.log(warning('\nNo tickets found in the current sprint.'));
+    console.log(muted('Add one with: ralphctl ticket add --project <project-name>\n'));
     return;
   }
 
-  console.log(info(`\nTickets (${String(tickets.length)}):\n`));
+  if (brief) {
+    // Brief mode: one line per ticket
+    console.log(`\n# Tickets (${String(tickets.length)})\n`);
+    for (const ticket of tickets) {
+      const display = ticket.externalId
+        ? `**${ticket.externalId}**: ${ticket.title}`
+        : `[${ticket.id}] ${ticket.title}`;
+      const specBadge = ticket.specStatus === 'approved' ? ' [approved]' : ' [pending]';
+      console.log(`- ${display}${specBadge} (${ticket.projectName})`);
+    }
+    console.log('');
+    return;
+  }
 
-  for (const ticket of tickets) {
-    console.log(highlight(`  ${ticket.id}`) + `: ${ticket.title}`);
-    if (ticket.description) {
-      if (verbose) {
-        console.log(muted('    Description:'));
-        const lines = ticket.description.split('\n');
-        for (const line of lines) {
-          console.log(muted(`      ${line}`));
-        }
-      } else {
-        // Show truncated description
-        const desc =
-          ticket.description.length > 80
-            ? ticket.description.substring(0, 77) + '...'
-            : ticket.description;
-        console.log(muted(`    ${desc}`));
+  // Full markdown format grouped by project
+  console.log(`\n# Tickets (${String(tickets.length)})\n`);
+
+  const ticketsByProject = groupTicketsByProject(tickets);
+
+  for (const [projectName, projectTickets] of ticketsByProject) {
+    console.log(`## Project: ${projectName}\n`);
+
+    // Get project repositories
+    try {
+      const project = await getProject(projectName);
+      const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
+      console.log(muted(`Repositories: ${repoPaths.join(', ')}\n`));
+    } catch {
+      console.log(muted('Repositories: (project not found)\n'));
+    }
+
+    for (const ticket of projectTickets) {
+      const specBadge = ticket.specStatus === 'approved' ? success(' [approved]') : muted(' [pending]');
+
+      console.log(`### ${formatTicketDisplay(ticket)}${specBadge}\n`);
+
+      if (ticket.description) {
+        console.log('**Description:**\n');
+        console.log(ticket.description);
+        console.log('');
       }
-    }
-    if (ticket.link) {
-      console.log(muted(`    ${ticket.link}`));
-    }
-    if (verbose) {
-      console.log('');
+
+      if (ticket.link) {
+        console.log('**Link:**\n');
+        console.log(ticket.link);
+        console.log('');
+      }
+
+      console.log('---\n');
     }
   }
-
-  if (!verbose && tickets.some((t) => t.description && t.description.length > 80)) {
-    console.log(muted('\n  Use -v for full descriptions'));
-  }
-
-  console.log('');
 }

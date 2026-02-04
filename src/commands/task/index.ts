@@ -1,4 +1,4 @@
-import { info, muted, error } from '@src/utils/colors.ts';
+import type { Command } from 'commander';
 import { taskAddCommand } from '@src/commands/task/add.ts';
 import { taskListCommand } from '@src/commands/task/list.ts';
 import { taskShowCommand } from '@src/commands/task/show.ts';
@@ -8,63 +8,104 @@ import { taskNextCommand } from '@src/commands/task/next.ts';
 import { taskReorderCommand } from '@src/commands/task/reorder.ts';
 import { taskImportCommand } from '@src/commands/task/import.ts';
 
-function showTaskUsage(): void {
-  console.log(info('\nUsage: ralphctl task <command> [options]\n'));
-  console.log(info('Commands:'));
-  console.log('  add                           Add task interactively');
-  console.log('  import <file.json>            Import tasks from JSON file');
-  console.log('  list                          List tasks in active scope');
-  console.log('  show <id>                     Show task details');
-  console.log('  remove <id>                   Remove task from scope');
-  console.log('  status <id> <status>          Update task status');
-  console.log('  next                          Get next task (by order, status=todo)');
-  console.log('  reorder <id> <new-order>      Change task priority');
-  console.log(info('\nStatuses:'));
-  console.log('  todo, in_progress, testing, done');
-  console.log(muted('\nExamples:'));
-  console.log(muted('  $ ralphctl task add'));
-  console.log(muted('  $ ralphctl task import tasks.json'));
-  console.log(muted('  $ ralphctl task status task-001 in_progress\n'));
-}
+export function registerTaskCommands(program: Command): void {
+  const task = program.command('task').description('Manage tasks');
 
-export async function taskCommand(args: string[]): Promise<void> {
-  const subcommand = args[0];
-  const subArgs = args.slice(1);
+  task.addHelpText(
+    'after',
+    `
+Examples:
+  $ ralphctl task add --name "Implement login" --ticket abc123
+  $ ralphctl task list
+  $ ralphctl task status abc123 done
+  $ ralphctl task next
+`
+  );
 
-  switch (subcommand) {
-    case 'add':
-      await taskAddCommand();
-      break;
-    case 'import':
-      await taskImportCommand(subArgs);
-      break;
-    case 'list':
-      await taskListCommand();
-      break;
-    case 'show':
-      await taskShowCommand(subArgs);
-      break;
-    case 'remove':
-      await taskRemoveCommand(subArgs);
-      break;
-    case 'status':
-      await taskStatusCommand(subArgs);
-      break;
-    case 'next':
-      await taskNextCommand();
-      break;
-    case 'reorder':
-      await taskReorderCommand(subArgs);
-      break;
-    case 'help':
-    case '--help':
-    case '-h':
-    case undefined:
-      showTaskUsage();
-      break;
-    default:
-      console.log(error(`Unknown task command: ${subcommand}\n`));
-      showTaskUsage();
-      process.exit(1);
-  }
+  task
+    .command('add')
+    .description('Add task to current sprint')
+    .option('--name <name>', 'Task name')
+    .option('--description <desc>', 'Description')
+    .option('--step <step...>', 'Implementation step (repeatable)')
+    .option('--ticket <id>', 'Link to ticket ID')
+    .option('--project <path>', 'Project path')
+    .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
+    .action(
+      async (opts: {
+        name?: string;
+        description?: string;
+        step?: string[];
+        ticket?: string;
+        project?: string;
+        interactive?: boolean;
+      }) => {
+        await taskAddCommand({
+          name: opts.name,
+          description: opts.description,
+          steps: opts.step,
+          ticket: opts.ticket,
+          project: opts.project,
+          // --no-interactive sets interactive=false, otherwise true (prompt for missing)
+          interactive: opts.interactive !== false,
+        });
+      }
+    );
+
+  task
+    .command('import <file>')
+    .description('Import tasks from JSON file')
+    .action(async (file: string) => {
+      await taskImportCommand([file]);
+    });
+
+  task
+    .command('list')
+    .description('List tasks')
+    .option('-b, --brief', 'Brief format')
+    .action(async (opts: { brief?: boolean }) => {
+      await taskListCommand(opts.brief ? ['-b'] : []);
+    });
+
+  task
+    .command('show [id]')
+    .description('Show task details')
+    .action(async (id?: string) => {
+      await taskShowCommand(id ? [id] : []);
+    });
+
+  task
+    .command('remove [id]')
+    .description('Remove a task')
+    .option('-y, --yes', 'Skip confirmation')
+    .action(async (id?: string, opts?: { yes?: boolean }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.yes) args.push('-y');
+      await taskRemoveCommand(args);
+    });
+
+  task
+    .command('status [id] [status]')
+    .description('Update task status (todo/in_progress/done)')
+    .option('-n, --non-interactive', 'Non-interactive mode (exit with error codes)')
+    .action(async (id?: string, status?: string, opts?: { nonInteractive?: boolean }) => {
+      await taskStatusCommand([], {
+        taskId: id,
+        status,
+        nonInteractive: opts?.nonInteractive,
+      });
+    });
+
+  task.command('next').description('Get next task').action(taskNextCommand);
+
+  task
+    .command('reorder [id] [position]')
+    .description('Change task priority')
+    .action(async (id?: string, position?: string) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (position) args.push(position);
+      await taskReorderCommand(args);
+    });
 }

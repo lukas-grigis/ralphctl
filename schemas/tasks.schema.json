@@ -2,16 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tasks.schema.json",
   "title": "Tasks",
-  "description": "Array of tasks in a scope",
+  "description": "Array of tasks in a sprint",
   "type": "array",
   "items": {
     "type": "object",
-    "required": ["id", "name", "status", "order"],
+    "required": ["id", "name", "status", "order", "projectPath"],
     "properties": {
       "id": {
         "type": "string",
         "minLength": 1,
-        "description": "Task ID (e.g., task-001)"
+        "description": "Task ID (uuid8)"
       },
       "name": {
         "type": "string",
@@ -32,9 +32,9 @@
       },
       "status": {
         "type": "string",
-        "enum": ["todo", "in_progress", "testing", "done"],
+        "enum": ["todo", "in_progress", "done"],
         "default": "todo",
-        "description": "Task status (kanban: todo → in_progress → testing → done)"
+        "description": "Task status (kanban: todo → in_progress → done)"
       },
       "order": {
         "type": "integer",
@@ -43,7 +43,29 @@
       },
       "ticketId": {
         "type": "string",
-        "description": "Reference to parent ticket"
+        "description": "Reference to parent ticket (internal ID)"
+      },
+      "blockedBy": {
+        "type": "array",
+        "default": [],
+        "description": "Task IDs that must complete before this task can start",
+        "items": {
+          "type": "string"
+        }
+      },
+      "projectPath": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Absolute path to the project directory for execution"
+      },
+      "verified": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the task passed verification"
+      },
+      "verificationOutput": {
+        "type": "string",
+        "description": "Output from the verification run"
       }
     }
   }

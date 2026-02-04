@@ -1,34 +1,45 @@
 import { confirm } from '@inquirer/prompts';
-import { success, muted, error } from '@src/utils/colors.ts';
-import { getTicket, removeTicket, TicketNotFoundError } from '@src/services/ticket.ts';
+import { muted } from '@src/theme/index.ts';
+import { formatTicketDisplay, getTicket, removeTicket, TicketNotFoundError } from '@src/store/ticket.ts';
+import { SprintStatusError } from '@src/store/sprint.ts';
+import { selectTicket } from '@src/interactive/selectors.ts';
+import { log, showError, showSuccess } from '@src/theme/ui.ts';
 
 export async function ticketRemoveCommand(args: string[]): Promise<void> {
-  const ticketId = args[0];
+  const skipConfirm = args.includes('-y') || args.includes('--yes');
+  let ticketId = args.find((a) => !a.startsWith('-'));
 
   if (!ticketId) {
-    console.log(error('\nTicket ID required.'));
-    console.log(muted('Usage: ralphctl ticket remove <ticket-id>\n'));
-    return;
+    const selected = await selectTicket('Select ticket to remove:');
+    if (!selected) return;
+    ticketId = selected;
   }
 
   try {
     const ticket = await getTicket(ticketId);
 
-    const confirmed = await confirm({
-      message: `Remove ticket "${ticket.title}" (${ticket.id})?`,
-      default: false,
-    });
+    if (!skipConfirm) {
+      const confirmed = await confirm({
+        message: `Remove ticket ${formatTicketDisplay(ticket)}?`,
+        default: false,
+      });
 
-    if (!confirmed) {
-      console.log(muted('\nTicket removal cancelled.\n'));
-      return;
+      if (!confirmed) {
+        console.log(muted('\nTicket removal cancelled.\n'));
+        return;
+      }
     }
 
     await removeTicket(ticketId);
-    console.log(success(`\nTicket ${ticketId} removed successfully.\n`));
+    showSuccess('Ticket removed', [['ID', ticketId]]);
+    log.newline();
   } catch (err) {
     if (err instanceof TicketNotFoundError) {
-      console.log(error(`\nTicket not found: ${ticketId}\n`));
+      showError(`Ticket not found: ${ticketId}`);
+      log.newline();
+    } else if (err instanceof SprintStatusError) {
+      showError(err.message);
+      log.newline();
     } else {
       throw err;
     }

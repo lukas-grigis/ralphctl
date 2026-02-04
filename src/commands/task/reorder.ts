@@ -1,32 +1,43 @@
-import { success, muted, error, info } from '@src/utils/colors.ts';
-import { reorderTask, TaskNotFoundError } from '@src/services/task.ts';
+import { reorderTask, TaskNotFoundError } from '@src/store/task.ts';
+import { SprintStatusError } from '@src/store/sprint.ts';
+import { inputPositiveInt, selectTask } from '@src/interactive/selectors.ts';
+import { log, showError, showSuccess } from '@src/theme/ui.ts';
 
 export async function taskReorderCommand(args: string[]): Promise<void> {
-  const taskId = args[0];
-  const newOrderStr = args[1];
+  let taskId = args[0];
+  let newOrder: number | undefined;
 
-  if (!taskId || !newOrderStr) {
-    console.log(error('\nTask ID and new order required.'));
-    console.log(muted('Usage: ralphctl task reorder <task-id> <new-order>\n'));
-    return;
+  if (args[1]) {
+    newOrder = parseInt(args[1], 10);
   }
 
-  const newOrder = parseInt(newOrderStr, 10);
-  if (isNaN(newOrder) || newOrder < 1) {
-    console.log(error('\nOrder must be a positive integer.\n'));
-    return;
+  // Interactive: select task if not provided
+  if (!taskId) {
+    const selected = await selectTask('Select task to reorder:');
+    if (!selected) return;
+    taskId = selected;
+  }
+
+  // Interactive: ask for new position if not provided
+  if (newOrder === undefined || isNaN(newOrder) || newOrder < 1) {
+    newOrder = await inputPositiveInt('New position (1 = highest priority):');
   }
 
   try {
     const task = await reorderTask(taskId, newOrder);
-    console.log(success('\nTask reordered!'));
-    console.log(info('  ID:        ') + task.id);
-    console.log(info('  Name:      ') + task.name);
-    console.log(info('  New Order: ') + String(task.order));
-    console.log('');
+    showSuccess('Task reordered!', [
+      ['ID', task.id],
+      ['Name', task.name],
+      ['New Order', String(task.order)],
+    ]);
+    log.newline();
   } catch (err) {
     if (err instanceof TaskNotFoundError) {
-      console.log(error(`\nTask not found: ${taskId}\n`));
+      showError(`Task not found: ${taskId}`);
+      log.newline();
+    } else if (err instanceof SprintStatusError) {
+      showError(err.message);
+      log.newline();
     } else {
       throw err;
     }
