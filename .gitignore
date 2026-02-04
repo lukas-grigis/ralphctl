@@ -1,86 +1,39 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules
+.pnp
+.pnp.js
 .pnp.*
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-# Dependencies
-node_modules
-.pnp
-.pnp.js
 .yarn/install-state.gz
 
 # Testing
 coverage
 .nyc_output
 
-# Next.js
+# Build
+dist
+build
 .next/
 out/
-build
 
-# Production
-dist
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
 
-# Misc
-.DS_Store
-*.pem
-Thumbs.db
-
-# Debug
+# Debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Local env files
+# Environment files
 .env
+.env*
 .env*.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Vercel
-.vercel
-
-# TypeScript
-*.tsbuildinfo
-next-env.d.ts
 
 # IDE
 .idea/
@@ -88,24 +41,22 @@ next-env.d.ts
 *.swp
 *.swo
 *~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.iml
 
 # OS
 .DS_Store
 .AppleDouble
 .LSOverride
 ._*
+Thumbs.db
 
-# Editor directories and files
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Optional npm cache directory
+# Optional caches
 .npm
-
-# Optional eslint cache
 .eslintcache
 
 # Playwright
@@ -125,15 +76,21 @@ analyze/
 # Sentry
 .sentryclirc
 
-# AWS
-.aws/
-aws-credentials*
+# Vercel
+.vercel
+
+# Secrets
 *.pem
+aws-credentials*
+.aws/
 
 # CDK
 infra/node_modules
 infra/dist
 infra/cdk.out
 
-### CUSTOM ###
-scopes
+# Claude Code local settings (keep agents/)
+.claude/settings.local.json
+
+# ralphctl data
+ralphctl-data/
