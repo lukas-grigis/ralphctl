@@ -67,14 +67,8 @@ export async function readValidatedJson<Output, Def extends ZodTypeDef, Input>(
 
   const result = schema.safeParse(data);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    throw new ValidationError(
-      `Validation failed for ${filePath}:\n${issues}`,
-      filePath,
-      result.error
-    );
+    const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+    throw new ValidationError(`Validation failed for ${filePath}:\n${issues}`, filePath, result.error);
   }
 
   return result.data;
@@ -87,14 +81,8 @@ export async function writeValidatedJson<Output, Def extends ZodTypeDef, Input>(
 ): Promise<void> {
   const result = schema.safeParse(data);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    throw new ValidationError(
-      `Validation failed before writing to ${filePath}:\n${issues}`,
-      filePath,
-      result.error
-    );
+    const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+    throw new ValidationError(`Validation failed before writing to ${filePath}:\n${issues}`, filePath, result.error);
   }
 
   await ensureDir(dirname(filePath));
