@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { select } from '@inquirer/prompts';
 import { emoji } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';

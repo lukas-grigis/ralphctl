@@ -28,10 +28,7 @@ export interface SpawnAsyncOptions {
  *
  * @param prompt - Optional initial prompt to start the session with.
  */
-export async function spawnClaudeInteractive(
-  prompt: string,
-  options: SpawnSyncOptions
-): Promise<{ code: number; error?: string }> {
+export function spawnClaudeInteractive(prompt: string, options: SpawnSyncOptions): { code: number; error?: string } {
   const baseArgs = [...BASE_ARGS, ...(options.args ?? [])];
   const env = options.env ? { ...process.env, ...options.env } : undefined;
 

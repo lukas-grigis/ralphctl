@@ -62,15 +62,15 @@ See [CLAUDE.md](./CLAUDE.md) for complete command documentation.
 
 ### Key Commands
 
-| Command | Description |
-|---------|-------------|
-| `ralphctl` | Interactive menu mode |
-| `ralphctl project add` | Add a project with repositories |
-| `ralphctl sprint create` | Start a new sprint |
-| `ralphctl ticket add` | Add work items to sprint |
-| `ralphctl sprint refine` | AI-assisted spec refinement |
-| `ralphctl sprint plan` | Generate tasks from specs |
-| `ralphctl sprint start` | Execute tasks with Claude |
+| Command                  | Description                     |
+| ------------------------ | ------------------------------- |
+| `ralphctl`               | Interactive menu mode           |
+| `ralphctl project add`   | Add a project with repositories |
+| `ralphctl sprint create` | Start a new sprint              |
+| `ralphctl ticket add`    | Add work items to sprint        |
+| `ralphctl sprint refine` | AI-assisted spec refinement     |
+| `ralphctl sprint plan`   | Generate tasks from specs       |
+| `ralphctl sprint start`  | Execute tasks with Claude       |
 
 ### Two Workflow Paths
 

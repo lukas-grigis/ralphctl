@@ -89,7 +89,7 @@ export async function createSprint(name?: string): Promise<Sprint> {
   const now = new Date().toISOString();
 
   // Use the slug portion of the ID as display name if no name provided
-  const displayName = name || id.slice(16); // Skip "YYYYMMDD-HHmmss-" prefix
+  const displayName = name ?? id.slice(16); // Skip "YYYYMMDD-HHmmss-" prefix
 
   const sprint: Sprint = {
     id,
@@ -106,7 +106,7 @@ export async function createSprint(name?: string): Promise<Sprint> {
 
   await writeValidatedJson(getSprintFilePath(id), sprint, SprintSchema);
   await writeValidatedJson(getTasksFilePath(id), [], TasksSchema);
-  await appendToFile(getProgressFilePath(id), `# Sprint: ${name}\n\nCreated: ${now}\n\n---\n\n`);
+  await appendToFile(getProgressFilePath(id), `# Sprint: ${displayName}\n\nCreated: ${now}\n\n---\n\n`);
 
   return sprint;
 }

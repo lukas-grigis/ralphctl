@@ -2,7 +2,7 @@ import { confirm } from '@inquirer/prompts';
 import { info, muted, success, warning } from '@src/theme/index.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { areAllTasksDone, DependencyCycleError, getRemainingTasks, reorderByDependencies } from '@src/store/task.ts';
-import { type ExecutorOptions, type ExecutionSummary, executeTaskLoop } from '@src/claude/executor.ts';
+import { executeTaskLoop, type ExecutionSummary, type ExecutorOptions } from '@src/claude/executor.ts';
 
 // Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/claude/executor.ts';

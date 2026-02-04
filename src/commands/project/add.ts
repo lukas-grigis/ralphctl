@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { resolve, join, basename } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { confirm, input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';

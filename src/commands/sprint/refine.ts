@@ -106,7 +106,7 @@ async function runClaudeSession(
     args.push('--add-dir', path);
   }
 
-  const result = await spawnClaudeInteractive(startPrompt, {
+  const result = spawnClaudeInteractive(startPrompt, {
     cwd: primaryPath,
     args,
     env: {

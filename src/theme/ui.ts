@@ -371,7 +371,7 @@ export function showNextStep(command: string, description?: string): void {
 /**
  * Show multiple next step suggestions compactly
  */
-export function showNextSteps(steps: Array<[command: string, description?: string]>): void {
+export function showNextSteps(steps: [command: string, description?: string][]): void {
   for (const [command, description] of steps) {
     showNextStep(command, description);
   }

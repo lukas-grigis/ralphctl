@@ -1,6 +1,5 @@
 import { confirm, input } from '@inquirer/prompts';
-import { error } from '@src/theme/index.ts';
-import { emoji, field, formatSprintStatus, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
+import { emoji, field, formatSprintStatus, icons, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { setCurrentSprint } from '@src/store/config.ts';
 import { createSprint } from '@src/store/sprint.ts';
 
@@ -14,14 +13,16 @@ export async function sprintCreateCommand(options: SprintCreateOptions = {}): Pr
 
   if (options.interactive === false) {
     // Non-interactive: name is optional (will generate uuid8 if not provided)
-    name = options.name?.trim() || undefined;
+    const trimmed = options.name?.trim();
+    name = trimmed && trimmed.length > 0 ? trimmed : undefined;
   } else {
     // Interactive mode: prompt for name (can be left empty)
     const inputName = await input({
       message: `${icons.sprint} Sprint name (optional):`,
       default: options.name?.trim(),
     });
-    name = inputName.trim() || undefined;
+    const trimmed = inputName.trim();
+    name = trimmed.length > 0 ? trimmed : undefined;
   }
 
   // Create sprint (as draft) - name is optional, will generate uuid8 if empty

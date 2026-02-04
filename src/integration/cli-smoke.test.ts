@@ -124,9 +124,10 @@ describe('CLI Smoke Tests', { timeout: 30000 }, () => {
     const { getCurrentSprint } = await import('@src/store/config.ts');
     const sprintId = await getCurrentSprint();
     expect(sprintId).toBeTruthy();
-    const currentSprint = await getSprint(sprintId!);
+    if (!sprintId) throw new Error('No current sprint');
+    const currentSprint = await getSprint(sprintId);
     if (currentSprint.status === 'draft') {
-      await activateSprint(sprintId!);
+      await activateSprint(sprintId);
     }
 
     const status = await cli(['task', 'status', taskId ?? '', 'in_progress']);
@@ -411,6 +412,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(addTask1.stdout).toContain('Task added');
     const task1Id = /ID:\s+(\S+)/.exec(addTask1.stdout)?.[1];
     expect(task1Id).toBeTruthy();
+    if (!task1Id) throw new Error('task1Id not found');
 
     const addTask2 = await scenarioCli([
       'task',
@@ -427,6 +429,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     ]);
     expect(addTask2.code).toBe(0);
     const task2Id = /ID:\s+(\S+)/.exec(addTask2.stdout)?.[1];
+    if (!task2Id) throw new Error('task2Id not found');
 
     const addTask3 = await scenarioCli([
       'task',
@@ -441,6 +444,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     ]);
     expect(addTask3.code).toBe(0);
     const task3Id = /ID:\s+(\S+)/.exec(addTask3.stdout)?.[1];
+    if (!task3Id) throw new Error('task3Id not found');
 
     // Add tasks for QA-102 (API tests)
     const addTask4 = await scenarioCli([
@@ -457,7 +461,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
       'Create jest.config.ts',
     ]);
     expect(addTask4.code).toBe(0);
-    const task4Id = /ID:\s+(\S+)/.exec(addTask4.stdout)?.[1];
 
     const addTask5 = await scenarioCli([
       'task',
@@ -471,7 +474,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
       'Test payment initiation, confirmation, and refund endpoints',
     ]);
     expect(addTask5.code).toBe(0);
-    const task5Id = /ID:\s+(\S+)/.exec(addTask5.stdout)?.[1];
 
     // Add a task we will remove
     const addTaskToRemove = await scenarioCli([
@@ -486,6 +488,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(addTaskToRemove.code).toBe(0);
     const taskToRemoveId = /ID:\s+(\S+)/.exec(addTaskToRemove.stdout)?.[1];
     expect(taskToRemoveId).toBeTruthy();
+    if (!taskToRemoveId) throw new Error('taskToRemoveId not found');
 
     // Verify all tasks appear
     const taskList = await scenarioCli(['task', 'list']);
@@ -498,7 +501,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(taskList.stdout).toContain('Task to be removed');
 
     // Show specific task details
-    const showTask = await scenarioCli(['task', 'show', task1Id!]);
+    const showTask = await scenarioCli(['task', 'show', task1Id]);
     expect(showTask.code).toBe(0);
     expect(showTask.stdout).toContain('Install Playwright dependencies');
     expect(showTask.stdout).toContain('npm install -D playwright');
@@ -509,7 +512,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     // ═════════════════════════════════════════════════════════════════════════
 
     // Reorder task3 (checkout tests) to be first priority (position 1)
-    const reorderTask = await scenarioCli(['task', 'reorder', task3Id!, '1']);
+    const reorderTask = await scenarioCli(['task', 'reorder', task3Id, '1']);
     expect(reorderTask.code).toBe(0);
     expect(reorderTask.stdout).toContain('Task reordered');
     expect(reorderTask.stdout).toContain('New Order');
@@ -520,7 +523,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     // The checkout flow test should appear before other tasks in the output
 
     // Remove the unnecessary task
-    const removeTask = await scenarioCli(['task', 'remove', taskToRemoveId!, '-y']);
+    const removeTask = await scenarioCli(['task', 'remove', taskToRemoveId, '-y']);
     expect(removeTask.code).toBe(0);
 
     // Verify task is gone
@@ -608,7 +611,8 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     const { getCurrentSprint } = await import('@src/store/config.ts');
     const sprintId = await getCurrentSprint();
     expect(sprintId).toBeTruthy();
-    await activateSprint(sprintId!);
+    if (!sprintId) throw new Error('No sprint');
+    await activateSprint(sprintId);
 
     // Get next task
     const nextTask = await scenarioCli(['task', 'next']);
@@ -616,17 +620,17 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(nextTask.stdout).toContain('Next Task');
 
     // Update first task to in_progress
-    const statusInProgress = await scenarioCli(['task', 'status', task1Id!, 'in_progress']);
+    const statusInProgress = await scenarioCli(['task', 'status', task1Id, 'in_progress']);
     expect(statusInProgress.code).toBe(0);
     expect(statusInProgress.stdout).toContain('In Progress');
 
     // Update first task to done
-    const statusDone = await scenarioCli(['task', 'status', task1Id!, 'done']);
+    const statusDone = await scenarioCli(['task', 'status', task1Id, 'done']);
     expect(statusDone.code).toBe(0);
     expect(statusDone.stdout).toContain('Done');
 
     // Update second task to in_progress
-    const statusTask2 = await scenarioCli(['task', 'status', task2Id!, 'in_progress']);
+    const statusTask2 = await scenarioCli(['task', 'status', task2Id, 'in_progress']);
     expect(statusTask2.code).toBe(0);
 
     // Verify status changes in task list
@@ -643,7 +647,11 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(logProgress1.code).toBe(0);
     expect(logProgress1.stdout).toContain('Progress logged');
 
-    const logProgress2 = await scenarioCli(['progress', 'log', 'Started work on test configuration, found browser compatibility issue']);
+    const logProgress2 = await scenarioCli([
+      'progress',
+      'log',
+      'Started work on test configuration, found browser compatibility issue',
+    ]);
     expect(logProgress2.code).toBe(0);
 
     // Show progress
@@ -668,7 +676,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     expect(sprintListBoth.stdout).toContain('Performance Testing Q1');
 
     // Switch back to first sprint using sprint current
-    const sprint1 = await getSprint(sprintId!);
+    const sprint1 = await getSprint(sprintId);
     const switchSprint = await scenarioCli(['sprint', 'current', sprint1.id]);
     expect(switchSprint.code).toBe(0);
 
@@ -726,8 +734,8 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     // Edit with invalid link URL (should fail)
     // First switch to the new sprint which is still draft
     const sprint2Id = await getCurrentSprint();
-    if (sprint2Id !== sprintId) {
-      await scenarioCli(['sprint', 'current', sprint2Id!]);
+    if (sprint2Id && sprint2Id !== sprintId) {
+      await scenarioCli(['sprint', 'current', sprint2Id]);
     }
   });
 

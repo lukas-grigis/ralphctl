@@ -1,7 +1,7 @@
 import { basename, resolve } from 'node:path';
 import { getProjectsFilePath, validateProjectPath } from '../utils/paths.js';
 import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/storage.js';
-import { type Project, type Projects, type Repository, ProjectsSchema } from '../schemas/index.js';
+import { type Project, type Projects, ProjectsSchema, type Repository } from '../schemas/index.js';
 
 export class ProjectNotFoundError extends Error {
   public readonly projectName: string;

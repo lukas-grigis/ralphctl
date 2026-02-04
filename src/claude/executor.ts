@@ -289,7 +289,7 @@ async function executeTaskWithClaude(
 
   try {
     if (options.session) {
-      const result = await spawnClaudeInteractive('Read .ralphctl-task-context.md and follow the instructions', {
+      const result = spawnClaudeInteractive('Read .ralphctl-task-context.md and follow the instructions', {
         cwd: projectPath,
       });
 
