@@ -1,0 +1,460 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { resolve, join, basename } from 'node:path';
+import { confirm, input, select } from '@inquirer/prompts';
+import { error, muted } from '@src/theme/index.ts';
+import { validateProjectPath } from '@src/utils/paths.ts';
+import { createProject, ProjectExistsError } from '@src/store/project.ts';
+import type { Project, Repository } from '@src/schemas/index.ts';
+import { emoji, field, log, showError, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { browseDirectory } from '@src/interactive/file-browser.ts';
+
+export interface ProjectAddOptions {
+  name?: string;
+  displayName?: string;
+  paths?: string[];
+  description?: string;
+  setupScript?: string;
+  verifyScript?: string;
+  interactive?: boolean; // Set by REPL, not a CLI flag
+}
+
+function validateSlug(slug: string): boolean {
+  return /^[a-z0-9-]+$/.test(slug);
+}
+
+/**
+ * Detect project type from files in the path.
+ */
+export type ProjectType = 'node' | 'python' | 'go' | 'rust' | 'java-gradle' | 'java-maven' | 'other';
+
+export function detectProjectType(projectPath: string): ProjectType {
+  if (existsSync(join(projectPath, 'package.json'))) return 'node';
+  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) return 'python';
+  if (existsSync(join(projectPath, 'go.mod'))) return 'go';
+  if (existsSync(join(projectPath, 'Cargo.toml'))) return 'rust';
+  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts')))
+    return 'java-gradle';
+  if (existsSync(join(projectPath, 'pom.xml'))) return 'java-maven';
+  return 'other';
+}
+
+/**
+ * Get human-readable label for project type.
+ */
+function getProjectTypeLabel(type: ProjectType): string {
+  const labels: Record<ProjectType, string> = {
+    node: 'Node.js',
+    python: 'Python',
+    go: 'Go',
+    rust: 'Rust',
+    'java-gradle': 'Java (Gradle)',
+    'java-maven': 'Java (Maven)',
+    other: 'Unknown',
+  };
+  return labels[type];
+}
+
+/**
+ * Suggest verify script based on project type.
+ */
+export function suggestVerifyScript(projectPath: string, type: ProjectType): string | null {
+  switch (type) {
+    case 'node': {
+      // Try to read package.json to check for scripts
+      try {
+        const pkgPath = join(projectPath, 'package.json');
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
+          scripts?: Record<string, string>;
+        };
+        const scripts = pkg.scripts ?? {};
+        const commands: string[] = [];
+
+        // Detect package manager
+        let pkgManager = 'npm run';
+        if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) {
+          pkgManager = 'pnpm';
+        } else if (existsSync(join(projectPath, 'yarn.lock'))) {
+          pkgManager = 'yarn';
+        }
+
+        if (scripts['lint']) commands.push(`${pkgManager} lint`);
+        if (scripts['typecheck']) commands.push(`${pkgManager} typecheck`);
+        if (scripts['test']) commands.push(`${pkgManager} test`);
+
+        if (commands.length > 0) {
+          return commands.join(' && ');
+        }
+      } catch {
+        // Fallback if can't read package.json
+      }
+      return null;
+    }
+    case 'python':
+      return 'pytest';
+    case 'go':
+      return 'go test ./...';
+    case 'rust':
+      return 'cargo test';
+    case 'java-gradle':
+      return './gradlew check';
+    case 'java-maven':
+      return 'mvn verify';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Suggest setup script based on project type.
+ */
+export function suggestSetupScript(projectPath: string, type: ProjectType): string | null {
+  switch (type) {
+    case 'node': {
+      if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) return 'pnpm install';
+      if (existsSync(join(projectPath, 'yarn.lock'))) return 'yarn install';
+      if (existsSync(join(projectPath, 'package-lock.json'))) return 'npm install';
+      return 'npm install';
+    }
+    case 'python': {
+      if (existsSync(join(projectPath, 'requirements.txt'))) return 'pip install -r requirements.txt';
+      if (existsSync(join(projectPath, 'pyproject.toml'))) return 'pip install -e .';
+      return null;
+    }
+    case 'go':
+      return 'go mod download';
+    case 'rust':
+      return 'cargo build';
+    case 'java-gradle':
+      return './gradlew build';
+    case 'java-maven':
+      return 'mvn install';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Check if a path is a git repository.
+ */
+function isGitRepo(path: string): boolean {
+  try {
+    const gitDir = join(path, '.git');
+    return existsSync(gitDir) && statSync(gitDir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if CLAUDE.md exists in the path.
+ */
+function hasClaudeMd(path: string): boolean {
+  return existsSync(join(path, 'CLAUDE.md'));
+}
+
+export async function projectAddCommand(options: ProjectAddOptions = {}): Promise<void> {
+  let name: string;
+  let displayName: string;
+  let repositories: Repository[];
+  let description: string | undefined;
+  let setupScript: string | undefined;
+  let verifyScript: string | undefined;
+
+  if (options.interactive === false) {
+    // Non-interactive mode: validate required params
+    const errors: string[] = [];
+    const trimmedName = options.name?.trim();
+    const trimmedDisplayName = options.displayName?.trim();
+
+    if (!trimmedName) {
+      errors.push('--name is required');
+    } else if (!validateSlug(trimmedName)) {
+      errors.push('--name must be a slug (lowercase, numbers, hyphens only)');
+    }
+
+    if (!trimmedDisplayName) {
+      errors.push('--display-name is required');
+    }
+
+    if (!options.paths || options.paths.length === 0) {
+      errors.push('--path is required (at least one)');
+    }
+
+    // Validate paths
+    if (options.paths) {
+      for (const path of options.paths) {
+        const resolved = resolve(path.trim());
+        const validation = await validateProjectPath(resolved);
+        if (validation !== true) {
+          errors.push(`--path ${path}: ${validation}`);
+        }
+      }
+    }
+
+    if (errors.length > 0 || !trimmedName || !trimmedDisplayName || !options.paths) {
+      showError('Validation failed');
+      for (const e of errors) {
+        log.item(error(e));
+      }
+      console.log('');
+      process.exit(1);
+    }
+
+    name = trimmedName;
+    displayName = trimmedDisplayName;
+    // Convert paths to repositories with auto-derived names
+    repositories = options.paths.map((p) => {
+      const resolved = resolve(p.trim());
+      return { name: basename(resolved), path: resolved };
+    });
+    const trimmedDesc = options.description?.trim();
+    description = trimmedDesc === '' ? undefined : trimmedDesc;
+    const trimmedSetup = options.setupScript?.trim();
+    setupScript = trimmedSetup === '' ? undefined : trimmedSetup;
+    const trimmedVerify = options.verifyScript?.trim();
+    verifyScript = trimmedVerify === '' ? undefined : trimmedVerify;
+  } else {
+    // Interactive mode (default) - prompt for missing params
+    name = await input({
+      message: 'Project name (slug):',
+      default: options.name?.trim(),
+      validate: (v) => {
+        const trimmed = v.trim();
+        if (trimmed.length === 0) return 'Name is required';
+        if (!validateSlug(trimmed)) return 'Must be lowercase with hyphens only';
+        return true;
+      },
+    });
+    name = name.trim();
+
+    displayName = await input({
+      message: 'Display name:',
+      default: options.displayName?.trim() ?? name,
+      validate: (v) => (v.trim().length > 0 ? true : 'Display name is required'),
+    });
+    displayName = displayName.trim();
+
+    // Collect repositories
+    repositories = [];
+
+    // Add any paths from options first
+    if (options.paths) {
+      for (const p of options.paths) {
+        const resolved = resolve(p.trim());
+        const validation = await validateProjectPath(resolved);
+        if (validation === true) {
+          repositories.push({ name: basename(resolved), path: resolved });
+        }
+      }
+    }
+
+    // Ask for at least one path if none provided
+    if (repositories.length === 0) {
+      const pathMethod = await select({
+        message: `${emoji.donut} How to specify repository path?`,
+        choices: [
+          { name: 'Browse filesystem', value: 'browse', description: 'Navigate from home folder' },
+          { name: 'Use current directory', value: 'cwd', description: process.cwd() },
+          { name: 'Type path manually', value: 'manual' },
+        ],
+      });
+
+      let firstPath: string;
+
+      if (pathMethod === 'browse') {
+        const browsed = await browseDirectory('Select repository directory:');
+        if (!browsed) {
+          showError('No directory selected');
+          process.exit(1);
+        }
+        firstPath = browsed;
+      } else if (pathMethod === 'cwd') {
+        firstPath = process.cwd();
+      } else {
+        firstPath = await input({
+          message: 'Repository path:',
+          default: process.cwd(),
+          validate: async (v) => {
+            const result = await validateProjectPath(v.trim());
+            return result;
+          },
+        });
+        firstPath = firstPath.trim();
+      }
+
+      const resolved = resolve(firstPath);
+      const validation = await validateProjectPath(resolved);
+      if (validation !== true) {
+        showError(`Invalid path: ${validation}`);
+        process.exit(1);
+      }
+      repositories.push({ name: basename(resolved), path: resolved });
+    }
+
+    // Detect project type and show info for first repo
+    const primaryPath = repositories[0]?.path;
+    if (primaryPath) {
+      const detectedType = detectProjectType(primaryPath);
+
+      if (detectedType !== 'other') {
+        log.success(`Detected: ${getProjectTypeLabel(detectedType)} project`);
+      }
+
+      // Check for git repo
+      if (!isGitRepo(primaryPath)) {
+        showWarning('Path is not a git repository');
+      }
+
+      // Check for CLAUDE.md
+      if (!hasClaudeMd(primaryPath)) {
+        log.dim('Tip: Add CLAUDE.md for better AI assistance');
+      }
+    }
+
+    // Ask for additional paths
+    let addMore = true;
+    while (addMore) {
+      const addAction = await select({
+        message: `${emoji.donut} Add another repository?`,
+        choices: [
+          { name: 'No, done adding repositories', value: 'done' },
+          { name: 'Browse filesystem', value: 'browse' },
+          { name: 'Type path manually', value: 'manual' },
+        ],
+      });
+
+      if (addAction === 'done') {
+        addMore = false;
+      } else if (addAction === 'browse') {
+        const browsed = await browseDirectory('Select repository directory:');
+        if (browsed) {
+          const resolved = resolve(browsed);
+          const validation = await validateProjectPath(resolved);
+          if (validation === true) {
+            repositories.push({ name: basename(resolved), path: resolved });
+            log.success(`Added: ${basename(resolved)}`);
+          } else {
+            console.log(error(`  Invalid path: ${validation}`));
+          }
+        }
+      } else {
+        const additionalPath = await input({
+          message: 'Repository path:',
+        });
+
+        if (additionalPath.trim() === '') {
+          addMore = false;
+        } else {
+          const resolved = resolve(additionalPath.trim());
+          const validation = await validateProjectPath(resolved);
+          if (validation === true) {
+            repositories.push({ name: basename(resolved), path: resolved });
+          } else {
+            console.log(error(`  Invalid path: ${validation}`));
+          }
+        }
+      }
+    }
+
+    description = await input({
+      message: 'Description (optional):',
+      default: options.description?.trim(),
+    });
+    const trimmedDescInteractive = description.trim();
+    description = trimmedDescInteractive === '' ? undefined : trimmedDescInteractive;
+
+    // Auto-detect scripts for primary path
+    const detectedType = primaryPath ? detectProjectType(primaryPath) : 'other';
+    const suggestedSetup = primaryPath ? suggestSetupScript(primaryPath, detectedType) : null;
+    const suggestedVerify = primaryPath ? suggestVerifyScript(primaryPath, detectedType) : null;
+
+    // Setup script - offer suggestion if available
+    if (suggestedSetup && !options.setupScript) {
+      log.info(`Suggested setup script: ${suggestedSetup}`);
+      const useSetup = await confirm({
+        message: 'Use suggested setup script?',
+        default: true,
+      });
+      if (useSetup) {
+        setupScript = suggestedSetup;
+      } else {
+        setupScript = await input({
+          message: 'Setup script (optional):',
+        });
+        setupScript = setupScript.trim() || undefined;
+      }
+    } else {
+      setupScript = await input({
+        message: 'Setup script (optional, e.g., "npm install"):',
+        default: options.setupScript?.trim(),
+      });
+      const trimmedSetupInteractive = setupScript.trim();
+      setupScript = trimmedSetupInteractive === '' ? undefined : trimmedSetupInteractive;
+    }
+
+    // Verify script - offer suggestion if available
+    if (suggestedVerify && !options.verifyScript) {
+      log.info(`Suggested verify script: ${suggestedVerify}`);
+      const useVerify = await confirm({
+        message: 'Use suggested verify script?',
+        default: true,
+      });
+      if (useVerify) {
+        verifyScript = suggestedVerify;
+      } else {
+        verifyScript = await input({
+          message: 'Verify script (optional):',
+        });
+        verifyScript = verifyScript.trim() || undefined;
+      }
+    } else {
+      verifyScript = await input({
+        message: 'Verify script (optional, e.g., "npm test"):',
+        default: options.verifyScript?.trim(),
+      });
+      const trimmedVerifyInteractive = verifyScript.trim();
+      verifyScript = trimmedVerifyInteractive === '' ? undefined : trimmedVerifyInteractive;
+    }
+  }
+
+  try {
+    const project: Project = {
+      name,
+      displayName,
+      repositories,
+      description,
+      setupScript,
+      verifyScript,
+    };
+
+    const created = await createProject(project);
+
+    showSuccess('Project added!', [
+      ['Name', created.name],
+      ['Display Name', created.displayName],
+    ]);
+    console.log(field('Repositories', ''));
+    for (const repo of created.repositories) {
+      log.item(`${repo.name} → ${repo.path}`);
+    }
+    if (created.description) {
+      console.log(field('Description', created.description));
+    }
+    if (created.setupScript) {
+      console.log(field('Setup', created.setupScript));
+    }
+    if (created.verifyScript) {
+      console.log(field('Verify', created.verifyScript));
+    } else {
+      console.log(field('Verify', muted('(auto-detected from project files or CLAUDE.md)')));
+    }
+    console.log('');
+  } catch (err) {
+    if (err instanceof ProjectExistsError) {
+      console.log(error(`\nProject "${name}" already exists.`));
+      console.log(error('Use a different name or remove the existing project first.\n'));
+    } else {
+      throw err;
+    }
+  }
+}
