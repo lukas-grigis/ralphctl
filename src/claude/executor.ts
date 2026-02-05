@@ -142,11 +142,17 @@ export function detectVerifyScript(projectPath: string): string | null {
 }
 
 /**
- * Get effective verify script for a project.
+ * Get effective verify script for a project repository.
+ * Finds the matching repository by path and returns its verify script,
+ * or falls back to auto-detection.
  */
 export function getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null {
-  if (project?.verifyScript) {
-    return project.verifyScript;
+  if (project) {
+    // Find the repository that matches the project path
+    const repo = project.repositories.find((r) => r.path === projectPath);
+    if (repo?.verifyScript) {
+      return repo.verifyScript;
+    }
   }
   return detectVerifyScript(projectPath);
 }
@@ -253,9 +259,13 @@ async function getProjectForTask(task: Task, sprint: Sprint): Promise<Project | 
 function runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void {
   const verifyScript = getEffectiveVerifyScript(ctx.project, ctx.task.projectPath);
 
+  // Find the repository that matches the project path for setup script
+  const repo = ctx.project?.repositories.find((r) => r.path === ctx.task.projectPath);
+  const setupScript = repo?.setupScript;
+
   const warnings = checkTaskPermissions(ctx.task.projectPath, {
     verifyScript,
-    setupScript: ctx.project?.setupScript,
+    setupScript,
     needsCommit: !noCommit,
   });
 

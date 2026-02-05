@@ -64,8 +64,14 @@ async function getSprintContext(
     // Get project repositories
     try {
       const project = await getProject(projectName);
-      const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
-      lines.push(`Repositories: ${repoPaths.join(', ')}`);
+      lines.push('');
+      lines.push('### Repositories');
+      for (const repo of project.repositories) {
+        lines.push(`- **${repo.name}**: ${repo.path}`);
+        if (repo.verifyScript) {
+          lines.push(`  - Verify: \`${repo.verifyScript}\``);
+        }
+      }
     } catch {
       lines.push('Repositories: (project not found)');
     }
@@ -75,6 +81,12 @@ async function getSprintContext(
     for (const ticket of tickets) {
       lines.push('');
       lines.push(`#### ${formatTicketDisplay(ticket)}`);
+
+      // Show affected repositories (user-specified during refinement)
+      if (ticket.affectedRepositories && ticket.affectedRepositories.length > 0) {
+        lines.push(`**Affected Repositories:** ${ticket.affectedRepositories.join(', ')}`);
+      }
+
       if (ticket.description) {
         lines.push('');
         lines.push('**Original Description:**');

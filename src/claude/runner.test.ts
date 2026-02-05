@@ -212,12 +212,11 @@ describe('getEffectiveVerifyScript', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('uses explicit project verifyScript when available', () => {
+  it('uses explicit repository verifyScript when available', () => {
     const project: Project = {
       name: 'test',
       displayName: 'Test',
-      repositories: [{ name: 'test', path: tempDir }],
-      verifyScript: 'custom-verify-command',
+      repositories: [{ name: 'test', path: tempDir, verifyScript: 'custom-verify-command' }],
     };
 
     // Even if there's a package.json, explicit script takes priority

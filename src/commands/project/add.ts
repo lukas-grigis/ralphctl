@@ -152,13 +152,86 @@ function hasClaudeMd(path: string): boolean {
   return existsSync(join(path, 'CLAUDE.md'));
 }
 
+/**
+ * Add setup/verify scripts to a repository interactively.
+ */
+async function addScriptsToRepository(repo: Repository): Promise<Repository> {
+  // Detect project type with graceful fallback on errors (e.g., invalid package.json)
+  let detectedType: ProjectType = 'other';
+  let suggestedSetup: string | null = null;
+  let suggestedVerify: string | null = null;
+
+  try {
+    detectedType = detectProjectType(repo.path);
+    suggestedSetup = suggestSetupScript(repo.path, detectedType);
+    suggestedVerify = suggestVerifyScript(repo.path, detectedType);
+  } catch {
+    // Auto-detection failed, continue with manual entry
+  }
+
+  if (detectedType !== 'other') {
+    log.success(`  Detected: ${getProjectTypeLabel(detectedType)}`);
+  }
+
+  let setupScript: string | undefined;
+  let verifyScript: string | undefined;
+
+  // Setup script
+  if (suggestedSetup) {
+    log.info(`  Suggested setup: ${suggestedSetup}`);
+    const useSetup = await confirm({
+      message: '  Use suggested setup script?',
+      default: true,
+    });
+    if (useSetup) {
+      setupScript = suggestedSetup;
+    } else {
+      const custom = await input({
+        message: '  Setup script (optional):',
+      });
+      setupScript = custom.trim() || undefined;
+    }
+  } else {
+    const custom = await input({
+      message: '  Setup script (optional):',
+    });
+    setupScript = custom.trim() || undefined;
+  }
+
+  // Verify script
+  if (suggestedVerify) {
+    log.info(`  Suggested verify: ${suggestedVerify}`);
+    const useVerify = await confirm({
+      message: '  Use suggested verify script?',
+      default: true,
+    });
+    if (useVerify) {
+      verifyScript = suggestedVerify;
+    } else {
+      const custom = await input({
+        message: '  Verify script (optional):',
+      });
+      verifyScript = custom.trim() || undefined;
+    }
+  } else {
+    const custom = await input({
+      message: '  Verify script (optional):',
+    });
+    verifyScript = custom.trim() || undefined;
+  }
+
+  return {
+    ...repo,
+    setupScript,
+    verifyScript,
+  };
+}
+
 export async function projectAddCommand(options: ProjectAddOptions = {}): Promise<void> {
   let name: string;
   let displayName: string;
   let repositories: Repository[];
   let description: string | undefined;
-  let setupScript: string | undefined;
-  let verifyScript: string | undefined;
 
   if (options.interactive === false) {
     // Non-interactive mode: validate required params
@@ -203,16 +276,13 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     name = trimmedName;
     displayName = trimmedDisplayName;
     // Convert paths to repositories with auto-derived names
+    // In non-interactive mode, skip scripts (can be added later via repo add command)
     repositories = options.paths.map((p) => {
       const resolved = resolve(p.trim());
       return { name: basename(resolved), path: resolved };
     });
     const trimmedDesc = options.description?.trim();
     description = trimmedDesc === '' ? undefined : trimmedDesc;
-    const trimmedSetup = options.setupScript?.trim();
-    setupScript = trimmedSetup === '' ? undefined : trimmedSetup;
-    const trimmedVerify = options.verifyScript?.trim();
-    verifyScript = trimmedVerify === '' ? undefined : trimmedVerify;
   } else {
     // Interactive mode (default) - prompt for missing params
     name = await input({
@@ -291,24 +361,22 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       repositories.push({ name: basename(resolved), path: resolved });
     }
 
-    // Detect project type and show info for first repo
-    const primaryPath = repositories[0]?.path;
-    if (primaryPath) {
-      const detectedType = detectProjectType(primaryPath);
-
-      if (detectedType !== 'other') {
-        log.success(`Detected: ${getProjectTypeLabel(detectedType)} project`);
-      }
-
+    // Process first repository with scripts
+    const firstRepo = repositories[0];
+    if (firstRepo) {
       // Check for git repo
-      if (!isGitRepo(primaryPath)) {
+      if (!isGitRepo(firstRepo.path)) {
         showWarning('Path is not a git repository');
       }
 
       // Check for CLAUDE.md
-      if (!hasClaudeMd(primaryPath)) {
+      if (!hasClaudeMd(firstRepo.path)) {
         log.dim('Tip: Add CLAUDE.md for better AI assistance');
       }
+
+      // Add scripts to first repository
+      log.info(`\nConfiguring: ${firstRepo.name}`);
+      repositories[0] = await addScriptsToRepository(firstRepo);
     }
 
     // Ask for additional paths
@@ -331,8 +399,11 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
           const resolved = resolve(browsed);
           const validation = await validateProjectPath(resolved);
           if (validation === true) {
-            repositories.push({ name: basename(resolved), path: resolved });
-            log.success(`Added: ${basename(resolved)}`);
+            const newRepo = { name: basename(resolved), path: resolved };
+            log.success(`Added: ${newRepo.name}`);
+            // Add scripts for this repository
+            const repoWithScripts = await addScriptsToRepository(newRepo);
+            repositories.push(repoWithScripts);
           } else {
             console.log(error(`  Invalid path: ${validation}`));
           }
@@ -348,7 +419,11 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
           const resolved = resolve(additionalPath.trim());
           const validation = await validateProjectPath(resolved);
           if (validation === true) {
-            repositories.push({ name: basename(resolved), path: resolved });
+            const newRepo = { name: basename(resolved), path: resolved };
+            log.success(`Added: ${newRepo.name}`);
+            // Add scripts for this repository
+            const repoWithScripts = await addScriptsToRepository(newRepo);
+            repositories.push(repoWithScripts);
           } else {
             console.log(error(`  Invalid path: ${validation}`));
           }
@@ -362,59 +437,6 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     });
     const trimmedDescInteractive = description.trim();
     description = trimmedDescInteractive === '' ? undefined : trimmedDescInteractive;
-
-    // Auto-detect scripts for primary path
-    const detectedType = primaryPath ? detectProjectType(primaryPath) : 'other';
-    const suggestedSetup = primaryPath ? suggestSetupScript(primaryPath, detectedType) : null;
-    const suggestedVerify = primaryPath ? suggestVerifyScript(primaryPath, detectedType) : null;
-
-    // Setup script - offer suggestion if available
-    if (suggestedSetup && !options.setupScript) {
-      log.info(`Suggested setup script: ${suggestedSetup}`);
-      const useSetup = await confirm({
-        message: 'Use suggested setup script?',
-        default: true,
-      });
-      if (useSetup) {
-        setupScript = suggestedSetup;
-      } else {
-        setupScript = await input({
-          message: 'Setup script (optional):',
-        });
-        setupScript = setupScript.trim() || undefined;
-      }
-    } else {
-      setupScript = await input({
-        message: 'Setup script (optional, e.g., "npm install"):',
-        default: options.setupScript?.trim(),
-      });
-      const trimmedSetupInteractive = setupScript.trim();
-      setupScript = trimmedSetupInteractive === '' ? undefined : trimmedSetupInteractive;
-    }
-
-    // Verify script - offer suggestion if available
-    if (suggestedVerify && !options.verifyScript) {
-      log.info(`Suggested verify script: ${suggestedVerify}`);
-      const useVerify = await confirm({
-        message: 'Use suggested verify script?',
-        default: true,
-      });
-      if (useVerify) {
-        verifyScript = suggestedVerify;
-      } else {
-        verifyScript = await input({
-          message: 'Verify script (optional):',
-        });
-        verifyScript = verifyScript.trim() || undefined;
-      }
-    } else {
-      verifyScript = await input({
-        message: 'Verify script (optional, e.g., "npm test"):',
-        default: options.verifyScript?.trim(),
-      });
-      const trimmedVerifyInteractive = verifyScript.trim();
-      verifyScript = trimmedVerifyInteractive === '' ? undefined : trimmedVerifyInteractive;
-    }
   }
 
   try {
@@ -423,8 +445,6 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       displayName,
       repositories,
       description,
-      setupScript,
-      verifyScript,
     };
 
     const created = await createProject(project);
@@ -433,20 +453,20 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       ['Name', created.name],
       ['Display Name', created.displayName],
     ]);
-    console.log(field('Repositories', ''));
-    for (const repo of created.repositories) {
-      log.item(`${repo.name} → ${repo.path}`);
-    }
     if (created.description) {
       console.log(field('Description', created.description));
     }
-    if (created.setupScript) {
-      console.log(field('Setup', created.setupScript));
-    }
-    if (created.verifyScript) {
-      console.log(field('Verify', created.verifyScript));
-    } else {
-      console.log(field('Verify', muted('(auto-detected from project files or CLAUDE.md)')));
+    console.log(field('Repositories', ''));
+    for (const repo of created.repositories) {
+      log.item(`${repo.name} → ${repo.path}`);
+      if (repo.setupScript) {
+        console.log(`        Setup: ${repo.setupScript}`);
+      }
+      if (repo.verifyScript) {
+        console.log(`        Verify: ${repo.verifyScript}`);
+      } else {
+        console.log(`        Verify: ${muted('(auto-detected from files or CLAUDE.md)')}`);
+      }
     }
     console.log('');
   } catch (err) {

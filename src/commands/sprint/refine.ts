@@ -1,15 +1,28 @@
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkbox, confirm, select } from '@inquirer/prompts';
-import { error, info, muted, success, warning } from '@src/theme/index.ts';
+import { checkbox, confirm } from '@inquirer/prompts';
+import { info } from '@src/theme/index.ts';
+import {
+  createSpinner,
+  emoji,
+  field,
+  fieldMultiline,
+  icons,
+  log,
+  printHeader,
+  printSeparator,
+  showError,
+  showSuccess,
+  showWarning,
+} from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
-import { formatTicketDisplay, getPendingTickets, groupTicketsByProject } from '@src/store/ticket.ts';
+import { formatTicketDisplay, getPendingTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { buildSpecRefinePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeInteractive } from '@src/claude/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import type { Ticket } from '@src/schemas/index.ts';
+import type { Repository, Ticket } from '@src/schemas/index.ts';
 
 interface RefineOptions {
   project?: string;
@@ -34,35 +47,33 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
   return { sprintId, options };
 }
 
-async function formatTicketsForPrompt(tickets: Ticket[]): Promise<string> {
+/**
+ * Format a single ticket for the Claude prompt, including only affected repositories.
+ */
+function formatTicketForPrompt(ticket: Ticket, affectedRepos: Repository[]): string {
   const lines: string[] = [];
 
-  for (const ticket of tickets) {
-    lines.push(`### ${formatTicketDisplay(ticket)}`);
-    lines.push(`Project: ${ticket.projectName}`);
+  lines.push(`### ${formatTicketDisplay(ticket)}`);
+  lines.push(`Project: ${ticket.projectName}`);
 
-    // Get project repositories
-    try {
-      const project = await getProject(ticket.projectName);
-      const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
-      lines.push(`Repositories: ${repoPaths.join(', ')}`);
-    } catch {
-      lines.push('Repositories: (project not found)');
-    }
+  // List only affected repositories
+  const repoPaths = affectedRepos.map((r) => `${r.name} (${r.path})`);
+  lines.push(`Affected Repositories: ${repoPaths.join(', ')}`);
 
-    if (ticket.description) {
-      lines.push('');
-      lines.push('**Description:**');
-      lines.push(ticket.description);
-    }
-    if (ticket.link) {
-      lines.push('');
-      lines.push(`**Link:** ${ticket.link}`);
-    }
-    lines.push('');
-    lines.push('---');
-    lines.push('');
+  if (ticket.externalId) {
+    lines.push(`External ID: ${ticket.externalId}`);
   }
+
+  if (ticket.description) {
+    lines.push('');
+    lines.push('**Description:**');
+    lines.push(ticket.description);
+  }
+  if (ticket.link) {
+    lines.push('');
+    lines.push(`**Link:** ${ticket.link}`);
+  }
+  lines.push('');
 
   return lines.join('\n');
 }
@@ -91,14 +102,14 @@ async function runClaudeSession(
   primaryPath: string,
   additionalPaths: string[],
   prompt: string,
-  ticketCount: number
+  ticketTitle: string
 ): Promise<void> {
   // Write full context to a file for reference
   const contextFile = join(primaryPath, '.ralphctl-refine-context.md');
   await writeFile(contextFile, prompt, 'utf-8');
 
   // Build initial prompt that tells Claude to read the context file
-  const startPrompt = `I need help refining specifications for ${String(ticketCount)} ticket(s). The full context is in .ralphctl-refine-context.md. Please read that file now and follow the instructions to help refine the ticket specifications.`;
+  const startPrompt = `I need help refining the specification for "${ticketTitle}". The full context is in .ralphctl-refine-context.md. Please read that file now and follow the instructions to help refine the ticket specification.`;
 
   // Build args for Claude session
   const args: string[] = [];
@@ -134,8 +145,9 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   try {
     id = await resolveSprintId(sprintId);
   } catch {
-    console.log(warning('\nNo sprint specified and no current sprint set.'));
-    console.log(muted('Specify a sprint ID or create one first.\n'));
+    showWarning('No sprint specified and no current sprint set.');
+    log.dim('Specify a sprint ID or create one first.');
+    log.newline();
     return;
   }
 
@@ -146,157 +158,188 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     assertSprintStatus(sprint, ['draft'], 'refine');
   } catch (err) {
     if (err instanceof Error) {
-      console.log(error(`\n${err.message}\n`));
+      showError(err.message);
+      log.newline();
     }
     return;
   }
 
   if (sprint.tickets.length === 0) {
-    console.log(warning('\nNo tickets in sprint.'));
-    console.log(muted('Add tickets first: ralphctl ticket add --project <project-name>\n'));
+    showWarning('No tickets in sprint.');
+    log.dim('Add tickets first: ralphctl ticket add --project <project-name>');
+    log.newline();
     return;
   }
 
-  // Get pending tickets
-  const pendingTickets = getPendingTickets(sprint.tickets);
-
-  if (pendingTickets.length === 0) {
-    console.log(success('\nAll tickets already have approved specs!'));
-    console.log(muted('Run "ralphctl sprint plan" to generate tasks.\n'));
-    return;
-  }
-
-  console.log(info('\n=== Spec Refinement ==='));
-  console.log(info('Sprint:  ') + sprint.name);
-  console.log(info('ID:      ') + sprint.id);
-  console.log(muted(`Pending: ${String(pendingTickets.length)} ticket(s)`));
-  console.log('');
-
-  // Group pending tickets by project
-  const ticketsByProject = groupTicketsByProject(pendingTickets);
-
-  // Filter by project if specified
-  let projectsToProcess = Array.from(ticketsByProject.keys());
+  // Get pending tickets (filter by project if specified)
+  let pendingTickets = getPendingTickets(sprint.tickets);
   if (options.project) {
-    if (!ticketsByProject.has(options.project)) {
-      console.log(warning(`\nNo pending tickets for project: ${options.project}`));
-      console.log(muted('Available projects:'));
-      for (const proj of ticketsByProject.keys()) {
-        console.log(muted(`  - ${proj}`));
-      }
-      console.log('');
+    pendingTickets = pendingTickets.filter((t) => t.projectName === options.project);
+    if (pendingTickets.length === 0) {
+      showWarning(`No pending tickets for project: ${options.project}`);
+      log.newline();
       return;
     }
-    projectsToProcess = [options.project];
   }
 
-  console.log(info('Projects to refine:'));
-  for (const proj of projectsToProcess) {
-    const count = ticketsByProject.get(proj)?.length ?? 0;
-    console.log(`  - ${proj} (${String(count)} ticket(s))`);
+  if (pendingTickets.length === 0) {
+    showSuccess('All tickets already have approved specs!');
+    log.dim('Run "ralphctl sprint plan" to generate tasks.');
+    log.newline();
+    return;
   }
-  console.log('');
 
-  // Process each project
-  for (const projectName of projectsToProcess) {
-    const projectTickets = ticketsByProject.get(projectName) ?? [];
+  // Show initial summary
+  printHeader('Spec Refinement', icons.ticket);
+  console.log(field('Sprint', sprint.name));
+  console.log(field('ID', sprint.id));
+  console.log(field('Pending', `${String(pendingTickets.length)} ticket(s)`));
+  log.newline();
 
-    console.log(info(`\n--- Project: ${projectName} ---`));
-    console.log(muted(`Tickets: ${String(projectTickets.length)}`));
+  // Process tickets one by one
+  let approved = 0;
+  let skipped = 0;
 
-    for (const ticket of projectTickets) {
-      console.log(`  - ${formatTicketDisplay(ticket)}`);
-    }
+  for (let i = 0; i < pendingTickets.length; i++) {
+    const ticket = pendingTickets[i];
+    if (!ticket) continue;
+
+    const ticketNum = i + 1;
+    const totalTickets = pendingTickets.length;
+
+    // Show ticket card
+    printSeparator(60);
     console.log('');
+    console.log(`  ${icons.ticket}  ${info(`Ticket ${String(ticketNum)} of ${String(totalTickets)}`)}`);
+    console.log('');
+    console.log(field('Title', ticket.title, 14));
+    console.log(field('Project', ticket.projectName, 14));
+    if (ticket.externalId) {
+      console.log(field('External ID', ticket.externalId, 14));
+    }
+    if (ticket.link) {
+      console.log(field('Link', ticket.link, 14));
+    }
+    if (ticket.description) {
+      console.log(fieldMultiline('Description', ticket.description, 14));
+    }
+    log.newline();
 
-    // Get project repositories for Claude session
-    let projectRepos: { name: string; path: string }[];
+    // Get project repositories
+    let projectRepos: Repository[];
     try {
-      const project = await getProject(projectName);
+      const project = await getProject(ticket.projectName);
       projectRepos = project.repositories;
     } catch {
-      console.log(warning(`Project '${projectName}' not found.`));
-      console.log(muted('Skipping refinement for this project.\n'));
+      showWarning(`Project '${ticket.projectName}' not found.`);
+      log.dim('Skipping this ticket.');
+      log.newline();
+      skipped++;
       continue;
     }
 
     if (projectRepos.length === 0) {
-      console.log(warning(`Project '${projectName}' has no repositories configured.`));
-      console.log(muted('Skipping refinement for this project.\n'));
+      showWarning(`Project '${ticket.projectName}' has no repositories configured.`);
+      log.dim('Skipping this ticket.');
+      log.newline();
+      skipped++;
       continue;
     }
 
-    // Select which paths Claude should explore
-    let selectedPaths: string[];
+    // Select affected repositories
+    let affectedRepos: Repository[];
     const firstRepo = projectRepos[0];
     if (projectRepos.length === 1 && firstRepo) {
-      selectedPaths = [firstRepo.path];
+      // Auto-select single repo
+      affectedRepos = [firstRepo];
+      log.info(`Affected repository: ${firstRepo.name} (${firstRepo.path})`);
+      log.newline();
     } else {
-      console.log(info('\nWhich repositories should Claude explore for these tickets?'));
-      selectedPaths = await checkbox({
-        message: 'Select repositories',
-        choices: projectRepos.map((r) => ({ name: `${r.name} (${r.path})`, value: r.path, checked: true })),
+      // Multi-repo: ask user to select
+      log.info('Which repositories does this ticket affect?');
+      const selectedRepoNames = await checkbox({
+        message: `${emoji.donut} Select affected repositories:`,
+        choices: projectRepos.map((r, idx) => ({
+          name: `${r.name} (${r.path})`,
+          value: r.name,
+          checked: idx === 0, // First repo checked by default
+        })),
         required: true,
       });
 
-      if (selectedPaths.length === 0) {
-        console.log(muted('No paths selected. Skipping.\n'));
+      affectedRepos = projectRepos.filter((r) => selectedRepoNames.includes(r.name));
+      if (affectedRepos.length === 0) {
+        showWarning('No repositories selected.');
+        skipped++;
         continue;
       }
     }
 
+    // Store affected repositories in ticket and persist immediately
+    const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticket.id);
+    const ticketToUpdate = sprint.tickets[ticketIdx];
+    if (ticketIdx !== -1 && ticketToUpdate) {
+      ticketToUpdate.affectedRepositories = affectedRepos.map((r) => r.name);
+      await saveSprint(sprint); // Persist selection so it survives skips
+    }
+
+    // Confirm before starting Claude session
     const proceed = await confirm({
-      message: `Start refinement session for ${projectName}?`,
+      message: `${emoji.donut} Start Claude refinement session for this ticket?`,
       default: true,
     });
 
     if (!proceed) {
-      console.log(muted('Skipped.\n'));
+      log.dim('Skipped. You can refine this ticket later.');
+      log.newline();
+      skipped++;
       continue;
     }
 
-    // Create output file for specs
-    const outputFile = join(tmpdir(), `ralphctl-specs-${id}-${String(Date.now())}.json`);
+    // Prepare Claude session
+    const outputFile = join(tmpdir(), `ralphctl-spec-${ticket.id}-${String(Date.now())}.json`);
+    const ticketContent = formatTicketForPrompt(ticket, affectedRepos);
+    const prompt = buildSpecRefinePrompt(ticketContent, outputFile);
 
-    // Build prompt and run Claude session
-    const ticketsContent = await formatTicketsForPrompt(projectTickets);
-    const prompt = buildSpecRefinePrompt(ticketsContent, outputFile);
-
-    // Debug: show prompt size to verify content is being generated
-    const promptLines = prompt.split('\n').length;
-    const promptChars = prompt.length;
-    console.log(muted(`\nPrompt: ${String(promptLines)} lines, ${String(promptChars)} chars`));
-
+    // Select primary/additional paths from affected repos
+    const selectedPaths = affectedRepos.map((r) => r.path);
     const primaryPath = selectedPaths[0] ?? process.cwd();
     const additionalPaths = selectedPaths.slice(1);
 
-    console.log(muted('Starting interactive Claude session...'));
-    console.log(muted(`Primary path: ${primaryPath}`));
+    log.dim(`Primary path: ${primaryPath}`);
     if (additionalPaths.length > 0) {
-      console.log(muted(`Additional paths: ${additionalPaths.join(', ')}`));
+      log.dim(`Additional paths: ${additionalPaths.join(', ')}`);
     }
-    console.log(muted(`When ready, Claude will write specs to: ${outputFile}\n`));
+    log.dim(`Spec output: ${outputFile}`);
+    log.newline();
+
+    const spinner = createSpinner('Starting Claude session...');
+    spinner.start();
 
     try {
-      await runClaudeSession(primaryPath, additionalPaths, prompt, projectTickets.length);
+      await runClaudeSession(primaryPath, additionalPaths, prompt, ticket.title);
+      spinner.succeed('Claude session completed');
     } catch (err) {
+      spinner.fail('Claude session failed');
       if (err instanceof Error) {
-        console.log(error(`\nFailed to run Claude session: ${err.message}`));
+        showError(err.message);
       }
+      log.newline();
+      skipped++;
       continue;
     }
 
-    console.log('');
+    log.newline();
 
-    // Check if specs file was created
+    // Process the spec file
     if (await fileExists(outputFile)) {
-      console.log(info('Specs file found. Processing...'));
-
       let content: string;
       try {
         content = await readFile(outputFile, 'utf-8');
       } catch {
-        console.log(error(`\nFailed to read specs file: ${outputFile}\n`));
+        showError(`Failed to read spec file: ${outputFile}`);
+        log.newline();
+        skipped++;
         continue;
       }
 
@@ -305,93 +348,60 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
         refinedSpecs = parseSpecsFile(content);
       } catch (err) {
         if (err instanceof Error) {
-          console.log(error(`\nFailed to parse specs file: ${err.message}\n`));
+          showError(`Failed to parse spec file: ${err.message}`);
         }
+        log.newline();
+        skipped++;
         continue;
       }
 
       if (refinedSpecs.length === 0) {
-        console.log(warning('\nNo specs in file.\n'));
+        showWarning('No spec found in output file.');
+        log.newline();
+        skipped++;
         continue;
       }
 
-      console.log(success(`\nParsed ${String(refinedSpecs.length)} spec(s).\n`));
+      // Find the matching spec (should be only one for single-ticket flow)
+      const spec = refinedSpecs.find(
+        (s) => s.ref === ticket.id || s.ref === ticket.externalId || s.ref === ticket.title
+      );
 
-      // Match specs to tickets first
-      const matchedSpecs: { spec: RefinedSpec; ticket: Ticket; ticketIdx: number }[] = [];
-      for (const spec of refinedSpecs) {
-        const ticketIdx = sprint.tickets.findIndex(
-          (t) => t.id === spec.ref || t.externalId === spec.ref || t.title === spec.ref
-        );
-        if (ticketIdx !== -1) {
-          const ticket = sprint.tickets[ticketIdx];
-          if (ticket) {
-            matchedSpecs.push({ spec, ticket, ticketIdx });
-          }
-        } else {
-          console.log(warning(`  ? No matching ticket for ref: ${spec.ref}`));
-        }
-      }
-
-      if (matchedSpecs.length === 0) {
-        console.log(warning('No specs matched any tickets.\n'));
+      if (!spec) {
+        showWarning('Spec reference does not match this ticket.');
+        log.newline();
+        skipped++;
         continue;
       }
 
-      // Ask how to review specs
-      const reviewMode = await select({
-        message: `How to review ${String(matchedSpecs.length)} spec(s)?`,
-        choices: [
-          { name: 'Review one by one', value: 'individual' },
-          { name: 'Approve all (skip review)', value: 'skip' },
-          { name: 'Cancel (discard all)', value: 'cancel' },
-        ],
+      // Show spec for review
+      printSeparator(60);
+      console.log('');
+      log.info('Refined Specification:');
+      console.log('');
+      console.log(spec.specs);
+      console.log('');
+      printSeparator(60);
+      log.newline();
+
+      const approveSpec = await confirm({
+        message: `${emoji.donut} Approve this specification?`,
+        default: true,
       });
 
-      if (reviewMode === 'cancel') {
-        console.log(muted('Specs discarded.\n'));
-        continue;
-      }
-
-      const approvedSpecs: { spec: RefinedSpec; ticket: Ticket; ticketIdx: number }[] = [];
-
-      if (reviewMode === 'skip') {
-        approvedSpecs.push(...matchedSpecs);
-      } else {
-        // Review one by one
-        for (const matched of matchedSpecs) {
-          console.log(info(`\n=== ${formatTicketDisplay(matched.ticket)} ===`));
-          console.log(muted('─'.repeat(60)));
-          console.log(matched.spec.specs);
-          console.log(muted('─'.repeat(60)));
-
-          const approved = await confirm({
-            message: 'Approve this spec?',
-            default: true,
-          });
-
-          if (approved) {
-            approvedSpecs.push(matched);
-            console.log(success('  Approved'));
-          } else {
-            console.log(muted('  Skipped'));
-          }
-        }
-      }
-
-      // Save approved specs
-      if (approvedSpecs.length > 0) {
-        for (const { spec, ticketIdx } of approvedSpecs) {
-          const ticket = sprint.tickets[ticketIdx];
-          if (ticket) {
-            ticket.specs = spec.specs;
-            ticket.specStatus = 'approved';
-          }
+      if (approveSpec) {
+        // Save spec to ticket
+        const ticketToSave = sprint.tickets[ticketIdx];
+        if (ticketIdx !== -1 && ticketToSave) {
+          ticketToSave.specs = spec.specs;
+          ticketToSave.specStatus = 'approved';
         }
         await saveSprint(sprint);
-        console.log(success(`\nStored specs for ${String(approvedSpecs.length)} ticket(s).`));
+        showSuccess('Specification approved and saved!');
+        approved++;
       } else {
-        console.log(muted('\nNo specs approved.'));
+        log.dim('Specification not approved. You can refine this ticket later.');
+        skipped++;
       }
 
       // Clean up temp file
@@ -401,43 +411,30 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
         // Ignore cleanup errors
       }
     } else {
-      console.log(warning('No specs file found.'));
-      console.log(muted(`Expected: ${outputFile}`));
-
-      // Ask if user wants to manually mark as approved
-      const manualApprove = await confirm({
-        message: 'Mark tickets as approved anyway (specs entered manually)?',
-        default: false,
-      });
-
-      if (manualApprove) {
-        for (const ticket of projectTickets) {
-          const idx = sprint.tickets.findIndex((t) => t.id === ticket.id);
-          if (idx !== -1) {
-            const t = sprint.tickets[idx];
-            if (t) {
-              t.specStatus = 'approved';
-            }
-          }
-        }
-        await saveSprint(sprint);
-        console.log(success(`Marked ${String(projectTickets.length)} ticket(s) as approved.`));
-      } else {
-        console.log(muted('Tickets not marked as approved. Run refinement again later.'));
-      }
+      showWarning('No spec file found from Claude session.');
+      log.dim('You can refine this ticket later.');
+      skipped++;
     }
+
+    log.newline();
   }
 
-  // Summary
+  // Final summary
+  printSeparator(60);
+  log.newline();
+  printHeader('Summary', icons.success);
+  console.log(field('Approved', String(approved)));
+  console.log(field('Skipped', String(skipped)));
+  console.log(field('Total', String(pendingTickets.length)));
+  log.newline();
+
   const remainingPending = getPendingTickets(sprint.tickets);
-  console.log(info('\n=== Summary ==='));
-  console.log(info('Approved: ') + String(pendingTickets.length - remainingPending.length) + ' ticket(s)');
-  console.log(info('Pending:  ') + String(remainingPending.length) + ' ticket(s)');
-
   if (remainingPending.length === 0) {
-    console.log(success('\nAll specs approved!'));
-    console.log(muted('Run "ralphctl sprint plan" to generate tasks.\n'));
+    showSuccess('All specs approved!');
+    log.dim('Run "ralphctl sprint plan" to generate tasks.');
   } else {
-    console.log(muted('\nContinue refinement with: ralphctl sprint refine\n'));
+    log.info(`${String(remainingPending.length)} ticket(s) still pending.`);
+    log.dim('Continue refinement with: ralphctl sprint refine');
   }
+  log.newline();
 }

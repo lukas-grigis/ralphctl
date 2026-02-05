@@ -17,18 +17,18 @@ export async function projectShowCommand(args: string[]): Promise<void> {
     printHeader('Project Details');
     console.log(field('Name', project.name));
     console.log(field('Display Name', project.displayName));
-    console.log(field('Repositories', ''));
-    for (const repo of project.repositories) {
-      log.item(`${repo.name} → ${repo.path}`);
-    }
     if (project.description) {
       console.log(field('Description', project.description));
     }
-    if (project.setupScript) {
-      console.log(field('Setup', project.setupScript));
-    }
-    if (project.verifyScript) {
-      console.log(field('Verify', project.verifyScript));
+    console.log(field('Repositories', ''));
+    for (const repo of project.repositories) {
+      log.item(`${repo.name} → ${repo.path}`);
+      if (repo.setupScript) {
+        console.log(`        Setup: ${repo.setupScript}`);
+      }
+      if (repo.verifyScript) {
+        console.log(`        Verify: ${repo.verifyScript}`);
+      }
     }
     console.log('');
   } catch (err) {

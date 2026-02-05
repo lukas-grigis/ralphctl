@@ -201,16 +201,14 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
         {
           name: 'ecommerce-frontend',
           displayName: 'E-Commerce Frontend',
-          repositories: [{ name: 'frontend', path: frontendDir }],
+          repositories: [{ name: 'frontend', path: frontendDir, verifyScript: 'npm test' }],
           description: 'React storefront application',
-          verifyScript: 'npm test',
         },
         {
           name: 'ecommerce-backend',
           displayName: 'E-Commerce Backend',
-          repositories: [{ name: 'backend', path: backendDir }],
+          repositories: [{ name: 'backend', path: backendDir, verifyScript: 'npm run test:unit' }],
           description: 'Node.js API service',
-          verifyScript: 'npm run test:unit',
         },
       ])
     );

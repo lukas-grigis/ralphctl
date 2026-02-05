@@ -16,6 +16,8 @@ export type SpecStatus = z.infer<typeof SpecStatusSchema>;
 export const RepositorySchema = z.object({
   name: z.string().min(1), // Auto-derived from basename(path)
   path: z.string().min(1), // Absolute path
+  setupScript: z.string().optional(), // e.g., "npm install" or "pip install -e ."
+  verifyScript: z.string().optional(), // e.g., "npm test" or "pytest"
 });
 export type Repository = z.infer<typeof RepositorySchema>;
 
@@ -28,8 +30,6 @@ export const ProjectSchema = z.object({
   displayName: z.string().min(1),
   repositories: z.array(RepositorySchema).min(1),
   description: z.string().optional(),
-  setupScript: z.string().optional(), // e.g., "npm install" or "pip install -e ."
-  verifyScript: z.string().optional(), // e.g., "npm test" or "pytest"
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
@@ -45,6 +45,7 @@ export const TicketSchema = z.object({
   description: z.string().optional(),
   link: z.string().url().optional(),
   projectName: z.string().min(1), // References Project.name
+  affectedRepositories: z.array(z.string()).optional(), // Repository names affected by this ticket
   specStatus: SpecStatusSchema.default('pending'),
   specs: z.string().optional(), // Refined specifications (set during sprint refine)
 });
