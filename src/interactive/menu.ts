@@ -56,7 +56,7 @@ export const subMenus: Record<string, SubMenu> = {
       { name: 'Context', value: 'context', description: 'Output full sprint context' },
       { name: 'Set Current', value: 'current', description: 'Set current sprint' },
       new Separator(),
-      { name: 'Refine', value: 'refine', description: 'Refine ticket specs' },
+      { name: 'Refine', value: 'refine', description: 'Refine ticket requirements' },
       { name: 'Plan', value: 'plan', description: 'Generate tasks' },
       new Separator(),
       { name: 'Start', value: 'start', description: 'Start implementation' },
@@ -69,6 +69,7 @@ export const subMenus: Record<string, SubMenu> = {
     title: 'Ticket',
     items: [
       { name: 'Add', value: 'add', description: 'Add a ticket' },
+      { name: 'Edit', value: 'edit', description: 'Edit a ticket' },
       { name: 'List', value: 'list', description: 'List all tickets' },
       { name: 'Show', value: 'show', description: 'Show ticket details' },
       { name: 'Remove', value: 'remove', description: 'Remove a ticket' },

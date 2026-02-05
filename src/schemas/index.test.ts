@@ -3,7 +3,7 @@ import {
   ConfigSchema,
   ImportTasksSchema,
   ProjectSchema,
-  SpecStatusSchema,
+  RequirementStatusSchema,
   SprintSchema,
   SprintStatusSchema,
   TaskSchema,
@@ -78,7 +78,7 @@ describe('TicketSchema', () => {
     description: 'Detailed description',
     link: 'https://jira.example.com/JIRA-123',
     projectName: 'my-app',
-    specStatus: 'pending',
+    requirementStatus: 'pending',
   };
 
   it('accepts valid ticket', () => {
@@ -99,26 +99,26 @@ describe('TicketSchema', () => {
   });
 
   it('requires projectName', () => {
-    const noProject = { id: 'abc123', title: 'Test', specStatus: 'pending' };
+    const noProject = { id: 'abc123', title: 'Test', requirementStatus: 'pending' };
     const result = TicketSchema.safeParse(noProject);
     expect(result.success).toBe(false);
   });
 
-  it('defaults specStatus to pending', () => {
+  it('defaults requirementStatus to pending', () => {
     const noStatus = { id: 'abc123', title: 'Test', projectName: 'my-app' };
     const result = TicketSchema.safeParse(noStatus);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.specStatus).toBe('pending');
+      expect(result.data.requirementStatus).toBe('pending');
     }
   });
 
-  it('accepts specs field', () => {
-    const withSpecs = { ...validTicket, specs: '## Overview\nSome specs' };
-    const result = TicketSchema.safeParse(withSpecs);
+  it('accepts requirements field', () => {
+    const withRequirements = { ...validTicket, requirements: '## Overview\nSome requirements' };
+    const result = TicketSchema.safeParse(withRequirements);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.specs).toBe('## Overview\nSome specs');
+      expect(result.data.requirements).toBe('## Overview\nSome requirements');
     }
   });
 
@@ -126,6 +126,23 @@ describe('TicketSchema', () => {
     const badLink = { ...validTicket, link: 'not-a-url' };
     const result = TicketSchema.safeParse(badLink);
     expect(result.success).toBe(false);
+  });
+
+  it('accepts ticket with affectedRepositories', () => {
+    const withRepos = { ...validTicket, affectedRepositories: ['/path/1', '/path/2'] };
+    const result = TicketSchema.safeParse(withRepos);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.affectedRepositories).toEqual(['/path/1', '/path/2']);
+    }
+  });
+
+  it('accepts ticket without affectedRepositories', () => {
+    const result = TicketSchema.safeParse(validTicket);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.affectedRepositories).toBeUndefined();
+    }
   });
 });
 
@@ -319,10 +336,10 @@ describe('Status enums', () => {
     }
   });
 
-  it('SpecStatusSchema accepts valid statuses', () => {
+  it('RequirementStatusSchema accepts valid statuses', () => {
     const valid = ['pending', 'approved'];
     for (const status of valid) {
-      expect(SpecStatusSchema.safeParse(status).success).toBe(true);
+      expect(RequirementStatusSchema.safeParse(status).success).toBe(true);
     }
   });
 });

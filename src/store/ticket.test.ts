@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { allTicketsApproved, formatTicketDisplay, getPendingTickets, groupTicketsByProject } from './ticket.ts';
+import {
+  allRequirementsApproved,
+  formatTicketDisplay,
+  getPendingRequirements,
+  groupTicketsByProject,
+} from './ticket.ts';
 import type { Ticket } from '@src/schemas/index.ts';
 
 function createTicket(overrides: Partial<Ticket> & { title: string; projectName: string }): Ticket {
@@ -8,8 +13,8 @@ function createTicket(overrides: Partial<Ticket> & { title: string; projectName:
     externalId: undefined,
     description: undefined,
     link: undefined,
-    specStatus: 'pending',
-    specs: undefined,
+    requirementStatus: 'pending',
+    requirements: undefined,
     ...overrides,
   };
 }
@@ -60,54 +65,54 @@ describe('groupTicketsByProject', () => {
   });
 });
 
-describe('allTicketsApproved', () => {
+describe('allRequirementsApproved', () => {
   it('returns true when all tickets are approved', () => {
     const tickets = [
-      createTicket({ title: 'T1', projectName: 'app', specStatus: 'approved' }),
-      createTicket({ title: 'T2', projectName: 'app', specStatus: 'approved' }),
+      createTicket({ title: 'T1', projectName: 'app', requirementStatus: 'approved' }),
+      createTicket({ title: 'T2', projectName: 'app', requirementStatus: 'approved' }),
     ];
-    expect(allTicketsApproved(tickets)).toBe(true);
+    expect(allRequirementsApproved(tickets)).toBe(true);
   });
 
   it('returns false when some tickets are pending', () => {
     const tickets = [
-      createTicket({ title: 'T1', projectName: 'app', specStatus: 'approved' }),
-      createTicket({ title: 'T2', projectName: 'app', specStatus: 'pending' }),
+      createTicket({ title: 'T1', projectName: 'app', requirementStatus: 'approved' }),
+      createTicket({ title: 'T2', projectName: 'app', requirementStatus: 'pending' }),
     ];
-    expect(allTicketsApproved(tickets)).toBe(false);
+    expect(allRequirementsApproved(tickets)).toBe(false);
   });
 
   it('returns false for empty tickets', () => {
-    expect(allTicketsApproved([])).toBe(false);
+    expect(allRequirementsApproved([])).toBe(false);
   });
 
   it('returns false when all tickets are pending', () => {
-    const tickets = [createTicket({ title: 'T1', projectName: 'app', specStatus: 'pending' })];
-    expect(allTicketsApproved(tickets)).toBe(false);
+    const tickets = [createTicket({ title: 'T1', projectName: 'app', requirementStatus: 'pending' })];
+    expect(allRequirementsApproved(tickets)).toBe(false);
   });
 });
 
-describe('getPendingTickets', () => {
+describe('getPendingRequirements', () => {
   it('returns only pending tickets', () => {
     const tickets = [
-      createTicket({ title: 'Approved', projectName: 'app', specStatus: 'approved' }),
-      createTicket({ title: 'Pending1', projectName: 'app', specStatus: 'pending' }),
-      createTicket({ title: 'Pending2', projectName: 'app', specStatus: 'pending' }),
+      createTicket({ title: 'Approved', projectName: 'app', requirementStatus: 'approved' }),
+      createTicket({ title: 'Pending1', projectName: 'app', requirementStatus: 'pending' }),
+      createTicket({ title: 'Pending2', projectName: 'app', requirementStatus: 'pending' }),
     ];
 
-    const pending = getPendingTickets(tickets);
+    const pending = getPendingRequirements(tickets);
 
     expect(pending.length).toBe(2);
     expect(pending.map((t) => t.title)).toEqual(['Pending1', 'Pending2']);
   });
 
   it('returns empty array when all approved', () => {
-    const tickets = [createTicket({ title: 'T1', projectName: 'app', specStatus: 'approved' })];
-    expect(getPendingTickets(tickets)).toEqual([]);
+    const tickets = [createTicket({ title: 'T1', projectName: 'app', requirementStatus: 'approved' })];
+    expect(getPendingRequirements(tickets)).toEqual([]);
   });
 
   it('returns empty array for empty input', () => {
-    expect(getPendingTickets([])).toEqual([]);
+    expect(getPendingRequirements([])).toEqual([]);
   });
 });
 

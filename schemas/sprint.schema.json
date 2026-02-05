@@ -75,15 +75,20 @@
             "minLength": 1,
             "description": "Reference to project name (from projects.json)"
           },
-          "specStatus": {
+          "requirementStatus": {
             "type": "string",
             "enum": ["pending", "approved"],
             "default": "pending",
-            "description": "Status of specification refinement"
+            "description": "Status of requirement refinement"
           },
-          "specs": {
+          "affectedRepositories": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Repository paths selected during planning"
+          },
+          "requirements": {
             "type": "string",
-            "description": "Refined specifications (set during sprint refine)"
+            "description": "Refined requirements (set during sprint refine)"
           }
         }
       }

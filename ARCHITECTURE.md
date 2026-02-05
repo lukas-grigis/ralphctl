@@ -37,7 +37,7 @@ ralphctl/
 │   │       ├── index.ts     # Prompt builders
 │   │       ├── plan-auto.md
 │   │       ├── plan-interactive.md
-│   │       ├── spec-refine.md
+│   │       ├── ticket-refine.md
 │   │       └── task-execution.md
 │   ├── theme/               # Ralph Wiggum theme
 │   │   ├── index.ts         # Colors, quotes, emoji, banner constants
@@ -91,18 +91,23 @@ Named entity representing one or more related repositories.
 interface Project {
   name: string; // Slug (e.g., "my-app") - also serves as ID
   displayName: string; // Human-readable name
-  paths: string[]; // Array of repository paths (at least one)
+  repositories: Repository[]; // Array of repositories (at least one)
   description?: string; // Optional description
-  setupScript?: string; // Setup command (e.g., "npm install")
-  verifyScript?: string; // Verification command (e.g., "npm test")
+}
+
+interface Repository {
+  name: string; // Auto-derived from basename(path)
+  path: string; // Absolute path
+  setupScript?: string; // e.g., "npm install"
+  verifyScript?: string; // e.g., "npm test"
 }
 ```
 
 **Constraints:**
 
 - `name` must be lowercase alphanumeric with hyphens (slug format)
-- At least one path required
-- Paths validated as existing directories
+- At least one repository required
+- Repository paths validated as existing directories
 
 **Verification Script Resolution:**
 
@@ -116,7 +121,7 @@ Container for a planning session. Manages lifecycle from draft to execution to c
 
 ```typescript
 interface Sprint {
-  id: string; // Format: YYYY-MM-DD-<seq>-<uuid8>
+  id: string; // Format: YYYYMMDD-HHmmss-<slug>
   name: string; // Human-readable name
   status: 'draft' | 'active' | 'closed';
   createdAt: string; // ISO8601 datetime
@@ -128,7 +133,7 @@ interface Sprint {
 
 **Status transitions** (one-way only):
 
-- `draft` → `active`: Via `sprint activate` or auto-activated by `sprint start`
+- `draft` → `active`: Auto-activated by `sprint start`
 - `active` → `closed`: Via `sprint close`
 
 **Constraints:**
@@ -150,16 +155,18 @@ interface Ticket {
   description?: string; // Detailed requirements
   link?: string; // URL to issue tracker
   projectName: string; // References Project.name
-  specStatus: 'pending' | 'approved';
-  specs?: string; // Refined specs (markdown)
+  requirementStatus: 'pending' | 'approved';
+  requirements?: string; // Refined requirements (markdown)
+  affectedRepositories?: string[]; // Repository paths selected during planning
 }
 ```
 
 **Key behaviors:**
 
 - `projectName` references a project; tasks get paths from the project
-- `specs` populated during `sprint refine` phase
-- `specStatus` must be `approved` before `sprint plan`
+- `requirements` populated during `sprint refine` phase (pure requirements gathering)
+- `affectedRepositories` populated during `sprint plan` phase (implementation planning)
+- `requirementStatus` must be `approved` before `sprint plan`
 
 ### Task
 
@@ -219,11 +226,10 @@ generateUuid8(): string           // 8-char hex (for tickets, tasks)
 generateSprintId(): string        // YYYY-MM-DD-<seq>-<uuid8>
 ```
 
-**Sprint ID format:** `2024-12-15-001-a1b2c3d4`
+**Sprint ID format:** `20260204-154532-api-refactor`
 
-- Date prefix for human readability
-- Sequence number for same-day ordering
-- UUID suffix for uniqueness
+- Date-time prefix for lexicographic sorting
+- Human-readable slug (from name) or uuid8 (if no name)
 
 ## Store Layer
 
@@ -308,8 +314,8 @@ listTickets(sprintId?: string): Ticket[]
 getTicket(ticketId: string, sprintId?: string): Ticket
 getTicketByTitle(title: string, sprintId?: string): Ticket | undefined
 groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]>
-allTicketsApproved(tickets: Ticket[]): boolean
-getPendingTickets(tickets: Ticket[]): Ticket[]
+allRequirementsApproved(tickets: Ticket[]): boolean
+getPendingRequirements(tickets: Ticket[]): Ticket[]
 formatTicketDisplay(ticket: Ticket): string
 formatTicketId(ticket: Ticket): string
 ```
@@ -403,17 +409,17 @@ getEffectiveVerifyScript(project: Project | undefined, projectPath: string): str
 
 ### Prompt Templates (`claude/prompts/`)
 
-| Template              | Purpose                      | Variables                                      | Mode        |
-| --------------------- | ---------------------------- | ---------------------------------------------- | ----------- |
-| `spec-refine.md`      | Refine ticket specifications | `{{TICKETS}}`, `{{OUTPUT_FILE}}`               | Interactive |
-| `plan-interactive.md` | Plan tasks with iteration    | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}` | Interactive |
-| `plan-auto.md`        | Headless task generation     | `{{CONTEXT}}`, `{{SCHEMA}}`                    | Auto        |
-| `task-execution.md`   | Implement a task             | `{{PROGRESS_FILE}}`, `{{COMMIT_INSTRUCTION}}`  | All modes   |
+| Template              | Purpose                                             | Variables                                      | Mode        |
+| --------------------- | --------------------------------------------------- | ---------------------------------------------- | ----------- |
+| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`                | Interactive |
+| `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}` | Interactive |
+| `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                    | Auto        |
+| `task-execution.md`   | Implement a task                                    | `{{PROGRESS_FILE}}`, `{{COMMIT_INSTRUCTION}}`  | All modes   |
 
 ### Prompt Builders
 
 ```typescript
-buildSpecRefinePrompt(ticketsContent: string, outputFile: string): string
+buildTicketRefinePrompt(ticketContent: string, outputFile: string): string
 buildInteractivePrompt(context: string, outputFile: string, schema: string): string
 buildAutoPrompt(context: string, schema: string): string
 buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean): string
@@ -446,10 +452,17 @@ ralphctl-data/                    # Git-ignored
 ├── config.json                   # Global config
 ├── projects.json                 # Project definitions
 └── sprints/
-    └── <sprint-id>/              # e.g., 2024-12-15-001-a1b2c3d4/
+    └── <sprint-id>/              # e.g., 20260204-154532-api-refactor/
         ├── sprint.json           # Sprint + tickets
         ├── tasks.json            # Task array
-        └── progress.md           # Append-only log
+        ├── progress.md           # Append-only log
+        ├── refinement/           # Created by `sprint refine`
+        │   └── <ticket-id>/
+        │       ├── refine-context.md    # Prompt/context sent to Claude
+        │       └── requirements.json    # Claude's refined requirements
+        └── planning/             # Created by `sprint plan`
+            ├── planning-context.md  # Prompt/context sent to Claude
+            └── tasks.json           # Claude's generated tasks (before import)
 ```
 
 ### Storage Utilities (`utils/storage.ts`)
@@ -512,29 +525,39 @@ Two-pass import:
 
 ## Two-Phase Planning
 
-### Phase 1: Specification Refinement (`sprint refine`)
+### Phase 1: Requirements Refinement (`sprint refine`)
 
-1. Load pending tickets (`specStatus: 'pending'`)
-2. Group by `projectName`
-3. For each project:
-   - Get all paths from project
-   - Write temp context file
+Focus: Clarify WHAT needs to be done (implementation-agnostic)
+
+1. Load pending tickets (`requirementStatus: 'pending'`)
+2. For each ticket:
+   - Display ticket details
    - Spawn interactive Claude session
-   - Claude explores codebase (all project paths), asks questions
-   - User selects answers via prompts
-   - Claude writes specs to temp JSON file
-4. Parse specs, match to tickets by ID or title
-5. Update `ticket.specs` and set `specStatus: 'approved'`
+   - Claude asks clarifying questions about requirements and acceptance criteria
+   - **NO code exploration** - pure requirements gathering
+   - User answers via selection UI
+   - Claude writes refined requirements to temp JSON file
+3. Parse requirements, match to tickets by ID or title
+4. Update `ticket.requirements` and set `requirementStatus: 'approved'`
 
 ### Phase 2: Task Generation (`sprint plan`)
 
+Focus: Determine HOW it will be implemented
+
 1. Verify all tickets are `approved`
-2. Build context with refined specs
-3. Interactive: User iterates with Claude
-4. Auto: Claude generates tasks headlessly
-5. Parse JSON output
-6. Validate dependencies
-7. Import tasks (two-pass for ID resolution)
+2. For each ticket:
+   - Claude analyzes approved requirements
+   - Claude proposes which repositories are affected
+   - User confirms repository selection (checkbox UI)
+   - Selection saved to `ticket.affectedRepositories`
+   - Claude explores ONLY the confirmed repos
+   - Claude generates tasks with dependencies
+3. Build context with refined requirements and codebase analysis
+4. Interactive: User iterates with Claude
+5. Auto: Claude generates tasks headlessly
+6. Parse JSON output
+7. Validate dependencies
+8. Import tasks (two-pass for ID resolution)
 
 ## Error Handling
 
@@ -596,19 +619,19 @@ pnpm test:coverage  # Coverage report
 
 ## TODO / Future Considerations
 
-### Run setupScript on sprint activate
+### Run setupScript on sprint start
 
-Currently `setupScript` is stored on Project but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
+Currently `setupScript` is stored on Repository but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
 
 **Potential implementation:**
 
 ```
-sprint activate:
+sprint start (during activation):
   for each unique projectPath in tasks:
-    if project.setupScript:
+    if repository.setupScript:
       run setupScript in projectPath
       if fails: abort activation with error
-  proceed to activate sprint
+  proceed to activate and start sprint
 ```
 
 **Considerations:**

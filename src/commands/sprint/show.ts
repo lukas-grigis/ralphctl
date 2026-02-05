@@ -65,8 +65,9 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
     for (const [projectName, tickets] of ticketsByProject) {
       log.raw(`${icons.project}  ${projectName}`, 2);
       for (const ticket of tickets) {
-        const specBadge = ticket.specStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'warning');
-        log.raw(`${icons.bullet}  ${formatTicketDisplay(ticket)} ${specBadge}`, 3);
+        const reqBadge =
+          ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'warning');
+        log.raw(`${icons.bullet}  ${formatTicketDisplay(ticket)} ${reqBadge}`, 3);
       }
       log.newline();
     }

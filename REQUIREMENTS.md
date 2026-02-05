@@ -54,11 +54,11 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 **Solution:** Strict state transitions with operation constraints:
 
-| State    | Allowed Operations                         |
-| -------- | ------------------------------------------ |
-| `draft`  | Add/remove tickets, refine, plan, activate |
-| `active` | Execute tasks, update status, log, close   |
-| `closed` | Read-only (show, list, context)            |
+| State    | Allowed Operations                                      |
+| -------- | ------------------------------------------------------- |
+| `draft`  | Add/remove tickets, refine requirements, plan, activate |
+| `active` | Execute tasks, update status, log, close                |
+| `closed` | Read-only (show, list, context)                         |
 
 **Design Decision:** State constraints are enforced at the service layer with clear error messages and hints. Multiple sprints can be active simultaneously (useful for parallel work in different terminals).
 
@@ -91,23 +91,31 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 **Solution:** Two distinct phases with user approval gates:
 
-**Phase 1 - Specification Refinement (`sprint refine`):**
+**Phase 1 - Requirements Refinement (`sprint refine`):**
 
-- Claude explores each project's codebase (all paths in the project)
-- Asks clarifying questions with selection UI
-- User approves refined specifications
-- Specs stored in tickets for Phase 2
+Focus: **WHAT** needs to be done (implementation-agnostic)
 
-_Rationale:_ The person requesting work often doesn't know implementation details. This phase translates intent into actionable specs while the requester can still course-correct.
+- Claude asks clarifying questions about requirements and acceptance criteria
+- User answers via selection UI
+- User approves refined requirements
+- Requirements stored in tickets for Phase 2
+- **NO code exploration** - pure requirements gathering
+- **NO repository selection** - deferred to Phase 2
+
+_Rationale:_ The person requesting work often doesn't know implementation details. This phase focuses purely on clarifying WHAT needs to be built, without getting distracted by HOW. Separating concerns prevents premature technical decisions.
 
 **Phase 2 - Task Generation (`sprint plan`):**
 
-- Uses approved specs to generate implementation tasks
-- Checks existing SPECIFICATIONS.md for conflicts
+Focus: **HOW** it will be implemented
+
+- Claude proposes which repositories are affected based on approved requirements
+- User confirms repository selection (checkbox UI)
+- Selection saved to `ticket.affectedRepositories`
+- Claude explores ONLY the confirmed repos
 - Creates dependency-ordered task breakdown
 - Each task has precise steps referencing actual files
 
-_Rationale:_ Tasks generated from refined specs are more accurate. Checking for conflicts prevents duplicate work. Dependencies ensure correct execution order.
+_Rationale:_ With clear requirements from Phase 1, Claude can make informed decisions about which repos to explore and how to split the work. User confirmation prevents scope creep. Dependencies ensure correct execution order.
 
 ### Why Tasks Have Dependencies?
 
@@ -237,9 +245,12 @@ _Rationale:_ This allows `ralphctl sprint show` to inspect any sprint, while `sp
 
 - [ ] Tickets require `projectName` referencing existing project
 - [ ] Tickets get auto-generated internal `id`
-- [ ] `specStatus` starts as `pending`
-- [ ] `sprint refine` sets `specStatus` to `approved`
+- [ ] `requirementStatus` starts as `pending`
+- [ ] `sprint refine` clarifies requirements (no code exploration)
+- [ ] `sprint refine` sets `requirementStatus` to `approved`
+- [ ] `sprint plan` proposes affected repos based on requirements
 - [ ] `sprint plan` requires all tickets `approved`
+- [ ] Repository selection saved to `ticket.affectedRepositories` during planning
 
 ### Task Execution
 

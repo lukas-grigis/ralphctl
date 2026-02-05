@@ -15,7 +15,7 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 ## Features
 
-- Two-phase AI planning (refine specs → generate tasks)
+- Two-phase AI planning (refine requirements → plan tasks)
 - Multi-project/multi-repo support
 - Interactive and headless execution modes
 - Task dependencies with topological ordering
@@ -46,10 +46,10 @@ ralphctl sprint create --name "v1.0 features"
 # 3. Add tickets
 ralphctl ticket add --project my-app --title "Add user authentication"
 
-# 4. Refine specs with AI
+# 4. Refine requirements with AI
 ralphctl sprint refine
 
-# 5. Plan tasks with AI
+# 5. Plan tasks with AI (includes repo selection)
 ralphctl sprint plan
 
 # 6. Execute with Claude
@@ -62,15 +62,15 @@ See [CLAUDE.md](./CLAUDE.md) for complete command documentation.
 
 ### Key Commands
 
-| Command                  | Description                     |
-| ------------------------ | ------------------------------- |
-| `ralphctl`               | Interactive menu mode           |
-| `ralphctl project add`   | Add a project with repositories |
-| `ralphctl sprint create` | Start a new sprint              |
-| `ralphctl ticket add`    | Add work items to sprint        |
-| `ralphctl sprint refine` | AI-assisted spec refinement     |
-| `ralphctl sprint plan`   | Generate tasks from specs       |
-| `ralphctl sprint start`  | Execute tasks with Claude       |
+| Command                  | Description                         |
+| ------------------------ | ----------------------------------- |
+| `ralphctl`               | Interactive menu mode               |
+| `ralphctl project add`   | Add a project with repositories     |
+| `ralphctl sprint create` | Start a new sprint                  |
+| `ralphctl ticket add`    | Add work items to sprint            |
+| `ralphctl sprint refine` | AI-assisted requirements refinement |
+| `ralphctl sprint plan`   | Generate tasks from requirements    |
+| `ralphctl sprint start`  | Execute tasks with Claude           |
 
 ### Two Workflow Paths
 

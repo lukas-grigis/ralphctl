@@ -50,6 +50,14 @@ export function getProgressFilePath(sprintId: string): string {
   return join(getSprintDir(sprintId), 'progress.md');
 }
 
+export function getRefinementDir(sprintId: string, ticketId: string): string {
+  return join(getSprintDir(sprintId), 'refinement', ticketId);
+}
+
+export function getPlanningDir(sprintId: string): string {
+  return join(getSprintDir(sprintId), 'planning');
+}
+
 export function getSchemaPath(schemaName: string): string {
   return join(getRalphctlRoot(), 'schemas', schemaName);
 }

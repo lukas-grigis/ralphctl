@@ -67,7 +67,7 @@ export function assertSprintStatus(
       refine: 'Refinement can only be done on draft sprints.',
       plan: 'Planning can only be done on draft sprints.',
       activate: 'Sprint must be in draft status to activate.',
-      start: "Run 'ralphctl sprint activate' first.",
+      start: 'Sprint must be draft or active to start.',
       'update task status': 'Task status can only be updated during active execution.',
       'log progress': 'Progress can only be logged during active execution.',
       close: 'Sprint must be active to close.',
@@ -218,7 +218,7 @@ export async function getCurrentSprintOrThrow(): Promise<Sprint> {
 export async function getActiveSprintOrThrow(): Promise<Sprint> {
   const activeSprint = await findActiveSprint();
   if (!activeSprint) {
-    throw new Error('No active sprint. Use "ralphctl sprint activate" to activate a draft sprint.');
+    throw new Error('No active sprint. Use "ralphctl sprint start" to start a draft sprint.');
   }
   return activeSprint;
 }

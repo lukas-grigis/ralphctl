@@ -7,7 +7,7 @@ import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
 import { checkTaskPermissions } from '@src/claude/permissions.ts';
 import { getNextTask, getRemainingTasks, isTaskBlocked, updateTask, updateTaskStatus } from '@src/store/task.ts';
 import { filterProgressByProject, getProgress, logProgress } from '@src/store/progress.ts';
-import { getProgressFilePath } from '@src/utils/paths.ts';
+import { getProgressFilePath, getSprintDir } from '@src/utils/paths.ts';
 import { buildTaskExecutionPrompt } from '@src/claude/prompts/index.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { Project, Sprint, Task } from '@src/schemas/index.ts';
@@ -288,6 +288,7 @@ async function executeTaskWithClaude(
   sprintId: string
 ): Promise<ExecutionResult> {
   const projectPath = ctx.task.projectPath;
+  const sprintDir = getSprintDir(sprintId);
   const gitHistory = getRecentGitHistory(projectPath, 20);
   const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
   const allProgress = await getProgress(sprintId);
@@ -301,6 +302,7 @@ async function executeTaskWithClaude(
     if (options.session) {
       const result = spawnClaudeInteractive('Read .ralphctl-task-context.md and follow the instructions', {
         cwd: projectPath,
+        args: ['--add-dir', sprintDir],
       });
 
       if (result.error) {
@@ -327,6 +329,7 @@ async function executeTaskWithClaude(
       try {
         const output = await spawnClaudeHeadless({
           cwd: projectPath,
+          args: ['--add-dir', sprintDir],
           prompt: contextContent,
           onSignal: () => {
             spinner.stop();

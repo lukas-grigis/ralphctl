@@ -16,7 +16,7 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
   try {
     const ticket = await getTicket(ticketId);
 
-    const specBadge = ticket.specStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
+    const reqBadge = ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
 
     printHeader('Ticket Details');
     console.log(field('ID', ticket.id));
@@ -25,7 +25,7 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
     }
     console.log(field('Title', ticket.title));
     console.log(field('Project', ticket.projectName));
-    console.log(field('Specs', specBadge));
+    console.log(field('Requirements', reqBadge));
 
     // Get project repositories
     try {

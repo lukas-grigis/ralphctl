@@ -53,8 +53,8 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
       console.log('');
 
       for (const ticket of tickets) {
-        const specBadge = ticket.specStatus === 'approved' ? ' [approved]' : ' [pending]';
-        console.log(`#### ${formatTicketDisplay(ticket)}${specBadge}`);
+        const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
+        console.log(`#### ${formatTicketDisplay(ticket)}${reqBadge}`);
 
         if (ticket.description) {
           console.log('');
@@ -66,12 +66,12 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
           console.log(`Link: ${ticket.link}`);
         }
 
-        // Include refined specs if available
-        if (ticket.specs) {
+        // Include refined requirements if available
+        if (ticket.requirements) {
           console.log('');
-          console.log('**Refined Specifications:**');
+          console.log('**Refined Requirements:**');
           console.log('');
-          console.log(ticket.specs);
+          console.log(ticket.requirements);
         }
         console.log('');
       }

@@ -17,7 +17,7 @@ export function registerSprintCommands(program: Command): void {
     `
 Examples:
   $ ralphctl sprint create --name "Sprint 1"
-  $ ralphctl sprint refine              # Refine ticket specs with Claude
+  $ ralphctl sprint refine              # Refine ticket requirements with Claude
   $ ralphctl sprint plan --auto         # Generate tasks automatically
   $ ralphctl sprint start -s            # Start with interactive session
 `

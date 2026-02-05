@@ -33,7 +33,8 @@ export function spawnClaudeInteractive(prompt: string, options: SpawnSyncOptions
   const env = options.env ? { ...process.env, ...options.env } : undefined;
 
   // Build args: base args, then prompt as final argument if provided
-  const args = prompt ? [...baseArgs, prompt] : baseArgs;
+  // Use '--' separator so variadic options (like --add-dir) don't consume the prompt
+  const args = prompt ? [...baseArgs, '--', prompt] : baseArgs;
 
   const result = spawnSync('claude', args, {
     cwd: options.cwd,
