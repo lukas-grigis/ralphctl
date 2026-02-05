@@ -1,5 +1,4 @@
-import { readFile, unlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { error, info, muted, success, warning } from '@src/theme/index.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
@@ -12,7 +11,7 @@ import {
 } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getSchemaPath } from '@src/utils/paths.ts';
+import { getPlanningDir, getSchemaPath } from '@src/utils/paths.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
 import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
@@ -113,25 +112,25 @@ async function getSprintContext(
   return lines.join('\n');
 }
 
-async function invokeClaudeInteractive(prompt: string, primaryPath: string, additionalPaths: string[]): Promise<void> {
-  // Write full context to a file for reference
-  const contextFile = join(primaryPath, '.ralphctl-planning-context.md');
+async function invokeClaudeInteractive(prompt: string, repoPaths: string[], planDir: string): Promise<void> {
+  // Write full context to the planning directory for reference
+  const contextFile = join(planDir, 'planning-context.md');
   await writeFile(contextFile, prompt, 'utf-8');
 
   // Count tickets in the prompt for the summary
   const ticketCount = (prompt.match(/^####/gm) ?? []).length;
 
   // Build initial prompt that tells Claude to read the context file
-  const startPrompt = `I need help planning tasks for a sprint. The full planning context is in .ralphctl-planning-context.md (${String(ticketCount)} tickets). Please read that file now and follow the instructions to help me plan implementation tasks.`;
+  const startPrompt = `I need help planning tasks for a sprint. The full planning context is in planning-context.md (${String(ticketCount)} tickets). Please read that file now and follow the instructions to help me plan implementation tasks.`;
 
-  // Build args for Claude session
+  // Build args - all repo paths are added via --add-dir (neutral CWD in planning dir)
   const args: string[] = [];
-  for (const path of additionalPaths) {
+  for (const path of repoPaths) {
     args.push('--add-dir', path);
   }
 
   const result = spawnClaudeInteractive(startPrompt, {
-    cwd: primaryPath,
+    cwd: planDir,
     args,
     env: {
       // Load CLAUDE.md from --add-dir paths too
@@ -139,28 +138,21 @@ async function invokeClaudeInteractive(prompt: string, primaryPath: string, addi
     },
   });
 
-  // Clean up context file after session ends
-  try {
-    await unlink(contextFile);
-  } catch {
-    // Ignore cleanup errors
-  }
-
   if (result.error) {
     throw new Error(result.error);
   }
 }
 
-async function invokeClaudeAuto(prompt: string, primaryPath: string, additionalPaths: string[]): Promise<string> {
-  // Build args with --add-dir for additional paths and plan mode
+async function invokeClaudeAuto(prompt: string, repoPaths: string[], planDir: string): Promise<string> {
+  // Build args - all repo paths via --add-dir (neutral CWD in planning dir)
   const args: string[] = ['--permission-mode', 'plan', '--print'];
-  for (const path of additionalPaths) {
+  for (const path of repoPaths) {
     args.push('--add-dir', path);
   }
   args.push('-p', prompt);
 
   return spawnClaudeHeadless({
-    cwd: primaryPath,
+    cwd: planDir,
     args,
     env: {
       // Load CLAUDE.md from --add-dir paths too
@@ -362,13 +354,10 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     selectedPaths = await selectProjectPaths(reposByProject);
   }
 
-  const primaryPath = selectedPaths[0] ?? process.cwd();
-  const additionalPaths = selectedPaths.slice(1);
-
-  if (additionalPaths.length > 0) {
-    console.log(muted(`Paths: ${primaryPath} + ${String(additionalPaths.length)} additional`));
+  if (selectedPaths.length > 1) {
+    console.log(muted(`Paths: ${selectedPaths.join(', ')}`));
   } else {
-    console.log(muted(`Path: ${primaryPath}`));
+    console.log(muted(`Path: ${selectedPaths[0] ?? process.cwd()}`));
   }
 
   const context = await getSprintContext(
@@ -383,6 +372,10 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const contextChars = context.length;
   console.log(muted(`Context: ${String(contextLines)} lines, ${String(contextChars)} chars`));
 
+  // Create planning directory in the sprint's data folder
+  const planDir = getPlanningDir(id);
+  await mkdir(planDir, { recursive: true });
+
   if (options.auto) {
     // Headless mode - Claude generates and we import
     console.log(muted('Invoking Claude CLI (headless)...'));
@@ -390,7 +383,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
     let output: string;
     try {
-      output = await invokeClaudeAuto(prompt, primaryPath, additionalPaths);
+      output = await invokeClaudeAuto(prompt, selectedPaths, planDir);
     } catch (err) {
       if (err instanceof Error) {
         console.log(error(`\nFailed to invoke Claude: ${err.message}`));
@@ -442,14 +435,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     console.log(info(`\nImported ${String(imported)}/${String(parsedTasks.length)} tasks.\n`));
   } else {
     // Interactive mode - user iterates with Claude
-    const outputFile = join(tmpdir(), `ralphctl-tasks-${id}.json`);
+    const outputFile = join(planDir, 'tasks.json');
     const prompt = buildInteractivePrompt(context, outputFile, schema);
 
     console.log(muted('Starting interactive Claude session...'));
     console.log(muted(`When ready, ask Claude to write tasks to: ${outputFile}\n`));
 
     try {
-      await invokeClaudeInteractive(prompt, primaryPath, additionalPaths);
+      await invokeClaudeInteractive(prompt, selectedPaths, planDir);
     } catch (err) {
       if (err instanceof Error) {
         console.log(error(`\nFailed to invoke Claude: ${err.message}`));
@@ -508,13 +501,6 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       console.log(info('Importing tasks...'));
       const imported = await importTasks(parsedTasks, id);
       console.log(info(`\nImported ${String(imported)}/${String(parsedTasks.length)} tasks.\n`));
-
-      // Clean up temp file
-      try {
-        await unlink(outputFile);
-      } catch {
-        // Ignore cleanup errors
-      }
     } else {
       console.log(warning('No task file found.'));
       console.log(muted(`Expected: ${outputFile}`));

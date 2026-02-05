@@ -330,7 +330,14 @@ ralphctl-data/              # Git-ignored, all persistent data
 └── sprints/<sprint-id>/    # e.g., 20260204-154532-api-refactor/
     ├── sprint.json         # Sprint metadata + tickets
     ├── tasks.json          # Task array
-    └── progress.md         # Append-only log
+    ├── progress.md         # Append-only log
+    ├── refinement/         # Created by `sprint refine`
+    │   └── <ticket-id>/
+    │       ├── refine-context.md             # Prompt/context sent to Claude
+    │       └── requirements.json            # Claude's refined requirements
+    └── planning/           # Created by `sprint plan`
+        ├── planning-context.md  # Prompt/context sent to Claude
+        └── tasks.json           # Claude's generated tasks (before import)
 ```
 
 ## Development

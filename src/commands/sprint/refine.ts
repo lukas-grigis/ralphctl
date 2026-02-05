@@ -1,6 +1,5 @@
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { confirm } from '@inquirer/prompts';
 import { info } from '@src/theme/index.ts';
 import {
@@ -22,6 +21,7 @@ import { getProject } from '@src/store/project.ts';
 import { buildTicketRefinePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeInteractive } from '@src/claude/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
+import { getRefinementDir } from '@src/utils/paths.ts';
 import type { Ticket } from '@src/schemas/index.ts';
 
 interface RefineOptions {
@@ -96,22 +96,15 @@ function parseRequirementsFile(content: string): RefinedRequirement[] {
 
 async function runClaudeSession(workingDir: string, prompt: string, ticketTitle: string): Promise<void> {
   // Write full context to a file for reference
-  const contextFile = join(workingDir, '.ralphctl-refine-context.md');
+  const contextFile = join(workingDir, 'refine-context.md');
   await writeFile(contextFile, prompt, 'utf-8');
 
   // Build initial prompt that tells Claude to read the context file
-  const startPrompt = `I need help refining the requirements for "${ticketTitle}". The full context is in .ralphctl-refine-context.md. Please read that file now and follow the instructions to help refine the ticket requirements.`;
+  const startPrompt = `I need help refining the requirements for "${ticketTitle}". The full context is in refine-context.md. Please read that file now and follow the instructions to help refine the ticket requirements.`;
 
   const result = spawnClaudeInteractive(startPrompt, {
     cwd: workingDir,
   });
-
-  // Clean up context file after session ends
-  try {
-    await unlink(contextFile);
-  } catch {
-    // Ignore cleanup errors
-  }
 
   if (result.error) {
     throw new Error(result.error);
@@ -229,14 +222,14 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       continue;
     }
 
-    // Prepare Claude session
-    const outputFile = join(tmpdir(), `ralphctl-requirements-${ticket.id}-${String(Date.now())}.json`);
+    // Prepare Claude session - use sprint's refinement directory
+    const refineDir = getRefinementDir(id, ticket.id);
+    await mkdir(refineDir, { recursive: true });
+    const outputFile = join(refineDir, 'requirements.json');
     const ticketContent = formatTicketForPrompt(ticket);
     const prompt = buildTicketRefinePrompt(ticketContent, outputFile);
 
-    // Create temp directory for refinement session
-    const tempDir = await mkdtemp(join(tmpdir(), 'ralphctl-refine-'));
-    log.dim(`Working directory: ${tempDir}`);
+    log.dim(`Working directory: ${refineDir}`);
     log.dim(`Requirements output: ${outputFile}`);
     log.newline();
 
@@ -244,7 +237,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     spinner.start();
 
     try {
-      await runClaudeSession(tempDir, prompt, ticket.title);
+      await runClaudeSession(refineDir, prompt, ticket.title);
       spinner.succeed('Claude session completed');
     } catch (err) {
       spinner.fail('Claude session failed');
@@ -254,13 +247,6 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       log.newline();
       skipped++;
       continue;
-    } finally {
-      // Clean up temp directory
-      try {
-        await rm(tempDir, { recursive: true });
-      } catch {
-        // Ignore cleanup errors
-      }
     }
 
     log.newline();
@@ -337,13 +323,6 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       } else {
         log.dim('Requirements not approved. You can refine this ticket later.');
         skipped++;
-      }
-
-      // Clean up temp file
-      try {
-        await unlink(outputFile);
-      } catch {
-        // Ignore cleanup errors
       }
     } else {
       showWarning('No requirements file found from Claude session.');
