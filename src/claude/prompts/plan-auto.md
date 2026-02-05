@@ -115,18 +115,26 @@ Tasks execute in dependency order. Plan the sequence explicitly:
 
 Each task MUST specify which repository it executes in via `projectPath`.
 
+### Using Affected Repositories
+
+Each ticket includes an **Affected Repositories** field (set by the user during refinement) that tells you exactly which repos the ticket's work touches. **Use this as your primary guide for task assignment.**
+
 ### Rules
 
-1. **One repo per task** - Each task runs in exactly one repository directory
-2. **Use project paths** - The `projectPath` must be one of the paths listed for the project
-3. **Match work to repo** - Assign the path where the task's files live
+1. **Follow affected repos** - If a ticket specifies `Affected Repositories: frontend, backend`, tasks for that ticket MUST use those repo paths
+2. **One repo per task** - Each task runs in exactly one repository directory
+3. **Split by repo** - If a ticket affects multiple repos, create separate tasks per repo with proper dependencies
+4. **Use exact paths** - The `projectPath` must be one of the absolute paths listed in the project's Repositories section
 
 ### Multi-Repo Example
 
-If a ticket belongs to project "blinced" with paths:
+Ticket: "Add user notifications"
+**Affected Repositories:** commons, web-ui-v2
 
-- `/Users/dev/blinced/web-ui-v2`
-- `/Users/dev/blinced/commons`
+Project repositories:
+
+- **commons**: `/Users/dev/blinced/commons`
+- **web-ui-v2**: `/Users/dev/blinced/web-ui-v2`
 
 Tasks should be split by repo:
 

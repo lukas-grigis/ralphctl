@@ -1,56 +1,34 @@
 /**
  * CLI smoke tests - verify CLI layer works end-to-end.
- * Uses subprocess spawning, may be slower than service tests.
+ * Uses in-process CLI execution for speed (~100ms).
+ *
+ * Run with: pnpm test cli-smoke
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const exec = promisify(execFile);
+import { createTestEnv, createMultiProjectEnv } from '@src/test-utils/setup.ts';
+import { runCli, extractField, extractTaskIds } from '@src/test-utils/cli-runner.ts';
+import type { CliResult } from '@src/test-utils/cli-runner.ts';
 
 let testDir: string;
-let projectDir: string;
 let env: Record<string, string>;
+let cleanup: () => Promise<void>;
 
-async function cli(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
-  const cliPath = join(process.cwd(), 'src', 'cli.ts');
-  const tsxPath = join(process.cwd(), 'node_modules', '.bin', 'tsx');
-  try {
-    const result = await exec(tsxPath, [cliPath, ...args], {
-      env: { ...process.env, ...env },
-      cwd: process.cwd(),
-      timeout: 15000,
-    });
-    return { stdout: result.stdout, stderr: result.stderr, code: 0 };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; code?: number };
-    return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.code ?? 1 };
-  }
+async function cli(args: string[]): Promise<CliResult> {
+  return runCli(args, env);
 }
 
-describe('CLI Smoke Tests', { timeout: 30000 }, () => {
+describe('CLI Smoke Tests', { timeout: 5000 }, () => {
   beforeAll(async () => {
-    testDir = await mkdtemp(join(tmpdir(), 'ralphctl-smoke-'));
-    projectDir = await mkdtemp(join(tmpdir(), 'ralphctl-project-'));
-    env = { RALPHCTL_ROOT: testDir };
-
-    // Create new data directory structure
-    await mkdir(join(testDir, 'ralphctl-data'), { recursive: true });
-    await mkdir(join(testDir, 'ralphctl-data', 'sprints'), { recursive: true });
-    await writeFile(join(testDir, 'ralphctl-data', 'config.json'), JSON.stringify({ currentSprint: null }));
-    // Create projects.json with a test project
-    await writeFile(
-      join(testDir, 'ralphctl-data', 'projects.json'),
-      JSON.stringify([{ name: 'test-project', displayName: 'Test Project', paths: [projectDir] }])
-    );
+    const testEnv = await createTestEnv();
+    testDir = testEnv.testDir;
+    env = testEnv.env;
+    cleanup = testEnv.cleanup;
   });
 
   afterAll(async () => {
-    await rm(testDir, { recursive: true, force: true });
-    await rm(projectDir, { recursive: true, force: true });
+    await cleanup();
   });
 
   it('runs full workflow: sprint → ticket → task', async () => {
@@ -113,8 +91,7 @@ describe('CLI Smoke Tests', { timeout: 30000 }, () => {
     expect(addTask.code).toBe(0);
 
     // Extract task ID from output
-    const match = /ID:\s+(\S+)/.exec(addTask.stdout);
-    const taskId = match?.[1];
+    const taskId = extractField(addTask.stdout, 'ID');
     expect(taskId).toBeTruthy();
 
     // Activate sprint to allow status updates
@@ -156,73 +133,51 @@ describe('CLI Smoke Tests', { timeout: 30000 }, () => {
  * Simulates a realistic sprint workflow for a QA team setting up test automation.
  * Tests all CRUD operations on sprints, tickets, and tasks without invoking Claude.
  */
-describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
+describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
   let scenarioDir: string;
   let frontendDir: string;
   let backendDir: string;
   let scenarioEnv: Record<string, string>;
+  let scenarioCleanup: () => Promise<void>;
 
   // Helper to run CLI with scenario environment
-  async function scenarioCli(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
-    const cliPath = join(process.cwd(), 'src', 'cli.ts');
-    const tsxPath = join(process.cwd(), 'node_modules', '.bin', 'tsx');
-    try {
-      const result = await exec(tsxPath, [cliPath, ...args], {
-        env: { ...process.env, ...scenarioEnv },
-        cwd: process.cwd(),
-        timeout: 15000,
-      });
-      return { stdout: result.stdout, stderr: result.stderr, code: 0 };
-    } catch (err) {
-      const e = err as { stdout?: string; stderr?: string; code?: number };
-      return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.code ?? 1 };
-    }
+  async function scenarioCli(args: string[]): Promise<CliResult> {
+    return runCli(args, scenarioEnv);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SETUP: Create isolated test environment with two project directories
   // ═══════════════════════════════════════════════════════════════════════════
   beforeAll(async () => {
-    // Create isolated data directory
-    scenarioDir = await mkdtemp(join(tmpdir(), 'ralphctl-qa-scenario-'));
-    frontendDir = await mkdtemp(join(tmpdir(), 'ralphctl-frontend-'));
-    backendDir = await mkdtemp(join(tmpdir(), 'ralphctl-backend-'));
-    scenarioEnv = { RALPHCTL_ROOT: scenarioDir };
-
-    // Initialize data directory structure
-    await mkdir(join(scenarioDir, 'ralphctl-data'), { recursive: true });
-    await mkdir(join(scenarioDir, 'ralphctl-data', 'sprints'), { recursive: true });
-    await writeFile(join(scenarioDir, 'ralphctl-data', 'config.json'), JSON.stringify({ currentSprint: null }));
-
-    // Create two projects: frontend and backend
-    await writeFile(
-      join(scenarioDir, 'ralphctl-data', 'projects.json'),
-      JSON.stringify([
-        {
-          name: 'ecommerce-frontend',
-          displayName: 'E-Commerce Frontend',
-          repositories: [{ name: 'frontend', path: frontendDir }],
-          description: 'React storefront application',
-          verifyScript: 'npm test',
-        },
-        {
-          name: 'ecommerce-backend',
-          displayName: 'E-Commerce Backend',
-          repositories: [{ name: 'backend', path: backendDir }],
-          description: 'Node.js API service',
-          verifyScript: 'npm run test:unit',
-        },
-      ])
-    );
+    const multiEnv = await createMultiProjectEnv([
+      {
+        name: 'ecommerce-frontend',
+        displayName: 'E-Commerce Frontend',
+        description: 'React storefront application',
+        verifyScript: 'npm test',
+      },
+      {
+        name: 'ecommerce-backend',
+        displayName: 'E-Commerce Backend',
+        description: 'Node.js API service',
+        verifyScript: 'npm run test:unit',
+      },
+    ]);
+    scenarioDir = multiEnv.testDir;
+    const frontendPath = multiEnv.projectDirs.get('ecommerce-frontend');
+    const backendPath = multiEnv.projectDirs.get('ecommerce-backend');
+    if (!frontendPath || !backendPath) throw new Error('Project dirs not created');
+    frontendDir = frontendPath;
+    backendDir = backendPath;
+    scenarioEnv = multiEnv.env;
+    scenarioCleanup = multiEnv.cleanup;
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CLEANUP: Remove all temporary directories
   // ═══════════════════════════════════════════════════════════════════════════
   afterAll(async () => {
-    await rm(scenarioDir, { recursive: true, force: true });
-    await rm(frontendDir, { recursive: true, force: true });
-    await rm(backendDir, { recursive: true, force: true });
+    await scenarioCleanup();
   });
 
   it('runs complete QA automation sprint lifecycle', async () => {
@@ -410,7 +365,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     ]);
     expect(addTask1.code).toBe(0);
     expect(addTask1.stdout).toContain('Task added');
-    const task1Id = /ID:\s+(\S+)/.exec(addTask1.stdout)?.[1];
+    const task1Id = extractField(addTask1.stdout, 'ID');
     expect(task1Id).toBeTruthy();
     if (!task1Id) throw new Error('task1Id not found');
 
@@ -428,7 +383,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
       'Configure screenshots on failure',
     ]);
     expect(addTask2.code).toBe(0);
-    const task2Id = /ID:\s+(\S+)/.exec(addTask2.stdout)?.[1];
+    const task2Id = extractField(addTask2.stdout, 'ID');
     if (!task2Id) throw new Error('task2Id not found');
 
     const addTask3 = await scenarioCli([
@@ -443,7 +398,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
       'E2E tests for add-to-cart, cart review, and payment flow',
     ]);
     expect(addTask3.code).toBe(0);
-    const task3Id = /ID:\s+(\S+)/.exec(addTask3.stdout)?.[1];
+    const task3Id = extractField(addTask3.stdout, 'ID');
     if (!task3Id) throw new Error('task3Id not found');
 
     // Add tasks for QA-102 (API tests)
@@ -486,7 +441,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
       'QA-102',
     ]);
     expect(addTaskToRemove.code).toBe(0);
-    const taskToRemoveId = /ID:\s+(\S+)/.exec(addTaskToRemove.stdout)?.[1];
+    const taskToRemoveId = extractField(addTaskToRemove.stdout, 'ID');
     expect(taskToRemoveId).toBeTruthy();
     if (!taskToRemoveId) throw new Error('taskToRemoveId not found');
 
@@ -692,8 +647,8 @@ describe('QA Test Automation Sprint Scenario', { timeout: 120000 }, () => {
     // Mark remaining tasks as done before closing (close prompts for confirmation with incomplete tasks)
     const allTasksForClose = await scenarioCli(['task', 'list']);
     // Extract all task IDs from the output and mark them done
-    const taskIdMatches = allTasksForClose.stdout.match(/[a-f0-9]{8}/g) ?? [];
-    for (const tid of [...new Set(taskIdMatches)]) {
+    const taskIdMatches = extractTaskIds(allTasksForClose.stdout);
+    for (const tid of taskIdMatches) {
       await scenarioCli(['task', 'status', tid, 'done']);
     }
 

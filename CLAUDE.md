@@ -50,13 +50,18 @@ Use when you have high-level tickets that need AI help breaking down into tasks.
 
 ### Projects
 
-Projects are named entities with one or more repositories. Each repository has an auto-derived name (from the path basename) and path:
+Projects are named entities with one or more repositories. Each repository has:
+
+- Auto-derived name (from path basename)
+- Absolute path
+- Optional setup script (e.g., `npm install`)
+- Optional verify script (e.g., `npm test`)
 
 ```bash
 ralphctl project add --name my-app --display-name "My App" --path ~/frontend --path ~/backend
 ```
 
-This creates a project with two repositories named "frontend" and "backend".
+This creates a project with two repositories named "frontend" and "backend". In interactive mode, you'll be prompted to configure setup/verify scripts for each repository based on auto-detection.
 
 Tickets reference projects by name. Tasks get their execution path from a specific repository within the project.
 
@@ -105,17 +110,25 @@ Sprint status: `draft` → `active` → `closed`
 
 **Phase 1: Specification Refinement** (`ralphctl sprint refine`)
 
-- Claude explores each project's codebase (all repositories in the project)
-- Asks clarifying questions with selection UI
-- User approves refined specs
-- Specs stored in tickets (ralphctl's internal data)
-- Tickets marked as `specStatus: 'approved'`
+Per-ticket Human-In-The-Loop (HITL) refinement:
+
+1. For each pending ticket:
+   - Display ticket details (title, description, project)
+   - **User selects which repos are affected** (checkbox UI)
+   - Selection saved immediately to `ticket.affectedRepositories`
+   - Claude explores ONLY the selected repos
+   - Claude asks clarifying questions with selection UI
+   - User reviews and approves refined spec
+2. Specs stored in tickets, marked `specStatus: 'approved'`
+
+This design gives users explicit control over scope per ticket. The repo selection persists even if you skip a ticket or exit early - you won't need to re-select on the next run.
 
 **Phase 2: Task Generation** (`ralphctl sprint plan`)
 
 - Requires all tickets to have `specStatus: 'approved'`
-- Uses refined specs from tickets to plan tasks
-- Tasks get a specific projectPath from one of the project's repositories
+- Uses `affectedRepositories` from tickets to guide task assignment
+- Claude generates tasks split by repository with proper dependencies
+- Each task gets a `projectPath` matching one of the affected repos
 
 ## CLI Commands
 
@@ -137,10 +150,15 @@ ralphctl project repo remove <name> <path>   # Remove repository from project
 --display-name <name>   # Human-readable name (required)
 --path <path>           # Repository path (repeatable)
 --description <desc>    # Optional
---setup-script <cmd>    # Setup command (e.g., "npm install")
---verify-script <cmd>   # Verification command (e.g., "npm test")
 -n, --no-interactive    # Non-interactive mode
 ```
+
+In interactive mode, after adding each repository path, you'll be prompted to configure:
+
+- **Setup script** - Command to prepare the repo (e.g., `npm install`)
+- **Verify script** - Command to verify changes (e.g., `npm test`)
+
+Scripts are auto-detected based on project type (Node.js, Python, Go, Rust, Java).
 
 ### Sprint
 
@@ -522,22 +540,26 @@ ralphctl orchestrates Claude agents to execute tasks. The harness design is base
 - Logs git commit hash for each project path to progress.md
 - Enables diffing what changed during the sprint
 
-### Project Verification Scripts
+### Repository Verification Scripts
 
-Projects can optionally specify verification commands:
+Each repository within a project can have its own setup and verify scripts:
 
-```bash
-ralphctl project add --name my-app \
-  --verify-script "pnpm lint && pnpm test"
+```
+my-app/
+├── frontend/  → setupScript: "npm install", verifyScript: "npm test"
+├── backend/   → setupScript: "pip install -e .", verifyScript: "pytest"
+└── shared/    → setupScript: "pnpm install", verifyScript: "pnpm typecheck"
 ```
 
-**Resolution order:**
+Scripts are configured per-repository during `project add` (interactive mode auto-detects based on project type).
 
-1. Explicit `verifyScript` on project (recommended)
+**Resolution order for verification:**
+
+1. Explicit `verifyScript` on the repository (recommended)
 2. Auto-detection from package.json/pyproject.toml/etc. (convenience fallback)
-3. Agent reads target project's CLAUDE.md (ultimate fallback)
+3. Agent reads target repository's CLAUDE.md (ultimate fallback)
 
-The article recommends projects provide their own verification scripts (like `init.sh`). Auto-detection is a convenience but explicit scripts are preferred.
+The Anthropic harness article recommends projects provide their own verification scripts. Auto-detection is a convenience but explicit scripts are preferred.
 
 ### Exit Codes
 

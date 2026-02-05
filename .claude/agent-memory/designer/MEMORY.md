@@ -161,3 +161,80 @@ printBox(['Line 1', 'Line 2']);
 | Next action    | `showNextStep(cmd, desc?)`  |
 | List item      | `log.item(text)`            |
 | 2-space indent | `INDENT = '  '` constant    |
+
+## HITL (Human-In-The-Loop) Flow Pattern
+
+**Use case:** Multi-step processes that iterate over entities with user decisions at each step.
+
+**Example:** `sprint refine` - per-ticket specification refinement.
+
+### Flow Structure
+
+```typescript
+// 1. Initial summary
+printHeader('Process Name', icons.entity);
+console.log(field('Context', value));
+log.newline();
+
+// 2. Loop over entities
+for (let i = 0; i < entities.length; i++) {
+  const entity = entities[i];
+
+  // Show entity card with progress
+  printSeparator(60);
+  console.log('');
+  console.log(`  ${icons.entity}  ${info(`Entity ${i + 1} of ${entities.length}`)}`);
+  console.log('');
+  console.log(field('Name', entity.name));
+  console.log(field('Details', entity.details));
+  log.newline();
+
+  // User decision point
+  const proceed = await confirm({
+    message: `${emoji.donut} Process this entity?`,
+    default: true,
+  });
+
+  if (!proceed) {
+    log.dim('Skipped.');
+    skipped++;
+    continue;
+  }
+
+  // Do work
+  const spinner = createSpinner('Processing...');
+  spinner.start();
+  try {
+    await doWork(entity);
+    spinner.succeed('Completed');
+    approved++;
+  } catch (err) {
+    spinner.fail('Failed');
+    showError(err.message);
+    skipped++;
+  }
+
+  log.newline();
+}
+
+// 3. Final summary
+printSeparator(60);
+log.newline();
+printHeader('Summary', icons.success);
+console.log(field('Approved', String(approved)));
+console.log(field('Skipped', String(skipped)));
+log.newline();
+```
+
+### Key Principles
+
+1. **Progress visibility** - Show "N of M" counters
+2. **Entity cards** - Clear visual separation with separators
+3. **User control** - Offer skip/proceed at each step
+4. **Spinner feedback** - Show async work progress
+5. **Running counts** - Track approved/skipped
+6. **Final summary** - Recap what happened
+
+### Real Example
+
+See `/Users/grigis/Workzone/grigis/ralphctl/src/commands/sprint/refine.ts` for the per-ticket refinement flow.

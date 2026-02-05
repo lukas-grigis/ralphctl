@@ -3,40 +3,27 @@
  * Tests real file I/O with isolated temp directories.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createTestEnv } from '@src/test-utils/setup.ts';
+import type { TestEnvironment } from '@src/test-utils/setup.ts';
 
 // Set RALPHCTL_ROOT before importing services
+let testEnv: TestEnvironment;
 let testDir: string;
 let projectDir: string;
 
 beforeEach(async () => {
-  testDir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
-  projectDir = await mkdtemp(join(tmpdir(), 'ralphctl-project-'));
+  testEnv = await createTestEnv();
+  testDir = testEnv.testDir;
+  projectDir = testEnv.projectDir;
   process.env['RALPHCTL_ROOT'] = testDir;
-
-  // Create new data directory structure
-  await mkdir(join(testDir, 'ralphctl-data'), { recursive: true });
-  await mkdir(join(testDir, 'ralphctl-data', 'sprints'), { recursive: true });
-  await writeFile(join(testDir, 'ralphctl-data', 'config.json'), JSON.stringify({ currentSprint: null }));
-  // Create projects.json with a test project (using new repositories format)
-  await writeFile(
-    join(testDir, 'ralphctl-data', 'projects.json'),
-    JSON.stringify([
-      {
-        name: 'test-project',
-        displayName: 'Test Project',
-        repositories: [{ name: 'test-project', path: projectDir }],
-      },
-    ])
-  );
 });
 
 afterEach(async () => {
   delete process.env['RALPHCTL_ROOT'];
-  await rm(testDir, { recursive: true, force: true });
-  await rm(projectDir, { recursive: true, force: true });
+  await testEnv.cleanup();
 });
 
 describe('Project Service', () => {

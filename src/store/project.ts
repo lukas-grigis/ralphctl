@@ -24,8 +24,8 @@ export class ProjectExistsError extends Error {
 }
 
 /**
- * Migration: Convert old paths format to new repositories format.
- * Detects old format and converts in place.
+ * Migration: Convert old paths[] format to repositories[] format.
+ * Non-production tool - minimal migration support.
  */
 interface LegacyProject {
   name: string;
@@ -33,47 +33,33 @@ interface LegacyProject {
   paths?: string[];
   repositories?: Repository[];
   description?: string;
-  setupScript?: string;
-  verifyScript?: string;
 }
 
 function migrateProjectIfNeeded(project: LegacyProject): Project {
   // Already in new format
-  if (project.repositories && !project.paths) {
-    return project as Project;
-  }
-
-  // Old format detected - migrate
-  if (project.paths && !project.repositories) {
-    const repositories: Repository[] = project.paths.map((p) => ({
-      name: basename(p),
-      path: p,
-    }));
-
-    const migrated: Project = {
-      name: project.name,
-      displayName: project.displayName,
-      repositories,
-      description: project.description,
-      setupScript: project.setupScript,
-      verifyScript: project.verifyScript,
-    };
-
-    return migrated;
-  }
-
-  // Has both - prefer repositories (shouldn't happen, but be safe)
   if (project.repositories) {
     return project as Project;
   }
 
-  // Neither - shouldn't happen with valid data
+  // Old paths[] format - convert to repositories[]
+  if (project.paths) {
+    return {
+      name: project.name,
+      displayName: project.displayName,
+      repositories: project.paths.map((p) => ({
+        name: basename(p),
+        path: p,
+      })),
+      description: project.description,
+    };
+  }
+
   throw new Error(`Invalid project data: no paths or repositories for ${project.name}`);
 }
 
 /**
  * Get all projects.
- * Handles migration from old paths format to new repositories format.
+ * Handles migration from old paths[] format to repositories[] format.
  */
 export async function listProjects(): Promise<Projects> {
   const filePath = getProjectsFilePath();
@@ -86,21 +72,16 @@ export async function listProjects(): Promise<Projects> {
   const content = await readFile(filePath, 'utf-8');
   const rawData = JSON.parse(content) as LegacyProject[];
 
-  // Check if any projects need migration
+  // Check if any projects need migration (old paths[] format)
   const needsMigration = rawData.some((p) => p.paths && !p.repositories);
 
   if (needsMigration) {
-    // Migrate all projects
     const migrated = rawData.map(migrateProjectIfNeeded);
-
-    // Validate and save
     const validated = ProjectsSchema.parse(migrated);
     await writeValidatedJson(filePath, validated, ProjectsSchema);
-
     return validated;
   }
 
-  // No migration needed - use normal validation
   return readValidatedJson(filePath, ProjectsSchema);
 }
 
@@ -149,10 +130,11 @@ export async function createProject(project: Project): Promise<Project> {
     throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
   }
 
-  // Resolve all paths to absolute and derive names
+  // Resolve all paths to absolute and derive names, preserving scripts
   const normalizedProject: Project = {
     ...project,
     repositories: project.repositories.map((repo) => ({
+      ...repo,
       name: repo.name || basename(repo.path),
       path: resolve(repo.path),
     })),
@@ -189,8 +171,9 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
     if (pathErrors.length > 0) {
       throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
     }
-    // Resolve paths to absolute and ensure names
+    // Resolve paths to absolute and ensure names, preserving scripts
     updates.repositories = updates.repositories.map((repo) => ({
+      ...repo,
       name: repo.name || basename(repo.path),
       path: resolve(repo.path),
     }));
@@ -206,8 +189,6 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
     displayName: updates.displayName ?? existingProject.displayName,
     repositories: updates.repositories ?? existingProject.repositories,
     description: updates.description ?? existingProject.description,
-    setupScript: updates.setupScript ?? existingProject.setupScript,
-    verifyScript: updates.verifyScript ?? existingProject.verifyScript,
   };
 
   projects[index] = updatedProject;

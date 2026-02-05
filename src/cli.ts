@@ -7,12 +7,13 @@ import { registerTaskCommands } from '@src/commands/task/index.ts';
 import { registerTicketCommands } from '@src/commands/ticket/index.ts';
 import { registerProgressCommands } from '@src/commands/progress/index.ts';
 import { error } from '@src/theme/index.ts';
+import { cliMetadata } from '@src/cli-metadata.ts';
 
 const program = new Command();
 program
-  .name('ralphctl')
-  .description('Sprint & task management for AI-assisted coding')
-  .version('0.1.0')
+  .name(cliMetadata.name)
+  .description(cliMetadata.description)
+  .version(cliMetadata.version)
   .addHelpText(
     'after',
     `
