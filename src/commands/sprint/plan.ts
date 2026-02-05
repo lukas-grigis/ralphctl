@@ -5,9 +5,9 @@ import { error, info, muted, success, warning } from '@src/theme/index.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import {
-  allTicketsApproved,
+  allRequirementsApproved,
   formatTicketDisplay,
-  getPendingTickets,
+  getPendingRequirements,
   groupTicketsByProject,
 } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
@@ -82,11 +82,6 @@ async function getSprintContext(
       lines.push('');
       lines.push(`#### ${formatTicketDisplay(ticket)}`);
 
-      // Show affected repositories (user-specified during refinement)
-      if (ticket.affectedRepositories && ticket.affectedRepositories.length > 0) {
-        lines.push(`**Affected Repositories:** ${ticket.affectedRepositories.join(', ')}`);
-      }
-
       if (ticket.description) {
         lines.push('');
         lines.push('**Original Description:**');
@@ -96,12 +91,12 @@ async function getSprintContext(
         lines.push('');
         lines.push(`Link: ${ticket.link}`);
       }
-      // Include refined specs if available
-      if (ticket.specs) {
+      // Include refined requirements if available
+      if (ticket.requirements) {
         lines.push('');
-        lines.push('**Refined Specifications:**');
+        lines.push('**Refined Requirements:**');
         lines.push('');
-        lines.push(ticket.specs);
+        lines.push(ticket.requirements);
       }
     }
   }
@@ -306,10 +301,10 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // Check if all tickets have approved specs
-  if (!allTicketsApproved(sprint.tickets)) {
-    const pendingTickets = getPendingTickets(sprint.tickets);
-    console.log(warning('\nNot all tickets have approved specs.'));
+  // Check if all tickets have approved requirements
+  if (!allRequirementsApproved(sprint.tickets)) {
+    const pendingTickets = getPendingRequirements(sprint.tickets);
+    console.log(warning('\nNot all tickets have approved requirements.'));
     console.log(muted(`Pending: ${String(pendingTickets.length)} ticket(s)`));
     for (const ticket of pendingTickets) {
       console.log(muted(`  - ${formatTicketDisplay(ticket)}`));

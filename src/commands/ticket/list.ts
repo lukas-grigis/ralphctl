@@ -19,8 +19,8 @@ export async function ticketListCommand(args: string[]): Promise<void> {
       const display = ticket.externalId
         ? `**${ticket.externalId}**: ${ticket.title}`
         : `[${ticket.id}] ${ticket.title}`;
-      const specBadge = ticket.specStatus === 'approved' ? ' [approved]' : ' [pending]';
-      console.log(`- ${display}${specBadge} (${ticket.projectName})`);
+      const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
+      console.log(`- ${display}${reqBadge} (${ticket.projectName})`);
     }
     console.log('');
     return;
@@ -44,9 +44,9 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     }
 
     for (const ticket of projectTickets) {
-      const specBadge = ticket.specStatus === 'approved' ? success(' [approved]') : muted(' [pending]');
+      const reqBadge = ticket.requirementStatus === 'approved' ? success(' [approved]') : muted(' [pending]');
 
-      console.log(`### ${formatTicketDisplay(ticket)}${specBadge}\n`);
+      console.log(`### ${formatTicketDisplay(ticket)}${reqBadge}\n`);
 
       if (ticket.description) {
         console.log('**Description:**\n');

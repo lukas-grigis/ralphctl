@@ -11,6 +11,16 @@ Before anything else, explore the project to understand its context:
 
 If the project has a CLAUDE.md, treat its instructions as authoritative for how to work in this codebase.
 
+## Step 1: Review Ticket Requirements
+
+Each ticket should have refined requirements from Phase 1 (Requirements Refinement):
+
+1. **Read the requirements** - Look for the ticket's refined requirements that clarify WHAT needs to be built
+2. **Understand constraints** - Note any business rules, acceptance criteria, or boundaries established during refinement
+3. **Check for open questions** - Identify any implementation details that need user input
+
+The requirements from Phase 1 are implementation-agnostic. Your job in Phase 2 is to determine HOW to implement them.
+
 ## Use Available Tools
 
 You have access to all your standard tools, specialized agents, and project-specific skills. Use them strategically:
@@ -79,11 +89,70 @@ Call the tool with structured questions:
 - Trade-offs (e.g., "Optimize for speed or memory?", "Strict typing or flexibility?")
 - Integration approach (e.g., "Extend existing module or create new one?")
 
+## Step 2: Identify Affected Repositories
+
+For each ticket, determine which repositories need changes:
+
+1. **Read the ticket's requirements** - Check if requirements indicate which repos are affected
+2. **Explore the codebase** - Understand where changes are needed based on existing patterns
+3. **Propose affected repositories** using AskUserQuestion:
+
+```json
+{
+  "questions": [
+    {
+      "question": "Which repositories are affected by this ticket?",
+      "header": "Repos",
+      "options": [
+        { "label": "frontend only (Recommended)", "description": "UI changes in frontend repo" },
+        { "label": "backend only", "description": "API changes in backend repo" },
+        { "label": "frontend + backend", "description": "Full-stack changes needed" }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
+```
+
+4. **Record selection for task assignment** - Use the selected repositories to assign `projectPath` to tasks
+
+**Rules:**
+
+- Base decisions on code exploration, not guessing
+- Consider shared types, utilities, and contracts between repos
+- Look for existing patterns of how cross-repo features are implemented
+- Don't assume - if unclear, ask the user
+
+## Step 3: Present Tasks for Review
+
+**SHOW BEFORE WRITE:**
+
+1. **Present each task in readable markdown:**
+
+   ```
+   ### Task 1: Create CSV export utility
+   **Repository:** /path/to/frontend
+   **Blocked by:** none
+
+   **Steps:**
+   1. Create src/utils/csvExport.ts with formatters
+   2. Add formatters for date/number types
+   3. Write tests in src/utils/__tests__/csvExport.test.ts
+   ```
+
+2. **Show the full task list** - Use markdown format, NOT JSON
+
+3. **Ask for confirmation:** "Does this task breakdown look correct? Any changes needed?"
+
+4. **ONLY AFTER USER CONFIRMS:** Write JSON to output file
+
 ## Your Mission
 
 1. **Explore the codebase** - Use the steps above
-2. **Discuss with the user** - Use AskUserQuestion for clarifications, propose approaches
-3. **Create task breakdown** - When the user approves, generate the final task list
+2. **Identify affected repos** - Determine which repositories each ticket impacts
+3. **Discuss with the user** - Use AskUserQuestion for clarifications, propose approaches
+4. **Present the task breakdown** - Show tasks in readable format for review
+5. **Write final tasks** - When the user approves, generate the final task JSON
 
 ## Sprint Context
 
@@ -185,11 +254,11 @@ Each task MUST specify which repository it executes in via `projectPath`.
 
 ### Using Affected Repositories
 
-Each ticket includes an **Affected Repositories** field (set by the user during refinement) that tells you exactly which repos the ticket's work touches. **Use this as your primary guide for task assignment.**
+You determine affected repositories during planning (Step 2) based on codebase exploration and user confirmation. **Use the selected repositories as your guide for task assignment.**
 
 ### Rules
 
-1. **Follow affected repos** - If a ticket specifies `Affected Repositories: frontend, backend`, tasks for that ticket MUST use those repo paths
+1. **Follow affected repos** - If a ticket's affected repositories are `frontend, backend`, tasks for that ticket MUST use those repo paths
 2. **One repo per task** - Each task runs in exactly one repository directory
 3. **Split by repo** - If a ticket affects multiple repos, create separate tasks per repo with proper dependencies
 4. **Use exact paths** - The `projectPath` must be one of the absolute paths listed in the project's Repositories section

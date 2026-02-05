@@ -166,7 +166,7 @@ printBox(['Line 1', 'Line 2']);
 
 **Use case:** Multi-step processes that iterate over entities with user decisions at each step.
 
-**Example:** `sprint refine` - per-ticket specification refinement.
+**Example:** `sprint refine` - per-ticket requirements refinement.
 
 ### Flow Structure
 

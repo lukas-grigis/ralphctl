@@ -70,7 +70,7 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
     description: input.description,
     link: input.link,
     projectName: input.projectName,
-    specStatus: 'pending',
+    requirementStatus: 'pending',
   };
 
   sprint.tickets.push(ticket);
@@ -180,17 +180,17 @@ export function groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]> 
 }
 
 /**
- * Check if all tickets have approved specs.
+ * Check if all tickets have approved requirements.
  */
-export function allTicketsApproved(tickets: Ticket[]): boolean {
-  return tickets.length > 0 && tickets.every((t) => t.specStatus === 'approved');
+export function allRequirementsApproved(tickets: Ticket[]): boolean {
+  return tickets.length > 0 && tickets.every((t) => t.requirementStatus === 'approved');
 }
 
 /**
- * Get tickets that still need spec refinement.
+ * Get tickets that still need requirement refinement.
  */
-export function getPendingTickets(tickets: Ticket[]): Ticket[] {
-  return tickets.filter((t) => t.specStatus === 'pending');
+export function getPendingRequirements(tickets: Ticket[]): Ticket[] {
+  return tickets.filter((t) => t.requirementStatus === 'pending');
 }
 
 /**

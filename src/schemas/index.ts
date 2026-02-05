@@ -8,9 +8,9 @@ export type SprintStatus = z.infer<typeof SprintStatusSchema>;
 export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
-// Spec status for tickets (pending → approved)
-export const SpecStatusSchema = z.enum(['pending', 'approved']);
-export type SpecStatus = z.infer<typeof SpecStatusSchema>;
+// Requirement status for tickets (pending → approved)
+export const RequirementStatusSchema = z.enum(['pending', 'approved']);
+export type RequirementStatus = z.infer<typeof RequirementStatusSchema>;
 
 // Repository schema (a single repository within a project)
 export const RepositorySchema = z.object({
@@ -46,8 +46,8 @@ export const TicketSchema = z.object({
   link: z.string().url().optional(),
   projectName: z.string().min(1), // References Project.name
   affectedRepositories: z.array(z.string()).optional(), // Repository names affected by this ticket
-  specStatus: SpecStatusSchema.default('pending'),
-  specs: z.string().optional(), // Refined specifications (set during sprint refine)
+  requirementStatus: RequirementStatusSchema.default('pending'),
+  requirements: z.string().optional(), // Refined requirements (set during sprint refine)
 });
 export type Ticket = z.infer<typeof TicketSchema>;
 

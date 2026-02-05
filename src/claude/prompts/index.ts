@@ -24,7 +24,7 @@ export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boo
   return template.replace('{{PROGRESS_FILE}}', progressFilePath).replace('{{COMMIT_INSTRUCTION}}', commitInstruction);
 }
 
-export function buildSpecRefinePrompt(ticketsContent: string, outputFile: string): string {
-  const template = loadTemplate('spec-refine');
+export function buildTicketRefinePrompt(ticketsContent: string, outputFile: string): string {
+  const template = loadTemplate('ticket-refine');
   return template.replace('{{TICKETS}}', ticketsContent).replace('{{OUTPUT_FILE}}', outputFile);
 }

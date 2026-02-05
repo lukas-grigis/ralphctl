@@ -115,13 +115,18 @@ Tasks execute in dependency order. Plan the sequence explicitly:
 
 Each task MUST specify which repository it executes in via `projectPath`.
 
-### Using Affected Repositories
+### Determining Affected Repositories
 
-Each ticket includes an **Affected Repositories** field (set by the user during refinement) that tells you exactly which repos the ticket's work touches. **Use this as your primary guide for task assignment.**
+During codebase exploration, identify which repositories each ticket affects:
+
+1. **Read ticket requirements** - Check for hints about scope and affected components
+2. **Explore the codebase** - Identify where changes are needed based on existing patterns
+3. **Determine affected repos** - Based on exploration, assign each task to the appropriate repository
+4. **No user interaction** - Make decisions autonomously based on codebase analysis
 
 ### Rules
 
-1. **Follow affected repos** - If a ticket specifies `Affected Repositories: frontend, backend`, tasks for that ticket MUST use those repo paths
+1. **Base on exploration** - Use codebase structure and patterns to determine which repos a ticket affects
 2. **One repo per task** - Each task runs in exactly one repository directory
 3. **Split by repo** - If a ticket affects multiple repos, create separate tasks per repo with proper dependencies
 4. **Use exact paths** - The `projectPath` must be one of the absolute paths listed in the project's Repositories section

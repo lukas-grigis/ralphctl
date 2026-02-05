@@ -18,8 +18,8 @@ If you notice inconsistencies or discrepancies, please raise an issue.
 1. Add projects       → ralphctl project add (define multi-repo projects)
 2. Create sprint      → ralphctl sprint create (draft, becomes current)
 3. Add tickets        → ralphctl ticket add --project <name> (repeat for each)
-4. Refine specs       → ralphctl sprint refine (Claude asks questions, user approves)
-5. Plan tasks         → ralphctl sprint plan (generates tasks from approved specs)
+4. Refine requirements → ralphctl sprint refine (Claude asks questions, user approves)
+5. Plan tasks         → ralphctl sprint plan (Claude explores repos, generates tasks)
 6. Start work         → ralphctl sprint start (auto-activates, executes tasks)
 7. Close sprint       → ralphctl sprint close (active → closed)
 ```
@@ -95,40 +95,46 @@ Multiple sprints can be active simultaneously (useful for parallel work in diffe
 
 Sprint status: `draft` → `active` → `closed`
 
-| Operation          | Draft | Active | Closed |
-| ------------------ | :---: | :----: | :----: |
-| Add/edit/rm ticket |   ✓   |   ✗    |   ✗    |
-| Refine specs       |   ✓   |   ✗    |   ✗    |
-| Plan/add tasks     |   ✓   |   ✗    |   ✗    |
-| Start (execute)    |  ✓\*  |   ✓    |   ✗    |
-| Update task status |   ✗   |   ✓    |   ✗    |
-| Close              |   ✗   |   ✓    |   ✗    |
+| Operation           | Draft | Active | Closed |
+| ------------------- | :---: | :----: | :----: |
+| Add/edit/rm ticket  |   ✓   |   ✗    |   ✗    |
+| Refine requirements |   ✓   |   ✗    |   ✗    |
+| Plan/add tasks      |   ✓   |   ✗    |   ✗    |
+| Start (execute)     |  ✓\*  |   ✓    |   ✗    |
+| Update task status  |   ✗   |   ✓    |   ✗    |
+| Close               |   ✗   |   ✓    |   ✗    |
 
 \*`sprint start` auto-activates draft sprints.
 
 ### Two-Phase Planning
 
-**Phase 1: Specification Refinement** (`ralphctl sprint refine`)
+**Phase 1: Requirements Refinement** (`ralphctl sprint refine`)
 
-Per-ticket Human-In-The-Loop (HITL) refinement:
+Per-ticket Human-In-The-Loop (HITL) clarification focused on WHAT needs to be done:
 
 1. For each pending ticket:
    - Display ticket details (title, description, project)
-   - **User selects which repos are affected** (checkbox UI)
-   - Selection saved immediately to `ticket.affectedRepositories`
-   - Claude explores ONLY the selected repos
-   - Claude asks clarifying questions with selection UI
-   - User reviews and approves refined spec
-2. Specs stored in tickets, marked `specStatus: 'approved'`
+   - Claude asks clarifying questions about requirements and acceptance criteria
+   - User answers via selection UI
+   - User reviews and approves refined requirements
+2. Requirements stored in tickets, marked `requirementStatus: 'approved'`
 
-This design gives users explicit control over scope per ticket. The repo selection persists even if you skip a ticket or exit early - you won't need to re-select on the next run.
+This phase is **implementation-agnostic**—no code exploration, no repository selection. It focuses purely on clarifying requirements and acceptance criteria.
 
 **Phase 2: Task Generation** (`ralphctl sprint plan`)
 
-- Requires all tickets to have `specStatus: 'approved'`
-- Uses `affectedRepositories` from tickets to guide task assignment
-- Claude generates tasks split by repository with proper dependencies
-- Each task gets a `projectPath` matching one of the affected repos
+Per-ticket HOW it will be implemented:
+
+1. Requires all tickets to have `requirementStatus: 'approved'`
+2. For each ticket:
+   - **Claude proposes which repositories are affected** based on approved requirements
+   - User reviews and confirms the proposed repositories (checkbox UI)
+   - Selection saved to `ticket.affectedRepositories`
+   - Claude explores ONLY the confirmed repos
+   - Claude generates tasks split by repository with proper dependencies
+3. Each task gets a `projectPath` matching one of the affected repos
+
+This phase focuses on implementation approach and task breakdown. The repo selection is persisted, so you can resume planning even if interrupted.
 
 ## CLI Commands
 
@@ -168,7 +174,7 @@ ralphctl sprint list               # List all sprints
 ralphctl sprint show               # Show current sprint details
 ralphctl sprint context            # Output full context (for planning)
 ralphctl sprint current [id|-]     # Show/set current sprint (- opens selector)
-ralphctl sprint refine [options]   # Refine ticket specifications (Phase 1)
+ralphctl sprint refine [options]   # Refine ticket requirements (Phase 1)
 ralphctl sprint plan [options]     # Plan tasks with Claude (Phase 2)
 ralphctl sprint start [options]    # Start implementation loop with Claude
 ralphctl sprint close              # Close active sprint

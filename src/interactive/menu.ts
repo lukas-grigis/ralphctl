@@ -56,7 +56,7 @@ export const subMenus: Record<string, SubMenu> = {
       { name: 'Context', value: 'context', description: 'Output full sprint context' },
       { name: 'Set Current', value: 'current', description: 'Set current sprint' },
       new Separator(),
-      { name: 'Refine', value: 'refine', description: 'Refine ticket specs' },
+      { name: 'Refine', value: 'refine', description: 'Refine ticket requirements' },
       { name: 'Plan', value: 'plan', description: 'Generate tasks' },
       new Separator(),
       { name: 'Start', value: 'start', description: 'Start implementation' },
