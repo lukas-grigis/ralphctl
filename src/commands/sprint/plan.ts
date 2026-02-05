@@ -123,11 +123,9 @@ async function invokeClaudeInteractive(prompt: string, repoPaths: string[], plan
   // Build initial prompt that tells Claude to read the context file
   const startPrompt = `I need help planning tasks for a sprint. The full planning context is in planning-context.md (${String(ticketCount)} tickets). Please read that file now and follow the instructions to help me plan implementation tasks.`;
 
-  // Build args - all repo paths are added via --add-dir (neutral CWD in planning dir)
-  const args: string[] = [];
-  for (const path of repoPaths) {
-    args.push('--add-dir', path);
-  }
+  // Build args - pass all repo paths in a single --add-dir to avoid variadic option
+  // consuming the positional prompt argument
+  const args: string[] = ['--add-dir', ...repoPaths];
 
   const result = spawnClaudeInteractive(startPrompt, {
     cwd: planDir,
