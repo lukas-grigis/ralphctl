@@ -548,7 +548,7 @@ ralphctl orchestrates Claude agents to execute tasks. The harness design is base
 - `<task-complete>` - task done
 - `<task-blocked>reason</task-blocked>` - task cannot proceed
 
-**Baseline tracking** (`sprint activate`):
+**Baseline tracking** (on `sprint start` activation):
 
 - Logs git commit hash for each project path to progress.md
 - Enables diffing what changed during the sprint

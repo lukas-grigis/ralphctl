@@ -45,7 +45,7 @@ export const TicketSchema = z.object({
   description: z.string().optional(),
   link: z.string().url().optional(),
   projectName: z.string().min(1), // References Project.name
-  affectedRepositories: z.array(z.string()).optional(), // Repository names affected by this ticket
+  affectedRepositories: z.array(z.string()).optional(), // Repository paths selected during planning
   requirementStatus: RequirementStatusSchema.default('pending'),
   requirements: z.string().optional(), // Refined requirements (set during sprint refine)
 });

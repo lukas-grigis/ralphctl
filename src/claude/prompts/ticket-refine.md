@@ -131,9 +131,9 @@ The `ref` field should match either:
 - The ticket's external ID (e.g., JIRA-123)
 - The exact ticket title
 
-## Tickets to Refine
+## Ticket to Refine
 
-{{TICKETS}}
+{{TICKET}}
 
 ---
 

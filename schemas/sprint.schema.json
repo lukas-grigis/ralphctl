@@ -81,6 +81,11 @@
             "default": "pending",
             "description": "Status of requirement refinement"
           },
+          "affectedRepositories": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Repository paths selected during planning"
+          },
           "requirements": {
             "type": "string",
             "description": "Refined requirements (set during sprint refine)"

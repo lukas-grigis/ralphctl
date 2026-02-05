@@ -91,18 +91,23 @@ Named entity representing one or more related repositories.
 interface Project {
   name: string; // Slug (e.g., "my-app") - also serves as ID
   displayName: string; // Human-readable name
-  paths: string[]; // Array of repository paths (at least one)
+  repositories: Repository[]; // Array of repositories (at least one)
   description?: string; // Optional description
-  setupScript?: string; // Setup command (e.g., "npm install")
-  verifyScript?: string; // Verification command (e.g., "npm test")
+}
+
+interface Repository {
+  name: string; // Auto-derived from basename(path)
+  path: string; // Absolute path
+  setupScript?: string; // e.g., "npm install"
+  verifyScript?: string; // e.g., "npm test"
 }
 ```
 
 **Constraints:**
 
 - `name` must be lowercase alphanumeric with hyphens (slug format)
-- At least one path required
-- Paths validated as existing directories
+- At least one repository required
+- Repository paths validated as existing directories
 
 **Verification Script Resolution:**
 
@@ -116,7 +121,7 @@ Container for a planning session. Manages lifecycle from draft to execution to c
 
 ```typescript
 interface Sprint {
-  id: string; // Format: YYYY-MM-DD-<seq>-<uuid8>
+  id: string; // Format: YYYYMMDD-HHmmss-<slug>
   name: string; // Human-readable name
   status: 'draft' | 'active' | 'closed';
   createdAt: string; // ISO8601 datetime
@@ -128,7 +133,7 @@ interface Sprint {
 
 **Status transitions** (one-way only):
 
-- `draft` → `active`: Via `sprint activate` or auto-activated by `sprint start`
+- `draft` → `active`: Auto-activated by `sprint start`
 - `active` → `closed`: Via `sprint close`
 
 **Constraints:**
@@ -152,7 +157,7 @@ interface Ticket {
   projectName: string; // References Project.name
   requirementStatus: 'pending' | 'approved';
   requirements?: string; // Refined requirements (markdown)
-  affectedRepositories?: string[]; // Repo paths selected during planning
+  affectedRepositories?: string[]; // Repository paths selected during planning
 }
 ```
 
@@ -221,11 +226,10 @@ generateUuid8(): string           // 8-char hex (for tickets, tasks)
 generateSprintId(): string        // YYYY-MM-DD-<seq>-<uuid8>
 ```
 
-**Sprint ID format:** `2024-12-15-001-a1b2c3d4`
+**Sprint ID format:** `20260204-154532-api-refactor`
 
-- Date prefix for human readability
-- Sequence number for same-day ordering
-- UUID suffix for uniqueness
+- Date-time prefix for lexicographic sorting
+- Human-readable slug (from name) or uuid8 (if no name)
 
 ## Store Layer
 
@@ -407,7 +411,7 @@ getEffectiveVerifyScript(project: Project | undefined, projectPath: string): str
 
 | Template              | Purpose                                             | Variables                                      | Mode        |
 | --------------------- | --------------------------------------------------- | ---------------------------------------------- | ----------- |
-| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKETS}}`, `{{OUTPUT_FILE}}`               | Interactive |
+| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`                | Interactive |
 | `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}` | Interactive |
 | `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                    | Auto        |
 | `task-execution.md`   | Implement a task                                    | `{{PROGRESS_FILE}}`, `{{COMMIT_INSTRUCTION}}`  | All modes   |
@@ -415,7 +419,7 @@ getEffectiveVerifyScript(project: Project | undefined, projectPath: string): str
 ### Prompt Builders
 
 ```typescript
-buildTicketRefinePrompt(ticketsContent: string, outputFile: string): string
+buildTicketRefinePrompt(ticketContent: string, outputFile: string): string
 buildInteractivePrompt(context: string, outputFile: string, schema: string): string
 buildAutoPrompt(context: string, schema: string): string
 buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean): string
@@ -448,10 +452,17 @@ ralphctl-data/                    # Git-ignored
 ├── config.json                   # Global config
 ├── projects.json                 # Project definitions
 └── sprints/
-    └── <sprint-id>/              # e.g., 2024-12-15-001-a1b2c3d4/
+    └── <sprint-id>/              # e.g., 20260204-154532-api-refactor/
         ├── sprint.json           # Sprint + tickets
         ├── tasks.json            # Task array
-        └── progress.md           # Append-only log
+        ├── progress.md           # Append-only log
+        ├── refinement/           # Created by `sprint refine`
+        │   └── <ticket-id>/
+        │       ├── refine-context.md    # Prompt/context sent to Claude
+        │       └── requirements.json    # Claude's refined requirements
+        └── planning/             # Created by `sprint plan`
+            ├── planning-context.md  # Prompt/context sent to Claude
+            └── tasks.json           # Claude's generated tasks (before import)
 ```
 
 ### Storage Utilities (`utils/storage.ts`)
@@ -608,19 +619,19 @@ pnpm test:coverage  # Coverage report
 
 ## TODO / Future Considerations
 
-### Run setupScript on sprint activate
+### Run setupScript on sprint start
 
-Currently `setupScript` is stored on Project but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
+Currently `setupScript` is stored on Repository but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
 
 **Potential implementation:**
 
 ```
-sprint activate:
+sprint start (during activation):
   for each unique projectPath in tasks:
-    if project.setupScript:
+    if repository.setupScript:
       run setupScript in projectPath
       if fails: abort activation with error
-  proceed to activate sprint
+  proceed to activate and start sprint
 ```
 
 **Considerations:**

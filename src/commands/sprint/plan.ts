@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { error, info, muted, success, warning } from '@src/theme/index.ts';
-import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
+import { createSpinner } from '@src/theme/ui.ts';
+import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import {
   allRequirementsApproved,
@@ -334,6 +335,17 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     }
   }
 
+  // Collect previously saved affected repos from tickets (for resumability)
+  const savedPaths = new Set<string>();
+  for (const ticket of sprint.tickets) {
+    if (ticket.affectedRepositories) {
+      for (const path of ticket.affectedRepositories) {
+        savedPaths.add(path);
+      }
+    }
+  }
+  const hasSavedSelection = savedPaths.size > 0;
+
   // Select which paths Claude should explore
   let selectedPaths: string[];
   const totalRepos = [...reposByProject.values()].reduce((n, repos) => n + repos.length, 0);
@@ -342,15 +354,31 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     // --all-paths: use all (opt-in to current slow behavior)
     selectedPaths = [...reposByProject.values()].flatMap((repos) => repos.map((r) => r.path));
   } else if (options.auto) {
-    // --auto: use first repo per project (smart default)
-    selectedPaths = defaultPaths;
+    // --auto: use saved selection or first repo per project
+    selectedPaths = hasSavedSelection ? [...savedPaths] : defaultPaths;
   } else if (totalRepos === defaultPaths.length) {
     // Only one repo per project - no selection needed
     selectedPaths = defaultPaths;
   } else {
-    // Multiple repos available - show checkbox
-    selectedPaths = await selectProjectPaths(reposByProject);
+    // Multiple repos available - show checkbox (pre-select saved paths if any)
+    selectedPaths = await selectProjectPaths(
+      reposByProject,
+      'Select paths for Claude to explore:',
+      hasSavedSelection ? [...savedPaths] : undefined
+    );
   }
+
+  // Persist selected paths to ticket.affectedRepositories
+  for (const ticket of sprint.tickets) {
+    const projectRepos = reposByProject.get(ticket.projectName);
+    if (projectRepos) {
+      const projectRepoPaths = new Set(projectRepos.map((r) => r.path));
+      ticket.affectedRepositories = selectedPaths.filter((p) => projectRepoPaths.has(p));
+    } else {
+      ticket.affectedRepositories = [];
+    }
+  }
+  await saveSprint(sprint);
 
   if (selectedPaths.length > 1) {
     console.log(muted(`Paths: ${selectedPaths.join(', ')}`));
@@ -376,13 +404,16 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
   if (options.auto) {
     // Headless mode - Claude generates and we import
-    console.log(muted('Invoking Claude CLI (headless)...'));
     const prompt = buildAutoPrompt(context, schema);
+    const spinner = createSpinner('Claude is planning tasks...');
+    spinner.start();
 
     let output: string;
     try {
       output = await invokeClaudeAuto(prompt, selectedPaths, planDir);
+      spinner.succeed('Claude finished planning');
     } catch (err) {
+      spinner.fail('Claude planning failed');
       if (err instanceof Error) {
         console.log(error(`\nFailed to invoke Claude: ${err.message}`));
         console.log(muted('Make sure the claude CLI is installed and configured.\n'));
@@ -436,8 +467,13 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     const outputFile = join(planDir, 'tasks.json');
     const prompt = buildInteractivePrompt(context, outputFile, schema);
 
-    console.log(muted('Starting interactive Claude session...'));
-    console.log(muted(`When ready, ask Claude to write tasks to: ${outputFile}\n`));
+    console.log(info('Starting interactive Claude session...\n'));
+    console.log(
+      muted(`  Planning ${String(sprint.tickets.length)} ticket(s) across ${String(ticketsByProject.size)} project(s)`)
+    );
+    console.log(muted(`  Exploring: ${selectedPaths.join(', ')}`));
+    console.log(muted(`\n  Claude will read planning-context.md and explore the repos.`));
+    console.log(muted(`  When done, ask Claude to write tasks to: ${outputFile}\n`));
 
     try {
       await invokeClaudeInteractive(prompt, selectedPaths, planDir);

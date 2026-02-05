@@ -175,20 +175,23 @@ export async function inputPositiveInt(message: string): Promise<number> {
 
 /**
  * Select project repositories for Claude to explore.
- * First repository per project is pre-selected by default.
+ * If preSelected is provided, those paths are checked by default.
+ * Otherwise, the first repository per project is pre-selected.
  */
 export async function selectProjectPaths(
   reposByProject: Map<string, Repository[]>,
-  message = 'Select paths for Claude to explore:'
+  message = 'Select paths for Claude to explore:',
+  preSelected?: string[]
 ): Promise<string[]> {
   const choices: { name: string; value: string; checked: boolean }[] = [];
+  const preSelectedSet = preSelected ? new Set(preSelected) : null;
 
   for (const [projectName, repos] of reposByProject) {
     repos.forEach((repo, i) => {
       choices.push({
         name: `[${projectName}] ${repo.name} (${repo.path})`,
         value: repo.path,
-        checked: i === 0, // First repo per project pre-selected
+        checked: preSelectedSet ? preSelectedSet.has(repo.path) : i === 0,
       });
     });
   }

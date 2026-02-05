@@ -24,6 +24,6 @@ export async function sprintListCommand(): Promise<void> {
   if (hasActive) {
     console.log(muted('\n  * = active sprint\n'));
   } else {
-    console.log(muted('\nNo active sprint. Activate with: ralphctl sprint activate <id>\n'));
+    console.log(muted('\nNo active sprint. Start with: ralphctl sprint start\n'));
   }
 }

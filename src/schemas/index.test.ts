@@ -127,6 +127,23 @@ describe('TicketSchema', () => {
     const result = TicketSchema.safeParse(badLink);
     expect(result.success).toBe(false);
   });
+
+  it('accepts ticket with affectedRepositories', () => {
+    const withRepos = { ...validTicket, affectedRepositories: ['/path/1', '/path/2'] };
+    const result = TicketSchema.safeParse(withRepos);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.affectedRepositories).toEqual(['/path/1', '/path/2']);
+    }
+  });
+
+  it('accepts ticket without affectedRepositories', () => {
+    const result = TicketSchema.safeParse(validTicket);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.affectedRepositories).toBeUndefined();
+    }
+  });
 });
 
 describe('SprintSchema', () => {
