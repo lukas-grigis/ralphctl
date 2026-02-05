@@ -1,4 +1,4 @@
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { confirm } from '@inquirer/prompts';
@@ -234,8 +234,9 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     const ticketContent = formatTicketForPrompt(ticket);
     const prompt = buildTicketRefinePrompt(ticketContent, outputFile);
 
-    const workingDir = process.cwd();
-    log.dim(`Working directory: ${workingDir}`);
+    // Create temp directory for refinement session
+    const tempDir = await mkdtemp(join(tmpdir(), 'ralphctl-refine-'));
+    log.dim(`Working directory: ${tempDir}`);
     log.dim(`Requirements output: ${outputFile}`);
     log.newline();
 
@@ -243,7 +244,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     spinner.start();
 
     try {
-      await runClaudeSession(workingDir, prompt, ticket.title);
+      await runClaudeSession(tempDir, prompt, ticket.title);
       spinner.succeed('Claude session completed');
     } catch (err) {
       spinner.fail('Claude session failed');
@@ -253,6 +254,13 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       log.newline();
       skipped++;
       continue;
+    } finally {
+      // Clean up temp directory
+      try {
+        await rm(tempDir, { recursive: true });
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
     log.newline();
