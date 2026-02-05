@@ -23,6 +23,7 @@ import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
 
 // Command imports - ticket
 import { ticketAddCommand } from '@src/commands/ticket/add.ts';
+import { ticketEditCommand } from '@src/commands/ticket/edit.ts';
 import { ticketListCommand } from '@src/commands/ticket/list.ts';
 import { ticketShowCommand } from '@src/commands/ticket/show.ts';
 import { ticketRemoveCommand } from '@src/commands/ticket/remove.ts';
@@ -77,6 +78,7 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
   },
   ticket: {
     add: () => ticketAddCommand({ interactive: true }),
+    edit: () => ticketEditCommand(undefined, { interactive: true }),
     list: () => ticketListCommand([]),
     show: () => ticketShowCommand([]),
     remove: () => ticketRemoveCommand([]),

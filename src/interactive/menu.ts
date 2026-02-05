@@ -69,6 +69,7 @@ export const subMenus: Record<string, SubMenu> = {
     title: 'Ticket',
     items: [
       { name: 'Add', value: 'add', description: 'Add a ticket' },
+      { name: 'Edit', value: 'edit', description: 'Edit a ticket' },
       { name: 'List', value: 'list', description: 'List all tickets' },
       { name: 'Show', value: 'show', description: 'Show ticket details' },
       { name: 'Remove', value: 'remove', description: 'Remove a ticket' },
