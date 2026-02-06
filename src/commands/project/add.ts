@@ -6,6 +6,7 @@ import { validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
 import type { Project, Repository } from '@src/schemas/index.ts';
 import { emoji, field, log, showError, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
 
 export interface ProjectAddOptions {
@@ -270,7 +271,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         log.item(error(e));
       }
       console.log('');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
 
     name = trimmedName;
@@ -335,7 +336,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         const browsed = await browseDirectory('Select repository directory:');
         if (!browsed) {
           showError('No directory selected');
-          process.exit(1);
+          exitWithCode(EXIT_ERROR);
         }
         firstPath = browsed;
       } else if (pathMethod === 'cwd') {
@@ -356,7 +357,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       const validation = await validateProjectPath(resolved);
       if (validation !== true) {
         showError(`Invalid path: ${validation}`);
-        process.exit(1);
+        exitWithCode(EXIT_ERROR);
       }
       repositories.push({ name: basename(resolved), path: resolved });
     }

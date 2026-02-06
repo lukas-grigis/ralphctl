@@ -5,6 +5,7 @@ import { multilineInput } from '@src/utils/multiline.ts';
 import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 
 export interface TicketAddOptions {
   externalId?: string;
@@ -58,7 +59,7 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
         console.log(error(`  ${e}`));
       }
       console.log('');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
 
     const trimmedExternalId = options.externalId?.trim();
