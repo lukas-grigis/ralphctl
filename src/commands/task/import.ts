@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { error, info, muted, success } from '@src/theme/index.ts';
 import { log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
-import { SprintStatusError, resolveSprintId } from '@src/store/sprint.ts';
+import { SprintStatusError, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { ImportTasksSchema } from '@src/schemas/index.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
 import { getTasksFilePath } from '@src/utils/paths.ts';
@@ -67,9 +67,12 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // Validate dependencies before importing
+  // Validate dependencies and ticketId references before importing
   const existingTasks = await getTasks();
-  const validationErrors = validateImportTasks(tasks, existingTasks);
+  const sprintId = await resolveSprintId();
+  const sprint = await getSprint(sprintId);
+  const ticketIds = new Set(sprint.tickets.map((t) => t.id));
+  const validationErrors = validateImportTasks(tasks, existingTasks, ticketIds);
   if (validationErrors.length > 0) {
     showError('Dependency validation failed');
     for (const err of validationErrors) {
@@ -121,7 +124,6 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   }
 
   // Second pass: update blockedBy with resolved real IDs (under file lock)
-  const sprintId = await resolveSprintId();
   const tasksFilePath = getTasksFilePath(sprintId);
   await withFileLock(tasksFilePath, async () => {
     const allTasks = await getTasks();

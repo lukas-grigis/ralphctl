@@ -410,6 +410,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const planDir = getPlanningDir(id);
   await mkdir(planDir, { recursive: true });
 
+  // Build ticket ID set for validating ticketId references during import
+  const ticketIds = new Set(sprint.tickets.map((t) => t.id));
+
   if (options.auto) {
     // Headless mode - Claude generates and we import
     const prompt = buildAutoPrompt(context, schema);
@@ -459,7 +462,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
     // Validate before import
     const existingTasks = await getTasks(id);
-    const validationErrors = validateImportTasks(parsedTasks, existingTasks);
+    const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
     if (validationErrors.length > 0) {
       showError('Validation failed');
       for (const err of validationErrors) {
@@ -536,7 +539,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
       // Validate before import
       const existingTasks = await getTasks(id);
-      const validationErrors = validateImportTasks(parsedTasks, existingTasks);
+      const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
       if (validationErrors.length > 0) {
         showError('Validation failed');
         for (const err of validationErrors) {

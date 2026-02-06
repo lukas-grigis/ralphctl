@@ -328,15 +328,26 @@ export async function reorderByDependencies(sprintId?: string): Promise<void> {
 }
 
 /**
- * Validates import tasks for dependency issues.
+ * Validates import tasks for dependency issues and ticketId references.
  * Tasks can have a local 'id' field that blockedBy references.
+ * If ticketIds is provided, validates that ticketId references exist.
  * Returns an array of error messages (empty if valid).
  */
 export function validateImportTasks(
-  importTasks: { id?: string; name: string; blockedBy?: string[] }[],
-  existingTasks: Tasks
+  importTasks: { id?: string; name: string; blockedBy?: string[]; ticketId?: string }[],
+  existingTasks: Tasks,
+  ticketIds?: Set<string>
 ): string[] {
   const errors: string[] = [];
+
+  // Validate ticketId references if ticket IDs are provided
+  if (ticketIds) {
+    for (const task of importTasks) {
+      if (task.ticketId && !ticketIds.has(task.ticketId)) {
+        errors.push(`Task "${task.name}": ticketId "${task.ticketId}" does not match any ticket in the sprint`);
+      }
+    }
+  }
 
   // Build set of all known IDs (local IDs from import + existing task IDs)
   const localIds = new Set(importTasks.map((t) => t.id).filter((id): id is string => !!id));
