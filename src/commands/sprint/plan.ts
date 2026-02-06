@@ -12,7 +12,8 @@ import {
 } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getPlanningDir, getSchemaPath } from '@src/utils/paths.ts';
+import { getPlanningDir, getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
+import { withFileLock } from '@src/utils/file-lock.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
 import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
@@ -243,21 +244,24 @@ async function importTasks(tasks: ImportTask[], sprintId: string): Promise<numbe
     }
   }
 
-  // Second pass: update blockedBy with resolved real IDs
-  const allTasks = await getTasks(sprintId);
-  for (const { task: taskInput, realId } of createdTasks) {
-    const blockedBy = (taskInput.blockedBy ?? [])
-      .map((localId) => localToRealId.get(localId) ?? '')
-      .filter((id) => id !== '');
+  // Second pass: update blockedBy with resolved real IDs (under file lock)
+  const tasksFilePath = getTasksFilePath(sprintId);
+  await withFileLock(tasksFilePath, async () => {
+    const allTasks = await getTasks(sprintId);
+    for (const { task: taskInput, realId } of createdTasks) {
+      const blockedBy = (taskInput.blockedBy ?? [])
+        .map((localId) => localToRealId.get(localId) ?? '')
+        .filter((id) => id !== '');
 
-    if (blockedBy.length > 0) {
-      const taskToUpdate = allTasks.find((t) => t.id === realId);
-      if (taskToUpdate) {
-        taskToUpdate.blockedBy = blockedBy;
+      if (blockedBy.length > 0) {
+        const taskToUpdate = allTasks.find((t) => t.id === realId);
+        if (taskToUpdate) {
+          taskToUpdate.blockedBy = blockedBy;
+        }
       }
     }
-  }
-  await saveTasks(allTasks, sprintId);
+    await saveTasks(allTasks, sprintId);
+  });
 
   return createdTasks.length;
 }

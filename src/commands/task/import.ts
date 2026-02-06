@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { error, info, muted, success } from '@src/theme/index.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
-import { SprintStatusError } from '@src/store/sprint.ts';
+import { SprintStatusError, resolveSprintId } from '@src/store/sprint.ts';
 import { ImportTasksSchema } from '@src/schemas/index.ts';
+import { withFileLock } from '@src/utils/file-lock.ts';
+import { getTasksFilePath } from '@src/utils/paths.ts';
 
 export async function taskImportCommand(args: string[]): Promise<void> {
   const filePath = args[0];
@@ -113,21 +115,25 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     }
   }
 
-  // Second pass: update blockedBy with resolved real IDs
-  const allTasks = await getTasks();
-  for (const { task: taskInput, realId } of createdTasks) {
-    const blockedBy = (taskInput.blockedBy ?? [])
-      .map((localId) => localToRealId.get(localId) ?? '')
-      .filter((id) => id !== '');
+  // Second pass: update blockedBy with resolved real IDs (under file lock)
+  const sprintId = await resolveSprintId();
+  const tasksFilePath = getTasksFilePath(sprintId);
+  await withFileLock(tasksFilePath, async () => {
+    const allTasks = await getTasks();
+    for (const { task: taskInput, realId } of createdTasks) {
+      const blockedBy = (taskInput.blockedBy ?? [])
+        .map((localId) => localToRealId.get(localId) ?? '')
+        .filter((id) => id !== '');
 
-    if (blockedBy.length > 0) {
-      const taskToUpdate = allTasks.find((t) => t.id === realId);
-      if (taskToUpdate) {
-        taskToUpdate.blockedBy = blockedBy;
+      if (blockedBy.length > 0) {
+        const taskToUpdate = allTasks.find((t) => t.id === realId);
+        if (taskToUpdate) {
+          taskToUpdate.blockedBy = blockedBy;
+        }
       }
     }
-  }
-  await saveTasks(allTasks);
+    await saveTasks(allTasks);
+  });
 
   console.log(info(`\nImported ${String(imported)}/${String(tasks.length)} tasks.\n`));
 }
