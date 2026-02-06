@@ -30,7 +30,7 @@ export function generateSprintId(name?: string): string {
   const now = new Date();
   // Format: YYYYMMDD-HHmmss (remove non-digits from ISO string parts)
   const date = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const time = now.toTimeString().slice(0, 8).replace(/:/g, '');
+  const time = now.toISOString().slice(11, 19).replace(/:/g, '');
   const slug = name ? slugify(name) : generateUuid8();
 
   return `${date}-${time}-${slug || generateUuid8()}`;
