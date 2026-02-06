@@ -173,7 +173,7 @@ interface ImportTask {
 
 function parseTasksJson(output: string): ImportTask[] {
   // Try to extract JSON from the output (in case there's extra text)
-  const jsonMatch = /\[[\s\S]*\]/.exec(output);
+  const jsonMatch = /\[[\s\S]*?\]/.exec(output);
   if (!jsonMatch) {
     throw new Error('No JSON array found in output');
   }

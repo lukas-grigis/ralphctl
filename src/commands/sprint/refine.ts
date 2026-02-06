@@ -81,7 +81,7 @@ interface RefinedRequirement {
 
 function parseRequirementsFile(content: string): RefinedRequirement[] {
   // Try to extract JSON array from the content
-  const jsonMatch = /\[[\s\S]*\]/.exec(content);
+  const jsonMatch = /\[[\s\S]*?\]/.exec(content);
   if (!jsonMatch) {
     throw new Error('No JSON array found in requirements file');
   }
