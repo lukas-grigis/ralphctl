@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 
 // Get the ralphctl root directory
 const __filename = fileURLToPath(import.meta.url);
@@ -69,8 +69,16 @@ export function getSchemaPath(schemaName: string): string {
 export async function validateProjectPath(path: string): Promise<string | true> {
   try {
     const resolved = resolve(path);
-    const stats = await stat(resolved);
-    if (!stats.isDirectory()) {
+    const lstats = await lstat(resolved);
+    if (lstats.isSymbolicLink()) {
+      const realPath = await realpath(resolved);
+      const realStats = await stat(realPath);
+      if (!realStats.isDirectory()) {
+        return 'Symlink target is not a directory';
+      }
+      return true;
+    }
+    if (!lstats.isDirectory()) {
       return 'Path is not a directory';
     }
     return true;
