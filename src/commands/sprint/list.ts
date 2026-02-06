@@ -15,16 +15,17 @@ export async function sprintListCommand(): Promise<void> {
 
   const currentSprintId = await getCurrentSprint();
 
+  const MARKER_W = 10; // '[current] ' = 10 visible chars
   const ID_W = Math.max(...sprints.map((s) => s.id.length), 4);
-  const NAME_W = Math.max(...sprints.map((s) => s.name.length), 4);
+  const STATUS_W = 10; // emoji + space + longest status label
 
   for (const sprint of sprints) {
     const isCurrent = sprint.id === currentSprintId;
-    const marker = isCurrent ? badge('current', 'success') + ' ' : '  ';
-    const status = formatSprintStatus(sprint.status);
+    const marker = isCurrent ? badge('current', 'success') + ' ' : ' '.repeat(MARKER_W);
     const id = colors.muted(sprint.id.padEnd(ID_W));
-    const name = sprint.name.padEnd(NAME_W);
-    log.raw(`${marker}${id}  ${status}  ${name}`);
+    const status = formatSprintStatus(sprint.status);
+    const statusPad = ' '.repeat(Math.max(0, STATUS_W - sprint.status.length - 2));
+    log.raw(`${marker}${id}  ${status}${statusPad}  ${sprint.name}`);
   }
 
   const hasActive = sprints.some((s) => s.status === 'active');

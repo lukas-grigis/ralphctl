@@ -22,10 +22,10 @@ Examples:
   ticket
     .command('add')
     .description('Add ticket to current sprint')
-    .option('--project <name>', 'Project name')
+    .option('-p, --project <name>', 'Project name')
     .option('--id <id>', 'External ticket ID (e.g., JIRA-123)')
-    .option('--title <title>', 'Ticket title')
-    .option('--description <desc>', 'Description')
+    .option('-t, --title <title>', 'Ticket title')
+    .option('-d, --description <desc>', 'Description')
     .option('--link <url>', 'Link to external issue')
     .option('--editor', 'Use editor for multi-line description')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')

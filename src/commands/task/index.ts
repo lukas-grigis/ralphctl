@@ -26,10 +26,10 @@ Examples:
     .command('add')
     .description('Add task to current sprint')
     .option('--name <name>', 'Task name')
-    .option('--description <desc>', 'Description')
+    .option('-d, --description <desc>', 'Description')
     .option('--step <step...>', 'Implementation step (repeatable)')
     .option('--ticket <id>', 'Link to ticket ID')
-    .option('--project <path>', 'Project path')
+    .option('-p, --project <path>', 'Project path')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
     .action(
       async (opts: {
@@ -88,12 +88,12 @@ Examples:
   task
     .command('status [id] [status]')
     .description('Update task status (todo/in_progress/done)')
-    .option('-n, --non-interactive', 'Non-interactive mode (exit with error codes)')
-    .action(async (id?: string, status?: string, opts?: { nonInteractive?: boolean }) => {
+    .option('-n, --no-interactive', 'Non-interactive mode (exit with error codes)')
+    .action(async (id?: string, status?: string, opts?: { interactive?: boolean }) => {
       await taskStatusCommand([], {
         taskId: id,
         status,
-        nonInteractive: opts?.nonInteractive,
+        noInteractive: opts?.interactive === false,
       });
     });
 

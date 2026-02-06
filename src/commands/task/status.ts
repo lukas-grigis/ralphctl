@@ -10,7 +10,7 @@ const VALID_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done'];
 export interface TaskStatusOptions {
   taskId?: string;
   status?: string;
-  nonInteractive?: boolean;
+  noInteractive?: boolean;
 }
 
 export async function taskStatusCommand(args: string[], options: TaskStatusOptions = {}): Promise<void> {
@@ -18,7 +18,7 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
   let newStatus = args[1] ?? options.status;
 
   // Non-interactive mode: validate required params, fail fast
-  if (options.nonInteractive) {
+  if (options.noInteractive) {
     const errors: string[] = [];
 
     if (!taskId?.trim()) {
@@ -60,7 +60,7 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
     log.dim(`Valid statuses: ${VALID_STATUSES.join(', ')}`);
     log.newline();
 
-    if (options.nonInteractive) {
+    if (options.noInteractive) {
       exitWithCode(EXIT_ERROR);
     }
     return;
@@ -79,13 +79,13 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
       showError(`Task not found: ${taskId}`);
       showNextStep('ralphctl task list', 'see available tasks');
       log.newline();
-      if (options.nonInteractive) {
+      if (options.noInteractive) {
         exitWithCode(EXIT_ERROR);
       }
     } else if (err instanceof SprintStatusError) {
       showError(err.message);
       log.newline();
-      if (options.nonInteractive) {
+      if (options.noInteractive) {
         exitWithCode(EXIT_ERROR);
       }
     } else {
