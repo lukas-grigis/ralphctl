@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { error, info, muted, success } from '@src/theme/index.ts';
-import { log, showError, showNextStep } from '@src/theme/ui.ts';
+import { error, muted } from '@src/theme/index.ts';
+import { createSpinner, log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import { SprintStatusError, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { ImportTasksSchema } from '@src/schemas/index.ts';
@@ -82,13 +82,12 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     return;
   }
 
-  console.log(info(`\nImporting ${String(tasks.length)} task(s)...\n`));
-
   // Build local ID to real ID mapping
   const localToRealId = new Map<string, string>();
   const createdTasks: { task: (typeof tasks)[0]; realId: string }[] = [];
 
   // First pass: create tasks without blockedBy
+  const spinner = createSpinner(`Importing ${String(tasks.length)} task(s)...`).start();
   let imported = 0;
   for (const taskInput of tasks) {
     try {
@@ -108,10 +107,11 @@ export async function taskImportCommand(args: string[]): Promise<void> {
       }
 
       createdTasks.push({ task: taskInput, realId: task.id });
-      console.log(success(`  + ${task.id}: ${task.name}`));
       imported++;
+      spinner.text = `Importing tasks... (${String(imported)}/${String(tasks.length)})`;
     } catch (err) {
       if (err instanceof SprintStatusError) {
+        spinner.fail('Import failed');
         showError(err.message);
         log.newline();
         return;
@@ -124,6 +124,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   }
 
   // Second pass: update blockedBy with resolved real IDs (under file lock)
+  spinner.text = 'Resolving task dependencies...';
   const tasksFilePath = getTasksFilePath(sprintId);
   await withFileLock(tasksFilePath, async () => {
     const allTasks = await getTasks();
@@ -142,5 +143,8 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     await saveTasks(allTasks);
   });
 
-  console.log(info(`\nImported ${String(imported)}/${String(tasks.length)} tasks.\n`));
+  spinner.succeed(`Imported ${String(imported)}/${String(tasks.length)} tasks`);
+  for (const { task: taskInput, realId } of createdTasks) {
+    log.itemSuccess(`${realId}: ${taskInput.name}`);
+  }
 }

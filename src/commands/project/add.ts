@@ -5,7 +5,7 @@ import { error, muted } from '@src/theme/index.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
 import type { Project, Repository } from '@src/schemas/index.ts';
-import { emoji, field, log, showError, showNextStep, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { createSpinner, emoji, field, log, showError, showNextStep, showSuccess, showWarning } from '@src/theme/ui.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
 
@@ -256,6 +256,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
 
     // Validate paths
     if (options.paths) {
+      const spinner = options.paths.length > 1 ? createSpinner('Validating repository paths...').start() : null;
       for (const path of options.paths) {
         const resolved = resolve(path.trim());
         const validation = await validateProjectPath(resolved);
@@ -263,6 +264,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
           errors.push(`--path ${path}: ${validation}`);
         }
       }
+      spinner?.succeed('Paths validated');
     }
 
     if (errors.length > 0 || !trimmedName || !trimmedDisplayName || !options.paths) {
