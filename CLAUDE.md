@@ -482,7 +482,7 @@ Claude process spawning is centralized in `src/claude/session.ts`:
 import { spawnClaudeInteractive, spawnClaudeHeadless } from '@src/claude/session.ts';
 
 // Interactive session with initial prompt (single spawn, stdio: inherit)
-spawnClaudeInteractive('Read .ralphctl-task-context.md and follow the instructions', {
+spawnClaudeInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and follow the instructions', {
   cwd: projectPath,
   args: ['--add-dir', '/other/path'],
 });
@@ -502,7 +502,7 @@ const output = await spawnClaudeHeadless({
 
 **Task execution flow:**
 
-1. Write `.ralphctl-task-context.md` with task info + instructions
+1. Write `.ralphctl-sprint-<sprintId>-task-<taskId>-context.md` with task info + instructions
 2. **Interactive mode:** Tell Claude to read the file, then continue interactively
 3. **Headless mode:** Read file content, pass via stdin to Claude
 

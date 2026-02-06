@@ -18,10 +18,13 @@ export function buildAutoPrompt(context: string, schema: string): string {
   return template.replace('{{CONTEXT}}', context).replace('{{SCHEMA}}', schema);
 }
 
-export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean): string {
+export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string {
   const template = loadTemplate('task-execution');
   const commitInstruction = noCommit ? '' : '5. Make a git commit with a descriptive message.\n';
-  return template.replace('{{PROGRESS_FILE}}', progressFilePath).replace('{{COMMIT_INSTRUCTION}}', commitInstruction);
+  return template
+    .replace('{{PROGRESS_FILE}}', progressFilePath)
+    .replace('{{COMMIT_INSTRUCTION}}', commitInstruction)
+    .replaceAll('{{CONTEXT_FILE}}', contextFileName);
 }
 
 export function buildTicketRefinePrompt(ticketContent: string, outputFile: string): string {

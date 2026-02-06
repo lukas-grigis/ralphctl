@@ -1,4 +1,4 @@
-Implement the task described in .ralphctl-task-context.md
+Implement the task described in {{CONTEXT_FILE}}
 
 ## Session Startup Protocol
 
@@ -28,7 +28,7 @@ Only proceed to implementation if all startup checks pass.
 
 1. **Read context first**
    - Read CLAUDE.md for project conventions, verification commands, and patterns
-   - Read .ralphctl-task-context.md for the task specification and requirements
+   - Read {{CONTEXT_FILE}} for the task specification and requirements
 
 2. **Follow declared steps precisely**
    - The task includes specific implementation steps - follow them in order
