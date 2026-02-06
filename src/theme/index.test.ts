@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  applyGradient,
-  applyGradientLines,
   banner,
   colors,
-  type GradientStop,
   getMessage,
   getQuoteForContext,
   getRandomQuote,
@@ -95,68 +92,43 @@ describe('Theme System', () => {
       expect(gradients.warning).toBeDefined();
     });
 
-    it('each preset has at least 2 stops', () => {
-      expect(gradients.donut.length).toBeGreaterThanOrEqual(2);
-      expect(gradients.success.length).toBeGreaterThanOrEqual(2);
-      expect(gradients.warning.length).toBeGreaterThanOrEqual(2);
+    it('each preset is a callable function', () => {
+      expect(typeof gradients.donut).toBe('function');
+      expect(typeof gradients.success).toBe('function');
+      expect(typeof gradients.warning).toBe('function');
     });
 
-    it('stops have position and color function', () => {
-      for (const stop of gradients.donut) {
-        expect(typeof stop.position).toBe('number');
-        expect(typeof stop.color).toBe('function');
-      }
-    });
-  });
-
-  describe('applyGradient', () => {
-    it('returns empty string for empty input', () => {
-      expect(applyGradient('', gradients.donut)).toBe('');
+    it('each preset has a multiline method', () => {
+      expect(typeof gradients.donut.multiline).toBe('function');
+      expect(typeof gradients.success.multiline).toBe('function');
+      expect(typeof gradients.warning.multiline).toBe('function');
     });
 
-    it('returns plain text when no stops provided', () => {
-      expect(applyGradient('hello', [])).toBe('hello');
-    });
-
-    it('applies single stop color to entire text', () => {
-      const stops: GradientStop[] = [{ position: 0, color: colors.success }];
-      const result = applyGradient('hi', stops);
-      expect(result).toContain('hi'.split('').join(''));
-    });
-
-    it('preserves spaces and newlines without coloring', () => {
-      const stops: GradientStop[] = [
-        { position: 0, color: colors.success },
-        { position: 1, color: colors.error },
-      ];
-      const result = applyGradient('a b', stops);
-      expect(result).toContain(' ');
-    });
-
-    it('applies gradient across multiple characters', () => {
-      const result = applyGradient('abcdef', gradients.donut);
-      // Result should be a non-empty string with the original characters present
-      expect(result.length).toBeGreaterThan(0);
-      // Each character should still be in the result (possibly wrapped with ANSI codes)
+    it('donut gradient returns string containing original characters', () => {
+      const result = gradients.donut('abcdef');
+      expect(typeof result).toBe('string');
       for (const char of 'abcdef') {
         expect(result).toContain(char);
       }
     });
-  });
 
-  describe('applyGradientLines', () => {
-    it('applies gradient to each line independently', () => {
-      const result = applyGradientLines('abc\ndef', gradients.donut);
+    it('multiline applies gradient per line', () => {
+      const result = gradients.donut.multiline('abc\ndef');
       expect(result).toContain('\n');
       const lines = result.split('\n');
       expect(lines).toHaveLength(2);
     });
 
-    it('handles single line', () => {
-      const result = applyGradientLines('hello', gradients.success);
-      expect(result).not.toContain('\n');
+    it('success gradient returns a string', () => {
+      const result = gradients.success('hello');
+      expect(typeof result).toBe('string');
       expect(result).toContain('h');
-      expect(result).toContain('o');
+    });
+
+    it('warning gradient returns a string', () => {
+      const result = gradients.warning('warning!');
+      expect(typeof result).toBe('string');
+      expect(result).toContain('w');
     });
   });
 

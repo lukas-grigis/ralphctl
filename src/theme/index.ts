@@ -1,4 +1,5 @@
-import { bold, cyan, dim, gray, green, isColorSupported, magenta, red, yellow, yellowBright } from 'colorette';
+import { bold, cyan, dim, gray, green, magenta, red, yellow } from 'colorette';
+import gradient from 'gradient-string';
 
 // Re-export colorette functions for direct usage
 export { cyan, green, red, yellow, blue, gray, bold, dim, isColorSupported } from 'colorette';
@@ -43,95 +44,24 @@ export const primary = (text: string): string => colors.primary(text);
 export const secondary = (text: string): string => colors.secondary(text);
 
 // ============================================================================
-// GRADIENT RENDERING
+// GRADIENT RENDERING (powered by gradient-string)
 // ============================================================================
 
 /**
- * Gradient color stop: a colorette color function applied at a position (0-1)
- */
-export interface GradientStop {
-  position: number;
-  color: ColorFn;
-}
-
-/**
  * Built-in gradient presets for banner/header styling.
- * Each preset is an array of color stops from left to right.
+ * Each gradient is a function: gradients.donut(text) or gradients.donut.multiline(text)
  */
 export const gradients = {
-  /** Yellow → Magenta (Ralph's signature donut warmth) */
-  donut: [
-    { position: 0, color: yellow },
-    { position: 0.5, color: yellowBright },
-    { position: 1, color: magenta },
-  ],
-  /** Green → Cyan (success/completion) */
-  success: [
-    { position: 0, color: green },
-    { position: 1, color: cyan },
-  ],
-  /** Red → Yellow (warning/attention) */
-  warning: [
-    { position: 0, color: red },
-    { position: 1, color: yellow },
-  ],
+  /** Gold → Orange → Hot Pink → Orchid → Violet (Ralph's signature donut warmth) */
+  donut: gradient(['#FFD700', '#FFA500', '#FF69B4', '#DA70D6', '#9400D3'], {
+    interpolation: 'hsv',
+    hsvSpin: 'short',
+  }),
+  /** Green → Dark Cyan (success/completion) */
+  success: gradient(['#00FF00', '#00CED1']),
+  /** Orange Red → Gold (warning/attention) */
+  warning: gradient(['#FF4500', '#FFD700']),
 } as const;
-
-/**
- * Apply a gradient across a text string by coloring each character
- * according to its position within the gradient stops.
- * Falls back to plain text when colors are not supported.
- */
-export function applyGradient(text: string, stops: readonly GradientStop[]): string {
-  if (!isColorSupported || stops.length === 0 || text.length === 0) {
-    return text;
-  }
-
-  const sorted = [...stops].sort((a, b) => a.position - b.position);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
-  if (!first || !last) return text;
-
-  if (sorted.length === 1) {
-    return first.color(text);
-  }
-
-  const chars = text.split('');
-
-  return chars
-    .map((char, i) => {
-      if (char === ' ' || char === '\n') return char;
-      const t = chars.length === 1 ? 0 : i / (chars.length - 1);
-      // Find the two stops surrounding position t
-      let lower = first;
-      let upper = last;
-      for (let s = 0; s < sorted.length - 1; s++) {
-        const current = sorted[s];
-        const next = sorted[s + 1];
-        if (current && next && t >= current.position && t <= next.position) {
-          lower = current;
-          upper = next;
-          break;
-        }
-      }
-      // Pick the closer stop's color (discrete color stepping)
-      const mid = (lower.position + upper.position) / 2;
-      const colorFn = t <= mid ? lower.color : upper.color;
-      return colorFn(char);
-    })
-    .join('');
-}
-
-/**
- * Apply a gradient to each line of a multi-line string independently.
- * Useful for banner art where each line should have its own gradient.
- */
-export function applyGradientLines(text: string, stops: readonly GradientStop[]): string {
-  return text
-    .split('\n')
-    .map((line) => applyGradient(line, stops))
-    .join('\n');
-}
 
 // ============================================================================
 // BANNER
