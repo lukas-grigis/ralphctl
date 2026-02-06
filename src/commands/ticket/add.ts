@@ -1,6 +1,6 @@
 import { input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import { field, fieldMultiline, icons, showEmpty, showError, showSuccess } from '@src/theme/ui.ts';
+import { field, fieldMultiline, icons, showEmpty, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
@@ -163,6 +163,7 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
   } catch (err) {
     if (err instanceof DuplicateTicketError) {
       showError(`Ticket with external ID "${externalId ?? ''}" already exists`);
+      showNextStep('ralphctl ticket list', 'see existing tickets');
     } else if (err instanceof SprintStatusError) {
       showError(err.message);
     } else if (err instanceof Error && err.message.includes('does not exist')) {

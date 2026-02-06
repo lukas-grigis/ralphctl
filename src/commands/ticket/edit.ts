@@ -1,6 +1,6 @@
 import { input } from '@inquirer/prompts';
 import { muted } from '@src/theme/index.ts';
-import { field, fieldMultiline, icons, showError, showSuccess } from '@src/theme/ui.ts';
+import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import {
   DuplicateTicketError,
   formatTicketDisplay,
@@ -55,6 +55,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   } catch (err) {
     if (err instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${resolvedId}`);
+      showNextStep('ralphctl ticket list', 'see available tickets');
       if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
@@ -186,6 +187,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   } catch (err) {
     if (err instanceof DuplicateTicketError) {
       showError(`Ticket with external ID "${newExternalId ?? ''}" already exists`);
+      showNextStep('ralphctl ticket list', 'see existing tickets');
     } else if (err instanceof SprintStatusError) {
       showError(err.message);
     } else {

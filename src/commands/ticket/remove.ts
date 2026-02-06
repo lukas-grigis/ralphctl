@@ -3,7 +3,7 @@ import { muted } from '@src/theme/index.ts';
 import { formatTicketDisplay, getTicket, removeTicket, TicketNotFoundError } from '@src/store/ticket.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
-import { log, showError, showSuccess } from '@src/theme/ui.ts';
+import { log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 
 export async function ticketRemoveCommand(args: string[]): Promise<void> {
   const skipConfirm = args.includes('-y') || args.includes('--yes');
@@ -36,6 +36,7 @@ export async function ticketRemoveCommand(args: string[]): Promise<void> {
   } catch (err) {
     if (err instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${ticketId}`);
+      showNextStep('ralphctl ticket list', 'see available tickets');
       log.newline();
     } else if (err instanceof SprintStatusError) {
       showError(err.message);

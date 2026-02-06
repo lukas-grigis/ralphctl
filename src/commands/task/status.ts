@@ -1,5 +1,5 @@
 import { TaskNotFoundError, updateTaskStatus } from '@src/store/task.ts';
-import { formatTaskStatus, log, showError, showSuccess } from '@src/theme/ui.ts';
+import { formatTaskStatus, log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { type TaskStatus, TaskStatusSchema } from '@src/schemas/index.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { selectTask, selectTaskStatus } from '@src/interactive/selectors.ts';
@@ -77,6 +77,7 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
   } catch (err) {
     if (err instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
+      showNextStep('ralphctl task list', 'see available tasks');
       log.newline();
       if (options.nonInteractive) {
         exitWithCode(EXIT_ERROR);
