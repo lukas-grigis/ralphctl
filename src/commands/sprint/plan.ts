@@ -171,16 +171,48 @@ interface ImportTask {
   projectPath: string; // Required - execution directory
 }
 
-function parseTasksJson(output: string): ImportTask[] {
-  // Try to extract JSON from the output (in case there's extra text)
-  const jsonMatch = /\[[\s\S]*?\]/.exec(output);
-  if (!jsonMatch) {
+function extractJsonArray(output: string): string {
+  const start = output.indexOf('[');
+  if (start === -1) {
     throw new Error('No JSON array found in output');
   }
 
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < output.length; i++) {
+    const ch = output[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '[') depth++;
+    if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        return output.slice(start, i + 1);
+      }
+    }
+  }
+  throw new Error('No JSON array found in output');
+}
+
+function parseTasksJson(output: string): ImportTask[] {
+  // Try to extract a balanced JSON array from the output (handles nested arrays like steps)
+  const jsonStr = extractJsonArray(output);
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(jsonStr);
   } catch (err) {
     throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
   }
