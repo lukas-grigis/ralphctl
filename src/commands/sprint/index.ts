@@ -54,7 +54,7 @@ Examples:
 
   sprint
     .command('current [id]')
-    .description('Show/set current sprint (- opens selector)')
+    .description('Show/set current sprint (use "-" to open selector)')
     .action(async (id?: string) => {
       await sprintCurrentCommand(id ? [id] : []);
     });
@@ -73,7 +73,7 @@ Examples:
   sprint
     .command('plan [id]')
     .description('Generate tasks using Claude CLI')
-    .option('--auto', 'Run without user interaction (Claude generates tasks autonomously)')
+    .option('--auto', 'Run without user interaction (Claude decides autonomously)')
     .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
     .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean }) => {
       const args: string[] = [];
@@ -97,6 +97,16 @@ Examples:
     .option('-t, --step', 'Step through tasks with approval between each')
     .option('-c, --count <n>', 'Limit to N tasks')
     .option('--no-commit', 'Skip automatic git commit after each task completes')
+    .addHelpText(
+      'after',
+      `
+Exit Codes:
+  0 - Success (all requested operations completed)
+  1 - Error (validation, missing params, execution failed)
+  2 - No tasks available
+  3 - All remaining tasks blocked by dependencies
+`
+    )
     .action(async (id?: string, opts?: { session?: boolean; step?: boolean; count?: string; commit?: boolean }) => {
       const args: string[] = [];
       if (id) args.push(id);

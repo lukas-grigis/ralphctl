@@ -1,7 +1,8 @@
 import { input, select } from '@inquirer/prompts';
-import { clearScreen, emoji, formatMuted, getRandomQuote, log, printHeader, showBanner } from '@src/theme/ui.ts';
+import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
+import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { mainMenuItems, type MenuItem, subMenus } from './menu.ts';
-import { colors } from '@src/theme/index.ts';
+import { showDashboard } from './dashboard.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -100,11 +101,34 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
 };
 
 /**
+ * Show themed farewell message on exit.
+ */
+function showFarewell(): void {
+  const quote = getQuoteForContext('farewell');
+  console.log('');
+  printSeparator();
+  console.log(`  ${emoji.donut}  ${colors.muted(quote)}`);
+  console.log('');
+}
+
+/**
+ * Show the welcome banner with gradient styling and a quote.
+ */
+function showWelcomeBanner(): void {
+  showBanner();
+  const quote = getQuoteForContext('idle');
+  console.log(colors.muted(`       "${quote}"`));
+  console.log('');
+}
+
+/**
  * Run the interactive REPL mode
  */
 export async function interactiveMode(): Promise<void> {
   clearScreen();
-  showBanner();
+
+  // Welcome banner on first launch
+  showWelcomeBanner();
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
@@ -118,9 +142,18 @@ export async function interactiveMode(): Promise<void> {
       });
 
       if (command === 'exit') {
-        clearScreen();
-        console.log(colors.muted(`\n  "${getRandomQuote()}"\n`));
+        showFarewell();
         break;
+      }
+
+      if (command === 'status') {
+        log.newline();
+        await showDashboard();
+        log.newline();
+        await input({
+          message: formatMuted('Press Enter to continue...'),
+        });
+        continue;
       }
 
       const subMenu = subMenus[command];
@@ -129,8 +162,7 @@ export async function interactiveMode(): Promise<void> {
       }
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
-        clearScreen();
-        console.log(colors.muted(`\n  "${getRandomQuote()}"\n`));
+        showFarewell();
         break;
       }
       throw err;
@@ -139,15 +171,13 @@ export async function interactiveMode(): Promise<void> {
 }
 
 /**
- * Handle a submenu
+ * Handle a submenu with persistent status header and smooth transitions.
  */
 async function handleSubMenu(commandGroup: string, title: string, items: MenuItem[]): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
-      clearScreen();
-      printHeader(title, emoji.donut);
-
+      log.newline();
       const subCommand = await select({
         message: `${emoji.donut} ${title}`,
         choices: items,
@@ -157,6 +187,7 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       });
 
       if (subCommand === 'back') {
+        // Return to main menu — show banner again
         clearScreen();
         showBanner();
         break;
@@ -171,6 +202,7 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       });
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
+        // Ctrl+C in submenu returns to main menu
         clearScreen();
         showBanner();
         break;
