@@ -80,8 +80,8 @@ export async function spawnClaudeHeadless(options: SpawnAsyncOptions & { prompt?
       options.onSignal?.();
       child.kill('SIGTERM');
     };
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
+    process.once('SIGINT', cleanup);
+    process.once('SIGTERM', cleanup);
 
     let stdout = '';
     let stderr = '';

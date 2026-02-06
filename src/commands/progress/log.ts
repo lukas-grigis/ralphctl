@@ -1,4 +1,4 @@
-import { error, success } from '@src/theme/index.ts';
+import { success } from '@src/theme/index.ts';
 import { log, showError, showNextStep } from '@src/theme/ui.ts';
 import { logProgress } from '@src/store/progress.ts';
 import {
@@ -44,7 +44,8 @@ export async function progressLogCommand(args: string[]): Promise<void> {
   }
 
   if (!message) {
-    console.log(error('\nNo message provided.\n'));
+    showError('No message provided.');
+    log.newline();
     return;
   }
 
@@ -54,7 +55,8 @@ export async function progressLogCommand(args: string[]): Promise<void> {
   } catch (err) {
     if (err instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)
-      console.log(error(`\n${err.message}\n`));
+      showError(err.message);
+      log.newline();
     } else {
       throw err;
     }

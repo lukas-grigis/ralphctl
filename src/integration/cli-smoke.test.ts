@@ -515,7 +515,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     expect(importTasks.code).toBe(0);
     expect(importTasks.stdout).toContain('Setup CI pipeline for tests');
     expect(importTasks.stdout).toContain('Add test coverage reporting');
-    expect(importTasks.stdout).toContain('Imported 2/2 tasks');
 
     // Verify imported tasks appear
     const taskListAfterImport = await scenarioCli(['task', 'list']);

@@ -134,4 +134,49 @@ describe('validateImportTasks', () => {
     const errors = validateImportTasks(importTasks, existing);
     expect(errors).toEqual([]);
   });
+
+  it('rejects invalid ticketId reference', () => {
+    const ticketIds = new Set(['ticket-1', 'ticket-2']);
+    const importTasks = [{ name: 'Task', ticketId: 'nonexistent-ticket' }];
+    const errors = validateImportTasks(importTasks, [], ticketIds);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('ticketId "nonexistent-ticket"');
+    expect(errors[0]).toContain('does not match any ticket');
+  });
+
+  it('accepts valid ticketId reference', () => {
+    const ticketIds = new Set(['ticket-1', 'ticket-2']);
+    const importTasks = [{ name: 'Task', ticketId: 'ticket-1' }];
+    const errors = validateImportTasks(importTasks, [], ticketIds);
+    expect(errors).toEqual([]);
+  });
+
+  it('skips ticketId validation when ticketIds not provided', () => {
+    // Without ticketIds param, no ticketId validation occurs (backwards compatible)
+    const importTasks = [{ name: 'Task', ticketId: 'any-id' }];
+    const errors = validateImportTasks(importTasks, []);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports multiple invalid ticketId references', () => {
+    const ticketIds = new Set(['ticket-1']);
+    const importTasks = [
+      { name: 'Task A', ticketId: 'bad-1' },
+      { name: 'Task B', ticketId: 'ticket-1' },
+      { name: 'Task C', ticketId: 'bad-2' },
+    ];
+    const errors = validateImportTasks(importTasks, [], ticketIds);
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain('Task A');
+    expect(errors[0]).toContain('bad-1');
+    expect(errors[1]).toContain('Task C');
+    expect(errors[1]).toContain('bad-2');
+  });
+
+  it('allows tasks without ticketId when ticketIds provided', () => {
+    const ticketIds = new Set(['ticket-1']);
+    const importTasks = [{ name: 'Task without ticket' }];
+    const errors = validateImportTasks(importTasks, [], ticketIds);
+    expect(errors).toEqual([]);
+  });
 });

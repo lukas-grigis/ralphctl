@@ -1,6 +1,6 @@
 import { input } from '@inquirer/prompts';
 import { muted } from '@src/theme/index.ts';
-import { field, fieldMultiline, icons, showError, showSuccess } from '@src/theme/ui.ts';
+import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import {
   DuplicateTicketError,
   formatTicketDisplay,
@@ -9,6 +9,7 @@ import {
   updateTicket,
 } from '@src/store/ticket.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 
@@ -37,7 +38,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   if (!resolvedId) {
     if (!isInteractive) {
       showError('Ticket ID is required in non-interactive mode');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
 
     const selected = await selectTicket('Select ticket to edit:');
@@ -54,7 +55,8 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   } catch (err) {
     if (err instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${resolvedId}`);
-      if (!isInteractive) process.exit(1);
+      showNextStep('ralphctl ticket list', 'see available tickets');
+      if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
     throw err;
@@ -107,7 +109,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       const trimmed = options.title.trim();
       if (trimmed.length === 0) {
         showError('--title cannot be empty');
-        process.exit(1);
+        exitWithCode(EXIT_ERROR);
       }
       newTitle = trimmed;
     }
@@ -124,7 +126,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       const trimmed = options.link.trim();
       if (trimmed && !validateUrl(trimmed)) {
         showError('--link must be a valid URL');
-        process.exit(1);
+        exitWithCode(EXIT_ERROR);
       }
       newLink = trimmed || undefined;
     }
@@ -137,7 +139,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       newLink === undefined
     ) {
       showError('No updates provided. Use --title, --description, --link, or --id.');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
   }
 
@@ -185,11 +187,12 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   } catch (err) {
     if (err instanceof DuplicateTicketError) {
       showError(`Ticket with external ID "${newExternalId ?? ''}" already exists`);
+      showNextStep('ralphctl ticket list', 'see existing tickets');
     } else if (err instanceof SprintStatusError) {
       showError(err.message);
     } else {
       throw err;
     }
-    if (!isInteractive) process.exit(1);
+    if (!isInteractive) exitWithCode(EXIT_ERROR);
   }
 }

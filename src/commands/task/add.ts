@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
-import { error, muted, warning } from '@src/theme/index.ts';
+import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
@@ -14,6 +14,7 @@ import {
   resolveSprintId,
   SprintStatusError,
 } from '@src/store/sprint.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { selectProjectRepository } from '@src/interactive/selectors.ts';
 
 export interface TaskAddOptions {
@@ -43,14 +44,14 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
         ['ralphctl sprint create', 'start a new draft sprint'],
       ]);
       log.newline();
-      if (!isInteractive) process.exit(1);
+      if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
     if (err instanceof NoCurrentSprintError) {
       showError('No current sprint set.');
       showNextSteps([['ralphctl sprint create', 'create a new sprint']]);
       log.newline();
-      if (!isInteractive) process.exit(1);
+      if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
     throw err;
@@ -80,10 +81,10 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     if (errors.length > 0 || !trimmedName) {
       showError('Validation failed');
       for (const e of errors) {
-        console.log(error(`  ${e}`));
+        log.item(error(e));
       }
-      console.log('');
-      process.exit(1);
+      log.newline();
+      exitWithCode(EXIT_ERROR);
     }
 
     name = trimmedName;
@@ -104,12 +105,12 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
         if (!trimmedProject) {
           showError(`Ticket not found: ${ticketId}`);
           console.log(muted('  Provide --project or a valid --ticket\n'));
-          process.exit(1);
+          exitWithCode(EXIT_ERROR);
         }
         const validation = await validateProjectPath(trimmedProject);
         if (validation !== true) {
           showError(`Invalid project path: ${validation}`);
-          process.exit(1);
+          exitWithCode(EXIT_ERROR);
         }
         projectPath = resolve(trimmedProject);
       }
@@ -117,13 +118,13 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
       const validation = await validateProjectPath(trimmedProject);
       if (validation !== true) {
         showError(`Invalid project path: ${validation}`);
-        process.exit(1);
+        exitWithCode(EXIT_ERROR);
       }
       projectPath = resolve(trimmedProject);
     } else {
       // This shouldn't happen due to earlier validation
       showError('--project is required');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
   } else {
     // Interactive mode (default): prompt for missing params, use provided values as defaults
@@ -201,7 +202,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
               });
             }
           } catch {
-            console.log(warning(`${icons.warning} Project '${ticket.projectName}' not found, will prompt for path.`));
+            log.warn(`Project '${ticket.projectName}' not found, will prompt for path.`);
           }
         }
       }
@@ -245,7 +246,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
           const selectedPath = await selectProjectRepository('Select repository:');
           if (!selectedPath) {
             showError('No repository selected');
-            process.exit(1);
+            exitWithCode(EXIT_ERROR);
           }
           projectPath = selectedPath;
         }
@@ -270,7 +271,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
   // projectPath must be set by this point
   if (!projectPath) {
     showError('Project path is required');
-    process.exit(1);
+    exitWithCode(EXIT_ERROR);
   }
 
   try {
@@ -309,7 +310,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
         ['ralphctl sprint create', 'start a new draft sprint'],
       ]);
       log.newline();
-      if (!isInteractive) process.exit(1);
+      if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
     throw err;

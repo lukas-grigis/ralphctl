@@ -1,5 +1,5 @@
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
-import { field, formatTaskStatus, log, printHeader, showError } from '@src/theme/ui.ts';
+import { field, formatTaskStatus, log, printHeader, showError, showNextStep } from '@src/theme/ui.ts';
 import { selectTask } from '@src/interactive/selectors.ts';
 
 export async function taskShowCommand(args: string[]): Promise<void> {
@@ -41,6 +41,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
   } catch (err) {
     if (err instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
+      showNextStep('ralphctl task list', 'see available tasks');
       log.newline();
     } else {
       throw err;

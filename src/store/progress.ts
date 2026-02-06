@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { getProgressFilePath } from '@src/utils/paths.ts';
 import { appendToFile, FileNotFoundError, readTextFile } from '@src/utils/storage.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
+import { log } from '@src/theme/ui.ts';
 
 export interface LogProgressOptions {
   sprintId?: string;
@@ -21,6 +22,14 @@ export async function logProgress(message: string, options: LogProgressOptions =
   await appendToFile(getProgressFilePath(id), entry);
 }
 
+function isExecError(err: unknown): err is Error & { status: number } {
+  return err instanceof Error && typeof (err as unknown as Record<string, unknown>)['status'] === 'number';
+}
+
+function isNodeError(err: unknown): err is Error & { code: string } {
+  return err instanceof Error && typeof (err as unknown as Record<string, unknown>)['code'] === 'string';
+}
+
 /**
  * Get the current git commit hash and message for a path.
  */
@@ -37,7 +46,18 @@ function getGitCommitInfo(projectPath: string): { hash: string; message: string 
       hash: output.slice(0, spaceIndex),
       message: output.slice(spaceIndex + 1),
     };
-  } catch {
+  } catch (err: unknown) {
+    // Expected: not a git repo (exit code 128) — return null silently
+    if (isExecError(err) && err.status === 128) {
+      return null;
+    }
+    // Expected: git not installed (ENOENT) — return null silently
+    if (isNodeError(err) && err.code === 'ENOENT') {
+      return null;
+    }
+    // Unexpected: permission denied, corrupt repo, etc. — warn the user
+    const detail = err instanceof Error ? err.message : String(err);
+    log.warn(`Failed to get git info for ${projectPath}: ${detail}`);
     return null;
   }
 }

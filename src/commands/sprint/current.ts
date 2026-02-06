@@ -1,7 +1,16 @@
 import { getCurrentSprint, setCurrentSprint } from '@src/store/config.ts';
 import { getSprint, SprintNotFoundError } from '@src/store/sprint.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
-import { field, formatSprintStatus, log, printHeader, showError, showSuccess, showWarning } from '@src/theme/ui.ts';
+import {
+  field,
+  formatSprintStatus,
+  log,
+  printHeader,
+  showError,
+  showNextStep,
+  showSuccess,
+  showWarning,
+} from '@src/theme/ui.ts';
 
 export async function sprintCurrentCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
@@ -11,7 +20,7 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
     const currentSprintId = await getCurrentSprint();
     if (!currentSprintId) {
       showWarning('No current sprint set.');
-      log.dim('Create one with: ralphctl sprint create');
+      showNextStep('ralphctl sprint create', 'create a new sprint');
       log.newline();
       return;
     }
@@ -25,7 +34,7 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
       log.newline();
     } catch {
       showWarning(`Current sprint "${currentSprintId}" no longer exists.`);
-      log.dim('Set a new one with: ralphctl sprint current <id>');
+      showNextStep('ralphctl sprint current -', 'select a different sprint');
       log.newline();
     }
     return;
@@ -56,6 +65,7 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
     } catch (err) {
       if (err instanceof SprintNotFoundError) {
         showError(`Sprint not found: ${sprintId}`);
+        showNextStep('ralphctl sprint list', 'see available sprints');
         log.newline();
       } else {
         throw err;

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { error, info, muted, success, warning } from '@src/theme/index.ts';
-import { createSpinner } from '@src/theme/ui.ts';
+import { error, info, muted, success } from '@src/theme/index.ts';
+import { createSpinner, log, showError, showNextStep, showWarning } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import {
@@ -12,7 +12,8 @@ import {
 } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getPlanningDir, getSchemaPath } from '@src/utils/paths.ts';
+import { getPlanningDir, getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
+import { withFileLock } from '@src/utils/file-lock.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
 import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
@@ -172,7 +173,7 @@ interface ImportTask {
 
 function parseTasksJson(output: string): ImportTask[] {
   // Try to extract JSON from the output (in case there's extra text)
-  const jsonMatch = /\[[\s\S]*\]/.exec(output);
+  const jsonMatch = /\[[\s\S]*?\]/.exec(output);
   if (!jsonMatch) {
     throw new Error('No JSON array found in output');
   }
@@ -236,28 +237,31 @@ async function importTasks(tasks: ImportTask[], sprintId: string): Promise<numbe
       createdTasks.push({ task: taskInput, realId: task.id });
       console.log(success(`  + ${task.id}: ${task.name}`));
     } catch (err) {
-      console.log(error(`  ! Failed to add: ${taskInput.name}`));
+      log.itemError(`Failed to add: ${taskInput.name}`);
       if (err instanceof Error) {
         console.log(muted(`    ${err.message}`));
       }
     }
   }
 
-  // Second pass: update blockedBy with resolved real IDs
-  const allTasks = await getTasks(sprintId);
-  for (const { task: taskInput, realId } of createdTasks) {
-    const blockedBy = (taskInput.blockedBy ?? [])
-      .map((localId) => localToRealId.get(localId) ?? '')
-      .filter((id) => id !== '');
+  // Second pass: update blockedBy with resolved real IDs (under file lock)
+  const tasksFilePath = getTasksFilePath(sprintId);
+  await withFileLock(tasksFilePath, async () => {
+    const allTasks = await getTasks(sprintId);
+    for (const { task: taskInput, realId } of createdTasks) {
+      const blockedBy = (taskInput.blockedBy ?? [])
+        .map((localId) => localToRealId.get(localId) ?? '')
+        .filter((id) => id !== '');
 
-    if (blockedBy.length > 0) {
-      const taskToUpdate = allTasks.find((t) => t.id === realId);
-      if (taskToUpdate) {
-        taskToUpdate.blockedBy = blockedBy;
+      if (blockedBy.length > 0) {
+        const taskToUpdate = allTasks.find((t) => t.id === realId);
+        if (taskToUpdate) {
+          taskToUpdate.blockedBy = blockedBy;
+        }
       }
     }
-  }
-  await saveTasks(allTasks, sprintId);
+    await saveTasks(allTasks, sprintId);
+  });
 
   return createdTasks.length;
 }
@@ -269,8 +273,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   try {
     id = await resolveSprintId(sprintId);
   } catch {
-    console.log(warning('\nNo sprint specified and no current sprint set.'));
-    console.log(muted('Specify a sprint ID or create one first.\n'));
+    showWarning('No sprint specified and no current sprint set.');
+    showNextStep('ralphctl sprint create', 'create a new sprint');
+    log.newline();
     return;
   }
 
@@ -281,26 +286,29 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     assertSprintStatus(sprint, ['draft'], 'plan');
   } catch (err) {
     if (err instanceof Error) {
-      console.log(error(`\n${err.message}\n`));
+      showError(err.message);
+      log.newline();
     }
     return;
   }
 
   if (sprint.tickets.length === 0) {
-    console.log(warning('\nNo tickets in sprint.'));
-    console.log(muted('Add tickets first: ralphctl ticket add --project <project-name>\n'));
+    showWarning('No tickets in sprint.');
+    showNextStep('ralphctl ticket add --project <project-name>', 'add tickets first');
+    log.newline();
     return;
   }
 
   // Check if all tickets have approved requirements
   if (!allRequirementsApproved(sprint.tickets)) {
     const pendingTickets = getPendingRequirements(sprint.tickets);
-    console.log(warning('\nNot all tickets have approved requirements.'));
-    console.log(muted(`Pending: ${String(pendingTickets.length)} ticket(s)`));
+    showWarning('Not all tickets have approved requirements.');
+    log.dim(`Pending: ${String(pendingTickets.length)} ticket(s)`);
     for (const ticket of pendingTickets) {
-      console.log(muted(`  - ${formatTicketDisplay(ticket)}`));
+      log.item(muted(formatTicketDisplay(ticket)));
     }
-    console.log(muted('\nRun "ralphctl sprint refine" first.\n'));
+    showNextStep('ralphctl sprint refine', 'refine requirements first');
+    log.newline();
     return;
   }
 
@@ -402,6 +410,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const planDir = getPlanningDir(id);
   await mkdir(planDir, { recursive: true });
 
+  // Build ticket ID set for validating ticketId references during import
+  const ticketIds = new Set(sprint.tickets.map((t) => t.id));
+
   if (options.auto) {
     // Headless mode - Claude generates and we import
     const prompt = buildAutoPrompt(context, schema);
@@ -415,8 +426,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     } catch (err) {
       spinner.fail('Claude planning failed');
       if (err instanceof Error) {
-        console.log(error(`\nFailed to invoke Claude: ${err.message}`));
-        console.log(muted('Make sure the claude CLI is installed and configured.\n'));
+        showError(`Failed to invoke Claude: ${err.message}`);
+        log.dim('Make sure the claude CLI is installed and configured.');
+        log.newline();
       }
       return;
     }
@@ -427,16 +439,17 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       parsedTasks = parseTasksJson(output);
     } catch (err) {
       if (err instanceof Error) {
-        console.log(error(`\nFailed to parse Claude output: ${err.message}`));
-        console.log(muted('\nRaw output:'));
+        showError(`Failed to parse Claude output: ${err.message}`);
+        log.dim('Raw output:');
         console.log(output);
-        console.log('');
+        log.newline();
       }
       return;
     }
 
     if (parsedTasks.length === 0) {
-      console.log(warning('\nNo tasks generated.\n'));
+      showWarning('No tasks generated.');
+      log.newline();
       return;
     }
 
@@ -449,13 +462,13 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
     // Validate before import
     const existingTasks = await getTasks(id);
-    const validationErrors = validateImportTasks(parsedTasks, existingTasks);
+    const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
     if (validationErrors.length > 0) {
-      console.log(error('Validation failed:'));
+      showError('Validation failed');
       for (const err of validationErrors) {
-        console.log(`  - ${err}`);
+        log.item(error(err));
       }
-      console.log('');
+      log.newline();
       return;
     }
 
@@ -479,8 +492,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       await invokeClaudeInteractive(prompt, selectedPaths, planDir);
     } catch (err) {
       if (err instanceof Error) {
-        console.log(error(`\nFailed to invoke Claude: ${err.message}`));
-        console.log(muted('Make sure the claude CLI is installed and configured.\n'));
+        showError(`Failed to invoke Claude: ${err.message}`);
+        log.dim('Make sure the claude CLI is installed and configured.');
+        log.newline();
       }
       return;
     }
@@ -494,7 +508,8 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       try {
         content = await readFile(outputFile, 'utf-8');
       } catch {
-        console.log(error(`\nFailed to read task file: ${outputFile}\n`));
+        showError(`Failed to read task file: ${outputFile}`);
+        log.newline();
         return;
       }
 
@@ -503,13 +518,15 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
         parsedTasks = parseTasksJson(content);
       } catch (err) {
         if (err instanceof Error) {
-          console.log(error(`\nFailed to parse task file: ${err.message}\n`));
+          showError(`Failed to parse task file: ${err.message}`);
+          log.newline();
         }
         return;
       }
 
       if (parsedTasks.length === 0) {
-        console.log(warning('\nNo tasks in file.\n'));
+        showWarning('No tasks in file.');
+        log.newline();
         return;
       }
 
@@ -522,13 +539,13 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
       // Validate before import
       const existingTasks = await getTasks(id);
-      const validationErrors = validateImportTasks(parsedTasks, existingTasks);
+      const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
       if (validationErrors.length > 0) {
-        console.log(error('Validation failed:'));
+        showError('Validation failed');
         for (const err of validationErrors) {
-          console.log(`  - ${err}`);
+          log.item(error(err));
         }
-        console.log('');
+        log.newline();
         return;
       }
 
@@ -536,9 +553,10 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       const imported = await importTasks(parsedTasks, id);
       console.log(info(`\nImported ${String(imported)}/${String(parsedTasks.length)} tasks.\n`));
     } else {
-      console.log(warning('No task file found.'));
-      console.log(muted(`Expected: ${outputFile}`));
-      console.log(muted('Run sprint plan again to create tasks.\n'));
+      showWarning('No task file found.');
+      log.dim(`Expected: ${outputFile}`);
+      showNextStep('ralphctl sprint plan', 'run planning again to create tasks');
+      log.newline();
     }
   }
 }

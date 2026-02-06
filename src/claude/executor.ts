@@ -1,6 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
@@ -89,7 +89,7 @@ export function detectVerifyScript(projectPath: string): string | null {
   // Node.js/npm projects
   if (existsSync(join(projectPath, 'package.json'))) {
     try {
-      const pkg = JSON.parse(execSync('cat package.json', { cwd: projectPath, encoding: 'utf-8' })) as {
+      const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8')) as {
         scripts?: Record<string, string>;
       };
       const scripts = pkg.scripts ?? {};
@@ -223,8 +223,18 @@ function buildFullTaskContext(
   return lines.join('\n');
 }
 
-async function writeTaskContextFile(projectPath: string, taskContent: string, instructions: string): Promise<string> {
-  const contextFile = join(projectPath, '.ralphctl-task-context.md');
+function getContextFileName(sprintId: string, taskId: string): string {
+  return `.ralphctl-sprint-${sprintId}-task-${taskId}-context.md`;
+}
+
+async function writeTaskContextFile(
+  projectPath: string,
+  taskContent: string,
+  instructions: string,
+  sprintId: string,
+  taskId: string
+): Promise<string> {
+  const contextFile = join(projectPath, getContextFileName(sprintId, taskId));
   const fullContent = `${taskContent}\n\n---\n\n## Instructions\n\n${instructions}`;
   await writeFile(contextFile, fullContent, 'utf-8');
   return contextFile;
@@ -295,12 +305,13 @@ async function executeTaskWithClaude(
   const progressHistory = filterProgressByProject(allProgress, projectPath);
   const fullTaskContent = buildFullTaskContext(ctx, progressHistory, gitHistory, verifyScript);
   const progressFilePath = getProgressFilePath(sprintId);
-  const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit);
-  const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions);
+  const contextFileName = getContextFileName(sprintId, ctx.task.id);
+  const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
+  const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
 
   try {
     if (options.session) {
-      const result = spawnClaudeInteractive('Read .ralphctl-task-context.md and follow the instructions', {
+      const result = spawnClaudeInteractive(`Read ${contextFileName} and follow the instructions`, {
         cwd: projectPath,
         args: ['--add-dir', sprintDir],
       });

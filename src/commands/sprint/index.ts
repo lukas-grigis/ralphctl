@@ -73,8 +73,8 @@ Examples:
   sprint
     .command('plan [id]')
     .description('Generate tasks using Claude CLI')
-    .option('--auto', 'Headless mode (no user interaction)')
-    .option('--all-paths', 'Include all project paths (may be slow)')
+    .option('--auto', 'Run without user interaction (Claude generates tasks autonomously)')
+    .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
     .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean }) => {
       const args: string[] = [];
       if (id) args.push(id);
@@ -96,7 +96,7 @@ Examples:
     .option('-s, --session', 'Interactive Claude session (collaborate with Claude)')
     .option('-t, --step', 'Step through tasks with approval between each')
     .option('-c, --count <n>', 'Limit to N tasks')
-    .option('--no-commit', 'Skip auto-commit')
+    .option('--no-commit', 'Skip automatic git commit after each task completes')
     .action(async (id?: string, opts?: { session?: boolean; step?: boolean; count?: string; commit?: boolean }) => {
       const args: string[] = [];
       if (id) args.push(id);

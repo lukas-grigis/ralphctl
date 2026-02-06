@@ -1,4 +1,4 @@
-import { muted, warning } from '@src/theme/index.ts';
+import { log, showNextStep, showWarning } from '@src/theme/ui.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
 import { formatTicketDisplay, groupTicketsByProject } from '@src/store/ticket.ts';
@@ -15,8 +15,9 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
     // No current sprint set - offer selection
     const selected = await selectSprint('Select sprint to show context for:');
     if (!selected) {
-      console.log(warning('\nNo sprints available.'));
-      console.log(muted('Create one with: ralphctl sprint create\n'));
+      showWarning('No sprints available.');
+      showNextStep('ralphctl sprint create', 'create a sprint first');
+      log.newline();
       return;
     }
     id = selected;

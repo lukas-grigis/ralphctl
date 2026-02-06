@@ -1,14 +1,14 @@
-import { muted, success, warning } from '@src/theme/index.ts';
+import { muted, success } from '@src/theme/index.ts';
 import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
+import { showEmpty } from '@src/theme/ui.ts';
 
 export async function ticketListCommand(args: string[]): Promise<void> {
   const brief = args.includes('-b') || args.includes('--brief');
   const tickets = await listTickets();
 
   if (tickets.length === 0) {
-    console.log(warning('\nNo tickets found in the current sprint.'));
-    console.log(muted('Add one with: ralphctl ticket add --project <project-name>\n'));
+    showEmpty('tickets', 'Add one with: ralphctl ticket add --project <project-name>');
     return;
   }
 

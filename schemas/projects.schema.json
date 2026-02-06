@@ -36,6 +36,14 @@
               "type": "string",
               "minLength": 1,
               "description": "Absolute path to the repository"
+            },
+            "setupScript": {
+              "type": "string",
+              "description": "Setup command to run before starting work (e.g., npm install)"
+            },
+            "verifyScript": {
+              "type": "string",
+              "description": "Verification command to run after changes (e.g., npm test)"
             }
           }
         }
@@ -43,14 +51,6 @@
       "description": {
         "type": "string",
         "description": "Optional project description"
-      },
-      "setupScript": {
-        "type": "string",
-        "description": "Setup command to run before starting work (e.g., npm install)"
-      },
-      "verifyScript": {
-        "type": "string",
-        "description": "Verification command to run after changes (e.g., npm test)"
       }
     }
   }

@@ -120,27 +120,6 @@ export async function findActiveSprint(): Promise<Sprint | null> {
   return sprints.find((s) => s.status === 'active') ?? null;
 }
 
-/**
- * Demote an active sprint back to draft status.
- */
-export async function demoteSprint(sprintId: string): Promise<Sprint> {
-  const sprint = await getSprint(sprintId);
-
-  if (sprint.status !== 'active') {
-    throw new SprintStatusError(
-      `Cannot demote: sprint status is '${sprint.status}' (must be active).`,
-      sprint.status,
-      'demote'
-    );
-  }
-
-  sprint.status = 'draft';
-  sprint.activatedAt = null;
-  await saveSprint(sprint);
-
-  return sprint;
-}
-
 export async function getSprint(sprintId: string): Promise<Sprint> {
   const sprintPath = getSprintFilePath(sprintId);
   if (!(await fileExists(sprintPath))) {

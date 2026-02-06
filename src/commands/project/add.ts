@@ -5,7 +5,8 @@ import { error, muted } from '@src/theme/index.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
 import type { Project, Repository } from '@src/schemas/index.ts';
-import { emoji, field, log, showError, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { createSpinner, emoji, field, log, showError, showNextStep, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
 
 export interface ProjectAddOptions {
@@ -255,6 +256,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
 
     // Validate paths
     if (options.paths) {
+      const spinner = options.paths.length > 1 ? createSpinner('Validating repository paths...').start() : null;
       for (const path of options.paths) {
         const resolved = resolve(path.trim());
         const validation = await validateProjectPath(resolved);
@@ -262,6 +264,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
           errors.push(`--path ${path}: ${validation}`);
         }
       }
+      spinner?.succeed('Paths validated');
     }
 
     if (errors.length > 0 || !trimmedName || !trimmedDisplayName || !options.paths) {
@@ -270,7 +273,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         log.item(error(e));
       }
       console.log('');
-      process.exit(1);
+      exitWithCode(EXIT_ERROR);
     }
 
     name = trimmedName;
@@ -335,7 +338,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         const browsed = await browseDirectory('Select repository directory:');
         if (!browsed) {
           showError('No directory selected');
-          process.exit(1);
+          exitWithCode(EXIT_ERROR);
         }
         firstPath = browsed;
       } else if (pathMethod === 'cwd') {
@@ -356,7 +359,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       const validation = await validateProjectPath(resolved);
       if (validation !== true) {
         showError(`Invalid path: ${validation}`);
-        process.exit(1);
+        exitWithCode(EXIT_ERROR);
       }
       repositories.push({ name: basename(resolved), path: resolved });
     }
@@ -405,7 +408,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const repoWithScripts = await addScriptsToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            console.log(error(`  Invalid path: ${validation}`));
+            log.error(`Invalid path: ${validation}`);
           }
         }
       } else {
@@ -425,7 +428,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const repoWithScripts = await addScriptsToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            console.log(error(`  Invalid path: ${validation}`));
+            log.error(`Invalid path: ${validation}`);
           }
         }
       }
@@ -471,8 +474,9 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     console.log('');
   } catch (err) {
     if (err instanceof ProjectExistsError) {
-      console.log(error(`\nProject "${name}" already exists.`));
-      console.log(error('Use a different name or remove the existing project first.\n'));
+      showError(`Project "${name}" already exists.`);
+      showNextStep(`ralphctl project remove ${name}`, 'remove existing project first');
+      log.newline();
     } else {
       throw err;
     }

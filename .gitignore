@@ -94,3 +94,7 @@ infra/cdk.out
 
 # ralphctl data
 ralphctl-data/
+
+# ralphctl task context files (temp, cleaned up after use)
+.ralphctl-task-context.md
+.ralphctl-sprint-*-task-*-context.md

@@ -1,10 +1,11 @@
 import { input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import { field, fieldMultiline, icons, showEmpty, showError, showSuccess } from '@src/theme/ui.ts';
+import { field, fieldMultiline, icons, log, showEmpty, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 
 export interface TicketAddOptions {
   externalId?: string;
@@ -55,10 +56,10 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
     if (errors.length > 0 || !trimmedTitle || !trimmedProject) {
       showError('Validation failed');
       for (const e of errors) {
-        console.log(error(`  ${e}`));
+        log.item(error(e));
       }
-      console.log('');
-      process.exit(1);
+      log.newline();
+      exitWithCode(EXIT_ERROR);
     }
 
     const trimmedExternalId = options.externalId?.trim();
@@ -162,6 +163,7 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
   } catch (err) {
     if (err instanceof DuplicateTicketError) {
       showError(`Ticket with external ID "${externalId ?? ''}" already exists`);
+      showNextStep('ralphctl ticket list', 'see existing tickets');
     } else if (err instanceof SprintStatusError) {
       showError(err.message);
     } else if (err instanceof Error && err.message.includes('does not exist')) {
