@@ -79,7 +79,7 @@ export async function acquireLock(filePath: string): Promise<() => Promise<void>
       await mkdir(dirname(lockPath), { recursive: true });
 
       // Try to create lock file exclusively
-      await writeFile(lockPath, JSON.stringify(lockInfo), { flag: 'wx' });
+      await writeFile(lockPath, JSON.stringify(lockInfo), { flag: 'wx', mode: 0o600 });
 
       // Success - return release function
       return async () => {

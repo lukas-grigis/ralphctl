@@ -86,12 +86,12 @@ export async function writeValidatedJson<Output, Def extends ZodTypeDef, Input>(
   }
 
   await ensureDir(dirname(filePath));
-  await writeFile(filePath, JSON.stringify(result.data, null, 2) + '\n', 'utf-8');
+  await writeFile(filePath, JSON.stringify(result.data, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
 }
 
 export async function appendToFile(filePath: string, content: string): Promise<void> {
   await ensureDir(dirname(filePath));
-  await appendFile(filePath, content, 'utf-8');
+  await appendFile(filePath, content, { encoding: 'utf-8', mode: 0o600 });
 }
 
 export async function readTextFile(filePath: string): Promise<string> {
