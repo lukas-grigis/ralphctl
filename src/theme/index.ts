@@ -1,7 +1,7 @@
-import { bold, cyan, dim, gray, green, magenta, red, yellow } from 'colorette';
+import { bold, cyan, dim, gray, green, isColorSupported, magenta, red, yellow, yellowBright } from 'colorette';
 
 // Re-export colorette functions for direct usage
-export { cyan, green, red, yellow, blue, gray, bold, dim } from 'colorette';
+export { cyan, green, red, yellow, blue, gray, bold, dim, isColorSupported } from 'colorette';
 
 // ============================================================================
 // COLOR FUNCTIONS
@@ -41,6 +41,97 @@ export const accent = (text: string): string => colors.accent(text);
 export const subtle = (text: string): string => colors.subtle(text);
 export const primary = (text: string): string => colors.primary(text);
 export const secondary = (text: string): string => colors.secondary(text);
+
+// ============================================================================
+// GRADIENT RENDERING
+// ============================================================================
+
+/**
+ * Gradient color stop: a colorette color function applied at a position (0-1)
+ */
+export interface GradientStop {
+  position: number;
+  color: ColorFn;
+}
+
+/**
+ * Built-in gradient presets for banner/header styling.
+ * Each preset is an array of color stops from left to right.
+ */
+export const gradients = {
+  /** Yellow → Magenta (Ralph's signature donut warmth) */
+  donut: [
+    { position: 0, color: yellow },
+    { position: 0.5, color: yellowBright },
+    { position: 1, color: magenta },
+  ],
+  /** Green → Cyan (success/completion) */
+  success: [
+    { position: 0, color: green },
+    { position: 1, color: cyan },
+  ],
+  /** Red → Yellow (warning/attention) */
+  warning: [
+    { position: 0, color: red },
+    { position: 1, color: yellow },
+  ],
+} as const;
+
+/**
+ * Apply a gradient across a text string by coloring each character
+ * according to its position within the gradient stops.
+ * Falls back to plain text when colors are not supported.
+ */
+export function applyGradient(text: string, stops: readonly GradientStop[]): string {
+  if (!isColorSupported || stops.length === 0 || text.length === 0) {
+    return text;
+  }
+
+  const sorted = [...stops].sort((a, b) => a.position - b.position);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (!first || !last) return text;
+
+  if (sorted.length === 1) {
+    return first.color(text);
+  }
+
+  const chars = text.split('');
+
+  return chars
+    .map((char, i) => {
+      if (char === ' ' || char === '\n') return char;
+      const t = chars.length === 1 ? 0 : i / (chars.length - 1);
+      // Find the two stops surrounding position t
+      let lower = first;
+      let upper = last;
+      for (let s = 0; s < sorted.length - 1; s++) {
+        const current = sorted[s];
+        const next = sorted[s + 1];
+        if (current && next && t >= current.position && t <= next.position) {
+          lower = current;
+          upper = next;
+          break;
+        }
+      }
+      // Pick the closer stop's color (discrete color stepping)
+      const mid = (lower.position + upper.position) / 2;
+      const colorFn = t <= mid ? lower.color : upper.color;
+      return colorFn(char);
+    })
+    .join('');
+}
+
+/**
+ * Apply a gradient to each line of a multi-line string independently.
+ * Useful for banner art where each line should have its own gradient.
+ */
+export function applyGradientLines(text: string, stops: readonly GradientStop[]): string {
+  return text
+    .split('\n')
+    .map((line) => applyGradient(line, stops))
+    .join('\n');
+}
 
 // ============================================================================
 // BANNER
@@ -95,6 +186,60 @@ export const RALPH_QUOTES = [
 export function getRandomQuote(): string {
   const index = Math.floor(Math.random() * RALPH_QUOTES.length);
   return RALPH_QUOTES[index] ?? '';
+}
+
+// ============================================================================
+// CONTEXT-SENSITIVE QUOTES
+// ============================================================================
+
+export type QuoteCategory = 'error' | 'success' | 'farewell' | 'idle';
+
+export const QUOTES_BY_CATEGORY: Record<QuoteCategory, readonly string[]> = {
+  error: [
+    'My tummy hurts!',
+    'Tastes like burning!',
+    'I ate the purple berries...',
+    "The doctor said I wouldn't have so many nose bleeds if I kept my finger outta there.",
+    "My parents won't let me use scissors.",
+    'Principal Skinner, I got carsick in your office.',
+    'I eated the purple berries. They taste like... burning.',
+  ],
+  success: [
+    "I'm helping!",
+    'Go banana!',
+    "I'm learnding!",
+    "I'm a unitard!",
+    'I dress myself!',
+    'I picked the red one!',
+    'I found a moonrock in my nose!',
+    "Yay! I'm a helper!",
+  ],
+  farewell: [
+    "Bye bye! My cat's breath smells like cat food!",
+    'When I grow up, I want to be a principal or a caterpillar.',
+    'I sleep in a drawer!',
+    "I'm Idaho!",
+    'The pointy kitty took it!',
+  ],
+  idle: [
+    'Hi, Super Nintendo Chalmers!',
+    'I bent my wookie.',
+    "My cat's breath smells like cat food.",
+    'It smells like hot dogs.',
+    "That's where I saw the leprechaun. He told me to burn things.",
+    "Me fail English? That's unpossible!",
+    'Even my boogers are spicy!',
+    'Mrs. Krabappel and Principal Skinner were in the closet making babies!',
+  ],
+} as const;
+
+/**
+ * Get a random quote appropriate for the given context category.
+ */
+export function getQuoteForContext(category: QuoteCategory): string {
+  const quotes = QUOTES_BY_CATEGORY[category];
+  const index = Math.floor(Math.random() * quotes.length);
+  return quotes[index] ?? '';
 }
 
 // ============================================================================

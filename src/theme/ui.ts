@@ -1,5 +1,15 @@
 import ora, { type Ora } from 'ora';
-import { banner, type ColorFn, colors, getMessage, getRandomQuote, getStatusEmoji } from './index.ts';
+import {
+  applyGradientLines,
+  banner,
+  type ColorFn,
+  colors,
+  getMessage,
+  getRandomQuote,
+  getStatusEmoji,
+  gradients,
+  isColorSupported,
+} from './index.ts';
 
 // ============================================================================
 // ICONS
@@ -136,6 +146,138 @@ export function printBox(lines: string[]): void {
 }
 
 // ============================================================================
+// BOX-DRAWING CHARACTERS & UTILITIES
+// ============================================================================
+
+/** Box-drawing character sets */
+export const boxChars = {
+  /** Light box-drawing (default) */
+  light: {
+    topLeft: '┌',
+    topRight: '┐',
+    bottomLeft: '└',
+    bottomRight: '┘',
+    horizontal: '─',
+    vertical: '│',
+    teeRight: '├',
+    teeLeft: '┤',
+    teeDown: '┬',
+    teeUp: '┴',
+    cross: '┼',
+  },
+  /** Rounded corners */
+  rounded: {
+    topLeft: '╭',
+    topRight: '╮',
+    bottomLeft: '╰',
+    bottomRight: '╯',
+    horizontal: '─',
+    vertical: '│',
+    teeRight: '├',
+    teeLeft: '┤',
+    teeDown: '┬',
+    teeUp: '┴',
+    cross: '┼',
+  },
+  /** Heavy box-drawing */
+  heavy: {
+    topLeft: '┏',
+    topRight: '┓',
+    bottomLeft: '┗',
+    bottomRight: '┛',
+    horizontal: '━',
+    vertical: '┃',
+    teeRight: '┣',
+    teeLeft: '┫',
+    teeDown: '┳',
+    teeUp: '┻',
+    cross: '╋',
+  },
+} as const;
+
+export type BoxStyle = keyof typeof boxChars;
+
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\x1B\[[0-9;]*m/g;
+
+/** Strip ANSI escape codes from a string for width calculation */
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_REGEX, '');
+}
+
+/** Draw a horizontal line with optional label */
+export function horizontalLine(width: number, style: BoxStyle = 'light'): string {
+  return boxChars[style].horizontal.repeat(width);
+}
+
+/** Draw a vertical line character */
+export function verticalLine(style: BoxStyle = 'light'): string {
+  return boxChars[style].vertical;
+}
+
+/**
+ * Render a box with border around content lines.
+ * Strips ANSI codes for width calculation, preserves them in output.
+ */
+export function renderBox(
+  lines: string[],
+  options: { style?: BoxStyle; padding?: number; colorFn?: ColorFn } = {}
+): string {
+  const { style = 'rounded', padding = 1, colorFn = colors.muted } = options;
+  const chars = boxChars[style];
+  const pad = ' '.repeat(padding);
+
+  const contentWidths = lines.map((l) => stripAnsi(l).length);
+  const innerWidth = Math.max(...contentWidths, 20) + padding * 2;
+
+  const result: string[] = [];
+  result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
+
+  for (const line of lines) {
+    const visibleLen = stripAnsi(line).length;
+    const rightPad = ' '.repeat(Math.max(0, innerWidth - padding * 2 - visibleLen));
+    result.push(colorFn(chars.vertical) + pad + line + rightPad + pad + colorFn(chars.vertical));
+  }
+
+  result.push(colorFn(chars.bottomLeft + chars.horizontal.repeat(innerWidth) + chars.bottomRight));
+  return result.join('\n');
+}
+
+/**
+ * Render a card with title bar and content body.
+ */
+export function renderCard(
+  title: string,
+  lines: string[],
+  options: { style?: BoxStyle; colorFn?: ColorFn } = {}
+): string {
+  const { style = 'rounded', colorFn = colors.muted } = options;
+  const chars = boxChars[style];
+
+  const contentWidths = lines.map((l) => stripAnsi(l).length);
+  const titleWidth = stripAnsi(title).length;
+  const innerWidth = Math.max(...contentWidths, titleWidth, 20) + 2;
+
+  const result: string[] = [];
+  // Top border
+  result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
+  // Title line
+  const titlePad = ' '.repeat(Math.max(0, innerWidth - titleWidth - 2));
+  result.push(colorFn(chars.vertical) + ' ' + colors.highlight(title) + titlePad + ' ' + colorFn(chars.vertical));
+  // Separator
+  result.push(colorFn(chars.teeRight + chars.horizontal.repeat(innerWidth) + chars.teeLeft));
+  // Content lines
+  for (const line of lines) {
+    const visibleLen = stripAnsi(line).length;
+    const rightPad = ' '.repeat(Math.max(0, innerWidth - visibleLen - 2));
+    result.push(colorFn(chars.vertical) + ' ' + line + rightPad + ' ' + colorFn(chars.vertical));
+  }
+  // Bottom border
+  result.push(colorFn(chars.bottomLeft + chars.horizontal.repeat(innerWidth) + chars.bottomRight));
+  return result.join('\n');
+}
+
+// ============================================================================
 // BANNER & WELCOME
 // ============================================================================
 
@@ -143,10 +285,15 @@ export function printBox(lines: string[]): void {
 export { getRandomQuote } from './index.ts';
 
 /**
- * Show the themed banner - clean and simple
+ * Show the themed banner with gradient styling.
+ * Falls back to flat color when colors are not supported.
  */
 export function showBanner(): void {
-  console.log(colors.highlight(banner.art));
+  if (isColorSupported) {
+    console.log(applyGradientLines(banner.art, gradients.donut));
+  } else {
+    console.log(banner.art);
+  }
   const quote = getRandomQuote();
   console.log(colors.muted(`  "${quote}"\n`));
 }
@@ -448,12 +595,117 @@ export function createSpinner(text: string): Ora {
 }
 
 // ============================================================================
+// ANIMATION HELPERS
+// ============================================================================
+
+/**
+ * Check if the current output supports interactive features (TTY).
+ * Returns false for piped output, CI environments, or when NO_COLOR is set.
+ */
+export function isTTY(): boolean {
+  if (!process.stdout.isTTY || process.env['NO_COLOR']) return false;
+  return true;
+}
+
+/**
+ * Typewriter effect: prints text one character at a time.
+ * Falls back to instant print when not a TTY.
+ * @param text - Text to display
+ * @param delayMs - Delay between characters (default 30ms)
+ */
+export async function typewriter(text: string, delayMs = 30): Promise<void> {
+  if (!isTTY()) {
+    console.log(text);
+    return;
+  }
+  for (const char of text) {
+    process.stdout.write(char);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  process.stdout.write('\n');
+}
+
+/**
+ * Progressive reveal: prints lines one at a time with a delay.
+ * Falls back to printing all lines at once when not a TTY.
+ * @param lines - Lines to reveal progressively
+ * @param delayMs - Delay between lines (default 50ms)
+ */
+export async function progressiveReveal(lines: string[], delayMs = 50): Promise<void> {
+  if (!isTTY()) {
+    for (const line of lines) {
+      console.log(line);
+    }
+    return;
+  }
+  for (const line of lines) {
+    console.log(line);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+// ============================================================================
+// TERMINAL BELL
+// ============================================================================
+
+/**
+ * Ring the terminal bell to notify the user.
+ * No-op when not a TTY (piped output, CI, etc.).
+ */
+export function terminalBell(): void {
+  if (isTTY()) {
+    process.stdout.write('\x07');
+  }
+}
+
+// ============================================================================
+// ENHANCED SPINNERS
+// ============================================================================
+
+/** Spinner variant presets */
+export type SpinnerVariant = 'donut' | 'sprinkle' | 'minimal';
+
+/**
+ * Create a themed spinner with a variant style.
+ * @param text - Spinner message
+ * @param variant - Visual style: 'donut' (default), 'sprinkle', 'minimal'
+ */
+export function createThemedSpinner(text: string, variant: SpinnerVariant = 'donut'): Ora {
+  const spinnerConfig: Record<SpinnerVariant, { interval: number; frames: string[] }> = {
+    donut: {
+      interval: 80,
+      frames: Array(8)
+        .fill(emoji.donut)
+        .map((d: string, i: number) => (i % 2 === 0 ? colors.highlight(d) : colors.muted(d))),
+    },
+    sprinkle: {
+      interval: 120,
+      frames: ['🍩', '🍪', '🧁', '🍰', '🎂', '🍰', '🧁', '🍪'],
+    },
+    minimal: {
+      interval: 100,
+      frames: ['·', '•', '●', '•'],
+    },
+  };
+
+  return ora({
+    text,
+    color: 'yellow',
+    prefixText: INDENT,
+    spinner: spinnerConfig[variant],
+  });
+}
+
+// ============================================================================
 // CLEAR SCREEN
 // ============================================================================
 
 /**
- * Clear the terminal screen
+ * Clear the terminal screen.
+ * No-op when not a TTY (piped output, CI, etc.).
  */
 export function clearScreen(): void {
-  process.stdout.write('\x1B[2J\x1B[0f');
+  if (isTTY()) {
+    process.stdout.write('\x1B[2J\x1B[0f');
+  }
 }
