@@ -1,5 +1,6 @@
+import { colors, muted } from '@src/theme/index.ts';
 import { listTasks } from '@src/store/task.ts';
-import { showEmpty } from '@src/theme/ui.ts';
+import { badge, formatTaskStatus, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
 
 export async function taskListCommand(args: string[] = []): Promise<void> {
   const brief = args.includes('-b') || args.includes('--brief');
@@ -24,37 +25,40 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
     return;
   }
 
-  // Full markdown format optimized for LLM readability
-  console.log(`\n# Tasks (${String(tasks.length)})\n`);
+  // Interactive list with status icons and alignment
+  const tasksByStatus = {
+    todo: tasks.filter((t) => t.status === 'todo').length,
+    in_progress: tasks.filter((t) => t.status === 'in_progress').length,
+    done: tasks.filter((t) => t.status === 'done').length,
+  };
+
+  printHeader(`Tasks (${String(tasks.length)})`, icons.task);
+
+  // Status summary
+  log.raw(
+    `${formatTaskStatus('todo')} ${String(tasksByStatus.todo)}   ` +
+      `${formatTaskStatus('in_progress')} ${String(tasksByStatus.in_progress)}   ` +
+      `${formatTaskStatus('done')} ${String(tasksByStatus.done)}`
+  );
+  log.newline();
+
+  const ORDER_W = String(tasks.length).length + 1;
 
   for (const task of tasks) {
-    const ticketRef = task.ticketId ? ` (Ticket: ${task.ticketId})` : '';
-    console.log(`## ${String(task.order)}. [${task.status}] ${task.name}${ticketRef}\n`);
-    console.log(`**ID:** ${task.id}\n`);
-    console.log(`**Project:** ${task.projectPath}\n`);
+    const statusIcon =
+      task.status === 'done' ? icons.success : task.status === 'in_progress' ? icons.active : icons.inactive;
+    const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
+    const order = muted(String(task.order).padStart(ORDER_W) + '.');
+    const ticketRef = task.ticketId ? ' ' + muted(`[${task.ticketId}]`) : '';
+    const blockedRef = task.blockedBy.length > 0 ? ' ' + colors.error(`(blocked)`) : '';
 
-    if (task.description) {
-      console.log('### Description\n');
-      console.log(task.description);
-      console.log('');
-    }
-
-    if (task.steps.length > 0) {
-      console.log('### Steps\n');
-      task.steps.forEach((step, i) => {
-        console.log(`${String(i + 1)}. ${step}`);
-      });
-      console.log('');
-    }
-
-    if (task.blockedBy.length > 0) {
-      console.log('### Blocked By\n');
-      task.blockedBy.forEach((dep) => {
-        console.log(`- ${dep}`);
-      });
-      console.log('');
-    }
-
-    console.log('---\n');
+    log.raw(`${order} ${badge(statusIcon, statusColor)} ${task.name} ${muted(task.id)}${ticketRef}${blockedRef}`);
   }
+
+  // Progress summary
+  const percent = tasks.length > 0 ? Math.round((tasksByStatus.done / tasks.length) * 100) : 0;
+  const progressColor = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
+  log.newline();
+  log.dim(`Progress: ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}`);
+  log.newline();
 }

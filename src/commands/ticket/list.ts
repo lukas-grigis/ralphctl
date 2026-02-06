@@ -1,7 +1,7 @@
-import { muted, success } from '@src/theme/index.ts';
+import { colors, muted, success } from '@src/theme/index.ts';
 import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
-import { showEmpty } from '@src/theme/ui.ts';
+import { badge, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
 
 export async function ticketListCommand(args: string[]): Promise<void> {
   const brief = args.includes('-b') || args.includes('--brief');
@@ -13,7 +13,7 @@ export async function ticketListCommand(args: string[]): Promise<void> {
   }
 
   if (brief) {
-    // Brief mode: one line per ticket
+    // Brief mode: one line per ticket (markdown for LLM readability)
     console.log(`\n# Tickets (${String(tickets.length)})\n`);
     for (const ticket of tickets) {
       const display = ticket.externalId
@@ -26,41 +26,43 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // Full markdown format grouped by project
-  console.log(`\n# Tickets (${String(tickets.length)})\n`);
-
+  // Interactive list grouped by project
   const ticketsByProject = groupTicketsByProject(tickets);
 
-  for (const [projectName, projectTickets] of ticketsByProject) {
-    console.log(`## Project: ${projectName}\n`);
+  printHeader(`Tickets (${String(tickets.length)})`, icons.ticket);
 
-    // Get project repositories
+  for (const [projectName, projectTickets] of ticketsByProject) {
+    // Project group header
+    log.raw(`${colors.info(icons.project)} ${colors.info(projectName)}`);
+
+    // Show project repos
     try {
       const project = await getProject(projectName);
-      const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
-      console.log(muted(`Repositories: ${repoPaths.join(', ')}\n`));
+      for (const repo of project.repositories) {
+        log.raw(`    ${muted(repo.name)} ${muted('→')} ${muted(repo.path)}`, 1);
+      }
     } catch {
-      console.log(muted('Repositories: (project not found)\n'));
+      log.raw(`    ${muted('(project not found)')}`, 1);
     }
+    log.newline();
 
     for (const ticket of projectTickets) {
-      const reqBadge = ticket.requirementStatus === 'approved' ? success(' [approved]') : muted(' [pending]');
-
-      console.log(`### ${formatTicketDisplay(ticket)}${reqBadge}\n`);
-
+      const reqBadge =
+        ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
+      log.raw(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
       if (ticket.description) {
-        console.log('**Description:**\n');
-        console.log(ticket.description);
-        console.log('');
+        const preview = ticket.description.split('\n')[0] ?? '';
+        const truncated = preview.length > 60 ? preview.slice(0, 57) + '...' : preview;
+        log.raw(`      ${muted(truncated)}`, 1);
       }
-
-      if (ticket.link) {
-        console.log('**Link:**\n');
-        console.log(ticket.link);
-        console.log('');
-      }
-
-      console.log('---\n');
     }
+    log.newline();
   }
+
+  // Summary
+  const approved = tickets.filter((t) => t.requirementStatus === 'approved').length;
+  log.dim(
+    `Requirements: ${success(`${String(approved)} approved`)} / ${muted(`${String(tickets.length - approved)} pending`)}`
+  );
+  log.newline();
 }

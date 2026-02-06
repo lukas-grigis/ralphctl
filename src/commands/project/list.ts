@@ -1,6 +1,6 @@
-import { muted } from '@src/theme/index.ts';
+import { colors, muted } from '@src/theme/index.ts';
 import { listProjects } from '@src/store/project.ts';
-import { log, printHeader, showEmpty } from '@src/theme/ui.ts';
+import { icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
 
 export async function projectListCommand(): Promise<void> {
   const projects = await listProjects();
@@ -10,15 +10,18 @@ export async function projectListCommand(): Promise<void> {
     return;
   }
 
-  printHeader('Projects');
+  printHeader('Projects', icons.project);
 
   for (const project of projects) {
-    log.raw(`${project.name}  ${muted(project.displayName)}`);
+    const repoCount = muted(
+      `(${String(project.repositories.length)} repo${project.repositories.length !== 1 ? 's' : ''})`
+    );
+    log.raw(`${colors.highlight(project.name)}  ${project.displayName}  ${repoCount}`);
     for (const repo of project.repositories) {
-      log.item(`${repo.name} → ${repo.path}`);
+      log.item(`${repo.name} ${muted('→')} ${muted(repo.path)}`);
     }
     if (project.description) {
-      log.item(project.description);
+      log.dim(`    ${project.description}`);
     }
     log.newline();
   }

@@ -1,6 +1,14 @@
+import { colors, muted } from '@src/theme/index.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
-import { field, log, printHeader, showError } from '@src/theme/ui.ts';
+import { icons, log, renderCard, showError } from '@src/theme/ui.ts';
+
+const LABEL_W = 14;
+
+function labelValue(label: string, value: string): string {
+  const paddedLabel = (label + ':').padEnd(LABEL_W);
+  return `${colors.muted(paddedLabel)} ${value}`;
+}
 
 export async function projectShowCommand(args: string[]): Promise<void> {
   let projectName = args[0];
@@ -14,27 +22,37 @@ export async function projectShowCommand(args: string[]): Promise<void> {
   try {
     const project = await getProject(projectName);
 
-    printHeader('Project Details');
-    console.log(field('Name', project.name));
-    console.log(field('Display Name', project.displayName));
+    // Project info card
+    const infoLines: string[] = [labelValue('Name', project.name), labelValue('Display Name', project.displayName)];
     if (project.description) {
-      console.log(field('Description', project.description));
+      infoLines.push(labelValue('Description', project.description));
     }
-    console.log(field('Repositories', ''));
+    infoLines.push(labelValue('Repositories', String(project.repositories.length)));
+
+    log.newline();
+    console.log(renderCard(`${icons.project} ${project.displayName}`, infoLines));
+
+    // Repository cards
     for (const repo of project.repositories) {
-      log.item(`${repo.name} → ${repo.path}`);
+      log.newline();
+      const repoLines: string[] = [labelValue('Path', repo.path)];
       if (repo.setupScript) {
-        console.log(`        Setup: ${repo.setupScript}`);
+        repoLines.push(labelValue('Setup', colors.info(repo.setupScript)));
       }
       if (repo.verifyScript) {
-        console.log(`        Verify: ${repo.verifyScript}`);
+        repoLines.push(labelValue('Verify', colors.info(repo.verifyScript)));
       }
+      if (!repo.setupScript && !repo.verifyScript) {
+        repoLines.push(muted('No scripts configured'));
+      }
+      console.log(renderCard(`  ${repo.name}`, repoLines));
     }
-    console.log('');
+
+    log.newline();
   } catch (err) {
     if (err instanceof ProjectNotFoundError) {
       showError(`Project not found: ${projectName}`);
-      console.log('');
+      log.newline();
     } else {
       throw err;
     }

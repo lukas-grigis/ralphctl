@@ -1,20 +1,26 @@
-import { muted } from '@src/theme/index.ts';
+import { colors, muted } from '@src/theme/index.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { formatTicketDisplay, groupTicketsByProject } from '@src/store/ticket.ts';
 import {
   badge,
-  field,
+  boxChars,
   formatSprintStatus,
   formatTaskStatus,
   icons,
   log,
-  printCountSummary,
-  printHeader,
-  printSeparator,
+  renderCard,
+  showNextStep,
 } from '@src/theme/ui.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
+
+const LABEL_W = 12;
+
+function labelValue(label: string, value: string): string {
+  const paddedLabel = (label + ':').padEnd(LABEL_W);
+  return `${colors.muted(paddedLabel)} ${value}`;
+}
 
 export async function sprintShowCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
@@ -33,49 +39,49 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
   const currentSprintId = await getCurrentSprint();
   const isCurrent = sprint.id === currentSprintId;
 
-  // Header
-  printHeader(sprint.name, icons.sprint);
-
-  // Basic info
-  console.log(field('ID', sprint.id + (isCurrent ? ' ' + badge('current', 'success') : '')));
-  console.log(field('Status', formatSprintStatus(sprint.status)));
-  console.log(field('Created', new Date(sprint.createdAt).toLocaleString()));
-
+  // Sprint info card
+  const infoLines: string[] = [
+    labelValue('ID', sprint.id + (isCurrent ? ' ' + badge('current', 'success') : '')),
+    labelValue('Status', formatSprintStatus(sprint.status)),
+    labelValue('Created', new Date(sprint.createdAt).toLocaleString()),
+  ];
   if (sprint.activatedAt) {
-    console.log(field('Activated', new Date(sprint.activatedAt).toLocaleString()));
+    infoLines.push(labelValue('Activated', new Date(sprint.activatedAt).toLocaleString()));
   }
   if (sprint.closedAt) {
-    console.log(field('Closed', new Date(sprint.closedAt).toLocaleString()));
+    infoLines.push(labelValue('Closed', new Date(sprint.closedAt).toLocaleString()));
   }
 
-  // Tickets section
   log.newline();
-  printSeparator();
+  console.log(renderCard(`${icons.sprint} ${sprint.name}`, infoLines));
+
+  // Tickets card
   log.newline();
+  const ticketLines: string[] = [];
 
   if (sprint.tickets.length === 0) {
-    log.dim(`${icons.inactive}  No tickets yet`);
-    log.dim(`   ${icons.tip} Add with: ralphctl ticket add`);
+    ticketLines.push(muted('No tickets yet'));
+    ticketLines.push(muted(`${icons.tip} Add with: ralphctl ticket add`));
   } else {
-    log.info(`Tickets (${String(sprint.tickets.length)})`);
-    log.newline();
-
     const ticketsByProject = groupTicketsByProject(sprint.tickets);
-
+    let first = true;
     for (const [projectName, tickets] of ticketsByProject) {
-      log.raw(`${icons.project}  ${projectName}`, 2);
+      if (!first) ticketLines.push('');
+      first = false;
+      ticketLines.push(`${colors.info(icons.project)} ${colors.info(projectName)}`);
       for (const ticket of tickets) {
         const reqBadge =
           ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'warning');
-        log.raw(`${icons.bullet}  ${formatTicketDisplay(ticket)} ${reqBadge}`, 3);
+        ticketLines.push(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
       }
-      log.newline();
     }
   }
 
-  // Tasks section
-  printSeparator();
+  console.log(renderCard(`${icons.ticket} Tickets (${String(sprint.tickets.length)})`, ticketLines));
+
+  // Tasks card
   log.newline();
+  const taskLines: string[] = [];
 
   const tasksByStatus = {
     todo: tasks.filter((t) => t.status === 'todo').length,
@@ -84,31 +90,43 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
   };
 
   if (tasks.length === 0) {
-    log.dim(`${icons.inactive}  No tasks yet`);
-    log.dim(`   ${icons.tip} Plan with: ralphctl sprint plan`);
+    taskLines.push(muted('No tasks yet'));
+    taskLines.push(muted(`${icons.tip} Plan with: ralphctl sprint plan`));
   } else {
-    log.info(`Tasks`);
-    log.newline();
-
-    // Status summary
-    log.raw(
+    // Status summary row
+    taskLines.push(
       `${formatTaskStatus('todo')} ${String(tasksByStatus.todo)}   ` +
         `${formatTaskStatus('in_progress')} ${String(tasksByStatus.in_progress)}   ` +
-        `${formatTaskStatus('done')} ${String(tasksByStatus.done)}`,
-      2
+        `${formatTaskStatus('done')} ${String(tasksByStatus.done)}`
     );
-    log.newline();
+    taskLines.push(colors.muted(boxChars.light.horizontal.repeat(40)));
 
     // Task list
     for (const task of tasks) {
       const statusIcon =
         task.status === 'done' ? icons.success : task.status === 'in_progress' ? icons.active : icons.inactive;
       const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
-      log.raw(`${muted(String(task.order) + '.')} ${badge(statusIcon, statusColor)} ${task.name}`, 2);
+      taskLines.push(`${muted(String(task.order) + '.')} ${badge(statusIcon, statusColor)} ${task.name}`);
     }
 
-    // Summary
-    printCountSummary('Progress', tasksByStatus.done, tasks.length);
+    // Progress
+    const percent = tasks.length > 0 ? Math.round((tasksByStatus.done / tasks.length) * 100) : 0;
+    const progressColor = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
+    taskLines.push(colors.muted(boxChars.light.horizontal.repeat(40)));
+    taskLines.push(
+      `${muted('Progress:')}  ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}`
+    );
+  }
+
+  console.log(renderCard(`${icons.task} Tasks (${String(tasks.length)})`, taskLines));
+
+  // Next steps hint
+  if (sprint.status === 'draft' && tasks.length === 0) {
+    log.newline();
+    showNextStep('ralphctl sprint plan', 'generate tasks from tickets');
+  } else if (sprint.status === 'draft' && tasks.length > 0) {
+    log.newline();
+    showNextStep('ralphctl sprint start', 'begin implementation');
   }
 
   log.newline();
