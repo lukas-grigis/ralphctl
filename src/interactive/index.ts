@@ -1,7 +1,25 @@
 import { input, select } from '@inquirer/prompts';
-import { clearScreen, emoji, formatMuted, getRandomQuote, log, printHeader, showBanner } from '@src/theme/ui.ts';
+import {
+  clearScreen,
+  emoji,
+  formatMuted,
+  isTTY,
+  log,
+  printHeader,
+  printSeparator,
+  progressiveReveal,
+  showBanner,
+} from '@src/theme/ui.ts';
+import {
+  applyGradientLines,
+  banner,
+  colors,
+  getQuoteForContext,
+  gradients,
+  isColorSupported,
+} from '@src/theme/index.ts';
 import { mainMenuItems, type MenuItem, subMenus } from './menu.ts';
-import { colors } from '@src/theme/index.ts';
+import { getStatusLine, showDashboard } from './dashboard.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -100,11 +118,56 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
 };
 
 /**
+ * Show themed farewell message on exit.
+ */
+function showFarewell(): void {
+  const quote = getQuoteForContext('farewell');
+  console.log('');
+  printSeparator();
+  console.log(`  ${emoji.donut}  ${colors.muted(quote)}`);
+  console.log('');
+}
+
+/**
+ * Animated banner reveal: progressive line-by-line reveal with gradient.
+ * Falls back to instant display when not a TTY.
+ */
+async function showAnimatedBanner(): Promise<void> {
+  const bannerLines = isColorSupported
+    ? applyGradientLines(banner.art, gradients.donut).split('\n')
+    : banner.art.split('\n');
+
+  if (isTTY()) {
+    await progressiveReveal(bannerLines, 40);
+  } else {
+    for (const line of bannerLines) {
+      console.log(line);
+    }
+  }
+
+  const quote = getQuoteForContext('idle');
+  console.log(colors.muted(`  "${quote}"\n`));
+}
+
+/**
+ * Show the persistent status header (compact sprint context line).
+ */
+async function showStatusHeader(): Promise<void> {
+  const statusLine = await getStatusLine();
+  printSeparator();
+  console.log(`  ${statusLine}`);
+  printSeparator();
+}
+
+/**
  * Run the interactive REPL mode
  */
 export async function interactiveMode(): Promise<void> {
   clearScreen();
-  showBanner();
+
+  // Animated welcome on first launch
+  await showAnimatedBanner();
+  await showDashboard();
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
@@ -118,8 +181,7 @@ export async function interactiveMode(): Promise<void> {
       });
 
       if (command === 'exit') {
-        clearScreen();
-        console.log(colors.muted(`\n  "${getRandomQuote()}"\n`));
+        showFarewell();
         break;
       }
 
@@ -129,8 +191,7 @@ export async function interactiveMode(): Promise<void> {
       }
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
-        clearScreen();
-        console.log(colors.muted(`\n  "${getRandomQuote()}"\n`));
+        showFarewell();
         break;
       }
       throw err;
@@ -139,13 +200,14 @@ export async function interactiveMode(): Promise<void> {
 }
 
 /**
- * Handle a submenu
+ * Handle a submenu with persistent status header and smooth transitions.
  */
 async function handleSubMenu(commandGroup: string, title: string, items: MenuItem[]): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
-      clearScreen();
+      log.newline();
+      await showStatusHeader();
       printHeader(title, emoji.donut);
 
       const subCommand = await select({
@@ -157,8 +219,10 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       });
 
       if (subCommand === 'back') {
+        // Return to main menu — show banner + dashboard again
         clearScreen();
         showBanner();
+        await showDashboard();
         break;
       }
 
@@ -171,8 +235,10 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       });
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
+        // Ctrl+C in submenu returns to main menu
         clearScreen();
         showBanner();
+        await showDashboard();
         break;
       }
       throw err;
