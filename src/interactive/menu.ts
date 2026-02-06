@@ -21,6 +21,7 @@ export interface SubMenu {
 
 // Main menu - clean with subtle separators
 export const mainMenuItems: MenuItem[] = [
+  { name: 'Status', value: 'status', description: 'Sprint overview' },
   { name: 'Project', value: 'project', description: 'Manage projects' },
   new Separator(),
   { name: 'Sprint', value: 'sprint', description: 'Manage sprints' },
