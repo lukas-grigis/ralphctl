@@ -287,6 +287,15 @@ ralphctl progress log [msg]     # Log progress (opens editor if no message)
 ralphctl progress show          # Show progress log
 ```
 
+### Dashboard
+
+```bash
+ralphctl dashboard    # Show current sprint overview
+ralphctl status       # Alias for dashboard
+```
+
+Displays current sprint status, ticket/task counts, and task progress bar. Shows a helpful empty state if no current sprint exists.
+
 ### Interactive Mode
 
 Run `ralphctl` with no arguments to enter interactive mode:

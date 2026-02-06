@@ -146,10 +146,39 @@ printBox(['Line 1', 'Line 2']);
 
 ## Ralph Wiggum Theme
 
-- Banner in `theme/index.ts` with ASCII art
+- Banner in `theme/index.ts` with ASCII art (has 🍩 donuts embedded in first and last lines)
 - Random quotes via `getRandomQuote()`
 - Donut emoji (`🍩`) used in banner, spinners, prompts
 - Themed messages in `messages` object for actions
+
+### Gradient System (gradient-string)
+
+Uses `gradient-string` npm package for beautiful terminal gradients:
+
+```typescript
+import { gradients, applyGradient, applyGradientLines } from '@src/theme/index.ts';
+
+// Apply gradient to single line
+const coloredText = applyGradient('Hello World', gradients.donut);
+
+// Apply gradient to multi-line text (each line gets its own gradient)
+const coloredBanner = applyGradientLines(banner.art, gradients.donut);
+```
+
+**Available gradients:**
+
+- `gradients.donut` - Yellow → Orange → Pink → Magenta (Ralph's signature)
+- `gradients.success` - Green → Cyan
+- `gradients.warning` - Red → Yellow
+- `gradients.passion` - Warm colors preset from gradient-string
+- `gradients.fruit` - Fruity colors preset
+- `gradients.vice` - Neon colors preset
+
+**Implementation:**
+
+- Uses `gradient-string` for smooth color transitions (not discrete colorette stepping)
+- Falls back to plain text when `isColorSupported` is false
+- Empty lines are preserved without coloring
 
 ## UX Conventions
 
