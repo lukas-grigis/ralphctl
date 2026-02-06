@@ -1,13 +1,12 @@
-import { info, muted, warning } from '@src/theme/index.ts';
+import { info, muted } from '@src/theme/index.ts';
 import { listSprints } from '@src/store/sprint.ts';
-import { formatSprintStatus } from '@src/theme/ui.ts';
+import { formatSprintStatus, showEmpty } from '@src/theme/ui.ts';
 
 export async function sprintListCommand(): Promise<void> {
   const sprints = await listSprints();
 
   if (sprints.length === 0) {
-    console.log(warning('\nNo sprints found.'));
-    console.log(muted('Create one with: ralphctl sprint create\n'));
+    showEmpty('sprints', 'Create one with: ralphctl sprint create');
     return;
   }
 
