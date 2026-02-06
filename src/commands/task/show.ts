@@ -1,9 +1,18 @@
 import { colors, muted } from '@src/theme/index.ts';
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
-import { boxChars, formatTaskStatus, icons, log, renderCard, showError, showNextStep } from '@src/theme/ui.ts';
+import {
+  boxChars,
+  DETAIL_LABEL_WIDTH,
+  formatTaskStatus,
+  icons,
+  log,
+  renderCard,
+  showError,
+  showNextStep,
+} from '@src/theme/ui.ts';
 import { selectTask } from '@src/interactive/selectors.ts';
 
-const LABEL_W = 12;
+const LABEL_W = DETAIL_LABEL_WIDTH;
 
 function labelValue(label: string, value: string): string {
   const paddedLabel = (label + ':').padEnd(LABEL_W);

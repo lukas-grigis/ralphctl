@@ -1,6 +1,5 @@
 import ora, { type Ora } from 'ora';
 import {
-  applyGradientLines,
   banner,
   type ColorFn,
   colors,
@@ -197,13 +196,28 @@ export const boxChars = {
 
 export type BoxStyle = keyof typeof boxChars;
 
+// Comprehensive ANSI escape sequence regex (CSI, OSC, and character set sequences)
 // eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /\x1B\[[0-9;]*m/g;
+const ANSI_REGEX = /\x1B(?:\[[0-9;]*[A-Za-z]|\][^\x07]*\x07|\([A-Z])/g;
 
 /** Strip ANSI escape codes from a string for width calculation */
 function stripAnsi(s: string): string {
   return s.replace(ANSI_REGEX, '');
 }
+
+/**
+ * Sanitize a user-controlled string for safe terminal display.
+ * Strips all ANSI escape sequences that could manipulate the terminal.
+ */
+export function sanitizeForDisplay(s: string): string {
+  return s.replace(ANSI_REGEX, '');
+}
+
+/** Minimum inner width for rendered boxes and cards */
+export const MIN_BOX_WIDTH = 20;
+
+/** Standard label width for detail views (accommodates labels like "External ID:") */
+export const DETAIL_LABEL_WIDTH = 14;
 
 /** Draw a horizontal line with optional label */
 export function horizontalLine(width: number, style: BoxStyle = 'light'): string {
@@ -228,7 +242,7 @@ export function renderBox(
   const pad = ' '.repeat(padding);
 
   const contentWidths = lines.map((l) => stripAnsi(l).length);
-  const innerWidth = Math.max(...contentWidths, 20) + padding * 2;
+  const innerWidth = Math.max(...contentWidths, MIN_BOX_WIDTH) + padding * 2;
 
   const result: string[] = [];
   result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
@@ -254,16 +268,17 @@ export function renderCard(
   const { style = 'rounded', colorFn = colors.muted } = options;
   const chars = boxChars[style];
 
+  const safeTitle = sanitizeForDisplay(title);
   const contentWidths = lines.map((l) => stripAnsi(l).length);
-  const titleWidth = stripAnsi(title).length;
-  const innerWidth = Math.max(...contentWidths, titleWidth, 20) + 2;
+  const titleWidth = safeTitle.length;
+  const innerWidth = Math.max(...contentWidths, titleWidth, MIN_BOX_WIDTH) + 2;
 
   const result: string[] = [];
   // Top border
   result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
   // Title line
   const titlePad = ' '.repeat(Math.max(0, innerWidth - titleWidth - 2));
-  result.push(colorFn(chars.vertical) + ' ' + colors.highlight(title) + titlePad + ' ' + colorFn(chars.vertical));
+  result.push(colorFn(chars.vertical) + ' ' + colors.highlight(safeTitle) + titlePad + ' ' + colorFn(chars.vertical));
   // Separator
   result.push(colorFn(chars.teeRight + chars.horizontal.repeat(innerWidth) + chars.teeLeft));
   // Content lines
@@ -290,7 +305,7 @@ export { getRandomQuote } from './index.ts';
  */
 export function showBanner(): void {
   if (isColorSupported) {
-    console.log(applyGradientLines(banner.art, gradients.donut));
+    console.log(gradients.donut.multiline(banner.art));
   } else {
     console.log(banner.art);
   }

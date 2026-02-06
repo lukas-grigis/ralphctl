@@ -6,6 +6,7 @@ import { formatTicketDisplay, groupTicketsByProject } from '@src/store/ticket.ts
 import {
   badge,
   boxChars,
+  DETAIL_LABEL_WIDTH,
   formatSprintStatus,
   formatTaskStatus,
   icons,
@@ -15,7 +16,7 @@ import {
 } from '@src/theme/ui.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
 
-const LABEL_W = 12;
+const LABEL_W = DETAIL_LABEL_WIDTH;
 
 function labelValue(label: string, value: string): string {
   const paddedLabel = (label + ':').padEnd(LABEL_W);
