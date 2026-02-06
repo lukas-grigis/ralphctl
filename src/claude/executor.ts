@@ -1,6 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
@@ -89,7 +89,7 @@ export function detectVerifyScript(projectPath: string): string | null {
   // Node.js/npm projects
   if (existsSync(join(projectPath, 'package.json'))) {
     try {
-      const pkg = JSON.parse(execSync('cat package.json', { cwd: projectPath, encoding: 'utf-8' })) as {
+      const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8')) as {
         scripts?: Record<string, string>;
       };
       const scripts = pkg.scripts ?? {};
