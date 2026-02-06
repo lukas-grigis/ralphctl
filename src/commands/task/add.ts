@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
-import { error, muted, warning } from '@src/theme/index.ts';
+import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
@@ -81,9 +81,9 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     if (errors.length > 0 || !trimmedName) {
       showError('Validation failed');
       for (const e of errors) {
-        console.log(error(`  ${e}`));
+        log.item(error(e));
       }
-      console.log('');
+      log.newline();
       exitWithCode(EXIT_ERROR);
     }
 
@@ -202,7 +202,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
               });
             }
           } catch {
-            console.log(warning(`${icons.warning} Project '${ticket.projectName}' not found, will prompt for path.`));
+            log.warn(`Project '${ticket.projectName}' not found, will prompt for path.`);
           }
         }
       }

@@ -1,6 +1,5 @@
-import { info, muted } from '@src/theme/index.ts';
 import { listSprints } from '@src/store/sprint.ts';
-import { formatSprintStatus, showEmpty } from '@src/theme/ui.ts';
+import { formatSprintStatus, icons, log, printHeader, showEmpty, showNextStep } from '@src/theme/ui.ts';
 
 export async function sprintListCommand(): Promise<void> {
   const sprints = await listSprints();
@@ -10,19 +9,21 @@ export async function sprintListCommand(): Promise<void> {
     return;
   }
 
-  console.log(info('\nSprints:\n'));
+  printHeader('Sprints', icons.sprint);
 
   const hasActive = sprints.some((s) => s.status === 'active');
 
   for (const sprint of sprints) {
-    const marker = sprint.status === 'active' ? ' *' : '  ';
+    const marker = sprint.status === 'active' ? icons.active : ' ';
     const status = formatSprintStatus(sprint.status);
-    console.log(`${marker} ${sprint.id}  ${status}  ${sprint.name}`);
+    log.raw(`${marker} ${sprint.id}  ${status}  ${sprint.name}`);
   }
 
   if (hasActive) {
-    console.log(muted('\n  * = active sprint\n'));
+    log.dim(`${icons.active} = active sprint`);
   } else {
-    console.log(muted('\nNo active sprint. Start with: ralphctl sprint start\n'));
+    log.newline();
+    showNextStep('ralphctl sprint start', 'start a sprint');
   }
+  log.newline();
 }

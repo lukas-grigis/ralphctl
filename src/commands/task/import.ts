@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { error, info, muted, success } from '@src/theme/index.ts';
+import { log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import { SprintStatusError, resolveSprintId } from '@src/store/sprint.ts';
 import { ImportTasksSchema } from '@src/schemas/index.ts';
@@ -10,9 +11,9 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   const filePath = args[0];
 
   if (!filePath) {
-    console.log(error('\nFile path required.'));
-    console.log(muted('Usage: ralphctl task import <file.json>'));
-    console.log(muted('\nExpected JSON format:'));
+    showError('File path required.');
+    showNextStep('ralphctl task import <file.json>', 'provide a task file');
+    log.dim('Expected JSON format:');
     console.log(
       muted(`[
   {
@@ -26,8 +27,8 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   }
 ]`)
     );
-    console.log(muted('\nNote: projectPath is required for each task.'));
-    console.log('');
+    log.dim('Note: projectPath is required for each task.');
+    log.newline();
     return;
   }
 
@@ -35,7 +36,8 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   try {
     content = await readFile(filePath, 'utf-8');
   } catch {
-    console.log(error(`\nFailed to read file: ${filePath}\n`));
+    showError(`Failed to read file: ${filePath}`);
+    log.newline();
     return;
   }
 
@@ -43,23 +45,25 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   try {
     data = JSON.parse(content);
   } catch {
-    console.log(error('\nInvalid JSON format.\n'));
+    showError('Invalid JSON format.');
+    log.newline();
     return;
   }
 
   const result = ImportTasksSchema.safeParse(data);
   if (!result.success) {
-    console.log(error('\nInvalid task format:'));
+    showError('Invalid task format');
     for (const issue of result.error.issues) {
-      console.log(`  - ${issue.path.join('.')}: ${issue.message}`);
+      log.item(error(`${issue.path.join('.')}: ${issue.message}`));
     }
-    console.log('');
+    log.newline();
     return;
   }
 
   const tasks = result.data;
   if (tasks.length === 0) {
-    console.log(error('\nNo tasks to import.\n'));
+    showError('No tasks to import.');
+    log.newline();
     return;
   }
 
@@ -67,11 +71,11 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   const existingTasks = await getTasks();
   const validationErrors = validateImportTasks(tasks, existingTasks);
   if (validationErrors.length > 0) {
-    console.log(error('\nDependency validation failed:'));
+    showError('Dependency validation failed');
     for (const err of validationErrors) {
-      console.log(`  - ${err}`);
+      log.item(error(err));
     }
-    console.log('');
+    log.newline();
     return;
   }
 
@@ -105,10 +109,11 @@ export async function taskImportCommand(args: string[]): Promise<void> {
       imported++;
     } catch (err) {
       if (err instanceof SprintStatusError) {
-        console.log(error(`\n${err.message}\n`));
+        showError(err.message);
+        log.newline();
         return;
       }
-      console.log(error(`  ! Failed to add: ${taskInput.name}`));
+      log.itemError(`Failed to add: ${taskInput.name}`);
       if (err instanceof Error) {
         console.log(muted(`    ${err.message}`));
       }

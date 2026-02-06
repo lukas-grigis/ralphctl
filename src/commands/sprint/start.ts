@@ -1,7 +1,7 @@
-import { error, muted, warning } from '@src/theme/index.ts';
 import { type RunnerOptions, runSprint } from '@src/claude/runner.ts';
 import { SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/utils/exit-codes.ts';
+import { log, showError, showNextStep, showWarning } from '@src/theme/ui.ts';
 
 function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions } {
   const options: RunnerOptions = {
@@ -49,7 +49,8 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
     options = parsed.options;
   } catch (err) {
     if (err instanceof Error) {
-      console.log(error(`\n${err.message}\n`));
+      showError(err.message);
+      log.newline();
     }
     exitWithCode(EXIT_ERROR);
   }
@@ -63,14 +64,17 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
     }
   } catch (err) {
     if (err instanceof SprintNotFoundError) {
-      console.log(error(`\nSprint not found: ${sprintId ?? 'unknown'}\n`));
+      showError(`Sprint not found: ${sprintId ?? 'unknown'}`);
+      log.newline();
       exitWithCode(EXIT_ERROR);
     } else if (err instanceof SprintStatusError) {
-      console.log(error(`\n${err.message}\n`));
+      showError(err.message);
+      log.newline();
       exitWithCode(EXIT_ERROR);
     } else if (err instanceof Error && err.message.includes('No sprint specified')) {
-      console.log(warning('\nNo sprint specified and no active sprint set.'));
-      console.log(muted('Specify a sprint ID or activate one first.\n'));
+      showWarning('No sprint specified and no active sprint set.');
+      showNextStep('ralphctl sprint start <id>', 'specify a sprint ID');
+      log.newline();
       exitWithCode(EXIT_NO_TASKS);
     } else {
       throw err;

@@ -1,6 +1,6 @@
 import { input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import { field, fieldMultiline, icons, showEmpty, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
+import { field, fieldMultiline, icons, log, showEmpty, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { multilineInput } from '@src/utils/multiline.ts';
 import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
@@ -56,9 +56,9 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
     if (errors.length > 0 || !trimmedTitle || !trimmedProject) {
       showError('Validation failed');
       for (const e of errors) {
-        console.log(error(`  ${e}`));
+        log.item(error(e));
       }
-      console.log('');
+      log.newline();
       exitWithCode(EXIT_ERROR);
     }
 

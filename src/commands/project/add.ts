@@ -406,7 +406,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const repoWithScripts = await addScriptsToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            console.log(error(`  Invalid path: ${validation}`));
+            log.error(`Invalid path: ${validation}`);
           }
         }
       } else {
@@ -426,7 +426,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const repoWithScripts = await addScriptsToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            console.log(error(`  Invalid path: ${validation}`));
+            log.error(`Invalid path: ${validation}`);
           }
         }
       }
