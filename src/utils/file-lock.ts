@@ -21,9 +21,14 @@ export interface LockInfo {
   timestamp: number;
 }
 
-const LOCK_TIMEOUT_MS = 30000; // 30 seconds
-const RETRY_DELAY_MS = 50; // 50ms between retries
-const MAX_RETRIES = 100; // ~5 seconds total
+/** How long (ms) before a lock file is considered stale. Override with RALPHCTL_LOCK_TIMEOUT_MS. */
+export const LOCK_TIMEOUT_MS = Number(process.env['RALPHCTL_LOCK_TIMEOUT_MS']) || 30_000;
+
+/** Delay (ms) between retry attempts when a lock is held by another process. */
+export const RETRY_DELAY_MS = 50;
+
+/** Maximum number of retries before giving up (~5 seconds at default RETRY_DELAY_MS). */
+export const MAX_RETRIES = 100;
 
 function getLockPath(filePath: string): string {
   return `${filePath}.lock`;

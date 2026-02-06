@@ -599,3 +599,5 @@ Task file operations use file locking to prevent data corruption from concurrent
 
 - Multiple terminals running different sprints
 - Safe interruption and resumption with Ctrl+C
+
+Lock defaults: 30s stale timeout, 50ms retry delay, 100 max retries (~5s total wait). If you hit `LockAcquisitionError` on slow filesystems (e.g., NFS), increase the stale timeout with `RALPHCTL_LOCK_TIMEOUT_MS=60000`.
