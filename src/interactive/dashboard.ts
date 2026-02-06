@@ -31,14 +31,16 @@ async function loadDashboardData(): Promise<DashboardData | null> {
   }
 }
 
+const DEFAULT_PROGRESS_BAR_WIDTH = 20;
+
 /**
  * Build a progress bar string.
  * @param done - Number of completed items
  * @param total - Total number of items
- * @param width - Width of the bar in characters (default 20)
+ * @param width - Width of the bar in characters
  */
-function progressBar(done: number, total: number, width = 20): string {
-  if (total === 0) return colors.muted('─'.repeat(width));
+function progressBar(done: number, total: number, width = DEFAULT_PROGRESS_BAR_WIDTH): string {
+  if (total === 0 || width <= 0) return colors.muted('─'.repeat(Math.max(0, width)));
   const filled = Math.round((done / total) * width);
   const empty = width - filled;
   const percent = Math.round((done / total) * 100);

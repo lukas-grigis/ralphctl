@@ -1,25 +1,8 @@
 import { input, select } from '@inquirer/prompts';
-import {
-  clearScreen,
-  emoji,
-  formatMuted,
-  isTTY,
-  log,
-  printHeader,
-  printSeparator,
-  progressiveReveal,
-  showBanner,
-} from '@src/theme/ui.ts';
-import {
-  applyGradientLines,
-  banner,
-  colors,
-  getQuoteForContext,
-  gradients,
-  isColorSupported,
-} from '@src/theme/index.ts';
+import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
+import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { mainMenuItems, type MenuItem, subMenus } from './menu.ts';
-import { getStatusLine, showDashboard } from './dashboard.ts';
+import { showDashboard } from './dashboard.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -129,34 +112,13 @@ function showFarewell(): void {
 }
 
 /**
- * Animated banner reveal: progressive line-by-line reveal with gradient.
- * Falls back to instant display when not a TTY.
+ * Show the welcome banner with gradient styling and a quote.
  */
-async function showAnimatedBanner(): Promise<void> {
-  const bannerLines = isColorSupported
-    ? applyGradientLines(banner.art, gradients.donut).split('\n')
-    : banner.art.split('\n');
-
-  if (isTTY()) {
-    await progressiveReveal(bannerLines, 40);
-  } else {
-    for (const line of bannerLines) {
-      console.log(line);
-    }
-  }
-
+function showWelcomeBanner(): void {
+  showBanner();
   const quote = getQuoteForContext('idle');
-  console.log(colors.muted(`  "${quote}"\n`));
-}
-
-/**
- * Show the persistent status header (compact sprint context line).
- */
-async function showStatusHeader(): Promise<void> {
-  const statusLine = await getStatusLine();
-  printSeparator();
-  console.log(`  ${statusLine}`);
-  printSeparator();
+  console.log(colors.muted(`       "${quote}"`));
+  console.log('');
 }
 
 /**
@@ -165,9 +127,8 @@ async function showStatusHeader(): Promise<void> {
 export async function interactiveMode(): Promise<void> {
   clearScreen();
 
-  // Animated welcome on first launch
-  await showAnimatedBanner();
-  await showDashboard();
+  // Welcome banner on first launch
+  showWelcomeBanner();
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
@@ -183,6 +144,16 @@ export async function interactiveMode(): Promise<void> {
       if (command === 'exit') {
         showFarewell();
         break;
+      }
+
+      if (command === 'status') {
+        log.newline();
+        await showDashboard();
+        log.newline();
+        await input({
+          message: formatMuted('Press Enter to continue...'),
+        });
+        continue;
       }
 
       const subMenu = subMenus[command];
@@ -207,9 +178,6 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
   while (true) {
     try {
       log.newline();
-      await showStatusHeader();
-      printHeader(title, emoji.donut);
-
       const subCommand = await select({
         message: `${emoji.donut} ${title}`,
         choices: items,
@@ -219,10 +187,9 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       });
 
       if (subCommand === 'back') {
-        // Return to main menu — show banner + dashboard again
+        // Return to main menu — show banner again
         clearScreen();
         showBanner();
-        await showDashboard();
         break;
       }
 
@@ -238,7 +205,6 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
         // Ctrl+C in submenu returns to main menu
         clearScreen();
         showBanner();
-        await showDashboard();
         break;
       }
       throw err;
