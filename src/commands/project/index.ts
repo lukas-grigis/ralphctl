@@ -74,6 +74,15 @@ Examples:
 
   const repo = project.command('repo').description('Manage project repositories');
 
+  repo.addHelpText(
+    'after',
+    `
+Examples:
+  $ ralphctl project repo add my-app ~/code/new-service
+  $ ralphctl project repo remove my-app ~/code/old-service
+`
+  );
+
   repo
     .command('add [name] [path]')
     .description('Add repository to project')
