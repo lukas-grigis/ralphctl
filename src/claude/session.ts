@@ -168,7 +168,12 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
     });
 
     // Write prompt to stdin if provided, then close
+    const MAX_PROMPT_SIZE = 1_000_000; // 1MB
     if (options.prompt) {
+      if (options.prompt.length > MAX_PROMPT_SIZE) {
+        reject(new ClaudeSpawnError('Prompt exceeds maximum size (1MB)', '', 1));
+        return;
+      }
       child.stdin.write(options.prompt);
     }
     child.stdin.end();
@@ -226,6 +231,7 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
 const DEFAULT_MAX_RETRIES = 5;
 const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 120_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 600_000; // 10 minutes across all retries
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -246,13 +252,22 @@ export async function spawnClaudeWithRetry(
   options: HeadlessSpawnOptions,
   retryOptions?: {
     maxRetries?: number;
+    totalTimeoutMs?: number;
     onRetry?: (attempt: number, delayMs: number, error: ClaudeSpawnError) => void;
   }
 ): Promise<SpawnResult> {
   const maxRetries = retryOptions?.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const totalTimeoutMs = retryOptions?.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+  const startTime = Date.now();
   let resumeSessionId = options.resumeSessionId;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Check total elapsed time before each attempt
+    const elapsed = Date.now() - startTime;
+    if (attempt > 0 && elapsed >= totalTimeoutMs) {
+      throw new ClaudeSpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId);
+    }
+
     try {
       return await spawnClaudeHeadlessRaw({ ...options, resumeSessionId });
     } catch (err) {

@@ -34,7 +34,7 @@ export class RateLimitCoordinator {
   pause(delayMs: number): void {
     const newResumeAt = Date.now() + delayMs;
 
-    // Only extend, never shorten an existing pause
+    // If already paused and new pause would expire sooner, keep existing longer pause
     if (this.resumeAt !== null && newResumeAt <= this.resumeAt) {
       return;
     }

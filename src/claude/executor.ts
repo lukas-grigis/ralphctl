@@ -683,10 +683,11 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
   let firstBlockedTask: Task | null = null;
   let firstBlockedReason: string | null = null;
 
-  // Determine concurrency limit
+  // Determine concurrency limit (hard cap prevents resource exhaustion)
+  const MAX_CONCURRENCY = 10;
   const allTasks = await getTasks(sprintId);
   const uniqueRepoPaths = new Set(allTasks.map((t) => t.projectPath));
-  const concurrencyLimit = options.concurrency ?? uniqueRepoPaths.size;
+  const concurrencyLimit = Math.min(options.concurrency ?? uniqueRepoPaths.size, MAX_CONCURRENCY);
 
   console.log(muted(`Parallel mode: up to ${String(concurrencyLimit)} concurrent task(s)`));
 
@@ -814,22 +815,27 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
 
               return { task, result, error: null, isRateLimited: false };
             } catch (err) {
-              const isRateLimit = err instanceof ClaudeSpawnError && err.rateLimited;
-
-              if (isRateLimit && err instanceof ClaudeSpawnError) {
+              if (err instanceof ClaudeSpawnError && err.rateLimited) {
                 // Store session ID from error for resume after cooldown
                 if (err.sessionId) {
                   taskSessionIds.set(task.id, err.sessionId);
                 }
                 const delay = err.retryAfterMs ?? 60_000;
                 coordinator.pause(delay);
+
+                return {
+                  task,
+                  result: null,
+                  error: err,
+                  isRateLimited: true,
+                };
               }
 
               return {
                 task,
                 result: null,
                 error: err instanceof Error ? err : new Error(String(err)),
-                isRateLimited: isRateLimit,
+                isRateLimited: false,
               };
             } finally {
               inFlightPaths.delete(task.projectPath);
@@ -846,6 +852,7 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
         break;
       }
 
+      // Wait for first task to complete, then check rate limit state and launch next batch
       const settled = await Promise.race([...running.values()]);
       running.delete(settled.task.id);
 
