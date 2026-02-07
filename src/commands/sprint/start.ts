@@ -27,10 +27,32 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
         throw new Error('--count requires a number');
       }
       const count = parseInt(countStr, 10);
-      if (isNaN(count) || count < 1) {
-        throw new Error('--count must be a positive integer');
+      if (isNaN(count) || count < 1 || count > 10000) {
+        throw new Error('--count must be an integer between 1 and 10000');
       }
       options.count = count;
+    } else if (arg === '--concurrency') {
+      const concStr = args[++i];
+      if (!concStr) {
+        throw new Error('--concurrency requires a number');
+      }
+      const conc = parseInt(concStr, 10);
+      if (isNaN(conc) || conc < 1 || conc > 10) {
+        throw new Error('--concurrency must be an integer between 1 and 10');
+      }
+      options.concurrency = conc;
+    } else if (arg === '--max-retries') {
+      const retryStr = args[++i];
+      if (!retryStr) {
+        throw new Error('--max-retries requires a number');
+      }
+      const retries = parseInt(retryStr, 10);
+      if (isNaN(retries) || retries < 0 || retries > 20) {
+        throw new Error('--max-retries must be an integer between 0 and 20');
+      }
+      options.maxRetries = retries;
+    } else if (arg === '--fail-fast') {
+      options.failFast = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }

@@ -2,7 +2,7 @@
 name: implementer
 description: 'TypeScript implementation specialist. Use when writing code, implementing features, fixing bugs, or refactoring. Handles all coding tasks with modern TypeScript patterns and CLI best practices.'
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: sonnet
+model: opus
 color: blue
 memory: project
 ---

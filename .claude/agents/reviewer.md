@@ -2,7 +2,7 @@
 name: reviewer
 description: 'Code review specialist. Use after implementation to review code quality, catch bugs, suggest improvements, and ensure consistency with project standards. Read-only analysis with ability to run checks.'
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: haiku
 color: yellow
 ---
 

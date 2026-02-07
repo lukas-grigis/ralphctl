@@ -196,13 +196,29 @@ export async function getNextTask(sprintId?: string): Promise<Task | null> {
   }
 
   // Priority 2: First todo task whose dependencies are all done
-  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-  const todoTasks = tasks
-    .filter((t) => t.status === 'todo')
-    .filter((t) => t.blockedBy.every((id) => doneIds.has(id))) // Check deps are satisfied
-    .sort((a, b) => a.order - b.order);
+  const ready = getReadyTasksFromList(tasks);
+  return ready[0] ?? null;
+}
 
-  return todoTasks[0] ?? null;
+/**
+ * Get all tasks from a task list that are ready to execute (unblocked todo tasks).
+ * Pure function operating on an in-memory list.
+ */
+export function getReadyTasksFromList(tasks: Tasks): Tasks {
+  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  return tasks
+    .filter((t) => t.status === 'todo')
+    .filter((t) => t.blockedBy.every((id) => doneIds.has(id)))
+    .sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Get all tasks that are ready to execute (unblocked todo tasks).
+ * Returns multiple tasks for parallel execution.
+ */
+export async function getReadyTasks(sprintId?: string): Promise<Tasks> {
+  const tasks = await getTasks(sprintId);
+  return getReadyTasksFromList(tasks);
 }
 
 export async function reorderTask(taskId: string, newOrder: number, sprintId?: string): Promise<Task> {

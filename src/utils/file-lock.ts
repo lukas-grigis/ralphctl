@@ -21,8 +21,9 @@ export interface LockInfo {
   timestamp: number;
 }
 
-/** How long (ms) before a lock file is considered stale. Override with RALPHCTL_LOCK_TIMEOUT_MS. */
-export const LOCK_TIMEOUT_MS = Number(process.env['RALPHCTL_LOCK_TIMEOUT_MS']) || 30_000;
+/** How long (ms) before a lock file is considered stale. Override with RALPHCTL_LOCK_TIMEOUT_MS (1 to 3600000). */
+const parsed = parseInt(process.env['RALPHCTL_LOCK_TIMEOUT_MS'] ?? '', 10);
+export const LOCK_TIMEOUT_MS = parsed > 0 && parsed <= 3_600_000 ? parsed : 30_000;
 
 /** Delay (ms) between retry attempts when a lock is held by another process. */
 export const RETRY_DELAY_MS = 50;

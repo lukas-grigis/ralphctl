@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DependencyCycleError, topologicalSort, validateImportTasks } from './task.ts';
-import type { Task } from '@src/schemas/index.ts';
+import { DependencyCycleError, getReadyTasksFromList, topologicalSort, validateImportTasks } from './task.ts';
+import type { Task, TaskStatus } from '@src/schemas/index.ts';
 
-function createTask(id: string, blockedBy: string[] = []): Task {
+function createTask(id: string, blockedBy: string[] = [], overrides?: Partial<Task>): Task {
   return {
     id,
     name: `Task ${id}`,
@@ -14,6 +14,7 @@ function createTask(id: string, blockedBy: string[] = []): Task {
     blockedBy,
     projectPath: '/tmp/test',
     verified: false,
+    ...overrides,
   };
 }
 
@@ -178,5 +179,82 @@ describe('validateImportTasks', () => {
     const importTasks = [{ name: 'Task without ticket' }];
     const errors = validateImportTasks(importTasks, [], ticketIds);
     expect(errors).toEqual([]);
+  });
+});
+
+describe('getReadyTasksFromList', () => {
+  it('returns all todo tasks with no dependencies', () => {
+    const tasks = [
+      createTask('a', [], { order: 1 }),
+      createTask('b', [], { order: 2 }),
+      createTask('c', [], { order: 3 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('excludes tasks with unfinished dependencies', () => {
+    const tasks = [
+      createTask('a', [], { order: 1 }),
+      createTask('b', ['a'], { order: 2 }),
+      createTask('c', [], { order: 3 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready.map((t) => t.id)).toEqual(['a', 'c']);
+  });
+
+  it('includes tasks whose dependencies are all done', () => {
+    const tasks = [
+      createTask('a', [], { order: 1, status: 'done' as TaskStatus }),
+      createTask('b', ['a'], { order: 2 }),
+      createTask('c', ['a'], { order: 3 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready.map((t) => t.id)).toEqual(['b', 'c']);
+  });
+
+  it('excludes done and in_progress tasks', () => {
+    const tasks = [
+      createTask('a', [], { order: 1, status: 'done' as TaskStatus }),
+      createTask('b', [], { order: 2, status: 'in_progress' as TaskStatus }),
+      createTask('c', [], { order: 3 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready.map((t) => t.id)).toEqual(['c']);
+  });
+
+  it('returns empty array when all tasks are done', () => {
+    const tasks = [
+      createTask('a', [], { status: 'done' as TaskStatus }),
+      createTask('b', [], { status: 'done' as TaskStatus }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready).toEqual([]);
+  });
+
+  it('returns tasks sorted by order', () => {
+    const tasks = [
+      createTask('c', [], { order: 3 }),
+      createTask('a', [], { order: 1 }),
+      createTask('b', [], { order: 2 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    expect(ready.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handles chain unblocking correctly', () => {
+    // a (done) -> b (todo) -> c (todo)
+    const tasks = [
+      createTask('a', [], { order: 1, status: 'done' as TaskStatus }),
+      createTask('b', ['a'], { order: 2 }),
+      createTask('c', ['b'], { order: 3 }),
+    ];
+    const ready = getReadyTasksFromList(tasks);
+    // Only b is ready, c is still blocked by b
+    expect(ready.map((t) => t.id)).toEqual(['b']);
+  });
+
+  it('returns empty for empty task list', () => {
+    expect(getReadyTasksFromList([])).toEqual([]);
   });
 });

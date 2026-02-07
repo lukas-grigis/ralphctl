@@ -71,23 +71,28 @@ Only proceed to implementation if all startup checks pass.
    - Setup or state that was created/modified
    - Related areas that might need attention
 
-{{COMMIT_INSTRUCTION}}## Completion Protocol
+## Completion Protocol
 
 You MUST complete these steps IN ORDER:
 
 1. **Implementation complete** - All task steps are done
 2. **Run verification** - Execute ALL verification commands (see Verification Command section or CLAUDE.md)
-3. **Commit changes** - Create a git commit with a descriptive message
+
+{{COMMIT_STEP}}
+
 4. **Update progress** - Append to the progress file (format above)
 5. **Output verification results:**
-   ```
-   <task-verified>
-   $ [lint command]
-   ✓ No lint errors
-   $ [test command]
-   ✓ All tests passed
-   </task-verified>
-   ```
+
+<!-- prettier-ignore -->
+```
+<task-verified>
+$ [lint command]
+✓ No lint errors
+$ [test command]
+✓ All tests passed
+</task-verified>
+```
+
 6. **Signal completion** - `<task-complete>` ONLY after all above steps pass
 
 If verification fails:
@@ -121,7 +126,9 @@ This prevents accidental loss of planned work or requirements.
 2. **Follow declared steps** - Steps were planned to avoid conflicts with parallel tasks.
 3. **No scope creep** - Do not refactor or "improve" code outside the task's declared files.
 4. **Must verify** - A task is NOT complete until verification passes.
-5. **Must commit** - Create a git commit before signaling completion.
+
+{{COMMIT_CONSTRAINT}}
+
 6. **Must log progress** - Update progress file before signaling completion.
 
 These constraints prevent:
