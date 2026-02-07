@@ -1,4 +1,4 @@
-You are helping plan implementation tasks for a project.
+You are helping plan implementation tasks for a project. Your goal is to produce tasks that are clearly scoped, properly ordered, and independently executable — each one a mini-spec that a developer (or Claude) can pick up cold and complete.
 
 ## First: Understand the Project
 
@@ -125,7 +125,7 @@ For each ticket, determine which repositories need changes:
 
 ## Step 3: Present Tasks for Review
 
-**SHOW BEFORE WRITE:**
+**SHOW BEFORE WRITE.** Present tasks so the user can evaluate scope, ordering, and completeness at a glance.
 
 1. **Present each task in readable markdown:**
 
@@ -138,13 +138,16 @@ For each ticket, determine which repositories need changes:
    1. Create src/utils/csvExport.ts with formatters
    2. Add formatters for date/number types
    3. Write tests in src/utils/__tests__/csvExport.test.ts
+   4. Run `pnpm typecheck && pnpm lint && pnpm test` — all pass
    ```
 
 2. **Show the full task list** - Use markdown format, NOT JSON
 
-3. **Ask for confirmation:** "Does this task breakdown look correct? Any changes needed?"
+3. **Highlight the dependency graph** - Show which tasks can run in parallel vs which are sequential. Make it obvious why each dependency exists.
 
-4. **ONLY AFTER USER CONFIRMS:** Write JSON to output file
+4. **Ask for confirmation:** "Does this task breakdown look correct? Any changes needed?"
+
+5. **ONLY AFTER USER CONFIRMS:** Write JSON to output file
 
 ## Your Mission
 

@@ -1,10 +1,22 @@
-## Task Sizing Philosophy
+## What Makes a Great Task
+
+A great task is one that a developer (or Claude) can pick up cold, implement independently, and verify is done. Each task should read like a mini-spec with a clear finish line.
+
+### The Done Test
+
+Before finalizing a task, ask: **"How will I know this task is done?"** If the answer is vague ("it works") or depends on another task ("once task 3 finishes"), the task needs work.
+
+Every task must have:
+
+- **Clear scope** — Which files/modules change, and what the outcome looks like
+- **Verifiable result** — Can be checked with tests, type checks, or other project commands
+- **Independence** — Can be implemented without waiting on other tasks (unless explicitly declared via `blockedBy`)
+
+### Task Sizing
 
 Think of tasks as **features or outcomes**, not implementation steps.
 
-### Sizing Heuristics
-
-A well-sized task should be completable in a single Claude session:
+A well-sized task is completable in a single Claude session:
 
 - **Files**: Typically touches 3-7 files (fewer = might be too small, more = might need splitting)
 - **Scope**: One logical change (a feature, a refactor, a fix) - not multiple unrelated changes
@@ -19,7 +31,6 @@ If a task seems too large, split by concern. If too small, merge with related wo
 - "Create date formatting utility"
 - "Refactor experience module to use date utility"
 - "Refactor certifications module to use date utility"
-- "Add style fallbacks in one component"
 
 **CORRECT SIZE (prefer):**
 
@@ -41,12 +52,6 @@ If a task seems too large, split by concern. If too small, merge with related wo
 - Tasks that are "blocked by" the previous task for trivial reasons
 - Micro-refactoring tasks (add directive, remove import, etc.)
 
-### Good patterns
-
-- "Implement feature X with tests" (not: create, then test separately)
-- "Refactor animation system" (touches multiple files, one theme)
-- "Add i18n support to date displays" (create helper + update all usages)
-
 ## Critical: Non-Overlapping Tasks
 
 **Each task MUST be completely independent in scope.** Before finalizing:
@@ -59,13 +64,14 @@ If a task seems too large, split by concern. If too small, merge with related wo
 
 ## Critical: Execution Order via Dependencies
 
-Tasks execute in dependency order. Plan the sequence explicitly:
+Tasks execute in dependency order. The ordering must reflect the **logical build order** — what needs to exist before the next thing can be built on top of it.
 
-1. **Foundation first** - Tasks that create shared utilities, types, or infrastructure must come before tasks that use them
-2. **Declare all dependencies** - Use `blockedBy` to enforce correct order
-3. **Validate the DAG** - The dependency graph must be acyclic; earlier tasks cannot depend on later ones
+1. **Foundation first** - Shared utilities, types, schemas, or infrastructure before anything that uses them
+2. **Declare all dependencies** - Use `blockedBy` to enforce correct order. Don't rely on array position alone.
+3. **Maximize parallelism** - Independent tasks should NOT block each other. Only add `blockedBy` when there's a real data or code dependency.
+4. **Validate the DAG** - The dependency graph must be acyclic; earlier tasks cannot depend on later ones
 
-**Ordering principle**: When reviewing your task list, read it top to bottom. Ask: "Can I implement task N without any output from tasks N+1, N+2, ...?" If no, reorder.
+**Ordering test**: Read the task list top to bottom. For each task ask: "Can I implement this without any output from later tasks?" If no, reorder. Then ask: "Are there tasks I marked as blocked that could actually run in parallel?" If yes, remove the unnecessary dependency.
 
 ### Dependency Examples
 
