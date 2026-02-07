@@ -102,6 +102,19 @@ Example:
 
 Write to: {{OUTPUT_FILE}}
 
+**IMPORTANT:** Output exactly ONE JSON object in the array for this ticket. If the ticket covers multiple sub-topics (e.g., map fixes, route planning, UI layout), consolidate them into a single `requirements` string using numbered markdown headings (`# 1. Topic`, `# 2. Topic`, etc.) separated by `---` dividers. Do NOT output multiple JSON objects for the same ticket.
+
+```json
+[
+  {
+    "ref": "TICKET_ID_OR_TITLE",
+    "requirements": "# 1. First Sub-topic\n\n## Problem\n...\n\n## Requirements\n...\n\n## Acceptance Criteria\n...\n\n---\n\n# 2. Second Sub-topic\n\n## Problem\n...\n\n..."
+  }
+]
+```
+
+If the ticket only has one topic, omit the numbered headings and use the simple format:
+
 ```json
 [
   {

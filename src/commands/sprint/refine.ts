@@ -282,17 +282,32 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
         continue;
       }
 
-      // Find the matching requirement (should be only one for single-ticket flow)
-      const requirement = refinedRequirements.find(
+      // Find all matching requirements (Claude may output multiple for one ticket)
+      const matchingRequirements = refinedRequirements.filter(
         (r) => r.ref === ticket.id || r.ref === ticket.externalId || r.ref === ticket.title
       );
 
-      if (!requirement) {
+      if (matchingRequirements.length === 0) {
         showWarning('Requirement reference does not match this ticket.');
         log.newline();
         skipped++;
         continue;
       }
+
+      // Combine multiple requirements into one (safety net for split outputs)
+      const requirement: RefinedRequirement =
+        matchingRequirements.length === 1
+          ? { ref: matchingRequirements[0]?.ref ?? '', requirements: matchingRequirements[0]?.requirements ?? '' }
+          : {
+              ref: matchingRequirements[0]?.ref ?? '',
+              requirements: matchingRequirements
+                .map((r, idx) => {
+                  const text = r.requirements.trim();
+                  if (/^#\s/.test(text)) return text;
+                  return `# ${String(idx + 1)}. Section ${String(idx + 1)}\n\n${text}`;
+                })
+                .join('\n\n---\n\n'),
+            };
 
       // Show requirement for review
       printSeparator(60);
