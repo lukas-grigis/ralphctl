@@ -97,6 +97,9 @@ Examples:
     .option('-t, --step', 'Step through tasks with approval between each')
     .option('-c, --count <n>', 'Limit to N tasks')
     .option('--no-commit', 'Skip automatic git commit after each task completes')
+    .option('--concurrency <n>', 'Max parallel tasks (default: auto based on unique repos)')
+    .option('--max-retries <n>', 'Max rate-limit retries per task (default: 5)')
+    .option('--fail-fast', 'Stop launching new tasks on first failure')
     .addHelpText(
       'after',
       `
@@ -105,15 +108,37 @@ Exit Codes:
   1 - Error (validation, missing params, execution failed)
   2 - No tasks available
   3 - All remaining tasks blocked by dependencies
+
+Parallel Execution:
+  Tasks targeting different repos run concurrently by default.
+  At most one task per repository runs at a time to avoid git conflicts.
+  Use --concurrency 1 to force sequential execution.
+  Session (--session) and step (--step) modes always run sequentially.
 `
     )
-    .action(async (id?: string, opts?: { session?: boolean; step?: boolean; count?: string; commit?: boolean }) => {
-      const args: string[] = [];
-      if (id) args.push(id);
-      if (opts?.session) args.push('--session');
-      if (opts?.step) args.push('--step');
-      if (opts?.count) args.push('--count', opts.count);
-      if (opts?.commit === false) args.push('--no-commit');
-      await sprintStartCommand(args);
-    });
+    .action(
+      async (
+        id?: string,
+        opts?: {
+          session?: boolean;
+          step?: boolean;
+          count?: string;
+          commit?: boolean;
+          concurrency?: string;
+          maxRetries?: string;
+          failFast?: boolean;
+        }
+      ) => {
+        const args: string[] = [];
+        if (id) args.push(id);
+        if (opts?.session) args.push('--session');
+        if (opts?.step) args.push('--step');
+        if (opts?.count) args.push('--count', opts.count);
+        if (opts?.commit === false) args.push('--no-commit');
+        if (opts?.concurrency) args.push('--concurrency', opts.concurrency);
+        if (opts?.maxRetries) args.push('--max-retries', opts.maxRetries);
+        if (opts?.failFast) args.push('--fail-fast');
+        await sprintStartCommand(args);
+      }
+    );
 }

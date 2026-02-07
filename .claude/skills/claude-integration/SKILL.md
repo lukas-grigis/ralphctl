@@ -10,7 +10,7 @@ description: Claude CLI session spawning, agent harness design, and task executi
 Claude process spawning is centralized in `src/claude/session.ts`:
 
 ```typescript
-import { spawnClaudeInteractive, spawnClaudeHeadless } from '@src/claude/session.ts';
+import { spawnClaudeInteractive, spawnClaudeHeadless, spawnClaudeWithRetry } from '@src/claude/session.ts';
 
 // Interactive session with initial prompt (single spawn, stdio: inherit)
 spawnClaudeInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and follow the instructions', {
@@ -18,11 +18,27 @@ spawnClaudeInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and foll
   args: ['--add-dir', '/other/path'],
 });
 
-// Headless mode - prompt via stdin, captures output
+// Headless mode - prompt via stdin, captures output (uses --output-format json internally)
 const output = await spawnClaudeHeadless({
   cwd: projectPath,
   prompt: 'Your prompt content here',
 });
+
+// Headless with retry on rate limits + session resume
+const result = await spawnClaudeWithRetry(
+  {
+    cwd: projectPath,
+    prompt: 'Your prompt',
+    resumeSessionId: 'optional-session-id', // resume from previous session
+  },
+  {
+    maxRetries: 5,
+    onRetry: (attempt, delayMs, err) => {
+      /* log retry */
+    },
+  }
+);
+// result.stdout = text result, result.sessionId = captured session ID
 ```
 
 **Key patterns:**
@@ -30,12 +46,46 @@ const output = await spawnClaudeHeadless({
 - Interactive: pass prompt as CLI argument, `stdio: 'inherit'` for full interactivity
 - Headless: `-p` (print mode) with prompt via stdin for large content
 - `--permission-mode acceptEdits` enables auto-execution without confirmation
+- `--output-format json` returns structured JSON with `session_id` for resumability
+- `--resume <session_id>` resumes a previous session with full context preserved
 
 **Task execution flow:**
 
 1. Write `.ralphctl-sprint-<sprintId>-task-<taskId>-context.md` with task info + instructions
 2. **Interactive mode:** Tell Claude to read the file, then continue interactively
 3. **Headless mode:** Read file content, pass via stdin to Claude
+
+## Session Resumption (verified working)
+
+Claude CLI supports resuming sessions in headless mode. This is critical for rate-limit recovery — instead of restarting a task from scratch, we resume from where Claude left off.
+
+**How it works:**
+
+```bash
+# Phase 1: Initial spawn — capture session_id from JSON output
+claude -p --output-format json --permission-mode acceptEdits < prompt.txt
+# Returns: {"result": "...", "session_id": "49e58e81-a626-4419-b2f5-9f8798f62953", ...}
+
+# Phase 2: Resume after rate limit cooldown — full context preserved
+echo "Continue where you left off." | claude -p --resume "49e58e81-..." --output-format json --permission-mode acceptEdits
+# Claude picks up exactly where it stopped, same session_id returned
+```
+
+**Verified compatibility:**
+
+- Works with `-p` (print/headless mode)
+- Works with `--permission-mode acceptEdits`
+- Works with `--add-dir`
+- Works with stdin prompt delivery
+- Session ID is stable across resumes (same ID returned)
+- Full conversation history preserved (Claude remembers everything)
+
+**Implementation in ralphctl:**
+
+- `spawnClaudeHeadlessRaw()` uses `--output-format json` and parses `session_id`
+- `spawnClaudeWithRetry()` stores session ID on rate-limit error, passes `--resume` on retry
+- `ClaudeSpawnError` includes `sessionId` field for capture even on failure
+- Parallel executor tracks session IDs per task via `taskSessionIds` map
 
 ### Known Issues & Fixes
 

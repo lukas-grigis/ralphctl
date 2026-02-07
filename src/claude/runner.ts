@@ -2,13 +2,29 @@ import { confirm } from '@inquirer/prompts';
 import { info, muted, success, warning } from '@src/theme/index.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { areAllTasksDone, DependencyCycleError, getRemainingTasks, reorderByDependencies } from '@src/store/task.ts';
-import { executeTaskLoop, type ExecutionSummary, type ExecutorOptions } from '@src/claude/executor.ts';
+import {
+  executeTaskLoop,
+  executeTaskLoopParallel,
+  type ExecutionSummary,
+  type ExecutorOptions,
+} from '@src/claude/executor.ts';
 
 // Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/claude/executor.ts';
 
 // Alias for backward compatibility
 export type RunnerOptions = ExecutorOptions;
+
+/**
+ * Determine if execution should use parallel mode.
+ * Forces sequential for session mode, step mode, or explicit --concurrency 1.
+ */
+function shouldRunParallel(options: ExecutorOptions): boolean {
+  if (options.session) return false;
+  if (options.step) return false;
+  if (options.concurrency === 1) return false;
+  return true;
+}
 
 /**
  * Run sprint execution with lifecycle management.
@@ -45,6 +61,11 @@ export async function runSprint(
   if (options.noCommit) {
     modes.push('no-commit');
   }
+
+  const parallel = shouldRunParallel(options);
+  if (parallel) {
+    modes.push('parallel');
+  }
   console.log(muted(`Mode: ${modes.join(', ')}`));
   if (options.count) {
     console.log(muted(`Limit: ${String(options.count)} task(s)`));
@@ -63,8 +84,8 @@ export async function runSprint(
     throw err;
   }
 
-  // Execute the task loop
-  const summary = await executeTaskLoop(id, options);
+  // Execute the task loop (parallel or sequential)
+  const summary = parallel ? await executeTaskLoopParallel(id, options) : await executeTaskLoop(id, options);
 
   // Print summary
   console.log(info('\n=== Summary ==='));

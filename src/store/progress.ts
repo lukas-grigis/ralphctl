@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { getProgressFilePath } from '@src/utils/paths.ts';
 import { appendToFile, FileNotFoundError, readTextFile } from '@src/utils/storage.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
+import { withFileLock } from '@src/utils/file-lock.ts';
 import { log } from '@src/theme/ui.ts';
 
 export interface LogProgressOptions {
@@ -19,7 +20,10 @@ export async function logProgress(message: string, options: LogProgressOptions =
   const timestamp = new Date().toISOString();
   const projectMarker = options.projectPath ? `**Project:** ${options.projectPath}\n\n` : '';
   const entry = `## ${timestamp}\n\n${projectMarker}${message}\n\n---\n\n`;
-  await appendToFile(getProgressFilePath(id), entry);
+  const progressPath = getProgressFilePath(id);
+  await withFileLock(progressPath, async () => {
+    await appendToFile(progressPath, entry);
+  });
 }
 
 function isExecError(err: unknown): err is Error & { status: number } {
