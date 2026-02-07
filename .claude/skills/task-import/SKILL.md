@@ -1,6 +1,9 @@
-# Task Import Format
+---
+name: task-import
+description: Task import JSON format, field reference, and validation rules
+---
 
-Auto-invoked when working on task import functionality.
+# Task Import Format
 
 ## JSON Format
 

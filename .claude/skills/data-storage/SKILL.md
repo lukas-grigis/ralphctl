@@ -1,6 +1,9 @@
-# Data Storage Layout
+---
+name: data-storage
+description: Data directory structure, file layout, and schema sync rules
+---
 
-Auto-invoked when working on the store layer or data persistence.
+# Data Storage Layout
 
 ## Directory Structure
 

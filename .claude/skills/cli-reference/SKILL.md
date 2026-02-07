@@ -1,6 +1,9 @@
-# CLI Command Reference
+---
+name: cli-reference
+description: Complete CLI command reference with all flags, options, and subcommands
+---
 
-Auto-invoked when working on commands, help text, or CLI behavior.
+# CLI Command Reference
 
 ## Project
 

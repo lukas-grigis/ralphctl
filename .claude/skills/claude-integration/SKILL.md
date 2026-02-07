@@ -1,6 +1,9 @@
-# Claude CLI Integration & Agent Harness
+---
+name: claude-integration
+description: Claude CLI session spawning, agent harness design, and task execution patterns
+---
 
-Auto-invoked when working on `src/claude/` module, session spawning, or task execution harness.
+# Claude CLI Integration & Agent Harness
 
 ## Claude CLI Invocation from Node.js
 
