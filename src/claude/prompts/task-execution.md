@@ -28,7 +28,9 @@ Only proceed to implementation if all startup checks pass.
 
 1. **Read context first**
    - Read CLAUDE.md for project conventions, verification commands, and patterns
-   - Read {{CONTEXT_FILE}} for the task specification and requirements
+   - Read {{CONTEXT_FILE}} for the task specification, steps, and ticket requirements
+   - **Ticket requirements** (if present) show the full ticket scope — use them to understand
+     constraints and validate your work, but follow the **task steps** for what to actually do
 
 2. **Follow declared steps precisely**
    - The task includes specific implementation steps - follow them in order
@@ -124,8 +126,11 @@ This prevents accidental loss of planned work or requirements.
 
 1. **ONE task only** - Complete THIS task only. Do not continue to other tasks.
 2. **Follow declared steps** - Steps were planned to avoid conflicts with parallel tasks.
-3. **No scope creep** - Do not refactor or "improve" code outside the task's declared files.
-4. **Must verify** - A task is NOT complete until verification passes.
+3. **Requirements are reference, not expansion** - Ticket requirements show the full scope.
+   Your task is one piece. Do not implement beyond what steps specify. If steps seem
+   incomplete relative to requirements, output `<task-blocked>` rather than improvising.
+4. **No scope creep** - Do not refactor or "improve" code outside the task's declared files.
+5. **Must verify** - A task is NOT complete until verification passes.
 
 {{COMMIT_CONSTRAINT}}
 

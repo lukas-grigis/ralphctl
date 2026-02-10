@@ -21,6 +21,7 @@ import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
+import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 
 // Command imports - ticket
 import { ticketAddCommand } from '@src/commands/ticket/add.ts';
@@ -75,6 +76,7 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     refine: () => sprintRefineCommand([]),
     plan: () => sprintPlanCommand([]),
     start: () => sprintStartCommand([]),
+    requirements: () => sprintRequirementsCommand([]),
     close: () => sprintCloseCommand([]),
   },
   ticket: {

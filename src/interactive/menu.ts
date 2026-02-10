@@ -59,6 +59,7 @@ export const subMenus: Record<string, SubMenu> = {
       new Separator(),
       { name: 'Refine', value: 'refine', description: 'Refine ticket requirements' },
       { name: 'Plan', value: 'plan', description: 'Generate tasks' },
+      { name: 'Export Requirements', value: 'requirements', description: 'Export refined requirements to file' },
       new Separator(),
       { name: 'Start', value: 'start', description: 'Start implementation' },
       { name: 'Close', value: 'close', description: 'Close sprint' },

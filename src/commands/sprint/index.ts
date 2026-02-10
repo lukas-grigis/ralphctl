@@ -8,6 +8,7 @@ import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
+import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -88,6 +89,13 @@ Examples:
     .description('Close an active sprint')
     .action(async (id?: string) => {
       await sprintCloseCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('requirements [id]')
+    .description('Export refined requirements to file')
+    .action(async (id?: string) => {
+      await sprintRequirementsCommand(id ? [id] : []);
     });
 
   sprint

@@ -1,5 +1,6 @@
 import { colors, muted } from '@src/theme/index.ts';
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
+import { getTicket } from '@src/store/ticket.ts';
 import {
   boxChars,
   DETAIL_LABEL_WIDTH,
@@ -74,6 +75,23 @@ export async function taskShowCommand(args: string[]): Promise<void> {
         depLines.push(`${icons.bullet} ${dep}`);
       }
       console.log(renderCard(`${icons.warning} Blocked By`, depLines));
+    }
+
+    // Requirements card (from linked ticket, if refined)
+    if (task.ticketId) {
+      try {
+        const ticket = await getTicket(task.ticketId);
+        if (ticket.requirements) {
+          log.newline();
+          const reqLines: string[] = [];
+          for (const line of ticket.requirements.split('\n')) {
+            reqLines.push(line);
+          }
+          console.log(renderCard(`${icons.ticket} Requirements`, reqLines));
+        }
+      } catch {
+        // Ticket may not exist anymore - silently skip
+      }
     }
 
     // Verification card (if verified)

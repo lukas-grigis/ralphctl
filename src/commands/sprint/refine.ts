@@ -21,8 +21,9 @@ import { getProject } from '@src/store/project.ts';
 import { buildTicketRefinePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeInteractive } from '@src/claude/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getRefinementDir } from '@src/utils/paths.ts';
+import { getRefinementDir, getSprintDir } from '@src/utils/paths.ts';
 import type { Ticket } from '@src/schemas/index.ts';
+import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
 
 interface RefineOptions {
   project?: string;
@@ -357,9 +358,26 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   console.log(field('Total', String(pendingTickets.length)));
   log.newline();
 
-  const remainingPending = getPendingRequirements(sprint.tickets);
+  // Re-read sprint to get the latest state after all saves
+  const updatedSprint = await getSprint(id);
+  const remainingPending = getPendingRequirements(updatedSprint.tickets);
+
   if (remainingPending.length === 0) {
     showSuccess('All requirements approved!');
+
+    // Auto-export requirements to sprint directory
+    const sprintDir = getSprintDir(id);
+    const outputPath = join(sprintDir, 'requirements.md');
+
+    try {
+      await exportRequirementsToMarkdown(updatedSprint, outputPath);
+      log.dim(`Requirements saved to: ${outputPath}`);
+    } catch (err) {
+      if (err instanceof Error) {
+        showError(`Failed to write requirements: ${err.message}`);
+      }
+    }
+
     log.dim('Run "ralphctl sprint plan" to generate tasks.');
   } else {
     log.info(`${String(remainingPending.length)} ticket(s) still pending.`);

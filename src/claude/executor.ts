@@ -185,6 +185,25 @@ function formatTaskForClaude(ctx: TaskContext): string {
     lines.push(ctx.task.description);
   }
 
+  // Include refined requirements if ticket exists
+  if (ctx.task.ticketId) {
+    const ticket = ctx.sprint.tickets.find((t) => t.id === ctx.task.ticketId);
+    if (ticket?.requirements) {
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+      lines.push('## Ticket Requirements (reference)');
+      lines.push('');
+      lines.push(
+        '_These requirements describe the full ticket scope. This task implements a specific part of it. ' +
+          'Use them to validate your work and understand constraints, but follow the task steps for what to do. ' +
+          'Do not expand scope beyond declared steps._'
+      );
+      lines.push('');
+      lines.push(ticket.requirements);
+    }
+  }
+
   if (ctx.task.steps.length > 0) {
     lines.push('');
     lines.push('### Steps');
