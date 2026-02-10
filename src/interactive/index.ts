@@ -2,7 +2,7 @@ import { input, select } from '@inquirer/prompts';
 import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, type MenuContext, type MenuItem } from './menu.ts';
-import { showDashboard } from './dashboard.ts';
+import { getStatusLine, showDashboard } from './dashboard.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
@@ -196,6 +196,11 @@ export async function interactiveMode(): Promise<void> {
     try {
       const ctx = await getMenuContext();
       const mainMenu = buildMainMenu(ctx);
+
+      // Show compact status header
+      const statusLine = await getStatusLine();
+      console.log(statusLine);
+      log.newline();
 
       const command = await select({
         message: `${emoji.donut} What would you like to do?`,
