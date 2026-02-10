@@ -724,3 +724,158 @@ export function clearScreen(): void {
     process.stdout.write('\x1B[2J\x1B[0f');
   }
 }
+
+// ============================================================================
+// PROGRESS BAR
+// ============================================================================
+
+export interface ProgressBarOptions {
+  width?: number;
+  filled?: string;
+  empty?: string;
+  showPercent?: boolean;
+}
+
+export function progressBar(done: number, total: number, options: ProgressBarOptions = {}): string {
+  const { width = 20, filled = '\u2588', empty = '\u2591', showPercent = true } = options;
+  if (total === 0 || width <= 0) return colors.muted('\u2500'.repeat(Math.max(0, width)));
+  const filledCount = Math.round((done / total) * width);
+  const emptyCount = width - filledCount;
+  const percent = Math.round((done / total) * 100);
+  const bar = colors.success(filled.repeat(filledCount)) + colors.muted(empty.repeat(emptyCount));
+  if (!showPercent) return bar;
+  const label = percent === 100 ? colors.success(`${String(percent)}%`) : colors.muted(`${String(percent)}%`);
+  return `${bar} ${label}`;
+}
+
+// ============================================================================
+// LABEL-VALUE PAIR
+// ============================================================================
+
+export function labelValue(label: string, value: string, width = DETAIL_LABEL_WIDTH): string {
+  const paddedLabel = (label + ':').padEnd(width);
+  return `${colors.muted(paddedLabel)} ${value}`;
+}
+
+// ============================================================================
+// TABLE RENDERER
+// ============================================================================
+
+export interface TableColumn {
+  header: string;
+  align?: 'left' | 'right';
+  color?: ColorFn;
+  minWidth?: number;
+}
+
+export interface TableOptions {
+  style?: BoxStyle;
+  indent?: number;
+  colorFn?: ColorFn;
+}
+
+export function renderTable(columns: TableColumn[], rows: string[][], options: TableOptions = {}): string {
+  const { style = 'light', indent = 2, colorFn = colors.muted } = options;
+  const chars = boxChars[style];
+  const pad = ' '.repeat(indent);
+
+  // Calculate column widths (ANSI-safe)
+  const colWidths = columns.map((col, i) => {
+    const headerWidth = col.header.length;
+    const dataWidth = Math.max(0, ...rows.map((row) => stripAnsi(row[i] ?? '').length));
+    return Math.max(headerWidth, dataWidth, col.minWidth ?? 0);
+  });
+
+  const result: string[] = [];
+
+  // Top border
+  const topLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.teeDown);
+  result.push(pad + colorFn(chars.topLeft + topLine + chars.topRight));
+
+  // Header row
+  const headerCells = columns.map((col, i) => {
+    const w = colWidths[i] ?? 0;
+    return ' ' + colors.highlight(col.header.padEnd(w)) + ' ';
+  });
+  result.push(pad + colorFn(chars.vertical) + headerCells.join(colorFn(chars.vertical)) + colorFn(chars.vertical));
+
+  // Header separator
+  const sepLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.cross);
+  result.push(pad + colorFn(chars.teeRight + sepLine + chars.teeLeft));
+
+  // Data rows
+  for (const row of rows) {
+    const cells = columns.map((col, i) => {
+      const w = colWidths[i] ?? 0;
+      const cell = row[i] ?? '';
+      const visibleLen = stripAnsi(cell).length;
+      const padding = Math.max(0, w - visibleLen);
+      const coloredCell = col.color ? col.color(cell) : cell;
+      if (col.align === 'right') {
+        return ' ' + ' '.repeat(padding) + coloredCell + ' ';
+      }
+      return ' ' + coloredCell + ' '.repeat(padding) + ' ';
+    });
+    result.push(pad + colorFn(chars.vertical) + cells.join(colorFn(chars.vertical)) + colorFn(chars.vertical));
+  }
+
+  // Bottom border
+  const bottomLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.teeUp);
+  result.push(pad + colorFn(chars.bottomLeft + bottomLine + chars.bottomRight));
+
+  return result.join('\n');
+}
+
+// ============================================================================
+// COLUMN LAYOUT
+// ============================================================================
+
+export interface ColumnOptions {
+  gap?: number;
+  minWidth?: number;
+}
+
+export function renderColumns(blocks: string[][], options: ColumnOptions = {}): string {
+  const { gap = 4, minWidth = 20 } = options;
+  const colCount = blocks.length;
+  if (colCount === 0) return '';
+  if (colCount === 1) return (blocks[0] ?? []).join('\n');
+
+  // Calculate width of each block
+  const widths = blocks.map((lines) => Math.max(minWidth, ...lines.map((l) => stripAnsi(l).length)));
+
+  // Find max line count
+  const maxLines = Math.max(...blocks.map((b) => b.length));
+  const gapStr = ' '.repeat(gap);
+
+  const result: string[] = [];
+  for (let i = 0; i < maxLines; i++) {
+    const parts = blocks.map((block, colIdx) => {
+      const line = block[i] ?? '';
+      const w = widths[colIdx] ?? minWidth;
+      const visibleLen = stripAnsi(line).length;
+      return line + ' '.repeat(Math.max(0, w - visibleLen));
+    });
+    result.push(parts.join(gapStr));
+  }
+  return result.join('\n');
+}
+
+// ============================================================================
+// PROGRESS SUMMARY
+// ============================================================================
+
+export interface ProgressSummaryLabels {
+  done?: string;
+  remaining?: string;
+  title?: string;
+}
+
+export function renderProgressSummary(done: number, total: number, labels: ProgressSummaryLabels = {}): string {
+  const { done: doneLabel = 'done', remaining: remainingLabel = 'remaining', title } = labels;
+  const remaining = total - done;
+  const bar = progressBar(done, total);
+  const summary = `${colors.success(String(done))} ${colors.muted(doneLabel)}, ${colors.muted(String(remaining))} ${colors.muted(remainingLabel)}`;
+  const prefix = title ? `${colors.highlight(title)}  ` : '';
+  return `${prefix}${bar}  ${summary}`;
+}
