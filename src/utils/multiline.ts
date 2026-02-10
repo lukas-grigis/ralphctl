@@ -1,4 +1,4 @@
-import { input } from '@inquirer/prompts';
+import * as readline from 'node:readline';
 import { muted } from '@src/theme/index.ts';
 import { icons } from '@src/theme/ui.ts';
 
@@ -12,13 +12,14 @@ export interface MultilineInputOptions {
 }
 
 /**
- * Prompt for multiline input, line by line.
- * User enters empty line to finish.
+ * Prompt for multiline input with paste support.
+ * Ctrl+D to finish (standard Unix EOF).
+ * Supports pasting multiline text including blank lines.
  *
- * @returns Joined lines as a single string (trimmed)
+ * @returns Joined lines as a single string
  */
 export async function multilineInput(options: MultilineInputOptions): Promise<string> {
-  const { message, default: defaultValue, hint = 'empty line to finish' } = options;
+  const { message, default: defaultValue, hint = 'Ctrl+D to finish' } = options;
 
   // Show the prompt with hint
   console.log(`${icons.edit} ${message} ${muted(`(${hint})`)}`);
@@ -33,21 +34,28 @@ export async function multilineInput(options: MultilineInputOptions): Promise<st
   }
 
   const lines: string[] = [];
-  let lineNum = 1;
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- intentional infinite loop
-  while (true) {
-    const line = await input({
-      message: muted(`  ${String(lineNum).padStart(2, ' ')}:`),
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: process.stdin.isTTY,
+  });
+
+  return new Promise<string>((resolve) => {
+    rl.on('line', (line) => {
+      lines.push(line);
     });
 
-    if (line.trim() === '') {
-      break;
-    }
+    rl.on('close', () => {
+      // Print newline after Ctrl+D for clean formatting
+      console.log('');
 
-    lines.push(line);
-    lineNum++;
-  }
+      // Trim trailing empty lines
+      while (lines.length > 0 && lines.at(-1)?.trim() === '') {
+        lines.pop();
+      }
 
-  return lines.join('\n');
+      resolve(lines.join('\n'));
+    });
+  });
 }
