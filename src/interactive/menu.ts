@@ -1,13 +1,15 @@
 import { Separator } from '@inquirer/prompts';
+import { colors } from '@src/theme/index.ts';
 
 /**
- * Menu structure definitions for interactive mode
+ * Dynamic context-aware menu system for interactive mode
  */
 
 interface Choice {
   name: string;
   value: string;
   description?: string;
+  disabled?: string | boolean;
 }
 
 type SeparatorInstance = InstanceType<typeof Separator>;
@@ -19,89 +21,267 @@ export interface SubMenu {
   items: MenuItem[];
 }
 
-// Main menu - clean with subtle separators
-export const mainMenuItems: MenuItem[] = [
-  { name: 'Status', value: 'status', description: 'Sprint overview' },
-  { name: 'Project', value: 'project', description: 'Manage projects' },
-  new Separator(),
-  { name: 'Sprint', value: 'sprint', description: 'Manage sprints' },
-  { name: 'Ticket', value: 'ticket', description: 'Manage tickets' },
-  { name: 'Task', value: 'task', description: 'Manage tasks' },
-  { name: 'Progress', value: 'progress', description: 'Log progress' },
-  new Separator(),
-  { name: 'Exit', value: 'exit', description: 'Goodbye!' },
-];
+/** Sprint/ticket/task counts for menu context */
+export interface MenuContext {
+  hasProjects: boolean;
+  projectCount: number;
+  currentSprintId: string | null;
+  currentSprintName: string | null;
+  currentSprintStatus: 'draft' | 'active' | 'closed' | null;
+  ticketCount: number;
+  taskCount: number;
+  tasksDone: number;
+  tasksInProgress: number;
+  pendingRequirements: number;
+  allRequirementsApproved: boolean;
+}
 
-// Submenus
-export const subMenus: Record<string, SubMenu> = {
-  project: {
-    title: 'Project',
-    items: [
-      { name: 'Add', value: 'add', description: 'Add a new project' },
-      { name: 'List', value: 'list', description: 'List all projects' },
-      { name: 'Show', value: 'show', description: 'Show project details' },
-      { name: 'Remove', value: 'remove', description: 'Remove a project' },
-      new Separator(),
-      { name: 'Add Repository', value: 'repo add', description: 'Add repository to project' },
-      { name: 'Remove Repository', value: 'repo remove', description: 'Remove repository' },
-      new Separator(),
-      { name: 'Back', value: 'back', description: 'Return to main menu' },
-    ],
-  },
-  sprint: {
-    title: 'Sprint',
-    items: [
-      { name: 'Create', value: 'create', description: 'Create a new sprint' },
-      { name: 'List', value: 'list', description: 'List all sprints' },
-      { name: 'Show', value: 'show', description: 'Show sprint details' },
-      { name: 'Context', value: 'context', description: 'Output full sprint context' },
-      { name: 'Set Current', value: 'current', description: 'Set current sprint' },
-      new Separator(),
-      { name: 'Refine', value: 'refine', description: 'Refine ticket requirements' },
-      { name: 'Plan', value: 'plan', description: 'Generate tasks' },
-      { name: 'Export Requirements', value: 'requirements', description: 'Export refined requirements to file' },
-      new Separator(),
-      { name: 'Start', value: 'start', description: 'Start implementation' },
-      { name: 'Close', value: 'close', description: 'Close sprint' },
-      new Separator(),
-      { name: 'Back', value: 'back', description: 'Return to main menu' },
-    ],
-  },
-  ticket: {
-    title: 'Ticket',
-    items: [
-      { name: 'Add', value: 'add', description: 'Add a ticket' },
-      { name: 'Edit', value: 'edit', description: 'Edit a ticket' },
-      { name: 'List', value: 'list', description: 'List all tickets' },
-      { name: 'Show', value: 'show', description: 'Show ticket details' },
-      { name: 'Remove', value: 'remove', description: 'Remove a ticket' },
-      new Separator(),
-      { name: 'Back', value: 'back', description: 'Return to main menu' },
-    ],
-  },
-  task: {
-    title: 'Task',
-    items: [
-      { name: 'Add', value: 'add', description: 'Add a new task' },
-      { name: 'Import', value: 'import', description: 'Import from JSON' },
-      { name: 'List', value: 'list', description: 'List all tasks' },
-      { name: 'Show', value: 'show', description: 'Show task details' },
-      new Separator(),
-      { name: 'Status', value: 'status', description: 'Update status' },
-      { name: 'Next', value: 'next', description: 'Get next task' },
-      { name: 'Reorder', value: 'reorder', description: 'Change priority' },
-      { name: 'Remove', value: 'remove', description: 'Remove a task' },
-      new Separator(),
-      { name: 'Back', value: 'back', description: 'Return to main menu' },
-    ],
-  },
-  progress: {
-    title: 'Progress',
-    items: [
-      { name: 'Log', value: 'log', description: 'Log progress entry' },
-      { name: 'Show', value: 'show', description: 'Show progress log' },
-      new Separator(),
-      { name: 'Back', value: 'back', description: 'Return to main menu' },
-    ],
-  },
-};
+function countBadge(count: number, label: string): string {
+  if (count === 0) return '';
+  return colors.muted(` [${String(count)} ${label}]`);
+}
+
+function statusBadge(status: string | null): string {
+  if (!status) return '';
+  const statusColors: Record<string, (s: string) => string> = {
+    draft: colors.warning,
+    active: colors.success,
+    closed: colors.muted,
+  };
+  const colorFn = statusColors[status] ?? colors.muted;
+  return ' ' + colorFn(`(${status})`);
+}
+
+/**
+ * Build main menu items based on current application state.
+ */
+export function buildMainMenu(ctx: MenuContext): MenuItem[] {
+  const items: MenuItem[] = [];
+
+  // Status is always available
+  items.push({
+    name: 'Status',
+    value: 'status',
+    description: ctx.currentSprintName
+      ? `${ctx.currentSprintName}${statusBadge(ctx.currentSprintStatus)}`
+      : 'Sprint overview',
+  });
+
+  // Quick Start: show when no current sprint
+  if (!ctx.currentSprintId) {
+    items.push({
+      name: 'Quick Start',
+      value: 'wizard',
+      description: 'Guided sprint setup',
+    });
+  }
+
+  items.push(new Separator());
+
+  // --- Sprint lifecycle section ---
+  if (ctx.currentSprintId && ctx.currentSprintStatus === 'draft') {
+    items.push(new Separator(colors.muted(' ── Draft Phase ──')));
+  } else if (ctx.currentSprintId && ctx.currentSprintStatus === 'active') {
+    items.push(new Separator(colors.muted(' ── Active Sprint ──')));
+  }
+
+  items.push({
+    name: `Sprint${countBadge(ctx.ticketCount, ctx.ticketCount === 1 ? 'ticket' : 'tickets')}`,
+    value: 'sprint',
+    description: 'Manage sprints',
+  });
+
+  items.push({
+    name: `Ticket${countBadge(ctx.ticketCount, ctx.ticketCount === 1 ? 'ticket' : 'tickets')}`,
+    value: 'ticket',
+    description:
+      ctx.pendingRequirements > 0 ? `${String(ctx.pendingRequirements)} pending refinement` : 'Manage tickets',
+  });
+
+  items.push({
+    name: `Task${countBadge(ctx.taskCount, ctx.taskCount === 1 ? 'task' : 'tasks')}`,
+    value: 'task',
+    description: ctx.taskCount > 0 ? `${String(ctx.tasksDone)}/${String(ctx.taskCount)} done` : 'Manage tasks',
+  });
+
+  items.push({ name: 'Progress', value: 'progress', description: 'Log progress' });
+
+  items.push(new Separator());
+
+  items.push({
+    name: 'Project',
+    value: 'project',
+    description: ctx.hasProjects ? `${String(ctx.projectCount)} registered` : 'No projects yet',
+  });
+
+  items.push(new Separator());
+  items.push({ name: 'Exit', value: 'exit', description: 'Goodbye!' });
+
+  return items;
+}
+
+/**
+ * Build sprint submenu based on current sprint state.
+ */
+function buildSprintSubMenu(ctx: MenuContext): SubMenu {
+  const items: MenuItem[] = [];
+  const isDraft = ctx.currentSprintStatus === 'draft';
+  const isActive = ctx.currentSprintStatus === 'active';
+
+  items.push({ name: 'Create', value: 'create', description: 'Create a new sprint' });
+  items.push({ name: 'List', value: 'list', description: 'List all sprints' });
+  items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
+  items.push({ name: 'Set Current', value: 'current', description: 'Set current sprint' });
+  items.push({ name: 'Context', value: 'context', description: 'Output full sprint context' });
+
+  items.push(new Separator());
+
+  // Workflow actions with state awareness
+  items.push({
+    name: 'Refine',
+    value: 'refine',
+    description:
+      ctx.pendingRequirements > 0 ? `${String(ctx.pendingRequirements)} tickets pending` : 'Refine ticket requirements',
+    disabled: !isDraft ? 'requires draft sprint' : false,
+  });
+
+  items.push({
+    name: 'Plan',
+    value: 'plan',
+    description: 'Generate tasks from requirements',
+    disabled: !isDraft ? 'requires draft sprint' : !ctx.allRequirementsApproved ? 'refine requirements first' : false,
+  });
+
+  items.push({
+    name: 'Export Requirements',
+    value: 'requirements',
+    description: 'Export refined requirements to file',
+  });
+
+  items.push(new Separator());
+
+  items.push({
+    name: 'Start',
+    value: 'start',
+    description: 'Start implementation',
+    disabled: !isDraft && !isActive ? 'requires draft or active sprint' : false,
+  });
+
+  items.push({
+    name: 'Health',
+    value: 'health',
+    description: 'Check sprint health',
+  });
+
+  items.push({
+    name: 'Close',
+    value: 'close',
+    description: 'Close sprint',
+    disabled: !isActive ? 'requires active sprint' : false,
+  });
+
+  items.push(new Separator());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Sprint', items };
+}
+
+/**
+ * Build ticket submenu with state-aware descriptions.
+ */
+function buildTicketSubMenu(ctx: MenuContext): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({
+    name: 'Add',
+    value: 'add',
+    description: ctx.hasProjects ? 'Add a ticket' : 'Add a ticket (add a project first)',
+    disabled: !ctx.hasProjects ? 'add a project first' : false,
+  });
+  items.push({ name: 'Edit', value: 'edit', description: 'Edit a ticket' });
+  items.push({ name: 'List', value: 'list', description: 'List all tickets' });
+  items.push({ name: 'Show', value: 'show', description: 'Show ticket details' });
+  items.push({ name: 'Remove', value: 'remove', description: 'Remove a ticket' });
+  items.push(new Separator());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Ticket', items };
+}
+
+/**
+ * Build task submenu.
+ */
+function buildTaskSubMenu(): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
+  items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
+  items.push({ name: 'List', value: 'list', description: 'List all tasks' });
+  items.push({ name: 'Show', value: 'show', description: 'Show task details' });
+  items.push(new Separator());
+  items.push({ name: 'Status', value: 'status', description: 'Update status' });
+  items.push({ name: 'Next', value: 'next', description: 'Get next task' });
+  items.push({ name: 'Reorder', value: 'reorder', description: 'Change priority' });
+  items.push({ name: 'Remove', value: 'remove', description: 'Remove a task' });
+  items.push(new Separator());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Task', items };
+}
+
+/**
+ * Build progress submenu.
+ */
+function buildProgressSubMenu(): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({ name: 'Log', value: 'log', description: 'Log progress entry' });
+  items.push({ name: 'Show', value: 'show', description: 'Show progress log' });
+  items.push(new Separator());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Progress', items };
+}
+
+/**
+ * Build project submenu.
+ */
+function buildProjectSubMenu(): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({ name: 'Add', value: 'add', description: 'Add a new project' });
+  items.push({ name: 'List', value: 'list', description: 'List all projects' });
+  items.push({ name: 'Show', value: 'show', description: 'Show project details' });
+  items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
+  items.push(new Separator());
+  items.push({
+    name: 'Add Repository',
+    value: 'repo add',
+    description: 'Add repository to project',
+  });
+  items.push({ name: 'Remove Repository', value: 'repo remove', description: 'Remove repository' });
+  items.push(new Separator());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Project', items };
+}
+
+/**
+ * Build a submenu by group name with full context.
+ */
+export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
+  switch (group) {
+    case 'sprint':
+      return buildSprintSubMenu(ctx);
+    case 'ticket':
+      return buildTicketSubMenu(ctx);
+    case 'task':
+      return buildTaskSubMenu();
+    case 'progress':
+      return buildProgressSubMenu();
+    case 'project':
+      return buildProjectSubMenu();
+    default:
+      return null;
+  }
+}
