@@ -25,4 +25,7 @@ export async function projectListCommand(): Promise<void> {
     }
     log.newline();
   }
+
+  log.dim(`Showing ${String(projects.length)} project(s)`);
+  log.newline();
 }

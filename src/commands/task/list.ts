@@ -1,6 +1,6 @@
-import { colors, muted } from '@src/theme/index.ts';
+import { colors } from '@src/theme/index.ts';
 import { listTasks } from '@src/store/task.ts';
-import { badge, formatTaskStatus, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
+import { badge, formatTaskStatus, icons, log, printHeader, renderTable, showEmpty } from '@src/theme/ui.ts';
 
 export async function taskListCommand(args: string[] = []): Promise<void> {
   const brief = args.includes('-b') || args.includes('--brief');
@@ -25,7 +25,7 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
     return;
   }
 
-  // Interactive list with status icons and alignment
+  // Interactive list with table
   const tasksByStatus = {
     todo: tasks.filter((t) => t.status === 'todo').length,
     in_progress: tasks.filter((t) => t.status === 'in_progress').length,
@@ -42,23 +42,33 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
   );
   log.newline();
 
-  const ORDER_W = String(tasks.length).length + 1;
-
-  for (const task of tasks) {
+  const rows: string[][] = tasks.map((task) => {
     const statusIcon =
       task.status === 'done' ? icons.success : task.status === 'in_progress' ? icons.active : icons.inactive;
     const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
-    const order = muted(String(task.order).padStart(ORDER_W) + '.');
-    const ticketRef = task.ticketId ? ' ' + muted(`[${task.ticketId}]`) : '';
-    const blockedRef = task.blockedBy.length > 0 ? ' ' + colors.error(`(blocked)`) : '';
+    const blocked = task.blockedBy.length > 0 ? colors.error('(blocked)') : '';
+    return [badge(statusIcon, statusColor), String(task.order), task.name, task.id, blocked];
+  });
 
-    log.raw(`${order} ${badge(statusIcon, statusColor)} ${task.name} ${muted(task.id)}${ticketRef}${blockedRef}`);
-  }
+  console.log(
+    renderTable(
+      [
+        { header: '', minWidth: 0 },
+        { header: '#', align: 'right' },
+        { header: 'Name' },
+        { header: 'ID' },
+        { header: '' },
+      ],
+      rows
+    )
+  );
 
   // Progress summary
   const percent = tasks.length > 0 ? Math.round((tasksByStatus.done / tasks.length) * 100) : 0;
   const progressColor = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
   log.newline();
-  log.dim(`Progress: ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}`);
+  log.dim(
+    `Progress: ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}  |  Showing ${String(tasks.length)} task(s)`
+  );
   log.newline();
 }

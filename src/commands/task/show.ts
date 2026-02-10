@@ -6,19 +6,13 @@ import {
   DETAIL_LABEL_WIDTH,
   formatTaskStatus,
   icons,
+  labelValue,
   log,
   renderCard,
   showError,
   showNextStep,
 } from '@src/theme/ui.ts';
 import { selectTask } from '@src/interactive/selectors.ts';
-
-const LABEL_W = DETAIL_LABEL_WIDTH;
-
-function labelValue(label: string, value: string): string {
-  const paddedLabel = (label + ':').padEnd(LABEL_W);
-  return `${colors.muted(paddedLabel)} ${value}`;
-}
 
 export async function taskShowCommand(args: string[]): Promise<void> {
   let taskId = args[0];
@@ -48,7 +42,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
       infoLines.push('');
       infoLines.push(labelValue('Description', ''));
       for (const line of task.description.split('\n')) {
-        infoLines.push(`${' '.repeat(LABEL_W + 1)}${line}`);
+        infoLines.push(`${' '.repeat(DETAIL_LABEL_WIDTH + 1)}${line}`);
       }
     }
 

@@ -64,5 +64,6 @@ export async function ticketListCommand(args: string[]): Promise<void> {
   log.dim(
     `Requirements: ${success(`${String(approved)} approved`)} / ${muted(`${String(tickets.length - approved)} pending`)}`
   );
+  log.dim(`Showing ${String(tickets.length)} ticket(s)`);
   log.newline();
 }
