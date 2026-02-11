@@ -2,11 +2,7 @@ import { muted } from '@src/theme/index.ts';
 import { getTicket, TicketNotFoundError } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
-import { badge, DETAIL_LABEL_WIDTH, field, icons, log, renderCard, showError, showNextStep } from '@src/theme/ui.ts';
-
-function labelValue(label: string, value: string): string {
-  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
-}
+import { badge, icons, labelValue, log, renderCard, showError, showNextStep } from '@src/theme/ui.ts';
 
 export async function ticketShowCommand(args: string[]): Promise<void> {
   let ticketId = args[0];

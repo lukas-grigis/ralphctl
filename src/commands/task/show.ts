@@ -4,19 +4,15 @@ import { getTicket } from '@src/store/ticket.ts';
 import {
   boxChars,
   DETAIL_LABEL_WIDTH,
-  field,
   formatTaskStatus,
   icons,
+  labelValue,
   log,
   renderCard,
   showError,
   showNextStep,
 } from '@src/theme/ui.ts';
 import { selectTask } from '@src/interactive/selectors.ts';
-
-function labelValue(label: string, value: string): string {
-  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
-}
 
 export async function taskShowCommand(args: string[]): Promise<void> {
   let taskId = args[0];

@@ -15,6 +15,7 @@ import {
   renderCard,
   showError,
   showSuccess,
+  showTip,
   showWarning,
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
@@ -133,7 +134,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     id = await resolveSprintId(sprintId);
   } catch {
     showWarning('No sprint specified and no current sprint set.');
-    log.dim('Specify a sprint ID or create one first.');
+    showTip('Specify a sprint ID or create one first.');
     log.newline();
     return;
   }
@@ -153,7 +154,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
 
   if (sprint.tickets.length === 0) {
     showWarning('No tickets in sprint.');
-    log.dim('Add tickets first: ralphctl ticket add --project <project-name>');
+    showTip('Add tickets first: ralphctl ticket add --project <project-name>');
     log.newline();
     return;
   }
@@ -171,7 +172,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
 
   if (pendingTickets.length === 0) {
     showSuccess('All tickets already have approved requirements!');
-    log.dim('Run "ralphctl sprint plan" to generate tasks.');
+    showTip('Run "ralphctl sprint plan" to generate tasks.');
     log.newline();
     return;
   }
@@ -401,10 +402,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       }
     }
 
-    log.dim('Run "ralphctl sprint plan" to generate tasks.');
+    showTip('Run "ralphctl sprint plan" to generate tasks.');
   } else {
     log.info(`${String(remainingPending.length)} ticket(s) still pending.`);
-    log.dim('Continue refinement with: ralphctl sprint refine');
+    showTip('Continue refinement with: ralphctl sprint refine');
   }
   log.newline();
 }

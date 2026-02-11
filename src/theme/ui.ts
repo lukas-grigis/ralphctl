@@ -1,14 +1,5 @@
 import ora, { type Ora } from 'ora';
-import {
-  banner,
-  type ColorFn,
-  colors,
-  getMessage,
-  getRandomQuote,
-  getStatusEmoji,
-  gradients,
-  isColorSupported,
-} from './index.ts';
+import { banner, type ColorFn, colors, getRandomQuote, getStatusEmoji, gradients, isColorSupported } from './index.ts';
 
 // ============================================================================
 // ICONS
@@ -126,22 +117,6 @@ export function printHeader(title: string, icon?: string): void {
  */
 export function printSeparator(width = 40): void {
   console.log(`${INDENT}${colors.muted('─'.repeat(width))}`);
-}
-
-/**
- * Print a centered box with content
- */
-export function printBox(lines: string[]): void {
-  const maxLen = Math.max(...lines.map((l) => l.length), 30);
-  const width = maxLen + 4;
-
-  console.log('');
-  console.log(`${INDENT}${colors.muted('─'.repeat(width))}`);
-  for (const line of lines) {
-    console.log(`${INDENT}  ${line}`);
-  }
-  console.log(`${INDENT}${colors.muted('─'.repeat(width))}`);
-  console.log('');
 }
 
 // ============================================================================
@@ -348,10 +323,11 @@ export function field(label: string, value: string, labelWidth = 12): string {
 }
 
 /**
- * Format multiple fields as aligned rows
+ * Format a detail field for card content (trimmed for consistent alignment).
+ * Used in show commands to build card content lines.
  */
-export function fields(items: [string, string][], labelWidth = 12): string {
-  return items.map(([label, value]) => field(label, value, labelWidth)).join('\n');
+export function labelValue(label: string, value: string, labelWidth = DETAIL_LABEL_WIDTH): string {
+  return field(label, value, labelWidth).trimStart();
 }
 
 /**
@@ -380,14 +356,6 @@ export function fieldMultiline(label: string, value: string, labelWidth = 12): s
 // ============================================================================
 // STATUS FORMATTING
 // ============================================================================
-
-/**
- * Format a status with emoji
- */
-export function formatStatus(status: string): string {
-  const emoji = getStatusEmoji(status);
-  return `${emoji} ${status}`;
-}
 
 /**
  * Format task status for display
@@ -469,7 +437,7 @@ export function printCountSummary(label: string, done: number, total: number): v
 export function showSuccess(message: string, details?: [string, string][]): void {
   console.log('\n' + `${INDENT}${colors.success(icons.success)}  ${colors.success(message)}`);
   if (details) {
-    console.log(fields(details));
+    console.log(details.map(([label, value]) => field(label, value)).join('\n'));
   }
 }
 
@@ -499,13 +467,6 @@ export function showWarning(message: string): void {
  */
 export function showTip(message: string): void {
   console.log(`${INDENT}${colors.muted(icons.tip + ' ' + message)}`);
-}
-
-/**
- * Show a themed message for a specific action
- */
-export function showThemedMessage(key: keyof typeof import('./index.ts').messages): void {
-  console.log(colors.success(getMessage(key)));
 }
 
 /**
@@ -544,24 +505,10 @@ export function showNextSteps(steps: [command: string, description?: string][]):
 // ============================================================================
 
 /**
- * Format a header/section title
- */
-export function formatHeader(text: string): string {
-  return colors.info(text);
-}
-
-/**
  * Format muted/secondary text
  */
 export function formatMuted(text: string): string {
   return colors.muted(text);
-}
-
-/**
- * Format highlighted text
- */
-export function formatHighlight(text: string): string {
-  return colors.highlight(text);
 }
 
 /**
@@ -570,22 +517,6 @@ export function formatHighlight(text: string): string {
 export function showRandomQuote(): void {
   const quote = getRandomQuote();
   console.log(colors.muted(`  "${quote}"`));
-}
-
-// ============================================================================
-// MENU ITEM FORMATTING
-// ============================================================================
-
-/**
- * Format a menu item with icon, label (padded), and description
- * @param icon - Icon character
- * @param label - Menu item label (will be padded)
- * @param description - Dimmed description
- * @param labelWidth - Width for label padding (default 14)
- */
-export function menuItem(icon: string, label: string, description: string, labelWidth = 14): string {
-  const paddedLabel = label.padEnd(labelWidth);
-  return `${colors.highlight(icon)}  ${paddedLabel}  ${colors.muted(description)}`;
 }
 
 // ============================================================================
