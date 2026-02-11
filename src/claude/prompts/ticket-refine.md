@@ -128,6 +128,14 @@ e.g., map fixes, route planning, UI layout), consolidate them into a single `req
 markdown headings (`# 1. Topic`, `# 2. Topic`, etc.) separated by `---` dividers. Do NOT output multiple JSON objects
 for the same ticket.
 
+JSON Schema:
+
+```json
+{{SCHEMA}}
+```
+
+Example output:
+
 ```json
 [
   {

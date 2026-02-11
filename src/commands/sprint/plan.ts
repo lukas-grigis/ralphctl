@@ -28,6 +28,7 @@ import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/ind
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
 import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
+import { extractJsonArray } from '@src/utils/json-extract.ts';
 
 async function getTaskImportSchema(): Promise<string> {
   const schemaPath = getSchemaPath('task-import.schema.json');
@@ -179,41 +180,6 @@ interface ImportTask {
   ticketId?: string;
   blockedBy?: string[];
   projectPath: string; // Required - execution directory
-}
-
-function extractJsonArray(output: string): string {
-  const start = output.indexOf('[');
-  if (start === -1) {
-    throw new Error('No JSON array found in output');
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < output.length; i++) {
-    const ch = output[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (ch === '\\' && inString) {
-      escape = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === '[') depth++;
-    if (ch === ']') {
-      depth--;
-      if (depth === 0) {
-        return output.slice(start, i + 1);
-      }
-    }
-  }
-  throw new Error('No JSON array found in output');
 }
 
 function parseTasksJson(output: string): ImportTask[] {

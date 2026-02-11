@@ -165,6 +165,7 @@ You are working on a pre-defined task. You may NOT modify:
 - The task name, description, or steps
 - Any other tasks in this sprint
 - The task definition files
+- **DO NOT commit the {{CONTEXT_FILE}} file** — This is a temporary file that will be cleaned up automatically
 
 You may ONLY signal status changes via:
 
@@ -179,6 +180,8 @@ You may ONLY signal status changes via:
 - **Requirements are reference, not expansion** — Ticket requirements show the full scope. Your task is one piece. Do
   not implement beyond what steps specify.
 - **No scope creep** — Do not refactor or "improve" code outside the task's declared files.
+- **Do NOT commit {{CONTEXT_FILE}}** — This temporary file is for execution context only and will be cleaned up
+  automatically.
   {{COMMIT_CONSTRAINT}}
 - **Must verify** — A task is NOT complete until verification passes.
 - **Must log progress** — Update progress file before signaling completion.

@@ -36,7 +36,10 @@ export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boo
     .replaceAll('{{CONTEXT_FILE}}', contextFileName);
 }
 
-export function buildTicketRefinePrompt(ticketContent: string, outputFile: string): string {
+export function buildTicketRefinePrompt(ticketContent: string, outputFile: string, schema: string): string {
   const template = loadTemplate('ticket-refine');
-  return template.replace('{{TICKET}}', ticketContent).replace('{{OUTPUT_FILE}}', outputFile);
+  return template
+    .replace('{{TICKET}}', ticketContent)
+    .replace('{{OUTPUT_FILE}}', outputFile)
+    .replace('{{SCHEMA}}', schema);
 }

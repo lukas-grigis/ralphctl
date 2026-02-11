@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "requirements-output.schema.json",
+  "title": "Requirements Output",
+  "description": "Schema for refined requirements output from ralphctl sprint refine",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["ref", "requirements"],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Reference to the ticket - either internal ID, external ID, or exact title"
+      },
+      "requirements": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Refined requirements in markdown format - should include problem statement, requirements, acceptance criteria, scope, and constraints"
+      }
+    }
+  }
+}
