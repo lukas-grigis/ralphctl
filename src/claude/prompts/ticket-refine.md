@@ -10,6 +10,14 @@ WHAT needs to be built, not HOW.
 - Do NOT use technical jargon that assumes implementation details
 - Focus exclusively on requirements, acceptance criteria, and scope
 
+## Common Interview Anti-Patterns
+
+- **Asking what the ticket already says** — Read the ticket first; only ask about gaps
+- **Over-specifying** — Constrain WHAT, not HOW (e.g., "must support undo" not "use command pattern")
+- **Asking too many questions** — 3-6 focused questions is typical; stop when criteria are met
+- **Combining multiple concerns** — Each question should address one dimension
+- **Adding a freeform option** — Users get an automatic "Other" option; do not add your own
+
 ## Protocol
 
 ### Step 1: Analyze the Ticket
@@ -70,9 +78,32 @@ If you find yourself asking questions the ticket already answers, you have gone 
 **SHOW BEFORE WRITE.** Present the complete requirements in readable markdown. Use proper headers, bullets, and
 formatting. Make it easy to scan and review.
 
-Then ask: "Does this look correct? Any changes needed?"
+Then ask for approval using AskUserQuestion:
 
-### Step 5: Write to File (Only After User Confirms)
+```
+Question: "Does this look correct? Any changes needed?"
+Header: "Approval"
+Options:
+  - "Approved, write it" — "Requirements are complete and accurate"
+  - "Needs changes" — "I'll describe what to adjust"
+```
+
+If the user selects "Needs changes" or uses "Other" to provide feedback, edit the requirements based on their input and
+re-present for approval. Iterate until approved.
+
+### Step 5: Pre-Output Quality Check
+
+Before writing to file, verify ALL of these are true:
+
+- [ ] Problem statement is clear and agreed upon
+- [ ] Every requirement has acceptance criteria
+- [ ] Scope boundaries are explicit (what's in AND what's out)
+- [ ] Edge cases and error states are addressed
+- [ ] No implementation details leaked into requirements
+- [ ] Given/When/Then format used where possible
+- [ ] Multi-topic tickets use numbered headings (# 1., # 2., etc.)
+
+### Step 6: Write to File (Only After User Confirms)
 
 **ONLY AFTER the user explicitly approves**, write the requirements to the output file.
 
@@ -84,6 +115,10 @@ Use AskUserQuestion with 2-4 options per question:
 - Descriptions explain trade-offs or implications
 - Ask one question at a time
 - Do not ask what the ticket already answers
+- Labels must be 1-5 words (concise)
+- Headers must be 12 characters or fewer (fits UI)
+- Use `multiSelect: true` when choices are not mutually exclusive
+- Users automatically get an "Other" option — do not add your own
 
 ### Example Interactions
 
@@ -91,32 +126,33 @@ Use AskUserQuestion with 2-4 options per question:
 
 ```
 Question: "Should password reset send a confirmation email after the password is changed?"
-Header: "Post-reset confirmation"
+Header: "Reset email"
 Options:
-  - "Yes, send confirmation (Recommended)" — "Standard security practice, alerts user if reset was unauthorized"
-  - "No confirmation needed" — "Simpler flow, user already confirmed via reset link"
+  - "Send confirmation (Recommended)" — "Standard security practice, alerts user if reset was unauthorized"
+  - "No confirmation" — "Simpler flow, user already confirmed via reset link"
 ```
 
 **Example 2 — Surfacing edge cases:**
 
 ```
 Question: "What should happen if a user tries to export more than 10,000 records?"
-Header: "Large export handling"
+Header: "Large export"
 Options:
-  - "Paginate into multiple files (Recommended)" — "Prevents timeouts and memory issues"
-  - "Show error with limit message" — "Simple, forces user to filter first"
-  - "Background job with notification" — "Best UX, but more complex"
+  - "Multiple files (Recommended)" — "Prevents timeouts and memory issues"
+  - "Error with limit" — "Simple, forces user to filter first"
+  - "Background job" — "Best UX, but more complex"
 ```
 
 **Example 3 — Resolving ambiguity:**
 
 ```
 Question: "The ticket says 'support multiple formats'. Which formats are required for the initial release?"
-Header: "Export formats"
+Header: "Formats"
+multiSelect: true
 Options:
-  - "CSV and JSON (Recommended)" — "Covers most use cases, straightforward to implement"
-  - "CSV only" — "Minimum viable, add JSON later"
-  - "CSV, JSON, and PDF" — "Full coverage, significantly more work"
+  - "CSV (Recommended)" — "Universal compatibility, simple structure"
+  - "JSON (Recommended)" — "API-friendly, structured data"
+  - "PDF" — "Human-readable reports, requires additional library"
 ```
 
 ## Output Format (After User Approval)
