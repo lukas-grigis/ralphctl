@@ -11,7 +11,16 @@ import {
   showNextStep,
 } from '@src/theme/ui.ts';
 
-export async function sprintListCommand(): Promise<void> {
+export async function sprintListCommand(args: string[] = []): Promise<void> {
+  // Parse status filter
+  let statusFilter: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--status' && args[i + 1]) {
+      statusFilter = args[i + 1];
+      i++;
+    }
+  }
+
   const sprints = await listSprints();
 
   if (sprints.length === 0) {
@@ -19,11 +28,20 @@ export async function sprintListCommand(): Promise<void> {
     return;
   }
 
+  const filtered = statusFilter ? sprints.filter((s) => s.status === statusFilter) : sprints;
+  const isFiltered = filtered.length !== sprints.length;
+  const filterStr = statusFilter ? ` (filtered: status=${statusFilter})` : '';
+
+  if (filtered.length === 0) {
+    showEmpty('matching sprints', 'Try adjusting your filters');
+    return;
+  }
+
   printHeader('Sprints', icons.sprint);
 
   const currentSprintId = await getCurrentSprint();
 
-  const rows: string[][] = sprints.map((sprint) => {
+  const rows: string[][] = filtered.map((sprint) => {
     const isCurrent = sprint.id === currentSprintId;
     const marker = isCurrent ? badge('current', 'success') : '';
     return [marker, sprint.id, formatSprintStatus(sprint.status), sprint.name, String(sprint.tickets.length)];
@@ -43,9 +61,12 @@ export async function sprintListCommand(): Promise<void> {
   );
 
   log.newline();
-  log.dim(`Showing ${String(sprints.length)} sprint(s)`);
+  const showingLabel = isFiltered
+    ? `Showing ${String(filtered.length)} of ${String(sprints.length)} sprint(s)${filterStr}`
+    : `Showing ${String(sprints.length)} sprint(s)`;
+  log.dim(showingLabel);
 
-  const hasActive = sprints.some((s) => s.status === 'active');
+  const hasActive = filtered.some((s) => s.status === 'active');
   if (!hasActive) {
     log.newline();
     showNextStep('ralphctl sprint start', 'start a sprint');

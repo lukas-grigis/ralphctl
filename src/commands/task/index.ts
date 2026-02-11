@@ -63,9 +63,21 @@ Examples:
     .command('list')
     .description('List tasks')
     .option('-b, --brief', 'Brief format')
-    .action(async (opts: { brief?: boolean }) => {
-      await taskListCommand(opts.brief ? ['-b'] : []);
-    });
+    .option('--status <status>', 'Filter by status (todo, in_progress, done)')
+    .option('--project <name>', 'Filter by project path')
+    .option('--ticket <id>', 'Filter by ticket ID')
+    .option('--blocked', 'Show only blocked tasks')
+    .action(
+      async (opts: { brief?: boolean; status?: string; project?: string; ticket?: string; blocked?: boolean }) => {
+        const args: string[] = [];
+        if (opts.brief) args.push('-b');
+        if (opts.status) args.push('--status', opts.status);
+        if (opts.project) args.push('--project', opts.project);
+        if (opts.ticket) args.push('--ticket', opts.ticket);
+        if (opts.blocked) args.push('--blocked');
+        await taskListCommand(args);
+      }
+    );
 
   task
     .command('show [id]')

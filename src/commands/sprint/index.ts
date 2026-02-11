@@ -37,7 +37,15 @@ Examples:
       });
     });
 
-  sprint.command('list').description('List all sprints').action(sprintListCommand);
+  sprint
+    .command('list')
+    .description('List all sprints')
+    .option('--status <status>', 'Filter by status (draft, active, closed)')
+    .action(async (opts: { status?: string }) => {
+      const args: string[] = [];
+      if (opts.status) args.push('--status', opts.status);
+      await sprintListCommand(args);
+    });
 
   sprint
     .command('show [id]')
