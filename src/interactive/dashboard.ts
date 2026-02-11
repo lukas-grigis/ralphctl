@@ -178,23 +178,3 @@ export async function showDashboard(): Promise<void> {
   }
   console.log('');
 }
-
-/**
- * Render a compact status line for the persistent header.
- * Returns a single-line string showing sprint context.
- */
-export async function getStatusLine(): Promise<string> {
-  const data = await loadDashboardData();
-  if (!data) {
-    return colors.muted(`${emoji.donut} No current sprint`);
-  }
-
-  const { sprint, tasks } = data;
-  const doneCount = tasks.filter((t) => t.status === 'done').length;
-  const totalTasks = tasks.length;
-  const statusBadge = formatSprintStatus(sprint.status);
-
-  const progress = totalTasks > 0 ? colors.muted(` [${String(doneCount)}/${String(totalTasks)}]`) : '';
-
-  return `${emoji.donut} ${colors.highlight(sprint.name)} ${statusBadge}${progress}`;
-}

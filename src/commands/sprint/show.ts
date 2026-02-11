@@ -6,15 +6,20 @@ import { formatTicketDisplay, getPendingRequirements, groupTicketsByProject } fr
 import {
   badge,
   boxChars,
+  DETAIL_LABEL_WIDTH,
+  field,
   formatSprintStatus,
   formatTaskStatus,
   icons,
-  labelValue,
   log,
   renderCard,
   showNextStep,
 } from '@src/theme/ui.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
+
+function labelValue(label: string, value: string): string {
+  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
+}
 
 export async function sprintShowCommand(args: string[]): Promise<void> {
   const sprintId = args[0];

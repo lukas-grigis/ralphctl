@@ -1,13 +1,10 @@
 import { colors, muted } from '@src/theme/index.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
-import { DETAIL_LABEL_WIDTH, icons, log, renderCard, showError } from '@src/theme/ui.ts';
-
-const LABEL_W = DETAIL_LABEL_WIDTH;
+import { DETAIL_LABEL_WIDTH, field, icons, log, renderCard, showError } from '@src/theme/ui.ts';
 
 function labelValue(label: string, value: string): string {
-  const paddedLabel = (label + ':').padEnd(LABEL_W);
-  return `${colors.muted(paddedLabel)} ${value}`;
+  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
 }
 
 export async function projectShowCommand(args: string[]): Promise<void> {

@@ -749,15 +749,6 @@ export function progressBar(done: number, total: number, options: ProgressBarOpt
 }
 
 // ============================================================================
-// LABEL-VALUE PAIR
-// ============================================================================
-
-export function labelValue(label: string, value: string, width = DETAIL_LABEL_WIDTH): string {
-  const paddedLabel = (label + ':').padEnd(width);
-  return `${colors.muted(paddedLabel)} ${value}`;
-}
-
-// ============================================================================
 // TABLE RENDERER
 // ============================================================================
 

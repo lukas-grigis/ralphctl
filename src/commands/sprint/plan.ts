@@ -26,7 +26,7 @@ import { getPlanningDir, getSchemaPath, getTasksFilePath } from '@src/utils/path
 import { withFileLock } from '@src/utils/file-lock.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
-import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
+import { ImportTasksSchema, type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
 
@@ -172,16 +172,6 @@ async function invokeClaudeAuto(prompt: string, repoPaths: string[], planDir: st
   });
 }
 
-interface ImportTask {
-  id?: string; // Local ID for referencing in blockedBy
-  name: string;
-  description?: string;
-  steps?: string[];
-  ticketId?: string;
-  blockedBy?: string[];
-  projectPath: string; // Required - execution directory
-}
-
 function parseTasksJson(output: string): ImportTask[] {
   // Try to extract a balanced JSON array from the output (handles nested arrays like steps)
   const jsonStr = extractJsonArray(output);
@@ -210,6 +200,17 @@ function parseTasksJson(output: string): ImportTask[] {
   }
 
   return result.data;
+}
+
+function renderParsedTasksTable(parsedTasks: ImportTask[]): string {
+  const rows = parsedTasks.map((task, i) => {
+    const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
+    return [String(i + 1), task.name, task.projectPath, deps];
+  });
+  return renderTable(
+    [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+    rows
+  );
 }
 
 async function importTasks(tasks: ImportTask[], sprintId: string): Promise<number> {
@@ -462,16 +463,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     }
 
     console.log(colors.success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
-    const autoTaskRows = parsedTasks.map((task, i) => {
-      const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
-      return [String(i + 1), task.name, task.projectPath, deps];
-    });
-    console.log(
-      renderTable(
-        [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
-        autoTaskRows
-      )
-    );
+    console.log(renderParsedTasksTable(parsedTasks));
     console.log('');
 
     // Validate before import
@@ -545,24 +537,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       }
 
       console.log(colors.success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
-      const interactiveTaskRows = parsedTasks.map((task, i) => {
-        const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
-        return [String(i + 1), task.name, task.projectPath, deps];
-      });
-      console.log(
-        renderTable(
-          [
-            {
-              header: '#',
-              align: 'right' as const,
-            },
-            { header: 'Name' },
-            { header: 'Path' },
-            { header: 'Blocked By' },
-          ],
-          interactiveTaskRows
-        )
-      );
+      console.log(renderParsedTasksTable(parsedTasks));
       console.log('');
 
       // Validate before import
