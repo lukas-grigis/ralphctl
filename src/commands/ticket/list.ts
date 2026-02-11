@@ -1,7 +1,8 @@
 import { colors, muted, success } from '@src/theme/index.ts';
 import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
-import { badge, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
+import { RequirementStatusSchema } from '@src/schemas/index.ts';
+import { badge, icons, log, printHeader, showEmpty, showError } from '@src/theme/ui.ts';
 
 interface TicketListFilters {
   brief: boolean;
@@ -38,6 +39,16 @@ function buildFilterSummary(filters: TicketListFilters): string {
 
 export async function ticketListCommand(args: string[]): Promise<void> {
   const { brief, projectFilter, statusFilter } = parseListArgs(args);
+
+  // Validate status filter
+  if (statusFilter) {
+    const result = RequirementStatusSchema.safeParse(statusFilter);
+    if (!result.success) {
+      showError(`Invalid status: "${statusFilter}". Valid values: pending, approved`);
+      return;
+    }
+  }
+
   const tickets = await listTickets();
 
   if (tickets.length === 0) {

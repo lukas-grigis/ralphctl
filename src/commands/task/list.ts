@@ -1,6 +1,7 @@
 import { colors } from '@src/theme/index.ts';
 import { listTasks } from '@src/store/task.ts';
-import { badge, formatTaskStatus, icons, log, printHeader, renderTable, showEmpty } from '@src/theme/ui.ts';
+import { TaskStatusSchema } from '@src/schemas/index.ts';
+import { badge, formatTaskStatus, icons, log, printHeader, renderTable, showEmpty, showError } from '@src/theme/ui.ts';
 
 interface TaskListFilters {
   brief: boolean;
@@ -45,6 +46,16 @@ function buildFilterSummary(filters: TaskListFilters): string {
 
 export async function taskListCommand(args: string[] = []): Promise<void> {
   const { brief, statusFilter, projectFilter, ticketFilter, blockedOnly } = parseListArgs(args);
+
+  // Validate status filter
+  if (statusFilter) {
+    const result = TaskStatusSchema.safeParse(statusFilter);
+    if (!result.success) {
+      showError(`Invalid status: "${statusFilter}". Valid values: todo, in_progress, done`);
+      return;
+    }
+  }
+
   const tasks = await listTasks();
 
   if (tasks.length === 0) {
