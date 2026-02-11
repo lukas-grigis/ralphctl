@@ -6,20 +6,16 @@ import { formatTicketDisplay, getPendingRequirements, groupTicketsByProject } fr
 import {
   badge,
   boxChars,
-  DETAIL_LABEL_WIDTH,
-  field,
   formatSprintStatus,
   formatTaskStatus,
   icons,
+  labelValue,
   log,
+  printCountSummary,
   renderCard,
   showNextStep,
 } from '@src/theme/ui.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
-
-function labelValue(label: string, value: string): string {
-  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
-}
 
 export async function sprintShowCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
@@ -107,17 +103,14 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
       const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
       taskLines.push(`${muted(String(task.order) + '.')} ${badge(statusIcon, statusColor)} ${task.name}`);
     }
-
-    // Progress
-    const percent = tasks.length > 0 ? Math.round((tasksByStatus.done / tasks.length) * 100) : 0;
-    const progressColor = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
-    taskLines.push(colors.muted(boxChars.light.horizontal.repeat(40)));
-    taskLines.push(
-      `${muted('Progress:')}  ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}`
-    );
   }
 
   console.log(renderCard(`${icons.task} Tasks (${String(tasks.length)})`, taskLines));
+
+  // Progress summary (outside card for consistent formatting)
+  if (tasks.length > 0) {
+    printCountSummary('Progress', tasksByStatus.done, tasks.length);
+  }
 
   // State-aware next steps
   log.newline();

@@ -1,5 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import { info, muted, success, warning } from '@src/theme/index.ts';
+import { showRandomQuote, terminalBell } from '@src/theme/ui.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { areAllTasksDone, DependencyCycleError, getRemainingTasks, reorderByDependencies } from '@src/store/task.ts';
 import {
@@ -94,7 +95,9 @@ export async function runSprint(
 
   // Handle sprint closing for fully completed sprints
   if (await areAllTasksDone(id)) {
+    terminalBell();
     console.log(success('\nAll tasks in sprint are done!'));
+    showRandomQuote();
     const shouldClose = await confirm({
       message: 'Close the sprint?',
       default: true,

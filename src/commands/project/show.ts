@@ -1,11 +1,7 @@
 import { colors, muted } from '@src/theme/index.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
-import { DETAIL_LABEL_WIDTH, field, icons, log, renderCard, showError } from '@src/theme/ui.ts';
-
-function labelValue(label: string, value: string): string {
-  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
-}
+import { icons, labelValue, log, renderCard, showError } from '@src/theme/ui.ts';
 
 export async function projectShowCommand(args: string[]): Promise<void> {
   let projectName = args[0];

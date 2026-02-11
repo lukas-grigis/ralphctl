@@ -114,7 +114,7 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
     const statusIcon =
       task.status === 'done' ? icons.success : task.status === 'in_progress' ? icons.active : icons.inactive;
     const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
-    const blocked = task.blockedBy.length > 0 ? colors.error('(blocked)') : '';
+    const blocked = task.blockedBy.length > 0 ? colors.warning('(blocked)') : '';
     return [badge(statusIcon, statusColor), String(task.order), task.name, task.id, blocked];
   });
 

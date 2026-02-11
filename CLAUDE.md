@@ -5,6 +5,39 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 @REQUIREMENTS.md - What the app does, why features exist, design rationale
 @ARCHITECTURE.md - Technical implementation: data models, services, APIs
 
+## Quick Start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run CLI in dev mode
+pnpm dev --help
+pnpm dev sprint create
+
+# Or run installed CLI
+./bin/ralphctl
+
+# Run without args for interactive menu mode (recommended)
+pnpm dev
+```
+
+**Verify everything works:**
+
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+## Requirements
+
+- **Node.js 24+** (managed via `mise.toml`)
+- **pnpm 10+**
+- **Claude CLI** installed and configured (`claude --version`)
+
+## Interactive Mode
+
+**Run `ralphctl` with no arguments to enter interactive menu mode** — context-aware menus with persistent status header, workflow guidance, and Quick Start wizard. This is the recommended way to use ralphctl for most workflows.
+
 ## Architecture Constraints
 
 - **No `sprint activate` command** — `sprint start` auto-activates draft sprints
@@ -87,6 +120,15 @@ pnpm test              # Run tests
 After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
 All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
 
+### Git Hooks
+
+Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files). If commits are rejected, run:
+
+```bash
+pnpm lint:fix    # Auto-fix linting issues
+pnpm format      # Format all files
+```
+
 ## Prompt Template Engineering
 
 **Conditional sections** - `{{VARIABLE}}` placeholders in prompts can be empty strings; avoid numbered lists that create
@@ -97,44 +139,103 @@ prompt files)
 Claude session starts)
 **Template builders** - `src/claude/prompts/index.ts` compiles `.md` templates with placeholder replacement
 
+## Custom Agents
+
+`.claude/agents/` contains specialized agent definitions for the Task tool:
+
+- `designer.md` — UI/UX design and theming (use for frontend/UI work)
+- `tester.md` — Test engineering (use for writing/fixing tests)
+- `implementer.md` — TypeScript implementation (use for feature implementation)
+- `planner.md` — Implementation planning (use before coding begins)
+- `reviewer.md` — Code review (use after implementation)
+- `auditor.md` — Security audit (use for security-sensitive code)
+
+Use Task tool with these `subagent_type` values for specialized work.
+
 ## UI Patterns
 
-Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting:
+Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting.
+See `.claude/agents/designer.md` for complete UX guidelines.
 
-- `showSuccess()` / `showError()` / `showEmpty()` — standard output patterns
-- `createSpinner()` — async operations (donut-themed)
+**Messages:**
+
+- `showSuccess(message, details?)` — success confirmation with optional field details
+- `showError(message)` — error output (fatal issues)
+- `showWarning(message)` — warning output (non-fatal issues, e.g., blocked tasks)
+- `showInfo(message)` — informational output
+- `showTip(message)` — tip/hint with consistent formatting
+- `showEmpty(what, hint?)` — empty state with helpful next action
+
+**Spinners:**
+
+- `createSpinner(text)` — async operations (donut-themed)
+
+**Icons & Theme:**
+
 - `icons.*` — ASCII icons for entities (`icons.sprint`, `icons.task`, `icons.ticket`, `icons.project`)
-- `log.*` — consistent output formatting
-- `renderTable(columns, rows)` — ANSI-safe table with box-drawing borders
-- `renderCard(title, lines)` — bordered card for detail views
-- `renderColumns(blocks)` — side-by-side column layout
-- `progressBar(done, total)` — visual progress indicator
+- `emoji.*` — emoji constants (`emoji.donut`)
+- `showRandomQuote()` — display random Ralph quote (personality after key actions)
+- `showBanner()` — themed banner with gradient styling
+
+**Fields & Cards:**
+
 - `field(label, value)` — consistent label:value formatting (shared, don't duplicate)
-- See `.claude/agents/designer.md` for complete UX guidelines
+- `labelValue(label, value)` — detail field for card content (trimmed for card alignment)
+- `fieldMultiline(label, value)` — multiline field with proper indentation
+- `renderCard(title, lines)` — bordered card for detail views
+- `DETAIL_LABEL_WIDTH` — standard label width for detail views (14 chars)
+
+**Tables & Layout:**
+
+- `renderTable(columns, rows)` — ANSI-safe table with box-drawing borders
+
+**Status & Progress:**
+
+- `formatTaskStatus(status)` — colored task status with emoji
+- `formatSprintStatus(status)` — colored sprint status with emoji
+- `badge(text, type?)` — inline status indicator (`[text]`)
+- `progressBar(done, total)` — visual progress indicator
+- `printCountSummary(label, done, total)` — count summary with percentage
+
+**Formatting:**
+
+- `log.*` — structured output (`log.info`, `log.success`, `log.warn`, `log.error`, `log.dim`, `log.item`, `log.raw`, `log.newline`)
+- `formatMuted(text)` — muted/secondary text
+- `clearScreen()` — clear terminal (TTY-safe)
+- `printSeparator(width?)` — horizontal separator line
+- `printHeader(title, icon?)` — header with icon and separator
+
+**Utilities:**
+
+- `terminalBell()` — audio feedback on completions (TTY-safe)
+- `boxChars` — box-drawing character sets (light, rounded, heavy)
 
 ### Available UI Helpers (Not Yet Used)
 
 Additional helpers available in `@src/theme/ui.ts` — use these instead of creating duplicates:
 
-- `printBox(lines)` — print bordered box with lines
-- `printCountSummary(label, done, total)` — print count summary line
-- `showThemedMessage(key)` — show themed message from theme index
-- `showInfo(message)` — info message output
-- `showTip(message)` — tip message output
-- `menuItem(icon, label, description)` — formatted menu item
+- `renderColumns(blocks)` — side-by-side column layout
+- `renderProgressSummary(done, total, labels?)` — progress summary with labels
+- `createThemedSpinner(text, variant?)` — themed spinner with variants (donut/sprinkle/minimal)
+- `renderBox(lines, title?, style?)` — low-level box renderer
 - `section(title, icon?)` — section header formatting
 - `subsection(title)` — subsection header formatting
-- `formatHeader(text)` — header text formatting
-- `formatHighlight(text)` — highlighted text formatting
-- `showRandomQuote()` — display random Ralph quote
-- `renderProgressSummary(done, total, labels?)` — progress summary with labels
-- `terminalBell()` — trigger terminal bell
-- `createThemedSpinner(text, variant?)` — themed spinner with variants
+- `printSummary(items)` — print summary key-value pairs
+- `typewriter(text)` — typewriter animation (experimental)
+- `progressiveReveal(lines)` — progressive line reveal (experimental)
 - `horizontalLine(width, style?)` — horizontal line with box-drawing chars
 - `verticalLine(style?)` — vertical line with box-drawing chars
-- `renderBox(lines, title?, style?)` — low-level box renderer
-- `printSummary(items)` — print summary key-value pairs
+- `isTTY()` — check TTY support
 - `sanitizeForDisplay(s)` — sanitize string for ANSI terminal display
+
+### Recent UI Improvements
+
+- **Warning vs Error distinction** — warnings now used for non-fatal issues (blocked tasks)
+- **Standardized tips** — all hints use `showTip()` for consistency
+- **Audio feedback** — terminal bell on sprint completion and task import
+- **Enhanced personality** — Ralph quotes appear after sprint create/close/complete
+- **Shared detail formatting** — `labelValue()` eliminates duplication across show commands
+- **Removed dead code** — 7 unused helpers removed to reduce maintenance burden
 
 ### List Commands
 

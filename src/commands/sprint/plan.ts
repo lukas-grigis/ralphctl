@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { colors, error, info, muted, success } from '@src/theme/index.ts';
+import { colors, error, muted, success } from '@src/theme/index.ts';
 import {
   createSpinner,
   field,
@@ -9,8 +9,12 @@ import {
   printHeader,
   renderTable,
   showError,
+  showInfo,
   showNextStep,
+  showSuccess,
+  showTip,
   showWarning,
+  terminalBell,
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
@@ -436,7 +440,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       spinner.fail('Claude planning failed');
       if (err instanceof Error) {
         showError(`Failed to invoke Claude: ${err.message}`);
-        log.dim('Make sure the claude CLI is installed and configured.');
+        showTip('Make sure the claude CLI is installed and configured.');
         log.newline();
       }
       return;
@@ -478,15 +482,17 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       return;
     }
 
-    console.log(info('Importing tasks...'));
+    showInfo('Importing tasks...');
     const imported = await importTasks(parsedTasks, id);
-    console.log(info(`\nImported ${String(imported)}/${String(parsedTasks.length)} tasks.\n`));
+    terminalBell();
+    showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
+    log.newline();
   } else {
     // Interactive mode - user iterates with Claude
     const outputFile = join(planDir, 'tasks.json');
     const prompt = buildInteractivePrompt(context, outputFile, schema);
 
-    console.log(info('Starting interactive Claude session...\n'));
+    showInfo('Starting interactive Claude session...');
     console.log(
       muted(`  Planning ${String(sprint.tickets.length)} ticket(s) across ${String(ticketsByProject.size)} project(s)`)
     );
@@ -499,7 +505,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     } catch (err) {
       if (err instanceof Error) {
         showError(`Failed to invoke Claude: ${err.message}`);
-        log.dim('Make sure the claude CLI is installed and configured.');
+        showTip('Make sure the claude CLI is installed and configured.');
         log.newline();
       }
       return;
@@ -508,7 +514,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     // Check if output file was created
     console.log('');
     if (await fileExists(outputFile)) {
-      console.log(info('Task file found. Processing...'));
+      showInfo('Task file found. Processing...');
 
       let content: string;
       try {
@@ -552,12 +558,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
         return;
       }
 
-      console.log(info('Importing tasks...'));
+      showInfo('Importing tasks...');
       const imported = await importTasks(parsedTasks, id);
-      console.log(info(`\nImported ${String(imported)}/${String(parsedTasks.length)} tasks.\n`));
+      terminalBell();
+      showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
+      log.newline();
     } else {
       showWarning('No task file found.');
-      log.dim(`Expected: ${outputFile}`);
+      showTip(`Expected: ${outputFile}`);
       showNextStep('ralphctl sprint plan', 'run planning again to create tasks');
       log.newline();
     }

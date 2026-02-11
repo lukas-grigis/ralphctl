@@ -1,5 +1,5 @@
 import { confirm, input } from '@inquirer/prompts';
-import { emoji, field, formatSprintStatus, icons, showNextStep, showSuccess } from '@src/theme/ui.ts';
+import { emoji, field, formatSprintStatus, icons, showNextStep, showRandomQuote, showSuccess } from '@src/theme/ui.ts';
 import { setCurrentSprint } from '@src/store/config.ts';
 import { createSprint } from '@src/store/sprint.ts';
 
@@ -48,6 +48,7 @@ export async function sprintCreateCommand(options: SprintCreateOptions = {}): Pr
     ['Name', sprint.name],
     ['Status', formatSprintStatus(sprint.status)],
   ]);
+  showRandomQuote();
 
   if (setAsCurrent) {
     console.log(field('Current', 'Yes (this sprint is now active target)'));

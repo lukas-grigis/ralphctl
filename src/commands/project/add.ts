@@ -5,7 +5,17 @@ import { error, muted } from '@src/theme/index.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
 import type { Project, Repository } from '@src/schemas/index.ts';
-import { createSpinner, emoji, field, log, showError, showNextStep, showSuccess, showWarning } from '@src/theme/ui.ts';
+import {
+  createSpinner,
+  emoji,
+  field,
+  log,
+  showError,
+  showNextStep,
+  showSuccess,
+  showTip,
+  showWarning,
+} from '@src/theme/ui.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
 
@@ -374,7 +384,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
 
       // Check for CLAUDE.md
       if (!hasClaudeMd(firstRepo.path)) {
-        log.dim('Tip: Add CLAUDE.md for better AI assistance');
+        showTip('Add CLAUDE.md for better AI assistance');
       }
 
       // Add scripts to first repository

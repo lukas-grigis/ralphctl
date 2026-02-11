@@ -3,7 +3,7 @@ import { muted } from '@src/theme/index.ts';
 import { closeSprint, listSprints, SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/store/task.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
-import { formatSprintStatus, log, showError, showSuccess, showWarning } from '@src/theme/ui.ts';
+import { formatSprintStatus, log, showError, showRandomQuote, showSuccess, showWarning } from '@src/theme/ui.ts';
 
 export async function sprintCloseCommand(args: string[]): Promise<void> {
   let sprintId: string;
@@ -59,8 +59,7 @@ export async function sprintCloseCommand(args: string[]): Promise<void> {
       ['Name', sprint.name],
       ['Status', formatSprintStatus(sprint.status)],
     ]);
-    log.newline();
-    log.dim('The sprint has been archived.');
+    showRandomQuote();
     log.newline();
   } catch (err) {
     if (err instanceof SprintNotFoundError) {
