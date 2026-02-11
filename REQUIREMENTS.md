@@ -10,14 +10,16 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 1. **Context loss** - AI assistants lose context between sessions; ralphctl maintains persistent state
 2. **Unstructured work** - Without planning, AI tends to solve immediate problems without considering the bigger picture
-3. **Multi-project coordination** - Modern features often span multiple repositories; ralphctl tracks work across projects
+3. **Multi-project coordination** - Modern features often span multiple repositories; ralphctl tracks work across
+   projects
 4. **Specification drift** - What was planned vs what was built diverges; ralphctl maintains living documentation
 
 ## Core Concepts
 
 ### Why Projects?
 
-**Problem:** Many features span multiple repositories (frontend, backend, shared libs). Tracking which repo each piece of work targets is cumbersome.
+**Problem:** Many features span multiple repositories (frontend, backend, shared libs). Tracking which repo each piece
+of work targets is cumbersome.
 
 **Solution:** Projects are named entities with one or more repository paths:
 
@@ -33,7 +35,8 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 ### Why Sprints?
 
-**Problem:** Work happens in bursts - a sprint, a feature set, a release. Without boundaries, tasks accumulate indefinitely and context becomes stale.
+**Problem:** Work happens in bursts - a sprint, a feature set, a release. Without boundaries, tasks accumulate
+indefinitely and context becomes stale.
 
 **Solution:** Sprints are containers with lifecycle (draft → active → closed). They:
 
@@ -60,11 +63,13 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 | `active` | Execute tasks, update status, log, close                |
 | `closed` | Read-only (show, list, context)                         |
 
-**Design Decision:** State constraints are enforced at the service layer with clear error messages and hints. Multiple sprints can be active simultaneously (useful for parallel work in different terminals).
+**Design Decision:** State constraints are enforced at the service layer with clear error messages and hints. Multiple
+sprints can be active simultaneously (useful for parallel work in different terminals).
 
 ### Why Tickets?
 
-**Problem:** Work requests come from different sources - issue trackers, conversations, ideas. They need refinement before becoming actionable.
+**Problem:** Work requests come from different sources - issue trackers, conversations, ideas. They need refinement
+before becoming actionable.
 
 **Solution:** Tickets capture raw work requests with optional issue tracker integration. They:
 
@@ -102,7 +107,9 @@ Focus: **WHAT** needs to be done (implementation-agnostic)
 - **NO code exploration** - pure requirements gathering
 - **NO repository selection** - deferred to Phase 2
 
-_Rationale:_ The person requesting work often doesn't know implementation details. This phase focuses purely on clarifying WHAT needs to be built, without getting distracted by HOW. Separating concerns prevents premature technical decisions.
+_Rationale:_ The person requesting work often doesn't know implementation details. This phase focuses purely on
+clarifying WHAT needs to be built, without getting distracted by HOW. Separating concerns prevents premature technical
+decisions.
 
 **Phase 2 - Task Generation (`sprint plan`):**
 
@@ -115,7 +122,8 @@ Focus: **HOW** it will be implemented
 - Creates dependency-ordered task breakdown
 - Each task has precise steps referencing actual files
 
-_Rationale:_ With clear requirements from Phase 1, Claude can make informed decisions about which repos to explore and how to split the work. User confirmation prevents scope creep. Dependencies ensure correct execution order.
+_Rationale:_ With clear requirements from Phase 1, Claude can make informed decisions about which repos to explore and
+how to split the work. User confirmation prevents scope creep. Dependencies ensure correct execution order.
 
 ### Why Tasks Have Dependencies?
 
@@ -156,7 +164,8 @@ _Rationale:_ With clear requirements from Phase 1, Claude can make informed deci
 - Sprint status is part of the sprint's own state
 - Multiple sprints can be `active` simultaneously (parallel terminal usage)
 
-_Rationale:_ This allows `ralphctl sprint show` to inspect any sprint, while `sprint start` runs the current sprint (which must be active).
+_Rationale:_ This allows `ralphctl sprint show` to inspect any sprint, while `sprint start` runs the current sprint (
+which must be active).
 
 ## Feature Requirements
 
@@ -282,7 +291,9 @@ These are explicitly NOT goals of ralphctl:
 
 ## Agent Harness Patterns
 
-ralphctl implements patterns from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents). Key rationales:
+ralphctl implements patterns
+from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+Key rationales:
 
 ### Why Verification-Gated Completion?
 
@@ -302,7 +313,8 @@ ralphctl implements patterns from [Anthropic's Effective Harnesses for Long-Runn
 - Agent gets blamed for pre-existing issues
 - Time wasted debugging inherited problems
 
-**Solution:** Run verification BEFORE making changes. If it fails, output `<task-blocked>Pre-existing failure: [details]</task-blocked>`.
+**Solution:** Run verification BEFORE making changes. If it fails, output
+`<task-blocked>Pre-existing failure: [details]</task-blocked>`.
 
 ### Why Git History in Context?
 
@@ -332,7 +344,8 @@ ralphctl implements patterns from [Anthropic's Effective Harnesses for Long-Runn
 - Changing scope mid-execution
 - Editing steps to match what they did (not what was planned)
 
-**Solution:** Tasks are JSON (less likely to be edited by model). Agents can only signal status changes, not modify task content.
+**Solution:** Tasks are JSON (less likely to be edited by model). Agents can only signal status changes, not modify task
+content.
 
 ## Future Considerations
 

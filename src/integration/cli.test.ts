@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createTestEnv } from '@src/test-utils/setup.ts';
 import type { TestEnvironment } from '@src/test-utils/setup.ts';
+import { createTestEnv } from '@src/test-utils/setup.ts';
 
 // Set RALPHCTL_ROOT before importing services
 let testEnv: TestEnvironment;

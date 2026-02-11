@@ -159,7 +159,8 @@ ralphctl dashboard    # Show current sprint overview
 ralphctl status       # Alias for dashboard
 ```
 
-Displays current sprint status, ticket/task counts, and task progress bar. Shows a helpful empty state if no current sprint exists.
+Displays current sprint status, ticket/task counts, and task progress bar. Shows a helpful empty state if no current
+sprint exists.
 
 ## Interactive Mode
 

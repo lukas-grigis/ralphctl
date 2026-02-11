@@ -215,7 +215,8 @@ interface Config {
 }
 ```
 
-Note: The "active" status is part of the sprint's lifecycle (stored in `sprint.json`), not a separate config field. Multiple sprints can be active simultaneously.
+Note: The "active" status is part of the sprint's lifecycle (stored in `sprint.json`), not a separate config field.
+Multiple sprints can be active simultaneously.
 
 ## ID Generation
 
@@ -364,7 +365,8 @@ parseExecutionResult(output: string): ExecutionResult
 
 ### Runner (`claude/runner.ts`)
 
-Main execution orchestrator for `sprint start`. Implements patterns from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+Main execution orchestrator for `sprint start`. Implements patterns
+from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 
 ```typescript
 runSprint(sprintId?: string, options: RunOptions): Promise<void>
@@ -621,7 +623,9 @@ pnpm test:coverage  # Coverage report
 
 ### Run setupScript on sprint start
 
-Currently `setupScript` is stored on Repository but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
+Currently `setupScript` is stored on Repository but never executed. Per
+the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh`
+script should run before agents start to ensure the environment is ready.
 
 **Potential implementation:**
 

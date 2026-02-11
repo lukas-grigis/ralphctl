@@ -30,7 +30,8 @@ The interactive menu (`src/interactive/menu.ts`) defines menu structure but is *
 
 **Ticket Edit Status:**
 
-- Menu entry exists at line 72 of `src/interactive/menu.ts`: `{ name: 'Edit', value: 'edit', description: 'Edit a ticket' }`
+- Menu entry exists at line 72 of `src/interactive/menu.ts`:
+  `{ name: 'Edit', value: 'edit', description: 'Edit a ticket' }`
 - **MISSING:** CLI handler not in interactive dispatch map (line 78-82 of `src/interactive/index.ts`)
 - Command implementation: `src/commands/ticket/edit.ts` (fully implemented)
 - CLI tests: Comprehensive coverage in `cli-smoke.test.ts` lines 310-326, 716-752

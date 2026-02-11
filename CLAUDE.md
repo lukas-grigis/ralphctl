@@ -21,6 +21,8 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 - Don't store repository names in `affectedRepositories` — store absolute paths
 - Don't explore repos during `sprint refine` — refinement is implementation-agnostic (WHAT, not HOW)
 - Don't break task `blockedBy` dependencies during planning — preserve dependency chains
+- Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
+  selection timing)
 
 ## Workflow
 
@@ -67,7 +69,7 @@ Status: `draft` → `active` → `closed`
 **Phase 2: Task Generation** (`sprint plan`) — HOW to implement
 
 - Requires all tickets to have `requirementStatus: 'approved'`
-- Claude proposes affected repos → user confirms (checkbox UI) → saved to `ticket.affectedRepositories`
+- User selects repos via checkbox UI (before Claude starts) → saved to `ticket.affectedRepositories`
 - Claude explores confirmed repos only → generates tasks split by repo with dependencies
 - Repo selection persists for resumability
 
@@ -84,6 +86,16 @@ pnpm test              # Run tests
 
 After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
 All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
+
+## Prompt Template Engineering
+
+**Conditional sections** - `{{VARIABLE}}` placeholders in prompts can be empty strings; avoid numbered lists that create
+gaps (use blockquotes or bullets)
+**Em-dash usage** - Use `—` (em-dash) not `-` (hyphen) for explanatory clauses in `.md` prompts (consistency across all
+prompt files)
+**Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
+Claude session starts)
+**Template builders** - `src/claude/prompts/index.ts` compiles `.md` templates with placeholder replacement
 
 ## UI Patterns
 
@@ -127,4 +139,5 @@ All list commands support filters and show summary lines:
 
 ## Compaction Rules
 
-When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list of modified files, verification commands, and current task context.
+When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list
+of modified files, verification commands, and current task context.

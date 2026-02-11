@@ -7,9 +7,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createTestEnv, createMultiProjectEnv } from '@src/test-utils/setup.ts';
-import { runCli, extractField, extractTaskIds } from '@src/test-utils/cli-runner.ts';
+import { createMultiProjectEnv, createTestEnv } from '@src/test-utils/setup.ts';
 import type { CliResult } from '@src/test-utils/cli-runner.ts';
+import { extractField, extractTaskIds, runCli } from '@src/test-utils/cli-runner.ts';
 
 let testDir: string;
 let env: Record<string, string>;

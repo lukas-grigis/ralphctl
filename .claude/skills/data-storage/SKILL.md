@@ -36,4 +36,5 @@ ralphctl-data/              # Git-ignored, all persistent data
 
 ## Schema Sync
 
-JSON schemas in `/schemas/` must be kept in sync with Zod schemas in `src/schemas/index.ts`. When modifying data structures, update both locations.
+JSON schemas in `/schemas/` must be kept in sync with Zod schemas in `src/schemas/index.ts`. When modifying data
+structures, update both locations.

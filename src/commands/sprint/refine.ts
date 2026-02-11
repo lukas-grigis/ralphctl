@@ -188,7 +188,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     console.log('');
     console.log(`  ${icons.ticket}  ${info(`Ticket ${String(ticketNum)} of ${String(totalTickets)}`)}`);
     console.log(
-      `  ${progressBar(i, totalTickets, { width: 15, showPercent: false })} ${colors.muted(`${String(ticketNum)}/${String(totalTickets)}`)}`
+      `  ${progressBar(i, totalTickets, {
+        width: 15,
+        showPercent: false,
+      })} ${colors.muted(`${String(ticketNum)}/${String(totalTickets)}`)}`
     );
     console.log('');
     console.log(field('Title', ticket.title, 14));
@@ -303,7 +306,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       // Combine multiple requirements into one (safety net for split outputs)
       const requirement: RefinedRequirement =
         matchingRequirements.length === 1
-          ? { ref: matchingRequirements[0]?.ref ?? '', requirements: matchingRequirements[0]?.requirements ?? '' }
+          ? {
+              ref: matchingRequirements[0]?.ref ?? '',
+              requirements: matchingRequirements[0]?.requirements ?? '',
+            }
           : {
               ref: matchingRequirements[0]?.ref ?? '',
               requirements: matchingRequirements

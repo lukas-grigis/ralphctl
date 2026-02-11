@@ -585,7 +585,15 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       });
       console.log(
         renderTable(
-          [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+          [
+            {
+              header: '#',
+              align: 'right' as const,
+            },
+            { header: 'Name' },
+            { header: 'Path' },
+            { header: 'Blocked By' },
+          ],
           interactiveTaskRows
         )
       );

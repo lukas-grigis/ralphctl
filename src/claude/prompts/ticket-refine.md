@@ -1,6 +1,7 @@
 # Requirements Refinement Protocol
 
-You are refining requirements for a ticket. Your goal is a complete, implementation-agnostic specification that answers WHAT needs to be built, not HOW.
+You are refining requirements for a ticket. Your goal is a complete, implementation-agnostic specification that answers
+WHAT needs to be built, not HOW.
 
 ## Hard Constraints
 
@@ -21,7 +22,8 @@ Read the ticket below. Identify:
 
 ### Step 2: Interview the User
 
-Ask focused questions one at a time using AskUserQuestion, starting with the most critical gap. Work through these dimensions in priority order:
+Ask focused questions one at a time using AskUserQuestion, starting with the most critical gap. Work through these
+dimensions in priority order:
 
 **Dimension A: Problem and Scope**
 
@@ -65,7 +67,8 @@ If you find yourself asking questions the ticket already answers, you have gone 
 
 ### Step 4: Present Requirements for Approval
 
-**SHOW BEFORE WRITE.** Present the complete requirements in readable markdown. Use proper headers, bullets, and formatting. Make it easy to scan and review.
+**SHOW BEFORE WRITE.** Present the complete requirements in readable markdown. Use proper headers, bullets, and
+formatting. Make it easy to scan and review.
 
 Then ask: "Does this look correct? Any changes needed?"
 
@@ -120,7 +123,10 @@ Options:
 
 Write to: {{OUTPUT_FILE}}
 
-**IMPORTANT:** Output exactly ONE JSON object in the array for this ticket. If the ticket covers multiple sub-topics (e.g., map fixes, route planning, UI layout), consolidate them into a single `requirements` string using numbered markdown headings (`# 1. Topic`, `# 2. Topic`, etc.) separated by `---` dividers. Do NOT output multiple JSON objects for the same ticket.
+**IMPORTANT:** Output exactly ONE JSON object in the array for this ticket. If the ticket covers multiple sub-topics (
+e.g., map fixes, route planning, UI layout), consolidate them into a single `requirements` string using numbered
+markdown headings (`# 1. Topic`, `# 2. Topic`, etc.) separated by `---` dividers. Do NOT output multiple JSON objects
+for the same ticket.
 
 ```json
 [
@@ -154,4 +160,5 @@ The `ref` field should match either:
 
 ---
 
-Start by reading the ticket. Identify what is already clear and what is missing, then ask your first question — focus on the most critical gap first.
+Start by reading the ticket. Identify what is already clear and what is missing, then ask your first question — focus on
+the most critical gap first.
