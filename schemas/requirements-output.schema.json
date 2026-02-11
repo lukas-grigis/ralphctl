@@ -7,6 +7,7 @@
   "items": {
     "type": "object",
     "required": ["ref", "requirements"],
+    "additionalProperties": false,
     "properties": {
       "ref": {
         "type": "string",

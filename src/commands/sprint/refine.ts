@@ -396,6 +396,8 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     } catch (err) {
       if (err instanceof Error) {
         showError(`Failed to write requirements: ${err.message}`);
+      } else {
+        showError('Failed to write requirements: Unknown error');
       }
     }
 
