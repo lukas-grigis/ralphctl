@@ -119,20 +119,20 @@ Each task MUST specify which repository it executes in via `projectPath`.
 ### Multi-Repo Example
 
 Ticket: "Add user notifications"
-Project repositories: commons (`/Users/dev/blinced/commons`), web-ui-v2 (`/Users/dev/blinced/web-ui-v2`)
+Project repositories: commons (`/Users/dev/demodia/commons`), web-ui-v2 (`/Users/dev/demodia/web-ui-v2`)
 
 ```json
 [
   {
     "id": "1",
     "name": "Add notification types to commons",
-    "projectPath": "/Users/dev/blinced/commons",
+    "projectPath": "/Users/dev/demodia/commons",
     "steps": ["Create NotificationType enum in commons/messaging/..."]
   },
   {
     "id": "2",
     "name": "Implement notification UI in web-ui",
-    "projectPath": "/Users/dev/blinced/web-ui-v2",
+    "projectPath": "/Users/dev/demodia/web-ui-v2",
     "blockedBy": ["1"],
     "steps": ["Import types from commons", "Add notification component"]
   }
