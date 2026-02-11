@@ -29,9 +29,11 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 2. Create sprint      → ralphctl sprint create (draft, becomes current)
 3. Add tickets        → ralphctl ticket add --project <name>
 4. Refine requirements → ralphctl sprint refine (WHAT — clarify requirements)
-5. Plan tasks         → ralphctl sprint plan (HOW — explore repos, generate tasks)
-6. Start work         → ralphctl sprint start (auto-activates draft sprints)
-7. Close sprint       → ralphctl sprint close
+5. Export requirements → ralphctl sprint requirements (optional, markdown export)
+6. Plan tasks         → ralphctl sprint plan (HOW — explore repos, generate tasks)
+7. Check health       → ralphctl sprint health (diagnose blockers, stale tasks)
+8. Start work         → ralphctl sprint start (auto-activates draft sprints)
+9. Close sprint       → ralphctl sprint close
 ```
 
 ### Two Workflow Paths
@@ -91,7 +93,37 @@ Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent form
 - `createSpinner()` — async operations (donut-themed)
 - `icons.*` — ASCII icons for entities (`icons.sprint`, `icons.task`, `icons.ticket`, `icons.project`)
 - `log.*` — consistent output formatting
+- `renderTable(columns, rows)` — ANSI-safe table with box-drawing borders
+- `renderCard(title, lines)` — bordered card for detail views
+- `renderColumns(blocks)` — side-by-side column layout
+- `progressBar(done, total)` — visual progress indicator
+- `labelValue(label, value)` — consistent label:value formatting (shared, don't duplicate)
 - See `.claude/agents/designer.md` for complete UX guidelines
+
+### List Commands
+
+All list commands support filters and show summary lines:
+
+- Task list: `--status`, `--project`, `--ticket`, `--blocked`
+- Ticket list: `--project`, `--status`
+- Sprint list: `--status`
+- Output: "Showing X of Y (filtered: ...)" when filters active
+
+### Interactive Mode Features
+
+- **Dynamic menus** — context-aware with badges, disabled states, workflow ordering
+- **Persistent status header** — sprint name/status/progress shown before every menu
+- **Action-on-empty** — selectors offer to create missing entities inline
+- **Quick Start wizard** — guided sprint setup (create → tickets → refine → plan → start)
+- **Batch ticket entry** — loop with "Add another?" and pre-filled project
+
+## Parallel Execution
+
+`sprint start` runs tasks in parallel by default (one per unique `projectPath`):
+
+- Session/step mode forces sequential (`--concurrency 1` equivalent)
+- `RateLimitCoordinator` pauses new launches on rate limits; running tasks continue
+- Rate-limited tasks auto-resume via `--resume <session_id>`
 
 ## Compaction Rules
 

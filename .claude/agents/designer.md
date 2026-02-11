@@ -159,6 +159,53 @@ info('Status:'); // Cyan - headers, labels
 muted('(optional)'); // Gray - secondary info
 ```
 
+### Tables vs Cards
+
+- **Tables** (`renderTable`) — for list commands with multiple items (task list, sprint list, ticket list)
+- **Cards** (`renderCard`) — for detail views showing a single entity (task show, health check results)
+- **labelValue** — for key:value pairs inside cards or show commands (import from `ui.ts`, don't duplicate)
+
+### State-Aware Next Steps
+
+Every command output should include contextual next-step guidance based on sprint lifecycle:
+
+```typescript
+// After sprint create (draft, no tickets):
+showNextStep('ralphctl ticket add', 'add tickets to the sprint');
+
+// After sprint refine (all approved):
+showNextStep('ralphctl sprint plan', 'generate implementation tasks');
+```
+
+### Action-on-Empty Pattern
+
+When a selector finds no entities, offer inline creation:
+
+```typescript
+const shouldCreate = await confirm({ message: 'No projects found. Create one now?' });
+if (shouldCreate) {
+  const { projectAddCommand } = await import('@src/commands/project/add.ts');
+  await projectAddCommand({ interactive: true });
+}
+```
+
+### Batch Operations
+
+For operations where users commonly repeat (ticket add):
+
+```typescript
+while (true) {
+  await doOneThing();
+  const another = await confirm({ message: `${emoji.donut} Add another?`, default: true });
+  if (!another) break;
+}
+```
+
+### Filter Flags for List Commands
+
+All list commands support `--status` and entity-specific filters. Show filter summary in output:
+"Showing X of Y (filtered: status=todo, project=api)"
+
 ## Design Review Checklist
 
 - [ ] **Naming**: Does the command follow `<noun> <verb>` convention?
@@ -170,6 +217,9 @@ muted('(optional)'); // Gray - secondary info
 - [ ] **Output**: Is success feedback clear but not verbose?
 - [ ] **Consistency**: Does it match existing command patterns?
 - [ ] **Exit codes**: 0 for success, non-zero for errors?
+- [ ] **Next step**: Does output suggest what to do next?
+- [ ] **Empty state**: Does it guide user when no data exists?
+- [ ] **Filters**: Do list commands support relevant filter flags?
 
 ## What I Do
 
