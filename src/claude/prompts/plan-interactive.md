@@ -1,6 +1,7 @@
 # Interactive Task Planning Protocol
 
-You are helping plan implementation tasks for a project. Your goal is to produce tasks that are clearly scoped, properly ordered, and independently executable — each one a mini-spec that a developer (or Claude) can pick up cold and complete.
+You are helping plan implementation tasks for a project. Your goal is to produce tasks that are clearly scoped, properly
+ordered, and independently executable — each one a mini-spec that a developer (or Claude) can pick up cold and complete.
 
 ## Protocol
 
@@ -8,11 +9,16 @@ You are helping plan implementation tasks for a project. Your goal is to produce
 
 Before planning, understand the codebase:
 
-1. **Read CLAUDE.md** (if it exists) — Contains project-specific instructions, patterns, conventions, and verification commands you MUST follow. Follow any links to other documentation.
-2. **Check .claude/ directory** — Look for project-specific configuration, commands, hooks, or agents that can help with planning
-3. **Read key files** — README, manifest files (package.json, pyproject.toml, Cargo.toml, etc.), main entry points, directory structure
-4. **Find similar implementations** — Look for existing features similar to what tickets require and follow their patterns
-5. **Extract verification commands** — Find the exact build, test, lint, and typecheck commands from CLAUDE.md or project config
+1. **Read CLAUDE.md** (if it exists) — Contains project-specific instructions, patterns, conventions, and verification
+   commands you MUST follow. Follow any links to other documentation.
+2. **Check .claude/ directory** — Look for project-specific configuration, commands, hooks, or agents that can help with
+   planning
+3. **Read key files** — README, manifest files (package.json, pyproject.toml, Cargo.toml, etc.), main entry points,
+   directory structure
+4. **Find similar implementations** — Look for existing features similar to what tickets require and follow their
+   patterns
+5. **Extract verification commands** — Find the exact build, test, lint, and typecheck commands from CLAUDE.md or
+   project config
 
 If CLAUDE.md exists, treat its instructions as authoritative for this codebase.
 
@@ -26,38 +32,17 @@ Each ticket should have refined requirements from Phase 1 (Requirements Refineme
 
 The requirements from Phase 1 are implementation-agnostic. Your job in Phase 2 is to determine HOW to implement them.
 
-### Step 3: Identify Affected Repositories
+### Step 3: Explore Pre-Selected Repositories
 
-For each ticket, determine which repositories need changes:
+The user has already selected which repositories to include before this session started. These repos are accessible to
+you via your working directory.
 
-1. **Explore the codebase** — Understand where changes are needed based on existing patterns
-2. **Propose affected repositories** using AskUserQuestion:
+1. **Check accessible directories** — The pre-selected repository paths are listed in the Sprint Context below
+2. **Deep-dive into selected repos** — Read CLAUDE.md, key files, patterns, conventions, and existing implementations
+3. **Map ticket scope to repos** — Determine which parts of each ticket map to which repository
 
-```json
-{
-  "questions": [
-    {
-      "question": "Which repositories are affected by this ticket?",
-      "header": "Repos for: [ticket title]",
-      "options": [
-        { "label": "frontend only (Recommended)", "description": "UI changes in frontend repo" },
-        { "label": "backend only", "description": "API changes in backend repo" },
-        { "label": "frontend + backend", "description": "Full-stack changes needed" }
-      ],
-      "multiSelect": false
-    }
-  ]
-}
-```
-
-3. **Wait for user confirmation** — Do NOT proceed until the user confirms repository selection
-4. **Explore only confirmed repos** — After confirmation, deep-dive into the selected repositories to plan tasks
-
-**Rules:**
-
-- Base decisions on code exploration, not guessing
-- Consider shared types, utilities, and contracts between repos
-- If unclear, ask the user
+**Do NOT** propose changing the repository selection. If you believe a critical repository is missing, mention it to the
+user as an observation.
 
 ### Step 4: Plan Tasks
 
@@ -102,7 +87,8 @@ When you need implementation decisions from the user, use AskUserQuestion:
    3. Run `pnpm typecheck && pnpm lint && pnpm test` — all pass
    ```
 
-2. **Show the dependency graph** — Make it obvious which tasks run in parallel vs sequentially, and why each dependency exists:
+2. **Show the dependency graph** — Make it obvious which tasks run in parallel vs sequentially, and why each dependency
+   exists:
 
    ```
    Dependency graph:
@@ -141,13 +127,13 @@ The sprint contains:
 
 {{COMMON}}
 
-### Using Affected Repositories
+### Repository Assignment
 
-You determine affected repositories during planning (Step 3) based on codebase exploration and user confirmation. **Use the selected repositories as your guide for task assignment.**
+Repositories have been pre-selected by the user. **Only create tasks targeting these repositories.**
 
-Additional rules:
-
-- **Follow affected repos** — If a ticket's affected repositories are `frontend, backend`, tasks for that ticket MUST use those repo paths
+- **Use listed paths** — Each task's `projectPath` must be one of the repository paths shown in the Sprint Context
+- **One repo per task** — If a ticket spans multiple repos, create separate tasks per repo with proper dependencies
+- **Don't expand scope** — Do not suggest tasks for repositories not listed in the Sprint Context
 
 ## Output Format
 

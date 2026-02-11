@@ -1,10 +1,12 @@
 ## What Makes a Great Task
 
-A great task is one that a developer (or Claude) can pick up cold, implement independently, and verify is done. Each task should read like a mini-spec with a clear finish line.
+A great task is one that a developer (or Claude) can pick up cold, implement independently, and verify is done. Each
+task should read like a mini-spec with a clear finish line.
 
 ### The Done Test
 
-Before finalizing a task, ask: **"How will I know this task is done?"** If the answer is vague ("it works") or depends on another task ("once task 3 finishes"), the task needs work.
+Before finalizing a task, ask: **"How will I know this task is done?"** If the answer is vague ("it works") or depends
+on another task ("once task 3 finishes"), the task needs work.
 
 Every task must have:
 
@@ -59,19 +61,22 @@ If a task exceeds these bounds, split by concern. If it falls well below, merge 
 2. **Check for overlap** — If two tasks touch the same file, either:
    - Merge the tasks, or
    - Clearly delineate which sections/functions each task owns (document in steps)
-3. **Check for concept overlap** — If two tasks involve the same abstraction (e.g., both deal with "error handling"), merge or split cleanly by concern
+3. **Check for concept overlap** — If two tasks involve the same abstraction (e.g., both deal with "error handling"),
+   merge or split cleanly by concern
 
 **Overlap test**: Could task B's implementation conflict with or undo task A's work? If yes, restructure.
 
 ## Dependency Graph
 
-Tasks execute in dependency order. The ordering must reflect the **logical build order** — what needs to exist before the next thing can be built on top of it.
+Tasks execute in dependency order. The ordering must reflect the **logical build order** — what needs to exist before
+the next thing can be built on top of it.
 
 ### Rules
 
 1. **Foundation first** — Shared utilities, types, schemas, or infrastructure before anything that uses them
 2. **Declare all dependencies** — Use `blockedBy` to enforce correct order. Do not rely on array position alone.
-3. **Maximize parallelism** — Independent tasks should NOT block each other. Only add `blockedBy` when there is a real data or code dependency.
+3. **Maximize parallelism** — Independent tasks should NOT block each other. Only add `blockedBy` when there is a real
+   data or code dependency.
 4. **Validate the DAG** — The dependency graph must be acyclic; earlier tasks cannot depend on later ones
 
 ### Good Dependency Graph
@@ -94,9 +99,11 @@ Task 3: Implement profile editor               (blockedBy: [2])  <-- WRONG
 Task 4: Add submission analytics               (blockedBy: [3])  <-- WRONG
 ```
 
-Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that prevents parallel execution.
+Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that prevents parallel
+execution.
 
-**Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code or state produced by the blocker?" If not, remove the dependency.
+**Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code or state produced by the
+blocker?" If not, remove the dependency.
 
 ## Task Repository Assignment
 
@@ -106,7 +113,8 @@ Each task MUST specify which repository it executes in via `projectPath`.
 
 1. **One repo per task** — Each task runs in exactly one repository directory
 2. **Split by repo** — If a ticket affects multiple repos, create separate tasks per repo with proper dependencies
-3. **Use exact paths** — The `projectPath` must be one of the absolute paths listed in the project's Repositories section
+3. **Use exact paths** — The `projectPath` must be one of the absolute paths listed in the project's Repositories
+   section
 
 ### Multi-Repo Example
 

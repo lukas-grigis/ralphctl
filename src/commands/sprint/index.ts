@@ -7,6 +7,7 @@ import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
+import { sprintSwitchCommand } from '@src/commands/sprint/switch.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
@@ -67,6 +68,13 @@ Examples:
     .description('Show/set current sprint (use "-" to open selector)')
     .action(async (id?: string) => {
       await sprintCurrentCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('switch')
+    .description('Quick sprint switcher (opens selector)')
+    .action(async () => {
+      await sprintSwitchCommand();
     });
 
   sprint

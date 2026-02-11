@@ -2,7 +2,7 @@ import { input, select } from '@inquirer/prompts';
 import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, type MenuContext, type MenuItem } from './menu.ts';
-import { getStatusLine, showDashboard } from './dashboard.ts';
+import { showDashboard } from './dashboard.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
@@ -199,16 +199,11 @@ export async function interactiveMode(): Promise<void> {
       const ctx = await getMenuContext();
       const mainMenu = buildMainMenu(ctx);
 
-      // Show compact status header
-      const statusLine = await getStatusLine();
-      console.log(statusLine);
-      log.newline();
-
       const command = await select({
         message: `${emoji.donut} What would you like to do?`,
         choices: mainMenu,
         pageSize: 15,
-        loop: false,
+        loop: true,
         theme: selectTheme,
       });
 
@@ -230,6 +225,19 @@ export async function interactiveMode(): Promise<void> {
       if (command === 'wizard') {
         const { runWizard } = await import('./wizard.ts');
         await runWizard();
+        continue;
+      }
+
+      if (command === 'switch-sprint') {
+        const { sprintSwitchCommand } = await import('@src/commands/sprint/switch.ts');
+        log.newline();
+        await sprintSwitchCommand();
+        log.newline();
+        await input({
+          message: formatMuted('Press Enter to continue...'),
+        });
+        clearScreen();
+        showBanner();
         continue;
       }
 
@@ -266,7 +274,7 @@ async function handleSubMenu(
         message: `${emoji.donut} ${currentTitle}`,
         choices: currentItems,
         pageSize: 15,
-        loop: false,
+        loop: true,
         theme: selectTheme,
       });
 

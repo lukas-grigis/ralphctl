@@ -1,6 +1,7 @@
 # Task Execution Protocol
 
-**ONE TASK ONLY.** Complete THIS task and nothing else. Do not continue to other tasks, do not implement beyond what the steps specify, do not refactor code outside the task's declared files.
+**ONE TASK ONLY.** Complete THIS task and nothing else. Do not continue to other tasks, do not implement beyond what the
+steps specify, do not refactor code outside the task's declared files.
 
 Implement the task described in {{CONTEXT_FILE}}
 
@@ -9,13 +10,16 @@ Implement the task described in {{CONTEXT_FILE}}
 Perform these checks IN ORDER before writing any code:
 
 1. **Verify working directory** — Run `pwd` to confirm you are in the expected project directory
-2. **Check git state** — Run `git status` to check for uncommitted changes. Review the Git History section below to understand recent work.
-3. **Run pre-existing verification** — Execute the project's verification commands (see Verification Command section below or CLAUDE.md). If ANY verification fails, STOP immediately:
+2. **Check git state** — Run `git status` to check for uncommitted changes. Review the Git History section below to
+   understand recent work.
+3. **Run pre-existing verification** — Execute the project's verification commands (see Verification Command section
+   below or CLAUDE.md). If ANY verification fails, STOP immediately:
    ```
    <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
    ```
    This prevents you from being blamed for broken state you did not cause.
-4. **Read context** — Review the Git History, Progress History, and Verification Command sections provided below. Note any warnings or gotchas from previous tasks.
+4. **Read context** — Review the Git History, Progress History, and Verification Command sections provided below. Note
+   any warnings or gotchas from previous tasks.
 
 Only proceed to Phase 2 if ALL startup checks pass.
 
@@ -23,7 +27,8 @@ Only proceed to Phase 2 if ALL startup checks pass.
 
 1. **Read CLAUDE.md** — Read CLAUDE.md for project conventions, verification commands, and patterns
 2. **Read {{CONTEXT_FILE}}** — Read the task specification, steps, and ticket requirements
-   - **Ticket requirements** (if present) show the full ticket scope — use them to understand constraints and validate your work, but follow the **task steps** for what to actually do
+   - **Ticket requirements** (if present) show the full ticket scope — use them to understand constraints and validate
+     your work, but follow the **task steps** for what to actually do
    - If steps seem incomplete relative to requirements, signal `<task-blocked>` rather than improvising
 3. **Follow declared steps precisely** — Execute each step in order as specified:
    - Each step references specific files and actions — do exactly what is specified
@@ -36,11 +41,10 @@ Only proceed to Phase 2 if ALL startup checks pass.
 Complete these steps IN ORDER:
 
 1. **Confirm all steps done** — Every task step has been completed
-2. **Run ALL verification commands** — Execute every verification command (see Verification Command section or CLAUDE.md). Fix any failures before proceeding.
-
-{{COMMIT_STEP}}
-
-4. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
+2. **Run ALL verification commands** — Execute every verification command (see Verification Command section or
+   CLAUDE.md). Fix any failures before proceeding.
+   {{COMMIT_STEP}}
+3. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
 
    ```markdown
    ## {ISO timestamp} - {task-id}: {task name}
@@ -106,7 +110,7 @@ Complete these steps IN ORDER:
    - The ExportRepository now supports optional date filtering — future filters can follow the same pattern
    ```
 
-5. **Output verification results:**
+4. **Output verification results:**
 
 <!-- prettier-ignore -->
 ```
@@ -120,7 +124,7 @@ $ pnpm test
 </task-verified>
 ```
 
-6. **Signal completion** — `<task-complete>` ONLY after ALL above steps pass
+5. **Signal completion** — `<task-complete>` ONLY after ALL above steps pass
 
 ## When Things Go Wrong
 
@@ -147,7 +151,8 @@ $ pnpm test
 
 ### If scope seems wrong
 
-1. If the steps ask you to do something that contradicts the project's patterns, follow the project's patterns and note the deviation in progress
+1. If the steps ask you to do something that contradicts the project's patterns, follow the project's patterns and note
+   the deviation in progress
 2. If the steps seem incomplete relative to ticket requirements, signal blocked rather than improvising:
    ```
    <task-blocked>Steps incomplete: [what appears to be missing]</task-blocked>
@@ -169,12 +174,11 @@ You may ONLY signal status changes via:
 
 ## Critical Constraints
 
-1. **ONE task only** — Complete THIS task only. Do not continue to other tasks.
-2. **Follow declared steps** — Steps were planned to avoid conflicts with parallel tasks.
-3. **Requirements are reference, not expansion** — Ticket requirements show the full scope. Your task is one piece. Do not implement beyond what steps specify.
-4. **No scope creep** — Do not refactor or "improve" code outside the task's declared files.
-
-{{COMMIT_CONSTRAINT}}
-
-6. **Must verify** — A task is NOT complete until verification passes.
-7. **Must log progress** — Update progress file before signaling completion.
+- **ONE task only** — Complete THIS task only. Do not continue to other tasks.
+- **Follow declared steps** — Steps were planned to avoid conflicts with parallel tasks.
+- **Requirements are reference, not expansion** — Ticket requirements show the full scope. Your task is one piece. Do
+  not implement beyond what steps specify.
+- **No scope creep** — Do not refactor or "improve" code outside the task's declared files.
+  {{COMMIT_CONSTRAINT}}
+- **Must verify** — A task is NOT complete until verification passes.
+- **Must log progress** — Update progress file before signaling completion.

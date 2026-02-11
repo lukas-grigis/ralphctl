@@ -1,5 +1,4 @@
 import { Separator } from '@inquirer/prompts';
-import { colors } from '@src/theme/index.ts';
 
 /**
  * Dynamic context-aware menu system for interactive mode
@@ -36,22 +35,6 @@ export interface MenuContext {
   allRequirementsApproved: boolean;
 }
 
-function countBadge(count: number, label: string): string {
-  if (count === 0) return '';
-  return colors.muted(` [${String(count)} ${label}]`);
-}
-
-function statusBadge(status: string | null): string {
-  if (!status) return '';
-  const statusColors: Record<string, (s: string) => string> = {
-    draft: colors.warning,
-    active: colors.success,
-    closed: colors.muted,
-  };
-  const colorFn = statusColors[status] ?? colors.muted;
-  return ' ' + colorFn(`(${status})`);
-}
-
 /**
  * Build main menu items based on current application state.
  */
@@ -62,9 +45,14 @@ export function buildMainMenu(ctx: MenuContext): MenuItem[] {
   items.push({
     name: 'Status',
     value: 'status',
-    description: ctx.currentSprintName
-      ? `${ctx.currentSprintName}${statusBadge(ctx.currentSprintStatus)}`
-      : 'Sprint overview',
+    description: 'Current sprint dashboard',
+  });
+
+  // Switch Sprint: always available for quick switching
+  items.push({
+    name: 'Switch Sprint',
+    value: 'switch-sprint',
+    description: 'Change current sprint',
   });
 
   // Quick Start: show when no current sprint
@@ -78,30 +66,22 @@ export function buildMainMenu(ctx: MenuContext): MenuItem[] {
 
   items.push(new Separator());
 
-  // --- Sprint lifecycle section ---
-  if (ctx.currentSprintId && ctx.currentSprintStatus === 'draft') {
-    items.push(new Separator(colors.muted(' ── Draft Phase ──')));
-  } else if (ctx.currentSprintId && ctx.currentSprintStatus === 'active') {
-    items.push(new Separator(colors.muted(' ── Active Sprint ──')));
-  }
-
   items.push({
-    name: `Sprint${countBadge(ctx.ticketCount, ctx.ticketCount === 1 ? 'ticket' : 'tickets')}`,
+    name: 'Sprint',
     value: 'sprint',
     description: 'Manage sprints',
   });
 
   items.push({
-    name: `Ticket${countBadge(ctx.ticketCount, ctx.ticketCount === 1 ? 'ticket' : 'tickets')}`,
+    name: 'Ticket',
     value: 'ticket',
-    description:
-      ctx.pendingRequirements > 0 ? `${String(ctx.pendingRequirements)} pending refinement` : 'Manage tickets',
+    description: 'Manage tickets',
   });
 
   items.push({
-    name: `Task${countBadge(ctx.taskCount, ctx.taskCount === 1 ? 'task' : 'tasks')}`,
+    name: 'Task',
     value: 'task',
-    description: ctx.taskCount > 0 ? `${String(ctx.tasksDone)}/${String(ctx.taskCount)} done` : 'Manage tasks',
+    description: 'Manage tasks',
   });
 
   items.push({ name: 'Progress', value: 'progress', description: 'Log progress' });
@@ -111,7 +91,7 @@ export function buildMainMenu(ctx: MenuContext): MenuItem[] {
   items.push({
     name: 'Project',
     value: 'project',
-    description: ctx.hasProjects ? `${String(ctx.projectCount)} registered` : 'No projects yet',
+    description: 'Manage projects',
   });
 
   items.push(new Separator());
