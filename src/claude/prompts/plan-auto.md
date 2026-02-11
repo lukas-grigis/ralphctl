@@ -82,7 +82,9 @@ Before outputting JSON, verify EVERY item on this checklist:
 JSON Schema:
 
 ```json
-{{SCHEMA}}
+{{
+  SCHEMA
+}}
 ```
 
 **Dependencies**: Give tasks an `id` field, then reference those IDs in `blockedBy`:

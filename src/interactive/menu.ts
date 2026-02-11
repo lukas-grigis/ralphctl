@@ -126,6 +126,13 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   });
 
   items.push({
+    name: 'Ideate',
+    value: 'ideate',
+    description: 'Quick idea to tasks',
+    disabled: !isDraft ? 'requires draft sprint' : !ctx.hasProjects ? 'add a project first' : false,
+  });
+
+  items.push({
     name: 'Plan',
     value: 'plan',
     description: 'Generate tasks from requirements',

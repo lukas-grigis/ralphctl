@@ -58,6 +58,10 @@ export function getPlanningDir(sprintId: string): string {
   return join(getSprintDir(sprintId), 'planning');
 }
 
+export function getIdeateDir(sprintId: string, ticketId: string): string {
+  return join(getSprintDir(sprintId), 'ideation', ticketId);
+}
+
 export function getSchemaPath(schemaName: string): string {
   return join(getRalphctlRoot(), 'schemas', schemaName);
 }

@@ -40,3 +40,46 @@ export function extractJsonArray(output: string): string {
   }
   throw new Error('No complete JSON array found in output');
 }
+
+/**
+ * Extract a complete JSON object from text that may contain surrounding content.
+ * Uses brace-depth tracking to handle nested objects and strings containing braces.
+ *
+ * @param output - The text containing a JSON object
+ * @returns The extracted JSON object string
+ * @throws Error if no complete JSON object is found
+ */
+export function extractJsonObject(output: string): string {
+  const start = output.indexOf('{');
+  if (start === -1) {
+    throw new Error('No JSON object found in output');
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < output.length; i++) {
+    const ch = output[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return output.slice(start, i + 1);
+      }
+    }
+  }
+  throw new Error('No complete JSON object found in output');
+}

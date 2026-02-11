@@ -142,7 +142,9 @@ When the user approves the plan, write the tasks to: {{OUTPUT_FILE}}
 Use this exact JSON Schema:
 
 ```json
-{{SCHEMA}}
+{{
+  SCHEMA
+}}
 ```
 
 **Dependencies**: Give tasks an `id` field, then reference those IDs in `blockedBy`:

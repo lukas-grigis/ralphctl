@@ -9,6 +9,7 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
 import { sprintSwitchCommand } from '@src/commands/sprint/switch.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
+import { sprintIdeateCommand } from '@src/commands/sprint/ideate.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 import { sprintDeleteCommand } from '@src/commands/sprint/delete.ts';
@@ -87,6 +88,21 @@ Examples:
       if (id) args.push(id);
       if (opts?.project) args.push('--project', opts.project);
       await sprintRefineCommand(args);
+    });
+
+  sprint
+    .command('ideate [id]')
+    .description('Quick idea to tasks (refine + plan in one session)')
+    .option('--auto', 'Run without user interaction (Claude decides autonomously)')
+    .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
+    .option('--project <name>', 'Pre-select project (skip interactive selection)')
+    .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean; project?: string }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.auto) args.push('--auto');
+      if (opts?.allPaths) args.push('--all-paths');
+      if (opts?.project) args.push('--project', opts.project);
+      await sprintIdeateCommand(args);
     });
 
   sprint
