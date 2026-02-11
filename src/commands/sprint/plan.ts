@@ -1,7 +1,17 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { error, info, muted, success } from '@src/theme/index.ts';
-import { createSpinner, log, showError, showNextStep, showWarning } from '@src/theme/ui.ts';
+import { colors, error, info, muted, success } from '@src/theme/index.ts';
+import {
+  createSpinner,
+  field,
+  icons,
+  log,
+  printHeader,
+  renderTable,
+  showError,
+  showNextStep,
+  showWarning,
+} from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import {
@@ -348,12 +358,12 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const ticketsByProject = groupTicketsByProject(sprint.tickets);
   const tasks = await listTasks(id);
 
-  console.log(info('\n=== Sprint Planning ==='));
-  console.log(info('Sprint:  ') + sprint.name);
-  console.log(info('ID:      ') + sprint.id);
-  console.log(muted(`Tickets: ${String(sprint.tickets.length)}`));
-  console.log(muted(`Projects: ${String(ticketsByProject.size)}`));
-  console.log(muted(`Mode: ${options.auto ? 'Auto (headless)' : 'Interactive'}`));
+  printHeader('Sprint Planning', icons.sprint);
+  console.log(field('Sprint', sprint.name));
+  console.log(field('ID', sprint.id));
+  console.log(field('Tickets', String(sprint.tickets.length)));
+  console.log(field('Projects', String(ticketsByProject.size)));
+  console.log(field('Mode', options.auto ? 'Auto (headless)' : 'Interactive'));
 
   for (const [proj, tickets] of ticketsByProject) {
     console.log(muted(`  - ${proj}: ${String(tickets.length)} ticket(s)`));
@@ -485,11 +495,17 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       return;
     }
 
-    console.log(success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
-    parsedTasks.forEach((task, i) => {
-      const deps = task.blockedBy?.length ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
-      console.log(`  ${String(i + 1)}. ${task.name}${deps}`);
+    console.log(colors.success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
+    const autoTaskRows = parsedTasks.map((task, i) => {
+      const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
+      return [String(i + 1), task.name, task.projectPath, deps];
     });
+    console.log(
+      renderTable(
+        [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+        autoTaskRows
+      )
+    );
     console.log('');
 
     // Validate before import
@@ -562,11 +578,17 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
         return;
       }
 
-      console.log(success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
-      parsedTasks.forEach((task, i) => {
-        const deps = task.blockedBy?.length ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
-        console.log(`  ${String(i + 1)}. ${task.name}${deps}`);
+      console.log(colors.success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
+      const interactiveTaskRows = parsedTasks.map((task, i) => {
+        const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
+        return [String(i + 1), task.name, task.projectPath, deps];
       });
+      console.log(
+        renderTable(
+          [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+          interactiveTaskRows
+        )
+      );
       console.log('');
 
       // Validate before import

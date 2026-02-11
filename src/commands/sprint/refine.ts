@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
-import { info } from '@src/theme/index.ts';
+import { colors, info } from '@src/theme/index.ts';
 import {
   createSpinner,
   emoji,
@@ -11,6 +11,8 @@ import {
   log,
   printHeader,
   printSeparator,
+  progressBar,
+  renderCard,
   showError,
   showSuccess,
   showWarning,
@@ -185,6 +187,9 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     printSeparator(60);
     console.log('');
     console.log(`  ${icons.ticket}  ${info(`Ticket ${String(ticketNum)} of ${String(totalTickets)}`)}`);
+    console.log(
+      `  ${progressBar(i, totalTickets, { width: 15, showPercent: false })} ${colors.muted(`${String(ticketNum)}/${String(totalTickets)}`)}`
+    );
     console.log('');
     console.log(field('Title', ticket.title, 14));
     console.log(field('Project', ticket.projectName, 14));
@@ -311,13 +316,8 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
             };
 
       // Show requirement for review
-      printSeparator(60);
-      console.log('');
-      log.info('Refined Requirements:');
-      console.log('');
-      console.log(requirement.requirements);
-      console.log('');
-      printSeparator(60);
+      const reqLines = requirement.requirements.split('\n');
+      console.log(renderCard(`${icons.ticket} Refined Requirements`, reqLines));
       log.newline();
 
       const approveRequirement = await confirm({
