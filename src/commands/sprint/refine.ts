@@ -25,7 +25,7 @@ import { buildTicketRefinePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeInteractive } from '@src/claude/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath, getSprintDir } from '@src/utils/paths.ts';
-import { RefinedRequirementsSchema, type RefinedRequirement, type Ticket } from '@src/schemas/index.ts';
+import { type RefinedRequirement, RefinedRequirementsSchema, type Ticket } from '@src/schemas/index.ts';
 import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
 

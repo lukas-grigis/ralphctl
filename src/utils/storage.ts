@@ -1,4 +1,4 @@
-import { access, appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ZodType, ZodTypeDef } from 'zod';
 
@@ -24,6 +24,10 @@ export class FileNotFoundError extends Error {
 
 export async function ensureDir(dirPath: string): Promise<void> {
   await mkdir(dirPath, { recursive: true });
+}
+
+export async function removeDir(dirPath: string): Promise<void> {
+  await rm(dirPath, { recursive: true, force: true });
 }
 
 export async function fileExists(filePath: string): Promise<boolean> {

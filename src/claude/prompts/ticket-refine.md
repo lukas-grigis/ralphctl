@@ -167,7 +167,9 @@ for the same ticket.
 JSON Schema:
 
 ```json
-{{SCHEMA}}
+{{
+  SCHEMA
+}}
 ```
 
 Example output:

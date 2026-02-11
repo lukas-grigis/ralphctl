@@ -36,7 +36,8 @@ pnpm typecheck && pnpm lint && pnpm test
 
 ## Interactive Mode
 
-**Run `ralphctl` with no arguments to enter interactive menu mode** — context-aware menus with persistent status header, workflow guidance, and Quick Start wizard. This is the recommended way to use ralphctl for most workflows.
+**Run `ralphctl` with no arguments to enter interactive menu mode** — context-aware menus with persistent status header,
+workflow guidance, and Quick Start wizard. This is the recommended way to use ralphctl for most workflows.
 
 ## Architecture Constraints
 
@@ -71,10 +72,11 @@ pnpm typecheck && pnpm lint && pnpm test
 9. Close sprint       → ralphctl sprint close
 ```
 
-### Two Workflow Paths
+### Workflow Paths
 
 **Direct Tasks:** `sprint create` → `task add` (repeat) → `sprint start`
 **AI-Assisted:** `sprint create` → `ticket add` → `sprint refine` → `sprint plan` → `sprint start`
+**Quick Ideation:** `sprint create` → `sprint ideate` → `sprint start` (combines refine + plan for quick ideas)
 
 ## Sprint State Machine
 
@@ -84,6 +86,7 @@ Status: `draft` → `active` → `closed`
 | ------------------- | :---: | :----: | :----: |
 | Add/edit/rm ticket  |   ✓   |   ✗    |   ✗    |
 | Refine requirements |   ✓   |   ✗    |   ✗    |
+| Ideate (quick)      |   ✓   |   ✗    |   ✗    |
 | Plan/add tasks      |   ✓   |   ✗    |   ✗    |
 | Start (execute)     |  ✓\*  |   ✓    |   ✗    |
 | Update task status  |   ✗   |   ✓    |   ✗    |
@@ -199,7 +202,8 @@ See `.claude/agents/designer.md` for complete UX guidelines.
 
 **Formatting:**
 
-- `log.*` — structured output (`log.info`, `log.success`, `log.warn`, `log.error`, `log.dim`, `log.item`, `log.raw`, `log.newline`)
+- `log.*` — structured output (`log.info`, `log.success`, `log.warn`, `log.error`, `log.dim`, `log.item`, `log.raw`,
+  `log.newline`)
 - `formatMuted(text)` — muted/secondary text
 - `clearScreen()` — clear terminal (TTY-safe)
 - `printSeparator(width?)` — horizontal separator line

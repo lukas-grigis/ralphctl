@@ -43,3 +43,41 @@ export function buildTicketRefinePrompt(ticketContent: string, outputFile: strin
     .replace('{{OUTPUT_FILE}}', outputFile)
     .replace('{{SCHEMA}}', schema);
 }
+
+export function buildIdeatePrompt(
+  ideaTitle: string,
+  ideaDescription: string,
+  projectName: string,
+  repositories: string,
+  outputFile: string,
+  schema: string
+): string {
+  const template = loadTemplate('ideate');
+  const common = loadTemplate('plan-common');
+  return template
+    .replace('{{IDEA_TITLE}}', ideaTitle)
+    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
+    .replace('{{PROJECT_NAME}}', projectName)
+    .replace('{{REPOSITORIES}}', repositories)
+    .replace('{{OUTPUT_FILE}}', outputFile)
+    .replace('{{SCHEMA}}', schema)
+    .replace('{{COMMON}}', common);
+}
+
+export function buildIdeateAutoPrompt(
+  ideaTitle: string,
+  ideaDescription: string,
+  projectName: string,
+  repositories: string,
+  schema: string
+): string {
+  const template = loadTemplate('ideate-auto');
+  const common = loadTemplate('plan-common');
+  return template
+    .replace('{{IDEA_TITLE}}', ideaTitle)
+    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
+    .replace('{{PROJECT_NAME}}', projectName)
+    .replace('{{REPOSITORIES}}', repositories)
+    .replace('{{SCHEMA}}', schema)
+    .replace('{{COMMON}}', common);
+}

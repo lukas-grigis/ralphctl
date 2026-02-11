@@ -9,8 +9,10 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
 import { sprintSwitchCommand } from '@src/commands/sprint/switch.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
+import { sprintIdeateCommand } from '@src/commands/sprint/ideate.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
+import { sprintDeleteCommand } from '@src/commands/sprint/delete.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -89,6 +91,21 @@ Examples:
     });
 
   sprint
+    .command('ideate [id]')
+    .description('Quick idea to tasks (refine + plan in one session)')
+    .option('--auto', 'Run without user interaction (Claude decides autonomously)')
+    .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
+    .option('--project <name>', 'Pre-select project (skip interactive selection)')
+    .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean; project?: string }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.auto) args.push('--auto');
+      if (opts?.allPaths) args.push('--all-paths');
+      if (opts?.project) args.push('--project', opts.project);
+      await sprintIdeateCommand(args);
+    });
+
+  sprint
     .command('plan [id]')
     .description('Generate tasks using Claude CLI')
     .option('--auto', 'Run without user interaction (Claude decides autonomously)')
@@ -106,6 +123,17 @@ Examples:
     .description('Close an active sprint')
     .action(async (id?: string) => {
       await sprintCloseCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('delete [id]')
+    .description('Delete a sprint permanently')
+    .option('-y, --yes', 'Skip confirmation')
+    .action(async (id?: string, opts?: { yes?: boolean }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.yes) args.push('-y');
+      await sprintDeleteCommand(args);
     });
 
   sprint

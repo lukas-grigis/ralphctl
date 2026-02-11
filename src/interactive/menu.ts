@@ -126,6 +126,13 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   });
 
   items.push({
+    name: 'Ideate',
+    value: 'ideate',
+    description: 'Quick idea to tasks',
+    disabled: !isDraft ? 'requires draft sprint' : !ctx.hasProjects ? 'add a project first' : false,
+  });
+
+  items.push({
     name: 'Plan',
     value: 'plan',
     description: 'Generate tasks from requirements',
@@ -158,6 +165,12 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
     value: 'close',
     description: 'Close sprint',
     disabled: !isActive ? 'requires active sprint' : false,
+  });
+
+  items.push({
+    name: 'Delete',
+    value: 'delete',
+    description: 'Delete a sprint permanently',
   });
 
   items.push(new Separator());

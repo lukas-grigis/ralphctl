@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { exportRequirementsToMarkdown } from './requirements-export.ts';
 import type { Sprint, Ticket } from '@src/schemas/index.ts';
 import { readFile, rm } from 'node:fs/promises';

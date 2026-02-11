@@ -98,6 +98,13 @@ export type RefinedRequirement = z.infer<typeof RefinedRequirementSchema>;
 export const RefinedRequirementsSchema = z.array(RefinedRequirementSchema);
 export type RefinedRequirements = z.infer<typeof RefinedRequirementsSchema>;
 
+// Ideate output schema (combined requirements + tasks from sprint ideate)
+export const IdeateOutputSchema = z.object({
+  requirements: z.string().min(1),
+  tasks: ImportTasksSchema,
+});
+export type IdeateOutput = z.infer<typeof IdeateOutputSchema>;
+
 // Sprint schema (was Scope)
 export const SprintSchema = z.object({
   id: z.string().regex(/^\d{8}-\d{6}-[a-z0-9-]+$/, 'Invalid sprint ID format'),

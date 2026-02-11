@@ -1,13 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { colors, error, muted, success } from '@src/theme/index.ts';
+import { colors, error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
   field,
   icons,
   log,
   printHeader,
-  renderTable,
   showError,
   showInfo,
   showNextStep,
@@ -17,7 +16,7 @@ import {
   terminalBell,
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
-import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
+import { getTasks, listTasks, validateImportTasks } from '@src/store/task.ts';
 import {
   allRequirementsApproved,
   formatTicketDisplay,
@@ -26,18 +25,12 @@ import {
 } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getPlanningDir, getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
-import { withFileLock } from '@src/utils/file-lock.ts';
+import { getPlanningDir } from '@src/utils/paths.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
-import { ImportTasksSchema, type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
+import { type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
-import { extractJsonArray } from '@src/utils/json-extract.ts';
-
-async function getTaskImportSchema(): Promise<string> {
-  const schemaPath = getSchemaPath('task-import.schema.json');
-  return readFile(schemaPath, 'utf-8');
-}
+import { getTaskImportSchema, importTasks, parseTasksJson, renderParsedTasksTable } from './plan-utils.ts';
 
 interface PlanOptions {
   auto: boolean;
@@ -174,109 +167,6 @@ async function invokeClaudeAuto(prompt: string, repoPaths: string[], planDir: st
       CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
     },
   });
-}
-
-function parseTasksJson(output: string): ImportTask[] {
-  // Try to extract a balanced JSON array from the output (handles nested arrays like steps)
-  const jsonStr = extractJsonArray(output);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected JSON array');
-  }
-
-  // Validate against schema
-  const result = ImportTasksSchema.safeParse(parsed);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => {
-        const path = issue.path.length > 0 ? `[${issue.path.join('.')}]` : '';
-        return `  ${path}: ${issue.message}`;
-      })
-      .join('\n');
-    throw new Error(`Invalid task format:\n${issues}`);
-  }
-
-  return result.data;
-}
-
-function renderParsedTasksTable(parsedTasks: ImportTask[]): string {
-  const rows = parsedTasks.map((task, i) => {
-    const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
-    return [String(i + 1), task.name, task.projectPath, deps];
-  });
-  return renderTable(
-    [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
-    rows
-  );
-}
-
-async function importTasks(tasks: ImportTask[], sprintId: string): Promise<number> {
-  // Build mapping from local IDs to real IDs
-  const localToRealId = new Map<string, string>();
-
-  // First pass: create all tasks and build ID mapping
-  const createdTasks: { task: ImportTask; realId: string }[] = [];
-
-  for (const taskInput of tasks) {
-    try {
-      // projectPath is now required from Claude
-      const projectPath = taskInput.projectPath;
-
-      // Create task without blockedBy first
-      const task = await addTask(
-        {
-          name: taskInput.name,
-          description: taskInput.description,
-          steps: taskInput.steps ?? [],
-          ticketId: taskInput.ticketId,
-          blockedBy: [], // Set later
-          projectPath,
-        },
-        sprintId
-      );
-
-      // Map local ID to real ID
-      if (taskInput.id) {
-        localToRealId.set(taskInput.id, task.id);
-      }
-
-      createdTasks.push({ task: taskInput, realId: task.id });
-      console.log(success(`  + ${task.id}: ${task.name}`));
-    } catch (err) {
-      log.itemError(`Failed to add: ${taskInput.name}`);
-      if (err instanceof Error) {
-        console.log(muted(`    ${err.message}`));
-      }
-    }
-  }
-
-  // Second pass: update blockedBy with resolved real IDs (under file lock)
-  const tasksFilePath = getTasksFilePath(sprintId);
-  await withFileLock(tasksFilePath, async () => {
-    const allTasks = await getTasks(sprintId);
-    for (const { task: taskInput, realId } of createdTasks) {
-      const blockedBy = (taskInput.blockedBy ?? [])
-        .map((localId) => localToRealId.get(localId) ?? '')
-        .filter((id) => id !== '');
-
-      if (blockedBy.length > 0) {
-        const taskToUpdate = allTasks.find((t) => t.id === realId);
-        if (taskToUpdate) {
-          taskToUpdate.blockedBy = blockedBy;
-        }
-      }
-    }
-    await saveTasks(allTasks, sprintId);
-  });
-
-  return createdTasks.length;
 }
 
 export async function sprintPlanCommand(args: string[]): Promise<void> {

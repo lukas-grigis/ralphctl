@@ -462,7 +462,8 @@ buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFil
 
 ## Interactive Mode
 
-Interactive mode provides a menu-driven REPL interface with context-aware menus, persistent status headers, and workflow guidance.
+Interactive mode provides a menu-driven REPL interface with context-aware menus, persistent status headers, and workflow
+guidance.
 
 ### Menu System (`interactive/menu.ts` & `interactive/index.ts`)
 

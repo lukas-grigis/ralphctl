@@ -23,9 +23,11 @@ import { sprintShowCommand } from '@src/commands/sprint/show.ts';
 import { sprintContextCommand } from '@src/commands/sprint/context.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
+import { sprintIdeateCommand } from '@src/commands/sprint/ideate.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
+import { sprintDeleteCommand } from '@src/commands/sprint/delete.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 
@@ -80,11 +82,13 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     context: () => sprintContextCommand([]),
     current: () => sprintCurrentCommand(['-']),
     refine: () => sprintRefineCommand([]),
+    ideate: () => sprintIdeateCommand([]),
     plan: () => sprintPlanCommand([]),
     start: () => sprintStartCommand([]),
     requirements: () => sprintRequirementsCommand([]),
     health: () => sprintHealthCommand(),
     close: () => sprintCloseCommand([]),
+    delete: () => sprintDeleteCommand([]),
   },
   ticket: {
     add: () => ticketAddCommand({ interactive: true }),
