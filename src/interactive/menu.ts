@@ -160,6 +160,12 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
     disabled: !isActive ? 'requires active sprint' : false,
   });
 
+  items.push({
+    name: 'Delete',
+    value: 'delete',
+    description: 'Delete a sprint permanently',
+  });
+
   items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 

@@ -11,6 +11,7 @@ import {
   fileExists,
   listDirs,
   readValidatedJson,
+  removeDir,
   writeValidatedJson,
 } from '@src/utils/storage.ts';
 import { type Sprint, SprintSchema, type SprintStatus, type Tasks, TasksSchema } from '@src/schemas/index.ts';
@@ -183,6 +184,13 @@ export async function closeSprint(sprintId: string): Promise<Sprint> {
   sprint.closedAt = new Date().toISOString();
   await saveSprint(sprint);
 
+  return sprint;
+}
+
+export async function deleteSprint(sprintId: string): Promise<Sprint> {
+  const sprint = await getSprint(sprintId);
+  const sprintDir = getSprintDir(sprintId);
+  await removeDir(sprintDir);
   return sprint;
 }
 

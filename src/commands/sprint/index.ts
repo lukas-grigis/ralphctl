@@ -11,6 +11,7 @@ import { sprintSwitchCommand } from '@src/commands/sprint/switch.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
+import { sprintDeleteCommand } from '@src/commands/sprint/delete.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -106,6 +107,17 @@ Examples:
     .description('Close an active sprint')
     .action(async (id?: string) => {
       await sprintCloseCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('delete [id]')
+    .description('Delete a sprint permanently')
+    .option('-y, --yes', 'Skip confirmation')
+    .action(async (id?: string, opts?: { yes?: boolean }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.yes) args.push('-y');
+      await sprintDeleteCommand(args);
     });
 
   sprint
