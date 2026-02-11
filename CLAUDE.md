@@ -5,6 +5,39 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 @REQUIREMENTS.md - What the app does, why features exist, design rationale
 @ARCHITECTURE.md - Technical implementation: data models, services, APIs
 
+## Quick Start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run CLI in dev mode
+pnpm dev --help
+pnpm dev sprint create
+
+# Or run installed CLI
+./bin/ralphctl
+
+# Run without args for interactive menu mode (recommended)
+pnpm dev
+```
+
+**Verify everything works:**
+
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+## Requirements
+
+- **Node.js 24+** (managed via `mise.toml`)
+- **pnpm 10+**
+- **Claude CLI** installed and configured (`claude --version`)
+
+## Interactive Mode
+
+**Run `ralphctl` with no arguments to enter interactive menu mode** — context-aware menus with persistent status header, workflow guidance, and Quick Start wizard. This is the recommended way to use ralphctl for most workflows.
+
 ## Architecture Constraints
 
 - **No `sprint activate` command** — `sprint start` auto-activates draft sprints
@@ -87,6 +120,15 @@ pnpm test              # Run tests
 After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
 All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
 
+### Git Hooks
+
+Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files). If commits are rejected, run:
+
+```bash
+pnpm lint:fix    # Auto-fix linting issues
+pnpm format      # Format all files
+```
+
 ## Prompt Template Engineering
 
 **Conditional sections** - `{{VARIABLE}}` placeholders in prompts can be empty strings; avoid numbered lists that create
@@ -96,6 +138,19 @@ prompt files)
 **Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
 Claude session starts)
 **Template builders** - `src/claude/prompts/index.ts` compiles `.md` templates with placeholder replacement
+
+## Custom Agents
+
+`.claude/agents/` contains specialized agent definitions for the Task tool:
+
+- `designer.md` — UI/UX design and theming (use for frontend/UI work)
+- `tester.md` — Test engineering (use for writing/fixing tests)
+- `implementer.md` — TypeScript implementation (use for feature implementation)
+- `planner.md` — Implementation planning (use before coding begins)
+- `reviewer.md` — Code review (use after implementation)
+- `auditor.md` — Security audit (use for security-sensitive code)
+
+Use Task tool with these `subagent_type` values for specialized work.
 
 ## UI Patterns
 
