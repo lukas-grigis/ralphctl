@@ -225,9 +225,9 @@ export async function interactiveMode(): Promise<void> {
         continue;
       }
 
-      // Future commands (wizard, health) — no-op until implemented
       if (command === 'wizard') {
-        log.warn('Quick Start wizard is not yet implemented.');
+        const { runWizard } = await import('./wizard.ts');
+        await runWizard();
         continue;
       }
 
