@@ -1,9 +1,61 @@
-import { colors, muted } from '@src/theme/index.ts';
+import { colors } from '@src/theme/index.ts';
 import { listTasks } from '@src/store/task.ts';
-import { badge, formatTaskStatus, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
+import { TaskStatusSchema } from '@src/schemas/index.ts';
+import { badge, formatTaskStatus, icons, log, printHeader, renderTable, showEmpty, showError } from '@src/theme/ui.ts';
+
+interface TaskListFilters {
+  brief: boolean;
+  statusFilter?: string;
+  projectFilter?: string;
+  ticketFilter?: string;
+  blockedOnly: boolean;
+}
+
+function parseListArgs(args: string[]): TaskListFilters {
+  const result: TaskListFilters = {
+    brief: false,
+    blockedOnly: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const next = args[i + 1];
+    if (arg === '-b' || arg === '--brief') result.brief = true;
+    else if (arg === '--status' && next) {
+      result.statusFilter = next;
+      i++;
+    } else if (arg === '--project' && next) {
+      result.projectFilter = next;
+      i++;
+    } else if (arg === '--ticket' && next) {
+      result.ticketFilter = next;
+      i++;
+    } else if (arg === '--blocked') result.blockedOnly = true;
+  }
+  return result;
+}
+
+function buildFilterSummary(filters: TaskListFilters): string {
+  const parts: string[] = [];
+  if (filters.statusFilter) parts.push(`status=${filters.statusFilter}`);
+  if (filters.projectFilter) parts.push(`project=${filters.projectFilter}`);
+  if (filters.ticketFilter) parts.push(`ticket=${filters.ticketFilter}`);
+  if (filters.blockedOnly) parts.push('blocked');
+  return parts.length > 0 ? ` (filtered: ${parts.join(', ')})` : '';
+}
 
 export async function taskListCommand(args: string[] = []): Promise<void> {
-  const brief = args.includes('-b') || args.includes('--brief');
+  const { brief, statusFilter, projectFilter, ticketFilter, blockedOnly } = parseListArgs(args);
+
+  // Validate status filter
+  if (statusFilter) {
+    const result = TaskStatusSchema.safeParse(statusFilter);
+    if (!result.success) {
+      showError(`Invalid status: "${statusFilter}". Valid values: todo, in_progress, done`);
+      return;
+    }
+  }
+
   const tasks = await listTasks();
 
   if (tasks.length === 0) {
@@ -11,10 +63,26 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
     return;
   }
 
+  // Apply filters
+  let filtered = tasks;
+  if (statusFilter) filtered = filtered.filter((t) => t.status === statusFilter);
+  if (projectFilter) filtered = filtered.filter((t) => t.projectPath.includes(projectFilter));
+  if (ticketFilter) filtered = filtered.filter((t) => t.ticketId === ticketFilter);
+  if (blockedOnly) filtered = filtered.filter((t) => t.blockedBy.length > 0);
+
+  const filterStr = buildFilterSummary({ brief, statusFilter, projectFilter, ticketFilter, blockedOnly });
+  const isFiltered = filtered.length !== tasks.length;
+
+  if (filtered.length === 0) {
+    showEmpty('matching tasks', 'Try adjusting your filters');
+    return;
+  }
+
   if (brief) {
     // Brief mode: one line per task
-    console.log(`\n# Tasks (${String(tasks.length)})\n`);
-    for (const task of tasks) {
+    const countLabel = isFiltered ? `${String(filtered.length)} of ${String(tasks.length)}` : String(tasks.length);
+    console.log(`\n# Tasks (${countLabel})${filterStr}\n`);
+    for (const task of filtered) {
       const ticketRef = task.ticketId ? ` [${task.ticketId}]` : '';
       const blockedRef = task.blockedBy.length > 0 ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
       console.log(
@@ -25,14 +93,14 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
     return;
   }
 
-  // Interactive list with status icons and alignment
+  // Interactive list with table
   const tasksByStatus = {
-    todo: tasks.filter((t) => t.status === 'todo').length,
-    in_progress: tasks.filter((t) => t.status === 'in_progress').length,
-    done: tasks.filter((t) => t.status === 'done').length,
+    todo: filtered.filter((t) => t.status === 'todo').length,
+    in_progress: filtered.filter((t) => t.status === 'in_progress').length,
+    done: filtered.filter((t) => t.status === 'done').length,
   };
 
-  printHeader(`Tasks (${String(tasks.length)})`, icons.task);
+  printHeader(`Tasks (${String(filtered.length)})`, icons.task);
 
   // Status summary
   log.raw(
@@ -42,23 +110,36 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
   );
   log.newline();
 
-  const ORDER_W = String(tasks.length).length + 1;
-
-  for (const task of tasks) {
+  const rows: string[][] = filtered.map((task) => {
     const statusIcon =
       task.status === 'done' ? icons.success : task.status === 'in_progress' ? icons.active : icons.inactive;
     const statusColor = task.status === 'done' ? 'success' : task.status === 'in_progress' ? 'warning' : 'muted';
-    const order = muted(String(task.order).padStart(ORDER_W) + '.');
-    const ticketRef = task.ticketId ? ' ' + muted(`[${task.ticketId}]`) : '';
-    const blockedRef = task.blockedBy.length > 0 ? ' ' + colors.error(`(blocked)`) : '';
+    const blocked = task.blockedBy.length > 0 ? colors.error('(blocked)') : '';
+    return [badge(statusIcon, statusColor), String(task.order), task.name, task.id, blocked];
+  });
 
-    log.raw(`${order} ${badge(statusIcon, statusColor)} ${task.name} ${muted(task.id)}${ticketRef}${blockedRef}`);
-  }
+  console.log(
+    renderTable(
+      [
+        { header: '', minWidth: 0 },
+        { header: '#', align: 'right' },
+        { header: 'Name' },
+        { header: 'ID' },
+        { header: '' },
+      ],
+      rows
+    )
+  );
 
   // Progress summary
-  const percent = tasks.length > 0 ? Math.round((tasksByStatus.done / tasks.length) * 100) : 0;
+  const percent = filtered.length > 0 ? Math.round((tasksByStatus.done / filtered.length) * 100) : 0;
   const progressColor = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
+  const showingLabel = isFiltered
+    ? `Showing ${String(filtered.length)} of ${String(tasks.length)} task(s)${filterStr}`
+    : `Showing ${String(tasks.length)} task(s)`;
   log.newline();
-  log.dim(`Progress: ${progressColor(`${String(tasksByStatus.done)}/${String(tasks.length)} (${String(percent)}%)`)}`);
+  log.dim(
+    `Progress: ${progressColor(`${String(tasksByStatus.done)}/${String(filtered.length)} (${String(percent)}%)`)}  |  ${showingLabel}`
+  );
   log.newline();
 }

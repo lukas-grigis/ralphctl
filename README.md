@@ -16,7 +16,9 @@
 
 > _"I'm helping!"_ — Ralph Wiggum
 
-RalphCTL bridges the gap between high-level planning and AI-assisted implementation. Organize work into sprints, break down tickets into tasks with Claude's help, and execute them — all from the terminal, with a Ralph Wiggum personality to keep things fun.
+RalphCTL bridges the gap between high-level planning and AI-assisted implementation. Organize work into sprints, break
+down tickets into tasks with Claude's help, and execute them — all from the terminal, with a Ralph Wiggum personality to
+keep things fun.
 
 ---
 
@@ -35,7 +37,8 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 
 ## Features
 
-- **AI-Assisted Planning** — Two-phase workflow: refine requirements with Claude, then generate implementation tasks automatically
+- **AI-Assisted Planning** — Two-phase workflow: refine requirements with Claude, then generate implementation tasks
+  automatically
 - **Multi-Project Sprints** — Manage tickets across multiple repositories within a single sprint
 - **Task Dependencies** — Define `blockedBy` relationships between tasks with topological ordering
 - **Interactive & Headless Modes** — Collaborate with Claude interactively or run fully automated

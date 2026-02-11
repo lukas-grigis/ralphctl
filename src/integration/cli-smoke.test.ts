@@ -7,9 +7,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createTestEnv, createMultiProjectEnv } from '@src/test-utils/setup.ts';
-import { runCli, extractField, extractTaskIds } from '@src/test-utils/cli-runner.ts';
+import { createMultiProjectEnv, createTestEnv } from '@src/test-utils/setup.ts';
 import type { CliResult } from '@src/test-utils/cli-runner.ts';
+import { extractField, extractTaskIds, runCli } from '@src/test-utils/cli-runner.ts';
 
 let testDir: string;
 let env: Record<string, string>;
@@ -775,5 +775,49 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     await writeFile(badFormatFile, JSON.stringify([{ name: 'Missing projectPath' }]));
     const importBadFormat = await scenarioCli(['task', 'import', badFormatFile]);
     expect(importBadFormat.stdout).toContain('Invalid task format');
+  });
+
+  it('runs sprint health checks', async () => {
+    // Create sprint with tasks
+    await scenarioCli(['sprint', 'create', '-n', '--name', 'Health Check Sprint']);
+    await scenarioCli([
+      'task',
+      'add',
+      '-n',
+      '--name',
+      'Task 1',
+      '--project',
+      'ecommerce-frontend',
+      '--step',
+      'Do something',
+    ]);
+
+    // Run health check
+    const health = await scenarioCli(['sprint', 'health']);
+    expect(health.code).toBe(0);
+    expect(health.stdout).toContain('Sprint Health');
+    expect(health.stdout).toContain('Health Score');
+    expect(health.stdout).toContain('Blockers');
+    expect(health.stdout).toContain('Stale Tasks');
+  });
+
+  it('exports sprint requirements', async () => {
+    // Create sprint with a ticket
+    await scenarioCli(['sprint', 'create', '-n', '--name', 'Requirements Export Sprint']);
+    await scenarioCli([
+      'ticket',
+      'add',
+      '-n',
+      '--project',
+      'ecommerce-frontend',
+      '--title',
+      'Test Requirement',
+      '--id',
+      'REQ-1',
+    ]);
+
+    // Try exporting (will show warning since no approved requirements)
+    const requirements = await scenarioCli(['sprint', 'requirements']);
+    expect(requirements.stdout).toContain('No approved requirements to export');
   });
 });

@@ -1,8 +1,10 @@
 import { colors, muted } from '@src/theme/index.ts';
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
+import { getTicket } from '@src/store/ticket.ts';
 import {
   boxChars,
   DETAIL_LABEL_WIDTH,
+  field,
   formatTaskStatus,
   icons,
   log,
@@ -12,11 +14,8 @@ import {
 } from '@src/theme/ui.ts';
 import { selectTask } from '@src/interactive/selectors.ts';
 
-const LABEL_W = DETAIL_LABEL_WIDTH;
-
 function labelValue(label: string, value: string): string {
-  const paddedLabel = (label + ':').padEnd(LABEL_W);
-  return `${colors.muted(paddedLabel)} ${value}`;
+  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
 }
 
 export async function taskShowCommand(args: string[]): Promise<void> {
@@ -47,7 +46,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
       infoLines.push('');
       infoLines.push(labelValue('Description', ''));
       for (const line of task.description.split('\n')) {
-        infoLines.push(`${' '.repeat(LABEL_W + 1)}${line}`);
+        infoLines.push(`${' '.repeat(DETAIL_LABEL_WIDTH + 1)}${line}`);
       }
     }
 
@@ -74,6 +73,20 @@ export async function taskShowCommand(args: string[]): Promise<void> {
         depLines.push(`${icons.bullet} ${dep}`);
       }
       console.log(renderCard(`${icons.warning} Blocked By`, depLines));
+    }
+
+    // Requirements card (from linked ticket, if refined)
+    if (task.ticketId) {
+      try {
+        const ticket = await getTicket(task.ticketId);
+        if (ticket.requirements) {
+          log.newline();
+          const reqLines = ticket.requirements.split('\n');
+          console.log(renderCard(`${icons.ticket} Requirements`, reqLines));
+        }
+      } catch {
+        // Ticket may not exist anymore - silently skip
+      }
     }
 
     // Verification card (if verified)

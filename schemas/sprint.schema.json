@@ -83,7 +83,9 @@
           },
           "affectedRepositories": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Repository paths selected during planning"
           },
           "requirements": {

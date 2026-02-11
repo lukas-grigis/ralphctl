@@ -87,6 +87,17 @@ export type ImportTask = z.infer<typeof ImportTaskSchema>;
 export const ImportTasksSchema = z.array(ImportTaskSchema);
 export type ImportTasks = z.infer<typeof ImportTasksSchema>;
 
+// Refined requirement schema (for requirements refinement output)
+export const RefinedRequirementSchema = z.object({
+  ref: z.string().min(1),
+  requirements: z.string().min(1),
+});
+export type RefinedRequirement = z.infer<typeof RefinedRequirementSchema>;
+
+// Refined requirements array schema
+export const RefinedRequirementsSchema = z.array(RefinedRequirementSchema);
+export type RefinedRequirements = z.infer<typeof RefinedRequirementsSchema>;
+
 // Sprint schema (was Scope)
 export const SprintSchema = z.object({
   id: z.string().regex(/^\d{8}-\d{6}-[a-z0-9-]+$/, 'Invalid sprint ID format'),

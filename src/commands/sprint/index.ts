@@ -7,7 +7,10 @@ import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
+import { sprintSwitchCommand } from '@src/commands/sprint/switch.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
+import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
+import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -36,7 +39,15 @@ Examples:
       });
     });
 
-  sprint.command('list').description('List all sprints').action(sprintListCommand);
+  sprint
+    .command('list')
+    .description('List all sprints')
+    .option('--status <status>', 'Filter by status (draft, active, closed)')
+    .action(async (opts: { status?: string }) => {
+      const args: string[] = [];
+      if (opts.status) args.push('--status', opts.status);
+      await sprintListCommand(args);
+    });
 
   sprint
     .command('show [id]')
@@ -57,6 +68,13 @@ Examples:
     .description('Show/set current sprint (use "-" to open selector)')
     .action(async (id?: string) => {
       await sprintCurrentCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('switch')
+    .description('Quick sprint switcher (opens selector)')
+    .action(async () => {
+      await sprintSwitchCommand();
     });
 
   sprint
@@ -88,6 +106,20 @@ Examples:
     .description('Close an active sprint')
     .action(async (id?: string) => {
       await sprintCloseCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('requirements [id]')
+    .description('Export refined requirements to file')
+    .action(async (id?: string) => {
+      await sprintRequirementsCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('health')
+    .description('Check sprint health')
+    .action(async () => {
+      await sprintHealthCommand();
     });
 
   sprint

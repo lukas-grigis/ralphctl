@@ -57,7 +57,8 @@ const result = await spawnClaudeWithRetry(
 
 ## Session Resumption (verified working)
 
-Claude CLI supports resuming sessions in headless mode. This is critical for rate-limit recovery — instead of restarting a task from scratch, we resume from where Claude left off.
+Claude CLI supports resuming sessions in headless mode. This is critical for rate-limit recovery — instead of restarting
+a task from scratch, we resume from where Claude left off.
 
 **How it works:**
 
@@ -109,7 +110,8 @@ time claude -p "yolo"  # Should complete in ~5s
 
 ## Agent Harness Design
 
-ralphctl orchestrates Claude agents to execute tasks. The harness design is based on patterns from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+ralphctl orchestrates Claude agents to execute tasks. The harness design is based on patterns
+from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 
 > **Note:** This section documents how ralphctl implements the harness (for ralphctl contributors).
 > The actual agent instructions are in `src/claude/prompts/task-execution.md`.
@@ -177,4 +179,5 @@ Task file operations use file locking to prevent data corruption from concurrent
 - Multiple terminals running different sprints
 - Safe interruption and resumption with Ctrl+C
 
-Lock defaults: 30s stale timeout, 50ms retry delay, 100 max retries (~5s total wait). If you hit `LockAcquisitionError` on slow filesystems (e.g., NFS), increase the stale timeout with `RALPHCTL_LOCK_TIMEOUT_MS=60000`.
+Lock defaults: 30s stale timeout, 50ms retry delay, 100 max retries (~5s total wait). If you hit `LockAcquisitionError`
+on slow filesystems (e.g., NFS), increase the stale timeout with `RALPHCTL_LOCK_TIMEOUT_MS=60000`.

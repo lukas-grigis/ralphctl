@@ -1,8 +1,13 @@
 import { input, select } from '@inquirer/prompts';
 import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
-import { mainMenuItems, type MenuItem, subMenus } from './menu.ts';
+import { buildMainMenu, buildSubMenu, type MenuContext, type MenuItem } from './menu.ts';
 import { showDashboard } from './dashboard.ts';
+import { getCurrentSprint } from '@src/store/config.ts';
+import { getSprint } from '@src/store/sprint.ts';
+import { listProjects } from '@src/store/project.ts';
+import { getTasks } from '@src/store/task.ts';
+import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -21,6 +26,8 @@ import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
+import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
+import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 
 // Command imports - ticket
 import { ticketAddCommand } from '@src/commands/ticket/add.ts';
@@ -75,6 +82,8 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     refine: () => sprintRefineCommand([]),
     plan: () => sprintPlanCommand([]),
     start: () => sprintStartCommand([]),
+    requirements: () => sprintRequirementsCommand([]),
+    health: () => sprintHealthCommand(),
     close: () => sprintCloseCommand([]),
   },
   ticket: {
@@ -122,6 +131,60 @@ function showWelcomeBanner(): void {
 }
 
 /**
+ * Gather current application state for context-aware menus.
+ * Swallows errors gracefully — missing data means empty context.
+ */
+async function getMenuContext(): Promise<MenuContext> {
+  const ctx: MenuContext = {
+    hasProjects: false,
+    projectCount: 0,
+    currentSprintId: null,
+    currentSprintName: null,
+    currentSprintStatus: null,
+    ticketCount: 0,
+    taskCount: 0,
+    tasksDone: 0,
+    tasksInProgress: 0,
+    pendingRequirements: 0,
+    allRequirementsApproved: false,
+  };
+
+  try {
+    const projects = await listProjects();
+    ctx.hasProjects = projects.length > 0;
+    ctx.projectCount = projects.length;
+  } catch {
+    // No projects file yet
+  }
+
+  try {
+    const sprintId = await getCurrentSprint();
+    if (sprintId) {
+      ctx.currentSprintId = sprintId;
+      const sprint = await getSprint(sprintId);
+      ctx.currentSprintName = sprint.name;
+      ctx.currentSprintStatus = sprint.status;
+      ctx.ticketCount = sprint.tickets.length;
+      ctx.pendingRequirements = getPendingRequirements(sprint.tickets).length;
+      ctx.allRequirementsApproved = allRequirementsApproved(sprint.tickets);
+
+      try {
+        const tasks = await getTasks(sprintId);
+        ctx.taskCount = tasks.length;
+        ctx.tasksDone = tasks.filter((t) => t.status === 'done').length;
+        ctx.tasksInProgress = tasks.filter((t) => t.status === 'in_progress').length;
+      } catch {
+        // No tasks file yet
+      }
+    }
+  } catch {
+    // No current sprint or sprint file missing
+  }
+
+  return ctx;
+}
+
+/**
  * Run the interactive REPL mode
  */
 export async function interactiveMode(): Promise<void> {
@@ -133,11 +196,14 @@ export async function interactiveMode(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
+      const ctx = await getMenuContext();
+      const mainMenu = buildMainMenu(ctx);
+
       const command = await select({
         message: `${emoji.donut} What would you like to do?`,
-        choices: mainMenuItems,
+        choices: mainMenu,
         pageSize: 15,
-        loop: false,
+        loop: true,
         theme: selectTheme,
       });
 
@@ -156,9 +222,28 @@ export async function interactiveMode(): Promise<void> {
         continue;
       }
 
-      const subMenu = subMenus[command];
+      if (command === 'wizard') {
+        const { runWizard } = await import('./wizard.ts');
+        await runWizard();
+        continue;
+      }
+
+      if (command === 'switch-sprint') {
+        const { sprintSwitchCommand } = await import('@src/commands/sprint/switch.ts');
+        log.newline();
+        await sprintSwitchCommand();
+        log.newline();
+        await input({
+          message: formatMuted('Press Enter to continue...'),
+        });
+        clearScreen();
+        showBanner();
+        continue;
+      }
+
+      const subMenu = buildSubMenu(command, ctx);
       if (subMenu) {
-        await handleSubMenu(command, subMenu.title, subMenu.items);
+        await handleSubMenu(command, subMenu);
       }
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
@@ -172,17 +257,24 @@ export async function interactiveMode(): Promise<void> {
 
 /**
  * Handle a submenu with persistent status header and smooth transitions.
+ * Rebuilds the submenu on each iteration so disabled states refresh after actions.
  */
-async function handleSubMenu(commandGroup: string, title: string, items: MenuItem[]): Promise<void> {
+async function handleSubMenu(
+  commandGroup: string,
+  initialSubMenu: { title: string; items: MenuItem[] }
+): Promise<void> {
+  let currentTitle = initialSubMenu.title;
+  let currentItems = initialSubMenu.items;
+
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
       log.newline();
       const subCommand = await select({
-        message: `${emoji.donut} ${title}`,
-        choices: items,
+        message: `${emoji.donut} ${currentTitle}`,
+        choices: currentItems,
         pageSize: 15,
-        loop: false,
+        loop: true,
         theme: selectTheme,
       });
 
@@ -200,6 +292,14 @@ async function handleSubMenu(commandGroup: string, title: string, items: MenuIte
       await input({
         message: formatMuted('Press Enter to continue...'),
       });
+
+      // Refresh menu context after action so disabled states update
+      const refreshedCtx = await getMenuContext();
+      const refreshedMenu = buildSubMenu(commandGroup, refreshedCtx);
+      if (refreshedMenu) {
+        currentTitle = refreshedMenu.title;
+        currentItems = refreshedMenu.items;
+      }
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
         // Ctrl+C in submenu returns to main menu

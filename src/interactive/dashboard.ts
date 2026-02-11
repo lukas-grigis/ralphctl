@@ -1,8 +1,9 @@
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { getTasks } from '@src/store/task.ts';
+import { getPendingRequirements } from '@src/store/ticket.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
-import { boxChars, emoji, formatSprintStatus, icons } from '@src/theme/ui.ts';
+import { boxChars, emoji, formatSprintStatus, icons, progressBar } from '@src/theme/ui.ts';
 import type { Sprint, Tasks } from '@src/schemas/index.ts';
 
 // ============================================================================
@@ -12,6 +13,9 @@ import type { Sprint, Tasks } from '@src/schemas/index.ts';
 interface DashboardData {
   sprint: Sprint;
   tasks: Tasks;
+  approvedCount: number;
+  pendingCount: number;
+  blockedCount: number;
 }
 
 /**
@@ -25,29 +29,55 @@ async function loadDashboardData(): Promise<DashboardData | null> {
   try {
     const sprint = await getSprint(sprintId);
     const tasks = await getTasks(sprintId);
-    return { sprint, tasks };
+
+    const pendingTickets = getPendingRequirements(sprint.tickets);
+    const pendingCount = pendingTickets.length;
+    const approvedCount = sprint.tickets.length - pendingCount;
+
+    // Count tasks that are blocked (not done, and have unresolved blockers)
+    const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+    const blockedCount = tasks.filter(
+      (t) => t.status !== 'done' && t.blockedBy.length > 0 && !t.blockedBy.every((id) => doneIds.has(id))
+    ).length;
+
+    return { sprint, tasks, approvedCount, pendingCount, blockedCount };
   } catch {
     return null;
   }
 }
 
-const DEFAULT_PROGRESS_BAR_WIDTH = 20;
-
 /**
- * Build a progress bar string.
- * @param done - Number of completed items
- * @param total - Total number of items
- * @param width - Width of the bar in characters
+ * Determine the suggested next action based on sprint state.
  */
-function progressBar(done: number, total: number, width = DEFAULT_PROGRESS_BAR_WIDTH): string {
-  if (total === 0 || width <= 0) return colors.muted('─'.repeat(Math.max(0, width)));
-  const filled = Math.round((done / total) * width);
-  const empty = width - filled;
-  const percent = Math.round((done / total) * 100);
+function getNextAction(data: DashboardData): { description: string; command: string } | null {
+  const { sprint, tasks, pendingCount, approvedCount } = data;
+  const ticketCount = sprint.tickets.length;
+  const totalTasks = tasks.length;
+  const allDone = totalTasks > 0 && tasks.every((t) => t.status === 'done');
 
-  const bar = colors.success('█'.repeat(filled)) + colors.muted('░'.repeat(empty));
-  const label = percent === 100 ? colors.success(`${String(percent)}%`) : colors.muted(`${String(percent)}%`);
-  return `${bar} ${label}`;
+  if (sprint.status === 'draft') {
+    if (ticketCount === 0) {
+      return { description: 'Add tickets:', command: 'ralphctl ticket add' };
+    }
+    if (pendingCount > 0) {
+      return { description: 'Refine requirements:', command: 'ralphctl sprint refine' };
+    }
+    if (approvedCount > 0 && totalTasks === 0) {
+      return { description: 'Plan tasks:', command: 'ralphctl sprint plan' };
+    }
+    if (totalTasks > 0) {
+      return { description: 'Start sprint:', command: 'ralphctl sprint start' };
+    }
+  }
+
+  if (sprint.status === 'active') {
+    if (allDone) {
+      return { description: 'Close sprint:', command: 'ralphctl sprint close' };
+    }
+    return { description: 'Continue work:', command: 'ralphctl sprint start' };
+  }
+
+  return null;
 }
 
 /**
@@ -55,7 +85,7 @@ function progressBar(done: number, total: number, width = DEFAULT_PROGRESS_BAR_W
  * Returns an array of lines to display.
  */
 function renderDashboard(data: DashboardData): string[] {
-  const { sprint, tasks } = data;
+  const { sprint, tasks, approvedCount, pendingCount, blockedCount } = data;
   const chars = boxChars.rounded;
 
   const todoCount = tasks.filter((t) => t.status === 'todo').length;
@@ -86,6 +116,28 @@ function renderDashboard(data: DashboardData): string[] {
     lines.push(`  ${bar}  ${detail}`);
   }
 
+  // Ticket requirement status
+  if (ticketCount > 0) {
+    const approvedPart = colors.success(`${String(approvedCount)}/${String(ticketCount)} approved`);
+    const pendingPart = pendingCount > 0 ? `  ${colors.warning(`${String(pendingCount)} pending refinement`)}` : '';
+    lines.push(`  ${colors.muted('Requirements:')} ${approvedPart}${pendingPart}`);
+  }
+
+  // Blocked task alerts
+  if (blockedCount > 0) {
+    lines.push(
+      `  ${colors.warning(icons.warning)} ${colors.warning(`${String(blockedCount)} blocked task${blockedCount !== 1 ? 's' : ''}`)}`
+    );
+  }
+
+  // Next action suggestion
+  const nextAction = getNextAction(data);
+  if (nextAction) {
+    lines.push(
+      `  ${colors.muted(icons.tip)} ${colors.muted(nextAction.description)} ${colors.highlight(nextAction.command)}`
+    );
+  }
+
   return lines;
 }
 
@@ -98,7 +150,9 @@ function renderEmptyDashboard(): string[] {
     `  ${emoji.donut}  ${colors.muted('No current sprint')}`,
     `  ${colors.muted(`"${quote}"`)}`,
     '',
-    `  ${colors.muted(icons.tip + ' Get started:')} ${colors.highlight('ralphctl sprint create')}`,
+    `  ${colors.muted(icons.tip)} ${colors.muted('Get started:')}`,
+    `    ${colors.muted('1.')} ${colors.muted('Add a project:')}  ${colors.highlight('ralphctl project add')}`,
+    `    ${colors.muted('2.')} ${colors.muted('Create a sprint:')} ${colors.highlight('ralphctl sprint create')}`,
   ];
 }
 
@@ -123,24 +177,4 @@ export async function showDashboard(): Promise<void> {
     }
   }
   console.log('');
-}
-
-/**
- * Render a compact status line for the persistent header.
- * Returns a single-line string showing sprint context.
- */
-export async function getStatusLine(): Promise<string> {
-  const data = await loadDashboardData();
-  if (!data) {
-    return colors.muted(`${emoji.donut} No current sprint`);
-  }
-
-  const { sprint, tasks } = data;
-  const doneCount = tasks.filter((t) => t.status === 'done').length;
-  const totalTasks = tasks.length;
-  const statusBadge = formatSprintStatus(sprint.status);
-
-  const progress = totalTasks > 0 ? colors.muted(` [${String(doneCount)}/${String(totalTasks)}]`) : '';
-
-  return `${emoji.donut} ${colors.highlight(sprint.name)} ${statusBadge}${progress}`;
 }

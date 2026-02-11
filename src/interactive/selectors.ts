@@ -1,4 +1,4 @@
-import { checkbox, input, select } from '@inquirer/prompts';
+import { checkbox, confirm, input, select } from '@inquirer/prompts';
 import { listProjects } from '@src/store/project.ts';
 import { listSprints } from '@src/store/sprint.ts';
 import { formatTicketDisplay, listTickets } from '@src/store/ticket.ts';
@@ -14,7 +14,28 @@ import type { Repository, SprintStatus, TaskStatus } from '@src/schemas/index.ts
 export async function selectProject(message = 'Select project:'): Promise<string | null> {
   const projects = await listProjects();
   if (projects.length === 0) {
-    console.log(muted('\nNo projects found.\n'));
+    console.log(muted('\nNo projects found.'));
+    const create = await confirm({
+      message: 'Create one now?',
+      default: true,
+    });
+    if (create) {
+      const { projectAddCommand } = await import('@src/commands/project/add.ts');
+      await projectAddCommand({ interactive: true });
+      // Re-check after creation
+      const updated = await listProjects();
+      if (updated.length === 0) return null;
+      if (updated.length === 1 && updated[0]) return updated[0].name;
+      // Fall through to selection below
+      return select({
+        message: `${emoji.donut} ${message}`,
+        choices: updated.map((p) => ({
+          name: p.displayName,
+          value: p.name,
+          description: p.description,
+        })),
+      });
+    }
     return null;
   }
 
@@ -86,7 +107,27 @@ export async function selectSprint(message = 'Select sprint:', filter?: SprintSt
   const filtered = filter ? sprints.filter((s) => filter.includes(s.status)) : sprints;
 
   if (filtered.length === 0) {
-    console.log(muted('\nNo sprints found.\n'));
+    console.log(muted('\nNo sprints found.'));
+    const create = await confirm({
+      message: 'Create one now?',
+      default: true,
+    });
+    if (create) {
+      const { sprintCreateCommand } = await import('@src/commands/sprint/create.ts');
+      await sprintCreateCommand({ interactive: true });
+      // Re-check
+      const updated = await listSprints();
+      const refiltered = filter ? updated.filter((s) => filter.includes(s.status)) : updated;
+      if (refiltered.length === 0) return null;
+      if (refiltered.length === 1 && refiltered[0]) return refiltered[0].id;
+      return select({
+        message: `${emoji.donut} ${message}`,
+        choices: refiltered.map((s) => ({
+          name: `${s.id} - ${s.name} (${formatSprintStatus(s.status)})`,
+          value: s.id,
+        })),
+      });
+    }
     return null;
   }
 
@@ -106,7 +147,26 @@ export async function selectSprint(message = 'Select sprint:', filter?: SprintSt
 export async function selectTicket(message = 'Select ticket:'): Promise<string | null> {
   const tickets = await listTickets();
   if (tickets.length === 0) {
-    console.log(muted('\nNo tickets found.\n'));
+    console.log(muted('\nNo tickets found.'));
+    const create = await confirm({
+      message: 'Add one now?',
+      default: true,
+    });
+    if (create) {
+      const { ticketAddCommand } = await import('@src/commands/ticket/add.ts');
+      await ticketAddCommand({ interactive: true });
+      // Re-check
+      const updated = await listTickets();
+      if (updated.length === 0) return null;
+      if (updated.length === 1 && updated[0]) return updated[0].id;
+      return select({
+        message: `${emoji.donut} ${message}`,
+        choices: updated.map((t) => ({
+          name: formatTicketDisplay(t),
+          value: t.id,
+        })),
+      });
+    }
     return null;
   }
 
@@ -128,7 +188,7 @@ export async function selectTask(message = 'Select task:', filter?: TaskStatus[]
   const filtered = filter ? tasks.filter((t) => filter.includes(t.status)) : tasks;
 
   if (filtered.length === 0) {
-    console.log(muted('\nNo tasks found.\n'));
+    console.log(muted('\nNo tasks found. Use "sprint plan" to generate tasks.\n'));
     return null;
   }
 

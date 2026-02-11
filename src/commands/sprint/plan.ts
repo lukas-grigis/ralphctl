@@ -1,7 +1,17 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { error, info, muted, success } from '@src/theme/index.ts';
-import { createSpinner, log, showError, showNextStep, showWarning } from '@src/theme/ui.ts';
+import { colors, error, info, muted, success } from '@src/theme/index.ts';
+import {
+  createSpinner,
+  field,
+  icons,
+  log,
+  printHeader,
+  renderTable,
+  showError,
+  showNextStep,
+  showWarning,
+} from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTask, getTasks, listTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
 import {
@@ -16,8 +26,9 @@ import { getPlanningDir, getSchemaPath, getTasksFilePath } from '@src/utils/path
 import { withFileLock } from '@src/utils/file-lock.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
-import { ImportTasksSchema, type Repository, type Ticket } from '@src/schemas/index.ts';
+import { ImportTasksSchema, type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
+import { extractJsonArray } from '@src/utils/json-extract.ts';
 
 async function getTaskImportSchema(): Promise<string> {
   const schemaPath = getSchemaPath('task-import.schema.json');
@@ -161,51 +172,6 @@ async function invokeClaudeAuto(prompt: string, repoPaths: string[], planDir: st
   });
 }
 
-interface ImportTask {
-  id?: string; // Local ID for referencing in blockedBy
-  name: string;
-  description?: string;
-  steps?: string[];
-  ticketId?: string;
-  blockedBy?: string[];
-  projectPath: string; // Required - execution directory
-}
-
-function extractJsonArray(output: string): string {
-  const start = output.indexOf('[');
-  if (start === -1) {
-    throw new Error('No JSON array found in output');
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let i = start; i < output.length; i++) {
-    const ch = output[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (ch === '\\' && inString) {
-      escape = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === '[') depth++;
-    if (ch === ']') {
-      depth--;
-      if (depth === 0) {
-        return output.slice(start, i + 1);
-      }
-    }
-  }
-  throw new Error('No JSON array found in output');
-}
-
 function parseTasksJson(output: string): ImportTask[] {
   // Try to extract a balanced JSON array from the output (handles nested arrays like steps)
   const jsonStr = extractJsonArray(output);
@@ -234,6 +200,17 @@ function parseTasksJson(output: string): ImportTask[] {
   }
 
   return result.data;
+}
+
+function renderParsedTasksTable(parsedTasks: ImportTask[]): string {
+  const rows = parsedTasks.map((task, i) => {
+    const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
+    return [String(i + 1), task.name, task.projectPath, deps];
+  });
+  return renderTable(
+    [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+    rows
+  );
 }
 
 async function importTasks(tasks: ImportTask[], sprintId: string): Promise<number> {
@@ -348,12 +325,12 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const ticketsByProject = groupTicketsByProject(sprint.tickets);
   const tasks = await listTasks(id);
 
-  console.log(info('\n=== Sprint Planning ==='));
-  console.log(info('Sprint:  ') + sprint.name);
-  console.log(info('ID:      ') + sprint.id);
-  console.log(muted(`Tickets: ${String(sprint.tickets.length)}`));
-  console.log(muted(`Projects: ${String(ticketsByProject.size)}`));
-  console.log(muted(`Mode: ${options.auto ? 'Auto (headless)' : 'Interactive'}`));
+  printHeader('Sprint Planning', icons.sprint);
+  console.log(field('Sprint', sprint.name));
+  console.log(field('ID', sprint.id));
+  console.log(field('Tickets', String(sprint.tickets.length)));
+  console.log(field('Projects', String(ticketsByProject.size)));
+  console.log(field('Mode', options.auto ? 'Auto (headless)' : 'Interactive'));
 
   for (const [proj, tickets] of ticketsByProject) {
     console.log(muted(`  - ${proj}: ${String(tickets.length)} ticket(s)`));
@@ -485,11 +462,8 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       return;
     }
 
-    console.log(success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
-    parsedTasks.forEach((task, i) => {
-      const deps = task.blockedBy?.length ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
-      console.log(`  ${String(i + 1)}. ${task.name}${deps}`);
-    });
+    console.log(colors.success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
+    console.log(renderParsedTasksTable(parsedTasks));
     console.log('');
 
     // Validate before import
@@ -562,11 +536,8 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
         return;
       }
 
-      console.log(success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
-      parsedTasks.forEach((task, i) => {
-        const deps = task.blockedBy?.length ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
-        console.log(`  ${String(i + 1)}. ${task.name}${deps}`);
-      });
+      console.log(colors.success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
+      console.log(renderParsedTasksTable(parsedTasks));
       console.log('');
 
       // Validate before import

@@ -21,6 +21,8 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 - Don't store repository names in `affectedRepositories` — store absolute paths
 - Don't explore repos during `sprint refine` — refinement is implementation-agnostic (WHAT, not HOW)
 - Don't break task `blockedBy` dependencies during planning — preserve dependency chains
+- Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
+  selection timing)
 
 ## Workflow
 
@@ -29,9 +31,11 @@ CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wigg
 2. Create sprint      → ralphctl sprint create (draft, becomes current)
 3. Add tickets        → ralphctl ticket add --project <name>
 4. Refine requirements → ralphctl sprint refine (WHAT — clarify requirements)
-5. Plan tasks         → ralphctl sprint plan (HOW — explore repos, generate tasks)
-6. Start work         → ralphctl sprint start (auto-activates draft sprints)
-7. Close sprint       → ralphctl sprint close
+5. Export requirements → ralphctl sprint requirements (optional, markdown export)
+6. Plan tasks         → ralphctl sprint plan (HOW — explore repos, generate tasks)
+7. Check health       → ralphctl sprint health (diagnose blockers, stale tasks)
+8. Start work         → ralphctl sprint start (auto-activates draft sprints)
+9. Close sprint       → ralphctl sprint close
 ```
 
 ### Two Workflow Paths
@@ -65,7 +69,7 @@ Status: `draft` → `active` → `closed`
 **Phase 2: Task Generation** (`sprint plan`) — HOW to implement
 
 - Requires all tickets to have `requirementStatus: 'approved'`
-- Claude proposes affected repos → user confirms (checkbox UI) → saved to `ticket.affectedRepositories`
+- User selects repos via checkbox UI (before Claude starts) → saved to `ticket.affectedRepositories`
 - Claude explores confirmed repos only → generates tasks split by repo with dependencies
 - Repo selection persists for resumability
 
@@ -83,6 +87,16 @@ pnpm test              # Run tests
 After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
 All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
 
+## Prompt Template Engineering
+
+**Conditional sections** - `{{VARIABLE}}` placeholders in prompts can be empty strings; avoid numbered lists that create
+gaps (use blockquotes or bullets)
+**Em-dash usage** - Use `—` (em-dash) not `-` (hyphen) for explanatory clauses in `.md` prompts (consistency across all
+prompt files)
+**Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
+Claude session starts)
+**Template builders** - `src/claude/prompts/index.ts` compiles `.md` templates with placeholder replacement
+
 ## UI Patterns
 
 Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting:
@@ -91,8 +105,63 @@ Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent form
 - `createSpinner()` — async operations (donut-themed)
 - `icons.*` — ASCII icons for entities (`icons.sprint`, `icons.task`, `icons.ticket`, `icons.project`)
 - `log.*` — consistent output formatting
+- `renderTable(columns, rows)` — ANSI-safe table with box-drawing borders
+- `renderCard(title, lines)` — bordered card for detail views
+- `renderColumns(blocks)` — side-by-side column layout
+- `progressBar(done, total)` — visual progress indicator
+- `field(label, value)` — consistent label:value formatting (shared, don't duplicate)
 - See `.claude/agents/designer.md` for complete UX guidelines
+
+### Available UI Helpers (Not Yet Used)
+
+Additional helpers available in `@src/theme/ui.ts` — use these instead of creating duplicates:
+
+- `printBox(lines)` — print bordered box with lines
+- `printCountSummary(label, done, total)` — print count summary line
+- `showThemedMessage(key)` — show themed message from theme index
+- `showInfo(message)` — info message output
+- `showTip(message)` — tip message output
+- `menuItem(icon, label, description)` — formatted menu item
+- `section(title, icon?)` — section header formatting
+- `subsection(title)` — subsection header formatting
+- `formatHeader(text)` — header text formatting
+- `formatHighlight(text)` — highlighted text formatting
+- `showRandomQuote()` — display random Ralph quote
+- `renderProgressSummary(done, total, labels?)` — progress summary with labels
+- `terminalBell()` — trigger terminal bell
+- `createThemedSpinner(text, variant?)` — themed spinner with variants
+- `horizontalLine(width, style?)` — horizontal line with box-drawing chars
+- `verticalLine(style?)` — vertical line with box-drawing chars
+- `renderBox(lines, title?, style?)` — low-level box renderer
+- `printSummary(items)` — print summary key-value pairs
+- `sanitizeForDisplay(s)` — sanitize string for ANSI terminal display
+
+### List Commands
+
+All list commands support filters and show summary lines:
+
+- Task list: `--status`, `--project`, `--ticket`, `--blocked`
+- Ticket list: `--project`, `--status`
+- Sprint list: `--status`
+- Output: "Showing X of Y (filtered: ...)" when filters active
+
+### Interactive Mode Features
+
+- **Dynamic menus** — context-aware with badges, disabled states, workflow ordering
+- **Persistent status header** — sprint name/status/progress shown before every menu
+- **Action-on-empty** — selectors offer to create missing entities inline
+- **Quick Start wizard** — guided sprint setup (create → tickets → refine → plan → start)
+- **Batch ticket entry** — loop with "Add another?" and pre-filled project
+
+## Parallel Execution
+
+`sprint start` runs tasks in parallel by default (one per unique `projectPath`):
+
+- Session/step mode forces sequential (`--concurrency 1` equivalent)
+- `RateLimitCoordinator` pauses new launches on rate limits; running tasks continue
+- Rate-limited tasks auto-resume via `--resume <session_id>`
 
 ## Compaction Rules
 
-When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list of modified files, verification commands, and current task context.
+When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list
+of modified files, verification commands, and current task context.

@@ -1,14 +1,11 @@
-import { colors, muted } from '@src/theme/index.ts';
+import { muted } from '@src/theme/index.ts';
 import { getTicket, TicketNotFoundError } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
-import { badge, DETAIL_LABEL_WIDTH, icons, log, renderCard, showError, showNextStep } from '@src/theme/ui.ts';
-
-const LABEL_W = DETAIL_LABEL_WIDTH;
+import { badge, DETAIL_LABEL_WIDTH, field, icons, log, renderCard, showError, showNextStep } from '@src/theme/ui.ts';
 
 function labelValue(label: string, value: string): string {
-  const paddedLabel = (label + ':').padEnd(LABEL_W);
-  return `${colors.muted(paddedLabel)} ${value}`;
+  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
 }
 
 export async function ticketShowCommand(args: string[]): Promise<void> {

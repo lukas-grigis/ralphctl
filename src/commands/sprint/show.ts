@@ -2,11 +2,12 @@ import { colors, muted } from '@src/theme/index.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
-import { formatTicketDisplay, groupTicketsByProject } from '@src/store/ticket.ts';
+import { formatTicketDisplay, getPendingRequirements, groupTicketsByProject } from '@src/store/ticket.ts';
 import {
   badge,
   boxChars,
   DETAIL_LABEL_WIDTH,
+  field,
   formatSprintStatus,
   formatTaskStatus,
   icons,
@@ -16,11 +17,8 @@ import {
 } from '@src/theme/ui.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
 
-const LABEL_W = DETAIL_LABEL_WIDTH;
-
 function labelValue(label: string, value: string): string {
-  const paddedLabel = (label + ':').padEnd(LABEL_W);
-  return `${colors.muted(paddedLabel)} ${value}`;
+  return field(label, value, DETAIL_LABEL_WIDTH).trimStart();
 }
 
 export async function sprintShowCommand(args: string[]): Promise<void> {
@@ -121,13 +119,25 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
 
   console.log(renderCard(`${icons.task} Tasks (${String(tasks.length)})`, taskLines));
 
-  // Next steps hint
-  if (sprint.status === 'draft' && tasks.length === 0) {
-    log.newline();
-    showNextStep('ralphctl sprint plan', 'generate tasks from tickets');
-  } else if (sprint.status === 'draft' && tasks.length > 0) {
-    log.newline();
-    showNextStep('ralphctl sprint start', 'begin implementation');
+  // State-aware next steps
+  log.newline();
+  if (sprint.status === 'draft') {
+    const pendingCount = getPendingRequirements(sprint.tickets).length;
+    if (sprint.tickets.length === 0) {
+      showNextStep('ralphctl ticket add --project <name>', 'add tickets to this sprint');
+    } else if (pendingCount > 0) {
+      showNextStep('ralphctl sprint refine', 'refine ticket requirements');
+    } else if (tasks.length === 0) {
+      showNextStep('ralphctl sprint plan', 'generate tasks from tickets');
+    } else {
+      showNextStep('ralphctl sprint start', 'begin implementation');
+    }
+  } else if (sprint.status === 'active') {
+    if (tasksByStatus.done === tasks.length && tasks.length > 0) {
+      showNextStep('ralphctl sprint close', 'all tasks done — close the sprint');
+    } else {
+      showNextStep('ralphctl sprint start', 'continue implementation');
+    }
   }
 
   log.newline();

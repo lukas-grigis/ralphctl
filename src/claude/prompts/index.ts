@@ -25,8 +25,10 @@ export function buildAutoPrompt(context: string, schema: string): string {
 
 export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string {
   const template = loadTemplate('task-execution');
-  const commitStep = noCommit ? '' : '3. **Commit changes** - Create a git commit with a descriptive message\n';
-  const commitConstraint = noCommit ? '' : '5. **Must commit** - Create a git commit before signaling completion.\n';
+  const commitStep = noCommit
+    ? ''
+    : '\n> **Before continuing:** Create a git commit with a descriptive message for the changes made.\n';
+  const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.\n';
   return template
     .replace('{{PROGRESS_FILE}}', progressFilePath)
     .replace('{{COMMIT_STEP}}', commitStep)
@@ -34,7 +36,10 @@ export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boo
     .replaceAll('{{CONTEXT_FILE}}', contextFileName);
 }
 
-export function buildTicketRefinePrompt(ticketContent: string, outputFile: string): string {
+export function buildTicketRefinePrompt(ticketContent: string, outputFile: string, schema: string): string {
   const template = loadTemplate('ticket-refine');
-  return template.replace('{{TICKET}}', ticketContent).replace('{{OUTPUT_FILE}}', outputFile);
+  return template
+    .replace('{{TICKET}}', ticketContent)
+    .replace('{{OUTPUT_FILE}}', outputFile)
+    .replace('{{SCHEMA}}', schema);
 }

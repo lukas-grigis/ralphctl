@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
-import { info } from '@src/theme/index.ts';
+import { colors, info } from '@src/theme/index.ts';
 import {
   createSpinner,
   emoji,
@@ -11,6 +11,8 @@ import {
   log,
   printHeader,
   printSeparator,
+  progressBar,
+  renderCard,
   showError,
   showSuccess,
   showWarning,
@@ -21,8 +23,10 @@ import { getProject } from '@src/store/project.ts';
 import { buildTicketRefinePrompt } from '@src/claude/prompts/index.ts';
 import { spawnClaudeInteractive } from '@src/claude/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
-import { getRefinementDir } from '@src/utils/paths.ts';
-import type { Ticket } from '@src/schemas/index.ts';
+import { getRefinementDir, getSchemaPath, getSprintDir } from '@src/utils/paths.ts';
+import { RefinedRequirementsSchema, type RefinedRequirement, type Ticket } from '@src/schemas/index.ts';
+import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
+import { extractJsonArray } from '@src/utils/json-extract.ts';
 
 interface RefineOptions {
   project?: string;
@@ -74,24 +78,34 @@ function formatTicketForPrompt(ticket: Ticket): string {
   return lines.join('\n');
 }
 
-interface RefinedRequirement {
-  ref: string;
-  requirements: string;
-}
-
 function parseRequirementsFile(content: string): RefinedRequirement[] {
-  // Try to extract JSON array from the content
-  const jsonMatch = /\[[\s\S]*?\]/.exec(content);
-  if (!jsonMatch) {
-    throw new Error('No JSON array found in requirements file');
+  // Try to extract a balanced JSON array from the content (handles surrounding text)
+  const jsonStr = extractJsonArray(content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (err) {
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as unknown;
   if (!Array.isArray(parsed)) {
     throw new Error('Expected JSON array');
   }
 
-  return parsed as RefinedRequirement[];
+  // Validate against schema
+  const result = RefinedRequirementsSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => {
+        const path = issue.path.length > 0 ? `[${issue.path.join('.')}]` : '';
+        return `  ${path}: ${issue.message}`;
+      })
+      .join('\n');
+    throw new Error(`Invalid requirements format:\n${issues}`);
+  }
+
+  return result.data;
 }
 
 async function runClaudeSession(workingDir: string, prompt: string, ticketTitle: string): Promise<void> {
@@ -169,6 +183,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   console.log(field('Pending', `${String(pendingTickets.length)} ticket(s)`));
   log.newline();
 
+  // Load schema once before processing tickets
+  const schemaPath = getSchemaPath('requirements-output.schema.json');
+  const schema = await readFile(schemaPath, 'utf-8');
+
   // Process tickets one by one
   let approved = 0;
   let skipped = 0;
@@ -184,6 +202,12 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     printSeparator(60);
     console.log('');
     console.log(`  ${icons.ticket}  ${info(`Ticket ${String(ticketNum)} of ${String(totalTickets)}`)}`);
+    console.log(
+      `  ${progressBar(i, totalTickets, {
+        width: 15,
+        showPercent: false,
+      })} ${colors.muted(`${String(ticketNum)}/${String(totalTickets)}`)}`
+    );
     console.log('');
     console.log(field('Title', ticket.title, 14));
     console.log(field('Project', ticket.projectName, 14));
@@ -227,7 +251,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     await mkdir(refineDir, { recursive: true });
     const outputFile = join(refineDir, 'requirements.json');
     const ticketContent = formatTicketForPrompt(ticket);
-    const prompt = buildTicketRefinePrompt(ticketContent, outputFile);
+    const prompt = buildTicketRefinePrompt(ticketContent, outputFile, schema);
 
     log.dim(`Working directory: ${refineDir}`);
     log.dim(`Requirements output: ${outputFile}`);
@@ -297,7 +321,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       // Combine multiple requirements into one (safety net for split outputs)
       const requirement: RefinedRequirement =
         matchingRequirements.length === 1
-          ? { ref: matchingRequirements[0]?.ref ?? '', requirements: matchingRequirements[0]?.requirements ?? '' }
+          ? {
+              ref: matchingRequirements[0]?.ref ?? '',
+              requirements: matchingRequirements[0]?.requirements ?? '',
+            }
           : {
               ref: matchingRequirements[0]?.ref ?? '',
               requirements: matchingRequirements
@@ -310,13 +337,8 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
             };
 
       // Show requirement for review
-      printSeparator(60);
-      console.log('');
-      log.info('Refined Requirements:');
-      console.log('');
-      console.log(requirement.requirements);
-      console.log('');
-      printSeparator(60);
+      const reqLines = requirement.requirements.split('\n');
+      console.log(renderCard(`${icons.ticket} Refined Requirements`, reqLines));
       log.newline();
 
       const approveRequirement = await confirm({
@@ -357,9 +379,28 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   console.log(field('Total', String(pendingTickets.length)));
   log.newline();
 
-  const remainingPending = getPendingRequirements(sprint.tickets);
+  // Re-read sprint to get the latest state after all saves
+  const updatedSprint = await getSprint(id);
+  const remainingPending = getPendingRequirements(updatedSprint.tickets);
+
   if (remainingPending.length === 0) {
     showSuccess('All requirements approved!');
+
+    // Auto-export requirements to sprint directory
+    const sprintDir = getSprintDir(id);
+    const outputPath = join(sprintDir, 'requirements.md');
+
+    try {
+      await exportRequirementsToMarkdown(updatedSprint, outputPath);
+      log.dim(`Requirements saved to: ${outputPath}`);
+    } catch (err) {
+      if (err instanceof Error) {
+        showError(`Failed to write requirements: ${err.message}`);
+      } else {
+        showError('Failed to write requirements: Unknown error');
+      }
+    }
+
     log.dim('Run "ralphctl sprint plan" to generate tasks.');
   } else {
     log.info(`${String(remainingPending.length)} ticket(s) still pending.`);

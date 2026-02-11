@@ -15,13 +15,20 @@ ralphctl/
 │   ├── commands/            # Layer 2: CLI command implementations
 │   │   ├── project/         # Project subcommands
 │   │   ├── sprint/          # Sprint subcommands
+│   │   │   ├── health.ts    # Sprint health checks
+│   │   │   ├── requirements.ts  # Requirements export
+│   │   │   ├── switch.ts    # Switch current sprint
+│   │   │   └── ...
 │   │   ├── task/            # Task subcommands
 │   │   ├── ticket/          # Ticket subcommands
 │   │   └── progress/        # Progress subcommands
 │   ├── interactive/         # Layer 1: Interactive REPL mode
 │   │   ├── index.ts         # REPL loop & command dispatch
 │   │   ├── menu.ts          # Menu definitions
-│   │   └── selectors.ts     # Shared interactive selectors
+│   │   ├── selectors.ts     # Shared interactive selectors
+│   │   ├── wizard.ts        # Quick Start wizard
+│   │   ├── dashboard.ts     # Dashboard data & actions
+│   │   └── file-browser.ts  # File browser for path selection
 │   ├── store/               # Layer 3: Data persistence
 │   │   ├── config.ts        # Configuration management
 │   │   ├── project.ts       # Project CRUD + validation
@@ -33,10 +40,13 @@ ralphctl/
 │   │   ├── runner.ts        # Task execution orchestrator
 │   │   ├── session.ts       # Claude CLI spawning (sync/async)
 │   │   ├── parser.ts        # Output signal parsing
+│   │   ├── executor.ts      # Parallel task execution
+│   │   ├── rate-limiter.ts  # Rate limit coordination
 │   │   └── prompts/         # Prompt templates
 │   │       ├── index.ts     # Prompt builders
 │   │       ├── plan-auto.md
 │   │       ├── plan-interactive.md
+│   │       ├── plan-common.md   # Shared planning context
 │   │       ├── ticket-refine.md
 │   │       └── task-execution.md
 │   ├── theme/               # Ralph Wiggum theme
@@ -47,7 +57,10 @@ ralphctl/
 │   └── utils/               # Pure utilities
 │       ├── ids.ts           # ID generation
 │       ├── paths.ts         # Path resolution
-│       └── storage.ts       # File I/O with validation
+│       ├── storage.ts       # File I/O with validation
+│       ├── json-extract.ts  # JSON array extraction from mixed output
+│       ├── requirements-export.ts  # Requirements markdown formatter
+│       └── file-lock.ts     # File-based locking
 ├── schemas/                 # JSON schemas for external tools
 └── ralphctl-data/           # Data storage (git-ignored)
     ├── config.json          # Global config
@@ -168,6 +181,25 @@ interface Ticket {
 - `affectedRepositories` populated during `sprint plan` phase (implementation planning)
 - `requirementStatus` must be `approved` before `sprint plan`
 
+### RefinedRequirement
+
+Output format from `sprint refine` command. Array of these written to temporary JSON file.
+
+```typescript
+interface RefinedRequirement {
+  ref: string; // Ticket reference (ID, externalId, or title)
+  requirements: string; // Refined requirements in markdown format
+}
+
+type RefinedRequirements = RefinedRequirement[];
+```
+
+**Key behaviors:**
+
+- `ref` can be internal ID, external ID, or exact title - used to match back to tickets
+- `requirements` contains markdown-formatted refined requirements (problem, acceptance criteria, scope, constraints)
+- Validated against `RefinedRequirementsSchema` before processing
+
 ### Task
 
 Atomic unit of implementation work.
@@ -215,7 +247,8 @@ interface Config {
 }
 ```
 
-Note: The "active" status is part of the sprint's lifecycle (stored in `sprint.json`), not a separate config field. Multiple sprints can be active simultaneously.
+Note: The "active" status is part of the sprint's lifecycle (stored in `sprint.json`), not a separate config field.
+Multiple sprints can be active simultaneously.
 
 ## ID Generation
 
@@ -364,7 +397,8 @@ parseExecutionResult(output: string): ExecutionResult
 
 ### Runner (`claude/runner.ts`)
 
-Main execution orchestrator for `sprint start`. Implements patterns from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
+Main execution orchestrator for `sprint start`. Implements patterns
+from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 
 ```typescript
 runSprint(sprintId?: string, options: RunOptions): Promise<void>
@@ -409,23 +443,35 @@ getEffectiveVerifyScript(project: Project | undefined, projectPath: string): str
 
 ### Prompt Templates (`claude/prompts/`)
 
-| Template              | Purpose                                             | Variables                                      | Mode        |
-| --------------------- | --------------------------------------------------- | ---------------------------------------------- | ----------- |
-| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`                | Interactive |
-| `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}` | Interactive |
-| `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                    | Auto        |
-| `task-execution.md`   | Implement a task                                    | `{{PROGRESS_FILE}}`, `{{COMMIT_INSTRUCTION}}`  | All modes   |
+| Template              | Purpose                                             | Variables                                                                           | Mode        |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------- |
+| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                       | Interactive |
+| `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                      | Interactive |
+| `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                                                         | Auto        |
+| `plan-common.md`      | Shared planning context (included by plan prompts)  | `{{CONTEXT}}`                                                                       | Both        |
+| `task-execution.md`   | Implement a task                                    | `{{CONTEXT_FILE}}`, `{{PROGRESS_FILE}}`, `{{COMMIT_STEP}}`, `{{COMMIT_CONSTRAINT}}` | All modes   |
 
 ### Prompt Builders
 
 ```typescript
-buildTicketRefinePrompt(ticketContent: string, outputFile: string): string
+buildTicketRefinePrompt(ticketContent: string, outputFile: string, schema: string): string
 buildInteractivePrompt(context: string, outputFile: string, schema: string): string
 buildAutoPrompt(context: string, schema: string): string
-buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean): string
+buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string
 ```
 
 ## Interactive Mode
+
+Interactive mode provides a menu-driven REPL interface with context-aware menus, persistent status headers, and workflow guidance.
+
+### Menu System (`interactive/menu.ts` & `interactive/index.ts`)
+
+- **Dynamic menus** - Actions enabled/disabled based on current state (e.g., can't plan without tickets)
+- **Persistent status header** - Sprint name, status, and progress shown before every menu
+- **Workflow ordering** - Actions appear in recommended execution order
+- **Badges** - Visual indicators for entity counts and states
+- **Dashboard** (`interactive/dashboard.ts`) - Provides dashboard data and next action suggestions
+- **Quick Start wizard** (`interactive/wizard.ts`) - Guided multi-step sprint setup flow
 
 ### Shared Selectors (`interactive/selectors.ts`)
 
@@ -438,6 +484,7 @@ selectTicket(message?): string | null       // Select ticket by ID
 selectTask(message?, filter?): string | null    // Select task by ID, optional status filter
 selectTaskStatus(message?): TaskStatus      // Select a task status
 inputPositiveInt(message): number           // Prompt for a positive integer
+selectProjectPaths(projects): string[]      // Multi-select for repository paths
 ```
 
 All selectors return `null` when no entities are available (with a muted message).
@@ -456,6 +503,7 @@ ralphctl-data/                    # Git-ignored
         ├── sprint.json           # Sprint + tickets
         ├── tasks.json            # Task array
         ├── progress.md           # Append-only log
+        ├── requirements.md       # Exported requirements (via `sprint requirements`)
         ├── refinement/           # Created by `sprint refine`
         │   └── <ticket-id>/
         │       ├── refine-context.md    # Prompt/context sent to Claude
@@ -621,7 +669,9 @@ pnpm test:coverage  # Coverage report
 
 ### Run setupScript on sprint start
 
-Currently `setupScript` is stored on Repository but never executed. Per the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh` script should run before agents start to ensure the environment is ready.
+Currently `setupScript` is stored on Repository but never executed. Per
+the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh`
+script should run before agents start to ensure the environment is ready.
 
 **Potential implementation:**
 

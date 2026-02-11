@@ -85,8 +85,14 @@ Examples:
     .command('list')
     .description('List tickets')
     .option('-b, --brief', 'Brief one-liner format')
-    .action(async (opts: { brief?: boolean }) => {
-      await ticketListCommand(opts.brief ? ['-b'] : []);
+    .option('--project <name>', 'Filter by project')
+    .option('--status <status>', 'Filter by requirement status (pending, approved)')
+    .action(async (opts: { brief?: boolean; project?: string; status?: string }) => {
+      const args: string[] = [];
+      if (opts.brief) args.push('-b');
+      if (opts.project) args.push('--project', opts.project);
+      if (opts.status) args.push('--status', opts.status);
+      await ticketListCommand(args);
     });
 
   ticket

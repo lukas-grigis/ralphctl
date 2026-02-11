@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { error, muted } from '@src/theme/index.ts';
 import { createSpinner, log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
-import { SprintStatusError, getSprint, resolveSprintId } from '@src/store/sprint.ts';
+import { getSprint, resolveSprintId, SprintStatusError } from '@src/store/sprint.ts';
 import { ImportTasksSchema } from '@src/schemas/index.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
 import { getTasksFilePath } from '@src/utils/paths.ts';

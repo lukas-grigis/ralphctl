@@ -1,10 +1,54 @@
 import { colors, muted, success } from '@src/theme/index.ts';
 import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
-import { badge, icons, log, printHeader, showEmpty } from '@src/theme/ui.ts';
+import { RequirementStatusSchema } from '@src/schemas/index.ts';
+import { badge, icons, log, printHeader, showEmpty, showError } from '@src/theme/ui.ts';
+
+interface TicketListFilters {
+  brief: boolean;
+  projectFilter?: string;
+  statusFilter?: string;
+}
+
+function parseListArgs(args: string[]): TicketListFilters {
+  const result: TicketListFilters = {
+    brief: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const next = args[i + 1];
+    if (arg === '-b' || arg === '--brief') result.brief = true;
+    else if (arg === '--project' && next) {
+      result.projectFilter = next;
+      i++;
+    } else if (arg === '--status' && next) {
+      result.statusFilter = next;
+      i++;
+    }
+  }
+  return result;
+}
+
+function buildFilterSummary(filters: TicketListFilters): string {
+  const parts: string[] = [];
+  if (filters.projectFilter) parts.push(`project=${filters.projectFilter}`);
+  if (filters.statusFilter) parts.push(`status=${filters.statusFilter}`);
+  return parts.length > 0 ? ` (filtered: ${parts.join(', ')})` : '';
+}
 
 export async function ticketListCommand(args: string[]): Promise<void> {
-  const brief = args.includes('-b') || args.includes('--brief');
+  const { brief, projectFilter, statusFilter } = parseListArgs(args);
+
+  // Validate status filter
+  if (statusFilter) {
+    const result = RequirementStatusSchema.safeParse(statusFilter);
+    if (!result.success) {
+      showError(`Invalid status: "${statusFilter}". Valid values: pending, approved`);
+      return;
+    }
+  }
+
   const tickets = await listTickets();
 
   if (tickets.length === 0) {
@@ -12,10 +56,24 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // Apply filters
+  let filtered = tickets;
+  if (projectFilter) filtered = filtered.filter((t) => t.projectName === projectFilter);
+  if (statusFilter) filtered = filtered.filter((t) => t.requirementStatus === statusFilter);
+
+  const filterStr = buildFilterSummary({ brief, projectFilter, statusFilter });
+  const isFiltered = filtered.length !== tickets.length;
+
+  if (filtered.length === 0) {
+    showEmpty('matching tickets', 'Try adjusting your filters');
+    return;
+  }
+
   if (brief) {
     // Brief mode: one line per ticket (markdown for LLM readability)
-    console.log(`\n# Tickets (${String(tickets.length)})\n`);
-    for (const ticket of tickets) {
+    const countLabel = isFiltered ? `${String(filtered.length)} of ${String(tickets.length)}` : String(tickets.length);
+    console.log(`\n# Tickets (${countLabel})${filterStr}\n`);
+    for (const ticket of filtered) {
       const display = ticket.externalId
         ? `**${ticket.externalId}**: ${ticket.title}`
         : `[${ticket.id}] ${ticket.title}`;
@@ -27,9 +85,9 @@ export async function ticketListCommand(args: string[]): Promise<void> {
   }
 
   // Interactive list grouped by project
-  const ticketsByProject = groupTicketsByProject(tickets);
+  const ticketsByProject = groupTicketsByProject(filtered);
 
-  printHeader(`Tickets (${String(tickets.length)})`, icons.ticket);
+  printHeader(`Tickets (${String(filtered.length)})`, icons.ticket);
 
   for (const [projectName, projectTickets] of ticketsByProject) {
     // Project group header
@@ -60,9 +118,13 @@ export async function ticketListCommand(args: string[]): Promise<void> {
   }
 
   // Summary
-  const approved = tickets.filter((t) => t.requirementStatus === 'approved').length;
+  const approved = filtered.filter((t) => t.requirementStatus === 'approved').length;
   log.dim(
-    `Requirements: ${success(`${String(approved)} approved`)} / ${muted(`${String(tickets.length - approved)} pending`)}`
+    `Requirements: ${success(`${String(approved)} approved`)} / ${muted(`${String(filtered.length - approved)} pending`)}`
   );
+  const showingLabel = isFiltered
+    ? `Showing ${String(filtered.length)} of ${String(tickets.length)} ticket(s)${filterStr}`
+    : `Showing ${String(tickets.length)} ticket(s)`;
+  log.dim(showingLabel);
   log.newline();
 }

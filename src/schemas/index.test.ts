@@ -3,6 +3,7 @@ import {
   ConfigSchema,
   ImportTasksSchema,
   ProjectSchema,
+  RefinedRequirementsSchema,
   RequirementStatusSchema,
   SprintSchema,
   SprintStatusSchema,
@@ -318,6 +319,41 @@ describe('ImportTasksSchema', () => {
     ];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(true);
+  });
+});
+
+describe('RefinedRequirementsSchema', () => {
+  it('accepts valid refined requirements', () => {
+    const requirements = [
+      { ref: 'TICKET-123', requirements: '## Problem\nSome problem description' },
+      { ref: 'ticket-id', requirements: '## Requirements\nDetailed requirements' },
+    ];
+    const result = RefinedRequirementsSchema.safeParse(requirements);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects requirement with empty ref', () => {
+    const requirements = [{ ref: '', requirements: 'Some requirements' }];
+    const result = RefinedRequirementsSchema.safeParse(requirements);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects requirement with empty requirements', () => {
+    const requirements = [{ ref: 'TICKET-123', requirements: '' }];
+    const result = RefinedRequirementsSchema.safeParse(requirements);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects requirement with missing ref field', () => {
+    const requirements = [{ requirements: 'Some requirements' }];
+    const result = RefinedRequirementsSchema.safeParse(requirements);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects requirement with missing requirements field', () => {
+    const requirements = [{ ref: 'TICKET-123' }];
+    const result = RefinedRequirementsSchema.safeParse(requirements);
+    expect(result.success).toBe(false);
   });
 });
 
