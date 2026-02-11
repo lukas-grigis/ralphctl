@@ -9,6 +9,7 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintCurrentCommand } from '@src/commands/sprint/current.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
+import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -104,6 +105,13 @@ Examples:
     .description('Export refined requirements to file')
     .action(async (id?: string) => {
       await sprintRequirementsCommand(id ? [id] : []);
+    });
+
+  sprint
+    .command('health')
+    .description('Check sprint health')
+    .action(async () => {
+      await sprintHealthCommand();
     });
 
   sprint

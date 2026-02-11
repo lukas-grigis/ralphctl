@@ -27,6 +27,7 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { sprintCloseCommand } from '@src/commands/sprint/close.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
+import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
 
 // Command imports - ticket
 import { ticketAddCommand } from '@src/commands/ticket/add.ts';
@@ -82,6 +83,7 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     plan: () => sprintPlanCommand([]),
     start: () => sprintStartCommand([]),
     requirements: () => sprintRequirementsCommand([]),
+    health: () => sprintHealthCommand(),
     close: () => sprintCloseCommand([]),
   },
   ticket: {
@@ -275,14 +277,8 @@ async function handleSubMenu(
         break;
       }
 
-      // Future commands (health) — no-op until implemented
-      if (subCommand === 'health') {
-        log.newline();
-        log.warn('Sprint health check is not yet implemented.');
-      } else {
-        log.newline();
-        await executeCommand(commandGroup, subCommand);
-      }
+      log.newline();
+      await executeCommand(commandGroup, subCommand);
 
       log.newline();
       await input({
