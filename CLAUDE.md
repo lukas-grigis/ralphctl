@@ -109,8 +109,32 @@ Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent form
 - `renderCard(title, lines)` — bordered card for detail views
 - `renderColumns(blocks)` — side-by-side column layout
 - `progressBar(done, total)` — visual progress indicator
-- `labelValue(label, value)` — consistent label:value formatting (shared, don't duplicate)
+- `field(label, value)` — consistent label:value formatting (shared, don't duplicate)
 - See `.claude/agents/designer.md` for complete UX guidelines
+
+### Available UI Helpers (Not Yet Used)
+
+Additional helpers available in `@src/theme/ui.ts` — use these instead of creating duplicates:
+
+- `printBox(lines)` — print bordered box with lines
+- `printCountSummary(label, done, total)` — print count summary line
+- `showThemedMessage(key)` — show themed message from theme index
+- `showInfo(message)` — info message output
+- `showTip(message)` — tip message output
+- `menuItem(icon, label, description)` — formatted menu item
+- `section(title, icon?)` — section header formatting
+- `subsection(title)` — subsection header formatting
+- `formatHeader(text)` — header text formatting
+- `formatHighlight(text)` — highlighted text formatting
+- `showRandomQuote()` — display random Ralph quote
+- `renderProgressSummary(done, total, labels?)` — progress summary with labels
+- `terminalBell()` — trigger terminal bell
+- `createThemedSpinner(text, variant?)` — themed spinner with variants
+- `horizontalLine(width, style?)` — horizontal line with box-drawing chars
+- `verticalLine(style?)` — vertical line with box-drawing chars
+- `renderBox(lines, title?, style?)` — low-level box renderer
+- `printSummary(items)` — print summary key-value pairs
+- `sanitizeForDisplay(s)` — sanitize string for ANSI terminal display
 
 ### List Commands
 
