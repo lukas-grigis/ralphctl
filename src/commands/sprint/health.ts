@@ -1,7 +1,7 @@
 import { getCurrentSprintOrThrow } from '@src/store/sprint.ts';
 import { getTasks } from '@src/store/task.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
-import { icons, log, printHeader, progressBar, renderCard } from '@src/theme/ui.ts';
+import { icons, log, printHeader, progressBar, renderCard, showError } from '@src/theme/ui.ts';
 import type { Sprint, Task } from '@src/schemas/index.ts';
 
 // ============================================================================
@@ -117,7 +117,18 @@ function renderCheckCard(check: HealthCheck): string {
 // ============================================================================
 
 export async function sprintHealthCommand(): Promise<void> {
-  const sprint = await getCurrentSprintOrThrow();
+  let sprint: Sprint;
+  try {
+    sprint = await getCurrentSprintOrThrow();
+  } catch (err) {
+    if (err instanceof Error) {
+      showError(err.message);
+    } else {
+      showError('Unknown error');
+    }
+    return;
+  }
+
   const tasks = await getTasks(sprint.id);
 
   printHeader(`Sprint Health: ${sprint.name}`, icons.sprint);

@@ -1,5 +1,6 @@
 import { listSprints } from '@src/store/sprint.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
+import { SprintStatusSchema } from '@src/schemas/index.ts';
 import {
   badge,
   formatSprintStatus,
@@ -8,6 +9,7 @@ import {
   printHeader,
   renderTable,
   showEmpty,
+  showError,
   showNextStep,
 } from '@src/theme/ui.ts';
 
@@ -18,6 +20,15 @@ export async function sprintListCommand(args: string[] = []): Promise<void> {
     if (args[i] === '--status' && args[i + 1]) {
       statusFilter = args[i + 1];
       i++;
+    }
+  }
+
+  // Validate status filter
+  if (statusFilter) {
+    const result = SprintStatusSchema.safeParse(statusFilter);
+    if (!result.success) {
+      showError(`Invalid status: "${statusFilter}". Valid values: draft, active, closed`);
+      return;
     }
   }
 
@@ -66,7 +77,7 @@ export async function sprintListCommand(args: string[] = []): Promise<void> {
     : `Showing ${String(sprints.length)} sprint(s)`;
   log.dim(showingLabel);
 
-  const hasActive = filtered.some((s) => s.status === 'active');
+  const hasActive = sprints.some((s) => s.status === 'active');
   if (!hasActive) {
     log.newline();
     showNextStep('ralphctl sprint start', 'start a sprint');

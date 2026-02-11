@@ -104,11 +104,9 @@ async function addSingleTicketInteractive(options: TicketAddOptions): Promise<Ti
     return null;
   }
 
-  const defaultProjectIndex = options.project ? projects.findIndex((p) => p.name === options.project) : -1;
-
   const projectName = await select({
     message: `${icons.project} Project:`,
-    default: defaultProjectIndex >= 0 ? defaultProjectIndex : 0,
+    default: options.project ?? projects[0]?.name,
     choices: projects.map((p) => ({
       name: `${icons.project} ${p.name} ${muted(`- ${p.displayName}`)}`,
       value: p.name,
