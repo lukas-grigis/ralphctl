@@ -47,8 +47,14 @@ dimensions in priority order:
 
 **Dimension C: Acceptance Criteria**
 
-- Given [precondition], When [action], Then [expected result]
-- Each criterion must be testable and unambiguous
+- Each acceptance criterion should cover multiple scenarios, not just the happy path
+- Use Given/When/Then format for each scenario bullet
+- For each AC, include as appropriate:
+  - Happy path — the expected behavior when everything works
+  - Alternate paths — valid variations (e.g., different input states, user roles)
+  - Error/edge cases — invalid input, boundary conditions, failure states
+- Each scenario must be independently testable and unambiguous
+- Avoid single-bullet ACs — if only one scenario exists, the criterion likely needs deeper analysis
 
 **Dimension D: Edge Cases and Error States**
 
@@ -96,7 +102,7 @@ re-present for approval. Iterate until approved.
 Before writing to file, verify ALL of these are true:
 
 - [ ] Problem statement is clear and agreed upon
-- [ ] Every requirement has acceptance criteria
+- [ ] Every requirement has 2+ acceptance criteria with multiple scenarios each (happy path + edge case minimum)
 - [ ] Scope boundaries are explicit (what's in AND what's out)
 - [ ] Edge cases and error states are addressed
 - [ ] No implementation details leaked into requirements
@@ -182,6 +188,18 @@ Example output:
   }
 ]
 ```
+
+Acceptance Criteria format in the `requirements` markdown:
+
+```markdown
+### AC1: [Descriptive title]
+
+- **Given** [happy path precondition], **When** [action], **Then** [expected result]
+- **Given** [alternate precondition], **When** [action], **Then** [alternate result]
+- **Given** [error/edge case], **When** [action], **Then** [graceful handling]
+```
+
+Each AC should have 2-5 scenario bullets covering happy path, alternate paths, and edge cases.
 
 For multi-topic tickets:
 
