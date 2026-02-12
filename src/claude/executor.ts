@@ -5,6 +5,7 @@ import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
 import { checkTaskPermissions } from '@src/claude/permissions.ts';
+import { ProcessManager } from '@src/claude/process-manager.ts';
 import {
   getNextTask,
   getReadyTasks,
@@ -391,6 +392,13 @@ async function executeTaskWithClaude(
   if (resumeSessionId) {
     // Resume a previous session — send a short continuation prompt
     const spinner = createSpinner(`Resuming Claude session for: ${ctx.task.name}`).start();
+
+    // Register spinner cleanup with ProcessManager
+    const manager = ProcessManager.getInstance();
+    const deregister = manager.registerCleanup(() => {
+      spinner.stop();
+    });
+
     try {
       spawnResult = await spawnClaudeWithRetry(
         {
@@ -398,9 +406,6 @@ async function executeTaskWithClaude(
           args: ['--add-dir', sprintDir],
           prompt: 'Continue where you left off. Complete the task and signal completion.',
           resumeSessionId,
-          onSignal: () => {
-            spinner.stop();
-          },
         },
         {
           maxRetries: options.maxRetries,
@@ -413,6 +418,8 @@ async function executeTaskWithClaude(
     } catch (err) {
       spinner.fail(`Claude failed: ${ctx.task.name}`);
       throw err;
+    } finally {
+      deregister(); // Clean up callback registration
     }
   } else {
     // Fresh session — build full context
@@ -427,6 +434,13 @@ async function executeTaskWithClaude(
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
 
     const spinner = createSpinner(`Claude is working on: ${ctx.task.name}`).start();
+
+    // Register spinner cleanup with ProcessManager
+    const manager = ProcessManager.getInstance();
+    const deregister = manager.registerCleanup(() => {
+      spinner.stop();
+    });
+
     try {
       const contextContent = await readFile(contextFile, 'utf-8');
       spawnResult = await spawnClaudeWithRetry(
@@ -434,9 +448,6 @@ async function executeTaskWithClaude(
           cwd: projectPath,
           args: ['--add-dir', sprintDir],
           prompt: contextContent,
-          onSignal: () => {
-            spinner.stop();
-          },
         },
         {
           maxRetries: options.maxRetries,
@@ -450,6 +461,7 @@ async function executeTaskWithClaude(
       spinner.fail(`Claude failed: ${ctx.task.name}`);
       throw err;
     } finally {
+      deregister(); // Clean up callback registration
       try {
         await unlink(contextFile);
       } catch {

@@ -15,6 +15,9 @@ export const EXIT_NO_TASKS = 2;
 /** All blocked - remaining tasks are blocked by dependencies */
 export const EXIT_ALL_BLOCKED = 3;
 
+/** Interrupted - SIGINT received (standard Unix convention: 128 + 2) */
+export const EXIT_INTERRUPTED = 130;
+
 /**
  * Exit with the given code (wrapper for testability).
  * In non-interactive mode, commands should use this to signal outcome.

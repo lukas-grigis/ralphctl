@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { ProcessManager } from '@src/claude/process-manager.ts';
 
 /**
  * Base args for Claude CLI invocation.
@@ -16,7 +17,6 @@ export interface SpawnAsyncOptions {
   cwd: string;
   args?: string[];
   env?: Record<string, string>;
-  onSignal?: () => void;
 }
 
 export interface SpawnResult {
@@ -167,6 +167,15 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
       env: options.env ? { ...process.env, ...options.env } : undefined,
     });
 
+    // Register child with ProcessManager for signal handling
+    const manager = ProcessManager.getInstance();
+    try {
+      manager.registerChild(child);
+    } catch {
+      reject(new ClaudeSpawnError('Cannot spawn during shutdown', '', 1));
+      return;
+    }
+
     // Write prompt to stdin if provided, then close
     const MAX_PROMPT_SIZE = 1_000_000; // 1MB
     if (options.prompt) {
@@ -177,14 +186,6 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
       child.stdin.write(options.prompt);
     }
     child.stdin.end();
-
-    // Kill child process on parent abort
-    const cleanup = () => {
-      options.onSignal?.();
-      child.kill('SIGTERM');
-    };
-    process.once('SIGINT', cleanup);
-    process.once('SIGTERM', cleanup);
 
     let rawStdout = '';
     let stderr = '';
@@ -198,8 +199,6 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
     });
 
     child.on('close', (code) => {
-      process.off('SIGINT', cleanup);
-      process.off('SIGTERM', cleanup);
       const exitCode = code ?? 1;
 
       // Parse JSON output to extract result text and session ID
@@ -221,8 +220,6 @@ export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Pro
     });
 
     child.on('error', (err) => {
-      process.off('SIGINT', cleanup);
-      process.off('SIGTERM', cleanup);
       reject(new ClaudeSpawnError(`Failed to spawn claude CLI: ${err.message}`, '', 1));
     });
   });
