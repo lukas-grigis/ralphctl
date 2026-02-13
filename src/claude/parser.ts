@@ -30,9 +30,9 @@ export function parseExecutionResult(output: string): ExecutionResult {
   }
 
   // Check for blocked signal
-  const blockedMatch = /<task-blocked>(.*?)<\/task-blocked>/s.exec(output);
+  const blockedMatch = /<task-blocked>([\s\S]*?)<\/task-blocked>/.exec(output);
   if (blockedMatch) {
-    return { success: false, output, blockedReason: blockedMatch[1], verified, verificationOutput };
+    return { success: false, output, blockedReason: blockedMatch[1]?.trim(), verified, verificationOutput };
   }
 
   // No signal found - treat as incomplete

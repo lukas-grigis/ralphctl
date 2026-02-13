@@ -16,6 +16,15 @@ export async function getTaskImportSchema(): Promise<string> {
 }
 
 /**
+ * Check if Claude output contains a planning-blocked signal.
+ * Returns the reason if blocked, null otherwise.
+ */
+export function parsePlanningBlocked(output: string): string | null {
+  const match = /<planning-blocked>([\s\S]*?)<\/planning-blocked>/.exec(output);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
  * Parse Claude output to extract and validate task JSON array.
  */
 export function parseTasksJson(output: string): ImportTask[] {

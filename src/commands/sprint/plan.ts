@@ -30,7 +30,13 @@ import { buildAutoPrompt, buildInteractivePrompt } from '@src/claude/prompts/ind
 import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
 import { type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
-import { getTaskImportSchema, importTasks, parseTasksJson, renderParsedTasksTable } from './plan-utils.ts';
+import {
+  getTaskImportSchema,
+  importTasks,
+  parsePlanningBlocked,
+  parseTasksJson,
+  renderParsedTasksTable,
+} from './plan-utils.ts';
 
 interface PlanOptions {
   auto: boolean;
@@ -333,6 +339,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
         showTip('Make sure the claude CLI is installed and configured.');
         log.newline();
       }
+      return;
+    }
+
+    // Check for planning-blocked signal before parsing JSON
+    const blockedReason = parsePlanningBlocked(output);
+    if (blockedReason) {
+      showWarning(`Planning blocked: ${blockedReason}`);
+      log.newline();
       return;
     }
 

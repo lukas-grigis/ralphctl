@@ -1,12 +1,21 @@
+## Project Resources (`.claude/` directory)
+
+Each repository may have a `.claude/` directory with project-specific resources. Check it during exploration and leverage
+these throughout planning:
+
+- **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory (also check root `CLAUDE.md`)
+- **`agents/`** — Specialized agent definitions for Task tool delegation (architecture, testing, domain tasks)
+- **`commands/`** — Custom slash commands (skills) — invoke with the Skill tool for project-specific workflows
+- **`rules/`** — Project-specific rules and constraints that apply to all work
+- **`memory/`** — Persistent learnings from previous sessions — consult for patterns and decisions
+- **`settings.json` / `settings.local.json`** — Tool permissions, model preferences, hooks
+
+If CLAUDE.md exists, treat its instructions as authoritative for that codebase.
+
 ## What Makes a Great Task
 
-A great task is one that a developer (or Claude) can pick up cold, implement independently, and verify is done. Each
-task should read like a mini-spec with a clear finish line.
-
-### The Done Test
-
-Before finalizing a task, ask: **"How will I know this task is done?"** If the answer is vague ("it works") or depends
-on another task ("once task 3 finishes"), the task needs work.
+A great task can be picked up cold, implemented independently, and verified as done. Before finalizing any task, ask:
+**"How will I know this task is done?"** — if the answer is vague, the task needs work.
 
 Every task must have:
 
@@ -16,16 +25,8 @@ Every task must have:
 
 ### Task Sizing
 
-Each task should be completable in a single Claude session:
-
-- **Files**: 1-3 primary files changed, up to 5-7 total (including tests)
-- **Lines**: Roughly 50-200 lines of meaningful changes
-- **Scope**: One logical change — a feature, a refactor, a fix — not multiple unrelated changes
-- **Verification**: Can be verified with the project's standard commands
-
-If a task exceeds these bounds, split by concern. If it falls well below, merge with related work.
-
-### Examples
+Completable in a single Claude session: 1-3 primary files (up to 5-7 total with tests), ~50-200 lines of meaningful
+changes, one logical change per task. Split if too large, merge if too small.
 
 **TOO GRANULAR (avoid):**
 
@@ -40,11 +41,10 @@ If a task exceeds these bounds, split by concern. If it falls well below, merge 
 
 ### Rules
 
-1. **Outcome-oriented**: Each task delivers a testable, demonstrable result
-2. **Merge create+use**: Never separate "create X" from "use X" — that is one task
-3. **Target count**: Aim for 5-15 tasks per scope, not 20-30 micro-tasks
-4. **Logical grouping**: A task can touch 5-7 files if they share a theme
-5. **No artificial splits**: If tasks only make sense in sequence, merge them
+1. **Outcome-oriented** — Each task delivers a testable result
+2. **Merge create+use** — Never separate "create X" from "use X" — that is one task
+3. **Target 5-15 tasks** per scope, not 20-30 micro-tasks
+4. **No artificial splits** — If tasks only make sense in sequence, merge them
 
 ### Anti-patterns
 
@@ -55,12 +55,11 @@ If a task exceeds these bounds, split by concern. If it falls well below, merge 
 
 ## Non-Overlapping File Ownership
 
-**Each task MUST own its files exclusively.** Before finalizing:
+**Each task must own its files exclusively.** Before finalizing:
 
 1. **List files per task** — Write down which files each task creates or modifies
-2. **Check for overlap** — If two tasks touch the same file, either:
-   - Merge the tasks, or
-   - Clearly delineate which sections/functions each task owns (document in steps)
+2. **Check for overlap** — If two tasks touch the same file, either merge them or clearly delineate which
+   sections/functions each owns (document in steps)
 3. **Check for concept overlap** — If two tasks involve the same abstraction (e.g., both deal with "error handling"),
    merge or split cleanly by concern
 
@@ -68,16 +67,14 @@ If a task exceeds these bounds, split by concern. If it falls well below, merge 
 
 ## Dependency Graph
 
-Tasks execute in dependency order. The ordering must reflect the **logical build order** — what needs to exist before
-the next thing can be built on top of it.
+Tasks execute in dependency order — foundations before dependents.
 
 ### Rules
 
-1. **Foundation first** — Shared utilities, types, schemas, or infrastructure before anything that uses them
-2. **Declare all dependencies** — Use `blockedBy` to enforce correct order. Do not rely on array position alone.
-3. **Maximize parallelism** — Independent tasks should NOT block each other. Only add `blockedBy` when there is a real
-   data or code dependency.
-4. **Validate the DAG** — The dependency graph must be acyclic; earlier tasks cannot depend on later ones
+1. **Foundation first** — Shared utilities, types, schemas before anything that uses them
+2. **Declare all dependencies** — Use `blockedBy` to enforce order. Do not rely on array position alone.
+3. **Maximize parallelism** — Only add `blockedBy` when there is a real code dependency
+4. **Validate the DAG** — No cycles; earlier tasks cannot depend on later ones
 
 ### Good Dependency Graph
 
@@ -102,48 +99,22 @@ Task 4: Add submission analytics               (blockedBy: [3])  <-- WRONG
 Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that prevents parallel
 execution.
 
-**Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code or state produced by the
-blocker?" If not, remove the dependency.
+**Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code produced by the blocker?" If
+not, remove the dependency.
 
 ## Task Repository Assignment
 
-Each task MUST specify which repository it executes in via `projectPath`.
-
-### Rules
+Each task must specify which repository it executes in via `projectPath`:
 
 1. **One repo per task** — Each task runs in exactly one repository directory
-2. **Split by repo** — If a ticket affects multiple repos, create separate tasks per repo with proper dependencies
-3. **Use exact paths** — The `projectPath` must be one of the absolute paths listed in the project's Repositories
-   section
+2. **Split by repo** — If a ticket affects multiple repos, create separate tasks per repo with dependencies
+3. **Use exact paths** — `projectPath` must be one of the absolute paths from the project's Repositories section
 
-### Multi-Repo Example
-
-Ticket: "Add user notifications"
-Project repositories: commons (`/Users/dev/demodia/commons`), web-ui-v2 (`/Users/dev/demodia/web-ui-v2`)
-
-```json
-[
-  {
-    "id": "1",
-    "name": "Add notification types to commons",
-    "projectPath": "/Users/dev/demodia/commons",
-    "steps": ["Create NotificationType enum in commons/messaging/..."]
-  },
-  {
-    "id": "2",
-    "name": "Implement notification UI in web-ui",
-    "projectPath": "/Users/dev/demodia/web-ui-v2",
-    "blockedBy": ["1"],
-    "steps": ["Import types from commons", "Add notification component"]
-  }
-]
-```
-
-**Never** create a task that needs to modify files in multiple repos — split it.
+Never create a task that modifies files in multiple repos — split it.
 
 ## Precise Step Declarations
 
-Every task MUST include explicit, actionable steps. Steps are the implementation checklist.
+Every task must include explicit, actionable steps — the implementation checklist.
 
 ### Step Requirements
 
@@ -151,8 +122,6 @@ Every task MUST include explicit, actionable steps. Steps are the implementation
 2. **Concrete actions** — "Add function X to file Y", not "implement the feature"
 3. **Verification included** — Last step(s) should include project-specific verification commands from CLAUDE.md
 4. **No ambiguity** — Another developer should be able to follow steps without guessing
-
-### Step Examples
 
 **BAD (vague):**
 
@@ -180,15 +149,9 @@ Every task MUST include explicit, actionable steps. Steps are the implementation
 }
 ```
 
-**Important**:
-
-- Use actual file paths discovered during exploration
-- Only include verification steps for commands that exist in the project
-- Reference CLAUDE.md for the exact verification commands to use
+Use actual file paths discovered during exploration. Reference CLAUDE.md for verification commands.
 
 ## Task Naming
 
-- Start with an action verb: Add, Create, Update, Fix, Refactor, Remove, Migrate
-- Include the feature/concept, not just files: "Add user authentication" not "Update auth files"
-- Keep under 60 characters
-- Avoid vague verbs: "Improve", "Enhance", "Handle"
+Start with an action verb (Add, Create, Update, Fix, Refactor, Remove, Migrate). Include the feature/concept, not files.
+Keep under 60 characters. Avoid vague verbs (Improve, Enhance, Handle).
