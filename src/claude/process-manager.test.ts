@@ -258,7 +258,7 @@ describe('ProcessManager', () => {
       exitSpy.mockRestore();
     });
 
-    it('should kill children with SIGTERM then SIGKILL if they do not exit', async () => {
+    it('should kill children with SIGINT then SIGKILL if they do not exit', async () => {
       vi.useFakeTimers();
 
       const child = new MockChildProcess() as unknown as ChildProcess;
@@ -281,8 +281,8 @@ describe('ProcessManager', () => {
       await vi.advanceTimersByTimeAsync(5100);
       await shutdownPromise;
 
-      // Should have called kill with SIGTERM first, then SIGKILL
-      expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+      // Should have called kill with SIGINT first (graceful), then SIGKILL (force)
+      expect(killSpy).toHaveBeenCalledWith('SIGINT');
       expect(killSpy).toHaveBeenCalledWith('SIGKILL');
 
       exitSpy.mockRestore();
@@ -319,26 +319,62 @@ describe('ProcessManager', () => {
       exitSpy.mockRestore();
     });
 
-    it('should not run shutdown twice', async () => {
+    it('should force-quit on double SIGINT', async () => {
+      vi.useFakeTimers();
+
+      const child = new MockChildProcess() as unknown as ChildProcess;
+      // Don't emit close on kill — simulate hung process
+      const killSpy = vi.spyOn(child, 'kill').mockImplementation(() => true);
+      manager.registerChild(child);
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      // First SIGINT — starts graceful shutdown (async, enters polling loop)
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const firstShutdown = manager.shutdown('SIGINT').catch(() => {});
+
+      // Advance just a little (1s) — first shutdown is still in polling loop
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Second SIGINT within 5s window — should force-quit immediately
+      try {
+        await manager.shutdown('SIGINT');
+      } catch {
+        // Expected — process.exit throws
+      }
+
+      expect(killSpy).toHaveBeenCalledWith('SIGKILL');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      // Clean up the first shutdown promise
+      await vi.advanceTimersByTimeAsync(5000);
+      await firstShutdown;
+
+      exitSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it('should silently ignore duplicate non-SIGINT shutdown', async () => {
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called');
       });
 
       try {
-        await manager.shutdown('SIGINT');
+        await manager.shutdown('SIGTERM');
       } catch {
         // Expected
       }
 
-      // Second shutdown should return immediately
+      // Second SIGTERM should return immediately (no force-quit for non-SIGINT)
       const exitCallCount = exitSpy.mock.calls.length;
       try {
-        await manager.shutdown('SIGINT');
+        await manager.shutdown('SIGTERM');
       } catch {
         // Expected
       }
 
-      // Exit should not have been called again
       expect(exitSpy.mock.calls.length).toBe(exitCallCount);
 
       exitSpy.mockRestore();
