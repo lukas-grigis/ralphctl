@@ -531,6 +531,9 @@ export function createSpinner(text: string): Ora {
     text,
     color: 'yellow',
     prefixText: INDENT,
+    // Disable stdin-discarder: it puts stdin in raw mode, which swallows
+    // Ctrl+C (byte 0x03) instead of letting the OS deliver a real SIGINT.
+    discardStdin: false,
     spinner: {
       interval: 80,
       frames: Array(8)

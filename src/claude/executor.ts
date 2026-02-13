@@ -522,6 +522,9 @@ async function areAllRemainingBlocked(sprintId: string): Promise<boolean> {
  * Used for session mode, step mode, or --concurrency 1.
  */
 export async function executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+  // Install signal handlers eagerly so Ctrl+C works before the first child spawns
+  ProcessManager.getInstance().ensureHandlers();
+
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
   const targetCount = options.count ?? Infinity;
@@ -534,6 +537,20 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
 
   // Main implementation loop
   while (completedCount < targetCount) {
+    // Break immediately if shutdown is in progress (Ctrl+C)
+    const manager = ProcessManager.getInstance();
+    if (manager.isShuttingDown()) {
+      const remaining = await getRemainingTasks(sprintId);
+      return {
+        completed: completedCount,
+        remaining: remaining.length,
+        stopReason: 'task_blocked',
+        blockedTask: null,
+        blockedReason: 'Interrupted by user',
+        exitCode: EXIT_ERROR,
+      };
+    }
+
     const task = await getNextTask(sprintId);
 
     if (!task) {
@@ -735,10 +752,13 @@ function pickTasksToLaunch(
  * At most one task per projectPath runs at a time to avoid git conflicts.
  */
 export async function executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+  // Install signal handlers eagerly so Ctrl+C works before the first child spawns
+  ProcessManager.getInstance().ensureHandlers();
+
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
   const targetCount = options.count ?? Infinity;
-  const failFast = options.failFast ?? false;
+  const failFast = options.failFast ?? true;
   let hasFailed = false;
   let firstBlockedTask: Task | null = null;
   let firstBlockedReason: string | null = null;
@@ -778,6 +798,12 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
     }
 
     while (completedCount < targetCount) {
+      // Break immediately if shutdown is in progress (Ctrl+C)
+      const manager = ProcessManager.getInstance();
+      if (manager.isShuttingDown()) {
+        break;
+      }
+
       // Wait if rate limited before checking for new tasks
       await coordinator.waitIfPaused();
 

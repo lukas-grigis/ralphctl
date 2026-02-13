@@ -101,6 +101,43 @@ describe('ProcessManager', () => {
     });
   });
 
+  describe('isShuttingDown', () => {
+    it('should return false initially', () => {
+      expect(manager.isShuttingDown()).toBe(false);
+    });
+
+    it('should return true after shutdown starts', async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      try {
+        await manager.shutdown('SIGINT');
+      } catch {
+        // Expected
+      }
+
+      expect(manager.isShuttingDown()).toBe(true);
+      exitSpy.mockRestore();
+    });
+
+    it('should return false after dispose', async () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      try {
+        await manager.shutdown('SIGINT');
+      } catch {
+        // Expected
+      }
+
+      manager.dispose();
+      expect(manager.isShuttingDown()).toBe(false);
+      exitSpy.mockRestore();
+    });
+  });
+
   describe('cleanup callbacks', () => {
     it('should register and deregister cleanup callback', async () => {
       const callback = vi.fn();
@@ -378,6 +415,53 @@ describe('ProcessManager', () => {
       expect(exitSpy.mock.calls.length).toBe(exitCallCount);
 
       exitSpy.mockRestore();
+    });
+  });
+
+  describe('ensureHandlers', () => {
+    it('should install handlers without child registration', async () => {
+      // ensureHandlers should not throw even with no children
+      expect(() => {
+        manager.ensureHandlers();
+      }).not.toThrow();
+
+      // Verify handlers are active by triggering shutdown — it should work
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      try {
+        await manager.shutdown('SIGINT');
+      } catch {
+        // Expected
+      }
+
+      expect(exitSpy).toHaveBeenCalledWith(130);
+      exitSpy.mockRestore();
+    });
+
+    it('should be idempotent', () => {
+      // Calling multiple times should not throw or install duplicate handlers
+      expect(() => {
+        manager.ensureHandlers();
+        manager.ensureHandlers();
+        manager.ensureHandlers();
+      }).not.toThrow();
+    });
+
+    it('should be compatible with registerChild path', () => {
+      // ensureHandlers first, then registerChild — should not double-install
+      manager.ensureHandlers();
+
+      const child = new MockChildProcess() as unknown as ChildProcess;
+      expect(() => {
+        manager.registerChild(child);
+      }).not.toThrow();
+
+      // Verify child is tracked
+      const killSpy = vi.spyOn(child, 'kill');
+      manager.killAll('SIGTERM');
+      expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     });
   });
 
