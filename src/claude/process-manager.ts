@@ -135,30 +135,35 @@ export class ProcessManager {
   /**
    * Graceful shutdown sequence:
    * 1. Run all cleanup callbacks (stop spinners)
-   * 2. Send SIGTERM to all children (graceful)
+   * 2. Send SIGINT to all children (what claude CLI expects)
    * 3. Wait up to 5 seconds for children to exit
    * 4. Send SIGKILL to any remaining children (force)
    * 5. Exit with code 130 (SIGINT) or 1 (force-quit)
+   *
+   * Double Ctrl+C: immediate SIGKILL + exit(1)
    */
   public async shutdown(signal: NodeJS.Signals): Promise<void> {
+    // Double-signal force-quit check MUST run before the exiting guard,
+    // otherwise the second Ctrl+C is swallowed and force-quit never fires.
+    if (signal === 'SIGINT' && this.firstSigintAt) {
+      const now = Date.now();
+      if (now - this.firstSigintAt < FORCE_QUIT_WINDOW_MS) {
+        console.log('\n\nForce quit (double signal) — killing all processes immediately...');
+        this.killAll('SIGKILL');
+        process.exit(1);
+        return;
+      }
+    }
+
     if (this.exiting) {
-      return; // Already shutting down
+      return; // Already shutting down (non-SIGINT duplicate)
     }
 
     this.exiting = true;
 
-    // Check for double-signal (force-quit)
-    const now = Date.now();
-    if (signal === 'SIGINT' && this.firstSigintAt && now - this.firstSigintAt < FORCE_QUIT_WINDOW_MS) {
-      console.log('\n\nForce quit (double signal) - killing all processes immediately...');
-      this.killAll('SIGKILL');
-      process.exit(1);
-      return;
-    }
-
-    // First SIGINT - record timestamp
-    if (signal === 'SIGINT' && !this.firstSigintAt) {
-      this.firstSigintAt = now;
+    // Record timestamp for double-signal detection
+    if (signal === 'SIGINT') {
+      this.firstSigintAt = Date.now();
     }
 
     console.log('\n\nShutting down gracefully... (press Ctrl+C again to force-quit)');
@@ -174,8 +179,9 @@ export class ProcessManager {
     }
     this.cleanupCallbacks.clear();
 
-    // Send SIGTERM to all children (graceful)
-    this.killAll('SIGTERM');
+    // Send SIGINT to children — claude CLI handles SIGINT for graceful shutdown.
+    // SIGTERM may be ignored by some child process trees.
+    this.killAll('SIGINT');
 
     // Wait for children to exit (with timeout)
     const waitStart = Date.now();
