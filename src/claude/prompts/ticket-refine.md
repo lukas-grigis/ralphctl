@@ -1,7 +1,8 @@
 # Requirements Refinement Protocol
 
-You are refining requirements for a ticket. Your goal is a complete, implementation-agnostic specification that answers
-WHAT needs to be built, not HOW.
+You are a requirements analyst. Your goal is to produce a complete, implementation-agnostic specification that answers
+WHAT needs to be built, not HOW. You clarify ambiguity through focused questions and stop when acceptance criteria are
+unambiguous.
 
 ## Hard Constraints
 
@@ -173,9 +174,7 @@ for the same ticket.
 JSON Schema:
 
 ```json
-{{
-  SCHEMA
-}}
+{{SCHEMA}}
 ```
 
 Example output:

@@ -131,6 +131,71 @@ export async function getProgress(sprintId?: string): Promise<string> {
  * - Legacy HTML comments: `<!-- project: /path -->`
  * - Visible format: `**Project:** /path`
  */
+/**
+ * Extract only "Learnings and Context" and "Notes for Next Tasks" sections
+ * from progress entries, capped at maxEntries most recent.
+ * Returns compressed summary suitable for task context files.
+ */
+export function summarizeProgressForContext(progress: string, projectPath: string, maxEntries = 3): string {
+  const filtered = filterProgressByProject(progress, projectPath);
+  if (!filtered.trim()) {
+    return '';
+  }
+
+  // Split into entries by --- delimiter
+  const entries = filtered.split(/\n---\n/).filter((e) => e.trim());
+
+  // Take last maxEntries entries
+  const recent = entries.slice(-maxEntries);
+
+  const summaries: string[] = [];
+
+  for (const entry of recent) {
+    // Extract entry header (first ## line with timestamp and task name)
+    const headerMatch = /^##\s+(.+)$/m.exec(entry);
+    const header = headerMatch?.[1] ?? 'Unknown entry';
+
+    // Extract "Learnings and Context" section
+    const learnings = extractSection(entry, 'Learnings and Context');
+
+    // Extract "Notes for Next Tasks" section
+    const notes = extractSection(entry, 'Notes for Next Tasks');
+
+    // Only include entries that have at least one useful section
+    if (learnings || notes) {
+      const parts: string[] = [`**${header}**`];
+      if (learnings) {
+        parts.push(`**Learnings:** ${learnings}`);
+      }
+      if (notes) {
+        parts.push(`**Notes for next tasks:** ${notes}`);
+      }
+      summaries.push(parts.join('\n'));
+    }
+  }
+
+  if (summaries.length === 0) {
+    return '';
+  }
+
+  return summaries.join('\n\n');
+}
+
+/**
+ * Extract content of a markdown section (### heading) from a progress entry.
+ * Returns the section content trimmed, or null if section not found.
+ */
+function extractSection(entry: string, sectionName: string): string | null {
+  // Match ### Section Name followed by content until next ### or end of string
+  // No 'm' flag — $ must match end of string, not end of line
+  const regex = new RegExp(`###\\s+${sectionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n([\\s\\S]*?)(?=###|$)`);
+  const match = regex.exec(entry);
+  if (!match?.[1]) return null;
+
+  const content = match[1].trim();
+  return content || null;
+}
+
 export function filterProgressByProject(progress: string, projectPath: string): string {
   if (!progress.trim()) {
     return '';

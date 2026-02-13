@@ -15,7 +15,7 @@ import {
   updateTask,
   updateTaskStatus,
 } from '@src/store/task.ts';
-import { filterProgressByProject, getProgress, logProgress } from '@src/store/progress.ts';
+import { getProgress, logProgress, summarizeProgressForContext } from '@src/store/progress.ts';
 import { getProgressFilePath, getSprintDir } from '@src/utils/paths.ts';
 import { buildTaskExecutionPrompt } from '@src/claude/prompts/index.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
@@ -177,37 +177,27 @@ export function getEffectiveVerifyScript(project: Project | undefined, projectPa
 function formatTaskForClaude(ctx: TaskContext): string {
   const lines: string[] = [];
 
-  lines.push(`## Task: ${ctx.task.name}`);
-  lines.push(`ID: ${ctx.task.id}`);
-  lines.push(`Project: ${ctx.task.projectPath}`);
+  // ═══ TASK DIRECTIVE (highest attention) ═══
+  lines.push('## Task Directive');
+  lines.push('');
+  lines.push(`**Task:** ${ctx.task.name}`);
+  lines.push(`**ID:** ${ctx.task.id}`);
+  lines.push(`**Project:** ${ctx.task.projectPath}`);
+  lines.push('');
+  lines.push('**ONE TASK ONLY.** Complete THIS task and nothing else. Do not continue to other tasks.');
 
   if (ctx.task.description) {
     lines.push('');
     lines.push(ctx.task.description);
   }
 
-  // Include refined requirements if ticket exists
-  if (ctx.task.ticketId) {
-    const ticket = ctx.sprint.tickets.find((t) => t.id === ctx.task.ticketId);
-    if (ticket?.requirements) {
-      lines.push('');
-      lines.push('---');
-      lines.push('');
-      lines.push('## Ticket Requirements (reference)');
-      lines.push('');
-      lines.push(
-        '_These requirements describe the full ticket scope. This task implements a specific part of it. ' +
-          'Use them to validate your work and understand constraints, but follow the task steps for what to do. ' +
-          'Do not expand scope beyond declared steps._'
-      );
-      lines.push('');
-      lines.push(ticket.requirements);
-    }
-  }
-
+  // ═══ TASK STEPS (primary content — positioned first for maximum attention) ═══
   if (ctx.task.steps.length > 0) {
     lines.push('');
-    lines.push('### Steps');
+    lines.push('## Implementation Steps');
+    lines.push('');
+    lines.push('Follow these steps precisely and in order:');
+    lines.push('');
     ctx.task.steps.forEach((step, i) => {
       lines.push(`${String(i + 1)}. ${step}`);
     });
@@ -217,28 +207,29 @@ function formatTaskForClaude(ctx: TaskContext): string {
 }
 
 /**
- * Build the full task context including git history, progress, and verification info.
+ * Build the full task context with primacy/recency optimization.
+ *
+ * Layout applies the primacy/recency effect:
+ * - HIGH ATTENTION (start): Task directive, steps, verification
+ * - REFERENCE (middle): Prior learnings, ticket requirements, git history
+ * - HIGH ATTENTION (end): Instructions (appended by writeTaskContextFile)
  */
 function buildFullTaskContext(
   ctx: TaskContext,
-  progressHistory: string | null,
+  progressSummary: string | null,
   gitHistory: string,
   verifyScript: string | null
 ): string {
   const lines: string[] = [];
 
+  // ═══ HIGH ATTENTION ZONE (beginning) ═══
+
   lines.push(formatTaskForClaude(ctx));
 
+  // Verification command — near the top so it's easy to find
   lines.push('');
-  lines.push('---');
+  lines.push('## Verification Command');
   lines.push('');
-  lines.push('### Git History (recent commits)');
-  lines.push('```');
-  lines.push(gitHistory);
-  lines.push('```');
-
-  lines.push('');
-  lines.push('### Verification Command');
   if (verifyScript) {
     lines.push('```bash');
     lines.push(verifyScript);
@@ -247,14 +238,47 @@ function buildFullTaskContext(
     lines.push('Read CLAUDE.md in the project root to find verification commands.');
   }
 
-  if (progressHistory) {
+  // ═══ REFERENCE ZONE (middle — lower attention is OK) ═══
+
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  // Prior task learnings (summarized, not raw progress dump)
+  if (progressSummary) {
+    lines.push('## Prior Task Learnings');
     lines.push('');
-    lines.push('---');
+    lines.push('_Reference — consult when relevant to your implementation._');
     lines.push('');
-    lines.push('## Progress History');
+    lines.push(progressSummary);
     lines.push('');
-    lines.push(progressHistory);
   }
+
+  // Ticket requirements (reference only, explicitly deprioritized)
+  if (ctx.task.ticketId) {
+    const ticket = ctx.sprint.tickets.find((t) => t.id === ctx.task.ticketId);
+    if (ticket?.requirements) {
+      lines.push('## Ticket Requirements');
+      lines.push('');
+      lines.push(
+        '_Reference — these describe the full ticket scope. This task implements a specific part. ' +
+          'Use to validate your work and understand constraints, but follow the Implementation Steps above. ' +
+          'Do not expand scope beyond declared steps._'
+      );
+      lines.push('');
+      lines.push(ticket.requirements);
+      lines.push('');
+    }
+  }
+
+  // Git history — awareness of recent changes
+  lines.push('## Git History (recent commits)');
+  lines.push('');
+  lines.push('```');
+  lines.push(gitHistory);
+  lines.push('```');
+
+  // ═══ HIGH ATTENTION ZONE (end) — Instructions appended by writeTaskContextFile ═══
 
   return lines.join('\n');
 }
@@ -352,8 +376,8 @@ async function executeTaskWithClaude(
     const gitHistory = getRecentGitHistory(projectPath, 20);
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
-    const progressHistory = filterProgressByProject(allProgress, projectPath);
-    const fullTaskContent = buildFullTaskContext(ctx, progressHistory, gitHistory, verifyScript);
+    const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -427,8 +451,8 @@ async function executeTaskWithClaude(
     const gitHistory = getRecentGitHistory(projectPath, 20);
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
-    const progressHistory = filterProgressByProject(allProgress, projectPath);
-    const fullTaskContent = buildFullTaskContext(ctx, progressHistory, gitHistory, verifyScript);
+    const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
