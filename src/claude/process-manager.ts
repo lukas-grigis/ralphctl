@@ -90,6 +90,27 @@ export class ProcessManager {
   }
 
   /**
+   * Eagerly install signal handlers without requiring a child registration.
+   * Call this at the top of execution loops so Ctrl+C works even before
+   * the first Claude process is spawned (e.g. while the spinner is visible).
+   * Idempotent — safe to call multiple times.
+   */
+  public ensureHandlers(): void {
+    if (!this.handlersInstalled) {
+      this.installSignalHandlers();
+      this.handlersInstalled = true;
+    }
+  }
+
+  /**
+   * Check if a shutdown is in progress.
+   * Used by execution loops to break immediately on Ctrl+C.
+   */
+  public isShuttingDown(): boolean {
+    return this.exiting;
+  }
+
+  /**
    * Manually unregister a child process.
    * Normally not needed - children auto-unregister via event listeners.
    */
