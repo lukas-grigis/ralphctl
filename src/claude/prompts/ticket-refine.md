@@ -93,10 +93,12 @@ Header: "Approval"
 Options:
   - "Approved, write it" — "Requirements are complete and accurate"
   - "Needs changes" — "I'll describe what to adjust"
+  - "Give feedback" — "Type specific corrections or comments in my own words"
 ```
 
-If the user selects "Needs changes" or uses "Other" to provide feedback, edit the requirements based on their input and
-re-present for approval. Iterate until approved.
+If the user selects "Needs changes", ask follow-up questions to understand what to adjust. If the user selects
+"Give feedback" or uses "Other", apply their written input directly. Revise the requirements and re-present for
+approval. Iterate until approved.
 
 ### Step 5: Pre-Output Quality Check
 

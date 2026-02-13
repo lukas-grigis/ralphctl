@@ -90,9 +90,22 @@ When you need implementation decisions from the user, use AskUserQuestion:
    Task 4 (no deps)  ──────> Task 5 (blockedBy: [4])
    ```
 
-3. **Ask for confirmation:** "Does this task breakdown look correct? Any changes needed?"
+3. **Ask for approval using AskUserQuestion:**
 
-4. **ONLY AFTER USER CONFIRMS:** Write JSON to output file
+   ```
+   Question: "Does this task breakdown look correct? Any changes needed?"
+   Header: "Approval"
+   Options:
+     - "Approved, write it" — "Tasks are complete, dependencies correct, ready to import"
+     - "Needs changes" — "I'll describe what to adjust"
+     - "Give feedback" — "Type specific corrections or comments in my own words"
+   ```
+
+   If the user selects "Needs changes", ask follow-up questions to understand what to adjust. If the user selects
+   "Give feedback" or uses "Other", apply their written input directly. Revise the tasks and re-present for approval.
+   Iterate until approved.
+
+4. **ONLY AFTER the user explicitly approves**, write JSON to output file
 
 ### Step 6: Handle Blockers
 
