@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { input, select } from '@inquirer/prompts';
+import { multilineInput } from '@src/utils/multiline.ts';
 import { colors, error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -214,10 +215,15 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     validate: (value) => (value.trim().length > 0 ? true : 'Title is required'),
   });
 
-  const ideaDescription = await input({
+  const ideaDescription = await multilineInput({
     message: 'Idea description (what you want to build):',
-    validate: (value) => (value.trim().length > 0 ? true : 'Description is required'),
   });
+
+  if (!ideaDescription.trim()) {
+    showError('Description is required.');
+    log.newline();
+    return;
+  }
 
   log.newline();
   showInfo('Creating ticket...');
