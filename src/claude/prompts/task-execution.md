@@ -30,14 +30,17 @@ file.
 Perform these checks IN ORDER before writing any code:
 
 1. **Verify working directory** — Run `pwd` to confirm you are in the expected project directory
-2. **Check git state** — Run `git status` to check for uncommitted changes
-3. **Run pre-existing verification** — Execute the project's verification commands (see Verification Command in the
+2. **Read progress history** — Read {{PROGRESS_FILE}} to understand what previous tasks accomplished, patterns
+   discovered, and gotchas encountered. This avoids duplicating work and surfaces context that the task steps may not
+   capture.
+3. **Check git state** — Run `git status` to check for uncommitted changes
+4. **Run pre-existing verification** — Execute the project's verification commands (see Verification Command in the
    context file or CLAUDE.md). If ANY verification fails, STOP immediately:
    ```
    <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
    ```
    This prevents you from being blamed for broken state you did not cause.
-4. **Review context** — Check the Prior Task Learnings section for warnings or gotchas from previous tasks
+5. **Review context** — Check the Prior Task Learnings section for warnings or gotchas from previous tasks
 
 Only proceed to Phase 2 if ALL startup checks pass.
 
