@@ -32,6 +32,7 @@ You write tickets, Claude refines the requirements, then Claude breaks them into
 - [Documentation](#documentation)
 - [Development](#development)
 - [Contributing](#contributing)
+- [Security](#security)
 - [License](#license)
 
 ---
@@ -143,6 +144,8 @@ Run `ralphctl <command> --help` for details on any command.
 | [REQUIREMENTS.md](./REQUIREMENTS.md) | Feature rationale and design decisions            |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical architecture, data models, service APIs |
 | [CLAUDE.md](./CLAUDE.md)             | Developer guide and Claude Code project config    |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute                                 |
+| [CHANGELOG.md](./CHANGELOG.md)       | Version history                                   |
 
 ---
 
@@ -161,15 +164,20 @@ pnpm typecheck         # Type check
 
 ## Contributing
 
-Open an issue or submit a pull request.
+Contributions are welcome! Please **open an issue first** to discuss what you'd like to change.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make sure all checks pass (`pnpm lint && pnpm typecheck && pnpm test`)
-4. Commit and open a pull request
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full guide — dev setup, code style, and PR process.
+
+This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md) code of conduct.
+
+---
+
+## Security
+
+To report a vulnerability, use [GitHub's private reporting](https://github.com/grigis/ralphctl/security/advisories/new). See [SECURITY.md](./SECURITY.md) for details.
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE) for details.
