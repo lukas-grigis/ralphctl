@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectVerifyScript, getEffectiveVerifyScript, getRecentGitHistory } from './executor.ts';
+import { detectVerifyScript, getEffectiveVerifyScript, getRecentGitHistory } from './task-context.ts';
 import { parseExecutionResult } from './parser.ts';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

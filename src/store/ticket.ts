@@ -3,7 +3,7 @@ import { readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
 import { type Sprint, SprintSchema, type Ticket } from '@src/schemas/index.ts';
 import { assertSprintStatus, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
-import { getProject, type ProjectNotFoundError } from '@src/store/project.ts';
+import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 
 export class TicketNotFoundError extends Error {
   public readonly ticketId: string;
@@ -52,7 +52,7 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
   try {
     await getProject(input.projectName);
   } catch (err) {
-    if ((err as ProjectNotFoundError).name === 'ProjectNotFoundError') {
+    if (err instanceof ProjectNotFoundError) {
       throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`);
     }
     throw err;

@@ -12,6 +12,7 @@ import {
   listDirs,
   readValidatedJson,
   removeDir,
+  ValidationError,
   writeValidatedJson,
 } from '@src/utils/storage.ts';
 import { type Sprint, SprintSchema, type SprintStatus, type Tasks, TasksSchema } from '@src/schemas/index.ts';
@@ -142,8 +143,11 @@ export async function listSprints(): Promise<Sprint[]> {
     try {
       const sprint = await getSprint(dir);
       sprints.push(sprint);
-    } catch {
-      // Skip invalid sprint directories
+    } catch (err) {
+      if (err instanceof ValidationError || err instanceof SprintNotFoundError) {
+        continue; // Skip invalid/corrupt sprint directories
+      }
+      throw err;
     }
   }
 

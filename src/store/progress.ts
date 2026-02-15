@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { getProgressFilePath } from '@src/utils/paths.ts';
+import { assertSafeCwd, getProgressFilePath } from '@src/utils/paths.ts';
 import { appendToFile, FileNotFoundError, readTextFile } from '@src/utils/storage.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
@@ -39,6 +39,7 @@ function isNodeError(err: unknown): err is Error & { code: string } {
  */
 function getGitCommitInfo(projectPath: string): { hash: string; message: string } | null {
   try {
+    assertSafeCwd(projectPath);
     // Single git command: "hash message"
     const output = execSync('git log -1 --pretty=format:%H\\ %s', {
       cwd: projectPath,

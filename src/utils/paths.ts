@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { lstat, realpath, stat } from 'node:fs/promises';
 
 // Get the ralphctl root directory
@@ -64,6 +64,20 @@ export function getIdeateDir(sprintId: string, ticketId: string): string {
 
 export function getSchemaPath(schemaName: string): string {
   return join(getRalphctlRoot(), 'schemas', schemaName);
+}
+
+/**
+ * Validate a path is safe to use as execSync/spawn cwd.
+ * Rejects null bytes, newlines, and non-absolute paths.
+ * @throws Error if path is unsafe
+ */
+export function assertSafeCwd(path: string): void {
+  if (!path || path.includes('\0') || path.includes('\n') || path.includes('\r')) {
+    throw new Error('Unsafe path for cwd: contains null bytes or newlines');
+  }
+  if (!isAbsolute(path)) {
+    throw new Error(`Unsafe path for cwd: must be absolute, got: ${path}`);
+  }
 }
 
 /**

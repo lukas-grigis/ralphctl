@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { ProcessManager } from '@src/claude/process-manager.ts';
+import { assertSafeCwd } from '@src/utils/paths.ts';
 
 /**
  * Base args for Claude CLI invocation.
@@ -104,6 +105,7 @@ export function parseClaudeJsonOutput(stdout: string): { result: string; session
  * @param prompt - Optional initial prompt to start the session with.
  */
 export function spawnClaudeInteractive(prompt: string, options: SpawnSyncOptions): { code: number; error?: string } {
+  assertSafeCwd(options.cwd);
   const baseArgs = [...BASE_ARGS, ...(options.args ?? [])];
   const env = options.env ? { ...process.env, ...options.env } : undefined;
 
@@ -152,6 +154,7 @@ export interface HeadlessSpawnOptions extends SpawnAsyncOptions {
  * Throws ClaudeSpawnError on non-zero exit (includes rate limit detection + session ID).
  */
 export async function spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Promise<SpawnResult> {
+  assertSafeCwd(options.cwd);
   return new Promise((resolve, reject) => {
     // Build args: -p for print mode, --output-format json for session tracking
     const allArgs = ['-p', '--output-format', 'json', ...BASE_ARGS, ...(options.args ?? [])];
