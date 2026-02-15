@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { muted, success } from '@src/theme/index.ts';
+import { muted } from '@src/theme/index.ts';
 import { log, renderTable } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/store/task.ts';
 import { getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
@@ -106,7 +106,7 @@ export async function importTasks(tasks: ImportTask[], sprintId: string): Promis
       }
 
       createdTasks.push({ task: taskInput, realId: task.id });
-      console.log(success(`  + ${task.id}: ${task.name}`));
+      log.itemSuccess(`${task.id}: ${task.name}`);
     } catch (err) {
       log.itemError(`Failed to add: ${taskInput.name}`);
       if (err instanceof Error) {

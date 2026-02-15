@@ -1,6 +1,5 @@
 import { confirm } from '@inquirer/prompts';
-import { info, muted, success, warning } from '@src/theme/index.ts';
-import { showRandomQuote, terminalBell } from '@src/theme/ui.ts';
+import { log, printHeader, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { areAllTasksDone, DependencyCycleError, getRemainingTasks, reorderByDependencies } from '@src/store/task.ts';
 import {
@@ -46,9 +45,9 @@ export async function runSprint(
   // Validate sprint is active
   assertSprintStatus(sprint, ['active'], 'start');
 
-  console.log(info('\n=== Sprint Start ==='));
-  console.log(info('Sprint: ') + sprint.name);
-  console.log(info('ID:     ') + sprint.id);
+  printHeader('Sprint Start');
+  log.info(`Sprint: ${sprint.name}`);
+  log.info(`ID:     ${sprint.id}`);
 
   const modes: string[] = [];
   if (options.session) {
@@ -67,19 +66,21 @@ export async function runSprint(
   if (parallel) {
     modes.push('parallel');
   }
-  console.log(muted(`Mode: ${modes.join(', ')}`));
+  log.dim(`Mode: ${modes.join(', ')}`);
   if (options.count) {
-    console.log(muted(`Limit: ${String(options.count)} task(s)`));
+    log.dim(`Limit: ${String(options.count)} task(s)`);
   }
 
   // Reorder tasks by dependencies
   try {
     await reorderByDependencies(id);
-    console.log(muted('Tasks reordered by dependencies'));
+    log.dim('Tasks reordered by dependencies');
   } catch (err) {
     if (err instanceof DependencyCycleError) {
-      console.log(warning(`\n${err.message}`));
-      console.log(muted('Fix the dependency cycle before starting.\n'));
+      log.newline();
+      showWarning(err.message);
+      log.dim('Fix the dependency cycle before starting.');
+      log.newline();
       return undefined;
     }
     throw err;
@@ -89,14 +90,14 @@ export async function runSprint(
   const summary = parallel ? await executeTaskLoopParallel(id, options) : await executeTaskLoop(id, options);
 
   // Print summary
-  console.log(info('\n=== Summary ==='));
-  console.log(info('Completed: ') + String(summary.completed) + ' task(s)');
-  console.log(info('Remaining: ') + String(summary.remaining) + ' task(s)');
+  printHeader('Summary');
+  log.info(`Completed: ${String(summary.completed)} task(s)`);
+  log.info(`Remaining: ${String(summary.remaining)} task(s)`);
 
   // Handle sprint closing for fully completed sprints
   if (await areAllTasksDone(id)) {
     terminalBell();
-    console.log(success('\nAll tasks in sprint are done!'));
+    showSuccess('All tasks in sprint are done!');
     showRandomQuote();
     const shouldClose = await confirm({
       message: 'Close the sprint?',
@@ -104,24 +105,25 @@ export async function runSprint(
     });
     if (shouldClose) {
       await closeSprint(id);
-      console.log(success(`Sprint closed: ${id}`));
+      showSuccess(`Sprint closed: ${id}`);
     }
   } else if (summary.stopReason === 'all_blocked') {
-    console.log(warning('\nAll remaining tasks are blocked by dependencies.'));
+    log.newline();
+    showWarning('All remaining tasks are blocked by dependencies.');
     const remaining = await getRemainingTasks(id);
     const blockedTasks = remaining.filter((t) => t.blockedBy.length > 0);
     if (blockedTasks.length > 0) {
-      console.log(muted('Blocked tasks:'));
+      log.dim('Blocked tasks:');
       for (const t of blockedTasks.slice(0, 5)) {
-        console.log(muted(`  - ${t.name} (blocked by: ${t.blockedBy.join(', ')})`));
+        log.item(`${t.name} (blocked by: ${t.blockedBy.join(', ')})`);
       }
       if (blockedTasks.length > 5) {
-        console.log(muted(`  ... and ${String(blockedTasks.length - 5)} more`));
+        log.dim(`  ... and ${String(blockedTasks.length - 5)} more`);
       }
     }
   }
 
-  console.log('');
+  log.newline();
 
   return summary;
 }

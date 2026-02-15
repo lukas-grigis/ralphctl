@@ -2,9 +2,9 @@ import { colors, muted } from '@src/theme/index.ts';
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
 import { getTicket } from '@src/store/ticket.ts';
 import {
-  boxChars,
   DETAIL_LABEL_WIDTH,
   formatTaskStatus,
+  horizontalLine,
   icons,
   labelValue,
   log,
@@ -90,7 +90,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
       log.newline();
       const verifyLines: string[] = [`${colors.success(icons.success)} Verified`];
       if (task.verificationOutput) {
-        verifyLines.push(colors.muted(boxChars.light.horizontal.repeat(30)));
+        verifyLines.push(colors.muted(horizontalLine(30, 'rounded')));
         for (const line of task.verificationOutput.split('\n').slice(0, 10)) {
           verifyLines.push(muted(line));
         }

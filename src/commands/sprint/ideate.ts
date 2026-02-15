@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { input, select } from '@inquirer/prompts';
 import { multilineInput } from '@src/utils/multiline.ts';
-import { colors, error, muted } from '@src/theme/index.ts';
+import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
   field,
@@ -354,7 +354,8 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       return;
     }
 
-    console.log(colors.success(`\nGenerated ${String(parsedTasks.length)} task(s):\n`));
+    showSuccess(`Generated ${String(parsedTasks.length)} task(s):`);
+    log.newline();
     console.log(renderParsedTasksTable(parsedTasks));
     console.log('');
 
@@ -452,7 +453,8 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
         return;
       }
 
-      console.log(colors.success(`\nFound ${String(parsedTasks.length)} task(s):\n`));
+      showSuccess(`Found ${String(parsedTasks.length)} task(s):`);
+      log.newline();
       console.log(renderParsedTasksTable(parsedTasks));
       console.log('');
 
