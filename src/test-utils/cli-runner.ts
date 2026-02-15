@@ -127,11 +127,21 @@ export async function runCli(args: string[], env: Record<string, string>): Promi
 }
 
 /**
+ * Strip ANSI escape codes from a string.
+ */
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+/**
  * Extract a field value from CLI output (e.g., "ID: abc123").
+ * Strips ANSI codes first so colored output doesn't break the regex.
  */
 export function extractField(output: string, fieldName: string): string | null {
+  const clean = stripAnsi(output);
   const regex = new RegExp(`${fieldName}:\\s+(\\S+)`);
-  const match = regex.exec(output);
+  const match = regex.exec(clean);
   return match?.[1] ?? null;
 }
 
