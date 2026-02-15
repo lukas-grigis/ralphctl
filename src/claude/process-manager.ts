@@ -221,6 +221,18 @@ export class ProcessManager {
   }
 
   /**
+   * Clean up all resources (for testing).
+   * @internal
+   */
+  public dispose(): void {
+    this.children.clear();
+    this.cleanupCallbacks.clear();
+    this.exiting = false;
+    this.handlersInstalled = false;
+    this.firstSigintAt = null;
+  }
+
+  /**
    * Install signal handlers for SIGINT and SIGTERM.
    * Uses process.on() (persistent) not process.once() (one-shot).
    */
@@ -232,17 +244,5 @@ export class ProcessManager {
     process.on('SIGTERM', () => {
       void this.shutdown('SIGTERM');
     });
-  }
-
-  /**
-   * Clean up all resources (for testing).
-   * @internal
-   */
-  public dispose(): void {
-    this.children.clear();
-    this.cleanupCallbacks.clear();
-    this.exiting = false;
-    this.handlersInstalled = false;
-    this.firstSigintAt = null;
   }
 }

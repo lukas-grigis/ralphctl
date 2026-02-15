@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: "deps"
+      prefix: 'deps'
     labels:
       - dependencies
     open-pull-requests-limit: 10
