@@ -23,7 +23,6 @@ import { RateLimitCoordinator } from '@src/claude/rate-limiter.ts';
 import { EXIT_ALL_BLOCKED, EXIT_ERROR, EXIT_NO_TASKS, EXIT_SUCCESS } from '@src/utils/exit-codes.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import {
-  type TaskContext,
   buildFullTaskContext,
   formatTaskForClaude,
   getContextFileName,
@@ -31,6 +30,7 @@ import {
   getProjectForTask,
   getRecentGitHistory,
   runPreFlightCheck,
+  type TaskContext,
   writeTaskContextFile,
 } from '@src/claude/task-context.ts';
 

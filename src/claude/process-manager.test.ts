@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { ProcessManager } from './process-manager.ts';

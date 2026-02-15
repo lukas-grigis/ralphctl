@@ -48,10 +48,7 @@ export async function listDirs(dirPath: string): Promise<string[]> {
   }
 }
 
-export async function readValidatedJson<Output>(
-  filePath: string,
-  schema: ZodType<Output>
-): Promise<Output> {
+export async function readValidatedJson<Output>(filePath: string, schema: ZodType<Output>): Promise<Output> {
   let content: string;
   try {
     content = await readFile(filePath, 'utf-8');

@@ -2,8 +2,8 @@
 
 CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wiggum themed.
 
-@REQUIREMENTS.md - What the app does, why features exist, design rationale
-@ARCHITECTURE.md - Technical implementation: data models, services, APIs
+@.claude/docs/REQUIREMENTS.md - What the app does, why features exist, design rationale
+@.claude/docs/ARCHITECTURE.md - Technical implementation: data models, services, APIs
 
 ## Quick Start
 
@@ -158,105 +158,7 @@ Use Task tool with these `subagent_type` values for specialized work.
 ## UI Patterns
 
 Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting.
-See `.claude/agents/designer.md` for complete UX guidelines.
-
-**Messages:**
-
-- `showSuccess(message, details?)` — success confirmation with optional field details
-- `showError(message)` — error output (fatal issues)
-- `showWarning(message)` — warning output (non-fatal issues, e.g., blocked tasks)
-- `showInfo(message)` — informational output
-- `showTip(message)` — tip/hint with consistent formatting
-- `showEmpty(what, hint?)` — empty state with helpful next action
-
-**Spinners:**
-
-- `createSpinner(text)` — async operations (donut-themed)
-
-**Icons & Theme:**
-
-- `icons.*` — ASCII icons for entities (`icons.sprint`, `icons.task`, `icons.ticket`, `icons.project`)
-- `emoji.*` — emoji constants (`emoji.donut`)
-- `showRandomQuote()` — display random Ralph quote (personality after key actions)
-- `showBanner()` — themed banner with gradient styling
-
-**Fields & Cards:**
-
-- `field(label, value)` — consistent label:value formatting (shared, don't duplicate)
-- `labelValue(label, value)` — detail field for card content (trimmed for card alignment)
-- `fieldMultiline(label, value)` — multiline field with proper indentation
-- `renderCard(title, lines)` — bordered card for detail views
-- `DETAIL_LABEL_WIDTH` — standard label width for detail views (14 chars)
-
-**Tables & Layout:**
-
-- `renderTable(columns, rows)` — ANSI-safe table with box-drawing borders
-
-**Status & Progress:**
-
-- `formatTaskStatus(status)` — colored task status with emoji
-- `formatSprintStatus(status)` — colored sprint status with emoji
-- `badge(text, type?)` — inline status indicator (`[text]`)
-- `progressBar(done, total)` — visual progress indicator
-- `printCountSummary(label, done, total)` — count summary with percentage
-
-**Formatting:**
-
-- `log.*` — structured output (`log.info`, `log.success`, `log.warn`, `log.error`, `log.dim`, `log.item`, `log.raw`,
-  `log.newline`)
-- `formatMuted(text)` — muted/secondary text
-- `clearScreen()` — clear terminal (TTY-safe)
-- `printSeparator(width?)` — horizontal separator line
-- `printHeader(title, icon?)` — header with icon and separator
-
-**Utilities:**
-
-- `terminalBell()` — audio feedback on completions (TTY-safe)
-- `boxChars` — box-drawing character sets (light, rounded, heavy)
-
-### Available UI Helpers (Not Yet Used)
-
-Additional helpers available in `@src/theme/ui.ts` — use these instead of creating duplicates:
-
-- `renderColumns(blocks)` — side-by-side column layout
-- `renderProgressSummary(done, total, labels?)` — progress summary with labels
-- `createThemedSpinner(text, variant?)` — themed spinner with variants (donut/sprinkle/minimal)
-- `renderBox(lines, title?, style?)` — low-level box renderer
-- `section(title, icon?)` — section header formatting
-- `subsection(title)` — subsection header formatting
-- `printSummary(items)` — print summary key-value pairs
-- `typewriter(text)` — typewriter animation (experimental)
-- `progressiveReveal(lines)` — progressive line reveal (experimental)
-- `horizontalLine(width, style?)` — horizontal line with box-drawing chars
-- `verticalLine(style?)` — vertical line with box-drawing chars
-- `isTTY()` — check TTY support
-- `sanitizeForDisplay(s)` — sanitize string for ANSI terminal display
-
-### Recent UI Improvements
-
-- **Warning vs Error distinction** — warnings now used for non-fatal issues (blocked tasks)
-- **Standardized tips** — all hints use `showTip()` for consistency
-- **Audio feedback** — terminal bell on sprint completion and task import
-- **Enhanced personality** — Ralph quotes appear after sprint create/close/complete
-- **Shared detail formatting** — `labelValue()` eliminates duplication across show commands
-- **Removed dead code** — 7 unused helpers removed to reduce maintenance burden
-
-### List Commands
-
-All list commands support filters and show summary lines:
-
-- Task list: `--status`, `--project`, `--ticket`, `--blocked`
-- Ticket list: `--project`, `--status`
-- Sprint list: `--status`
-- Output: "Showing X of Y (filtered: ...)" when filters active
-
-### Interactive Mode Features
-
-- **Dynamic menus** — context-aware with badges, disabled states, workflow ordering
-- **Persistent status header** — sprint name/status/progress shown before every menu
-- **Action-on-empty** — selectors offer to create missing entities inline
-- **Quick Start wizard** — guided sprint setup (create → tickets → refine → plan → start)
-- **Batch ticket entry** — loop with "Add another?" and pre-filled project
+See `.claude/agents/designer.md` for complete UX guidelines and helper reference.
 
 ## Parallel Execution
 
