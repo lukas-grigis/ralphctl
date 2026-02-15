@@ -40,8 +40,8 @@ importers:
         specifier: ^10.1.8
         version: 10.1.8(eslint@9.39.2)
       globals:
-        specifier: ^15.15.0
-        version: 15.15.0
+        specifier: ^17.3.0
+        version: 17.3.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -918,8 +918,8 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
-  globals@15.15.0:
-    resolution: {integrity: sha512-7ACyT3wmyp3I61S4fG682L0VA2RGD9otkqGJIwNUMF1SWUombIIk+af1unuDYgMm082aHYwD+mzJvv9Iu8dsgg==}
+  globals@17.3.0:
+    resolution: {integrity: sha512-yMqGUQVVCkD4tqjOJf3TnrvaaHDMYp4VlUSObbkIiuCPe/ofdMBFIAcBbCSRFWOnos6qRiTVStDwqPLUclaxIw==}
     engines: {node: '>=18'}
 
   gradient-string@3.0.0:
@@ -2150,7 +2150,7 @@ snapshots:
 
   globals@14.0.0: {}
 
-  globals@15.15.0: {}
+  globals@17.3.0: {}
 
   gradient-string@3.0.0:
     dependencies:
