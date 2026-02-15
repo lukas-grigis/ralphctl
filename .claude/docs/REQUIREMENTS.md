@@ -21,21 +21,44 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
 **Problem:** Many features span multiple repositories (frontend, backend, shared libs). Tracking which repo each piece
 of work targets is cumbersome.
 
-**Solution:** Projects are named entities with one or more repository paths:
+**Solution:** Projects are named entities with one or more repositories:
 
 - `name`: Slug identifier (e.g., `my-app`)
 - `displayName`: Human-readable name
-- `paths[]`: One or more repository paths
+- `repositories[]`: Array of `Repository` objects — each with `name`, `path`, optional `setupScript`, optional
+  `verifyScript`
 
 **Design Decision:** Projects are defined once and referenced by name. This enables:
 
 - Multi-repo tickets without repeating paths
 - Consistent naming across sprints
 - Easy path management when repos move
+- Per-repository verification and setup scripts
+
+### Why Repositories (not just Paths)?
+
+**Problem:** Different repositories in a project may need different build/test commands. A flat `paths[]` array provides
+no place to store per-repo configuration.
+
+**Solution:** Each project contains `repositories[]` with structured metadata:
+
+- `name`: Auto-derived from `basename(path)` — human-readable identifier
+- `path`: Absolute filesystem path
+- `setupScript?`: Command to prepare the repo environment (e.g., `npm install`)
+- `verifyScript?`: Command to verify correctness (e.g., `npm test && npm run lint`)
+
+**Verification Script Resolution** (priority order):
+
+1. Explicit `verifyScript` from repository configuration
+2. Auto-detected from project files (package.json, pyproject.toml, etc.)
+3. CLAUDE.md discovery (fallback)
+
+_Rationale:_ Structured repositories let ralphctl auto-detect and run the right verification commands per-repo during
+task execution, without relying on the AI agent to guess.
 
 ### Why Sprints?
 
-**Problem:** Work happens in bursts - a sprint, a feature set, a release. Without boundaries, tasks accumulate
+**Problem:** Work happens in bursts — a sprint, a feature set, a release. Without boundaries, tasks accumulate
 indefinitely and context becomes stale.
 
 **Solution:** Sprints are containers with lifecycle (draft → active → closed). They:
@@ -57,18 +80,20 @@ indefinitely and context becomes stale.
 
 **Solution:** Strict state transitions with operation constraints:
 
-| State    | Allowed Operations                                      |
-| -------- | ------------------------------------------------------- |
-| `draft`  | Add/remove tickets, refine requirements, plan, activate |
-| `active` | Execute tasks, update status, log, close                |
-| `closed` | Read-only (show, list, context)                         |
+| State    | Allowed Operations                                             |
+| -------- | -------------------------------------------------------------- |
+| `draft`  | Add/remove tickets, refine requirements, ideate, plan, start\* |
+| `active` | Execute tasks, update status, log, close                       |
+| `closed` | Read-only (show, list, context)                                |
+
+\*`sprint start` auto-activates draft sprints.
 
 **Design Decision:** State constraints are enforced at the service layer with clear error messages and hints. Multiple
 sprints can be active simultaneously (useful for parallel work in different terminals).
 
 ### Why Tickets?
 
-**Problem:** Work requests come from different sources - issue trackers, conversations, ideas. They need refinement
+**Problem:** Work requests come from different sources — issue trackers, conversations, ideas. They need refinement
 before becoming actionable.
 
 **Solution:** Tickets capture raw work requests with optional issue tracker integration. They:
@@ -96,7 +121,7 @@ before becoming actionable.
 
 **Solution:** Two distinct phases with user approval gates:
 
-**Phase 1 - Requirements Refinement (`sprint refine`):**
+**Phase 1 — Requirements Refinement (`sprint refine`):**
 
 Focus: **WHAT** needs to be done (implementation-agnostic)
 
@@ -104,14 +129,14 @@ Focus: **WHAT** needs to be done (implementation-agnostic)
 - User answers via selection UI
 - User approves refined requirements
 - Requirements stored in tickets for Phase 2
-- **NO code exploration** - pure requirements gathering
-- **NO repository selection** - deferred to Phase 2
+- **NO code exploration** — pure requirements gathering
+- **NO repository selection** — deferred to Phase 2
 
 _Rationale:_ The person requesting work often doesn't know implementation details. This phase focuses purely on
 clarifying WHAT needs to be built, without getting distracted by HOW. Separating concerns prevents premature technical
 decisions.
 
-**Phase 2 - Task Generation (`sprint plan`):**
+**Phase 2 — Task Generation (`sprint plan`):**
 
 Focus: **HOW** it will be implemented
 
@@ -124,6 +149,21 @@ Focus: **HOW** it will be implemented
 
 _Rationale:_ With clear requirements from Phase 1, Claude can make informed decisions about which repos to explore and
 how to split the work. User confirmation prevents scope creep. Dependencies ensure correct execution order.
+
+### Why Quick Ideation?
+
+**Problem:** The full refine → plan pipeline is thorough but heavyweight for small ideas. Sometimes you just want to
+describe an idea and get tasks generated quickly.
+
+**Solution:** `sprint ideate` combines refinement and planning into a single Claude session:
+
+- User provides an idea title, description, and target project
+- Claude refines requirements AND generates tasks in one pass
+- Creates a ticket and imports tasks automatically
+- Supports both interactive and headless (`--auto`) modes
+
+_Rationale:_ Not every piece of work needs formal requirements gathering. Quick ideation provides a fast path for
+small-to-medium features while preserving the structured task output.
 
 ### Why Tasks Have Dependencies?
 
@@ -144,6 +184,7 @@ how to split the work. User confirmation prevents scope creep. Dependencies ensu
 - Explicit is clearer than positional
 - Supports DAG structures (multiple dependencies, parallel branches)
 - Survives reordering operations
+- Enables parallel execution of independent tasks
 
 ### Why Current Sprint vs Sprint Status?
 
@@ -171,23 +212,27 @@ which must be active).
 
 ### Project Management
 
-| Feature | Requirement                              | Rationale                       |
-| ------- | ---------------------------------------- | ------------------------------- |
-| Add     | Create project with name, display, paths | Define multi-repo project       |
-| List    | Show all projects                        | Overview of registered projects |
-| Show    | Display project details and paths        | Inspection                      |
-| Remove  | Delete project with confirmation         | Clean up unused projects        |
+| Feature | Requirement                                     | Rationale                       |
+| ------- | ----------------------------------------------- | ------------------------------- |
+| Add     | Create project with name, display, repositories | Define multi-repo project       |
+| List    | Show all projects                               | Overview of registered projects |
+| Show    | Display project details, repos, scripts         | Inspection                      |
+| Remove  | Delete project with confirmation                | Clean up unused projects        |
 
 ### Sprint Management
 
-| Feature  | Requirement                                            | Rationale                                     |
-| -------- | ------------------------------------------------------ | --------------------------------------------- |
-| Create   | Generate unique ID, initialize storage, set as current | Sprints need identity and immediate usability |
-| List     | Show all sprints with status indicators                | Users need overview of all work               |
-| Show     | Display sprint details, tickets, task summary          | Inspection without execution                  |
-| Activate | Transition draft→active                                | Start execution phase                         |
-| Close    | Transition active→closed, verify completion            | Clean end to work                             |
-| Current  | Switch target sprint for commands                      | Multi-sprint workflow support                 |
+| Feature | Requirement                                            | Rationale                                     |
+| ------- | ------------------------------------------------------ | --------------------------------------------- |
+| Create  | Generate unique ID, initialize storage, set as current | Sprints need identity and immediate usability |
+| List    | Show all sprints with status indicators                | Users need overview of all work               |
+| Show    | Display sprint details, tickets, task summary          | Inspection without execution                  |
+| Start   | Auto-activate draft, begin execution                   | Start execution phase (no separate activate)  |
+| Close   | Transition active→closed, verify completion            | Clean end to work                             |
+| Switch  | Change current sprint target                           | Multi-sprint workflow support                 |
+| Refine  | Per-ticket requirements clarification                  | WHAT — implementation-agnostic                |
+| Plan    | Generate tasks from approved requirements              | HOW — explore repos, create tasks             |
+| Ideate  | Quick single-session refine + plan                     | Fast path for small ideas                     |
+| Health  | Diagnose blockers, stale tasks, missing deps           | Sprint health monitoring                      |
 
 ### Ticket Management
 
@@ -213,15 +258,29 @@ which must be active).
 
 ### Execution
 
-| Feature          | Requirement                    | Rationale                      |
-| ---------------- | ------------------------------ | ------------------------------ |
-| Headless mode    | Silent execution with spinner  | Automation, CI/CD              |
-| Watch mode       | Stream Claude output           | Observe progress               |
-| Session mode     | Interactive collaboration      | Complex tasks needing guidance |
-| Interactive mode | Pause between tasks            | Review before continuing       |
-| Resumability     | Continue from in_progress task | Handle interruptions           |
-| Auto-commit      | Commit after each task         | Atomic changes with history    |
-| No-commit option | Skip commits                   | When manual review needed      |
+| Feature               | Requirement                                | Rationale                             |
+| --------------------- | ------------------------------------------ | ------------------------------------- |
+| Headless mode         | Silent execution with spinner              | Automation, CI/CD                     |
+| Watch mode            | Stream Claude output                       | Observe progress                      |
+| Session mode          | Interactive collaboration                  | Complex tasks needing guidance        |
+| Interactive mode      | Pause between tasks                        | Review before continuing              |
+| Parallel execution    | Run independent tasks concurrently         | One task per unique projectPath       |
+| Rate limit handling   | Pause new launches, resume on recovery     | Graceful degradation under API limits |
+| Session resume        | Resume Claude sessions after rate limits   | Preserve full context on retry        |
+| Resumability          | Continue from in_progress task             | Handle interruptions                  |
+| Auto-commit           | Commit after each task                     | Atomic changes with history           |
+| No-commit option      | Skip commits                               | When manual review needed             |
+| Structured exit codes | Distinct codes for success, error, blocked | Scripting and CI/CD integration       |
+
+### Exit Codes
+
+| Code | Constant           | Meaning                               |
+| ---- | ------------------ | ------------------------------------- |
+| 0    | `EXIT_SUCCESS`     | All operations completed successfully |
+| 1    | `EXIT_ERROR`       | Validation failed or execution error  |
+| 2    | `EXIT_NO_TASKS`    | No tasks available to execute         |
+| 3    | `EXIT_ALL_BLOCKED` | All remaining tasks blocked by deps   |
+| 130  | `EXIT_INTERRUPTED` | SIGINT received (Unix: 128 + 2)       |
 
 ### Progress Tracking
 
@@ -236,15 +295,15 @@ which must be active).
 ### Project Lifecycle
 
 - [ ] Projects have unique slug names
-- [ ] Projects require at least one path
-- [ ] Project paths are validated as existing directories
+- [ ] Projects require at least one repository
+- [ ] Repository paths are validated as existing directories
 - [ ] Projects can be removed only if not referenced by tickets
 
 ### Sprint Lifecycle
 
 - [ ] New sprint starts as `draft`
 - [ ] Only `draft` sprints can have tickets/tasks added
-- [ ] Only `draft` sprints can be activated
+- [ ] `sprint start` auto-activates draft sprints
 - [ ] Multiple sprints can be `active` at a time (parallel usage)
 - [ ] Only `active` sprints can have task status updated
 - [ ] `closed` sprints cannot be modified
@@ -260,20 +319,24 @@ which must be active).
 - [ ] `sprint plan` proposes affected repos based on requirements
 - [ ] `sprint plan` requires all tickets `approved`
 - [ ] Repository selection saved to `ticket.affectedRepositories` during planning
+- [ ] `sprint ideate` creates ticket and generates tasks in one session
 
 ### Task Execution
 
 - [ ] Tasks execute in dependency order
+- [ ] Independent tasks run in parallel (one per projectPath)
 - [ ] `in_progress` tasks resume on restart
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks pause execution
 - [ ] Verification required before completion (headless mode)
 - [ ] Pre-existing verification catches broken state
 - [ ] Verification results stored in task
+- [ ] Rate-limited tasks auto-resume via session ID
+- [ ] Structured exit codes for scripting integration
 
 ### Multi-Project Support
 
-- [ ] Projects can have multiple paths
+- [ ] Projects can have multiple repositories
 - [ ] Tickets reference projects by name
 - [ ] Tasks get projectPath from ticket's project
 - [ ] Each task executes in its assigned project path
@@ -282,12 +345,12 @@ which must be active).
 
 These are explicitly NOT goals of ralphctl:
 
-1. **Real-time collaboration** - Single-user CLI tool, not a team platform
-2. **Issue tracker replacement** - Integrates with trackers, doesn't replace them
-3. **Code review** - Focuses on implementation, not review workflow
-4. **Deployment** - Stops at implementation and commit
-5. **Testing execution** - Tasks include test steps, but ralphctl doesn't run tests directly
-6. **Project scaffolding** - Works with existing projects, doesn't create them
+1. **Real-time collaboration** — Single-user CLI tool, not a team platform
+2. **Issue tracker replacement** — Integrates with trackers, doesn't replace them
+3. **Code review** — Focuses on implementation, not review workflow
+4. **Deployment** — Stops at implementation and commit
+5. **Testing execution** — Tasks include test steps, but ralphctl doesn't run tests directly
+6. **Project scaffolding** — Works with existing projects, doesn't create them
 
 ## Agent Harness Patterns
 
@@ -351,8 +414,8 @@ content.
 
 Areas identified for potential expansion (not current requirements):
 
-1. **Parallel task execution** - Currently sequential; could run independent tasks in parallel
-2. **Sprint templates** - Reusable sprint structures for common patterns
-3. **Progress analytics** - Track velocity, completion rates, time estimates
-4. **Webhook notifications** - Notify external systems on task completion
-5. **Rollback support** - Revert task implementations if issues found
+1. **Sprint templates** — Reusable sprint structures for common patterns
+2. **Progress analytics** — Track velocity, completion rates, time estimates
+3. **Webhook notifications** — Notify external systems on task completion
+4. **Rollback support** — Revert task implementations if issues found
+5. **Setup script execution** — Run `repository.setupScript` before sprint start (see ARCHITECTURE.md TODO)

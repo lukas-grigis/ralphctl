@@ -37,18 +37,23 @@ ralphctl/
 │   │   ├── ticket.ts        # Ticket CRUD
 │   │   └── progress.ts      # Progress log read/append
 │   ├── claude/              # Layer 4: Claude integration
-│   │   ├── runner.ts        # Task execution orchestrator
-│   │   ├── session.ts       # Claude CLI spawning (sync/async)
+│   │   ├── runner.ts        # Sprint execution harness (delegates to executor)
+│   │   ├── session.ts       # Claude CLI spawning (sync/async) + retry
 │   │   ├── parser.ts        # Output signal parsing
-│   │   ├── executor.ts      # Parallel task execution
+│   │   ├── executor.ts      # Sequential & parallel task execution
 │   │   ├── rate-limiter.ts  # Rate limit coordination
+│   │   ├── permissions.ts   # Claude permission checking
+│   │   ├── process-manager.ts  # Graceful shutdown / signal handling
+│   │   ├── task-context.ts  # Context building for task execution
 │   │   └── prompts/         # Prompt templates
 │   │       ├── index.ts     # Prompt builders
 │   │       ├── plan-auto.md
 │   │       ├── plan-interactive.md
 │   │       ├── plan-common.md   # Shared planning context
 │   │       ├── ticket-refine.md
-│   │       └── task-execution.md
+│   │       ├── task-execution.md
+│   │       ├── ideate.md        # Interactive ideation
+│   │       └── ideate-auto.md   # Headless ideation
 │   ├── theme/               # Ralph Wiggum theme
 │   │   ├── index.ts         # Colors, quotes, emoji, banner constants
 │   │   └── ui.ts            # UI components (icons, showSuccess, field, etc.)
@@ -60,7 +65,10 @@ ralphctl/
 │       ├── storage.ts       # File I/O with validation
 │       ├── json-extract.ts  # JSON array extraction from mixed output
 │       ├── requirements-export.ts  # Requirements markdown formatter
-│       └── file-lock.ts     # File-based locking
+│       ├── exit-codes.ts    # Structured exit codes
+│       ├── file-lock.ts     # File-based locking
+│       ├── multiline.ts     # Multiline text utility
+│       └── path-selector.ts # Interactive path selection UI
 ├── schemas/                 # JSON schemas for external tools
 └── ralphctl-data/           # Data storage (git-ignored)
     ├── config.json          # Global config
@@ -96,13 +104,15 @@ export function registerProjectCommands(program: Command): void {
 
 ## Data Models
 
+> **Note:** All store APIs are `async` (return Promises). The signatures below reflect this.
+
 ### Project
 
 Named entity representing one or more related repositories.
 
 ```typescript
 interface Project {
-  name: string; // Slug (e.g., "my-app") - also serves as ID
+  name: string; // Slug (e.g., "my-app") — also serves as ID
   displayName: string; // Human-readable name
   repositories: Repository[]; // Array of repositories (at least one)
   description?: string; // Optional description
@@ -124,7 +134,7 @@ interface Repository {
 
 **Verification Script Resolution:**
 
-1. Explicit `verifyScript` from project (highest priority)
+1. Explicit `verifyScript` from repository (highest priority)
 2. Auto-detected from project files (package.json, pyproject.toml, etc.)
 3. CLAUDE.md discovery (fallback)
 
@@ -153,7 +163,7 @@ interface Sprint {
 
 - `closed` sprints are immutable
 - Multiple sprints can be `active` simultaneously (parallel terminal usage)
-- Planning operations (add tickets, refine, plan) require `draft` status
+- Planning operations (add tickets, refine, ideate, plan) require `draft` status
 - Execution operations (start, update task status) require `active` status
 
 ### Ticket
@@ -196,7 +206,7 @@ type RefinedRequirements = RefinedRequirement[];
 
 **Key behaviors:**
 
-- `ref` can be internal ID, external ID, or exact title - used to match back to tickets
+- `ref` can be internal ID, external ID, or exact title — used to match back to tickets
 - `requirements` contains markdown-formatted refined requirements (problem, acceptance criteria, scope, constraints)
 - Validated against `RefinedRequirementsSchema` before processing
 
@@ -266,27 +276,29 @@ generateSprintId(): string        // YYYY-MM-DD-<seq>-<uuid8>
 
 ## Store Layer
 
+All store functions are `async` and return Promises.
+
 ### Config Store (`store/config.ts`)
 
 ```typescript
-getConfig(): Config
-saveConfig(config: Config): void
-getCurrentSprint(): string | null
-setCurrentSprint(id: string | null): void
+async getConfig(): Promise<Config>
+async saveConfig(config: Config): Promise<void>
+async getCurrentSprint(): Promise<string | null>
+async setCurrentSprint(id: string | null): Promise<void>
 ```
 
 ### Project Store (`store/project.ts`)
 
 ```typescript
-listProjects(): Project[]
-getProject(name: string): Project
-projectExists(name: string): boolean
-createProject(project: Project): Project
-updateProject(name: string, updates: Partial<Project>): Project
-removeProject(name: string): void
-getProjectPaths(name: string): string[]
-addProjectPath(name: string, path: string): Project
-removeProjectPath(name: string, path: string): Project
+async listProjects(): Promise<Projects>
+async getProject(name: string): Promise<Project>
+async projectExists(name: string): Promise<boolean>
+async createProject(project: Project): Promise<Project>
+async updateProject(name: string, updates: Partial<Omit<Project, 'name'>>): Promise<Project>
+async removeProject(name: string): Promise<void>
+async getProjectRepos(name: string): Promise<Repository[]>
+async addProjectRepo(name: string, path: string): Promise<Project>
+async removeProjectRepo(name: string, path: string): Promise<Project>
 ```
 
 **Error classes:**
@@ -297,39 +309,47 @@ removeProjectPath(name: string, path: string): Project
 ### Sprint Store (`store/sprint.ts`)
 
 ```typescript
-createSprint(name: string): Sprint
-getSprint(sprintId: string): Sprint
-saveSprint(sprint: Sprint): void
-listSprints(): Sprint[]
-activateSprint(sprintId: string): Sprint
-closeSprint(sprintId: string): Sprint
-getCurrentSprintOrThrow(): Sprint
-getActiveSprintOrThrow(): Sprint
-resolveSprintId(sprintId?: string): string
-assertSprintStatus(sprint: Sprint, allowed: SprintStatus[], operation: string): void
+assertSprintStatus(sprint: Sprint, allowedStatuses: SprintStatus[], operation: string): asserts sprint is Sprint
+async createSprint(name?: string): Promise<Sprint>
+async findActiveSprint(): Promise<Sprint | null>
+async getSprint(sprintId: string): Promise<Sprint>
+async saveSprint(sprint: Sprint): Promise<void>
+async listSprints(): Promise<Sprint[]>
+async activateSprint(sprintId: string): Promise<Sprint>
+async closeSprint(sprintId: string): Promise<Sprint>
+async deleteSprint(sprintId: string): Promise<Sprint>
+async getCurrentSprintOrThrow(): Promise<Sprint>
+async getActiveSprintOrThrow(): Promise<Sprint>
+async resolveSprintId(sprintId?: string): Promise<string>
 ```
 
 **Error classes:**
 
 - `SprintNotFoundError`: Sprint ID doesn't exist
 - `SprintStatusError`: Invalid status for operation (includes hint)
+- `NoCurrentSprintError`: No current sprint set in config
 
 ### Task Store (`store/task.ts`)
 
 ```typescript
-getTasks(sprintId?: string): Task[]
-saveTasks(tasks: Task[], sprintId?: string): void
-getTask(taskId: string, sprintId?: string): Task
-addTask(input: TaskInput, sprintId?: string): Task
-removeTask(taskId: string, sprintId?: string): void
-updateTaskStatus(taskId: string, status: TaskStatus, sprintId?: string): Task
-getNextTask(sprintId?: string): Task | null
-listTasks(sprintId?: string): Task[]
-reorderTask(taskId: string, newOrder: number, sprintId?: string): void
-topologicalSort(tasks: Task[]): Task[]
-reorderByDependencies(sprintId?: string): void
-validateImportTasks(importTasks: ImportTask[], existingTasks: Task[]): string[]
-areAllTasksDone(sprintId?: string): boolean
+async getTasks(sprintId?: string): Promise<Tasks>
+async saveTasks(tasks: Tasks, sprintId?: string): Promise<void>
+async getTask(taskId: string, sprintId?: string): Promise<Task>
+async addTask(input: AddTaskInput, sprintId?: string): Promise<Task>
+async removeTask(taskId: string, sprintId?: string): Promise<void>
+async updateTaskStatus(taskId: string, status: TaskStatus, sprintId?: string): Promise<Task>
+async updateTask(taskId: string, updates: UpdateTaskInput, sprintId?: string): Promise<Task>
+async isTaskBlocked(taskId: string, sprintId?: string): Promise<boolean>
+async getNextTask(sprintId?: string): Promise<Task | null>
+getReadyTasksFromList(tasks: Tasks): Tasks                    // pure function
+async getReadyTasks(sprintId?: string): Promise<Tasks>
+async reorderTask(taskId: string, newOrder: number, sprintId?: string): Promise<Task>
+async listTasks(sprintId?: string): Promise<Tasks>
+async getRemainingTasks(sprintId?: string): Promise<Tasks>
+async areAllTasksDone(sprintId?: string): Promise<boolean>
+topologicalSort(tasks: Tasks): Tasks                          // pure function
+async reorderByDependencies(sprintId?: string): Promise<void>
+validateImportTasks(importTasks: ImportTask[], existingTasks: Tasks, ticketIds?: Set<string>): string[]  // pure function
 ```
 
 **Error classes:**
@@ -341,16 +361,16 @@ areAllTasksDone(sprintId?: string): boolean
 ### Ticket Store (`store/ticket.ts`)
 
 ```typescript
-addTicket(input: TicketInput, sprintId?: string): Ticket
-removeTicket(ticketId: string, sprintId?: string): void
-listTickets(sprintId?: string): Ticket[]
-getTicket(ticketId: string, sprintId?: string): Ticket
-getTicketByTitle(title: string, sprintId?: string): Ticket | undefined
-groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]>
-allRequirementsApproved(tickets: Ticket[]): boolean
-getPendingRequirements(tickets: Ticket[]): Ticket[]
-formatTicketDisplay(ticket: Ticket): string
-formatTicketId(ticket: Ticket): string
+async addTicket(input: TicketInput, sprintId?: string): Promise<Ticket>
+async removeTicket(ticketId: string, sprintId?: string): Promise<void>
+async listTickets(sprintId?: string): Promise<Ticket[]>
+async getTicket(ticketId: string, sprintId?: string): Promise<Ticket>
+async getTicketByTitle(title: string, sprintId?: string): Promise<Ticket | undefined>
+groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]>       // pure function
+allRequirementsApproved(tickets: Ticket[]): boolean                   // pure function
+getPendingRequirements(tickets: Ticket[]): Ticket[]                   // pure function
+formatTicketDisplay(ticket: Ticket): string                           // pure function
+formatTicketId(ticket: Ticket): string                                // pure function
 ```
 
 **Error classes:**
@@ -361,23 +381,40 @@ formatTicketId(ticket: Ticket): string
 ### Progress Store (`store/progress.ts`)
 
 ```typescript
-logProgress(message: string, sprintId?: string): void
-getProgress(sprintId?: string): string
+async logProgress(message: string, sprintId?: string): Promise<void>
+async getProgress(sprintId?: string): Promise<string>
 ```
 
 ## Claude Integration Layer
 
 ### Session (`claude/session.ts`)
 
-Handles Claude CLI process spawning:
+Handles Claude CLI process spawning with retry and rate limit detection:
 
 ```typescript
+// Interfaces
+interface SpawnSyncOptions { cwd: string; args?: string[]; env?: Record<string, string> }
+interface SpawnAsyncOptions { cwd: string; args?: string[]; env?: Record<string, string> }
+interface HeadlessSpawnOptions extends SpawnAsyncOptions { prompt?: string; resumeSessionId?: string }
+interface SpawnResult { stdout: string; stderr: string; exitCode: number; sessionId: string | null }
+interface ClaudeJsonResult { type: string; subtype: string; is_error: boolean; result: string; session_id: string; duration_ms: number; total_cost_usd: number; num_turns: number }
+
+// Error class
+class ClaudeSpawnError extends Error { stderr: string; exitCode: number; rateLimited: boolean; retryAfterMs: number | null; sessionId: string | null }
+
+// Functions
 spawnClaudeInteractive(prompt: string, options: SpawnSyncOptions): { code: number; error?: string }
-spawnClaudeHeadless(options: SpawnAsyncOptions): Promise<string>
+async spawnClaudeHeadless(options: SpawnAsyncOptions & { prompt?: string }): Promise<string>
+async spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Promise<SpawnResult>
+async spawnClaudeWithRetry(options: HeadlessSpawnOptions, retryOptions?: { maxRetries?, baseDelayMs?, maxDelayMs? }): Promise<SpawnResult>
+detectRateLimit(stderr: string): { rateLimited: boolean; retryAfterMs: number | null }
+parseClaudeJsonOutput(stdout: string): { result: string; sessionId: string | null }
 ```
 
 **Interactive/Session mode** uses `spawnSync` with inherited stdio.
 **Headless mode** uses `spawn` with piped stdio (stdin closed immediately to prevent hanging).
+**Retry logic** (`spawnClaudeWithRetry`) uses exponential backoff + jitter; auto-resumes sessions via `--resume`.
+**JSON output** (`--output-format json`) captures `session_id` for resumability.
 
 ### Parser (`claude/parser.ts`)
 
@@ -395,61 +432,146 @@ interface ExecutionResult {
 parseExecutionResult(output: string): ExecutionResult
 ```
 
+### Task Context (`claude/task-context.ts`)
+
+Builds context for task execution. Uses primacy/recency layout (important info at start and end of context).
+
+```typescript
+interface TaskContext { sprint: Sprint; task: Task; project?: Project }
+
+getRecentGitHistory(projectPath: string, count?: number): string
+detectVerifyScript(projectPath: string): string | null
+getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null
+formatTaskForClaude(ctx: TaskContext): string
+buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null): string
+getContextFileName(sprintId: string, taskId: string): string
+async writeTaskContextFile(projectPath: string, taskContent: string, instructions: string, sprintId: string, taskId: string): Promise<string>
+async getProjectForTask(task: Task, sprint: Sprint): Promise<Project | undefined>
+runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void
+```
+
 ### Runner (`claude/runner.ts`)
 
-Main execution orchestrator for `sprint start`. Implements patterns
+Sprint execution harness for `sprint start`. Validates sprint state, reorders tasks by dependencies, then delegates to
+the executor. Implements patterns
 from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 
 ```typescript
-runSprint(sprintId?: string, options: RunOptions): Promise<void>
+async runSprint(sprintId?: string, options: RunOptions): Promise<void>
 
 interface RunOptions {
   watch?: boolean;       // Stream Claude output
   session?: boolean;     // Interactive session
-  interactive?: boolean; // Pause between tasks
+  interactive?: boolean; // Pause between tasks (step mode)
   count?: number;        // Limit task count
   noCommit?: boolean;    // Skip auto-commit
+  concurrency?: number;  // Max parallel tasks
 }
-```
-
-**Execution flow:**
-
-1. Validate sprint is `active`
-2. Reorder tasks by dependencies
-3. Loop: `getNextTask()` → execute → update status
-4. Store verification results
-5. Log progress
-
-**Task Context:**
-
-Each task receives context including:
-
-- Task specification (name, description, steps)
-- Git history (last 20 commits)
-- Verification command (explicit, auto-detected, or CLAUDE.md reference)
-- Progress history (filtered by project)
-
-```typescript
-getRecentGitHistory(projectPath: string, count?: number): string
-detectVerifyScript(projectPath: string): string | null
-getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null
 ```
 
 **Completion signals:**
 
-- `<task-verified>output</task-verified>` - Verification passed (required before completion in headless mode)
-- `<task-complete>` - Task finished successfully
-- `<task-blocked>reason</task-blocked>` - Task cannot proceed
+- `<task-verified>output</task-verified>` — Verification passed (required before completion in headless mode)
+- `<task-complete>` — Task finished successfully
+- `<task-blocked>reason</task-blocked>` — Task cannot proceed
+
+### Executor (`claude/executor.ts`)
+
+Sequential and parallel task execution orchestrator. Handles task lifecycle, spinner feedback, and progress logging.
+
+```typescript
+interface ExecutorOptions {
+  step?: boolean;       // Pause between tasks
+  count?: number;       // Limit task count
+  session?: boolean;    // Interactive session mode
+  noCommit?: boolean;   // Skip auto-commit
+  concurrency?: number; // Max parallel tasks (default: one per unique projectPath)
+  maxRetries?: number;  // Max retries for rate-limited tasks
+  failFast?: boolean;   // Stop on first failure
+}
+
+interface ExecutionSummary {
+  completed: number;
+  remaining: number;
+  stopReason: StopReason;
+  blockedTask?: Task;
+  blockedReason?: string;
+  exitCode: number;
+}
+
+type StopReason = 'all_completed' | 'count_reached' | 'task_blocked' | 'user_paused' | 'no_tasks' | 'all_blocked'
+
+async executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
+async executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
+```
+
+**Parallel execution** launches one task per unique `projectPath` concurrently. Session/step mode forces sequential.
+Rate-limited tasks are re-queued (not counted as failures).
+
+### Rate Limiter (`claude/rate-limiter.ts`)
+
+Coordinates rate limit pausing across parallel task executions:
+
+```typescript
+class RateLimitCoordinator {
+  constructor(options?: { onPause?: (delayMs: number) => void; onResume?: () => void });
+  get isPaused(): boolean;
+  get remainingMs(): number;
+  pause(delayMs: number): void;
+  async waitIfPaused(): Promise<void>;
+  dispose(): void;
+}
+```
+
+When a rate limit is detected, the coordinator pauses new task launches while running tasks continue unaffected.
+
+### Permissions (`claude/permissions.ts`)
+
+Checks Claude tool permissions from settings files:
+
+```typescript
+interface ClaudePermissions { allow: string[]; deny: string[] }
+interface PermissionWarning { tool: string; specifier?: string; message: string }
+
+getClaudePermissions(projectPath: string): ClaudePermissions
+isToolAllowed(permissions: ClaudePermissions, tool: string, specifier?: string): boolean | 'ask'
+checkTaskPermissions(projectPath: string, options: { verifyScript?: string; setupScript?: string; needsCommit?: boolean }): PermissionWarning[]
+```
+
+Reads from `.claude/settings.local.json` and `~/.claude/settings.json`.
+
+### Process Manager (`claude/process-manager.ts`)
+
+Singleton managing Claude child processes with graceful shutdown:
+
+```typescript
+class ProcessManager {
+  static getInstance(): ProcessManager;
+  static resetForTesting(): void;
+  registerChild(child: ChildProcess): void;
+  unregisterChild(child: ChildProcess): void;
+  ensureHandlers(): void;
+  isShuttingDown(): boolean;
+  registerCleanup(callback: () => void): () => void; // returns deregister function
+  killAll(signal: NodeJS.Signals): void;
+  async shutdown(signal: NodeJS.Signals): Promise<void>;
+  dispose(): void;
+}
+```
+
+Handles SIGINT/SIGTERM with double Ctrl+C force-quit pattern.
 
 ### Prompt Templates (`claude/prompts/`)
 
-| Template              | Purpose                                             | Variables                                                                           | Mode        |
-| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------- |
-| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                       | Interactive |
-| `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                      | Interactive |
-| `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                                                         | Auto        |
-| `plan-common.md`      | Shared planning context (included by plan prompts)  | `{{CONTEXT}}`                                                                       | Both        |
-| `task-execution.md`   | Implement a task                                    | `{{CONTEXT_FILE}}`, `{{PROGRESS_FILE}}`, `{{COMMIT_STEP}}`, `{{COMMIT_CONSTRAINT}}` | All modes   |
+| Template              | Purpose                                             | Variables                                                                                                         | Mode        |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------- |
+| `ticket-refine.md`    | Requirements refinement (WHAT, no code exploration) | `{{TICKET}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                                                     | Interactive |
+| `plan-interactive.md` | Plan tasks with repo selection & iteration          | `{{CONTEXT}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}`                                                                    | Interactive |
+| `plan-auto.md`        | Headless task generation with repo selection        | `{{CONTEXT}}`, `{{SCHEMA}}`                                                                                       | Auto        |
+| `plan-common.md`      | Shared planning context (included by plan prompts)  | `{{CONTEXT}}`                                                                                                     | Both        |
+| `ideate.md`           | Interactive single-session refine + plan            | `{{IDEA_TITLE}}`, `{{IDEA_DESCRIPTION}}`, `{{PROJECT_NAME}}`, `{{REPOSITORIES}}`, `{{OUTPUT_FILE}}`, `{{SCHEMA}}` | Interactive |
+| `ideate-auto.md`      | Headless single-session refine + plan               | `{{IDEA_TITLE}}`, `{{IDEA_DESCRIPTION}}`, `{{PROJECT_NAME}}`, `{{REPOSITORIES}}`, `{{SCHEMA}}`                    | Auto        |
+| `task-execution.md`   | Implement a task                                    | `{{CONTEXT_FILE}}`, `{{PROGRESS_FILE}}`, `{{COMMIT_STEP}}`, `{{COMMIT_CONSTRAINT}}`                               | All modes   |
 
 ### Prompt Builders
 
@@ -458,6 +580,8 @@ buildTicketRefinePrompt(ticketContent: string, outputFile: string, schema: strin
 buildInteractivePrompt(context: string, outputFile: string, schema: string): string
 buildAutoPrompt(context: string, schema: string): string
 buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string
+buildIdeatePrompt(ideaTitle: string, ideaDescription: string, projectName: string, repositories: string, outputFile: string, schema: string): string
+buildIdeateAutoPrompt(ideaTitle: string, ideaDescription: string, projectName: string, repositories: string, schema: string): string
 ```
 
 ## Interactive Mode
@@ -467,12 +591,12 @@ guidance.
 
 ### Menu System (`interactive/menu.ts` & `interactive/index.ts`)
 
-- **Dynamic menus** - Actions enabled/disabled based on current state (e.g., can't plan without tickets)
-- **Persistent status header** - Sprint name, status, and progress shown before every menu
-- **Workflow ordering** - Actions appear in recommended execution order
-- **Badges** - Visual indicators for entity counts and states
-- **Dashboard** (`interactive/dashboard.ts`) - Provides dashboard data and next action suggestions
-- **Quick Start wizard** (`interactive/wizard.ts`) - Guided multi-step sprint setup flow
+- **Dynamic menus** — Actions enabled/disabled based on current state (e.g., can't plan without tickets)
+- **Persistent status header** — Sprint name, status, and progress shown before every menu
+- **Workflow ordering** — Actions appear in recommended execution order
+- **Badges** — Visual indicators for entity counts and states
+- **Dashboard** (`interactive/dashboard.ts`) — Provides dashboard data and next action suggestions
+- **Quick Start wizard** (`interactive/wizard.ts`) — Guided multi-step sprint setup flow
 
 ### Shared Selectors (`interactive/selectors.ts`)
 
@@ -519,12 +643,12 @@ ralphctl-data/                    # Git-ignored
 All data read/write uses Zod validation:
 
 ```typescript
-readValidatedJson<T>(filePath: string, schema: ZodSchema<T>): T
-writeValidatedJson<T>(filePath: string, data: T, schema: ZodSchema<T>): void
-fileExists(filePath: string): boolean
-listDirs(dirPath: string): string[]
-appendToFile(filePath: string, content: string): void
-readTextFile(filePath: string): string
+async readValidatedJson<T>(filePath: string, schema: ZodSchema<T>): Promise<T>
+async writeValidatedJson<T>(filePath: string, data: T, schema: ZodSchema<T>): Promise<void>
+async fileExists(filePath: string): Promise<boolean>
+async listDirs(dirPath: string): Promise<string[]>
+async appendToFile(filePath: string, content: string): Promise<void>
+async readTextFile(filePath: string): Promise<string>
 ```
 
 **Error classes:**
@@ -545,6 +669,18 @@ getTasksFilePath(sprintId): string         // .../tasks.json
 getProgressFilePath(sprintId): string      // .../progress.md
 getConfigPath(): string                    // ralphctl-data/config.json
 validateProjectPath(path: string): boolean
+```
+
+### Exit Codes (`utils/exit-codes.ts`)
+
+```typescript
+const EXIT_SUCCESS = 0;      // All operations completed successfully
+const EXIT_ERROR = 1;        // Validation failed, execution error
+const EXIT_NO_TASKS = 2;     // No tasks available to execute
+const EXIT_ALL_BLOCKED = 3;  // All remaining tasks blocked by deps
+const EXIT_INTERRUPTED = 130; // SIGINT received (Unix: 128 + 2)
+
+exitWithCode(code: number): never
 ```
 
 ## Dependency Resolution
@@ -583,7 +719,7 @@ Focus: Clarify WHAT needs to be done (implementation-agnostic)
    - Display ticket details
    - Spawn interactive Claude session
    - Claude asks clarifying questions about requirements and acceptance criteria
-   - **NO code exploration** - pure requirements gathering
+   - **NO code exploration** — pure requirements gathering
    - User answers via selection UI
    - Claude writes refined requirements to temp JSON file
 3. Parse requirements, match to tickets by ID or title
@@ -608,6 +744,15 @@ Focus: Determine HOW it will be implemented
 7. Validate dependencies
 8. Import tasks (two-pass for ID resolution)
 
+### Quick Ideation (`sprint ideate`)
+
+Combines refinement and planning in a single Claude session:
+
+1. User provides idea title, description, and target project
+2. Claude refines requirements and generates tasks in one pass
+3. Tasks imported with dependency validation
+4. Supports `--auto` for headless mode
+
 ## Error Handling
 
 ### Custom Error Classes
@@ -620,30 +765,40 @@ Focus: Determine HOW it will be implemented
 | `ProjectExistsError`   | project | Project name already exists  |
 | `SprintNotFoundError`  | sprint  | Invalid sprint ID            |
 | `SprintStatusError`    | sprint  | Invalid status for operation |
+| `NoCurrentSprintError` | sprint  | No current sprint set        |
 | `TicketNotFoundError`  | ticket  | Invalid ticket ID            |
 | `DuplicateTicketError` | ticket  | External ID already exists   |
 | `TaskNotFoundError`    | task    | Invalid task ID              |
 | `TaskStatusError`      | task    | Invalid status operation     |
 | `DependencyCycleError` | task    | Cycle in dependencies        |
+| `ClaudeSpawnError`     | session | Claude process spawn failure |
 
 ### CLI Error Handling
 
 - Commands validate input before calling store functions
 - Store errors bubble up with descriptive messages
 - Sprint state errors include hints for resolution
-- `process.exit(1)` for fatal errors
+- Structured exit codes for scripting integration (see Exit Codes)
 
 ## Testing
 
-Test files in `src/**/*.test.ts`:
+15 test files in `src/**/*.test.ts`:
 
-- `schemas/index.test.ts` - Schema validation (Project, Sprint, Ticket, Task, Config)
-- `store/task.test.ts` - Task store (ordering, dependencies, cycles)
-- `store/ticket.test.ts` - Ticket store (grouping, filtering)
-- `store/progress.test.ts` - Progress store
-- `claude/runner.test.ts` - Runner and parser tests
-- `integration/cli.test.ts` - Store integration tests
-- `integration/cli-smoke.test.ts` - CLI subprocess tests
+- `schemas/index.test.ts` — Schema validation (Project, Sprint, Ticket, Task, Config)
+- `store/task.test.ts` — Task store (ordering, dependencies, cycles)
+- `store/ticket.test.ts` — Ticket store (grouping, filtering)
+- `store/progress.test.ts` — Progress store
+- `claude/runner.test.ts` — Runner and parser tests
+- `claude/session.test.ts` — Session spawning and retry logic
+- `claude/rate-limiter.test.ts` — Rate limit coordination
+- `claude/process-manager.test.ts` — Process management and signal handling
+- `commands/sprint/plan-utils.test.ts` — Planning utility functions
+- `utils/ids.test.ts` — ID generation
+- `utils/json-extract.test.ts` — JSON extraction from mixed output
+- `utils/requirements-export.test.ts` — Requirements markdown export
+- `theme/index.test.ts` — Theme constants and quotes
+- `integration/cli.test.ts` — Store integration tests
+- `integration/cli-smoke.test.ts` — CLI subprocess tests
 
 Run with:
 
@@ -691,3 +846,10 @@ sprint start (during activation):
 - Could be slow for projects with heavy setup (npm install)
 - May need timeout handling
 - Should log output for debugging if setup fails
+
+### Other Future Items
+
+- **Sprint templates** — Reusable sprint structures for common patterns
+- **Progress analytics** — Track velocity, completion rates, time estimates
+- **Webhook notifications** — Notify external systems on task completion
+- **Rollback support** — Revert task implementations if issues found
