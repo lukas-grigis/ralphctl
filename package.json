@@ -1,8 +1,27 @@
 {
   "name": "ralphctl",
-  "version": "0.1.0",
-  "description": "CLI tool for Ralph operations",
+  "version": "0.0.1",
+  "description": "Sprint and task management CLI for AI-assisted coding with Claude",
   "type": "module",
+  "license": "MIT",
+  "author": "Lukas Grigis",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/grigis/ralphctl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/grigis/ralphctl/issues"
+  },
+  "keywords": [
+    "cli",
+    "claude",
+    "ai",
+    "sprint",
+    "task-management",
+    "planning",
+    "anthropic",
+    "developer-tools"
+  ],
   "bin": {
     "ralphctl": "./bin/ralphctl"
   },

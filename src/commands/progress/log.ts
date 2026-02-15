@@ -1,5 +1,4 @@
-import { success } from '@src/theme/index.ts';
-import { log, showError, showNextStep } from '@src/theme/ui.ts';
+import { log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { logProgress } from '@src/store/progress.ts';
 import {
   assertSprintStatus,
@@ -51,7 +50,8 @@ export async function progressLogCommand(args: string[]): Promise<void> {
 
   try {
     await logProgress(message);
-    console.log(success('\nProgress logged successfully.\n'));
+    showSuccess('Progress logged.');
+    log.newline();
   } catch (err) {
     if (err instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)

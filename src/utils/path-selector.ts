@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { basename } from 'node:path';
 import type { Project, Repository } from '@src/schemas/index.ts';
+import { assertSafeCwd } from '@src/utils/paths.ts';
 
 /**
  * Result of path selection for a multi-repo project.
@@ -85,6 +86,7 @@ function getRecentlyModifiedPaths(repos: Repository[], commits = 50): Map<string
 
   for (const repo of repos) {
     try {
+      assertSafeCwd(repo.path);
       // Get list of modified files from git log
       const result = execSync(`git log -${String(commits)} --name-only --pretty=format:`, {
         cwd: repo.path,
@@ -115,6 +117,7 @@ function getCoModifiedPaths(primaryPath: string, allRepos: Repository[]): string
   // A full implementation would analyze actual co-commit patterns
 
   try {
+    assertSafeCwd(primaryPath);
     // Get commit hashes for primary path
     const primaryCommits = execSync('git log -20 --pretty=format:%H', {
       cwd: primaryPath,
@@ -131,6 +134,7 @@ function getCoModifiedPaths(primaryPath: string, allRepos: Repository[]): string
       if (repo.path === primaryPath) continue;
 
       try {
+        assertSafeCwd(repo.path);
         const otherCommits = execSync('git log -20 --pretty=format:%H', {
           cwd: repo.path,
           encoding: 'utf-8',

@@ -191,6 +191,55 @@ export function sanitizeForDisplay(s: string): string {
 /** Minimum inner width for rendered boxes and cards */
 export const MIN_BOX_WIDTH = 20;
 
+/** Default terminal width fallback when not a TTY */
+const DEFAULT_TERMINAL_WIDTH = 80;
+
+/** Get the current terminal width, clamped to a reasonable minimum */
+function getTerminalWidth(): number {
+  return process.stdout.columns || DEFAULT_TERMINAL_WIDTH;
+}
+
+/**
+ * Word-wrap a plain-text line to fit within maxWidth visible characters.
+ * Splits on word boundaries where possible, hard-breaks long words.
+ * Preserves leading whitespace on the first line; continuation lines get the same indent.
+ */
+function wrapLine(line: string, maxWidth: number): string[] {
+  const visible = stripAnsi(line);
+  if (visible.length <= maxWidth) return [line];
+
+  // Detect leading indent
+  const indentMatch = /^(\s*)/.exec(visible);
+  const indent = indentMatch?.[1] ?? '';
+  const indentLen = indent.length;
+  const wrapWidth = maxWidth - indentLen;
+
+  if (wrapWidth <= 0) return [line]; // Can't wrap if indent eats everything
+
+  const words = visible.trimStart().split(/(\s+)/);
+  const wrapped: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if (current.length + word.length <= wrapWidth) {
+      current += word;
+    } else if (current.length === 0) {
+      // Single word longer than wrapWidth — hard break
+      for (let i = 0; i < word.length; i += wrapWidth) {
+        wrapped.push(indent + word.slice(i, i + wrapWidth));
+      }
+    } else {
+      wrapped.push(indent + current.trimEnd());
+      current = word.trimStart();
+    }
+  }
+  if (current.trimEnd().length > 0) {
+    wrapped.push(indent + current.trimEnd());
+  }
+
+  return wrapped.length > 0 ? wrapped : [line];
+}
+
 /** Standard label width for detail views (accommodates labels like "External ID:") */
 export const DETAIL_LABEL_WIDTH = 14;
 
@@ -206,7 +255,7 @@ export function verticalLine(style: BoxStyle = 'light'): string {
 
 /**
  * Render a box with border around content lines.
- * Strips ANSI codes for width calculation, preserves them in output.
+ * Automatically wraps content to fit within the terminal width.
  */
 export function renderBox(
   lines: string[],
@@ -216,13 +265,21 @@ export function renderBox(
   const chars = boxChars[style];
   const pad = ' '.repeat(padding);
 
-  const contentWidths = lines.map((l) => stripAnsi(l).length);
-  const innerWidth = Math.max(...contentWidths, MIN_BOX_WIDTH) + padding * 2;
+  // Clamp to terminal width (border chars = 2, plus padding on each side)
+  const termWidth = getTerminalWidth();
+  const maxInnerWidth = Math.max(MIN_BOX_WIDTH, termWidth - 2);
+
+  // Wrap lines that exceed available content width
+  const maxContentWidth = maxInnerWidth - padding * 2;
+  const wrappedLines = lines.flatMap((l) => wrapLine(l, maxContentWidth));
+
+  const contentWidths = wrappedLines.map((l) => stripAnsi(l).length);
+  const innerWidth = Math.min(Math.max(...contentWidths, MIN_BOX_WIDTH) + padding * 2, maxInnerWidth);
 
   const result: string[] = [];
   result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
 
-  for (const line of lines) {
+  for (const line of wrappedLines) {
     const visibleLen = stripAnsi(line).length;
     const rightPad = ' '.repeat(Math.max(0, innerWidth - padding * 2 - visibleLen));
     result.push(colorFn(chars.vertical) + pad + line + rightPad + pad + colorFn(chars.vertical));
@@ -234,6 +291,7 @@ export function renderBox(
 
 /**
  * Render a card with title bar and content body.
+ * Automatically wraps content lines to fit within the terminal width.
  */
 export function renderCard(
   title: string,
@@ -243,10 +301,18 @@ export function renderCard(
   const { style = 'rounded', colorFn = colors.muted } = options;
   const chars = boxChars[style];
 
+  // Clamp to terminal width (border chars + 1 padding on each side = 4 total)
+  const termWidth = getTerminalWidth();
+  const maxInnerWidth = Math.max(MIN_BOX_WIDTH, termWidth - 4);
+
   const safeTitle = sanitizeForDisplay(title);
-  const contentWidths = lines.map((l) => stripAnsi(l).length);
-  const titleWidth = safeTitle.length;
-  const innerWidth = Math.max(...contentWidths, titleWidth, MIN_BOX_WIDTH) + 2;
+  const titleWidth = Math.min(safeTitle.length, maxInnerWidth - 2);
+
+  // Wrap lines that exceed available content width (innerWidth minus 2 for padding)
+  const wrappedLines = lines.flatMap((l) => wrapLine(l, maxInnerWidth - 2));
+
+  const contentWidths = wrappedLines.map((l) => stripAnsi(l).length);
+  const innerWidth = Math.min(Math.max(...contentWidths, titleWidth, MIN_BOX_WIDTH) + 2, maxInnerWidth);
 
   const result: string[] = [];
   // Top border
@@ -257,7 +323,7 @@ export function renderCard(
   // Separator
   result.push(colorFn(chars.teeRight + chars.horizontal.repeat(innerWidth) + chars.teeLeft));
   // Content lines
-  for (const line of lines) {
+  for (const line of wrappedLines) {
     const visibleLen = stripAnsi(line).length;
     const rightPad = ' '.repeat(Math.max(0, innerWidth - visibleLen - 2));
     result.push(colorFn(chars.vertical) + ' ' + line + rightPad + ' ' + colorFn(chars.vertical));
@@ -452,7 +518,7 @@ export function showError(message: string): void {
  * Show an info message
  */
 export function showInfo(message: string): void {
-  console.log(colors.info(message));
+  console.log(`${INDENT}${colors.info(icons.info)}  ${colors.info(message)}`);
 }
 
 /**
@@ -700,7 +766,7 @@ export interface TableOptions {
 }
 
 export function renderTable(columns: TableColumn[], rows: string[][], options: TableOptions = {}): string {
-  const { style = 'light', indent = 2, colorFn = colors.muted } = options;
+  const { style = 'rounded', indent = 2, colorFn = colors.muted } = options;
   const chars = boxChars[style];
   const pad = ' '.repeat(indent);
 

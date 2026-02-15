@@ -5,9 +5,9 @@ import { getCurrentSprint } from '@src/store/config.ts';
 import { formatTicketDisplay, getPendingRequirements, groupTicketsByProject } from '@src/store/ticket.ts';
 import {
   badge,
-  boxChars,
   formatSprintStatus,
   formatTaskStatus,
+  horizontalLine,
   icons,
   labelValue,
   log,
@@ -94,7 +94,7 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
         `${formatTaskStatus('in_progress')} ${String(tasksByStatus.in_progress)}   ` +
         `${formatTaskStatus('done')} ${String(tasksByStatus.done)}`
     );
-    taskLines.push(colors.muted(boxChars.light.horizontal.repeat(40)));
+    taskLines.push(colors.muted(horizontalLine(40, 'rounded')));
 
     // Task list
     for (const task of tasks) {
