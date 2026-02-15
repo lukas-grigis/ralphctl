@@ -43,7 +43,7 @@ export const TicketSchema = z.object({
   externalId: z.string().optional(), // Optional external ID (e.g., JIRA-123)
   title: z.string().min(1),
   description: z.string().optional(),
-  link: z.string().url().optional(),
+  link: z.url().optional(),
   projectName: z.string().min(1), // References Project.name
   affectedRepositories: z.array(z.string()).optional(), // Repository paths selected during planning
   requirementStatus: RequirementStatusSchema.default('pending'),
@@ -110,9 +110,9 @@ export const SprintSchema = z.object({
   id: z.string().regex(/^\d{8}-\d{6}-[a-z0-9-]+$/, 'Invalid sprint ID format'),
   name: z.string().min(1),
   status: SprintStatusSchema.default('draft'),
-  createdAt: z.string().datetime(),
-  activatedAt: z.string().datetime().nullable().default(null),
-  closedAt: z.string().datetime().nullable().default(null),
+  createdAt: z.iso.datetime(),
+  activatedAt: z.iso.datetime().nullable().default(null),
+  closedAt: z.iso.datetime().nullable().default(null),
   tickets: z.array(TicketSchema).default([]),
 });
 export type Sprint = z.infer<typeof SprintSchema>;
