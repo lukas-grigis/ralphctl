@@ -16,9 +16,12 @@
 
 > _"I'm helping!"_ — Ralph Wiggum
 
-RalphCTL bridges the gap between high-level planning and AI-assisted implementation. Organize work into sprints, break
-down tickets into tasks with Claude's help, and execute them — all from the terminal, with a Ralph Wiggum personality to
-keep things fun.
+> [!NOTE]
+> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes before 1.0.
+
+RalphCTL bridges the gap between high-level planning and AI-assisted implementation. You organize work into sprints,
+break tickets down into tasks with Claude's help, and let Claude execute them — all from the terminal. Ralph Wiggum
+personality included because why not.
 
 ---
 
@@ -37,14 +40,13 @@ keep things fun.
 
 ## Features
 
-- **AI-Assisted Planning** — Two-phase workflow: refine requirements with Claude, then generate implementation tasks
-  automatically
-- **Multi-Project Sprints** — Manage tickets across multiple repositories within a single sprint
-- **Task Dependencies** — Define `blockedBy` relationships between tasks with topological ordering
-- **Interactive & Headless Modes** — Collaborate with Claude interactively or run fully automated
-- **Sprint Lifecycle** — Clean state machine (draft → active → closed) with concurrent-safe file locking
-- **Interactive Menu Mode** — Run `ralphctl` with no arguments for a menu-driven experience
-- **Ralph Wiggum Personality** — Donut-themed banner, random quotes, and themed UI because work should be fun
+- **Two-Phase AI Planning** — Refine requirements with Claude first, then generate implementation tasks
+- **Multi-Project Sprints** — Track tickets across multiple repositories in a single sprint
+- **Task Dependencies** — `blockedBy` relationships with topological ordering — tasks run in the right order
+- **Interactive & Headless** — Pair with Claude interactively or let it run fully automated
+- **Sprint Lifecycle** — State machine (draft → active → closed) with concurrent-safe file locking
+- **Parallel Execution** — Run tasks across repos simultaneously with rate limit handling
+- **Menu Mode** — Run `ralphctl` with no arguments for a guided, menu-driven experience
 
 ---
 
@@ -135,17 +137,17 @@ ralphctl sprint start       # Headless (fully automated)
 | `ralphctl task list`     | List tasks in the current sprint         |
 | `ralphctl task next`     | Get the next available task              |
 
-For the full command reference, see [CLAUDE.md](./CLAUDE.md#cli-commands).
+Run `ralphctl <command> --help` for details on any command.
 
 ---
 
 ## Documentation
 
-| Document                             | Description                                                 |
-| ------------------------------------ | ----------------------------------------------------------- |
-| [CLAUDE.md](./CLAUDE.md)             | Full CLI command reference, data model, and developer guide |
-| [REQUIREMENTS.md](./REQUIREMENTS.md) | Feature rationale and design decisions                      |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical architecture, data models, and service APIs       |
+| Document                             | Description                                           |
+| ------------------------------------ | ----------------------------------------------------- |
+| [REQUIREMENTS.md](./REQUIREMENTS.md) | Feature rationale and design decisions                |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical architecture, data models, and service APIs |
+| [CLAUDE.md](./CLAUDE.md)             | Developer guide and Claude Code project instructions  |
 
 ---
 
