@@ -1,6 +1,6 @@
 import { access, appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { ZodType, ZodTypeDef } from 'zod';
+import type { ZodType } from 'zod';
 
 export class ValidationError extends Error {
   public readonly path: string;
@@ -48,9 +48,9 @@ export async function listDirs(dirPath: string): Promise<string[]> {
   }
 }
 
-export async function readValidatedJson<Output, Def extends ZodTypeDef, Input>(
+export async function readValidatedJson<Output>(
   filePath: string,
-  schema: ZodType<Output, Def, Input>
+  schema: ZodType<Output>
 ): Promise<Output> {
   let content: string;
   try {
@@ -78,10 +78,10 @@ export async function readValidatedJson<Output, Def extends ZodTypeDef, Input>(
   return result.data;
 }
 
-export async function writeValidatedJson<Output, Def extends ZodTypeDef, Input>(
+export async function writeValidatedJson<Output>(
   filePath: string,
   data: Output,
-  schema: ZodType<Output, Def, Input>
+  schema: ZodType<Output>
 ): Promise<void> {
   const result = schema.safeParse(data);
   if (!result.success) {

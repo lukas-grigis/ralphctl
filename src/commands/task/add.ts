@@ -167,12 +167,12 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
 
     if (tickets.length > 0) {
       const { select } = await import('@inquirer/prompts');
-      const defaultTicketIndex = options.ticket
-        ? tickets.findIndex((t) => t.id === options.ticket || t.externalId === options.ticket) + 1
-        : 0;
+      const defaultTicketValue = options.ticket
+        ? (tickets.find((t) => t.id === options.ticket || t.externalId === options.ticket)?.id ?? '')
+        : '';
       const ticketChoice = await select({
         message: `${icons.ticket} Link to ticket:`,
-        default: defaultTicketIndex,
+        default: defaultTicketValue,
         choices: [
           { name: `${emoji.donut} None (select project/repo manually)`, value: '' },
           ...tickets.map((t) => ({
