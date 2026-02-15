@@ -4,8 +4,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    rebase-strategy: auto
+    groups:
+      all-dependencies:
+        patterns:
+          - '*'
     commit-message:
       prefix: 'deps'
+      prefix-development: 'deps(dev)'
+      include: scope
     labels:
       - dependencies
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
