@@ -1,8 +1,23 @@
 import { Separator } from '@inquirer/prompts';
+import { colors } from '@src/theme/index.ts';
+import type { NextAction } from './dashboard.ts';
 
 /**
  * Dynamic context-aware menu system for interactive mode
  */
+
+const SEPARATOR_WIDTH = 48;
+
+/** Create a titled separator: ── LABEL ──────────── */
+function titled(label: string): SeparatorInstance {
+  const lineLen = Math.max(2, SEPARATOR_WIDTH - label.length - 4); // 4 = "── " + " "
+  return new Separator(colors.muted(`\n── ${label} ${'─'.repeat(lineLen)}`));
+}
+
+/** Plain line separator: ────────────────────────── */
+function line(): SeparatorInstance {
+  return new Separator(colors.muted('─'.repeat(SEPARATOR_WIDTH)));
+}
 
 interface Choice {
   name: string;
@@ -33,150 +48,211 @@ export interface MenuContext {
   tasksInProgress: number;
   pendingRequirements: number;
   allRequirementsApproved: boolean;
+  /** Number of tickets that have at least one associated task */
+  plannedTicketCount: number;
+  nextAction: NextAction | null;
+}
+
+// ============================================================================
+// WORKFLOW ACTIONS — actions that advance sprint state
+// ============================================================================
+
+const WORKFLOW_ACTIONS: Record<string, Set<string>> = {
+  sprint: new Set(['create', 'refine', 'ideate', 'plan', 'start', 'close']),
+  ticket: new Set(['add']),
+  task: new Set(['add', 'import']),
+};
+
+/**
+ * Check if a command is a workflow action that should return to main menu.
+ */
+export function isWorkflowAction(group: string, subCommand: string): boolean {
+  return WORKFLOW_ACTIONS[group]?.has(subCommand) ?? false;
 }
 
 /**
- * Build main menu items based on current application state.
+ * Build workflow actions in sprint lifecycle order with disable logic.
  */
-export function buildMainMenu(ctx: MenuContext): MenuItem[] {
+function buildWorkflowActions(ctx: MenuContext): MenuItem[] {
   const items: MenuItem[] = [];
+  const isDraft = ctx.currentSprintStatus === 'draft';
+  const isActive = ctx.currentSprintStatus === 'active';
+  const hasSprint = ctx.currentSprintId !== null;
 
-  // Status is always available
+  // Create Sprint — always available
+  items.push({ name: 'Create Sprint', value: 'action:sprint:create', description: 'Start a new sprint' });
+
+  // Add Ticket — requires draft sprint + projects
+  const addTicketDisabled = !hasSprint
+    ? 'create a sprint first'
+    : !isDraft
+      ? 'need draft sprint'
+      : !ctx.hasProjects
+        ? 'add a project first'
+        : false;
   items.push({
-    name: 'Status',
-    value: 'status',
-    description: 'Current sprint dashboard',
+    name: 'Add Ticket',
+    value: 'action:ticket:add',
+    description: 'Add work to current sprint',
+    disabled: addTicketDisabled,
   });
 
-  // Switch Sprint: always available for quick switching
-  items.push({
-    name: 'Switch Sprint',
-    value: 'switch-sprint',
-    description: 'Change current sprint',
-  });
-
-  // Quick Start: show when no current sprint
-  if (!ctx.currentSprintId) {
-    items.push({
-      name: 'Quick Start',
-      value: 'wizard',
-      description: 'Guided sprint setup',
-    });
+  // Refine Requirements — requires draft sprint + pending tickets
+  let refineDisabled: string | false = false;
+  let refineDesc = 'Clarify ticket requirements';
+  if (!hasSprint) {
+    refineDisabled = 'create a sprint first';
+  } else if (!isDraft) {
+    refineDisabled = 'need draft sprint';
+  } else if (ctx.ticketCount === 0) {
+    refineDisabled = 'add tickets first';
+  } else if (ctx.pendingRequirements === 0) {
+    refineDisabled = 'all tickets refined';
+  } else {
+    refineDesc = `${String(ctx.pendingRequirements)} ticket${ctx.pendingRequirements !== 1 ? 's' : ''} pending`;
   }
-
-  items.push(new Separator());
-
   items.push({
-    name: 'Sprint',
-    value: 'sprint',
-    description: 'Manage sprints',
+    name: 'Refine Requirements',
+    value: 'action:sprint:refine',
+    description: refineDesc,
+    disabled: refineDisabled,
   });
 
+  // Plan Tasks — requires draft + all requirements approved
+  let planDisabled: string | false = false;
+  if (!hasSprint) {
+    planDisabled = 'create a sprint first';
+  } else if (!isDraft) {
+    planDisabled = 'need draft sprint';
+  } else if (ctx.ticketCount === 0) {
+    planDisabled = 'add tickets first';
+  } else if (!ctx.allRequirementsApproved) {
+    planDisabled = 'refine all tickets first';
+  }
   items.push({
-    name: 'Ticket',
-    value: 'ticket',
-    description: 'Manage tickets',
+    name: 'Plan Tasks',
+    value: 'action:sprint:plan',
+    description: 'Generate tasks from requirements',
+    disabled: planDisabled,
   });
 
+  // Ideate — requires draft + projects
+  const ideateDisabled = !hasSprint
+    ? 'create a sprint first'
+    : !isDraft
+      ? 'need draft sprint'
+      : !ctx.hasProjects
+        ? 'add a project first'
+        : false;
   items.push({
-    name: 'Task',
-    value: 'task',
-    description: 'Manage tasks',
+    name: 'Ideate',
+    value: 'action:sprint:ideate',
+    description: 'Quick idea to tasks',
+    disabled: ideateDisabled,
   });
 
-  items.push({ name: 'Progress', value: 'progress', description: 'Log progress' });
-
-  items.push(new Separator());
-
+  // Start Sprint — requires draft/active + tasks
+  let startDisabled: string | false = false;
+  if (!hasSprint) {
+    startDisabled = 'create a sprint first';
+  } else if (!isDraft && !isActive) {
+    startDisabled = 'need draft or active sprint';
+  } else if (ctx.taskCount === 0) {
+    startDisabled = 'plan tasks first';
+  }
   items.push({
-    name: 'Project',
-    value: 'project',
-    description: 'Manage projects',
+    name: 'Start Sprint',
+    value: 'action:sprint:start',
+    description: 'Begin implementation',
+    disabled: startDisabled,
   });
 
-  items.push(new Separator());
-  items.push({ name: 'Exit', value: 'exit', description: 'Goodbye!' });
+  // Health Check — requires a sprint
+  items.push({
+    name: 'Health Check',
+    value: 'action:sprint:health',
+    description: 'Diagnose blockers and stale tasks',
+    disabled: !hasSprint ? 'no sprint' : false,
+  });
+
+  // Close Sprint — requires active sprint
+  items.push({
+    name: 'Close Sprint',
+    value: 'action:sprint:close',
+    description: 'Close the current sprint',
+    disabled: !isActive ? 'need active sprint' : false,
+  });
 
   return items;
 }
 
 /**
- * Build sprint submenu based on current sprint state.
+ * Build main menu items based on current application state.
+ */
+export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultValue?: string } {
+  const items: MenuItem[] = [];
+
+  // Next action — first item, default selection
+  let defaultValue: string | undefined;
+  if (ctx.nextAction) {
+    const actionValue = `action:${ctx.nextAction.group}:${ctx.nextAction.subCommand}`;
+    items.push({
+      name: `\u2192 ${ctx.nextAction.label}`,
+      value: actionValue,
+      description: ctx.nextAction.description,
+    });
+    defaultValue = actionValue;
+  }
+
+  // Workflow section — flat lifecycle-ordered actions
+  items.push(titled('WORKFLOW'));
+  for (const action of buildWorkflowActions(ctx)) {
+    items.push(action);
+  }
+
+  // Browse & manage submenus
+  items.push(titled('BROWSE & MANAGE'));
+  items.push({ name: 'Sprints', value: 'sprint', description: 'List, show, switch, delete' });
+  items.push({ name: 'Tickets', value: 'ticket', description: 'List, show, edit, remove' });
+  items.push({ name: 'Tasks', value: 'task', description: 'List, show, add, status, reorder' });
+  items.push({ name: 'Projects', value: 'project', description: 'List, show, add, remove' });
+  items.push({ name: 'Progress', value: 'progress', description: 'Log and view progress' });
+
+  // Utilities
+  items.push(line());
+  if (!ctx.currentSprintId) {
+    items.push({ name: 'Quick Start Wizard', value: 'wizard', description: 'Guided sprint setup' });
+  }
+  items.push({ name: 'Status Dashboard', value: 'status', description: 'Full sprint overview' });
+  items.push({ name: 'Exit', value: 'exit', description: 'Goodbye!' });
+
+  return { items, defaultValue };
+}
+
+/**
+ * Build sprint submenu — browse/manage only (workflow actions are in main menu).
  */
 function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
-  const isDraft = ctx.currentSprintStatus === 'draft';
-  const isActive = ctx.currentSprintStatus === 'active';
 
-  items.push({ name: 'Create', value: 'create', description: 'Create a new sprint' });
+  items.push(titled('BROWSE'));
   items.push({ name: 'List', value: 'list', description: 'List all sprints' });
   items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
   items.push({ name: 'Set Current', value: 'current', description: 'Set current sprint' });
   items.push({ name: 'Context', value: 'context', description: 'Output full sprint context' });
-
-  items.push(new Separator());
-
-  // Workflow actions with state awareness
-  items.push({
-    name: 'Refine',
-    value: 'refine',
-    description:
-      ctx.pendingRequirements > 0 ? `${String(ctx.pendingRequirements)} tickets pending` : 'Refine ticket requirements',
-    disabled: !isDraft ? 'requires draft sprint' : false,
-  });
-
-  items.push({
-    name: 'Ideate',
-    value: 'ideate',
-    description: 'Quick idea to tasks',
-    disabled: !isDraft ? 'requires draft sprint' : !ctx.hasProjects ? 'add a project first' : false,
-  });
-
-  items.push({
-    name: 'Plan',
-    value: 'plan',
-    description: 'Generate tasks from requirements',
-    disabled: !isDraft ? 'requires draft sprint' : !ctx.allRequirementsApproved ? 'refine requirements first' : false,
-  });
-
   items.push({
     name: 'Export Requirements',
     value: 'requirements',
     description: 'Export refined requirements to file',
   });
-
-  items.push(new Separator());
-
-  items.push({
-    name: 'Start',
-    value: 'start',
-    description: 'Start implementation',
-    disabled: !isDraft && !isActive ? 'requires draft or active sprint' : false,
-  });
-
-  items.push({
-    name: 'Health',
-    value: 'health',
-    description: 'Check sprint health',
-  });
-
-  items.push({
-    name: 'Close',
-    value: 'close',
-    description: 'Close sprint',
-    disabled: !isActive ? 'requires active sprint' : false,
-  });
-
-  items.push({
-    name: 'Delete',
-    value: 'delete',
-    description: 'Delete a sprint permanently',
-  });
-
-  items.push(new Separator());
+  items.push(line());
+  items.push({ name: 'Delete', value: 'delete', description: 'Delete a sprint permanently' });
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
-  return { title: 'Sprint', items };
+  const titleSuffix = ctx.currentSprintName
+    ? ` \u2014 ${ctx.currentSprintName} (${ctx.currentSprintStatus ?? 'unknown'})`
+    : '';
+  return { title: `Sprint${titleSuffix}`, items };
 }
 
 /**
@@ -194,32 +270,35 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
   items.push({ name: 'Edit', value: 'edit', description: 'Edit a ticket' });
   items.push({ name: 'List', value: 'list', description: 'List all tickets' });
   items.push({ name: 'Show', value: 'show', description: 'Show ticket details' });
+  items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a ticket' });
-  items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
-  return { title: 'Ticket', items };
+  const titleSuffix = ctx.currentSprintName ? ` \u2014 ${ctx.currentSprintName}` : '';
+  return { title: `Ticket${titleSuffix}`, items };
 }
 
 /**
  * Build task submenu.
  */
-function buildTaskSubMenu(): SubMenu {
+function buildTaskSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
 
-  items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
-  items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
+  items.push(titled('VIEW'));
   items.push({ name: 'List', value: 'list', description: 'List all tasks' });
   items.push({ name: 'Show', value: 'show', description: 'Show task details' });
-  items.push(new Separator());
-  items.push({ name: 'Status', value: 'status', description: 'Update status' });
   items.push({ name: 'Next', value: 'next', description: 'Get next task' });
+  items.push(titled('MANAGE'));
+  items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
+  items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
+  items.push({ name: 'Status', value: 'status', description: 'Update status' });
   items.push({ name: 'Reorder', value: 'reorder', description: 'Change priority' });
+  items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a task' });
-  items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
-  return { title: 'Task', items };
+  const titleSuffix = ctx.currentSprintName ? ` \u2014 ${ctx.currentSprintName}` : '';
+  return { title: `Task${titleSuffix}`, items };
 }
 
 /**
@@ -230,7 +309,7 @@ function buildProgressSubMenu(): SubMenu {
 
   items.push({ name: 'Log', value: 'log', description: 'Log progress entry' });
   items.push({ name: 'Show', value: 'show', description: 'Show progress log' });
-  items.push(new Separator());
+  items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   return { title: 'Progress', items };
@@ -245,15 +324,15 @@ function buildProjectSubMenu(): SubMenu {
   items.push({ name: 'Add', value: 'add', description: 'Add a new project' });
   items.push({ name: 'List', value: 'list', description: 'List all projects' });
   items.push({ name: 'Show', value: 'show', description: 'Show project details' });
-  items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
-  items.push(new Separator());
+  items.push(titled('REPOSITORIES'));
   items.push({
     name: 'Add Repository',
     value: 'repo add',
     description: 'Add repository to project',
   });
   items.push({ name: 'Remove Repository', value: 'repo remove', description: 'Remove repository' });
-  items.push(new Separator());
+  items.push(line());
+  items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   return { title: 'Project', items };
@@ -269,7 +348,7 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
     case 'ticket':
       return buildTicketSubMenu(ctx);
     case 'task':
-      return buildTaskSubMenu();
+      return buildTaskSubMenu(ctx);
     case 'progress':
       return buildProgressSubMenu();
     case 'project':

@@ -53,6 +53,8 @@ export interface ExecutorOptions {
   maxRetries?: number;
   /** Stop launching new tasks on first failure */
   failFast?: boolean;
+  /** Skip precondition checks (e.g., unplanned tickets) */
+  force?: boolean;
 }
 
 /** Reason why execution stopped */

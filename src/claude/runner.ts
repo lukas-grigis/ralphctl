@@ -1,7 +1,14 @@
 import { confirm } from '@inquirer/prompts';
 import { log, printHeader, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
-import { areAllTasksDone, DependencyCycleError, getRemainingTasks, reorderByDependencies } from '@src/store/task.ts';
+import {
+  areAllTasksDone,
+  DependencyCycleError,
+  getRemainingTasks,
+  getTasks,
+  reorderByDependencies,
+} from '@src/store/task.ts';
+import { formatTicketId, getPendingRequirements } from '@src/store/ticket.ts';
 import {
   executeTaskLoop,
   executeTaskLoopParallel,
@@ -36,6 +43,57 @@ export async function runSprint(
 ): Promise<ExecutionSummary | undefined> {
   const id = await resolveSprintId(sprintId);
   let sprint = await getSprint(id);
+
+  // Precondition: warn if draft sprint has unrefined tickets
+  if (sprint.status === 'draft' && !options.force) {
+    const unrefinedTickets = getPendingRequirements(sprint.tickets);
+    if (unrefinedTickets.length > 0) {
+      showWarning(
+        `Sprint has ${String(unrefinedTickets.length)} unrefined ticket${unrefinedTickets.length !== 1 ? 's' : ''}:`
+      );
+      for (const ticket of unrefinedTickets) {
+        log.item(`${formatTicketId(ticket)} \u2014 ${ticket.title}`);
+      }
+      log.newline();
+
+      const shouldContinue = await confirm({
+        message: 'Start anyway without refining?',
+        default: false,
+      });
+      if (!shouldContinue) {
+        log.dim("Run 'sprint refine' first, or use --force to skip this check.");
+        log.newline();
+        return undefined;
+      }
+    }
+  }
+
+  // Precondition: block activation if draft sprint has approved tickets without tasks
+  if (sprint.status === 'draft' && !options.force) {
+    const tasks = await getTasks(id);
+    const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
+    const unplannedTickets = sprint.tickets.filter(
+      (t) => t.requirementStatus === 'approved' && !ticketIdsWithTasks.has(t.id)
+    );
+
+    if (unplannedTickets.length > 0) {
+      showWarning('Sprint has refined tickets with no planned tasks:');
+      for (const ticket of unplannedTickets) {
+        log.item(`${formatTicketId(ticket)} \u2014 ${ticket.title}`);
+      }
+      log.newline();
+
+      const shouldContinue = await confirm({
+        message: 'Start anyway without planning?',
+        default: false,
+      });
+      if (!shouldContinue) {
+        log.dim("Run 'sprint plan' first, or use --force to skip this check.");
+        log.newline();
+        return undefined;
+      }
+    }
+  }
 
   // Auto-activate if sprint is draft
   if (sprint.status === 'draft') {
