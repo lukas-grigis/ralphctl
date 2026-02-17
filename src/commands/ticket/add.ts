@@ -94,7 +94,7 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
  * Interactive ticket creation: prompts for fields and creates ticket.
  * Returns the created ticket on success, or null on failure.
  */
-async function addSingleTicketInteractive(options: TicketAddOptions): Promise<Ticket | null> {
+export async function addSingleTicketInteractive(options: TicketAddOptions): Promise<Ticket | null> {
   const { useEditor = false } = options;
 
   const projects = await listProjects();

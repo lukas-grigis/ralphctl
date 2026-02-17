@@ -11,7 +11,7 @@ import {
   showWarning,
 } from '@src/theme/ui.ts';
 import { sprintCreateCommand } from '@src/commands/sprint/create.ts';
-import { ticketAddCommand } from '@src/commands/ticket/add.ts';
+import { addSingleTicketInteractive } from '@src/commands/ticket/add.ts';
 import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
@@ -70,8 +70,8 @@ export async function runWizard(): Promise<void> {
 
     while (addMore) {
       try {
-        await ticketAddCommand({ interactive: true });
-        ticketCount++;
+        const ticket = await addSingleTicketInteractive({});
+        if (ticket) ticketCount++;
       } catch (err) {
         if (err instanceof Error) {
           log.error(`Failed to add ticket: ${err.message}`);
