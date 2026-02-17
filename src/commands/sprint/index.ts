@@ -160,6 +160,7 @@ Examples:
     .option('--concurrency <n>', 'Max parallel tasks (default: auto based on unique repos)')
     .option('--max-retries <n>', 'Max rate-limit retries per task (default: 5)')
     .option('--fail-fast', 'Stop launching new tasks on first failure')
+    .option('-f, --force', 'Skip precondition checks (e.g., unplanned tickets)')
     .addHelpText(
       'after',
       `
@@ -187,6 +188,7 @@ Parallel Execution:
           concurrency?: string;
           maxRetries?: string;
           failFast?: boolean;
+          force?: boolean;
         }
       ) => {
         const args: string[] = [];
@@ -198,6 +200,7 @@ Parallel Execution:
         if (opts?.concurrency) args.push('--concurrency', opts.concurrency);
         if (opts?.maxRetries) args.push('--max-retries', opts.maxRetries);
         if (opts?.failFast) args.push('--fail-fast');
+        if (opts?.force) args.push('--force');
         await sprintStartCommand(args);
       }
     );
