@@ -1,9 +1,23 @@
 import { Separator } from '@inquirer/prompts';
+import { colors } from '@src/theme/index.ts';
 import type { NextAction } from './dashboard.ts';
 
 /**
  * Dynamic context-aware menu system for interactive mode
  */
+
+const SEPARATOR_WIDTH = 48;
+
+/** Create a titled separator: ── LABEL ──────────── */
+function titled(label: string): SeparatorInstance {
+  const lineLen = Math.max(2, SEPARATOR_WIDTH - label.length - 4); // 4 = "── " + " "
+  return new Separator(colors.muted(`\n── ${label} ${'─'.repeat(lineLen)}`));
+}
+
+/** Plain line separator: ────────────────────────── */
+function line(): SeparatorInstance {
+  return new Separator(colors.muted('─'.repeat(SEPARATOR_WIDTH)));
+}
 
 interface Choice {
   name: string;
@@ -188,33 +202,27 @@ export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultVal
       description: ctx.nextAction.description,
     });
     defaultValue = actionValue;
-    items.push(new Separator());
   }
 
   // Workflow section — flat lifecycle-ordered actions
-  const workflowActions = buildWorkflowActions(ctx);
-  items.push(new Separator(' WORKFLOW'));
-  for (const action of workflowActions) {
+  items.push(titled('WORKFLOW'));
+  for (const action of buildWorkflowActions(ctx)) {
     items.push(action);
   }
 
-  items.push(new Separator());
-
   // Browse & manage submenus
-  items.push(new Separator(' BROWSE & MANAGE'));
+  items.push(titled('BROWSE & MANAGE'));
   items.push({ name: 'Sprints', value: 'sprint', description: 'List, show, switch, delete' });
   items.push({ name: 'Tickets', value: 'ticket', description: 'List, show, edit, remove' });
   items.push({ name: 'Tasks', value: 'task', description: 'List, show, add, status, reorder' });
   items.push({ name: 'Projects', value: 'project', description: 'List, show, add, remove' });
   items.push({ name: 'Progress', value: 'progress', description: 'Log and view progress' });
 
-  items.push(new Separator());
-
-  // Quick Start wizard — only when no sprint exists
+  // Utilities
+  items.push(line());
   if (!ctx.currentSprintId) {
     items.push({ name: 'Quick Start Wizard', value: 'wizard', description: 'Guided sprint setup' });
   }
-
   items.push({ name: 'Status Dashboard', value: 'status', description: 'Full sprint overview' });
   items.push({ name: 'Exit', value: 'exit', description: 'Goodbye!' });
 
