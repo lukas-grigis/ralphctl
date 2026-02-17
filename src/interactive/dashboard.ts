@@ -153,7 +153,7 @@ export function renderStatusHeader(data: DashboardData | null): string[] {
  * Returns an array of lines to display.
  */
 function renderDashboard(data: DashboardData): string[] {
-  const { sprint, tasks, approvedCount, pendingCount, blockedCount } = data;
+  const { sprint, tasks, approvedCount, blockedCount } = data;
   const chars = boxChars.rounded;
 
   const todoCount = tasks.filter((t) => t.status === 'todo').length;
@@ -184,11 +184,13 @@ function renderDashboard(data: DashboardData): string[] {
     lines.push(`  ${bar}  ${detail}`);
   }
 
-  // Ticket requirement status
-  if (ticketCount > 0) {
-    const approvedPart = colors.success(`${String(approvedCount)}/${String(ticketCount)} approved`);
-    const pendingPart = pendingCount > 0 ? `  ${colors.warning(`${String(pendingCount)} pending refinement`)}` : '';
-    lines.push(`  ${colors.muted('Requirements:')} ${approvedPart}${pendingPart}`);
+  // Ticket requirement status (draft only — not relevant for active/closed)
+  if (sprint.status === 'draft' && ticketCount > 0) {
+    const refinedColor = approvedCount === ticketCount ? colors.success : colors.warning;
+    const refinedPart = refinedColor(`Refined: ${String(approvedCount)}/${String(ticketCount)}`);
+    const plannedColor = data.plannedTicketCount === ticketCount ? colors.success : colors.muted;
+    const plannedPart = plannedColor(`Planned: ${String(data.plannedTicketCount)}/${String(ticketCount)}`);
+    lines.push(`  ${refinedPart}  ${colors.muted('|')}  ${plannedPart}`);
   }
 
   // Blocked task alerts

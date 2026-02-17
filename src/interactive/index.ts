@@ -216,8 +216,8 @@ export async function interactiveMode(): Promise<void> {
     try {
       const { ctx, dashboardData } = await getMenuContext();
 
-      // Visual separator between iterations
-      printSeparator();
+      // Clear previous content for a clean re-render (scrollback preserved)
+      clearScreen();
       log.newline();
 
       // Persistent status header before main menu

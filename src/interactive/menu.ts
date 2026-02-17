@@ -235,6 +235,7 @@ export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultVal
 function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
 
+  items.push(titled('BROWSE'));
   items.push({ name: 'List', value: 'list', description: 'List all sprints' });
   items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
   items.push({ name: 'Set Current', value: 'current', description: 'Set current sprint' });
@@ -244,8 +245,8 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
     value: 'requirements',
     description: 'Export refined requirements to file',
   });
+  items.push(line());
   items.push({ name: 'Delete', value: 'delete', description: 'Delete a sprint permanently' });
-  items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   const titleSuffix = ctx.currentSprintName
@@ -269,8 +270,8 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
   items.push({ name: 'Edit', value: 'edit', description: 'Edit a ticket' });
   items.push({ name: 'List', value: 'list', description: 'List all tickets' });
   items.push({ name: 'Show', value: 'show', description: 'Show ticket details' });
+  items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a ticket' });
-  items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   const titleSuffix = ctx.currentSprintName ? ` \u2014 ${ctx.currentSprintName}` : '';
@@ -283,16 +284,17 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
 function buildTaskSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
 
-  items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
-  items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
+  items.push(titled('VIEW'));
   items.push({ name: 'List', value: 'list', description: 'List all tasks' });
   items.push({ name: 'Show', value: 'show', description: 'Show task details' });
-  items.push(new Separator());
-  items.push({ name: 'Status', value: 'status', description: 'Update status' });
   items.push({ name: 'Next', value: 'next', description: 'Get next task' });
+  items.push(titled('MANAGE'));
+  items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
+  items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
+  items.push({ name: 'Status', value: 'status', description: 'Update status' });
   items.push({ name: 'Reorder', value: 'reorder', description: 'Change priority' });
+  items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a task' });
-  items.push(new Separator());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   const titleSuffix = ctx.currentSprintName ? ` \u2014 ${ctx.currentSprintName}` : '';
@@ -307,7 +309,7 @@ function buildProgressSubMenu(): SubMenu {
 
   items.push({ name: 'Log', value: 'log', description: 'Log progress entry' });
   items.push({ name: 'Show', value: 'show', description: 'Show progress log' });
-  items.push(new Separator());
+  items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   return { title: 'Progress', items };
@@ -322,15 +324,15 @@ function buildProjectSubMenu(): SubMenu {
   items.push({ name: 'Add', value: 'add', description: 'Add a new project' });
   items.push({ name: 'List', value: 'list', description: 'List all projects' });
   items.push({ name: 'Show', value: 'show', description: 'Show project details' });
-  items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
-  items.push(new Separator());
+  items.push(titled('REPOSITORIES'));
   items.push({
     name: 'Add Repository',
     value: 'repo add',
     description: 'Add repository to project',
   });
   items.push({ name: 'Remove Repository', value: 'repo remove', description: 'Remove repository' });
-  items.push(new Separator());
+  items.push(line());
+  items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   return { title: 'Project', items };
