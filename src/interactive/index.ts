@@ -206,19 +206,14 @@ async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: Dash
  * Run the interactive REPL mode
  */
 export async function interactiveMode(): Promise<void> {
-  clearScreen();
-
-  // Welcome banner on first launch
-  showWelcomeBanner();
-
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
       const { ctx, dashboardData } = await getMenuContext();
 
-      // Clear previous content for a clean re-render (scrollback preserved)
+      // Clear and re-render banner + content each iteration
       clearScreen();
-      log.newline();
+      showWelcomeBanner();
 
       // Persistent status header before main menu
       const statusLines = renderStatusHeader(dashboardData);
