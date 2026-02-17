@@ -128,8 +128,8 @@ export function renderStatusHeader(data: DashboardData | null): string[] {
   const taskPart = `${String(totalTasks)} task${totalTasks !== 1 ? 's' : ''}`;
   lines.push(`  ${icons.sprint} ${sprintLabel}  ${statusBadge}  ${colors.muted(`|  ${ticketPart}  |  ${taskPart}`)}`);
 
-  // Line 2: task progress (active) or refined/planned counts (draft)
-  if (sprint.status === 'active' && totalTasks > 0) {
+  // Line 2: task progress (active/closed) or refined/planned counts (draft)
+  if ((sprint.status === 'active' || sprint.status === 'closed') && totalTasks > 0) {
     const doneCount = tasks.filter((t) => t.status === 'done').length;
     const bar = progressBar(doneCount, totalTasks, { width: 15 });
     const inProgressCount = tasks.filter((t) => t.status === 'in_progress').length;
@@ -137,7 +137,7 @@ export function renderStatusHeader(data: DashboardData | null): string[] {
     lines.push(
       `  ${bar}  ${colors.muted(`${String(doneCount)} done, ${String(inProgressCount)} active, ${String(todoCount)} todo`)}`
     );
-  } else if (ticketCount > 0) {
+  } else if (sprint.status === 'draft' && ticketCount > 0) {
     const refinedColor = approvedCount === ticketCount ? colors.success : colors.warning;
     const refinedPart = refinedColor(`Refined: ${String(approvedCount)}/${String(ticketCount)}`);
     const plannedColor = data.plannedTicketCount === ticketCount ? colors.success : colors.muted;

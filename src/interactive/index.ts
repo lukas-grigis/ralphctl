@@ -126,13 +126,11 @@ function showFarewell(): void {
 }
 
 /**
- * Show the welcome banner with gradient styling and a quote.
+ * Show the welcome banner with gradient styling.
+ * Note: showBanner() already prints a Ralph quote.
  */
 function showWelcomeBanner(): void {
   showBanner();
-  const quote = getQuoteForContext('idle');
-  console.log(colors.muted(`       "${quote}"`));
-  console.log('');
 }
 
 /**
