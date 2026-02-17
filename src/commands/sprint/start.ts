@@ -55,6 +55,8 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       options.failFast = true;
     } else if (arg === '--no-fail-fast') {
       options.failFast = false;
+    } else if (arg === '-f' || arg === '--force') {
+      options.force = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }
