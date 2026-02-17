@@ -10,19 +10,21 @@ import type { Sprint, Tasks } from '@src/schemas/index.ts';
 // STATUS DASHBOARD
 // ============================================================================
 
-interface DashboardData {
+export interface DashboardData {
   sprint: Sprint;
   tasks: Tasks;
   approvedCount: number;
   pendingCount: number;
   blockedCount: number;
+  /** Number of tickets that have at least one associated task */
+  plannedTicketCount: number;
 }
 
 /**
  * Load dashboard data from the current sprint.
  * Returns null if no current sprint is set.
  */
-async function loadDashboardData(): Promise<DashboardData | null> {
+export async function loadDashboardData(): Promise<DashboardData | null> {
   const sprintId = await getCurrentSprint();
   if (!sprintId) return null;
 
@@ -40,16 +42,27 @@ async function loadDashboardData(): Promise<DashboardData | null> {
       (t) => t.status !== 'done' && t.blockedBy.length > 0 && !t.blockedBy.every((id) => doneIds.has(id))
     ).length;
 
-    return { sprint, tasks, approvedCount, pendingCount, blockedCount };
+    // Count tickets that have at least one associated task
+    const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
+    const plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
+
+    return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount };
   } catch {
     return null;
   }
 }
 
+export interface NextAction {
+  label: string;
+  description: string;
+  group: string;
+  subCommand: string;
+}
+
 /**
  * Determine the suggested next action based on sprint state.
  */
-function getNextAction(data: DashboardData): { description: string; command: string } | null {
+export function getNextAction(data: DashboardData): NextAction | null {
   const { sprint, tasks, pendingCount, approvedCount } = data;
   const ticketCount = sprint.tickets.length;
   const totalTasks = tasks.length;
@@ -57,27 +70,82 @@ function getNextAction(data: DashboardData): { description: string; command: str
 
   if (sprint.status === 'draft') {
     if (ticketCount === 0) {
-      return { description: 'Add tickets:', command: 'ralphctl ticket add' };
+      return { label: 'Add Ticket', description: 'No tickets yet', group: 'ticket', subCommand: 'add' };
     }
     if (pendingCount > 0) {
-      return { description: 'Refine requirements:', command: 'ralphctl sprint refine' };
+      return {
+        label: 'Refine Requirements',
+        description: `${String(pendingCount)} ticket${pendingCount !== 1 ? 's' : ''} pending`,
+        group: 'sprint',
+        subCommand: 'refine',
+      };
     }
     if (approvedCount > 0 && totalTasks === 0) {
-      return { description: 'Plan tasks:', command: 'ralphctl sprint plan' };
+      return { label: 'Plan Tasks', description: 'Requirements approved', group: 'sprint', subCommand: 'plan' };
     }
     if (totalTasks > 0) {
-      return { description: 'Start sprint:', command: 'ralphctl sprint start' };
+      return {
+        label: 'Start Sprint',
+        description: `${String(totalTasks)} task${totalTasks !== 1 ? 's' : ''} ready`,
+        group: 'sprint',
+        subCommand: 'start',
+      };
     }
   }
 
   if (sprint.status === 'active') {
     if (allDone) {
-      return { description: 'Close sprint:', command: 'ralphctl sprint close' };
+      return { label: 'Close Sprint', description: 'All tasks done', group: 'sprint', subCommand: 'close' };
     }
-    return { description: 'Continue work:', command: 'ralphctl sprint start' };
+    return {
+      label: 'Continue Work',
+      description: `${String(totalTasks - tasks.filter((t) => t.status === 'done').length)} task${totalTasks - tasks.filter((t) => t.status === 'done').length !== 1 ? 's' : ''} remaining`,
+      group: 'sprint',
+      subCommand: 'start',
+    };
   }
 
   return null;
+}
+
+/**
+ * Render a compact 2-3 line status header for display above the main menu.
+ * Returns an array of lines, or empty array if no data.
+ */
+export function renderStatusHeader(data: DashboardData | null): string[] {
+  if (!data) return [];
+
+  const { sprint, tasks, approvedCount } = data;
+  const totalTasks = tasks.length;
+  const ticketCount = sprint.tickets.length;
+
+  const lines: string[] = [];
+
+  // Line 1: sprint name, status, counts
+  const sprintLabel = colors.highlight(sprint.name);
+  const statusBadge = formatSprintStatus(sprint.status);
+  const ticketPart = `${String(ticketCount)} ticket${ticketCount !== 1 ? 's' : ''}`;
+  const taskPart = `${String(totalTasks)} task${totalTasks !== 1 ? 's' : ''}`;
+  lines.push(`  ${icons.sprint} ${sprintLabel}  ${statusBadge}  ${colors.muted(`|  ${ticketPart}  |  ${taskPart}`)}`);
+
+  // Line 2: task progress (active/closed) or refined/planned counts (draft)
+  if ((sprint.status === 'active' || sprint.status === 'closed') && totalTasks > 0) {
+    const doneCount = tasks.filter((t) => t.status === 'done').length;
+    const bar = progressBar(doneCount, totalTasks, { width: 15 });
+    const inProgressCount = tasks.filter((t) => t.status === 'in_progress').length;
+    const todoCount = tasks.filter((t) => t.status === 'todo').length;
+    lines.push(
+      `  ${bar}  ${colors.muted(`${String(doneCount)} done, ${String(inProgressCount)} active, ${String(todoCount)} todo`)}`
+    );
+  } else if (sprint.status === 'draft' && ticketCount > 0) {
+    const refinedColor = approvedCount === ticketCount ? colors.success : colors.warning;
+    const refinedPart = refinedColor(`Refined: ${String(approvedCount)}/${String(ticketCount)}`);
+    const plannedColor = data.plannedTicketCount === ticketCount ? colors.success : colors.muted;
+    const plannedPart = plannedColor(`Planned: ${String(data.plannedTicketCount)}/${String(ticketCount)}`);
+    lines.push(`  ${refinedPart}  ${colors.muted('|')}  ${plannedPart}`);
+  }
+
+  return lines;
 }
 
 /**
@@ -85,7 +153,7 @@ function getNextAction(data: DashboardData): { description: string; command: str
  * Returns an array of lines to display.
  */
 function renderDashboard(data: DashboardData): string[] {
-  const { sprint, tasks, approvedCount, pendingCount, blockedCount } = data;
+  const { sprint, tasks, approvedCount, blockedCount } = data;
   const chars = boxChars.rounded;
 
   const todoCount = tasks.filter((t) => t.status === 'todo').length;
@@ -116,11 +184,13 @@ function renderDashboard(data: DashboardData): string[] {
     lines.push(`  ${bar}  ${detail}`);
   }
 
-  // Ticket requirement status
-  if (ticketCount > 0) {
-    const approvedPart = colors.success(`${String(approvedCount)}/${String(ticketCount)} approved`);
-    const pendingPart = pendingCount > 0 ? `  ${colors.warning(`${String(pendingCount)} pending refinement`)}` : '';
-    lines.push(`  ${colors.muted('Requirements:')} ${approvedPart}${pendingPart}`);
+  // Ticket requirement status (draft only — not relevant for active/closed)
+  if (sprint.status === 'draft' && ticketCount > 0) {
+    const refinedColor = approvedCount === ticketCount ? colors.success : colors.warning;
+    const refinedPart = refinedColor(`Refined: ${String(approvedCount)}/${String(ticketCount)}`);
+    const plannedColor = data.plannedTicketCount === ticketCount ? colors.success : colors.muted;
+    const plannedPart = plannedColor(`Planned: ${String(data.plannedTicketCount)}/${String(ticketCount)}`);
+    lines.push(`  ${refinedPart}  ${colors.muted('|')}  ${plannedPart}`);
   }
 
   // Blocked task alerts
@@ -134,7 +204,7 @@ function renderDashboard(data: DashboardData): string[] {
   const nextAction = getNextAction(data);
   if (nextAction) {
     lines.push(
-      `  ${colors.muted(icons.tip)} ${colors.muted(nextAction.description)} ${colors.highlight(nextAction.command)}`
+      `  ${colors.muted(icons.tip)} ${colors.muted(nextAction.label + ':')} ${colors.highlight(nextAction.description)}`
     );
   }
 

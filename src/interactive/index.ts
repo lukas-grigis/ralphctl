@@ -1,12 +1,13 @@
-import { input, select } from '@inquirer/prompts';
-import { clearScreen, emoji, formatMuted, log, printSeparator, showBanner } from '@src/theme/ui.ts';
+import { select } from '@inquirer/prompts';
+import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
-import { buildMainMenu, buildSubMenu, type MenuContext, type MenuItem } from './menu.ts';
-import { showDashboard } from './dashboard.ts';
+import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
+import { loadDashboardData, renderStatusHeader, showDashboard } from './dashboard.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
 import { getTasks } from '@src/store/task.ts';
+import { getNextAction, type DashboardData } from './dashboard.ts';
 import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
 
 // Command imports - project
@@ -125,20 +126,21 @@ function showFarewell(): void {
 }
 
 /**
- * Show the welcome banner with gradient styling and a quote.
+ * Show the welcome banner with gradient styling.
+ * Note: showBanner() already prints a Ralph quote.
  */
 function showWelcomeBanner(): void {
   showBanner();
-  const quote = getQuoteForContext('idle');
-  console.log(colors.muted(`       "${quote}"`));
-  console.log('');
 }
 
 /**
  * Gather current application state for context-aware menus.
  * Swallows errors gracefully — missing data means empty context.
+ * Returns both MenuContext and optional DashboardData for status header.
  */
-async function getMenuContext(): Promise<MenuContext> {
+async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: DashboardData | null }> {
+  let dashboardData: DashboardData | null = null;
+
   const ctx: MenuContext = {
     hasProjects: false,
     projectCount: 0,
@@ -151,6 +153,8 @@ async function getMenuContext(): Promise<MenuContext> {
     tasksInProgress: 0,
     pendingRequirements: 0,
     allRequirementsApproved: false,
+    plannedTicketCount: 0,
+    nextAction: null,
   };
 
   try {
@@ -177,6 +181,10 @@ async function getMenuContext(): Promise<MenuContext> {
         ctx.taskCount = tasks.length;
         ctx.tasksDone = tasks.filter((t) => t.status === 'done').length;
         ctx.tasksInProgress = tasks.filter((t) => t.status === 'in_progress').length;
+
+        // Count tickets that have at least one associated task
+        const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
+        ctx.plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
       } catch {
         // No tasks file yet
       }
@@ -185,7 +193,13 @@ async function getMenuContext(): Promise<MenuContext> {
     // No current sprint or sprint file missing
   }
 
-  return ctx;
+  // Load dashboard data for status header and next action
+  dashboardData = await loadDashboardData();
+  if (dashboardData) {
+    ctx.nextAction = getNextAction(dashboardData);
+  }
+
+  return { ctx, dashboardData };
 }
 
 /**
@@ -200,13 +214,28 @@ export async function interactiveMode(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
-      const ctx = await getMenuContext();
-      const mainMenu = buildMainMenu(ctx);
+      const { ctx, dashboardData } = await getMenuContext();
+
+      // Clear previous content for a clean re-render (scrollback preserved)
+      clearScreen();
+      log.newline();
+
+      // Persistent status header before main menu
+      const statusLines = renderStatusHeader(dashboardData);
+      if (statusLines.length > 0) {
+        for (const line of statusLines) {
+          console.log(line);
+        }
+        log.newline();
+      }
+
+      const { items: mainMenu, defaultValue } = buildMainMenu(ctx);
 
       const command = await select({
         message: `${emoji.donut} What would you like to do?`,
         choices: mainMenu,
-        pageSize: 15,
+        default: defaultValue,
+        pageSize: 25,
         loop: true,
         theme: selectTheme,
       });
@@ -216,32 +245,27 @@ export async function interactiveMode(): Promise<void> {
         break;
       }
 
+      // Direct action dispatch (next action + workflow actions)
+      if (command.startsWith('action:')) {
+        const parts = command.split(':');
+        const group = parts[1] ?? '';
+        const subCommand = parts[2] ?? '';
+        log.newline();
+        await executeCommand(group, subCommand);
+        log.newline();
+        continue;
+      }
+
       if (command === 'status') {
         log.newline();
         await showDashboard();
         log.newline();
-        await input({
-          message: formatMuted('Press Enter to continue...'),
-        });
         continue;
       }
 
       if (command === 'wizard') {
         const { runWizard } = await import('./wizard.ts');
         await runWizard();
-        continue;
-      }
-
-      if (command === 'switch-sprint') {
-        const { sprintSwitchCommand } = await import('@src/commands/sprint/switch.ts');
-        log.newline();
-        await sprintSwitchCommand();
-        log.newline();
-        await input({
-          message: formatMuted('Press Enter to continue...'),
-        });
-        clearScreen();
-        showBanner();
         continue;
       }
 
@@ -260,8 +284,9 @@ export async function interactiveMode(): Promise<void> {
 }
 
 /**
- * Handle a submenu with persistent status header and smooth transitions.
+ * Handle a submenu with smooth transitions.
  * Rebuilds the submenu on each iteration so disabled states refresh after actions.
+ * Workflow actions (create, refine, plan, start, etc.) return to main menu.
  */
 async function handleSubMenu(
   commandGroup: string,
@@ -283,22 +308,20 @@ async function handleSubMenu(
       });
 
       if (subCommand === 'back') {
-        // Return to main menu — show banner again
-        clearScreen();
-        showBanner();
         break;
       }
 
       log.newline();
       await executeCommand(commandGroup, subCommand);
-
       log.newline();
-      await input({
-        message: formatMuted('Press Enter to continue...'),
-      });
 
-      // Refresh menu context after action so disabled states update
-      const refreshedCtx = await getMenuContext();
+      // Workflow actions return to main menu so next action updates
+      if (isWorkflowAction(commandGroup, subCommand)) {
+        break;
+      }
+
+      // Management actions stay in submenu — refresh context
+      const { ctx: refreshedCtx } = await getMenuContext();
       const refreshedMenu = buildSubMenu(commandGroup, refreshedCtx);
       if (refreshedMenu) {
         currentTitle = refreshedMenu.title;
@@ -307,8 +330,6 @@ async function handleSubMenu(
     } catch (err) {
       if ((err as Error).name === 'ExitPromptError') {
         // Ctrl+C in submenu returns to main menu
-        clearScreen();
-        showBanner();
         break;
       }
       throw err;
