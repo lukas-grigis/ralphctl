@@ -14,10 +14,10 @@ import {
   executeTaskLoopParallel,
   type ExecutionSummary,
   type ExecutorOptions,
-} from '@src/claude/executor.ts';
+} from '@src/ai/executor.ts';
 
 // Re-export types for convenience
-export type { ExecutorOptions, ExecutionSummary } from '@src/claude/executor.ts';
+export type { ExecutorOptions, ExecutionSummary } from '@src/ai/executor.ts';
 
 // Alias for backward compatibility
 export type RunnerOptions = ExecutorOptions;
