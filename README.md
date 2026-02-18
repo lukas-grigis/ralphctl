@@ -1,3 +1,4 @@
+[![CI](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml/badge.svg)](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml)
 ![Node.js](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
@@ -53,21 +54,69 @@ You write tickets, your AI buddy (Claude or Copilot) refines the requirements, t
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) **>= 24.0.0**
-- [pnpm](https://pnpm.io/) package manager
+- [Node.js](https://nodejs.org/) **>= 24.0.0** (managed via [mise](https://mise.jdx.dev/) — see `mise.toml`)
+- [pnpm](https://pnpm.io/) **>= 10**
 - Either:
   - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — for Claude Code
   - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`copilot`) — for GitHub Copilot
 
-### Install from Source
+### Clone & Install
 
 ```bash
-git clone https://github.com/grigis/ralphctl.git
+git clone https://github.com/lukas-grigis/ralphctl.git
 cd ralphctl
 pnpm install
+```
 
-# Run in development mode
-pnpm dev --help
+### Make `ralphctl` Available on Your PATH
+
+**Option A — pnpm link (recommended):**
+
+```bash
+pnpm link --global
+ralphctl --help          # works from anywhere
+```
+
+**Option B — add `bin/` to your PATH:**
+
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+export PATH="/path/to/ralphctl/bin:$PATH"
+```
+
+**Option C — development mode only:**
+
+```bash
+pnpm dev --help          # runs via tsx, no global install needed
+```
+
+### Verify Installation
+
+```bash
+ralphctl --version       # prints version
+ralphctl --help          # shows all commands
+ralphctl                 # interactive menu mode
+```
+
+### Data Directory
+
+RalphCTL stores all sprint, project, and task data in a local `ralphctl-data/` directory inside the cloned repo (git-ignored by default):
+
+```
+ralphctl-data/
+├── config.json          # Global config (current sprint, AI provider)
+├── projects.json        # Project definitions
+└── sprints/             # Per-sprint directories
+    └── <sprint-id>/
+        ├── sprint.json  # Sprint + tickets
+        ├── tasks.json   # Task array
+        └── progress.md  # Append-only log
+```
+
+To store data elsewhere, set the `RALPHCTL_ROOT` environment variable:
+
+```bash
+export RALPHCTL_ROOT="$HOME/.ralphctl"
 ```
 
 ---
@@ -150,22 +199,24 @@ Both CLIs must be in your PATH.
 
 ---
 
-## CLI overview
+## CLI Overview
 
-| Command                  | Description                      |
-| ------------------------ | -------------------------------- |
-| `ralphctl`               | Interactive menu mode            |
-| `ralphctl config show`   | Show current configuration       |
-| `ralphctl config set`    | Set configuration values         |
-| `ralphctl project add`   | Register a project and its repos |
-| `ralphctl sprint create` | Create a new sprint              |
-| `ralphctl ticket add`    | Add a work item to a sprint      |
-| `ralphctl sprint refine` | Refine requirements with AI      |
-| `ralphctl sprint plan`   | Generate tasks from requirements |
-| `ralphctl sprint start`  | Execute tasks with AI            |
-| `ralphctl sprint close`  | Close an active sprint           |
-| `ralphctl task list`     | List tasks in the current sprint |
-| `ralphctl task next`     | Show the next unblocked task     |
+| Command                  | Description                        |
+| ------------------------ | ---------------------------------- |
+| `ralphctl`               | Interactive menu mode              |
+| `ralphctl config show`   | Show current configuration         |
+| `ralphctl config set`    | Set configuration values           |
+| `ralphctl project add`   | Register a project and its repos   |
+| `ralphctl sprint create` | Create a new sprint                |
+| `ralphctl ticket add`    | Add a work item to a sprint        |
+| `ralphctl sprint refine` | Refine requirements with AI        |
+| `ralphctl sprint plan`   | Generate tasks from requirements   |
+| `ralphctl sprint ideate` | Quick single-session refine + plan |
+| `ralphctl sprint start`  | Execute tasks with AI              |
+| `ralphctl sprint health` | Diagnose blockers and stale tasks  |
+| `ralphctl sprint close`  | Close an active sprint             |
+| `ralphctl task list`     | List tasks in the current sprint   |
+| `ralphctl task next`     | Show the next unblocked task       |
 
 Run `ralphctl <command> --help` for details on any command.
 
@@ -173,13 +224,13 @@ Run `ralphctl <command> --help` for details on any command.
 
 ## Documentation
 
-| Document                             | Description                                       |
-| ------------------------------------ | ------------------------------------------------- |
-| [REQUIREMENTS.md](./REQUIREMENTS.md) | Feature rationale and design decisions            |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Technical architecture, data models, service APIs |
-| [CLAUDE.md](./CLAUDE.md)             | Developer guide and Claude Code project config    |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute                                 |
-| [CHANGELOG.md](./CHANGELOG.md)       | Version history                                   |
+| Document                                          | Description                                       |
+| ------------------------------------------------- | ------------------------------------------------- |
+| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md) | Feature rationale and design decisions            |
+| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) | Technical architecture, data models, service APIs |
+| [CLAUDE.md](./CLAUDE.md)                          | Developer guide and Claude Code project config    |
+| [CONTRIBUTING.md](./CONTRIBUTING.md)              | How to contribute                                 |
+| [CHANGELOG.md](./CHANGELOG.md)                    | Version history                                   |
 
 ---
 
@@ -208,7 +259,7 @@ This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md) code of co
 
 ## Security
 
-To report a vulnerability, use [GitHub's private reporting](https://github.com/grigis/ralphctl/security/advisories/new). See [SECURITY.md](./SECURITY.md) for details.
+To report a vulnerability, use [GitHub's private reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new). See [SECURITY.md](./SECURITY.md) for details.
 
 ---
 

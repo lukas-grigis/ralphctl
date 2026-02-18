@@ -21,7 +21,7 @@ Thanks for your interest in contributing! RalphCTL is a side project and contrib
 ### Setup
 
 ```bash
-git clone https://github.com/grigis/ralphctl.git
+git clone https://github.com/lukas-grigis/ralphctl.git
 cd ralphctl
 pnpm install
 ```
@@ -93,14 +93,14 @@ src/
 └── utils/           # Pure utilities
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full technical reference.
+See [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) for the full technical reference.
 
 ## What we're looking for
 
 - Bug fixes with regression tests
 - Documentation improvements
 - Performance improvements
-- New features that align with the [REQUIREMENTS.md](./REQUIREMENTS.md)
+- New features that align with the [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md)
 
 ## What we'll probably decline
 
