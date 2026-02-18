@@ -1,9 +1,9 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { select } from '@inquirer/prompts';
 import { emoji } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';
+import { escapableSelect } from './escapable.ts';
 
 interface BrowseChoice {
   name: string;
@@ -116,12 +116,16 @@ export async function browseDirectory(message = 'Browse to directory:', startPat
     });
 
     try {
-      const selected = await select({
+      const selected = await escapableSelect({
         message: `${emoji.donut} ${message}\n   ${muted(currentPath)}`,
         choices,
         pageSize: 15,
         loop: false,
       });
+
+      if (selected === null) {
+        return null;
+      }
 
       switch (selected) {
         case '__SELECT__':
@@ -139,7 +143,7 @@ export async function browseDirectory(message = 'Browse to directory:', startPat
           currentPath = selected;
       }
     } catch (err) {
-      // Handle Ctrl+C / escape
+      // Handle Ctrl+C
       if ((err as Error).name === 'ExitPromptError') {
         return null;
       }
