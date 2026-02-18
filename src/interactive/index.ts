@@ -1,7 +1,7 @@
 import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
-import { loadDashboardData, renderStatusHeader, showDashboard } from './dashboard.ts';
+import { loadDashboardData, renderStatusHeader } from './dashboard.ts';
 import { getAiProvider, getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
@@ -94,6 +94,8 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     health: () => sprintHealthCommand(),
     close: () => sprintCloseCommand([]),
     delete: () => sprintDeleteCommand([]),
+    'progress show': () => progressShowCommand(),
+    'progress log': () => progressLogCommand([]),
   },
   ticket: {
     add: () => ticketAddCommand({ interactive: true }),
@@ -142,6 +144,21 @@ function showFarewell(): void {
   printSeparator();
   console.log(`  ${emoji.donut}  ${colors.muted(quote)}`);
   console.log('');
+}
+
+/**
+ * Pause until the user presses Enter so they can read command output
+ * before the screen is cleared for the next menu render.
+ */
+async function pressEnterToContinue(): Promise<void> {
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  await new Promise<void>((resolve) => {
+    rl.question(colors.muted('  Press Enter to continue...'), () => {
+      rl.close();
+      resolve();
+    });
+  });
 }
 
 /**
@@ -232,6 +249,8 @@ async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: Dash
  * Run the interactive REPL mode
  */
 export async function interactiveMode(): Promise<void> {
+  let escPressed = false;
+
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
     try {
@@ -252,14 +271,26 @@ export async function interactiveMode(): Promise<void> {
 
       const { items: mainMenu, defaultValue } = buildMainMenu(ctx);
 
-      const command = await select({
-        message: `${emoji.donut} What would you like to do?`,
-        choices: mainMenu,
-        default: defaultValue,
-        pageSize: 25,
-        loop: true,
-        theme: selectTheme,
-      });
+      // ESC re-renders with Exit pre-selected; Enter on Exit actually exits
+      const effectiveDefault = escPressed ? 'exit' : defaultValue;
+      escPressed = false;
+
+      const command = await escapableSelect(
+        {
+          message: `${emoji.donut} What would you like to do?`,
+          choices: mainMenu,
+          default: effectiveDefault,
+          pageSize: 30,
+          loop: true,
+          theme: selectTheme,
+        },
+        { escLabel: 'exit' }
+      );
+
+      if (command === null) {
+        escPressed = true;
+        continue;
+      }
 
       if (command === 'exit') {
         showFarewell();
@@ -274,13 +305,7 @@ export async function interactiveMode(): Promise<void> {
         log.newline();
         await executeCommand(group, subCommand);
         log.newline();
-        continue;
-      }
-
-      if (command === 'status') {
-        log.newline();
-        await showDashboard();
-        log.newline();
+        await pressEnterToContinue();
         continue;
       }
 
@@ -323,7 +348,7 @@ async function handleSubMenu(
       const subCommand = await escapableSelect({
         message: `${emoji.donut} ${currentTitle}`,
         choices: currentItems,
-        pageSize: 15,
+        pageSize: 30,
         loop: true,
         theme: selectTheme,
       });

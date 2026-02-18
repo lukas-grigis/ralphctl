@@ -17,7 +17,7 @@ function defaultKeysHelpTip(keys: [string, string][]): string {
  */
 type KeysHelpTip = (keys: [string, string][]) => string | undefined;
 
-function withEscapeHint<Value>(config: SelectConfig<Value>): SelectConfig<Value> {
+function withEscapeHint<Value>(config: SelectConfig<Value>, escLabel = 'back'): SelectConfig<Value> {
   const originalTip = config.theme?.style?.keysHelpTip as KeysHelpTip | undefined;
 
   return {
@@ -27,7 +27,7 @@ function withEscapeHint<Value>(config: SelectConfig<Value>): SelectConfig<Value>
       style: {
         ...config.theme?.style,
         keysHelpTip: (keys: [string, string][]) => {
-          const allKeys: [string, string][] = [...keys, ['esc', 'back']];
+          const allKeys: [string, string][] = [...keys, ['esc', escLabel]];
           return originalTip ? originalTip(allKeys) : defaultKeysHelpTip(allKeys);
         },
       },
@@ -40,13 +40,18 @@ function withEscapeHint<Value>(config: SelectConfig<Value>): SelectConfig<Value>
  *
  * Listens for the Escape key and aborts the prompt, returning null.
  * Ctrl+C (ExitPromptError) propagates unchanged so callers can handle it.
- * Appends an "esc back" hint to the bottom help line.
+ * Appends an "esc <label>" hint to the bottom help line.
  *
  * Uses duck-typing for AbortPromptError to avoid depending on @inquirer/core directly.
  *
+ * @param config - select prompt config
+ * @param options.escLabel - hint label shown next to "esc" (default: "back")
  * @returns the selected value, or null if the user pressed Escape
  */
-export async function escapableSelect<Value>(config: SelectConfig<Value>): Promise<Value | null> {
+export async function escapableSelect<Value>(
+  config: SelectConfig<Value>,
+  options?: { escLabel?: string }
+): Promise<Value | null> {
   const controller = new AbortController();
 
   // Ensure stdin emits 'keypress' events (idempotent — safe to call multiple times)
@@ -61,7 +66,9 @@ export async function escapableSelect<Value>(config: SelectConfig<Value>): Promi
   process.stdin.on('keypress', onKeypress);
 
   try {
-    const result = await select(withEscapeHint(config), { signal: controller.signal });
+    const result = await select(withEscapeHint(config, options?.escLabel ?? 'back'), {
+      signal: controller.signal,
+    });
     return result;
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortPromptError') {
