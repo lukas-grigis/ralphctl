@@ -7,25 +7,25 @@ description: Claude CLI session spawning, agent harness design, and task executi
 
 ## Claude CLI Invocation from Node.js
 
-Claude process spawning is centralized in `src/claude/session.ts`:
+Claude process spawning is centralized in `src/ai/session.ts`:
 
 ```typescript
-import { spawnClaudeInteractive, spawnClaudeHeadless, spawnClaudeWithRetry } from '@src/claude/session.ts';
+import { spawnInteractive, spawnHeadless, spawnWithRetry } from '@src/ai/session.ts';
 
 // Interactive session with initial prompt (single spawn, stdio: inherit)
-spawnClaudeInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and follow the instructions', {
+spawnInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and follow the instructions', {
   cwd: projectPath,
   args: ['--add-dir', '/other/path'],
 });
 
 // Headless mode - prompt via stdin, captures output (uses --output-format json internally)
-const output = await spawnClaudeHeadless({
+const output = await spawnHeadless({
   cwd: projectPath,
   prompt: 'Your prompt content here',
 });
 
 // Headless with retry on rate limits + session resume
-const result = await spawnClaudeWithRetry(
+const result = await spawnWithRetry(
   {
     cwd: projectPath,
     prompt: 'Your prompt',
@@ -83,9 +83,9 @@ echo "Continue where you left off." | claude -p --resume "49e58e81-..." --output
 
 **Implementation in ralphctl:**
 
-- `spawnClaudeHeadlessRaw()` uses `--output-format json` and parses `session_id`
-- `spawnClaudeWithRetry()` stores session ID on rate-limit error, passes `--resume` on retry
-- `ClaudeSpawnError` includes `sessionId` field for capture even on failure
+- `spawnHeadlessRaw()` uses `--output-format json` and parses `session_id`
+- `spawnWithRetry()` stores session ID on rate-limit error, passes `--resume` on retry
+- `SpawnError` includes `sessionId` field for capture even on failure
 - Parallel executor tracks session IDs per task via `taskSessionIds` map
 
 ### Known Issues & Fixes
@@ -114,7 +114,7 @@ ralphctl orchestrates Claude agents to execute tasks. The harness design is base
 from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
 
 > **Note:** This section documents how ralphctl implements the harness (for ralphctl contributors).
-> The actual agent instructions are in `src/claude/prompts/task-execution.md`.
+> The actual agent instructions are in `src/ai/prompts/task-execution.md`.
 
 ### Key Implementation Details
 
