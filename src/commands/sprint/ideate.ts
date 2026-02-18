@@ -23,11 +23,13 @@ import { getTasks, validateImportTasks } from '@src/store/task.ts';
 import { getProject, listProjects } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getIdeateDir } from '@src/utils/paths.ts';
-import { buildIdeateAutoPrompt, buildIdeatePrompt } from '@src/claude/prompts/index.ts';
-import { spawnClaudeHeadless, spawnClaudeInteractive } from '@src/claude/session.ts';
+import { buildIdeateAutoPrompt, buildIdeatePrompt } from '@src/ai/prompts/index.ts';
+import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
 import { extractJsonObject } from '@src/utils/json-extract.ts';
+import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { getActiveProvider } from '@src/providers/index.ts';
 import {
   getTaskImportSchema,
   importTasks,
@@ -68,32 +70,37 @@ function parseArgs(args: string[]): { sprintId?: string; options: IdeateOptions 
   return { sprintId, options };
 }
 
-async function invokeClaudeInteractive(prompt: string, repoPaths: string[], ideateDir: string): Promise<void> {
+async function invokeAiInteractive(prompt: string, repoPaths: string[], ideateDir: string): Promise<void> {
   // Write full context to the ideation directory for reference
   const contextFile = join(ideateDir, 'ideate-context.md');
   await writeFile(contextFile, prompt, 'utf-8');
 
-  // Build initial prompt that tells Claude to start the two-phase process
+  const provider = await getActiveProvider();
+
+  // Build initial prompt that tells the AI to start the two-phase process
   const startPrompt = `I have a quick idea I want to implement. The full context is in ideate-context.md. Please read that file and help me refine the idea into requirements and then plan implementation tasks.`;
 
   // Build args - pass all repo paths in a single --add-dir
   const args: string[] = ['--add-dir', ...repoPaths];
 
-  const result = spawnClaudeInteractive(startPrompt, {
-    cwd: ideateDir,
-    args,
-    env: {
-      // Load CLAUDE.md from --add-dir paths too
-      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+  const result = spawnInteractive(
+    startPrompt,
+    {
+      cwd: ideateDir,
+      args,
+      env: provider.getSpawnEnv(),
     },
-  });
+    provider
+  );
 
   if (result.error) {
     throw new Error(result.error);
   }
 }
 
-async function invokeClaudeAuto(prompt: string, repoPaths: string[], ideateDir: string): Promise<string> {
+async function invokeAiAuto(prompt: string, repoPaths: string[], ideateDir: string): Promise<string> {
+  const provider = await getActiveProvider();
+
   // Build args - all repo paths via --add-dir (neutral CWD in ideation dir)
   const args: string[] = ['--permission-mode', 'plan', '--print'];
   for (const path of repoPaths) {
@@ -101,14 +108,14 @@ async function invokeClaudeAuto(prompt: string, repoPaths: string[], ideateDir: 
   }
   args.push('-p', prompt);
 
-  return spawnClaudeHeadless({
-    cwd: ideateDir,
-    args,
-    env: {
-      // Load CLAUDE.md from --add-dir paths too
-      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+  return spawnHeadless(
+    {
+      cwd: ideateDir,
+      args,
+      env: provider.getSpawnEnv(),
     },
-  });
+    provider
+  );
 }
 
 function parseIdeateOutput(output: string): { requirements: string; tasks: unknown[] } {
@@ -241,7 +248,10 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   console.log(field('Ticket ID', ticket.id));
   log.newline();
 
-  // Select which paths Claude should explore (same as plan.ts)
+  // Resolve AI provider early for display names
+  const providerName = providerDisplayName(await resolveProvider());
+
+  // Select which paths the AI should explore (same as plan.ts)
   let selectedPaths: string[];
   const totalRepos = project.repositories.length;
 
@@ -259,7 +269,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     const reposByProject = new Map<string, Repository[]>();
     reposByProject.set(projectName, project.repositories);
 
-    selectedPaths = await selectProjectPaths(reposByProject, 'Select paths for Claude to explore:');
+    selectedPaths = await selectProjectPaths(reposByProject, 'Select paths to explore:');
   }
 
   // Save selected paths to ticket.affectedRepositories
@@ -283,20 +293,20 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   await mkdir(ideateDir, { recursive: true });
 
   if (options.auto) {
-    // Headless mode - Claude generates autonomously
+    // Headless mode - AI generates autonomously
     const prompt = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositoriesText, schema);
-    const spinner = createSpinner('Claude is refining idea and planning tasks...');
+    const spinner = createSpinner(`${providerName} is refining idea and planning tasks...`);
     spinner.start();
 
     let output: string;
     try {
-      output = await invokeClaudeAuto(prompt, selectedPaths, ideateDir);
-      spinner.succeed('Claude finished');
+      output = await invokeAiAuto(prompt, selectedPaths, ideateDir);
+      spinner.succeed(`${providerName} finished`);
     } catch (err) {
-      spinner.fail('Claude session failed');
+      spinner.fail(`${providerName} session failed`);
       if (err instanceof Error) {
-        showError(`Failed to invoke Claude: ${err.message}`);
-        showTip('Make sure the claude CLI is installed and configured.');
+        showError(`Failed to invoke ${providerName}: ${err.message}`);
+        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
         log.newline();
       }
       return;
@@ -316,7 +326,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       ideateOutput = parseIdeateOutput(output);
     } catch (err) {
       if (err instanceof Error) {
-        showError(`Failed to parse Claude output: ${err.message}`);
+        showError(`Failed to parse ${providerName} output: ${err.message}`);
         log.dim('Raw output:');
         console.log(output);
         log.newline();
@@ -378,21 +388,21 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
     log.newline();
   } else {
-    // Interactive mode - user iterates with Claude
+    // Interactive mode - user iterates with AI
     const outputFile = join(ideateDir, 'output.json');
     const prompt = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositoriesText, outputFile, schema);
 
-    showInfo('Starting interactive Claude session...');
+    showInfo(`Starting interactive ${providerName} session...`);
     console.log(muted(`  Exploring: ${selectedPaths.join(', ')}`));
-    console.log(muted(`\n  Claude will guide you through requirements refinement and task planning.`));
-    console.log(muted(`  When done, ask Claude to write the output to: ${outputFile}\n`));
+    console.log(muted(`\n  ${providerName} will guide you through requirements refinement and task planning.`));
+    console.log(muted(`  When done, ask ${providerName} to write the output to: ${outputFile}\n`));
 
     try {
-      await invokeClaudeInteractive(prompt, selectedPaths, ideateDir);
+      await invokeAiInteractive(prompt, selectedPaths, ideateDir);
     } catch (err) {
       if (err instanceof Error) {
-        showError(`Failed to invoke Claude: ${err.message}`);
-        showTip('Make sure the claude CLI is installed and configured.');
+        showError(`Failed to invoke ${providerName}: ${err.message}`);
+        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
         log.newline();
       }
       return;

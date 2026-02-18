@@ -16,7 +16,7 @@ export async function getTaskImportSchema(): Promise<string> {
 }
 
 /**
- * Check if Claude output contains a planning-blocked signal.
+ * Check if AI output contains a planning-blocked signal.
  * Returns the reason if blocked, null otherwise.
  */
 export function parsePlanningBlocked(output: string): string | null {
@@ -25,7 +25,7 @@ export function parsePlanningBlocked(output: string): string | null {
 }
 
 /**
- * Parse Claude output to extract and validate task JSON array.
+ * Parse AI output to extract and validate task JSON array.
  */
 export function parseTasksJson(output: string): ImportTask[] {
   // Try to extract a balanced JSON array from the output (handles nested arrays like steps)
@@ -84,7 +84,7 @@ export async function importTasks(tasks: ImportTask[], sprintId: string): Promis
 
   for (const taskInput of tasks) {
     try {
-      // projectPath is now required from Claude
+      // projectPath is required from AI output
       const projectPath = taskInput.projectPath;
 
       // Create task without blockedBy first

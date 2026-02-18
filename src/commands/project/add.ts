@@ -157,10 +157,10 @@ function isGitRepo(path: string): boolean {
 }
 
 /**
- * Check if CLAUDE.md exists in the path.
+ * Check if an AI provider instructions file exists (CLAUDE.md or .github/copilot-instructions.md).
  */
-function hasClaudeMd(path: string): boolean {
-  return existsSync(join(path, 'CLAUDE.md'));
+function hasAiInstructions(repoPath: string): boolean {
+  return existsSync(join(repoPath, 'CLAUDE.md')) || existsSync(join(repoPath, '.github', 'copilot-instructions.md'));
 }
 
 /**
@@ -382,9 +382,9 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         showWarning('Path is not a git repository');
       }
 
-      // Check for CLAUDE.md
-      if (!hasClaudeMd(firstRepo.path)) {
-        showTip('Add CLAUDE.md for better AI assistance');
+      // Check for AI instructions file
+      if (!hasAiInstructions(firstRepo.path)) {
+        showTip('Add CLAUDE.md or .github/copilot-instructions.md for better AI assistance');
       }
 
       // Add scripts to first repository
@@ -478,7 +478,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       if (repo.verifyScript) {
         console.log(`        Verify: ${repo.verifyScript}`);
       } else {
-        console.log(`        Verify: ${muted('(auto-detected from files or CLAUDE.md)')}`);
+        console.log(`        Verify: ${muted('(auto-detected from project files)')}`);
       }
     }
     console.log('');
