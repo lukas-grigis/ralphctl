@@ -1,6 +1,6 @@
 # RalphCTL - Sprint & Task Management for AI-Assisted Coding
 
-CLI tool for managing sprints and tasks with Claude Code integration. Ralph Wiggum themed.
+CLI tool for managing sprints and tasks with AI-assisted coding (Claude Code + GitHub Copilot). Ralph Wiggum themed.
 
 @.claude/docs/REQUIREMENTS.md - What the app does, why features exist, design rationale
 @.claude/docs/ARCHITECTURE.md - Technical implementation: data models, services, APIs
@@ -32,7 +32,7 @@ pnpm typecheck && pnpm lint && pnpm test
 
 - **Node.js 24+** (managed via `mise.toml`)
 - **pnpm 10+**
-- **Claude CLI** installed and configured (`claude --version`)
+- **Claude CLI** or **GitHub Copilot CLI** installed and configured (see Provider Configuration below)
 
 ## Interactive Mode
 
@@ -43,10 +43,11 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 
 - **No `sprint activate` command** — `sprint start` auto-activates draft sprints
 - **`affectedRepositories` stores absolute paths** (not names) — set during `sprint plan`, persisted per-ticket
-- **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one Claude session per ticket
+- **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one AI session per ticket
 - **Planning is per-sprint** — repo selection applies to all tickets, paths saved per-ticket
 - **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/schemas/index.ts`
 - **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
+- **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
 
 ## Common Mistakes to Avoid
 
@@ -57,6 +58,8 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 - Don't break task `blockedBy` dependencies during planning — preserve dependency chains
 - Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
   selection timing)
+- Don't hardcode provider-specific logic outside `src/providers/` — use the provider abstraction layer
+- Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses `--allow-all-tools` (see Provider Differences below)
 
 ## Workflow
 
@@ -71,6 +74,55 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 8. Start work         → ralphctl sprint start (auto-activates draft sprints)
 9. Close sprint       → ralphctl sprint close
 ```
+
+**Optional:** Configure your preferred AI provider with `ralphctl config set provider <claude|copilot>` (prompted on first use if not set).
+
+### Provider Configuration
+
+RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends via a provider abstraction layer. Both providers share the same prompt templates and workflow.
+
+**Set your preferred provider:**
+
+```bash
+ralphctl config set provider claude      # Use Claude Code CLI
+ralphctl config set provider copilot     # Use GitHub Copilot CLI
+```
+
+**View current configuration:**
+
+```bash
+ralphctl config show
+```
+
+**First-run behavior:** If no provider is configured, ralphctl prompts you to choose on first use. Your selection is stored globally in `config.json`.
+
+**Requirements:**
+
+- **Claude Code:** Install the `claude` CLI and configure your API key ([docs](https://docs.anthropic.com/en/docs/claude-code))
+- **GitHub Copilot:** Install the `copilot` CLI and authenticate ([docs](https://docs.github.com/en/copilot/github-copilot-in-the-cli))
+
+Both CLIs must be in your PATH and properly authenticated.
+
+### Provider Differences
+
+**Permission model** — the two providers handle tool/command permissions completely differently:
+
+| Aspect              | Claude Code                                              | GitHub Copilot          |
+| ------------------- | -------------------------------------------------------- | ----------------------- |
+| CLI flag            | `--permission-mode acceptEdits`                          | `--allow-all-tools`     |
+| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None — flags only       |
+| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable          |
+| Pre-flight warnings | `checkTaskPermissions()` reads settings files            | Returns empty (skipped) |
+
+**Claude** permission checks look for `permissions.allow` / `permissions.deny` arrays in settings JSON. Pre-flight warnings
+are shown before a session starts if git commit, verify script, or setup script are not pre-approved.
+
+**Copilot** bypasses all per-tool approval via `--allow-all-tools`. There are no settings files to read, and
+`getProviderPermissions()` short-circuits to return empty arrays when `provider === 'copilot'`.
+
+> **Important:** `checkTaskPermissions()` in `src/ai/task-context.ts` does not receive a `provider` argument — it always
+> performs Claude-style file checks. This is benign for Copilot (the settings files simply won't exist), but be aware
+> when extending permission logic that provider must be threaded through for correct behaviour.
 
 ### Workflow Paths
 
@@ -140,7 +192,7 @@ gaps (use blockquotes or bullets)
 prompt files)
 **Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
 Claude session starts)
-**Template builders** - `src/claude/prompts/index.ts` compiles `.md` templates with placeholder replacement
+**Template builders** - `src/ai/prompts/index.ts` compiles `.md` templates with placeholder replacement
 
 ## Custom Agents
 

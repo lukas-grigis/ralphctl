@@ -237,13 +237,13 @@ export async function inputPositiveInt(message: string): Promise<number> {
 }
 
 /**
- * Select project repositories for Claude to explore.
+ * Select project repositories for AI to explore.
  * If preSelected is provided, those paths are checked by default.
  * Otherwise, the first repository per project is pre-selected.
  */
 export async function selectProjectPaths(
   reposByProject: Map<string, Repository[]>,
-  message = 'Select paths for Claude to explore:',
+  message = 'Select paths to explore:',
   preSelected?: string[]
 ): Promise<string[]> {
   const choices: { name: string; value: string; checked: boolean }[] = [];

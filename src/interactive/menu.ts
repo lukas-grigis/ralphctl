@@ -51,6 +51,8 @@ export interface MenuContext {
   /** Number of tickets that have at least one associated task */
   plannedTicketCount: number;
   nextAction: NextAction | null;
+  /** Current AI provider setting */
+  aiProvider: string | null;
 }
 
 // ============================================================================
@@ -61,6 +63,7 @@ const WORKFLOW_ACTIONS: Record<string, Set<string>> = {
   sprint: new Set(['create', 'refine', 'ideate', 'plan', 'start', 'close']),
   ticket: new Set(['add']),
   task: new Set(['add', 'import']),
+  progress: new Set(['log']),
 };
 
 /**
@@ -71,12 +74,11 @@ export function isWorkflowAction(group: string, subCommand: string): boolean {
 }
 
 /**
- * Build workflow actions in sprint lifecycle order with disable logic.
+ * Build PLAN section actions — sprint planning lifecycle.
  */
-function buildWorkflowActions(ctx: MenuContext): MenuItem[] {
+function buildPlanActions(ctx: MenuContext): MenuItem[] {
   const items: MenuItem[] = [];
   const isDraft = ctx.currentSprintStatus === 'draft';
-  const isActive = ctx.currentSprintStatus === 'active';
   const hasSprint = ctx.currentSprintId !== null;
 
   // Create Sprint — always available
@@ -151,6 +153,18 @@ function buildWorkflowActions(ctx: MenuContext): MenuItem[] {
     disabled: ideateDisabled,
   });
 
+  return items;
+}
+
+/**
+ * Build EXECUTE section actions — sprint execution lifecycle.
+ */
+function buildExecuteActions(ctx: MenuContext): MenuItem[] {
+  const items: MenuItem[] = [];
+  const isDraft = ctx.currentSprintStatus === 'draft';
+  const isActive = ctx.currentSprintStatus === 'active';
+  const hasSprint = ctx.currentSprintId !== null;
+
   // Start Sprint — requires draft/active + tasks
   let startDisabled: string | false = false;
   if (!hasSprint) {
@@ -204,27 +218,35 @@ export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultVal
     defaultValue = actionValue;
   }
 
-  // Workflow section — flat lifecycle-ordered actions
-  items.push(titled('WORKFLOW'));
-  for (const action of buildWorkflowActions(ctx)) {
+  // Plan section — sprint planning lifecycle
+  items.push(titled('PLAN'));
+  for (const action of buildPlanActions(ctx)) {
     items.push(action);
   }
 
-  // Browse & manage submenus
-  items.push(titled('BROWSE & MANAGE'));
-  items.push({ name: 'Sprints', value: 'sprint', description: 'List, show, switch, delete' });
-  items.push({ name: 'Tickets', value: 'ticket', description: 'List, show, edit, remove' });
-  items.push({ name: 'Tasks', value: 'task', description: 'List, show, add, status, reorder' });
-  items.push({ name: 'Projects', value: 'project', description: 'List, show, add, remove' });
-  items.push({ name: 'Progress', value: 'progress', description: 'Log and view progress' });
+  // Execute section — sprint execution lifecycle
+  items.push(titled('EXECUTE'));
+  for (const action of buildExecuteActions(ctx)) {
+    items.push(action);
+  }
 
-  // Utilities
-  items.push(line());
+  // Browse section — entity submenus
+  items.push(titled('BROWSE'));
+  items.push({ name: 'Sprints', value: 'sprint', description: 'List, show, switch' });
+  items.push({ name: 'Tickets', value: 'ticket', description: 'List, show, edit' });
+  items.push({ name: 'Tasks', value: 'task', description: 'List, show, manage' });
+
+  // Setup section — one-time configuration
+  items.push(titled('SETUP'));
+  items.push({ name: 'Projects', value: 'project', description: 'Manage projects & repositories' });
+  items.push({ name: 'Configuration', value: 'config', description: 'AI provider, settings' });
+
+  // Session
+  items.push(titled('SESSION'));
   if (!ctx.currentSprintId) {
     items.push({ name: 'Quick Start Wizard', value: 'wizard', description: 'Guided sprint setup' });
   }
-  items.push({ name: 'Status Dashboard', value: 'status', description: 'Full sprint overview' });
-  items.push({ name: 'Exit', value: 'exit', description: 'Goodbye!' });
+  items.push({ name: 'Exit', value: 'exit' });
 
   return { items, defaultValue };
 }
@@ -239,14 +261,18 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   items.push({ name: 'List', value: 'list', description: 'List all sprints' });
   items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
   items.push({ name: 'Set Current', value: 'current', description: 'Set current sprint' });
-  items.push({ name: 'Context', value: 'context', description: 'Output full sprint context' });
+  items.push(titled('EXPORT'));
   items.push({
-    name: 'Export Requirements',
+    name: 'Requirements',
     value: 'requirements',
-    description: 'Export refined requirements to file',
+    description: 'Export refined requirements',
   });
-  items.push(line());
+  items.push({ name: 'Context', value: 'context', description: 'Output full sprint context' });
+  items.push({ name: 'Progress', value: 'progress show', description: 'View progress log' });
+  items.push(titled('MANAGE'));
+  items.push({ name: 'Log Progress', value: 'progress log', description: 'Add progress entry' });
   items.push({ name: 'Delete', value: 'delete', description: 'Delete a sprint permanently' });
+  items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
   const titleSuffix = ctx.currentSprintName
@@ -302,20 +328,6 @@ function buildTaskSubMenu(ctx: MenuContext): SubMenu {
 }
 
 /**
- * Build progress submenu.
- */
-function buildProgressSubMenu(): SubMenu {
-  const items: MenuItem[] = [];
-
-  items.push({ name: 'Log', value: 'log', description: 'Log progress entry' });
-  items.push({ name: 'Show', value: 'show', description: 'Show progress log' });
-  items.push(line());
-  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
-
-  return { title: 'Progress', items };
-}
-
-/**
  * Build project submenu.
  */
 function buildProjectSubMenu(): SubMenu {
@@ -339,6 +351,20 @@ function buildProjectSubMenu(): SubMenu {
 }
 
 /**
+ * Build config submenu.
+ */
+function buildConfigSubMenu(): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({ name: 'Show Settings', value: 'show', description: 'View current configuration' });
+  items.push({ name: 'Set AI Provider', value: 'set provider', description: 'Choose Claude Code or GitHub Copilot' });
+  items.push(line());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Configuration', items };
+}
+
+/**
  * Build a submenu by group name with full context.
  */
 export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
@@ -349,10 +375,10 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
       return buildTicketSubMenu(ctx);
     case 'task':
       return buildTaskSubMenu(ctx);
-    case 'progress':
-      return buildProgressSubMenu();
     case 'project':
       return buildProjectSubMenu();
+    case 'config':
+      return buildConfigSubMenu();
     default:
       return null;
   }

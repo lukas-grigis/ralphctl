@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { muted, warning } from '@src/theme/index.ts';
-import { checkTaskPermissions } from '@src/claude/permissions.ts';
+import { checkTaskPermissions } from '@src/ai/permissions.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
@@ -114,7 +114,7 @@ export function getEffectiveVerifyScript(project: Project | undefined, projectPa
   return detectVerifyScript(projectPath);
 }
 
-export function formatTaskForClaude(ctx: TaskContext): string {
+export function formatTask(ctx: TaskContext): string {
   const lines: string[] = [];
 
   // ═══ TASK DIRECTIVE (highest attention) ═══
@@ -164,7 +164,7 @@ export function buildFullTaskContext(
 
   // ═══ HIGH ATTENTION ZONE (beginning) ═══
 
-  lines.push(formatTaskForClaude(ctx));
+  lines.push(formatTask(ctx));
 
   // Verification command — near the top so it's easy to find
   lines.push('');
@@ -289,6 +289,6 @@ export function runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void {
     for (const w of warnings) {
       console.log(muted(`    - ${w.message}`));
     }
-    console.log(muted('  Consider adding to .claude/settings.local.json allow list\n'));
+    console.log(muted('  Consider adjusting tool permissions for your AI provider\n'));
   }
 }
