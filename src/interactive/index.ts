@@ -1,13 +1,15 @@
 import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
-import { loadDashboardData, renderStatusHeader } from './dashboard.ts';
-import { getAiProvider, getCurrentSprint } from '@src/store/config.ts';
+import { renderStatusHeader } from './dashboard.ts';
+import { getAiProvider, getConfig } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
-import { getTasks } from '@src/store/task.ts';
 import { getNextAction, type DashboardData } from './dashboard.ts';
 import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
+import { type Tasks, TasksSchema } from '@src/schemas/index.ts';
+import { getTasksFilePath } from '@src/utils/paths.ts';
+import { readValidatedJson } from '@src/utils/storage.ts';
 import { select } from '@inquirer/prompts';
 import { escapableSelect } from './escapable.ts';
 
@@ -170,8 +172,19 @@ function showWelcomeBanner(): void {
 }
 
 /**
+ * Read tasks for a sprint, returning empty array if the file doesn't exist yet.
+ */
+async function readTasksSafe(sprintId: string): Promise<Tasks> {
+  try {
+    return await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Gather current application state for context-aware menus.
- * Swallows errors gracefully — missing data means empty context.
+ * Reads each data file at most once and parallelizes independent reads.
  * Returns both MenuContext and optional DashboardData for status header.
  */
 async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: DashboardData | null }> {
@@ -194,53 +207,56 @@ async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: Dash
     aiProvider: null,
   };
 
-  try {
-    const projects = await listProjects();
-    ctx.hasProjects = projects.length > 0;
-    ctx.projectCount = projects.length;
-  } catch {
-    // No projects file yet
-  }
+  // Read config and projects in parallel (independent files)
+  const [config, projects] = await Promise.all([getConfig().catch(() => null), listProjects().catch(() => [])]);
 
-  try {
-    ctx.aiProvider = await getAiProvider();
-  } catch {
-    // No config file yet
-  }
+  ctx.hasProjects = projects.length > 0;
+  ctx.projectCount = projects.length;
+  ctx.aiProvider = config?.aiProvider ?? null;
 
-  try {
-    const sprintId = await getCurrentSprint();
-    if (sprintId) {
-      ctx.currentSprintId = sprintId;
-      const sprint = await getSprint(sprintId);
-      ctx.currentSprintName = sprint.name;
-      ctx.currentSprintStatus = sprint.status;
-      ctx.ticketCount = sprint.tickets.length;
-      ctx.pendingRequirements = getPendingRequirements(sprint.tickets).length;
-      ctx.allRequirementsApproved = allRequirementsApproved(sprint.tickets);
+  const sprintId = config?.currentSprint ?? null;
+  if (!sprintId) return { ctx, dashboardData };
 
-      try {
-        const tasks = await getTasks(sprintId);
-        ctx.taskCount = tasks.length;
-        ctx.tasksDone = tasks.filter((t) => t.status === 'done').length;
-        ctx.tasksInProgress = tasks.filter((t) => t.status === 'in_progress').length;
+  ctx.currentSprintId = sprintId;
 
-        // Count tickets that have at least one associated task
-        const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
-        ctx.plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
-      } catch {
-        // No tasks file yet
-      }
-    }
-  } catch {
-    // No current sprint or sprint file missing
-  }
+  // Read sprint and tasks in parallel (both depend on sprintId, but not each other)
+  const [sprint, tasks] = await Promise.all([getSprint(sprintId).catch(() => null), readTasksSafe(sprintId)]);
 
-  // Load dashboard data for status header and next action
-  dashboardData = await loadDashboardData();
-  if (dashboardData) {
-    ctx.nextAction = getNextAction(dashboardData);
-  }
+  if (!sprint) return { ctx, dashboardData };
+
+  ctx.currentSprintName = sprint.name;
+  ctx.currentSprintStatus = sprint.status;
+  ctx.ticketCount = sprint.tickets.length;
+
+  const pendingTickets = getPendingRequirements(sprint.tickets);
+  ctx.pendingRequirements = pendingTickets.length;
+  ctx.allRequirementsApproved = allRequirementsApproved(sprint.tickets);
+
+  ctx.taskCount = tasks.length;
+  ctx.tasksDone = tasks.filter((t) => t.status === 'done').length;
+  ctx.tasksInProgress = tasks.filter((t) => t.status === 'in_progress').length;
+
+  // Count tickets that have at least one associated task
+  const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
+  ctx.plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
+
+  // Build DashboardData from already-loaded data (no extra I/O)
+  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const blockedCount = tasks.filter(
+    (t) => t.status !== 'done' && t.blockedBy.length > 0 && !t.blockedBy.every((id) => doneIds.has(id))
+  ).length;
+
+  dashboardData = {
+    sprint,
+    tasks,
+    approvedCount: sprint.tickets.length - pendingTickets.length,
+    pendingCount: pendingTickets.length,
+    blockedCount,
+    plannedTicketCount: ctx.plannedTicketCount,
+    aiProvider: ctx.aiProvider,
+  };
+
+  ctx.nextAction = getNextAction(dashboardData);
 
   return { ctx, dashboardData };
 }
