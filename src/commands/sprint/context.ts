@@ -26,7 +26,7 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
   const sprint = await getSprint(id);
   const tasks = await listTasks(id);
 
-  // Output in a format useful for Claude
+  // Output in a format useful for the AI provider
   console.log(`# Sprint: ${sprint.name}`);
   console.log(`ID: ${sprint.id}`);
   console.log(`Status: ${sprint.status}`);

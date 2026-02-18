@@ -21,13 +21,15 @@ import {
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { formatTicketDisplay, getPendingRequirements } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
-import { buildTicketRefinePrompt } from '@src/claude/prompts/index.ts';
-import { spawnClaudeInteractive } from '@src/claude/session.ts';
+import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
+import { spawnInteractive } from '@src/ai/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath, getSprintDir } from '@src/utils/paths.ts';
 import { type RefinedRequirement, RefinedRequirementsSchema, type Ticket } from '@src/schemas/index.ts';
 import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
+import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { getActiveProvider } from '@src/providers/index.ts';
 
 interface RefineOptions {
   project?: string;
@@ -53,7 +55,7 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
 }
 
 /**
- * Format a single ticket for the Claude prompt.
+ * Format a single ticket for the AI prompt.
  */
 function formatTicketForPrompt(ticket: Ticket): string {
   const lines: string[] = [];
@@ -109,17 +111,23 @@ function parseRequirementsFile(content: string): RefinedRequirement[] {
   return result.data;
 }
 
-async function runClaudeSession(workingDir: string, prompt: string, ticketTitle: string): Promise<void> {
+async function runAiSession(workingDir: string, prompt: string, ticketTitle: string): Promise<void> {
   // Write full context to a file for reference
   const contextFile = join(workingDir, 'refine-context.md');
   await writeFile(contextFile, prompt, 'utf-8');
 
-  // Build initial prompt that tells Claude to read the context file
+  const provider = await getActiveProvider();
+
+  // Build initial prompt that tells the AI to read the context file
   const startPrompt = `I need help refining the requirements for "${ticketTitle}". The full context is in refine-context.md. Please read that file now and follow the instructions to help refine the ticket requirements.`;
 
-  const result = spawnClaudeInteractive(startPrompt, {
-    cwd: workingDir,
-  });
+  const result = spawnInteractive(
+    startPrompt,
+    {
+      cwd: workingDir,
+    },
+    provider
+  );
 
   if (result.error) {
     throw new Error(result.error);
@@ -188,6 +196,9 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   const schemaPath = getSchemaPath('requirements-output.schema.json');
   const schema = await readFile(schemaPath, 'utf-8');
 
+  // Resolve AI provider for display names
+  const providerName = providerDisplayName(await resolveProvider());
+
   // Process tickets one by one
   let approved = 0;
   let skipped = 0;
@@ -234,9 +245,9 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       continue;
     }
 
-    // Confirm before starting Claude session
+    // Confirm before starting AI session
     const proceed = await confirm({
-      message: `${emoji.donut} Start Claude refinement session for this ticket?`,
+      message: `${emoji.donut} Start ${providerName} refinement session for this ticket?`,
       default: true,
     });
 
@@ -247,7 +258,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       continue;
     }
 
-    // Prepare Claude session - use sprint's refinement directory
+    // Prepare AI session - use sprint's refinement directory
     const refineDir = getRefinementDir(id, ticket.id);
     await mkdir(refineDir, { recursive: true });
     const outputFile = join(refineDir, 'requirements.json');
@@ -258,14 +269,14 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     log.dim(`Requirements output: ${outputFile}`);
     log.newline();
 
-    const spinner = createSpinner('Starting Claude session...');
+    const spinner = createSpinner(`Starting ${providerName} session...`);
     spinner.start();
 
     try {
-      await runClaudeSession(refineDir, prompt, ticket.title);
-      spinner.succeed('Claude session completed');
+      await runAiSession(refineDir, prompt, ticket.title);
+      spinner.succeed(`${providerName} session completed`);
     } catch (err) {
-      spinner.fail('Claude session failed');
+      spinner.fail(`${providerName} session failed`);
       if (err instanceof Error) {
         showError(err.message);
       }
@@ -363,7 +374,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
         skipped++;
       }
     } else {
-      showWarning('No requirements file found from Claude session.');
+      showWarning('No requirements file found from AI session.');
       log.dim('You can refine this ticket later.');
       skipped++;
     }

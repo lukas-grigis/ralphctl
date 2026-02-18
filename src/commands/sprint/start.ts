@@ -1,4 +1,4 @@
-import { type RunnerOptions, runSprint } from '@src/claude/runner.ts';
+import { type RunnerOptions, runSprint } from '@src/ai/runner.ts';
 import { SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/utils/exit-codes.ts';
 import { log, showError, showNextStep, showWarning } from '@src/theme/ui.ts';
