@@ -9,6 +9,12 @@
       "type": ["string", "null"],
       "default": null,
       "description": "Current sprint ID (which sprint CLI commands target)"
+    },
+    "aiProvider": {
+      "type": ["string", "null"],
+      "enum": ["claude", "copilot", null],
+      "default": null,
+      "description": "AI provider to use for code generation (claude or copilot)"
     }
   }
 }

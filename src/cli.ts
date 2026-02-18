@@ -7,6 +7,7 @@ import { registerTaskCommands } from '@src/commands/task/index.ts';
 import { registerTicketCommands } from '@src/commands/ticket/index.ts';
 import { registerProgressCommands } from '@src/commands/progress/index.ts';
 import { registerDashboardCommands } from '@src/commands/dashboard/index.ts';
+import { registerConfigCommands } from '@src/commands/config/index.ts';
 import { error } from '@src/theme/index.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
 
@@ -35,6 +36,7 @@ registerTaskCommands(program);
 registerTicketCommands(program);
 registerProgressCommands(program);
 registerDashboardCommands(program);
+registerConfigCommands(program);
 
 async function main(): Promise<void> {
   // No args or 'interactive' → interactive mode

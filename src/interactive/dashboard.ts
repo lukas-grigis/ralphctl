@@ -1,4 +1,4 @@
-import { getCurrentSprint } from '@src/store/config.ts';
+import { getAiProvider, getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { getTasks } from '@src/store/task.ts';
 import { getPendingRequirements } from '@src/store/ticket.ts';
@@ -18,6 +18,8 @@ export interface DashboardData {
   blockedCount: number;
   /** Number of tickets that have at least one associated task */
   plannedTicketCount: number;
+  /** Current AI provider setting */
+  aiProvider: string | null;
 }
 
 /**
@@ -46,7 +48,9 @@ export async function loadDashboardData(): Promise<DashboardData | null> {
     const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
     const plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
 
-    return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount };
+    const aiProvider = await getAiProvider();
+
+    return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount, aiProvider };
   } catch {
     return null;
   }
@@ -115,18 +119,22 @@ export function getNextAction(data: DashboardData): NextAction | null {
 export function renderStatusHeader(data: DashboardData | null): string[] {
   if (!data) return [];
 
-  const { sprint, tasks, approvedCount } = data;
+  const { sprint, tasks, approvedCount, aiProvider } = data;
   const totalTasks = tasks.length;
   const ticketCount = sprint.tickets.length;
 
   const lines: string[] = [];
 
-  // Line 1: sprint name, status, counts
+  // Line 1: sprint name, status, counts, provider
   const sprintLabel = colors.highlight(sprint.name);
   const statusBadge = formatSprintStatus(sprint.status);
   const ticketPart = `${String(ticketCount)} ticket${ticketCount !== 1 ? 's' : ''}`;
   const taskPart = `${String(totalTasks)} task${totalTasks !== 1 ? 's' : ''}`;
-  lines.push(`  ${icons.sprint} ${sprintLabel}  ${statusBadge}  ${colors.muted(`|  ${ticketPart}  |  ${taskPart}`)}`);
+  const providerPart = aiProvider === 'claude' ? 'Claude' : aiProvider === 'copilot' ? 'Copilot' : null;
+  const providerSuffix = providerPart ? `  |  ${providerPart}` : '';
+  lines.push(
+    `  ${icons.sprint} ${sprintLabel}  ${statusBadge}  ${colors.muted(`|  ${ticketPart}  |  ${taskPart}${providerSuffix}`)}`
+  );
 
   // Line 2: task progress (active/closed) or refined/planned counts (draft)
   if ((sprint.status === 'active' || sprint.status === 'closed') && totalTasks > 0) {

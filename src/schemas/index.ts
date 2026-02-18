@@ -117,8 +117,13 @@ export const SprintSchema = z.object({
 });
 export type Sprint = z.infer<typeof SprintSchema>;
 
+// AI provider enum
+export const AiProviderSchema = z.enum(['claude', 'copilot']);
+export type AiProvider = z.infer<typeof AiProviderSchema>;
+
 // Config schema (root level configuration)
 export const ConfigSchema = z.object({
   currentSprint: z.string().nullable().default(null),
+  aiProvider: AiProviderSchema.nullable().default(null),
 });
 export type Config = z.infer<typeof ConfigSchema>;

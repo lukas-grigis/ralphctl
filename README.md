@@ -12,14 +12,14 @@
      ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
 ```
 
-**Sprint and task management CLI for AI-assisted coding with Claude.**
+**Sprint and task management CLI for AI-assisted coding with Claude Code or GitHub Copilot.**
 
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
 > **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes before 1.0.
 
-You write tickets, Claude refines the requirements, then Claude breaks them into tasks and executes them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because why not.
+You write tickets, your AI buddy (Claude or Copilot) refines the requirements, then breaks them into tasks and executes them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because why not.
 
 ---
 
@@ -55,7 +55,9 @@ You write tickets, Claude refines the requirements, then Claude breaks them into
 
 - [Node.js](https://nodejs.org/) **>= 24.0.0**
 - [pnpm](https://pnpm.io/) package manager
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`) installed and configured
+- Either:
+  - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — for Claude Code
+  - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`copilot`) — for GitHub Copilot
 
 ### Install from Source
 
@@ -118,17 +120,49 @@ ralphctl sprint start       # Headless (fully automated)
 
 ---
 
+## AI Provider Configuration
+
+RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both providers share the same prompt templates and workflow — just pick your preferred assistant.
+
+### Set Your Preferred Provider
+
+```bash
+# Use Claude Code
+ralphctl config set provider claude
+
+# Use GitHub Copilot
+ralphctl config set provider copilot
+
+# View current configuration
+ralphctl config show
+```
+
+### First-Run Behavior
+
+If no provider is configured, ralphctl prompts you to choose on first command that requires AI assistance (e.g., `sprint refine`, `sprint plan`, `sprint start`). Your selection is saved globally.
+
+### Requirements
+
+- **Claude Code:** Install the `claude` CLI and authenticate ([docs](https://docs.anthropic.com/en/docs/claude-code))
+- **GitHub Copilot:** Install the `copilot` CLI and authenticate ([docs](https://docs.github.com/en/copilot/github-copilot-in-the-cli))
+
+Both CLIs must be in your PATH.
+
+---
+
 ## CLI overview
 
 | Command                  | Description                      |
 | ------------------------ | -------------------------------- |
 | `ralphctl`               | Interactive menu mode            |
+| `ralphctl config show`   | Show current configuration       |
+| `ralphctl config set`    | Set configuration values         |
 | `ralphctl project add`   | Register a project and its repos |
 | `ralphctl sprint create` | Create a new sprint              |
 | `ralphctl ticket add`    | Add a work item to a sprint      |
-| `ralphctl sprint refine` | Refine requirements with Claude  |
+| `ralphctl sprint refine` | Refine requirements with AI      |
 | `ralphctl sprint plan`   | Generate tasks from requirements |
-| `ralphctl sprint start`  | Execute tasks with Claude        |
+| `ralphctl sprint start`  | Execute tasks with AI            |
 | `ralphctl sprint close`  | Close an active sprint           |
 | `ralphctl task list`     | List tasks in the current sprint |
 | `ralphctl task next`     | Show the next unblocked task     |

@@ -14,6 +14,26 @@ RalphCTL bridges the gap between high-level planning and AI-assisted implementat
    projects
 4. **Specification drift** - What was planned vs what was built diverges; ralphctl maintains living documentation
 
+## Provider Abstraction
+
+RalphCTL supports multiple AI providers via a provider abstraction layer:
+
+**Supported Providers:**
+
+- **Claude Code** (`claude` CLI) — Anthropic's AI assistant
+- **GitHub Copilot** (`copilot` CLI) — GitHub's AI assistant
+
+**Design Decision:** Provider selection is global (stored in `config.json`), not per-sprint. This reflects the reality that users typically stick with one provider per development environment.
+
+**Shared Infrastructure:**
+
+- Both providers use the same prompt templates (stored in `src/ai/prompts/`)
+- Both providers implement a common `ProviderAdapter` interface
+- Provider-specific logic is isolated in `src/providers/`
+- Provider resolution happens automatically on first use (prompts user to choose)
+
+**Rationale:** Supporting multiple providers gives users flexibility while maintaining a consistent workflow. The abstraction layer ensures that adding future providers (e.g., Gemini, GPT) is straightforward.
+
 ## Core Concepts
 
 ### Why Projects?
@@ -209,6 +229,22 @@ _Rationale:_ This allows `ralphctl sprint show` to inspect any sprint, while `sp
 which must be active).
 
 ## Feature Requirements
+
+### Configuration Management
+
+| Feature  | Requirement                         | Rationale                                    |
+| -------- | ----------------------------------- | -------------------------------------------- |
+| Show     | Display current configuration       | Users need visibility into settings          |
+| Set      | Update configuration values         | Allow provider selection and future settings |
+| Provider | Choose between Claude and Copilot   | User preference for AI backend               |
+| Prompt   | Auto-prompt on first AI command use | Zero-config first experience                 |
+
+**Provider Configuration:**
+
+- Stored globally in `config.json` as `aiProvider` field
+- Valid values: `"claude"` or `"copilot"`
+- Not sprint-specific — one provider per development environment
+- Prompts user to choose if not set when running AI commands
 
 ### Project Management
 

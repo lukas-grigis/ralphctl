@@ -21,7 +21,7 @@ Some output after`;
   });
 
   it('returns null when no signal present', () => {
-    const output = 'Just some normal Claude output with no signal';
+    const output = 'Just some normal AI output with no signal';
     expect(parsePlanningBlocked(output)).toBeNull();
   });
 

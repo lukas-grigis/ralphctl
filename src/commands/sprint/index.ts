@@ -22,7 +22,7 @@ export function registerSprintCommands(program: Command): void {
     `
 Examples:
   $ ralphctl sprint create --name "Sprint 1"
-  $ ralphctl sprint refine              # Refine ticket requirements with Claude
+  $ ralphctl sprint refine              # Refine ticket requirements with AI
   $ ralphctl sprint plan --auto         # Generate tasks automatically
   $ ralphctl sprint start -s            # Start with interactive session
 `
@@ -93,7 +93,7 @@ Examples:
   sprint
     .command('ideate [id]')
     .description('Quick idea to tasks (refine + plan in one session)')
-    .option('--auto', 'Run without user interaction (Claude decides autonomously)')
+    .option('--auto', 'Run without user interaction (AI decides autonomously)')
     .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
     .option('--project <name>', 'Pre-select project (skip interactive selection)')
     .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean; project?: string }) => {
@@ -107,8 +107,8 @@ Examples:
 
   sprint
     .command('plan [id]')
-    .description('Generate tasks using Claude CLI')
-    .option('--auto', 'Run without user interaction (Claude decides autonomously)')
+    .description('Generate tasks using AI CLI')
+    .option('--auto', 'Run without user interaction (AI decides autonomously)')
     .option('--all-paths', 'Explore all project repositories instead of prompting for selection')
     .action(async (id?: string, opts?: { auto?: boolean; allPaths?: boolean }) => {
       const args: string[] = [];
@@ -153,7 +153,7 @@ Examples:
   sprint
     .command('start [id]')
     .description('Run automated implementation loop')
-    .option('-s, --session', 'Interactive Claude session (collaborate with Claude)')
+    .option('-s, --session', 'Interactive AI session (collaborate with your AI provider)')
     .option('-t, --step', 'Step through tasks with approval between each')
     .option('-c, --count <n>', 'Limit to N tasks')
     .option('--no-commit', 'Skip automatic git commit after each task completes')

@@ -7,7 +7,7 @@ export interface ExecutionResult {
 }
 
 /**
- * Parse execution result from Claude output.
+ * Parse execution result from AI provider output.
  * Checks for task-verified, task-complete, and task-blocked signals.
  */
 export function parseExecutionResult(output: string): ExecutionResult {

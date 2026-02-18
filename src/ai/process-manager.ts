@@ -12,7 +12,7 @@ const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
 const FORCE_QUIT_WINDOW_MS = 5000;
 
 /**
- * Singleton manager for all Claude child processes.
+ * Singleton manager for all AI provider child processes.
  * Ensures proper cleanup on SIGINT/SIGTERM with graceful shutdown sequence.
  *
  * Features:
@@ -25,7 +25,7 @@ const FORCE_QUIT_WINDOW_MS = 5000;
 export class ProcessManager {
   private static instance: ProcessManager | null = null;
 
-  /** All active Claude child processes */
+  /** All active AI child processes */
   private children = new Set<ChildProcess>();
 
   /** Cleanup callbacks (for stopping spinners, removing temp files) */
@@ -92,7 +92,7 @@ export class ProcessManager {
   /**
    * Eagerly install signal handlers without requiring a child registration.
    * Call this at the top of execution loops so Ctrl+C works even before
-   * the first Claude process is spawned (e.g. while the spinner is visible).
+   * the first AI process is spawned (e.g. while the spinner is visible).
    * Idempotent — safe to call multiple times.
    */
   public ensureHandlers(): void {
@@ -156,7 +156,7 @@ export class ProcessManager {
   /**
    * Graceful shutdown sequence:
    * 1. Run all cleanup callbacks (stop spinners)
-   * 2. Send SIGINT to all children (what claude CLI expects)
+   * 2. Send SIGINT to all children (what AI CLI processes expect)
    * 3. Wait up to 5 seconds for children to exit
    * 4. Send SIGKILL to any remaining children (force)
    * 5. Exit with code 130 (SIGINT) or 1 (force-quit)

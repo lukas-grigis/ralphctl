@@ -9,7 +9,7 @@
 ## Test Files Found
 
 ```
-src/claude/runner.test.ts       # Claude runner tests
+src/ai/runner.test.ts       # Claude runner tests
 src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
 src/integration/cli.test.ts     # CLI integration tests
 src/schemas/index.test.ts       # Schema validation tests
