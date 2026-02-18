@@ -109,7 +109,7 @@ export function suggestVerifyScript(projectPath: string, type: ProjectType): str
     case 'java-gradle':
       return './gradlew check';
     case 'java-maven':
-      return 'mvn verify';
+      return 'mvn clean install';
     default:
       return null;
   }
