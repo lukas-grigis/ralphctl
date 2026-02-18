@@ -6,13 +6,16 @@ Technical documentation of the internal architecture, data models, services, and
 
 ## Architecture Overview
 
-4-layer architecture: Interactive → Commands → Store → Claude
+4-layer architecture: Interactive → Commands → Store → AI Provider
 
 ```
 ralphctl/
 ├── src/
 │   ├── cli.ts              # Entry point (commander.js program)
 │   ├── commands/            # Layer 2: CLI command implementations
+│   │   ├── config/          # Configuration commands
+│   │   │   ├── config.ts    # Set/show configuration
+│   │   │   └── index.ts     # Command registration
 │   │   ├── project/         # Project subcommands
 │   │   ├── sprint/          # Sprint subcommands
 │   │   │   ├── health.ts    # Sprint health checks
@@ -36,16 +39,21 @@ ralphctl/
 │   │   ├── task.ts          # Task CRUD + dependencies
 │   │   ├── ticket.ts        # Ticket CRUD
 │   │   └── progress.ts      # Progress log read/append
-│   ├── claude/              # Layer 4: Claude integration
+│   ├── providers/           # Layer 4: AI provider abstraction
+│   │   ├── index.ts         # Provider factory & resolution
+│   │   ├── types.ts         # ProviderAdapter interface
+│   │   ├── claude.ts        # Claude Code adapter
+│   │   └── copilot.ts       # GitHub Copilot adapter
+│   ├── claude/              # Layer 4: AI integration (provider-agnostic)
 │   │   ├── runner.ts        # Sprint execution harness (delegates to executor)
-│   │   ├── session.ts       # Claude CLI spawning (sync/async) + retry
+│   │   ├── session.ts       # AI CLI spawning (sync/async) + retry
 │   │   ├── parser.ts        # Output signal parsing
 │   │   ├── executor.ts      # Sequential & parallel task execution
 │   │   ├── rate-limiter.ts  # Rate limit coordination
-│   │   ├── permissions.ts   # Claude permission checking
+│   │   ├── permissions.ts   # AI permission checking
 │   │   ├── process-manager.ts  # Graceful shutdown / signal handling
 │   │   ├── task-context.ts  # Context building for task execution
-│   │   └── prompts/         # Prompt templates
+│   │   └── prompts/         # Prompt templates (shared across providers)
 │   │       ├── index.ts     # Prompt builders
 │   │       ├── plan-auto.md
 │   │       ├── plan-interactive.md
@@ -62,6 +70,7 @@ ralphctl/
 │   └── utils/               # Pure utilities
 │       ├── ids.ts           # ID generation
 │       ├── paths.ts         # Path resolution
+│       ├── provider.ts      # Provider resolution & display helpers
 │       ├── storage.ts       # File I/O with validation
 │       ├── json-extract.ts  # JSON array extraction from mixed output
 │       ├── requirements-export.ts  # Requirements markdown formatter
@@ -71,7 +80,7 @@ ralphctl/
 │       └── path-selector.ts # Interactive path selection UI
 ├── schemas/                 # JSON schemas for external tools
 └── ralphctl-data/           # Data storage (git-ignored)
-    ├── config.json          # Global config
+    ├── config.json          # Global config (includes aiProvider)
     ├── projects.json        # Project definitions
     └── sprints/             # Per-sprint directories
 ```
@@ -101,6 +110,97 @@ export function registerProjectCommands(program: Command): void {
 - Menu-driven REPL with donut-themed selector
 - Dispatches directly to command functions via a command map
 - Uses shared selectors from `interactive/selectors.ts`
+
+## Provider Abstraction Layer
+
+RalphCTL supports multiple AI providers through a unified `ProviderAdapter` interface (`src/providers/types.ts`).
+
+### ProviderAdapter Interface
+
+```typescript
+interface ProviderAdapter {
+  readonly name: AiProvider; // "claude" | "copilot"
+  readonly displayName: string; // "Claude Code" | "GitHub Copilot"
+  readonly binary: string; // "claude" | "copilot"
+  readonly baseArgs: string[]; // Base CLI flags (permissions, tools)
+
+  buildInteractiveArgs(prompt: string, extraArgs?: string[]): string[];
+  buildHeadlessArgs(extraArgs?: string[]): string[];
+  parseJsonOutput(stdout: string): { result: string; sessionId: string | null };
+  detectRateLimit(stderr: string): RateLimitInfo;
+  getSpawnEnv(): Record<string, string>;
+}
+```
+
+### Supported Providers
+
+**Claude Code Adapter** (`src/providers/claude.ts`):
+
+- Binary: `claude`
+- Output format: `--output-format json`
+- Session management: Built-in session IDs
+- Rate limit detection: Parses stderr for rate limit messages
+- Env vars: `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`
+
+**GitHub Copilot Adapter** (`src/providers/copilot.ts`):
+
+- Binary: `copilot`
+- Output format: Provider-specific flags
+- Session management: Provider-specific approach
+- Rate limit detection: Parses stderr for rate limit messages
+- Env vars: None currently
+
+### Provider Resolution
+
+**Automatic resolution** (`src/utils/provider.ts`):
+
+1. Read `aiProvider` from `config.json`
+2. If not set, prompt user with interactive select:
+   ```
+   🍩 Which AI buddy should help with my homework?
+   › Claude Code
+     GitHub Copilot
+   ```
+3. Save selection to `config.json` for future commands
+4. Return provider adapter
+
+**Manual configuration:**
+
+```bash
+ralphctl config set provider claude
+ralphctl config set provider copilot
+```
+
+### Shared Infrastructure
+
+**Prompt Templates** (`src/ai/prompts/`):
+
+- All `.md` prompt files are provider-agnostic
+- Variable substitution via `{{PLACEHOLDER}}` syntax
+- Used by both Claude Code and GitHub Copilot
+
+**Session Management** (`src/ai/session.ts`):
+
+- Provider-agnostic spawn functions (sync, async, interactive, headless)
+- Delegates CLI-specific details to provider adapter
+- Rate limit detection and retry logic
+
+**Execution Layer** (`src/ai/executor.ts`):
+
+- No provider-specific code
+- Uses adapter for spawning AI CLI
+- Shared task execution flow for both providers
+
+### Adding New Providers
+
+To add a new provider (e.g., Gemini, GPT):
+
+1. Create `src/providers/<name>.ts` implementing `ProviderAdapter`
+2. Add to `AiProviderSchema` enum in `src/schemas/index.ts`
+3. Add case to `getProvider()` in `src/providers/index.ts`
+4. Add choice to prompt in `src/utils/provider.ts`
+
+No changes needed in command logic or prompt templates.
 
 ## Data Models
 
@@ -254,8 +354,14 @@ Global application state.
 ```typescript
 interface Config {
   currentSprint: string | null; // Which sprint CLI commands target
+  aiProvider: AiProvider | null; // User's preferred AI provider ("claude" | "copilot")
 }
 ```
+
+**Fields:**
+
+- `currentSprint`: Convenience pointer for targeting commands (e.g., `task add`, `sprint show`)
+- `aiProvider`: Global provider selection; prompts user on first AI command if null
 
 Note: The "active" status is part of the sprint's lifecycle (stored in `sprint.json`), not a separate config field.
 Multiple sprints can be active simultaneously.
@@ -285,6 +391,8 @@ async getConfig(): Promise<Config>
 async saveConfig(config: Config): Promise<void>
 async getCurrentSprint(): Promise<string | null>
 async setCurrentSprint(id: string | null): Promise<void>
+async getAiProvider(): Promise<AiProvider | null>
+async setAiProvider(provider: AiProvider): Promise<void>
 ```
 
 ### Project Store (`store/project.ts`)
@@ -400,20 +508,20 @@ interface SpawnResult { stdout: string; stderr: string; exitCode: number; sessio
 interface ClaudeJsonResult { type: string; subtype: string; is_error: boolean; result: string; session_id: string; duration_ms: number; total_cost_usd: number; num_turns: number }
 
 // Error class
-class ClaudeSpawnError extends Error { stderr: string; exitCode: number; rateLimited: boolean; retryAfterMs: number | null; sessionId: string | null }
+class SpawnError extends Error { stderr: string; exitCode: number; rateLimited: boolean; retryAfterMs: number | null; sessionId: string | null }
 
 // Functions
-spawnClaudeInteractive(prompt: string, options: SpawnSyncOptions): { code: number; error?: string }
-async spawnClaudeHeadless(options: SpawnAsyncOptions & { prompt?: string }): Promise<string>
-async spawnClaudeHeadlessRaw(options: HeadlessSpawnOptions): Promise<SpawnResult>
-async spawnClaudeWithRetry(options: HeadlessSpawnOptions, retryOptions?: { maxRetries?, baseDelayMs?, maxDelayMs? }): Promise<SpawnResult>
+spawnInteractive(prompt: string, options: SpawnSyncOptions): { code: number; error?: string }
+async spawnHeadless(options: SpawnAsyncOptions & { prompt?: string }): Promise<string>
+async spawnHeadlessRaw(options: HeadlessSpawnOptions): Promise<SpawnResult>
+async spawnWithRetry(options: HeadlessSpawnOptions, retryOptions?: { maxRetries?, baseDelayMs?, maxDelayMs? }): Promise<SpawnResult>
 detectRateLimit(stderr: string): { rateLimited: boolean; retryAfterMs: number | null }
-parseClaudeJsonOutput(stdout: string): { result: string; sessionId: string | null }
+parseJsonOutput(stdout: string): { result: string; sessionId: string | null }
 ```
 
 **Interactive/Session mode** uses `spawnSync` with inherited stdio.
 **Headless mode** uses `spawn` with piped stdio (stdin closed immediately to prevent hanging).
-**Retry logic** (`spawnClaudeWithRetry`) uses exponential backoff + jitter; auto-resumes sessions via `--resume`.
+**Retry logic** (`spawnWithRetry`) uses exponential backoff + jitter; auto-resumes sessions via `--resume`.
 **JSON output** (`--output-format json`) captures `session_id` for resumability.
 
 ### Parser (`claude/parser.ts`)
@@ -442,7 +550,7 @@ interface TaskContext { sprint: Sprint; task: Task; project?: Project }
 getRecentGitHistory(projectPath: string, count?: number): string
 detectVerifyScript(projectPath: string): string | null
 getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null
-formatTaskForClaude(ctx: TaskContext): string
+formatTask(ctx: TaskContext): string
 buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null): string
 getContextFileName(sprintId: string, taskId: string): string
 async writeTaskContextFile(projectPath: string, taskContent: string, instructions: string, sprintId: string, taskId: string): Promise<string>
@@ -530,11 +638,11 @@ When a rate limit is detected, the coordinator pauses new task launches while ru
 Checks Claude tool permissions from settings files:
 
 ```typescript
-interface ClaudePermissions { allow: string[]; deny: string[] }
+interface ProviderPermissions { allow: string[]; deny: string[] }
 interface PermissionWarning { tool: string; specifier?: string; message: string }
 
-getClaudePermissions(projectPath: string): ClaudePermissions
-isToolAllowed(permissions: ClaudePermissions, tool: string, specifier?: string): boolean | 'ask'
+getProviderPermissions(projectPath: string): ProviderPermissions
+isToolAllowed(permissions: ProviderPermissions, tool: string, specifier?: string): boolean | 'ask'
 checkTaskPermissions(projectPath: string, options: { verifyScript?: string; setupScript?: string; needsCommit?: boolean }): PermissionWarning[]
 ```
 
@@ -771,7 +879,7 @@ Combines refinement and planning in a single Claude session:
 | `TaskNotFoundError`    | task    | Invalid task ID              |
 | `TaskStatusError`      | task    | Invalid status operation     |
 | `DependencyCycleError` | task    | Cycle in dependencies        |
-| `ClaudeSpawnError`     | session | Claude process spawn failure |
+| `SpawnError`           | session | Claude process spawn failure |
 
 ### CLI Error Handling
 
