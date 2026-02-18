@@ -2,7 +2,7 @@ import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
 import { loadDashboardData, renderStatusHeader, showDashboard } from './dashboard.ts';
-import { getCurrentSprint } from '@src/store/config.ts';
+import { getAiProvider, getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
 import { getTasks } from '@src/store/task.ts';
@@ -53,6 +53,9 @@ import { taskRemoveCommand } from '@src/commands/task/remove.ts';
 // Command imports - progress
 import { progressLogCommand } from '@src/commands/progress/log.ts';
 import { progressShowCommand } from '@src/commands/progress/show.ts';
+
+// Command imports - config
+import { configShowCommand, configSetCommand } from '@src/commands/config/config.ts';
 
 // Custom theme with donut selector
 const selectTheme = {
@@ -113,6 +116,21 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     log: () => progressLogCommand([]),
     show: () => progressShowCommand(),
   },
+  config: {
+    show: () => configShowCommand(),
+    'set provider': async () => {
+      const choice = await select({
+        message: `${emoji.donut} Which AI buddy should help with my homework?`,
+        choices: [
+          { name: 'Claude Code', value: 'claude' as const },
+          { name: 'GitHub Copilot', value: 'copilot' as const },
+        ],
+        default: (await getAiProvider()) ?? undefined,
+        theme: selectTheme,
+      });
+      await configSetCommand(['provider', choice]);
+    },
+  },
 };
 
 /**
@@ -156,6 +174,7 @@ async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: Dash
     allRequirementsApproved: false,
     plannedTicketCount: 0,
     nextAction: null,
+    aiProvider: null,
   };
 
   try {
@@ -164,6 +183,12 @@ async function getMenuContext(): Promise<{ ctx: MenuContext; dashboardData: Dash
     ctx.projectCount = projects.length;
   } catch {
     // No projects file yet
+  }
+
+  try {
+    ctx.aiProvider = await getAiProvider();
+  } catch {
+    // No config file yet
   }
 
   try {

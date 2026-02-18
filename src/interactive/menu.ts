@@ -51,6 +51,8 @@ export interface MenuContext {
   /** Number of tickets that have at least one associated task */
   plannedTicketCount: number;
   nextAction: NextAction | null;
+  /** Current AI provider setting */
+  aiProvider: string | null;
 }
 
 // ============================================================================
@@ -217,6 +219,7 @@ export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultVal
   items.push({ name: 'Tasks', value: 'task', description: 'List, show, add, status, reorder' });
   items.push({ name: 'Projects', value: 'project', description: 'List, show, add, remove' });
   items.push({ name: 'Progress', value: 'progress', description: 'Log and view progress' });
+  items.push({ name: 'Configuration', value: 'config', description: 'AI provider, settings' });
 
   // Utilities
   items.push(line());
@@ -339,6 +342,20 @@ function buildProjectSubMenu(): SubMenu {
 }
 
 /**
+ * Build config submenu.
+ */
+function buildConfigSubMenu(): SubMenu {
+  const items: MenuItem[] = [];
+
+  items.push({ name: 'Show Settings', value: 'show', description: 'View current configuration' });
+  items.push({ name: 'Set AI Provider', value: 'set provider', description: 'Choose Claude Code or GitHub Copilot' });
+  items.push(line());
+  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
+
+  return { title: 'Configuration', items };
+}
+
+/**
  * Build a submenu by group name with full context.
  */
 export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
@@ -353,6 +370,8 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
       return buildProgressSubMenu();
     case 'project':
       return buildProjectSubMenu();
+    case 'config':
+      return buildConfigSubMenu();
     default:
       return null;
   }
