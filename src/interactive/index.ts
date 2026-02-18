@@ -1,4 +1,3 @@
-import { select } from '@inquirer/prompts';
 import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
@@ -9,6 +8,8 @@ import { listProjects } from '@src/store/project.ts';
 import { getTasks } from '@src/store/task.ts';
 import { getNextAction, type DashboardData } from './dashboard.ts';
 import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
+import { select } from '@inquirer/prompts';
+import { escapableSelect } from './escapable.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -294,7 +295,7 @@ async function handleSubMenu(
   while (true) {
     try {
       log.newline();
-      const subCommand = await select({
+      const subCommand = await escapableSelect({
         message: `${emoji.donut} ${currentTitle}`,
         choices: currentItems,
         pageSize: 15,
@@ -302,7 +303,7 @@ async function handleSubMenu(
         theme: selectTheme,
       });
 
-      if (subCommand === 'back') {
+      if (subCommand === null || subCommand === 'back') {
         break;
       }
 
