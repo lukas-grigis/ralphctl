@@ -1,7 +1,7 @@
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
-import { ProcessManager } from '@src/claude/process-manager.ts';
+import { ProcessManager } from '@src/ai/process-manager.ts';
 import {
   getNextTask,
   getReadyTasks,
@@ -13,18 +13,18 @@ import {
 } from '@src/store/task.ts';
 import { getProgress, logProgress, summarizeProgressForContext } from '@src/store/progress.ts';
 import { getProgressFilePath, getSprintDir } from '@src/utils/paths.ts';
-import { buildTaskExecutionPrompt } from '@src/claude/prompts/index.ts';
+import { buildTaskExecutionPrompt } from '@src/ai/prompts/index.ts';
 import type { Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
-import { type ExecutionResult, parseExecutionResult } from '@src/claude/parser.ts';
-import type { SpawnResult } from '@src/claude/session.ts';
-import { ClaudeSpawnError, spawnClaudeInteractive, spawnClaudeWithRetry } from '@src/claude/session.ts';
-import { RateLimitCoordinator } from '@src/claude/rate-limiter.ts';
+import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
+import type { SpawnResult } from '@src/ai/session.ts';
+import { SpawnError, spawnInteractive, spawnWithRetry } from '@src/ai/session.ts';
+import { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
 import { EXIT_ALL_BLOCKED, EXIT_ERROR, EXIT_NO_TASKS, EXIT_SUCCESS } from '@src/utils/exit-codes.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import {
   buildFullTaskContext,
-  formatTaskForClaude,
+  formatTask,
   getContextFileName,
   getEffectiveVerifyScript,
   getProjectForTask,
@@ -32,7 +32,9 @@ import {
   runPreFlightCheck,
   type TaskContext,
   writeTaskContextFile,
-} from '@src/claude/task-context.ts';
+} from '@src/ai/task-context.ts';
+import { type ProviderAdapter } from '@src/providers/types.ts';
+import { getActiveProvider } from '@src/providers/index.ts';
 
 // ============================================================================
 // TYPES
@@ -43,7 +45,7 @@ export interface ExecutorOptions {
   step: boolean;
   /** Limit number of tasks to execute */
   count: number | null;
-  /** Interactive Claude session (collaborate with Claude) */
+  /** Interactive AI session (collaborate with provider) */
   session: boolean;
   /** Skip auto-commit after task completion */
   noCommit: boolean;
@@ -90,12 +92,15 @@ interface TaskExecutionResult extends ExecutionResult {
   sessionId: string | null;
 }
 
-async function executeTaskWithClaude(
+async function executeTask(
   ctx: TaskContext,
   options: ExecutorOptions,
   sprintId: string,
-  resumeSessionId?: string
+  resumeSessionId?: string,
+  provider?: ProviderAdapter
 ): Promise<TaskExecutionResult> {
+  const p = provider ?? (await getActiveProvider());
+  const label = p.displayName;
   const projectPath = ctx.task.projectPath;
   const sprintDir = getSprintDir(sprintId);
 
@@ -111,10 +116,14 @@ async function executeTaskWithClaude(
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
 
     try {
-      const result = spawnClaudeInteractive(`Read ${contextFileName} and follow the instructions`, {
-        cwd: projectPath,
-        args: ['--add-dir', sprintDir],
-      });
+      const result = spawnInteractive(
+        `Read ${contextFileName} and follow the instructions`,
+        {
+          cwd: projectPath,
+          args: ['--add-dir', sprintDir],
+        },
+        p
+      );
 
       if (result.error) {
         return { success: false, output: '', blockedReason: result.error, sessionId: null };
@@ -126,7 +135,7 @@ async function executeTaskWithClaude(
       return {
         success: false,
         output: '',
-        blockedReason: `Claude exited with code ${String(result.code)}`,
+        blockedReason: `${label} exited with code ${String(result.code)}`,
         sessionId: null,
       };
     } finally {
@@ -143,7 +152,7 @@ async function executeTaskWithClaude(
 
   if (resumeSessionId) {
     // Resume a previous session — send a short continuation prompt
-    const spinner = createSpinner(`Resuming Claude session for: ${ctx.task.name}`).start();
+    const spinner = createSpinner(`Resuming ${label} session for: ${ctx.task.name}`).start();
 
     // Register spinner cleanup with ProcessManager
     const manager = ProcessManager.getInstance();
@@ -152,7 +161,7 @@ async function executeTaskWithClaude(
     });
 
     try {
-      spawnResult = await spawnClaudeWithRetry(
+      spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
           args: ['--add-dir', sprintDir],
@@ -164,11 +173,12 @@ async function executeTaskWithClaude(
           onRetry: (attempt, delayMs) => {
             spinner.text = `Rate limited, retrying in ${String(Math.round(delayMs / 1000))}s (attempt ${String(attempt)})...`;
           },
-        }
+        },
+        p
       );
-      spinner.succeed(`Claude completed: ${ctx.task.name}`);
+      spinner.succeed(`${label} completed: ${ctx.task.name}`);
     } catch (err) {
-      spinner.fail(`Claude failed: ${ctx.task.name}`);
+      spinner.fail(`${label} failed: ${ctx.task.name}`);
       throw err;
     } finally {
       deregister(); // Clean up callback registration
@@ -185,7 +195,7 @@ async function executeTaskWithClaude(
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
 
-    const spinner = createSpinner(`Claude is working on: ${ctx.task.name}`).start();
+    const spinner = createSpinner(`${label} is working on: ${ctx.task.name}`).start();
 
     // Register spinner cleanup with ProcessManager
     const manager = ProcessManager.getInstance();
@@ -195,7 +205,7 @@ async function executeTaskWithClaude(
 
     try {
       const contextContent = await readFile(contextFile, 'utf-8');
-      spawnResult = await spawnClaudeWithRetry(
+      spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
           args: ['--add-dir', sprintDir],
@@ -206,11 +216,12 @@ async function executeTaskWithClaude(
           onRetry: (attempt, delayMs) => {
             spinner.text = `Rate limited, retrying in ${String(Math.round(delayMs / 1000))}s (attempt ${String(attempt)})...`;
           },
-        }
+        },
+        p
       );
-      spinner.succeed(`Claude completed: ${ctx.task.name}`);
+      spinner.succeed(`${label} completed: ${ctx.task.name}`);
     } catch (err) {
-      spinner.fail(`Claude failed: ${ctx.task.name}`);
+      spinner.fail(`${label} failed: ${ctx.task.name}`);
       throw err;
     } finally {
       deregister(); // Clean up callback registration
@@ -252,6 +263,10 @@ async function areAllRemainingBlocked(sprintId: string): Promise<boolean> {
 export async function executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
+
+  // Resolve provider once for the entire loop
+  const provider = await getActiveProvider();
+  const label = provider.displayName;
 
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
@@ -333,9 +348,9 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
     // Get project for the task (if available)
     const project = await getProjectForTask(task, sprint);
 
-    // Build context for Claude
+    // Build context for AI provider
     const ctx: TaskContext = { sprint, task, project };
-    const taskPrompt = formatTaskForClaude(ctx);
+    const taskPrompt = formatTask(ctx);
 
     // Run pre-flight permission check (only on first task of the loop)
     if (completedCount === 0) {
@@ -343,17 +358,17 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
     }
 
     if (options.session) {
-      console.log(highlight('\n[Task Context for Claude]'));
+      console.log(highlight(`\n[Task Context for ${label}]`));
       console.log(muted('─'.repeat(50)));
       console.log(taskPrompt);
       console.log(muted('─'.repeat(50)));
-      console.log(muted(`\nStarting Claude in ${task.projectPath} (session)...\n`));
+      console.log(muted(`\nStarting ${label} in ${task.projectPath} (session)...\n`));
     } else {
-      console.log(muted(`Starting Claude in ${task.projectPath} (headless)...`));
+      console.log(muted(`Starting ${label} in ${task.projectPath} (headless)...`));
     }
 
-    // Execute task with Claude
-    const result = await executeTaskWithClaude(ctx, options, sprintId);
+    // Execute task with AI provider
+    const result = await executeTask(ctx, options, sprintId, undefined, provider);
 
     if (!result.success) {
       console.log(warning('\nTask not completed.'));
@@ -483,6 +498,10 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
+  // Resolve provider once for the entire loop
+  const provider = await getActiveProvider();
+  const label = provider.displayName;
+
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
   const targetCount = options.count ?? Infinity;
@@ -512,7 +531,7 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
   // Track in-flight tasks and session IDs for resume
   const inFlightPaths = new Set<string>();
   const running = new Map<string, Promise<ParallelTaskResult>>();
-  const taskSessionIds = new Map<string, string>(); // taskId → Claude session ID
+  const taskSessionIds = new Map<string, string>(); // taskId → AI session ID
   let preFlightDone = false;
 
   try {
@@ -609,9 +628,9 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
           console.log(info('ID:      ') + task.id);
           console.log(info('Project: ') + task.projectPath);
           if (resumeId) {
-            console.log(muted(`Resuming Claude session ${resumeId.slice(0, 8)}...`));
+            console.log(muted(`Resuming ${label} session ${resumeId.slice(0, 8)}...`));
           } else {
-            console.log(muted(`Starting Claude in ${task.projectPath} (headless)...`));
+            console.log(muted(`Starting ${label} in ${task.projectPath} (headless)...`));
           }
 
           inFlightPaths.add(task.projectPath);
@@ -620,7 +639,7 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
             try {
               const project = await getProjectForTask(task, sprint);
               const ctx: TaskContext = { sprint, task, project };
-              const result = await executeTaskWithClaude(ctx, options, sprintId, resumeId);
+              const result = await executeTask(ctx, options, sprintId, resumeId, provider);
 
               // Store session ID for potential future resume
               if (result.sessionId) {
@@ -629,7 +648,7 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
 
               return { task, result, error: null, isRateLimited: false };
             } catch (err) {
-              if (err instanceof ClaudeSpawnError && err.rateLimited) {
+              if (err instanceof SpawnError && err.rateLimited) {
                 // Store session ID from error for resume after cooldown
                 if (err.sessionId) {
                   taskSessionIds.set(task.id, err.sessionId);
@@ -807,6 +826,6 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
 }
 
 // Re-export for backward compatibility
-export { formatTaskForClaude as formatTaskContext } from '@src/claude/task-context.ts';
+export { formatTask as formatTaskContext } from '@src/ai/task-context.ts';
 // Re-export TaskContext type for consumers
-export type { TaskContext } from '@src/claude/task-context.ts';
+export type { TaskContext } from '@src/ai/task-context.ts';

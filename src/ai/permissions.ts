@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import type { AiProvider } from '@src/schemas/index.ts';
 
 interface PermissionsConfig {
   allow?: string[];
@@ -11,23 +12,30 @@ interface SettingsFile {
   permissions?: PermissionsConfig;
 }
 
-export interface ClaudePermissions {
+export interface ProviderPermissions {
   allow: string[];
   deny: string[];
 }
 
 /**
- * Get Claude permissions from settings files.
- * Checks project-level settings first, then falls back to user-level.
+ * Get AI provider permissions from settings files.
+ * For Claude: checks .claude/settings.local.json and ~/.claude/settings.json
+ * For Copilot: returns empty permissions (Copilot uses --available-tools/--excluded-tools flags)
  *
- * @param projectPath - Project directory to check for .claude/settings.local.json
+ * @param projectPath - Project directory to check for settings
+ * @param provider - AI provider (defaults to 'claude' for backward compat)
  * @returns Combined permissions from both sources
  */
-export function getClaudePermissions(projectPath: string): ClaudePermissions {
-  const permissions: ClaudePermissions = {
+export function getProviderPermissions(projectPath: string, provider?: AiProvider): ProviderPermissions {
+  const permissions: ProviderPermissions = {
     allow: [],
     deny: [],
   };
+
+  // Copilot manages permissions via CLI flags, not settings files
+  if (provider === 'copilot') {
+    return permissions;
+  }
 
   // Check project-level settings (.claude/settings.local.json)
   const projectSettingsPath = join(projectPath, '.claude', 'settings.local.json');
@@ -76,7 +84,7 @@ export function getClaudePermissions(projectPath: string): ClaudePermissions {
  *
  * @returns true if explicitly allowed, false if denied, 'ask' if no match
  */
-export function isToolAllowed(permissions: ClaudePermissions, tool: string, specifier?: string): boolean | 'ask' {
+export function isToolAllowed(permissions: ProviderPermissions, tool: string, specifier?: string): boolean | 'ask' {
   // Check deny list first (deny takes precedence)
   for (const pattern of permissions.deny) {
     if (matchesPattern(pattern, tool, specifier)) {
@@ -166,7 +174,7 @@ export function checkTaskPermissions(
   }
 ): PermissionWarning[] {
   const warnings: PermissionWarning[] = [];
-  const permissions = getClaudePermissions(projectPath);
+  const permissions = getProviderPermissions(projectPath);
 
   // Check git commit permission
   if (options.needsCommit !== false) {
