@@ -8,6 +8,7 @@ import { registerSprintCommands } from '@src/commands/sprint/index.ts';
 import { registerTaskCommands } from '@src/commands/task/index.ts';
 import { registerTicketCommands } from '@src/commands/ticket/index.ts';
 import { registerProgressCommands } from '@src/commands/progress/index.ts';
+import { registerConfigCommands } from '@src/commands/config/index.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
 
 export interface CliResult {
@@ -37,6 +38,7 @@ function createProgram(): Command {
   registerTaskCommands(program);
   registerTicketCommands(program);
   registerProgressCommands(program);
+  registerConfigCommands(program);
 
   return program;
 }
