@@ -1,9 +1,10 @@
 import { getConfigPath } from '@src/utils/paths.ts';
 import { fileExists, readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
-import { type Config, ConfigSchema } from '@src/schemas/index.ts';
+import { type AiProvider, type Config, ConfigSchema } from '@src/schemas/index.ts';
 
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,
+  aiProvider: null,
 };
 
 export async function getConfig(): Promise<Config> {
@@ -32,5 +33,23 @@ export async function getCurrentSprint(): Promise<string | null> {
 export async function setCurrentSprint(sprintId: string | null): Promise<void> {
   const config = await getConfig();
   config.currentSprint = sprintId;
+  await saveConfig(config);
+}
+
+/**
+ * Get the configured AI provider (claude or copilot).
+ * Returns null if not yet configured (first-run).
+ */
+export async function getAiProvider(): Promise<AiProvider | null> {
+  const config = await getConfig();
+  return config.aiProvider ?? null;
+}
+
+/**
+ * Set the AI provider.
+ */
+export async function setAiProvider(provider: AiProvider): Promise<void> {
+  const config = await getConfig();
+  config.aiProvider = provider;
   await saveConfig(config);
 }
