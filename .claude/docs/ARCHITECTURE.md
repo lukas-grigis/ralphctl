@@ -137,6 +137,7 @@ interface ProviderAdapter {
 **Claude Code Adapter** (`src/providers/claude.ts`):
 
 - Binary: `claude`
+- Permission flag: `--permission-mode acceptEdits` (respects `.claude/settings*.json` allow/deny)
 - Output format: `--output-format json`
 - Session management: Built-in session IDs
 - Rate limit detection: Parses stderr for rate limit messages
@@ -145,10 +146,11 @@ interface ProviderAdapter {
 **GitHub Copilot Adapter** (`src/providers/copilot.ts`):
 
 - Binary: `copilot`
-- Output format: Provider-specific flags
-- Session management: Provider-specific approach
+- Permission flag: `--allow-all-tools` (bypasses per-tool approval entirely — no settings files)
+- Output format: plain text (`-p -s`); no JSON mode, no session ID
+- Session management: Session ID unavailable from headless output
 - Rate limit detection: Parses stderr for rate limit messages
-- Env vars: None currently
+- Env vars: None
 
 ### Provider Resolution
 
@@ -633,20 +635,33 @@ class RateLimitCoordinator {
 
 When a rate limit is detected, the coordinator pauses new task launches while running tasks continue unaffected.
 
-### Permissions (`claude/permissions.ts`)
+### Permissions (`ai/permissions.ts`)
 
-Checks Claude tool permissions from settings files:
+Tool permission checking — behaviour differs by provider:
+
+**Claude Code** reads settings files and checks allow/deny patterns:
 
 ```typescript
 interface ProviderPermissions { allow: string[]; deny: string[] }
 interface PermissionWarning { tool: string; specifier?: string; message: string }
 
-getProviderPermissions(projectPath: string): ProviderPermissions
-isToolAllowed(permissions: ProviderPermissions, tool: string, specifier?: string): boolean | 'ask'
-checkTaskPermissions(projectPath: string, options: { verifyScript?: string; setupScript?: string; needsCommit?: boolean }): PermissionWarning[]
+getProviderPermissions(projectPath, provider?)  // reads settings files (Claude only)
+isToolAllowed(permissions, tool, specifier?)    // returns true | false | 'ask'
+checkTaskPermissions(projectPath, { verifyScript?, setupScript?, needsCommit? })
 ```
 
-Reads from `.claude/settings.local.json` and `~/.claude/settings.json`.
+Settings files checked (Claude only):
+
+- `.claude/settings.local.json` — project-level
+- `~/.claude/settings.json` — user-level
+
+**GitHub Copilot** does not use settings files. `getProviderPermissions()` returns empty `{ allow: [], deny: [] }` when
+`provider === 'copilot'` — tool access is granted wholesale via the `--allow-all-tools` CLI flag instead.
+
+**Known limitation:** `checkTaskPermissions()` in `src/ai/task-context.ts` does not pass `provider`, so it always runs
+the Claude file-read path. For Copilot this is harmless (settings files won't exist) but produces no pre-flight
+warnings. If provider-aware warnings are needed in future, thread `provider` through `runPreFlightCheck()` →
+`checkTaskPermissions()` → `getProviderPermissions()`.
 
 ### Process Manager (`claude/process-manager.ts`)
 

@@ -59,6 +59,7 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 - Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
   selection timing)
 - Don't hardcode provider-specific logic outside `src/providers/` — use the provider abstraction layer
+- Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses `--allow-all-tools` (see Provider Differences below)
 
 ## Workflow
 
@@ -101,6 +102,27 @@ ralphctl config show
 - **GitHub Copilot:** Install the `copilot` CLI and authenticate ([docs](https://docs.github.com/en/copilot/github-copilot-in-the-cli))
 
 Both CLIs must be in your PATH and properly authenticated.
+
+### Provider Differences
+
+**Permission model** — the two providers handle tool/command permissions completely differently:
+
+| Aspect              | Claude Code                                              | GitHub Copilot          |
+| ------------------- | -------------------------------------------------------- | ----------------------- |
+| CLI flag            | `--permission-mode acceptEdits`                          | `--allow-all-tools`     |
+| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None — flags only       |
+| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable          |
+| Pre-flight warnings | `checkTaskPermissions()` reads settings files            | Returns empty (skipped) |
+
+**Claude** permission checks look for `permissions.allow` / `permissions.deny` arrays in settings JSON. Pre-flight warnings
+are shown before a session starts if git commit, verify script, or setup script are not pre-approved.
+
+**Copilot** bypasses all per-tool approval via `--allow-all-tools`. There are no settings files to read, and
+`getProviderPermissions()` short-circuits to return empty arrays when `provider === 'copilot'`.
+
+> **Important:** `checkTaskPermissions()` in `src/ai/task-context.ts` does not receive a `provider` argument — it always
+> performs Claude-style file checks. This is benign for Copilot (the settings files simply won't exist), but be aware
+> when extending permission logic that provider must be threaded through for correct behaviour.
 
 ### Workflow Paths
 
