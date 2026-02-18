@@ -2,21 +2,17 @@ import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { lstat, realpath, stat } from 'node:fs/promises';
 
-// Get the ralphctl root directory
+// Repo root: always the cloned repo directory (for schemas, etc.)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Use a function to allow tests to override RALPHCTL_ROOT via env variable
-export function getRalphctlRoot(): string {
-  return process.env['RALPHCTL_ROOT'] ?? join(__dirname, '..', '..');
+function getRepoRoot(): string {
+  return join(__dirname, '..', '..');
 }
 
-// Backward compatibility constant - reads from env at module load time
-export const RALPHCTL_ROOT = getRalphctlRoot();
-
-// Data directory (git-ignored)
+// Data directory: RALPHCTL_ROOT env var (if set) or {repoRoot}/ralphctl-data/
 export function getDataDir(): string {
-  return join(getRalphctlRoot(), 'ralphctl-data');
+  return process.env['RALPHCTL_ROOT'] ?? join(getRepoRoot(), 'ralphctl-data');
 }
 
 // Config path (moved to data directory)
@@ -63,7 +59,7 @@ export function getIdeateDir(sprintId: string, ticketId: string): string {
 }
 
 export function getSchemaPath(schemaName: string): string {
-  return join(getRalphctlRoot(), 'schemas', schemaName);
+  return join(getRepoRoot(), 'schemas', schemaName);
 }
 
 /**
