@@ -170,7 +170,7 @@ describe('detectVerifyScript', () => {
     writeFileSync(join(tempDir, 'pom.xml'), '<project></project>');
 
     const result = detectVerifyScript(tempDir);
-    expect(result).toBe('mvn verify');
+    expect(result).toBe('mvn clean install');
   });
 
   it('detects Makefile projects', () => {

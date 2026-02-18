@@ -7,10 +7,10 @@
   "author": "Lukas Grigis",
   "repository": {
     "type": "git",
-    "url": "https://github.com/grigis/ralphctl.git"
+    "url": "https://github.com/lukas-grigis/ralphctl.git"
   },
   "bugs": {
-    "url": "https://github.com/grigis/ralphctl/issues"
+    "url": "https://github.com/lukas-grigis/ralphctl/issues"
   },
   "keywords": [
     "cli",
