@@ -87,7 +87,7 @@ export function detectVerifyScript(projectPath: string): string | null {
 
   // Java/Maven projects
   if (existsSync(join(projectPath, 'pom.xml'))) {
-    return 'mvn verify';
+    return 'mvn clean install';
   }
 
   // Makefile projects
