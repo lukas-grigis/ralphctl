@@ -52,7 +52,11 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
   }
 
   // Interactive: select status if not provided
-  newStatus ??= await selectTaskStatus('Select new status:');
+  if (!newStatus) {
+    const selected = await selectTaskStatus('Select new status:');
+    if (!selected) return;
+    newStatus = selected;
+  }
 
   const result = TaskStatusSchema.safeParse(newStatus);
   if (!result.success) {

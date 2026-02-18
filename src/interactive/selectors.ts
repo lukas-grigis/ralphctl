@@ -1,4 +1,4 @@
-import { checkbox, confirm, input, select } from '@inquirer/prompts';
+import { checkbox, confirm, input } from '@inquirer/prompts';
 import { listProjects } from '@src/store/project.ts';
 import { listSprints } from '@src/store/sprint.ts';
 import { formatTicketDisplay, listTickets } from '@src/store/ticket.ts';
@@ -6,6 +6,7 @@ import { listTasks } from '@src/store/task.ts';
 import { emoji, formatSprintStatus, formatTaskStatus } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';
 import type { Repository, SprintStatus, TaskStatus } from '@src/schemas/index.ts';
+import { escapableSelect } from './escapable.ts';
 
 /**
  * Select a project from the list.
@@ -27,7 +28,7 @@ export async function selectProject(message = 'Select project:'): Promise<string
       if (updated.length === 0) return null;
       if (updated.length === 1 && updated[0]) return updated[0].name;
       // Fall through to selection below
-      return select({
+      return escapableSelect({
         message: `${emoji.donut} ${message}`,
         choices: updated.map((p) => ({
           name: p.displayName,
@@ -39,7 +40,7 @@ export async function selectProject(message = 'Select project:'): Promise<string
     return null;
   }
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: projects.map((p) => ({
       name: p.displayName,
@@ -62,12 +63,12 @@ export async function selectProjectRepository(message = 'Select repository:'): P
   }
 
   // Step 1: Select project (auto-select if only one)
-  let projectName: string;
+  let projectName: string | null;
   const firstProject = projects[0];
   if (projects.length === 1 && firstProject) {
     projectName = firstProject.name;
   } else {
-    projectName = await select({
+    projectName = await escapableSelect({
       message: `${emoji.donut} Select project:`,
       choices: projects.map((p) => ({
         name: p.displayName,
@@ -76,6 +77,8 @@ export async function selectProjectRepository(message = 'Select repository:'): P
       })),
     });
   }
+
+  if (!projectName) return null;
 
   const project = projects.find((p) => p.name === projectName);
   if (!project) {
@@ -88,7 +91,7 @@ export async function selectProjectRepository(message = 'Select repository:'): P
     return firstRepo.path;
   }
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: project.repositories.map((r) => ({
       name: r.name,
@@ -120,7 +123,7 @@ export async function selectSprint(message = 'Select sprint:', filter?: SprintSt
       const refiltered = filter ? updated.filter((s) => filter.includes(s.status)) : updated;
       if (refiltered.length === 0) return null;
       if (refiltered.length === 1 && refiltered[0]) return refiltered[0].id;
-      return select({
+      return escapableSelect({
         message: `${emoji.donut} ${message}`,
         choices: refiltered.map((s) => ({
           name: `${s.id} - ${s.name} (${formatSprintStatus(s.status)})`,
@@ -131,7 +134,7 @@ export async function selectSprint(message = 'Select sprint:', filter?: SprintSt
     return null;
   }
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: filtered.map((s) => ({
       name: `${s.id} - ${s.name} (${formatSprintStatus(s.status)})`,
@@ -159,7 +162,7 @@ export async function selectTicket(message = 'Select ticket:'): Promise<string |
       const updated = await listTickets();
       if (updated.length === 0) return null;
       if (updated.length === 1 && updated[0]) return updated[0].id;
-      return select({
+      return escapableSelect({
         message: `${emoji.donut} ${message}`,
         choices: updated.map((t) => ({
           name: formatTicketDisplay(t),
@@ -170,7 +173,7 @@ export async function selectTicket(message = 'Select ticket:'): Promise<string |
     return null;
   }
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: tickets.map((t) => ({
       name: formatTicketDisplay(t),
@@ -192,7 +195,7 @@ export async function selectTask(message = 'Select task:', filter?: TaskStatus[]
     return null;
   }
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: filtered.map((t) => ({
       name: `${formatTaskStatus(t.status)} ${t.name}`,
@@ -205,10 +208,10 @@ export async function selectTask(message = 'Select task:', filter?: TaskStatus[]
  * Select a task status.
  * @returns task status
  */
-export async function selectTaskStatus(message = 'Select status:'): Promise<TaskStatus> {
+export async function selectTaskStatus(message = 'Select status:'): Promise<TaskStatus | null> {
   const statuses: TaskStatus[] = ['todo', 'in_progress', 'done'];
 
-  return select({
+  return escapableSelect({
     message: `${emoji.donut} ${message}`,
     choices: statuses.map((s) => ({
       name: formatTaskStatus(s),
