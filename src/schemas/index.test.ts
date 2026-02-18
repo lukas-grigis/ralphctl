@@ -268,6 +268,35 @@ describe('ConfigSchema', () => {
       expect(result.data.currentSprint).toBe(null);
     }
   });
+
+  it('accepts config with aiProvider set to claude', () => {
+    const result = ConfigSchema.safeParse({ aiProvider: 'claude' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiProvider).toBe('claude');
+    }
+  });
+
+  it('accepts config with aiProvider set to copilot', () => {
+    const result = ConfigSchema.safeParse({ aiProvider: 'copilot' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiProvider).toBe('copilot');
+    }
+  });
+
+  it('defaults aiProvider to null', () => {
+    const result = ConfigSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.aiProvider).toBe(null);
+    }
+  });
+
+  it('rejects invalid aiProvider value', () => {
+    const result = ConfigSchema.safeParse({ aiProvider: 'invalid' });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('ImportTasksSchema', () => {

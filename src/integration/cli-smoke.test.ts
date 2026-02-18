@@ -125,13 +125,39 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
     const tickets = await cli(['ticket', 'list']);
     expect(tickets.stdout).not.toContain('To Remove');
   });
+
+  it('sets and shows AI provider config', async () => {
+    // Set provider to claude
+    const setClaude = await cli(['config', 'set', 'provider', 'claude']);
+    expect(setClaude.code).toBe(0);
+    expect(setClaude.stdout).toContain('claude');
+
+    // Show config
+    const show1 = await cli(['config', 'show']);
+    expect(show1.code).toBe(0);
+    expect(show1.stdout).toContain('claude');
+
+    // Set provider to copilot
+    const setCopilot = await cli(['config', 'set', 'provider', 'copilot']);
+    expect(setCopilot.code).toBe(0);
+    expect(setCopilot.stdout).toContain('copilot');
+
+    // Show updated config
+    const show2 = await cli(['config', 'show']);
+    expect(show2.code).toBe(0);
+    expect(show2.stdout).toContain('copilot');
+
+    // Reject invalid provider (shows error message but exits normally)
+    const setInvalid = await cli(['config', 'set', 'provider', 'invalid']);
+    expect(setInvalid.stdout).toContain('Invalid provider');
+  });
 });
 
 /**
  * Elaborate end-to-end scenario: QA Test Automation Sprint
  *
  * Simulates a realistic sprint workflow for a QA team setting up test automation.
- * Tests all CRUD operations on sprints, tickets, and tasks without invoking Claude.
+ * Tests all CRUD operations on sprints, tickets, and tasks without invoking AI.
  */
 describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
   let scenarioDir: string;
@@ -525,7 +551,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     // PHASE 7: Sprint Context and Show (Markdown Output)
     // ═════════════════════════════════════════════════════════════════════════
 
-    // Get sprint context (markdown format for Claude)
+    // Get sprint context (markdown format for AI)
     const context = await scenarioCli(['sprint', 'context']);
     expect(context.code).toBe(0);
     expect(context.stdout).toContain('# Sprint: QA Test Automation Q1');
