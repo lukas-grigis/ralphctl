@@ -74,9 +74,7 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     const countLabel = isFiltered ? `${String(filtered.length)} of ${String(tickets.length)}` : String(tickets.length);
     console.log(`\n# Tickets (${countLabel})${filterStr}\n`);
     for (const ticket of filtered) {
-      const display = ticket.externalId
-        ? `**${ticket.externalId}**: ${ticket.title}`
-        : `[${ticket.id}] ${ticket.title}`;
+      const display = `[${ticket.id}] ${ticket.title}`;
       const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
       console.log(`- ${display}${reqBadge} (${ticket.projectName})`);
     }
