@@ -38,22 +38,15 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
     expect(createSprint.stdout).toContain('Sprint created!');
 
     // Add ticket
-    const addTicket = await cli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'test-project',
-      '--title',
-      'Test Ticket',
-      '--id',
-      'SMOKE-1',
-    ]);
+    const addTicket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'Test Ticket']);
     expect(addTicket.code).toBe(0);
     expect(addTicket.stdout).toContain('Ticket added');
+    const ticketId = extractField(addTicket.stdout, 'ID');
+    expect(ticketId).toBeTruthy();
+    if (!ticketId) throw new Error('ticketId not found');
 
     // Add task
-    const addTask = await cli(['task', 'add', '-n', '--name', 'Test Task', '--ticket', 'SMOKE-1']);
+    const addTask = await cli(['task', 'add', '-n', '--name', 'Test Task', '--ticket', ticketId]);
     expect(addTask.code).toBe(0);
     expect(addTask.stdout).toContain('Task added');
 
@@ -84,10 +77,13 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
     const sprint = await cli(['sprint', 'create', '-n', '--name', 'Status Test']);
     expect(sprint.code).toBe(0);
 
-    const ticket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'Ticket', '--id', 'ST-1']);
+    const ticket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'Ticket']);
     expect(ticket.code).toBe(0);
+    const stTicketId = extractField(ticket.stdout, 'ID');
+    expect(stTicketId).toBeTruthy();
+    if (!stTicketId) throw new Error('stTicketId not found');
 
-    const addTask = await cli(['task', 'add', '-n', '--name', 'My Task', '--ticket', 'ST-1']);
+    const addTask = await cli(['task', 'add', '-n', '--name', 'My Task', '--ticket', stTicketId]);
     expect(addTask.code).toBe(0);
 
     // Extract task ID from output
@@ -114,11 +110,14 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
 
   it('removes ticket and task', async () => {
     await cli(['sprint', 'create', '-n', '--name', 'Remove Test']);
-    await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'To Remove', '--id', 'RM-1']);
-    await cli(['task', 'add', '-n', '--name', 'Task to Remove', '--ticket', 'RM-1']);
+    const addRmTicket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'To Remove']);
+    const rmTicketId = extractField(addRmTicket.stdout, 'ID');
+    expect(rmTicketId).toBeTruthy();
+    if (!rmTicketId) throw new Error('rmTicketId not found');
+    await cli(['task', 'add', '-n', '--name', 'Task to Remove', '--ticket', rmTicketId]);
 
     // Remove ticket (only works in draft sprint)
-    const rmTicket = await cli(['ticket', 'remove', 'RM-1', '-y']);
+    const rmTicket = await cli(['ticket', 'remove', rmTicketId, '-y']);
     expect(rmTicket.code).toBe(0);
 
     // Verify ticket gone
@@ -245,7 +244,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     // PHASE 2: Add Tickets for Both Projects
     // ═════════════════════════════════════════════════════════════════════════
 
-    // Add frontend testing ticket with external ID and description
+    // Add frontend testing ticket with description and link
     const addFrontendTicket = await scenarioCli([
       'ticket',
       'add',
@@ -254,8 +253,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-frontend',
       '--title',
       'Setup Playwright E2E Tests',
-      '--id',
-      'QA-101',
       '--description',
       'Configure Playwright for cross-browser E2E testing of checkout flow',
       '--link',
@@ -263,7 +260,9 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     ]);
     expect(addFrontendTicket.code).toBe(0);
     expect(addFrontendTicket.stdout).toContain('Ticket added');
-    expect(addFrontendTicket.stdout).toContain('QA-101');
+    const frontendTicketId = extractField(addFrontendTicket.stdout, 'ID');
+    expect(frontendTicketId).toBeTruthy();
+    if (!frontendTicketId) throw new Error('frontendTicketId not found');
 
     // Add backend testing ticket
     const addBackendTicket = await scenarioCli([
@@ -274,14 +273,14 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-backend',
       '--title',
       'API Integration Test Suite',
-      '--id',
-      'QA-102',
       '--description',
       'Create comprehensive integration tests for payment and inventory APIs',
     ]);
     expect(addBackendTicket.code).toBe(0);
     expect(addBackendTicket.stdout).toContain('Ticket added');
-    expect(addBackendTicket.stdout).toContain('QA-102');
+    const backendTicketId = extractField(addBackendTicket.stdout, 'ID');
+    expect(backendTicketId).toBeTruthy();
+    if (!backendTicketId) throw new Error('backendTicketId not found');
 
     // Add a third ticket (frontend) that we will edit later
     const addComponentTicket = await scenarioCli([
@@ -292,11 +291,11 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-frontend',
       '--title',
       'Component Unit Tests',
-      '--id',
-      'QA-103',
     ]);
     expect(addComponentTicket.code).toBe(0);
-    expect(addComponentTicket.stdout).toContain('QA-103');
+    const componentTicketId = extractField(addComponentTicket.stdout, 'ID');
+    expect(componentTicketId).toBeTruthy();
+    if (!componentTicketId) throw new Error('componentTicketId not found');
 
     // Add a fourth ticket that we will remove later
     const addRemovableTicket = await scenarioCli([
@@ -307,23 +306,22 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-backend',
       '--title',
       'Legacy Test Migration',
-      '--id',
-      'QA-999',
     ]);
     expect(addRemovableTicket.code).toBe(0);
+    const removableTicketId = extractField(addRemovableTicket.stdout, 'ID');
+    expect(removableTicketId).toBeTruthy();
+    if (!removableTicketId) throw new Error('removableTicketId not found');
 
     // Verify all tickets appear in list
     const ticketList = await scenarioCli(['ticket', 'list']);
     expect(ticketList.code).toBe(0);
-    expect(ticketList.stdout).toContain('QA-101');
-    expect(ticketList.stdout).toContain('QA-102');
-    expect(ticketList.stdout).toContain('QA-103');
-    expect(ticketList.stdout).toContain('QA-999');
     expect(ticketList.stdout).toContain('Setup Playwright E2E Tests');
     expect(ticketList.stdout).toContain('API Integration Test Suite');
+    expect(ticketList.stdout).toContain('Component Unit Tests');
+    expect(ticketList.stdout).toContain('Legacy Test Migration');
 
     // Show specific ticket details
-    const showTicket = await scenarioCli(['ticket', 'show', 'QA-101']);
+    const showTicket = await scenarioCli(['ticket', 'show', frontendTicketId]);
     expect(showTicket.code).toBe(0);
     expect(showTicket.stdout).toContain('Setup Playwright E2E Tests');
     expect(showTicket.stdout).toContain('cross-browser E2E testing');
@@ -333,11 +331,11 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     // PHASE 3: Edit and Remove Tickets
     // ═════════════════════════════════════════════════════════════════════════
 
-    // Edit ticket QA-103 to add description and update title
+    // Edit component ticket to add description and update title
     const editTicket = await scenarioCli([
       'ticket',
       'edit',
-      'QA-103',
+      componentTicketId,
       '-n',
       '--title',
       'React Component Unit Tests with RTL',
@@ -351,29 +349,28 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     expect(editTicket.stdout).toContain('React Component Unit Tests with RTL');
 
     // Verify edit persisted
-    const showEditedTicket = await scenarioCli(['ticket', 'show', 'QA-103']);
+    const showEditedTicket = await scenarioCli(['ticket', 'show', componentTicketId]);
     expect(showEditedTicket.code).toBe(0);
     expect(showEditedTicket.stdout).toContain('React Component Unit Tests with RTL');
     expect(showEditedTicket.stdout).toContain('React Testing Library');
 
     // Remove the legacy migration ticket (we decided to defer it)
-    const removeTicket = await scenarioCli(['ticket', 'remove', 'QA-999', '-y']);
+    const removeTicket = await scenarioCli(['ticket', 'remove', removableTicketId, '-y']);
     expect(removeTicket.code).toBe(0);
 
     // Verify ticket is gone
     const ticketListAfterRemove = await scenarioCli(['ticket', 'list']);
-    expect(ticketListAfterRemove.stdout).not.toContain('QA-999');
     expect(ticketListAfterRemove.stdout).not.toContain('Legacy Test Migration');
     // But other tickets remain
-    expect(ticketListAfterRemove.stdout).toContain('QA-101');
-    expect(ticketListAfterRemove.stdout).toContain('QA-102');
-    expect(ticketListAfterRemove.stdout).toContain('QA-103');
+    expect(ticketListAfterRemove.stdout).toContain('Setup Playwright E2E Tests');
+    expect(ticketListAfterRemove.stdout).toContain('API Integration Test Suite');
+    expect(ticketListAfterRemove.stdout).toContain('React Component Unit Tests with RTL');
 
     // ═════════════════════════════════════════════════════════════════════════
     // PHASE 4: Add Tasks Manually
     // ═════════════════════════════════════════════════════════════════════════
 
-    // Add tasks for QA-101 (Playwright setup)
+    // Add tasks for frontend ticket (Playwright setup)
     const addTask1 = await scenarioCli([
       'task',
       'add',
@@ -381,7 +378,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Install Playwright dependencies',
       '--ticket',
-      'QA-101',
+      frontendTicketId,
       '--description',
       'Add playwright and @playwright/test to devDependencies',
       '--step',
@@ -402,7 +399,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Create Playwright config',
       '--ticket',
-      'QA-101',
+      frontendTicketId,
       '--step',
       'Create playwright.config.ts with browser matrix',
       '--step',
@@ -419,7 +416,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Write checkout flow tests',
       '--ticket',
-      'QA-101',
+      frontendTicketId,
       '--description',
       'E2E tests for add-to-cart, cart review, and payment flow',
     ]);
@@ -427,7 +424,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     const task3Id = extractField(addTask3.stdout, 'ID');
     if (!task3Id) throw new Error('task3Id not found');
 
-    // Add tasks for QA-102 (API tests)
+    // Add tasks for backend ticket (API tests)
     const addTask4 = await scenarioCli([
       'task',
       'add',
@@ -435,7 +432,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Setup Jest with supertest',
       '--ticket',
-      'QA-102',
+      backendTicketId,
       '--step',
       'Install jest, supertest, and ts-jest',
       '--step',
@@ -450,7 +447,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Write payment API tests',
       '--ticket',
-      'QA-102',
+      backendTicketId,
       '--description',
       'Test payment initiation, confirmation, and refund endpoints',
     ]);
@@ -464,7 +461,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       '--name',
       'Task to be removed',
       '--ticket',
-      'QA-102',
+      backendTicketId,
     ]);
     expect(addTaskToRemove.code).toBe(0);
     const taskToRemoveId = extractField(addTaskToRemove.stdout, 'ID');
@@ -559,8 +556,8 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     expect(context.stdout).toContain('## Tasks');
     expect(context.stdout).toContain('ecommerce-frontend');
     expect(context.stdout).toContain('ecommerce-backend');
-    expect(context.stdout).toContain('QA-101');
-    expect(context.stdout).toContain('QA-102');
+    expect(context.stdout).toContain('Setup Playwright E2E Tests');
+    expect(context.stdout).toContain('API Integration Test Suite');
     expect(context.stdout).toContain('cross-browser E2E testing');
 
     // Show sprint (formatted display)
@@ -579,7 +576,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     // Brief ticket list
     const ticketListBrief = await scenarioCli(['ticket', 'list', '-b']);
     expect(ticketListBrief.code).toBe(0);
-    expect(ticketListBrief.stdout).toContain('QA-101');
+    expect(ticketListBrief.stdout).toContain('Playwright');
 
     // ═════════════════════════════════════════════════════════════════════════
     // PHASE 8: Activate Sprint and Update Task Status
@@ -701,8 +698,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-frontend',
       '--title',
       'Should Fail',
-      '--id',
-      'FAIL-1',
     ]);
     // SprintStatusError is caught and displayed without exit code
     expect(addToClosedSprint.stdout).toMatch(/closed|cannot|not allowed/i);
@@ -743,7 +738,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     await scenarioCli(['sprint', 'create', '-n', '--name', 'Edit Test Sprint']);
 
     // Add a ticket
-    await scenarioCli([
+    const addEditTicket = await scenarioCli([
       'ticket',
       'add',
       '-n',
@@ -751,26 +746,27 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ecommerce-frontend',
       '--title',
       'Test Edit',
-      '--id',
-      'EDIT-1',
     ]);
+    const editTicketId = extractField(addEditTicket.stdout, 'ID');
+    expect(editTicketId).toBeTruthy();
+    if (!editTicketId) throw new Error('editTicketId not found');
 
     // Edit with no changes provided (should fail)
-    const editNoChanges = await scenarioCli(['ticket', 'edit', 'EDIT-1', '-n']);
+    const editNoChanges = await scenarioCli(['ticket', 'edit', editTicketId, '-n']);
     expect(editNoChanges.code).not.toBe(0);
     expect(editNoChanges.stderr + editNoChanges.stdout).toContain('No updates provided');
 
     // Edit with empty title (should fail)
-    const editEmptyTitle = await scenarioCli(['ticket', 'edit', 'EDIT-1', '-n', '--title', '']);
+    const editEmptyTitle = await scenarioCli(['ticket', 'edit', editTicketId, '-n', '--title', '']);
     expect(editEmptyTitle.code).not.toBe(0);
 
     // Edit with invalid URL (should fail)
-    const editBadUrl = await scenarioCli(['ticket', 'edit', 'EDIT-1', '-n', '--link', 'not-a-url']);
+    const editBadUrl = await scenarioCli(['ticket', 'edit', editTicketId, '-n', '--link', 'not-a-url']);
     expect(editBadUrl.code).not.toBe(0);
     expect(editBadUrl.stderr + editBadUrl.stdout).toContain('valid URL');
 
     // Valid edit should work
-    const editValid = await scenarioCli(['ticket', 'edit', 'EDIT-1', '-n', '--title', 'Updated Title']);
+    const editValid = await scenarioCli(['ticket', 'edit', editTicketId, '-n', '--title', 'Updated Title']);
     expect(editValid.code).toBe(0);
     expect(editValid.stdout).toContain('Ticket updated');
     expect(editValid.stdout).toContain('Updated Title');
@@ -830,17 +826,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
   it('exports sprint requirements', async () => {
     // Create sprint with a ticket
     await scenarioCli(['sprint', 'create', '-n', '--name', 'Requirements Export Sprint']);
-    await scenarioCli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'ecommerce-frontend',
-      '--title',
-      'Test Requirement',
-      '--id',
-      'REQ-1',
-    ]);
+    await scenarioCli(['ticket', 'add', '-n', '--project', 'ecommerce-frontend', '--title', 'Test Requirement']);
 
     // Try exporting (will show warning since no approved requirements)
     const requirements = await scenarioCli(['sprint', 'requirements']);

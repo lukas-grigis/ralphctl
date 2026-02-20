@@ -52,10 +52,6 @@
             "minLength": 1,
             "description": "Internal ticket ID (uuid8, auto-generated)"
           },
-          "externalId": {
-            "type": "string",
-            "description": "Optional external ticket ID (e.g., JIRA-123, GH-456)"
-          },
           "title": {
             "type": "string",
             "minLength": 1,

@@ -15,16 +15,6 @@ export class TicketNotFoundError extends Error {
   }
 }
 
-export class DuplicateTicketError extends Error {
-  public readonly ticketId: string;
-
-  constructor(ticketId: string) {
-    super(`Ticket with external ID already exists: ${ticketId}`);
-    this.name = 'DuplicateTicketError';
-    this.ticketId = ticketId;
-  }
-}
-
 async function getSprintData(sprintId?: string): Promise<Sprint> {
   const id = await resolveSprintId(sprintId);
   return readValidatedJson(getSprintFilePath(id), SprintSchema);
@@ -35,7 +25,6 @@ async function saveSprintData(sprint: Sprint): Promise<void> {
 }
 
 export interface AddTicketInput {
-  externalId?: string;
   title: string;
   description?: string;
   link?: string;
@@ -58,14 +47,8 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
     throw err;
   }
 
-  // Check for duplicate external ID only if provided
-  if (input.externalId && sprint.tickets.some((t) => t.externalId === input.externalId)) {
-    throw new DuplicateTicketError(input.externalId);
-  }
-
   const ticket: Ticket = {
     id: generateUuid8(),
-    externalId: input.externalId,
     title: input.title,
     description: input.description,
     link: input.link,
@@ -82,7 +65,6 @@ export interface UpdateTicketInput {
   title?: string;
   description?: string;
   link?: string;
-  externalId?: string;
 }
 
 export async function updateTicket(ticketId: string, updates: UpdateTicketInput, sprintId?: string): Promise<Ticket> {
@@ -91,8 +73,7 @@ export async function updateTicket(ticketId: string, updates: UpdateTicketInput,
   // Check sprint status - must be draft to update tickets
   assertSprintStatus(sprint, ['draft'], 'update tickets');
 
-  // Find by internal ID or external ID
-  const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticketId || t.externalId === ticketId);
+  const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticketId);
   if (ticketIdx === -1) {
     throw new TicketNotFoundError(ticketId);
   }
@@ -100,14 +81,6 @@ export async function updateTicket(ticketId: string, updates: UpdateTicketInput,
   const ticket = sprint.tickets[ticketIdx];
   if (!ticket) {
     throw new TicketNotFoundError(ticketId);
-  }
-
-  // Check for duplicate external ID if changing it
-  if (updates.externalId !== undefined && updates.externalId !== ticket.externalId) {
-    const duplicate = sprint.tickets.find((t, idx) => idx !== ticketIdx && t.externalId === updates.externalId);
-    if (duplicate) {
-      throw new DuplicateTicketError(updates.externalId);
-    }
   }
 
   // Apply updates
@@ -120,9 +93,6 @@ export async function updateTicket(ticketId: string, updates: UpdateTicketInput,
   if (updates.link !== undefined) {
     ticket.link = updates.link || undefined;
   }
-  if (updates.externalId !== undefined) {
-    ticket.externalId = updates.externalId || undefined;
-  }
 
   await saveSprintData(sprint);
   return ticket;
@@ -134,8 +104,7 @@ export async function removeTicket(ticketId: string, sprintId?: string): Promise
   // Check sprint status - must be draft to remove tickets
   assertSprintStatus(sprint, ['draft'], 'remove tickets');
 
-  // Find by internal ID or external ID
-  const index = sprint.tickets.findIndex((t) => t.id === ticketId || t.externalId === ticketId);
+  const index = sprint.tickets.findIndex((t) => t.id === ticketId);
   if (index === -1) {
     throw new TicketNotFoundError(ticketId);
   }
@@ -150,8 +119,7 @@ export async function listTickets(sprintId?: string): Promise<Ticket[]> {
 
 export async function getTicket(ticketId: string, sprintId?: string): Promise<Ticket> {
   const sprint = await getSprintData(sprintId);
-  // Find by internal ID or external ID
-  const ticket = sprint.tickets.find((t) => t.id === ticketId || t.externalId === ticketId);
+  const ticket = sprint.tickets.find((t) => t.id === ticketId);
   if (!ticket) {
     throw new TicketNotFoundError(ticketId);
   }
@@ -194,18 +162,15 @@ export function getPendingRequirements(tickets: Ticket[]): Ticket[] {
 }
 
 /**
- * Format ticket for display: shows internal ID and external ID if present
- * Format: "[ID] Title" or "[ID] (EXT-123) Title"
+ * Format ticket for display: "[ID] Title"
  */
 export function formatTicketDisplay(ticket: Ticket): string {
-  const idPart = `[${ticket.id}]`;
-  const externalPart = ticket.externalId ? ` (${ticket.externalId})` : '';
-  return `${idPart}${externalPart} ${ticket.title}`;
+  return `[${ticket.id}] ${ticket.title}`;
 }
 
 /**
- * Format ticket ID for display: shows external ID if present, otherwise internal ID
+ * Format ticket ID for display.
  */
 export function formatTicketId(ticket: Ticket): string {
-  return ticket.externalId ?? ticket.id;
+  return ticket.id;
 }

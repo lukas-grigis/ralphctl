@@ -23,14 +23,13 @@ export async function createTestEnv(options?: { projectName?: string }): Promise
   const projectDir = await mkdtemp(join(tmpdir(), `ralphctl-project-${projectName}-`));
   const env = { RALPHCTL_ROOT: testDir };
 
-  // Create data directory structure
-  await mkdir(join(testDir, 'ralphctl-data'), { recursive: true });
-  await mkdir(join(testDir, 'ralphctl-data', 'sprints'), { recursive: true });
-  await writeFile(join(testDir, 'ralphctl-data', 'config.json'), JSON.stringify({ currentSprint: null }));
+  // Create data directory structure (RALPHCTL_ROOT points directly to data dir)
+  await mkdir(join(testDir, 'sprints'), { recursive: true });
+  await writeFile(join(testDir, 'config.json'), JSON.stringify({ currentSprint: null }));
 
   // Create projects.json with a test project
   await writeFile(
-    join(testDir, 'ralphctl-data', 'projects.json'),
+    join(testDir, 'projects.json'),
     JSON.stringify([
       {
         name: projectName,
@@ -74,10 +73,9 @@ export async function createMultiProjectEnv(
   const projectDirs = new Map<string, string>();
   const dirs: string[] = [testDir];
 
-  // Create data directory structure
-  await mkdir(join(testDir, 'ralphctl-data'), { recursive: true });
-  await mkdir(join(testDir, 'ralphctl-data', 'sprints'), { recursive: true });
-  await writeFile(join(testDir, 'ralphctl-data', 'config.json'), JSON.stringify({ currentSprint: null }));
+  // Create data directory structure (RALPHCTL_ROOT points directly to data dir)
+  await mkdir(join(testDir, 'sprints'), { recursive: true });
+  await writeFile(join(testDir, 'config.json'), JSON.stringify({ currentSprint: null }));
 
   // Create project directories
   const projectConfigs = [];
@@ -99,7 +97,7 @@ export async function createMultiProjectEnv(
     });
   }
 
-  await writeFile(join(testDir, 'ralphctl-data', 'projects.json'), JSON.stringify(projectConfigs));
+  await writeFile(join(testDir, 'projects.json'), JSON.stringify(projectConfigs));
 
   return {
     testDir,

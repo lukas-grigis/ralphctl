@@ -20,9 +20,6 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
 
     // Ticket info card
     const infoLines: string[] = [labelValue('ID', ticket.id)];
-    if (ticket.externalId) {
-      infoLines.push(labelValue('External ID', ticket.externalId));
-    }
     infoLines.push(labelValue('Project', ticket.projectName));
     infoLines.push(labelValue('Requirements', reqBadge));
 

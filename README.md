@@ -119,6 +119,8 @@ To store data elsewhere, set the `RALPHCTL_ROOT` environment variable:
 export RALPHCTL_ROOT="$HOME/.ralphctl"
 ```
 
+When set, ralphctl stores data files (`config.json`, `projects.json`, `sprints/`) directly in the specified directory. Schemas and other repo assets always resolve from the installed repo location.
+
 ---
 
 ## Quick Start

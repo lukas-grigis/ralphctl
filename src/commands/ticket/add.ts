@@ -1,30 +1,18 @@
 import { confirm, input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import {
-  emoji,
-  field,
-  fieldMultiline,
-  icons,
-  log,
-  showEmpty,
-  showError,
-  showNextStep,
-  showSuccess,
-} from '@src/theme/ui.ts';
-import { multilineInput } from '@src/utils/multiline.ts';
-import { addTicket, DuplicateTicketError } from '@src/store/ticket.ts';
+import { emoji, field, fieldMultiline, icons, log, showEmpty, showError, showSuccess } from '@src/theme/ui.ts';
+import { editorInput } from '@src/utils/editor-input.ts';
+import { addTicket } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import type { Ticket } from '@src/schemas/index.ts';
 
 export interface TicketAddOptions {
-  externalId?: string;
   title?: string;
   description?: string;
   link?: string;
   project?: string;
-  useEditor?: boolean;
   interactive?: boolean; // Set by REPL or CLI (default true unless --no-interactive)
 }
 
@@ -66,8 +54,6 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
     exitWithCode(EXIT_ERROR);
   }
 
-  const trimmedExternalId = options.externalId?.trim();
-  const externalId = trimmedExternalId === '' ? undefined : trimmedExternalId;
   const title = trimmedTitle;
   const trimmedDesc = options.description?.trim();
   const description = trimmedDesc === '' ? undefined : trimmedDesc;
@@ -77,7 +63,6 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
 
   try {
     const ticket = await addTicket({
-      externalId,
       title,
       description,
       link,
@@ -86,7 +71,7 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
 
     showTicketResult(ticket);
   } catch (err) {
-    handleTicketError(err, externalId);
+    handleTicketError(err);
   }
 }
 
@@ -95,8 +80,6 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
  * Returns the created ticket on success, or null on failure.
  */
 export async function addSingleTicketInteractive(options: TicketAddOptions): Promise<Ticket | null> {
-  const { useEditor = false } = options;
-
   const projects = await listProjects();
 
   if (projects.length === 0) {
@@ -113,32 +96,18 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
     })),
   });
 
-  let externalId: string | undefined = await input({
-    message: `${icons.info} External ID (optional, e.g., JIRA-123):`,
-    default: options.externalId?.trim(),
-  });
-
   let title = await input({
     message: `${icons.ticket} Title:`,
     default: options.title?.trim(),
     validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
   });
 
-  let description: string | undefined;
-  if (useEditor) {
-    const { editor } = await import('@inquirer/prompts');
-    description = await editor({
-      message: `${icons.edit} Description (opens editor):`,
-      default: options.description?.trim(),
-    });
-  } else {
-    description = await multilineInput({
-      message: 'Description (recommended):',
-      default: options.description?.trim(),
-    });
-  }
+  const description = await editorInput({
+    message: 'Description (recommended):',
+    default: options.description?.trim(),
+  });
 
-  let link: string | undefined = await input({
+  const link: string | undefined = await input({
     message: `${icons.info} Link (optional):`,
     default: options.link?.trim(),
     validate: (v) => {
@@ -148,27 +117,24 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
   });
 
   // Trim and normalize empty strings to undefined
-  const trimmedExternalId = externalId.trim();
-  externalId = trimmedExternalId === '' ? undefined : trimmedExternalId;
   title = title.trim();
   const trimmedDescription = description.trim();
-  description = trimmedDescription === '' ? undefined : trimmedDescription;
+  const normalizedDescription = trimmedDescription === '' ? undefined : trimmedDescription;
   const trimmedLink = link.trim();
-  link = trimmedLink === '' ? undefined : trimmedLink;
+  const normalizedLink = trimmedLink === '' ? undefined : trimmedLink;
 
   try {
     const ticket = await addTicket({
-      externalId,
       title,
-      description,
-      link,
+      description: normalizedDescription,
+      link: normalizedLink,
       projectName,
     });
 
     showTicketResult(ticket);
     return ticket;
   } catch (err) {
-    handleTicketError(err, externalId);
+    handleTicketError(err);
     return null;
   }
 }
@@ -183,9 +149,6 @@ function showTicketResult(ticket: Ticket): void {
     ['Project', ticket.projectName],
   ]);
 
-  if (ticket.externalId) {
-    console.log(field('External', ticket.externalId));
-  }
   if (ticket.description) {
     console.log(fieldMultiline('Description', ticket.description));
   }
@@ -198,11 +161,8 @@ function showTicketResult(ticket: Ticket): void {
 /**
  * Handle known ticket creation errors with user-friendly messages.
  */
-function handleTicketError(err: unknown, externalId: string | undefined): void {
-  if (err instanceof DuplicateTicketError) {
-    showError(`Ticket with external ID "${externalId ?? ''}" already exists`);
-    showNextStep('ralphctl ticket list', 'see existing tickets');
-  } else if (err instanceof SprintStatusError) {
+function handleTicketError(err: unknown): void {
+  if (err instanceof SprintStatusError) {
     showError(err.message);
   } else if (err instanceof Error && err.message.includes('does not exist')) {
     showError(err.message);

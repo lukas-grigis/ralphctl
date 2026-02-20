@@ -40,7 +40,6 @@ export type Projects = z.infer<typeof ProjectsSchema>;
 // Ticket schema (ticket to be planned)
 export const TicketSchema = z.object({
   id: z.string().min(1), // Internal UUID8 (auto-generated)
-  externalId: z.string().optional(), // Optional external ID (e.g., JIRA-123)
   title: z.string().min(1),
   description: z.string().optional(),
   link: z.url().optional(),
@@ -125,5 +124,6 @@ export type AiProvider = z.infer<typeof AiProviderSchema>;
 export const ConfigSchema = z.object({
   currentSprint: z.string().nullable().default(null),
   aiProvider: AiProviderSchema.nullable().default(null),
+  editor: z.string().nullable().default(null),
 });
 export type Config = z.infer<typeof ConfigSchema>;

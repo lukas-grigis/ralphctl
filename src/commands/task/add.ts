@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
-import { multilineInput } from '@src/utils/multiline.ts';
+import { editorInput } from '@src/utils/editor-input.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { addTask } from '@src/store/task.ts';
 import { formatTicketDisplay, getTicket, listTickets } from '@src/store/ticket.ts';
@@ -134,7 +134,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
       validate: (v) => (v.trim().length > 0 ? true : 'Name is required'),
     });
 
-    description = await multilineInput({
+    description = await editorInput({
       message: 'Description (optional):',
       default: options.description?.trim(),
     });
@@ -167,9 +167,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
 
     if (tickets.length > 0) {
       const { select } = await import('@inquirer/prompts');
-      const defaultTicketValue = options.ticket
-        ? (tickets.find((t) => t.id === options.ticket || t.externalId === options.ticket)?.id ?? '')
-        : '';
+      const defaultTicketValue = options.ticket ? (tickets.find((t) => t.id === options.ticket)?.id ?? '') : '';
       const ticketChoice = await select({
         message: `${icons.ticket} Link to ticket:`,
         default: defaultTicketValue,

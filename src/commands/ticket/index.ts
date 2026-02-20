@@ -23,29 +23,23 @@ Examples:
     .command('add')
     .description('Add ticket to current sprint')
     .option('-p, --project <name>', 'Project name')
-    .option('--id <id>', 'External ticket ID (e.g., JIRA-123)')
     .option('-t, --title <title>', 'Ticket title')
     .option('-d, --description <desc>', 'Description')
     .option('--link <url>', 'Link to external issue')
-    .option('--editor', 'Use editor for multi-line description')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
     .action(
       async (opts: {
         project?: string;
-        id?: string;
         title?: string;
         description?: string;
         link?: string;
-        editor?: boolean;
         interactive?: boolean;
       }) => {
         await ticketAddCommand({
           project: opts.project,
-          externalId: opts.id,
           title: opts.title,
           description: opts.description,
           link: opts.link,
-          useEditor: opts.editor,
           // --no-interactive sets interactive=false, otherwise true (prompt for missing)
           interactive: opts.interactive !== false,
         });
@@ -58,7 +52,6 @@ Examples:
     .option('--title <title>', 'New title')
     .option('--description <desc>', 'New description')
     .option('--link <url>', 'New link')
-    .option('--id <id>', 'New external ID')
     .option('-n, --no-interactive', 'Non-interactive mode')
     .action(
       async (
@@ -67,7 +60,6 @@ Examples:
           title?: string;
           description?: string;
           link?: string;
-          id?: string;
           interactive?: boolean;
         }
       ) => {
@@ -75,7 +67,6 @@ Examples:
           title: opts?.title,
           description: opts?.description,
           link: opts?.link,
-          externalId: opts?.id,
           interactive: opts?.interactive !== false,
         });
       }

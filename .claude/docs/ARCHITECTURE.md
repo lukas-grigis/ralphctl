@@ -782,17 +782,19 @@ async readTextFile(filePath: string): Promise<string>
 ### Path Resolution (`utils/paths.ts`)
 
 ```typescript
-getRalphctlRoot(): string                  // Env override or default
-getDataDir(): string                       // ralphctl-data/
-getProjectsFilePath(): string              // ralphctl-data/projects.json
-getSprintsDir(): string                    // ralphctl-data/sprints
-getSprintDir(sprintId): string             // ralphctl-data/sprints/<id>
+getDataDir(): string                       // RALPHCTL_ROOT env var (direct) or {repoRoot}/ralphctl-data/
+getSchemaPath(schemaName): string          // Always resolves from repo root (not data dir)
+getProjectsFilePath(): string              // {dataDir}/projects.json
+getSprintsDir(): string                    // {dataDir}/sprints
+getSprintDir(sprintId): string             // {dataDir}/sprints/<id>
 getSprintFilePath(sprintId): string        // .../sprint.json
 getTasksFilePath(sprintId): string         // .../tasks.json
 getProgressFilePath(sprintId): string      // .../progress.md
-getConfigPath(): string                    // ralphctl-data/config.json
+getConfigPath(): string                    // {dataDir}/config.json
 validateProjectPath(path: string): boolean
 ```
+
+**Note:** `RALPHCTL_ROOT` points directly to the data directory (no `ralphctl-data/` nesting). Schemas always resolve from the repo root via a private `getRepoRoot()` function.
 
 ### Exit Codes (`utils/exit-codes.ts`)
 

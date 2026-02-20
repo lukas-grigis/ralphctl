@@ -10,7 +10,6 @@ import type { Ticket } from '@src/schemas/index.ts';
 function createTicket(overrides: Partial<Ticket> & { title: string; projectName: string }): Ticket {
   return {
     id: 'test-id-' + Math.random().toString(36).substring(7),
-    externalId: undefined,
     description: undefined,
     link: undefined,
     requirementStatus: 'pending',
@@ -117,19 +116,8 @@ describe('getPendingRequirements', () => {
 });
 
 describe('formatTicketDisplay', () => {
-  it('formats ticket with externalId', () => {
-    const ticket = createTicket({ id: 'abc12345', externalId: 'JIRA-123', title: 'Fix bug', projectName: 'app' });
-    expect(formatTicketDisplay(ticket)).toBe('[abc12345] (JIRA-123) Fix bug');
-  });
-
-  it('formats ticket without externalId using internal id only', () => {
+  it('formats ticket with internal id and title', () => {
     const ticket = createTicket({ id: 'abc12345', title: 'Fix bug', projectName: 'app' });
-    expect(formatTicketDisplay(ticket)).toBe('[abc12345] Fix bug');
-  });
-
-  it('formats ticket with empty string externalId using internal id only', () => {
-    const ticket = createTicket({ id: 'abc12345', externalId: '', title: 'Fix bug', projectName: 'app' });
-    // Empty string is falsy, so should not show external ID part
     expect(formatTicketDisplay(ticket)).toBe('[abc12345] Fix bug');
   });
 });

@@ -5,6 +5,7 @@ import { type AiProvider, type Config, ConfigSchema } from '@src/schemas/index.t
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,
   aiProvider: null,
+  editor: null,
 };
 
 export async function getConfig(): Promise<Config> {
@@ -51,5 +52,23 @@ export async function getAiProvider(): Promise<AiProvider | null> {
 export async function setAiProvider(provider: AiProvider): Promise<void> {
   const config = await getConfig();
   config.aiProvider = provider;
+  await saveConfig(config);
+}
+
+/**
+ * Get the configured editor command (e.g., "subl -w", "code --wait", "vim").
+ * Returns null if not yet configured (first-run).
+ */
+export async function getEditor(): Promise<string | null> {
+  const config = await getConfig();
+  return config.editor ?? null;
+}
+
+/**
+ * Set the editor command.
+ */
+export async function setEditor(editor: string): Promise<void> {
+  const config = await getConfig();
+  config.editor = editor;
   await saveConfig(config);
 }
