@@ -74,7 +74,6 @@ describe('TaskSchema', () => {
 describe('TicketSchema', () => {
   const validTicket = {
     id: 'a1b2c3d4',
-    externalId: 'JIRA-123',
     title: 'Fix bug',
     description: 'Detailed description',
     link: 'https://jira.example.com/JIRA-123',
@@ -84,12 +83,6 @@ describe('TicketSchema', () => {
 
   it('accepts valid ticket', () => {
     const result = TicketSchema.safeParse(validTicket);
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts ticket without externalId', () => {
-    const noExternalId = { ...validTicket, externalId: undefined };
-    const result = TicketSchema.safeParse(noExternalId);
     expect(result.success).toBe(true);
   });
 

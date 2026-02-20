@@ -106,8 +106,8 @@ describe('Sprint Service', () => {
     expect(sprint.status).toBe('draft');
 
     // Add ticket and task (in draft sprint)
-    await addTicket({ title: 'Test', projectName: 'test-project', externalId: 'T1' }, sprint.id);
-    const task = await addTask({ name: 'Task 1', ticketId: 'T1', projectPath: projectDir }, sprint.id);
+    const ticket1 = await addTicket({ title: 'Test', projectName: 'test-project' }, sprint.id);
+    const task = await addTask({ name: 'Task 1', ticketId: ticket1.id, projectPath: projectDir }, sprint.id);
 
     // Activate
     const activated = await activateSprint(sprint.id);
@@ -136,21 +136,19 @@ describe('Ticket Service', () => {
     // Add
     const ticket = await addTicket(
       {
-        externalId: 'BUG-1',
         title: 'Fix Bug',
         description: 'Details',
         projectName: 'test-project',
       },
       sprint.id
     );
-    expect(ticket.externalId).toBe('BUG-1');
     expect(ticket.title).toBe('Fix Bug');
     expect(ticket.id).toBeDefined(); // Auto-generated internal ID
 
     // List
     const tickets = await listTickets(sprint.id);
     expect(tickets.length).toBe(1);
-    expect(tickets[0]?.externalId).toBe('BUG-1');
+    expect(tickets[0]?.title).toBe('Fix Bug');
 
     // Get by internal ID
     const fetched = await getTicket(ticket.id, sprint.id);
@@ -170,7 +168,7 @@ describe('Task Service', () => {
     const { addTask, listTasks, updateTaskStatus, getTask } = await import('@src/store/task.ts');
 
     const sprint = await createSprint('Task Test');
-    const ticket = await addTicket({ externalId: 'TKT', title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
 
     // Add task (in draft sprint)
     const task = await addTask({ name: 'My Task', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
@@ -201,7 +199,7 @@ describe('Task Service', () => {
     const { addTask, reorderByDependencies, listTasks } = await import('@src/store/task.ts');
 
     const sprint = await createSprint('Deps Test');
-    const ticket = await addTicket({ externalId: 'TKT', title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
 
     // Create tasks with dependencies: C -> B -> A
     const taskA = await addTask({ name: 'A', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
