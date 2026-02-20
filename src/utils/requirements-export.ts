@@ -38,7 +38,7 @@ function formatTicketSection(ticket: Ticket): string {
 
   lines.push(`## ${ticket.projectName} - ${ticket.title}`);
   lines.push('');
-  lines.push(`**Ticket ID:** ${ticket.externalId ?? ticket.id}`);
+  lines.push(`**Ticket ID:** ${ticket.id}`);
   lines.push(`**Status:** ${ticket.requirementStatus}`);
 
   if (ticket.link) {

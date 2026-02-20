@@ -216,7 +216,6 @@ For multi-topic tickets:
 The `ref` field should match either:
 
 - The ticket's internal ID
-- The ticket's external ID (e.g., JIRA-123)
 - The exact ticket title
 
 ## Ticket to Refine
