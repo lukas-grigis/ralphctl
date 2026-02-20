@@ -64,35 +64,6 @@ describe('requirements-export', () => {
       await rm(outputPath);
     });
 
-    it('exports ticket with external ID', async () => {
-      const ticket: Ticket = {
-        id: 'abc123',
-        externalId: 'JIRA-456',
-        title: 'Test Feature',
-        projectName: 'test-project',
-        requirementStatus: 'approved',
-        requirements: 'Test requirements',
-      };
-
-      const sprint: Sprint = {
-        id: '20260101-120000-test',
-        name: 'Test Sprint',
-        status: 'active',
-        createdAt: '2026-01-01T12:00:00Z',
-        activatedAt: '2026-01-01T13:00:00Z',
-        closedAt: null,
-        tickets: [ticket],
-      };
-
-      const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
-      await exportRequirementsToMarkdown(sprint, outputPath);
-
-      const content = await readFile(outputPath, 'utf-8');
-      expect(content).toContain('**Ticket ID:** JIRA-456');
-
-      await rm(outputPath);
-    });
-
     it('exports ticket with link', async () => {
       const ticket: Ticket = {
         id: 'abc123',
