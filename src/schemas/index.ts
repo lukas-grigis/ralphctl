@@ -124,5 +124,6 @@ export type AiProvider = z.infer<typeof AiProviderSchema>;
 export const ConfigSchema = z.object({
   currentSprint: z.string().nullable().default(null),
   aiProvider: AiProviderSchema.nullable().default(null),
+  editor: z.string().nullable().default(null),
 });
 export type Config = z.infer<typeof ConfigSchema>;

@@ -5,7 +5,7 @@ import { formatTicketDisplay, getTicket, TicketNotFoundError, updateTicket } fro
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
-import { inlineEditor } from '@src/utils/inline-editor.ts';
+import { editorInput } from '@src/utils/editor-input.ts';
 
 export interface TicketEditOptions {
   title?: string;
@@ -71,7 +71,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
     });
 
-    newDescription = await inlineEditor({
+    newDescription = await editorInput({
       message: 'Description:',
       default: ticket.description,
     });
