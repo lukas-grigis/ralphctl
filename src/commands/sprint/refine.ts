@@ -63,10 +63,6 @@ function formatTicketForPrompt(ticket: Ticket): string {
   lines.push(`### ${formatTicketDisplay(ticket)}`);
   lines.push(`Project: ${ticket.projectName}`);
 
-  if (ticket.externalId) {
-    lines.push(`External ID: ${ticket.externalId}`);
-  }
-
   if (ticket.description) {
     lines.push('');
     lines.push('**Description:**');
@@ -223,9 +219,6 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     console.log('');
     console.log(field('Title', ticket.title, 14));
     console.log(field('Project', ticket.projectName, 14));
-    if (ticket.externalId) {
-      console.log(field('External ID', ticket.externalId, 14));
-    }
     if (ticket.link) {
       console.log(field('Link', ticket.link, 14));
     }
@@ -319,9 +312,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       }
 
       // Find all matching requirements (Claude may output multiple for one ticket)
-      const matchingRequirements = refinedRequirements.filter(
-        (r) => r.ref === ticket.id || r.ref === ticket.externalId || r.ref === ticket.title
-      );
+      const matchingRequirements = refinedRequirements.filter((r) => r.ref === ticket.id || r.ref === ticket.title);
 
       if (matchingRequirements.length === 0) {
         showWarning('Requirement reference does not match this ticket.');

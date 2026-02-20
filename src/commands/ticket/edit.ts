@@ -1,20 +1,13 @@
 import { input } from '@inquirer/prompts';
 import { muted } from '@src/theme/index.ts';
 import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
-import {
-  DuplicateTicketError,
-  formatTicketDisplay,
-  getTicket,
-  TicketNotFoundError,
-  updateTicket,
-} from '@src/store/ticket.ts';
+import { formatTicketDisplay, getTicket, TicketNotFoundError, updateTicket } from '@src/store/ticket.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
-import { multilineInput } from '@src/utils/multiline.ts';
+import { editorInput } from '@src/utils/editor-input.ts';
 
 export interface TicketEditOptions {
-  externalId?: string;
   title?: string;
   description?: string;
   link?: string;
@@ -65,7 +58,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   let newTitle: string | undefined;
   let newDescription: string | undefined;
   let newLink: string | undefined;
-  let newExternalId: string | undefined;
 
   if (isInteractive) {
     // Show current ticket info
@@ -79,14 +71,9 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
     });
 
-    newDescription = await multilineInput({
+    newDescription = await editorInput({
       message: 'Description:',
       default: ticket.description,
-    });
-
-    newExternalId = await input({
-      message: `${icons.info} External ID (e.g., JIRA-123):`,
-      default: ticket.externalId ?? '',
     });
 
     newLink = await input({
@@ -101,7 +88,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
     // Trim and normalize empty values
     newTitle = newTitle.trim();
     newDescription = newDescription.trim() || undefined;
-    newExternalId = newExternalId.trim() || undefined;
     newLink = newLink.trim() || undefined;
   } else {
     // Non-interactive mode: use provided options
@@ -118,10 +104,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       newDescription = options.description.trim() || undefined;
     }
 
-    if (options.externalId !== undefined) {
-      newExternalId = options.externalId.trim() || undefined;
-    }
-
     if (options.link !== undefined) {
       const trimmed = options.link.trim();
       if (trimmed && !validateUrl(trimmed)) {
@@ -132,19 +114,14 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
     }
 
     // Check if any updates were provided
-    if (
-      newTitle === undefined &&
-      newDescription === undefined &&
-      newExternalId === undefined &&
-      newLink === undefined
-    ) {
-      showError('No updates provided. Use --title, --description, --link, or --id.');
+    if (newTitle === undefined && newDescription === undefined && newLink === undefined) {
+      showError('No updates provided. Use --title, --description, or --link.');
       exitWithCode(EXIT_ERROR);
     }
   }
 
   // Build updates object (only include changed fields)
-  const updates: { title?: string; description?: string; link?: string; externalId?: string } = {};
+  const updates: { title?: string; description?: string; link?: string } = {};
 
   if (newTitle !== undefined && newTitle !== ticket.title) {
     updates.title = newTitle;
@@ -154,9 +131,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   }
   if (newLink !== undefined && newLink !== ticket.link) {
     updates.link = newLink;
-  }
-  if (newExternalId !== undefined && newExternalId !== ticket.externalId) {
-    updates.externalId = newExternalId;
   }
 
   // Check if anything changed
@@ -174,9 +148,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       ['Project', updated.projectName],
     ]);
 
-    if (updated.externalId) {
-      console.log(field('External', updated.externalId));
-    }
     if (updated.description) {
       console.log(fieldMultiline('Description', updated.description));
     }
@@ -185,10 +156,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
     }
     console.log('');
   } catch (err) {
-    if (err instanceof DuplicateTicketError) {
-      showError(`Ticket with external ID "${newExternalId ?? ''}" already exists`);
-      showNextStep('ralphctl ticket list', 'see existing tickets');
-    } else if (err instanceof SprintStatusError) {
+    if (err instanceof SprintStatusError) {
       showError(err.message);
     } else {
       throw err;
