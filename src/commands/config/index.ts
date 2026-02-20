@@ -11,6 +11,9 @@ Examples:
   $ ralphctl config show                    # Show current configuration
   $ ralphctl config set provider claude     # Use Claude Code
   $ ralphctl config set provider copilot    # Use GitHub Copilot
+  $ ralphctl config set editor "subl -w"    # Use Sublime Text for multiline input
+  $ ralphctl config set editor "code --wait"  # Use VS Code for multiline input
+  $ ralphctl config set editor vim          # Use Vim for multiline input
 `
   );
 

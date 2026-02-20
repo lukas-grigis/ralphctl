@@ -7,7 +7,7 @@ import {
   resolveSprintId,
   SprintStatusError,
 } from '@src/store/sprint.ts';
-import { inlineEditor } from '@src/utils/inline-editor.ts';
+import { editorInput } from '@src/utils/editor-input.ts';
 
 export async function progressLogCommand(args: string[]): Promise<void> {
   // FAIL FAST: Check sprint status before collecting any input
@@ -36,7 +36,7 @@ export async function progressLogCommand(args: string[]): Promise<void> {
   let message = args.join(' ').trim();
 
   if (!message) {
-    message = await inlineEditor({
+    message = await editorInput({
       message: 'Progress message:',
     });
     message = message.trim();
