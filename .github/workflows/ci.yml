@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    name: Lint, typecheck & test
+    name: Format, lint, typecheck & test
     runs-on: ubuntu-latest
 
     steps:
@@ -29,6 +29,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
 
       - name: Lint
         run: pnpm lint
