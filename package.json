@@ -1,6 +1,6 @@
 {
   "name": "ralphctl",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Sprint and task management CLI for AI-assisted coding with Claude",
   "type": "module",
   "license": "MIT",
