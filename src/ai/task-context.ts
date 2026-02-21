@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { muted, warning } from '@src/theme/index.ts';
 import { checkTaskPermissions } from '@src/ai/permissions.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
-import type { Project, Sprint, Task } from '@src/schemas/index.ts';
+import type { AiProvider, Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
 // ============================================================================
@@ -270,8 +270,11 @@ export async function getProjectForTask(task: Task, sprint: Sprint): Promise<Pro
 
 /**
  * Run pre-flight permission checks and display any warnings.
+ *
+ * For Claude: warns about operations that may need approval in settings files.
+ * For Copilot: no-op — all tools are granted via --allow-all-tools.
  */
-export function runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void {
+export function runPreFlightCheck(ctx: TaskContext, noCommit: boolean, provider?: AiProvider): void {
   const verifyScript = getEffectiveVerifyScript(ctx.project, ctx.task.projectPath);
 
   // Find the repository that matches the project path for setup script
@@ -282,6 +285,7 @@ export function runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void {
     verifyScript,
     setupScript,
     needsCommit: !noCommit,
+    provider,
   });
 
   if (warnings.length > 0) {
