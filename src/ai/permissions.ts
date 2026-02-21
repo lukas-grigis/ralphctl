@@ -163,6 +163,9 @@ export interface PermissionWarning {
 /**
  * Check permissions for common operations needed during task execution.
  *
+ * For Claude: reads settings files and warns about operations that may need approval.
+ * For Copilot: returns no warnings (all tools granted via --allow-all-tools).
+ *
  * @returns Array of warnings for operations that may need approval
  */
 export function checkTaskPermissions(
@@ -171,10 +174,11 @@ export function checkTaskPermissions(
     verifyScript?: string | null;
     setupScript?: string | null;
     needsCommit?: boolean;
+    provider?: AiProvider;
   }
 ): PermissionWarning[] {
   const warnings: PermissionWarning[] = [];
-  const permissions = getProviderPermissions(projectPath);
+  const permissions = getProviderPermissions(projectPath, options.provider);
 
   // Check git commit permission
   if (options.needsCommit !== false) {

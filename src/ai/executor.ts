@@ -354,7 +354,7 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
 
     // Run pre-flight permission check (only on first task of the loop)
     if (completedCount === 0) {
-      runPreFlightCheck(ctx, options.noCommit);
+      runPreFlightCheck(ctx, options.noCommit, provider.name);
     }
 
     if (options.session) {
@@ -611,7 +611,7 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
           if (!preFlightDone) {
             const project = await getProjectForTask(task, sprint);
             const ctx: TaskContext = { sprint, task, project };
-            runPreFlightCheck(ctx, options.noCommit);
+            runPreFlightCheck(ctx, options.noCommit, provider.name);
             preFlightDone = true;
           }
 
