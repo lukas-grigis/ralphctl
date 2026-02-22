@@ -35,7 +35,7 @@ export function parseTasksJson(output: string): ImportTask[] {
   try {
     parsed = JSON.parse(jsonStr);
   } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`, { cause: err });
   }
 
   if (!Array.isArray(parsed)) {
