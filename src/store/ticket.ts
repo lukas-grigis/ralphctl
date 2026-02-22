@@ -42,7 +42,9 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
     await getProject(input.projectName);
   } catch (err) {
     if (err instanceof ProjectNotFoundError) {
-      throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`);
+      throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`, {
+        cause: err,
+      });
     }
     throw err;
   }
