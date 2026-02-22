@@ -126,7 +126,7 @@ function parseIdeateOutput(output: string): { requirements: string; tasks: unkno
   try {
     parsed = JSON.parse(jsonStr);
   } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`);
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`, { cause: err });
   }
 
   // Validate against schema
