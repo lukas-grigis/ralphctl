@@ -1,8 +1,10 @@
+import { basename, resolve } from 'node:path';
 import { confirm, input, select } from '@inquirer/prompts';
 import { muted } from '@src/theme/index.ts';
 import { addProjectRepo, getProject, ProjectNotFoundError, removeProjectRepo } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
 import { emoji, log, showError, showSuccess } from '@src/theme/ui.ts';
+import { addScriptsToRepository } from '@src/commands/project/add.ts';
 
 export async function projectRepoAddCommand(args: string[]): Promise<void> {
   let projectName = args[0];
@@ -22,7 +24,14 @@ export async function projectRepoAddCommand(args: string[]): Promise<void> {
   });
 
   try {
-    const project = await addProjectRepo(projectName, path);
+    const resolvedPath = resolve(path);
+    const bareRepo = { name: basename(resolvedPath), path: resolvedPath };
+
+    // Prompt for setup/verify scripts (with heuristic suggestions)
+    log.info(`\nConfiguring: ${bareRepo.name}`);
+    const repoWithScripts = await addScriptsToRepository(bareRepo);
+
+    const project = await addProjectRepo(projectName, repoWithScripts);
     showSuccess('Repository added', [['Project', projectName]]);
     log.newline();
     log.info('Current repositories:');
