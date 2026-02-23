@@ -79,7 +79,7 @@ ralphctl/
 │       ├── multiline.ts     # Multiline text utility
 │       └── path-selector.ts # Interactive path selection UI
 ├── schemas/                 # JSON schemas for external tools
-└── ralphctl-data/           # Data storage (git-ignored)
+└── ~/.ralphctl/             # Data storage (default)
     ├── config.json          # Global config (includes aiProvider)
     ├── projects.json        # Project definitions
     └── sprints/             # Per-sprint directories
@@ -743,7 +743,7 @@ Used by command files for interactive fallback when args are missing.
 ### Directory Structure
 
 ```
-ralphctl-data/                    # Git-ignored
+~/.ralphctl/                      # Default data directory
 ├── config.json                   # Global config
 ├── projects.json                 # Project definitions
 └── sprints/
@@ -782,7 +782,7 @@ async readTextFile(filePath: string): Promise<string>
 ### Path Resolution (`utils/paths.ts`)
 
 ```typescript
-getDataDir(): string                       // RALPHCTL_ROOT env var (direct) or {repoRoot}/ralphctl-data/
+getDataDir(): string                       // RALPHCTL_ROOT env var (direct) or ~/.ralphctl/
 getSchemaPath(schemaName): string          // Always resolves from repo root (not data dir)
 getProjectsFilePath(): string              // {dataDir}/projects.json
 getSprintsDir(): string                    // {dataDir}/sprints
@@ -794,7 +794,7 @@ getConfigPath(): string                    // {dataDir}/config.json
 validateProjectPath(path: string): boolean
 ```
 
-**Note:** `RALPHCTL_ROOT` points directly to the data directory (no `ralphctl-data/` nesting). Schemas always resolve from the repo root via a private `getRepoRoot()` function.
+**Note:** `RALPHCTL_ROOT` overrides the default `~/.ralphctl/` data directory; it points directly to the desired data directory. Schemas always resolve from the repo root via a private `getRepoRoot()` function.
 
 ### Exit Codes (`utils/exit-codes.ts`)
 
@@ -947,30 +947,6 @@ pnpm test:coverage  # Coverage report
 - **Linting:** ESLint + Prettier
 
 ## TODO / Future Considerations
-
-### Run setupScript on sprint start
-
-Currently `setupScript` is stored on Repository but never executed. Per
-the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh`
-script should run before agents start to ensure the environment is ready.
-
-**Potential implementation:**
-
-```
-sprint start (during activation):
-  for each unique projectPath in tasks:
-    if repository.setupScript:
-      run setupScript in projectPath
-      if fails: abort activation with error
-  proceed to activate and start sprint
-```
-
-**Considerations:**
-
-- Add `--skip-setup` flag for cases where setup is already done
-- Could be slow for projects with heavy setup (npm install)
-- May need timeout handling
-- Should log output for debugging if setup fails
 
 ### Other Future Items
 

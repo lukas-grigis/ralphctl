@@ -161,6 +161,7 @@ Examples:
     .option('--max-retries <n>', 'Max rate-limit retries per task (default: 5)')
     .option('--fail-fast', 'Stop launching new tasks on first failure')
     .option('-f, --force', 'Skip precondition checks (e.g., unplanned tickets)')
+    .option('--skip-setup', 'Skip running setupScript on repositories before task execution')
     .addHelpText(
       'after',
       `
@@ -189,6 +190,7 @@ Parallel Execution:
           maxRetries?: string;
           failFast?: boolean;
           force?: boolean;
+          skipSetup?: boolean;
         }
       ) => {
         const args: string[] = [];
@@ -201,6 +203,7 @@ Parallel Execution:
         if (opts?.maxRetries) args.push('--max-retries', opts.maxRetries);
         if (opts?.failFast) args.push('--fail-fast');
         if (opts?.force) args.push('--force');
+        if (opts?.skipSetup) args.push('--skip-setup');
         await sprintStartCommand(args);
       }
     );

@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { confirm } from '@inquirer/prompts';
-import { log, printHeader, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
+import { log, printHeader, showError, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import { activateSprint, assertSprintStatus, closeSprint, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import {
   areAllTasksDone,
@@ -15,12 +16,74 @@ import {
   type ExecutionSummary,
   type ExecutorOptions,
 } from '@src/ai/executor.ts';
+import { getProjectForTask } from '@src/ai/task-context.ts';
+import type { Sprint } from '@src/schemas/index.ts';
 
 // Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/ai/executor.ts';
 
 // Alias for backward compatibility
 export type RunnerOptions = ExecutorOptions;
+
+// ============================================================================
+// SETUP SCRIPT EXECUTION
+// ============================================================================
+
+/**
+ * Run setupScript for every unique projectPath that has remaining tasks.
+ * This is "stage zero" — the environment must be ready before any AI agent
+ * starts work (aligned with the Anthropic effective-harnesses article).
+ *
+ * @returns { success: true } or { success: false, error: string }
+ */
+async function runSetupScripts(
+  sprintId: string,
+  sprint: Sprint
+): Promise<{ success: true } | { success: false; error: string }> {
+  const tasks = await getTasks(sprintId);
+  const remainingTasks = tasks.filter((t) => t.status !== 'done');
+
+  // Collect unique project paths from remaining tasks
+  const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
+
+  if (uniquePaths.length === 0) {
+    return { success: true };
+  }
+
+  for (const projectPath of uniquePaths) {
+    // Find a representative task for this path so we can look up its project
+    const taskForPath = remainingTasks.find((t) => t.projectPath === projectPath);
+    if (!taskForPath) continue;
+
+    const project = await getProjectForTask(taskForPath, sprint);
+    if (!project) continue;
+
+    const repo = project.repositories.find((r) => r.path === projectPath);
+    if (!repo?.setupScript) continue;
+
+    const { name: repoName, setupScript } = repo;
+
+    log.info(`\nRunning setup for ${repoName}: ${setupScript}`);
+
+    const result = spawnSync(setupScript, {
+      cwd: projectPath,
+      shell: true,
+      stdio: 'inherit',
+      encoding: 'utf-8',
+    });
+
+    if (result.status !== 0) {
+      return {
+        success: false,
+        error: `Setup failed for ${repoName} (exit ${String(result.status ?? 1)}): ${setupScript}`,
+      };
+    }
+
+    log.success(`Setup complete: ${repoName}`);
+  }
+
+  return { success: true };
+}
 
 /**
  * Determine if execution should use parallel mode.
@@ -142,6 +205,19 @@ export async function runSprint(
       return undefined;
     }
     throw err;
+  }
+
+  // Stage zero: run setup scripts for all repositories (unless skipped)
+  if (!options.skipSetup) {
+    const setupResult = await runSetupScripts(id, sprint);
+    if (!setupResult.success) {
+      log.newline();
+      showError(setupResult.error);
+      log.newline();
+      return undefined;
+    }
+  } else {
+    log.dim('Skipping setup scripts (--skip-setup)');
   }
 
   // Execute the task loop (parallel or sequential)

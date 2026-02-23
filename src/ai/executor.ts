@@ -57,6 +57,8 @@ export interface ExecutorOptions {
   failFast?: boolean;
   /** Skip precondition checks (e.g., unplanned tickets) */
   force?: boolean;
+  /** Skip running setupScript on repositories before task execution */
+  skipSetup?: boolean;
 }
 
 /** Reason why execution stopped */
