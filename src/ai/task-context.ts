@@ -139,13 +139,14 @@ export function detectSetupScript(projectPath: string): string | null {
   // Rust
   if (existsSync(join(projectPath, 'Cargo.toml'))) return 'cargo build';
 
-  // Java / Gradle
+  // Java / Gradle — clean build to compile, test, and produce artifacts
   if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts'))) {
-    return './gradlew dependencies -q';
+    return './gradlew clean build';
   }
 
-  // Java / Maven
-  if (existsSync(join(projectPath, 'pom.xml'))) return 'mvn dependency:resolve -q';
+  // Java / Maven — clean install to compile, test, and publish artifact to local .m2
+  // (required for multi-repo projects where downstream repos depend on this artifact)
+  if (existsSync(join(projectPath, 'pom.xml'))) return 'mvn clean install';
 
   return null;
 }
