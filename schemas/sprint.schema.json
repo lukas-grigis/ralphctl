@@ -39,6 +39,15 @@
       "default": null,
       "description": "ISO 8601 timestamp when sprint was closed"
     },
+    "setupRanAt": {
+      "type": "object",
+      "default": {},
+      "description": "Map of projectPath → ISO 8601 timestamp recording when setup script last ran (per sprint lifecycle)",
+      "additionalProperties": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
     "tickets": {
       "type": "array",
       "default": [],

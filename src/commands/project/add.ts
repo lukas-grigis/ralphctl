@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { confirm, input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
@@ -18,6 +18,12 @@ import {
 } from '@src/theme/ui.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
+import {
+  detectProjectType,
+  getProjectTypeLabel,
+  suggestSetupScript,
+  suggestVerifyScript,
+} from '@src/utils/detect-scripts.ts';
 
 export interface ProjectAddOptions {
   name?: string;
@@ -31,117 +37,6 @@ export interface ProjectAddOptions {
 
 function validateSlug(slug: string): boolean {
   return /^[a-z0-9-]+$/.test(slug);
-}
-
-/**
- * Detect project type from files in the path.
- */
-export type ProjectType = 'node' | 'python' | 'go' | 'rust' | 'java-gradle' | 'java-maven' | 'other';
-
-export function detectProjectType(projectPath: string): ProjectType {
-  if (existsSync(join(projectPath, 'package.json'))) return 'node';
-  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) return 'python';
-  if (existsSync(join(projectPath, 'go.mod'))) return 'go';
-  if (existsSync(join(projectPath, 'Cargo.toml'))) return 'rust';
-  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts')))
-    return 'java-gradle';
-  if (existsSync(join(projectPath, 'pom.xml'))) return 'java-maven';
-  return 'other';
-}
-
-/**
- * Get human-readable label for project type.
- */
-function getProjectTypeLabel(type: ProjectType): string {
-  const labels: Record<ProjectType, string> = {
-    node: 'Node.js',
-    python: 'Python',
-    go: 'Go',
-    rust: 'Rust',
-    'java-gradle': 'Java (Gradle)',
-    'java-maven': 'Java (Maven)',
-    other: 'Unknown',
-  };
-  return labels[type];
-}
-
-/**
- * Suggest verify script based on project type.
- */
-export function suggestVerifyScript(projectPath: string, type: ProjectType): string | null {
-  switch (type) {
-    case 'node': {
-      // Try to read package.json to check for scripts
-      try {
-        const pkgPath = join(projectPath, 'package.json');
-        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
-          scripts?: Record<string, string>;
-        };
-        const scripts = pkg.scripts ?? {};
-        const commands: string[] = [];
-
-        // Detect package manager
-        let pkgManager = 'npm run';
-        if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) {
-          pkgManager = 'pnpm';
-        } else if (existsSync(join(projectPath, 'yarn.lock'))) {
-          pkgManager = 'yarn';
-        }
-
-        if (scripts['lint']) commands.push(`${pkgManager} lint`);
-        if (scripts['typecheck']) commands.push(`${pkgManager} typecheck`);
-        if (scripts['test']) commands.push(`${pkgManager} test`);
-
-        if (commands.length > 0) {
-          return commands.join(' && ');
-        }
-      } catch {
-        // Fallback if can't read package.json
-      }
-      return null;
-    }
-    case 'python':
-      return 'pytest';
-    case 'go':
-      return 'go test ./...';
-    case 'rust':
-      return 'cargo test';
-    case 'java-gradle':
-      return './gradlew check';
-    case 'java-maven':
-      return 'mvn clean install';
-    default:
-      return null;
-  }
-}
-
-/**
- * Suggest setup script based on project type.
- */
-export function suggestSetupScript(projectPath: string, type: ProjectType): string | null {
-  switch (type) {
-    case 'node': {
-      if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) return 'pnpm install';
-      if (existsSync(join(projectPath, 'yarn.lock'))) return 'yarn install';
-      if (existsSync(join(projectPath, 'package-lock.json'))) return 'npm install';
-      return 'npm install';
-    }
-    case 'python': {
-      if (existsSync(join(projectPath, 'requirements.txt'))) return 'pip install -r requirements.txt';
-      if (existsSync(join(projectPath, 'pyproject.toml'))) return 'pip install -e .';
-      return null;
-    }
-    case 'go':
-      return 'go mod download';
-    case 'rust':
-      return 'cargo build';
-    case 'java-gradle':
-      return './gradlew build';
-    case 'java-maven':
-      return 'mvn install';
-    default:
-      return null;
-  }
 }
 
 /**
@@ -165,10 +60,11 @@ function hasAiInstructions(repoPath: string): boolean {
 
 /**
  * Add setup/verify scripts to a repository interactively.
+ * Exported so `project repo add` can reuse the same flow.
  */
-async function addScriptsToRepository(repo: Repository): Promise<Repository> {
+export async function addScriptsToRepository(repo: Repository): Promise<Repository> {
   // Detect project type with graceful fallback on errors (e.g., invalid package.json)
-  let detectedType: ProjectType = 'other';
+  let detectedType: ReturnType<typeof detectProjectType> = 'other';
   let suggestedSetup: string | null = null;
   let suggestedVerify: string | null = null;
 
@@ -289,10 +185,13 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     name = trimmedName;
     displayName = trimmedDisplayName;
     // Convert paths to repositories with auto-derived names
-    // In non-interactive mode, skip scripts (can be added later via repo add command)
+    // In non-interactive mode, apply CLI flags if provided (otherwise no scripts)
     repositories = options.paths.map((p) => {
       const resolved = resolve(p.trim());
-      return { name: basename(resolved), path: resolved };
+      const repo: Repository = { name: basename(resolved), path: resolved };
+      if (options.setupScript) repo.setupScript = options.setupScript;
+      if (options.verifyScript) repo.verifyScript = options.verifyScript;
+      return repo;
     });
     const trimmedDesc = options.description?.trim();
     description = trimmedDesc === '' ? undefined : trimmedDesc;
@@ -478,7 +377,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       if (repo.verifyScript) {
         console.log(`        Verify: ${repo.verifyScript}`);
       } else {
-        console.log(`        Verify: ${muted('(auto-detected from project files)')}`);
+        console.log(`        Verify: ${muted('(not configured)')}`);
       }
     }
     console.log('');

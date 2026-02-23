@@ -48,6 +48,10 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 - **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/schemas/index.ts`
 - **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
 - **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
+- **Setup/verify scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`; heuristic detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during project setup, never as a runtime fallback
+- **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for setup/verify scripts
+- **Setup tracking** — `sprint.setupRanAt` records per-repo timestamps; re-runs skip already-completed setups; `--refresh-setup` forces re-execution; cleared on sprint close
+- **Per-task pre-flight** — harness runs `verifyScript` before each AI task; self-heals via `setupScript` on failure for `todo` tasks; passes failure context to agent for `in_progress` tasks
 
 ## Common Mistakes to Avoid
 
@@ -60,6 +64,7 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
   selection timing)
 - Don't hardcode provider-specific logic outside `src/providers/` — use the provider abstraction layer
 - Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses `--allow-all-tools` (see Provider Differences below)
+- Don't add runtime auto-detection of setup/verify scripts — detection logic in `src/utils/detect-scripts.ts` is for suggestions during `project add` only
 
 ## Workflow
 
@@ -224,3 +229,8 @@ See `.claude/agents/designer.md` for complete UX guidelines and helper reference
 
 When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list
 of modified files, verification commands, and current task context.
+
+## References
+
+- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
+  The design philosophy behind ralphctl's execution harness: setup scripts as stage-zero pre-flight checks, verify scripts as post-task gates, parallel execution with rate-limit coordination, and session resumability. Consult this when extending or modifying the runner/executor layer.

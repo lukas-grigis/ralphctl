@@ -16,6 +16,7 @@ describe('requirements-export', () => {
         activatedAt: null,
         closedAt: null,
         tickets: [],
+        setupRanAt: {},
       };
 
       const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
@@ -47,6 +48,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets: [ticket],
+        setupRanAt: {},
       };
 
       const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
@@ -82,6 +84,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets: [ticket],
+        setupRanAt: {},
       };
 
       const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
@@ -119,6 +122,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets,
+        setupRanAt: {},
       };
 
       const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
@@ -149,6 +153,7 @@ describe('requirements-export', () => {
         activatedAt: null,
         closedAt: null,
         tickets: [ticket],
+        setupRanAt: {},
       };
 
       const outputPath = join(tmpdir(), `test-requirements-${String(Date.now())}.md`);
