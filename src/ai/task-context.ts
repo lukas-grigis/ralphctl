@@ -7,6 +7,9 @@ import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { AiProvider, Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
+/** Max characters of pre-flight failure output included in AI context. */
+const MAX_PREFLIGHT_OUTPUT_CHARS = 500;
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -199,7 +202,11 @@ export function buildFullTaskContext(
       lines.push('Output:');
       lines.push('');
       lines.push('```');
-      lines.push(preFlightResult.output);
+      const truncatedOutput = preFlightResult.output.slice(0, MAX_PREFLIGHT_OUTPUT_CHARS);
+      lines.push(truncatedOutput);
+      if (preFlightResult.output.length > MAX_PREFLIGHT_OUTPUT_CHARS) {
+        lines.push('... (output truncated)');
+      }
       lines.push('```');
       lines.push('');
       lines.push(

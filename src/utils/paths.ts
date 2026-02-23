@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { lstat, realpath, stat } from 'node:fs/promises';
 
@@ -32,7 +32,12 @@ export function getSprintsDir(): string {
 }
 
 export function getSprintDir(sprintId: string): string {
-  return join(getSprintsDir(), sprintId);
+  const sprintsDir = getSprintsDir();
+  const resolved = resolve(sprintsDir, sprintId);
+  if (!resolved.startsWith(sprintsDir + sep) && resolved !== sprintsDir) {
+    throw new Error(`Path traversal detected in sprint ID: ${sprintId}`);
+  }
+  return resolved;
 }
 
 export function getSprintFilePath(sprintId: string): string {
