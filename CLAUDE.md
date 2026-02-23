@@ -224,3 +224,8 @@ See `.claude/agents/designer.md` for complete UX guidelines and helper reference
 
 When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list
 of modified files, verification commands, and current task context.
+
+## References
+
+- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
+  The design philosophy behind ralphctl's execution harness: setup scripts as stage-zero pre-flight checks, verify scripts as post-task gates, parallel execution with rate-limit coordination, and session resumability. Consult this when extending or modifying the runner/executor layer.

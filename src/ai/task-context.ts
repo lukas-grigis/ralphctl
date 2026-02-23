@@ -114,6 +114,56 @@ export function getEffectiveVerifyScript(project: Project | undefined, projectPa
   return detectVerifyScript(projectPath);
 }
 
+/**
+ * Detect a sensible setup (dependency-install) command based on project files.
+ * Checks for lockfiles to pick the right package manager, then falls back to
+ * common build-tool conventions for other ecosystems.
+ */
+export function detectSetupScript(projectPath: string): string | null {
+  // Node.js — prefer lockfile to pick the right package manager
+  if (existsSync(join(projectPath, 'package.json'))) {
+    if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) return 'pnpm install';
+    if (existsSync(join(projectPath, 'yarn.lock'))) return 'yarn install';
+    return 'npm install';
+  }
+
+  // Python — prefer uv when a lockfile is present, otherwise pip
+  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) {
+    if (existsSync(join(projectPath, 'uv.lock'))) return 'uv sync';
+    return 'pip install -e .';
+  }
+
+  // Go
+  if (existsSync(join(projectPath, 'go.mod'))) return 'go mod download';
+
+  // Rust
+  if (existsSync(join(projectPath, 'Cargo.toml'))) return 'cargo build';
+
+  // Java / Gradle
+  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts'))) {
+    return './gradlew dependencies -q';
+  }
+
+  // Java / Maven
+  if (existsSync(join(projectPath, 'pom.xml'))) return 'mvn dependency:resolve -q';
+
+  return null;
+}
+
+/**
+ * Get effective setup script for a project repository.
+ * Explicit repo.setupScript wins; falls back to heuristic detection.
+ */
+export function getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null {
+  if (project) {
+    const repo = project.repositories.find((r) => r.path === projectPath);
+    if (repo?.setupScript) {
+      return repo.setupScript;
+    }
+  }
+  return detectSetupScript(projectPath);
+}
+
 export function formatTask(ctx: TaskContext): string {
   const lines: string[] = [];
 

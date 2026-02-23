@@ -16,7 +16,7 @@ import {
   type ExecutionSummary,
   type ExecutorOptions,
 } from '@src/ai/executor.ts';
-import { getProjectForTask } from '@src/ai/task-context.ts';
+import { getEffectiveSetupScript, getProjectForTask } from '@src/ai/task-context.ts';
 import type { Sprint } from '@src/schemas/index.ts';
 
 // Re-export types for convenience
@@ -56,12 +56,13 @@ async function runSetupScripts(
     if (!taskForPath) continue;
 
     const project = await getProjectForTask(taskForPath, sprint);
-    if (!project) continue;
 
-    const repo = project.repositories.find((r) => r.path === projectPath);
-    if (!repo?.setupScript) continue;
+    // Resolve setup script: explicit repo config wins, then heuristic detection
+    const setupScript = getEffectiveSetupScript(project, projectPath);
+    if (!setupScript) continue;
 
-    const { name: repoName, setupScript } = repo;
+    const repo = project?.repositories.find((r) => r.path === projectPath);
+    const repoName = repo?.name ?? projectPath;
 
     log.info(`\nRunning setup for ${repoName}: ${setupScript}`);
 
