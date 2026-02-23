@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
@@ -26,10 +27,14 @@ import {
   buildFullTaskContext,
   formatTask,
   getContextFileName,
+  getEffectiveSetupScript,
   getEffectiveVerifyScript,
   getProjectForTask,
   getRecentGitHistory,
+  type PreFlightResult,
   runPreFlightCheck,
+  type SetupResults,
+  type SetupStatus,
   type TaskContext,
   writeTaskContextFile,
 } from '@src/ai/task-context.ts';
@@ -57,6 +62,8 @@ export interface ExecutorOptions {
   failFast?: boolean;
   /** Skip precondition checks (e.g., unplanned tickets) */
   force?: boolean;
+  /** Force re-run of setup scripts even if they already ran this sprint */
+  refreshSetup?: boolean;
 }
 
 /** Reason why execution stopped */
@@ -84,6 +91,107 @@ export interface ExecutionSummary {
 }
 
 // ============================================================================
+// PRE-FLIGHT VERIFICATION
+// ============================================================================
+
+/** Default timeout for verify scripts: 5 minutes. Override via RALPHCTL_SETUP_TIMEOUT_MS. */
+const DEFAULT_VERIFY_TIMEOUT_MS = 5 * 60 * 1000;
+
+function getVerifyTimeoutMs(): number {
+  const envVal = process.env['RALPHCTL_SETUP_TIMEOUT_MS'];
+  if (envVal) {
+    const parsed = Number(envVal);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_VERIFY_TIMEOUT_MS;
+}
+
+/**
+ * Run verification script as a pre-flight check before an AI task starts.
+ *
+ * @returns null if no verifyScript configured, or a PreFlightResult
+ */
+export function runPreFlightVerify(projectPath: string, verifyScript: string): { passed: boolean; output: string } {
+  const timeoutMs = getVerifyTimeoutMs();
+  const result = spawnSync(verifyScript, {
+    cwd: projectPath,
+    shell: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    encoding: 'utf-8',
+    timeout: timeoutMs,
+  });
+
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  return { passed: result.status === 0, output };
+}
+
+/**
+ * Run pre-flight verification with self-healing retry for a task.
+ *
+ * Logic:
+ * 1. No verifyScript → skip (return null)
+ * 2. Verify passes → { status: 'passed', script }
+ * 3. Verify fails + task is 'todo' → self-heal: re-run setupScript, retry verify
+ *    - Pass → proceed
+ *    - Fail → block task
+ * 4. Verify fails + task is 'in_progress' → { status: 'failed-resuming', script, output }
+ */
+export function runPreFlightForTask(
+  ctx: TaskContext,
+  verifyScript: string | null
+): { preFlightResult: PreFlightResult; blocked: boolean; blockedReason?: string } {
+  if (!verifyScript) {
+    return { preFlightResult: null, blocked: false };
+  }
+
+  const projectPath = ctx.task.projectPath;
+  const first = runPreFlightVerify(projectPath, verifyScript);
+
+  if (first.passed) {
+    return { preFlightResult: { status: 'passed', script: verifyScript }, blocked: false };
+  }
+
+  // Verify failed — behavior depends on task status
+  if (ctx.task.status === 'in_progress') {
+    // Resuming task — pass failure context to Claude
+    return {
+      preFlightResult: { status: 'failed-resuming', script: verifyScript, output: first.output },
+      blocked: false,
+    };
+  }
+
+  // Task is 'todo' — attempt self-heal via setupScript
+  const setupScript = getEffectiveSetupScript(ctx.project, projectPath);
+  if (setupScript) {
+    console.log(warning(`  Pre-flight failed — self-healing via: ${setupScript}`));
+    const heal = spawnSync(setupScript, {
+      cwd: projectPath,
+      shell: true,
+      stdio: 'inherit',
+      encoding: 'utf-8',
+      timeout: getVerifyTimeoutMs(),
+    });
+
+    if (heal.status === 0) {
+      // Retry verify after self-heal
+      const retry = runPreFlightVerify(projectPath, verifyScript);
+      if (retry.passed) {
+        console.log(success('  Self-heal succeeded — verification now passes'));
+        return { preFlightResult: { status: 'passed', script: verifyScript }, blocked: false };
+      }
+    }
+  }
+
+  // Self-heal failed or no setup script — block the task
+  const trimmedOutput = first.output.slice(0, 500);
+  return {
+    preFlightResult: null,
+    blocked: true,
+    blockedReason: `Pre-flight verification failed:\n${trimmedOutput}`,
+  };
+}
+
+// ============================================================================
 // TASK EXECUTION
 // ============================================================================
 
@@ -97,7 +205,9 @@ async function executeTask(
   options: ExecutorOptions,
   sprintId: string,
   resumeSessionId?: string,
-  provider?: ProviderAdapter
+  provider?: ProviderAdapter,
+  setupStatus?: SetupStatus,
+  preFlightResult?: PreFlightResult
 ): Promise<TaskExecutionResult> {
   const p = provider ?? (await getActiveProvider());
   const label = p.displayName;
@@ -110,7 +220,14 @@ async function executeTask(
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
+    const fullTaskContent = buildFullTaskContext(
+      ctx,
+      progressSummary || null,
+      gitHistory,
+      verifyScript,
+      setupStatus,
+      preFlightResult
+    );
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -190,7 +307,14 @@ async function executeTask(
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
+    const fullTaskContent = buildFullTaskContext(
+      ctx,
+      progressSummary || null,
+      gitHistory,
+      verifyScript,
+      setupStatus,
+      preFlightResult
+    );
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -260,7 +384,11 @@ async function areAllRemainingBlocked(sprintId: string): Promise<boolean> {
  * Sequential execution loop - executes tasks one at a time.
  * Used for session mode, step mode, or --concurrency 1.
  */
-export async function executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+export async function executeTaskLoop(
+  sprintId: string,
+  options: ExecutorOptions,
+  setupResults?: SetupResults
+): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
@@ -357,6 +485,28 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
       runPreFlightCheck(ctx, options.noCommit, provider.name);
     }
 
+    // Run per-task pre-flight verification (harness-level, before AI starts)
+    const verifyScript = getEffectiveVerifyScript(project, task.projectPath);
+    const { preFlightResult, blocked, blockedReason } = runPreFlightForTask(ctx, verifyScript);
+
+    if (blocked) {
+      console.log(warning(`\nPre-flight verification blocked task: ${task.name}`));
+      if (blockedReason) {
+        console.log(warning(blockedReason));
+      }
+      console.log(muted(`Task ${task.id} remains in_progress.`));
+
+      const remaining = await getRemainingTasks(sprintId);
+      return {
+        completed: completedCount,
+        remaining: remaining.length,
+        stopReason: 'task_blocked',
+        blockedTask: task,
+        blockedReason: blockedReason ?? 'Pre-flight verification failed',
+        exitCode: EXIT_ERROR,
+      };
+    }
+
     if (options.session) {
       console.log(highlight(`\n[Task Context for ${label}]`));
       console.log(muted('─'.repeat(50)));
@@ -368,7 +518,15 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
     }
 
     // Execute task with AI provider
-    const result = await executeTask(ctx, options, sprintId, undefined, provider);
+    const result = await executeTask(
+      ctx,
+      options,
+      sprintId,
+      undefined,
+      provider,
+      setupResults?.get(task.projectPath),
+      preFlightResult
+    );
 
     if (!result.success) {
       console.log(warning('\nTask not completed.'));
@@ -494,7 +652,11 @@ function pickTasksToLaunch(
  * Parallel execution loop - runs tasks concurrently across different repos.
  * At most one task per projectPath runs at a time to avoid git conflicts.
  */
-export async function executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+export async function executeTaskLoopParallel(
+  sprintId: string,
+  options: ExecutorOptions,
+  setupResults?: SetupResults
+): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
@@ -633,13 +795,50 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
             console.log(muted(`Starting ${label} in ${task.projectPath} (headless)...`));
           }
 
+          // Run per-task pre-flight verification (synchronous, before launching async task)
+          const projectForPreflight = await getProjectForTask(task, sprint);
+          const preFlightCtx: TaskContext = { sprint, task, project: projectForPreflight };
+          const pfVerifyScript = getEffectiveVerifyScript(projectForPreflight, task.projectPath);
+          const {
+            preFlightResult: pfResult,
+            blocked: pfBlocked,
+            blockedReason: pfReason,
+          } = runPreFlightForTask(preFlightCtx, pfVerifyScript);
+
+          if (pfBlocked) {
+            console.log(warning(`\nPre-flight verification blocked task: ${task.name}`));
+            if (pfReason) {
+              console.log(warning(pfReason));
+            }
+            console.log(muted(`Task ${task.id} remains in_progress.`));
+
+            hasFailed = true;
+            if (!firstBlockedTask) {
+              firstBlockedTask = task;
+              firstBlockedReason = pfReason ?? 'Pre-flight verification failed';
+            }
+
+            if (failFast) {
+              console.log(muted('Fail-fast: waiting for running tasks to finish...'));
+            }
+            continue;
+          }
+
           inFlightPaths.add(task.projectPath);
 
           const taskPromise = (async (): Promise<ParallelTaskResult> => {
             try {
               const project = await getProjectForTask(task, sprint);
               const ctx: TaskContext = { sprint, task, project };
-              const result = await executeTask(ctx, options, sprintId, resumeId, provider);
+              const result = await executeTask(
+                ctx,
+                options,
+                sprintId,
+                resumeId,
+                provider,
+                setupResults?.get(task.projectPath),
+                pfResult
+              );
 
               // Store session ID for potential future resume
               if (result.sessionId) {

@@ -1,5 +1,4 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { muted, warning } from '@src/theme/index.ts';
@@ -17,6 +16,18 @@ export interface TaskContext {
   task: Task;
   project?: Project;
 }
+
+/** Outcome of a setup script for a single project path. */
+export type SetupStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' };
+
+/** Map from projectPath → SetupStatus, populated by runSetupScripts. */
+export type SetupResults = Map<string, SetupStatus>;
+
+/** Result of harness-level pre-flight verification before an AI task starts. */
+export type PreFlightResult =
+  | { status: 'passed'; script: string }
+  | { status: 'failed-resuming'; script: string; output: string }
+  | null;
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -40,78 +51,33 @@ export function getRecentGitHistory(projectPath: string, count = 20): string {
 }
 
 /**
- * Detect verification script based on project files.
- */
-export function detectVerifyScript(projectPath: string): string | null {
-  // Node.js/npm projects
-  if (existsSync(join(projectPath, 'package.json'))) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8')) as {
-        scripts?: Record<string, string>;
-      };
-      const scripts = pkg.scripts ?? {};
-      const commands: string[] = [];
-
-      if (scripts['lint']) commands.push('npm run lint');
-      if (scripts['typecheck']) commands.push('npm run typecheck');
-      if (scripts['test']) commands.push('npm run test');
-
-      if (commands.length > 0) {
-        return commands.join(' && ');
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  // Python projects
-  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) {
-    return 'pytest';
-  }
-
-  // Go projects
-  if (existsSync(join(projectPath, 'go.mod'))) {
-    return 'go test ./...';
-  }
-
-  // Rust projects
-  if (existsSync(join(projectPath, 'Cargo.toml'))) {
-    return 'cargo test';
-  }
-
-  // Java/Gradle projects
-  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts'))) {
-    return './gradlew check';
-  }
-
-  // Java/Maven projects
-  if (existsSync(join(projectPath, 'pom.xml'))) {
-    return 'mvn clean install';
-  }
-
-  // Makefile projects
-  if (existsSync(join(projectPath, 'Makefile'))) {
-    return 'make check || make test';
-  }
-
-  return null;
-}
-
-/**
- * Get effective verify script for a project repository.
- * Finds the matching repository by path and returns its verify script,
- * or falls back to auto-detection.
+ * Get verify script from explicit repository config only.
+ * Returns null if no verify script is configured — no runtime auto-detection.
+ * Heuristic detection is used only as suggestions during `project add`.
  */
 export function getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null {
   if (project) {
-    // Find the repository that matches the project path
     const repo = project.repositories.find((r) => r.path === projectPath);
     if (repo?.verifyScript) {
       return repo.verifyScript;
     }
   }
-  return detectVerifyScript(projectPath);
+  return null;
+}
+
+/**
+ * Get setup script from explicit repository config only.
+ * Returns null if no setup script is configured — no runtime auto-detection.
+ * Heuristic detection is used only as suggestions during `project add`.
+ */
+export function getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null {
+  if (project) {
+    const repo = project.repositories.find((r) => r.path === projectPath);
+    if (repo?.setupScript) {
+      return repo.setupScript;
+    }
+  }
+  return null;
 }
 
 export function formatTask(ctx: TaskContext): string {
@@ -158,7 +124,9 @@ export function buildFullTaskContext(
   ctx: TaskContext,
   progressSummary: string | null,
   gitHistory: string,
-  verifyScript: string | null
+  verifyScript: string | null,
+  setupStatus?: SetupStatus,
+  preFlightResult?: PreFlightResult
 ): string {
   const lines: string[] = [];
 
@@ -176,6 +144,69 @@ export function buildFullTaskContext(
     lines.push('```');
   } else {
     lines.push('Read CLAUDE.md in the project root to find verification commands.');
+  }
+
+  // Environment setup awareness — tell the agent what happened during stage zero
+  if (setupStatus) {
+    lines.push('');
+    lines.push('## Environment Setup');
+    lines.push('');
+    if (setupStatus.ran) {
+      lines.push(`The following setup command was already executed before this task started:`);
+      lines.push('');
+      lines.push('```bash');
+      lines.push(setupStatus.script);
+      lines.push('```');
+      lines.push('');
+      lines.push('Dependencies are current. Do not re-run this command unless you encounter dependency errors.');
+    } else if (!verifyScript) {
+      lines.push(
+        'No setup or verify scripts are configured for this repository. ' +
+          'Read CLAUDE.md or project configuration files (package.json, pyproject.toml, etc.) ' +
+          'to discover build, test, and lint commands.'
+      );
+    } else {
+      lines.push(
+        'No setup script is configured for this repository. ' +
+          'If you encounter missing dependency errors, check CLAUDE.md or project configuration files ' +
+          'for the correct install command.'
+      );
+    }
+  }
+
+  // Pre-flight verification — tell the agent what the harness found
+  if (preFlightResult) {
+    lines.push('');
+    lines.push('## Pre-Flight Verification');
+    lines.push('');
+    if (preFlightResult.status === 'passed') {
+      lines.push(`The harness ran the project verification command before your session started:`);
+      lines.push('');
+      lines.push('```bash');
+      lines.push(preFlightResult.script);
+      lines.push('```');
+      lines.push('');
+      lines.push('Environment is clean. Any verification failures after your changes are yours to fix.');
+    } else {
+      lines.push(`**Resuming task — verification was failing before your session started.**`);
+      lines.push('');
+      lines.push('The harness ran:');
+      lines.push('');
+      lines.push('```bash');
+      lines.push(preFlightResult.script);
+      lines.push('```');
+      lines.push('');
+      lines.push('Output:');
+      lines.push('');
+      lines.push('```');
+      lines.push(preFlightResult.output);
+      lines.push('```');
+      lines.push('');
+      lines.push(
+        'Assess the failure. If caused by your prior changes, fix them. ' +
+          'If pre-existing, signal `<task-blocked>Pre-existing failure: [details]</task-blocked>`.'
+      );
+    }
   }
 
   // ═══ REFERENCE ZONE (middle — lower attention is OK) ═══
