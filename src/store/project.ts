@@ -224,17 +224,17 @@ export async function getProjectRepos(name: string): Promise<Repository[]> {
 
 /**
  * Add a repository to an existing project.
+ * Accepts a full Repository object to preserve scripts set during interactive prompting.
  * @throws ProjectNotFoundError if project doesn't exist
  */
-export async function addProjectRepo(name: string, path: string): Promise<Project> {
+export async function addProjectRepo(name: string, repo: Repository): Promise<Project> {
   const project = await getProject(name);
-  const resolvedPath = resolve(path);
-  const repoName = basename(resolvedPath);
+  const resolvedPath = resolve(repo.path);
 
   // Validate the path
   const validation = await validateProjectPath(resolvedPath);
   if (validation !== true) {
-    throw new Error(`Invalid path ${path}: ${validation}`);
+    throw new Error(`Invalid path ${repo.path}: ${validation}`);
   }
 
   // Check if path already exists
@@ -242,8 +242,14 @@ export async function addProjectRepo(name: string, path: string): Promise<Projec
     return project; // Already exists, no-op
   }
 
+  const normalizedRepo: Repository = {
+    ...repo,
+    name: repo.name || basename(resolvedPath),
+    path: resolvedPath,
+  };
+
   return updateProject(name, {
-    repositories: [...project.repositories, { name: repoName, path: resolvedPath }],
+    repositories: [...project.repositories, normalizedRepo],
   });
 }
 

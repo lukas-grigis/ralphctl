@@ -18,6 +18,7 @@ file.
 - **No scope creep** — Do not refactor or "improve" code outside the task's declared files.
 - **Must verify** — A task is NOT complete until verification passes.
 - **Must log progress** — Update progress file before signaling completion.
+- **Progress is append-only** — NEVER overwrite existing entries. Each new entry goes at the END of the file.
 - **Do NOT commit {{CONTEXT_FILE}}** — This temporary file is for execution context only and will be cleaned up
   automatically.
 - **Do NOT modify the task definition** — The task name, description, steps, and other task files are immutable.
@@ -34,12 +35,15 @@ Perform these checks IN ORDER before writing any code:
    discovered, and gotchas encountered. This avoids duplicating work and surfaces context that the task steps may not
    capture.
 3. **Check git state** — Run `git status` to check for uncommitted changes
-4. **Run pre-existing verification** — Execute the project's verification commands (see Verification Command in the
-   context file or CLAUDE.md). If ANY verification fails, STOP immediately:
-   ```
-   <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
-   ```
-   This prevents you from being blamed for broken state you did not cause.
+4. **Check Pre-Flight status** — Look for the "Pre-Flight Verification" section in your context file:
+   - **If present and passed** — The harness already verified the environment is clean. Skip to step 5.
+   - **If present and failed-resuming** — You are resuming a task. Read the failure output and assess whether it is from
+     your prior changes or pre-existing. Fix if yours; signal `<task-blocked>` if pre-existing.
+   - **If absent** — No harness pre-flight ran. Run the project's verification commands yourself (see Verification
+     Command in the context file or CLAUDE.md). If ANY verification fails, STOP immediately:
+     ```
+     <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
+     ```
 5. **Review context** — Check the Prior Task Learnings section for warnings or gotchas from previous tasks
 
 Only proceed to Phase 2 if ALL startup checks pass.

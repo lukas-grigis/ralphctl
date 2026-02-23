@@ -57,6 +57,8 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       options.failFast = false;
     } else if (arg === '-f' || arg === '--force') {
       options.force = true;
+    } else if (arg === '--refresh-setup') {
+      options.refreshSetup = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }

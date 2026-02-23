@@ -151,6 +151,26 @@ describe('SprintSchema', () => {
     tickets: [],
   };
 
+  it('parses old Sprint JSON without setupRanAt via .default({})', () => {
+    // Simulates loading a sprint.json saved before setupRanAt was introduced.
+    // The field must default to {} rather than failing validation.
+    const legacySprint = {
+      id: '20240115-100000-sprint-1',
+      name: 'Sprint 1',
+      status: 'draft',
+      createdAt: '2024-01-15T10:00:00.000Z',
+      activatedAt: null,
+      closedAt: null,
+      tickets: [],
+      // Note: no setupRanAt field
+    };
+    const result = SprintSchema.safeParse(legacySprint);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.setupRanAt).toEqual({});
+    }
+  });
+
   it('accepts valid sprint', () => {
     const result = SprintSchema.safeParse(validSprint);
     expect(result.success).toBe(true);

@@ -74,12 +74,13 @@ ralphctl/
 │       ├── storage.ts       # File I/O with validation
 │       ├── json-extract.ts  # JSON array extraction from mixed output
 │       ├── requirements-export.ts  # Requirements markdown formatter
+│       ├── detect-scripts.ts # Heuristic project-type detection & script suggestions
 │       ├── exit-codes.ts    # Structured exit codes
 │       ├── file-lock.ts     # File-based locking
 │       ├── multiline.ts     # Multiline text utility
 │       └── path-selector.ts # Interactive path selection UI
 ├── schemas/                 # JSON schemas for external tools
-└── ralphctl-data/           # Data storage (git-ignored)
+└── ~/.ralphctl/             # Data storage (default)
     ├── config.json          # Global config (includes aiProvider)
     ├── projects.json        # Project definitions
     └── sprints/             # Per-sprint directories
@@ -236,9 +237,10 @@ interface Repository {
 
 **Verification Script Resolution:**
 
-1. Explicit `verifyScript` from repository (highest priority)
-2. Auto-detected from project files (package.json, pyproject.toml, etc.)
-3. CLAUDE.md discovery (fallback)
+1. Explicit `verifyScript` from repository config (only source at runtime)
+2. CLAUDE.md discovery (fallback when no script configured — agent reads project root)
+
+Heuristic detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during `project add`.
 
 ### Sprint
 
@@ -253,6 +255,7 @@ interface Sprint {
   activatedAt: string | null; // When activated
   closedAt: string | null; // When closed
   tickets: Ticket[]; // Array of tickets
+  setupRanAt: Record<string, string>; // projectPath → ISO8601 timestamp (default: {})
 }
 ```
 
@@ -407,7 +410,7 @@ async createProject(project: Project): Promise<Project>
 async updateProject(name: string, updates: Partial<Omit<Project, 'name'>>): Promise<Project>
 async removeProject(name: string): Promise<void>
 async getProjectRepos(name: string): Promise<Repository[]>
-async addProjectRepo(name: string, path: string): Promise<Project>
+async addProjectRepo(name: string, repo: Repository): Promise<Project>
 async removeProjectRepo(name: string, path: string): Promise<Project>
 ```
 
@@ -549,16 +552,35 @@ Builds context for task execution. Uses primacy/recency layout (important info a
 ```typescript
 interface TaskContext { sprint: Sprint; task: Task; project?: Project }
 
+// Setup status types — populated by runSetupScripts, consumed by buildFullTaskContext
+type SetupStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' }
+type SetupResults = Map<string, SetupStatus>  // projectPath → SetupStatus
+
+// Pre-flight verification result — populated by runPreFlightForTask, consumed by buildFullTaskContext
+type PreFlightResult =
+  | { status: 'passed'; script: string }
+  | { status: 'failed-resuming'; script: string; output: string }
+  | null
+
 getRecentGitHistory(projectPath: string, count?: number): string
-detectVerifyScript(projectPath: string): string | null
-getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null
+getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null   // explicit config only
+getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null    // explicit config only
 formatTask(ctx: TaskContext): string
-buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null): string
+buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null, setupStatus?: SetupStatus, preFlightResult?: PreFlightResult): string
 getContextFileName(sprintId: string, taskId: string): string
 async writeTaskContextFile(projectPath: string, taskContent: string, instructions: string, sprintId: string, taskId: string): Promise<string>
 async getProjectForTask(task: Task, sprint: Sprint): Promise<Project | undefined>
 runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void
 ```
+
+**Setup status in task context:** When `setupStatus` is provided, an "Environment Setup" section is rendered telling the
+AI agent what happened during stage zero — whether a setup script ran (and which command), or that no script is
+configured. This prevents agents from wasting turns re-running `npm install` and helps them discover commands when no
+scripts are configured.
+
+**Pre-flight verification in task context:** When `preFlightResult` is provided, a "Pre-Flight Verification" section is
+rendered. If passed, the agent knows the environment was clean before it started. If failed-resuming, the agent sees the
+failure output and is instructed to assess and fix or signal `<task-blocked>`.
 
 ### Runner (`claude/runner.ts`)
 
@@ -579,6 +601,18 @@ interface RunOptions {
 }
 ```
 
+**Setup script execution** ("stage zero"):
+
+- Runs before any AI agent starts work — explicit repo config only, no runtime auto-detection
+- **Setup tracking:** timestamps recorded in `sprint.setupRanAt` — re-runs skip already-completed setups.
+  Use `--refresh-setup` to force re-execution.
+- Per-repo persistence: each successful setup is saved immediately via `saveSprint()`, so partial failures are safe
+- Fail-fast on multi-repo — partial setup is worse than no setup
+- Timeout: 5 minutes default, override via `RALPHCTL_SETUP_TIMEOUT_MS` env var
+- Repos without a configured setup script are skipped with a dim warning
+- Returns `SetupResults` map (projectPath → `SetupStatus`) — threaded to executor so each AI agent knows what ran
+- `setupRanAt` is cleared when the sprint is closed via `closeSprint()`
+
 **Completion signals:**
 
 - `<task-verified>output</task-verified>` — Verification passed (required before completion in headless mode)
@@ -591,13 +625,14 @@ Sequential and parallel task execution orchestrator. Handles task lifecycle, spi
 
 ```typescript
 interface ExecutorOptions {
-  step?: boolean;       // Pause between tasks
-  count?: number;       // Limit task count
-  session?: boolean;    // Interactive session mode
-  noCommit?: boolean;   // Skip auto-commit
-  concurrency?: number; // Max parallel tasks (default: one per unique projectPath)
-  maxRetries?: number;  // Max retries for rate-limited tasks
-  failFast?: boolean;   // Stop on first failure
+  step?: boolean;          // Pause between tasks
+  count?: number;          // Limit task count
+  session?: boolean;       // Interactive session mode
+  noCommit?: boolean;      // Skip auto-commit
+  concurrency?: number;    // Max parallel tasks (default: one per unique projectPath)
+  maxRetries?: number;     // Max retries for rate-limited tasks
+  failFast?: boolean;      // Stop on first failure
+  refreshSetup?: boolean;  // Force re-run setup scripts even if already ran this sprint
 }
 
 interface ExecutionSummary {
@@ -611,9 +646,18 @@ interface ExecutionSummary {
 
 type StopReason = 'all_completed' | 'count_reached' | 'task_blocked' | 'user_paused' | 'no_tasks' | 'all_blocked'
 
-async executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
-async executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
+async executeTaskLoop(sprintId: string, options: ExecutorOptions, setupResults?: SetupResults): Promise<ExecutionSummary>
+async executeTaskLoopParallel(sprintId: string, options: ExecutorOptions, setupResults?: SetupResults): Promise<ExecutionSummary>
 ```
+
+**Per-task pre-flight verification** runs the project's `verifyScript` before each AI task starts:
+
+1. No verifyScript → skip (Claude uses CLAUDE.md fallback)
+2. Verify passes → `PreFlightResult { status: 'passed' }` — agent told environment is clean
+3. Verify fails + task is `todo` → self-heal: re-run `setupScript`, retry verify once
+   - Pass → proceed
+   - Fail → block task (dependents blocked by existing DAG)
+4. Verify fails + task is `in_progress` → `PreFlightResult { status: 'failed-resuming', output }` — agent sees failure
 
 **Parallel execution** launches one task per unique `projectPath` concurrently. Session/step mode forces sequential.
 Rate-limited tasks are re-queued (not counted as failures).
@@ -743,7 +787,7 @@ Used by command files for interactive fallback when args are missing.
 ### Directory Structure
 
 ```
-ralphctl-data/                    # Git-ignored
+~/.ralphctl/                      # Default data directory
 ├── config.json                   # Global config
 ├── projects.json                 # Project definitions
 └── sprints/
@@ -782,7 +826,7 @@ async readTextFile(filePath: string): Promise<string>
 ### Path Resolution (`utils/paths.ts`)
 
 ```typescript
-getDataDir(): string                       // RALPHCTL_ROOT env var (direct) or {repoRoot}/ralphctl-data/
+getDataDir(): string                       // RALPHCTL_ROOT env var (direct) or ~/.ralphctl/
 getSchemaPath(schemaName): string          // Always resolves from repo root (not data dir)
 getProjectsFilePath(): string              // {dataDir}/projects.json
 getSprintsDir(): string                    // {dataDir}/sprints
@@ -794,7 +838,7 @@ getConfigPath(): string                    // {dataDir}/config.json
 validateProjectPath(path: string): boolean
 ```
 
-**Note:** `RALPHCTL_ROOT` points directly to the data directory (no `ralphctl-data/` nesting). Schemas always resolve from the repo root via a private `getRepoRoot()` function.
+**Note:** `RALPHCTL_ROOT` overrides the default `~/.ralphctl/` data directory; it points directly to the desired data directory. Schemas always resolve from the repo root via a private `getRepoRoot()` function.
 
 ### Exit Codes (`utils/exit-codes.ts`)
 
@@ -945,36 +989,3 @@ pnpm test:coverage  # Coverage report
 - **ID Generation:** crypto (randomBytes)
 - **Testing:** Vitest
 - **Linting:** ESLint + Prettier
-
-## TODO / Future Considerations
-
-### Run setupScript on sprint start
-
-Currently `setupScript` is stored on Repository but never executed. Per
-the [Anthropic article](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), an `init.sh`
-script should run before agents start to ensure the environment is ready.
-
-**Potential implementation:**
-
-```
-sprint start (during activation):
-  for each unique projectPath in tasks:
-    if repository.setupScript:
-      run setupScript in projectPath
-      if fails: abort activation with error
-  proceed to activate and start sprint
-```
-
-**Considerations:**
-
-- Add `--skip-setup` flag for cases where setup is already done
-- Could be slow for projects with heavy setup (npm install)
-- May need timeout handling
-- Should log output for debugging if setup fails
-
-### Other Future Items
-
-- **Sprint templates** — Reusable sprint structures for common patterns
-- **Progress analytics** — Track velocity, completion rates, time estimates
-- **Webhook notifications** — Notify external systems on task completion
-- **Rollback support** — Revert task implementations if issues found

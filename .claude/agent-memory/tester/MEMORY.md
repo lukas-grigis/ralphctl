@@ -9,10 +9,12 @@
 ## Test Files Found
 
 ```
-src/ai/runner.test.ts       # Claude runner tests
+src/ai/runner.test.ts       # Runner/executor tests: parseExecutionResult, getEffectiveVerifyScript,
+                            #   getRecentGitHistory, buildFullTaskContext (setup + pre-flight rendering),
+                            #   runSetupScripts, runPreFlightVerify, runPreFlightForTask
 src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
 src/integration/cli.test.ts     # CLI integration tests
-src/schemas/index.test.ts       # Schema validation tests
+src/schemas/index.test.ts       # Schema validation tests (incl. SprintSchema backward compat for setupRanAt)
 src/store/progress.test.ts      # Progress store tests
 src/store/task.test.ts          # Task store tests (topological sort, validation)
 src/store/ticket.test.ts        # Ticket store tests
@@ -133,15 +135,36 @@ pnpm test <pattern>    # Run specific tests
 - Use temp directories for isolation
 - Clean up in `afterEach`
 
+### Module mocking with partial override (task-context pattern)
+
+When a module exports both pure functions (keep real) and side-effecting functions (mock):
+
+```typescript
+vi.mock('@src/ai/task-context.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@src/ai/task-context.ts')>();
+  return {
+    ...actual, // keep pure functions (buildFullTaskContext, etc.)
+    getProjectForTask: vi.fn(), // override only side-effecting functions
+    getEffectiveSetupScript: vi.fn(),
+  };
+});
+```
+
+vi.mock calls must be at module top level (not inside describe/it). Use dynamic imports
+inside beforeEach/test bodies to get the mocked versions after `vi.clearAllMocks()`.
+
 ## Coverage Status
 
 ### Well Covered
 
 - [x] Store logic (tickets, tasks, sprints, progress)
 - [x] CLI commands (comprehensive smoke tests in `cli-smoke.test.ts`)
-- [x] Schema validation
+- [x] Schema validation (incl. backward compat for new optional fields via `.default({})`)
 - [x] Ticket edit command (CLI E2E tests)
 - [x] Error handling and edge cases
+- [x] `runSetupScripts` — timestamp recording, skip on cached, refresh flag, partial-failure safety
+- [x] `runPreFlightVerify` — pass/fail detection
+- [x] `runPreFlightForTask` — no-script skip, pass, fail-resuming, self-heal pass/fail, block on no setup
 
 ### Coverage Gaps
 

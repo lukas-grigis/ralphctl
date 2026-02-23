@@ -100,10 +100,10 @@ ralphctl                 # interactive menu mode
 
 ### Data Directory
 
-RalphCTL stores all sprint, project, and task data in a local `ralphctl-data/` directory inside the cloned repo (git-ignored by default):
+RalphCTL stores all sprint, project, and task data in `~/.ralphctl/` by default:
 
 ```
-ralphctl-data/
+~/.ralphctl/
 ├── config.json          # Global config (current sprint, AI provider)
 ├── projects.json        # Project definitions
 └── sprints/             # Per-sprint directories
@@ -116,7 +116,7 @@ ralphctl-data/
 To store data elsewhere, set the `RALPHCTL_ROOT` environment variable:
 
 ```bash
-export RALPHCTL_ROOT="$HOME/.ralphctl"
+export RALPHCTL_ROOT="/path/to/custom/data-dir"
 ```
 
 When set, ralphctl stores data files (`config.json`, `projects.json`, `sprints/`) directly in the specified directory. Schemas and other repo assets always resolve from the installed repo location.
