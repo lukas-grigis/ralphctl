@@ -74,6 +74,7 @@ ralphctl/
 │       ├── storage.ts       # File I/O with validation
 │       ├── json-extract.ts  # JSON array extraction from mixed output
 │       ├── requirements-export.ts  # Requirements markdown formatter
+│       ├── detect-scripts.ts # Heuristic project-type detection & script suggestions
 │       ├── exit-codes.ts    # Structured exit codes
 │       ├── file-lock.ts     # File-based locking
 │       ├── multiline.ts     # Multiline text utility
@@ -236,9 +237,10 @@ interface Repository {
 
 **Verification Script Resolution:**
 
-1. Explicit `verifyScript` from repository (highest priority)
-2. Auto-detected from project files (package.json, pyproject.toml, etc.)
-3. CLAUDE.md discovery (fallback)
+1. Explicit `verifyScript` from repository config (only source at runtime)
+2. CLAUDE.md discovery (fallback when no script configured — agent reads project root)
+
+Heuristic detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during `project add`.
 
 ### Sprint
 
@@ -407,7 +409,7 @@ async createProject(project: Project): Promise<Project>
 async updateProject(name: string, updates: Partial<Omit<Project, 'name'>>): Promise<Project>
 async removeProject(name: string): Promise<void>
 async getProjectRepos(name: string): Promise<Repository[]>
-async addProjectRepo(name: string, path: string): Promise<Project>
+async addProjectRepo(name: string, repo: Repository): Promise<Project>
 async removeProjectRepo(name: string, path: string): Promise<Project>
 ```
 
@@ -550,8 +552,8 @@ Builds context for task execution. Uses primacy/recency layout (important info a
 interface TaskContext { sprint: Sprint; task: Task; project?: Project }
 
 getRecentGitHistory(projectPath: string, count?: number): string
-detectVerifyScript(projectPath: string): string | null
-getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null
+getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null   // explicit config only
+getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null    // explicit config only
 formatTask(ctx: TaskContext): string
 buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null): string
 getContextFileName(sprintId: string, taskId: string): string
@@ -578,6 +580,13 @@ interface RunOptions {
   concurrency?: number;  // Max parallel tasks
 }
 ```
+
+**Setup script execution** ("stage zero"):
+
+- Runs before any AI agent starts work — explicit repo config only, no runtime auto-detection
+- Fail-fast on multi-repo — partial setup is worse than no setup
+- Timeout: 5 minutes default, override via `RALPHCTL_SETUP_TIMEOUT_MS` env var
+- Repos without a configured setup script are skipped with a dim warning
 
 **Completion signals:**
 

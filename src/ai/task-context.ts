@@ -1,5 +1,4 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { muted, warning } from '@src/theme/index.ts';
@@ -40,120 +39,24 @@ export function getRecentGitHistory(projectPath: string, count = 20): string {
 }
 
 /**
- * Detect verification script based on project files.
- */
-export function detectVerifyScript(projectPath: string): string | null {
-  // Node.js/npm projects
-  if (existsSync(join(projectPath, 'package.json'))) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf-8')) as {
-        scripts?: Record<string, string>;
-      };
-      const scripts = pkg.scripts ?? {};
-      const commands: string[] = [];
-
-      if (scripts['lint']) commands.push('npm run lint');
-      if (scripts['typecheck']) commands.push('npm run typecheck');
-      if (scripts['test']) commands.push('npm run test');
-
-      if (commands.length > 0) {
-        return commands.join(' && ');
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  // Python projects
-  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) {
-    return 'pytest';
-  }
-
-  // Go projects
-  if (existsSync(join(projectPath, 'go.mod'))) {
-    return 'go test ./...';
-  }
-
-  // Rust projects
-  if (existsSync(join(projectPath, 'Cargo.toml'))) {
-    return 'cargo test';
-  }
-
-  // Java/Gradle projects
-  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts'))) {
-    return './gradlew check';
-  }
-
-  // Java/Maven projects
-  if (existsSync(join(projectPath, 'pom.xml'))) {
-    return 'mvn clean install';
-  }
-
-  // Makefile projects
-  if (existsSync(join(projectPath, 'Makefile'))) {
-    return 'make check || make test';
-  }
-
-  return null;
-}
-
-/**
- * Get effective verify script for a project repository.
- * Finds the matching repository by path and returns its verify script,
- * or falls back to auto-detection.
+ * Get verify script from explicit repository config only.
+ * Returns null if no verify script is configured — no runtime auto-detection.
+ * Heuristic detection is used only as suggestions during `project add`.
  */
 export function getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null {
   if (project) {
-    // Find the repository that matches the project path
     const repo = project.repositories.find((r) => r.path === projectPath);
     if (repo?.verifyScript) {
       return repo.verifyScript;
     }
   }
-  return detectVerifyScript(projectPath);
-}
-
-/**
- * Detect a sensible setup (dependency-install) command based on project files.
- * Checks for lockfiles to pick the right package manager, then falls back to
- * common build-tool conventions for other ecosystems.
- */
-export function detectSetupScript(projectPath: string): string | null {
-  // Node.js — prefer lockfile to pick the right package manager
-  if (existsSync(join(projectPath, 'package.json'))) {
-    if (existsSync(join(projectPath, 'pnpm-lock.yaml'))) return 'pnpm install';
-    if (existsSync(join(projectPath, 'yarn.lock'))) return 'yarn install';
-    return 'npm install';
-  }
-
-  // Python — prefer uv when a lockfile is present, otherwise pip
-  if (existsSync(join(projectPath, 'pyproject.toml')) || existsSync(join(projectPath, 'setup.py'))) {
-    if (existsSync(join(projectPath, 'uv.lock'))) return 'uv sync';
-    return 'pip install -e .';
-  }
-
-  // Go
-  if (existsSync(join(projectPath, 'go.mod'))) return 'go mod download';
-
-  // Rust
-  if (existsSync(join(projectPath, 'Cargo.toml'))) return 'cargo build';
-
-  // Java / Gradle — clean build to compile, test, and produce artifacts
-  if (existsSync(join(projectPath, 'build.gradle')) || existsSync(join(projectPath, 'build.gradle.kts'))) {
-    return './gradlew clean build';
-  }
-
-  // Java / Maven — clean install to compile, test, and publish artifact to local .m2
-  // (required for multi-repo projects where downstream repos depend on this artifact)
-  if (existsSync(join(projectPath, 'pom.xml'))) return 'mvn clean install';
-
   return null;
 }
 
 /**
- * Get effective setup script for a project repository.
- * Explicit repo.setupScript wins; falls back to heuristic detection.
+ * Get setup script from explicit repository config only.
+ * Returns null if no setup script is configured — no runtime auto-detection.
+ * Heuristic detection is used only as suggestions during `project add`.
  */
 export function getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null {
   if (project) {
@@ -162,7 +65,7 @@ export function getEffectiveSetupScript(project: Project | undefined, projectPat
       return repo.setupScript;
     }
   }
-  return detectSetupScript(projectPath);
+  return null;
 }
 
 export function formatTask(ctx: TaskContext): string {

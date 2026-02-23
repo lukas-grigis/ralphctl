@@ -61,7 +61,7 @@ describe('Project Service', () => {
     const newPath = await mkdtemp(join(tmpdir(), 'ralphctl-repo-'));
     try {
       // Add repo
-      const updated = await addProjectRepo('test-project', newPath);
+      const updated = await addProjectRepo('test-project', { name: 'test-repo', path: newPath });
       expect(updated.repositories.map((r) => r.path)).toContain(newPath);
       expect(updated.repositories.length).toBe(2);
 
@@ -80,7 +80,9 @@ describe('Project Service', () => {
       );
 
       // ProjectNotFoundError for nonexistent project
-      await expect(addProjectRepo('nonexistent', newPath)).rejects.toThrow(ProjectNotFoundError);
+      await expect(addProjectRepo('nonexistent', { name: 'test-repo', path: newPath })).rejects.toThrow(
+        ProjectNotFoundError
+      );
     } finally {
       await rm(newPath, { recursive: true, force: true });
     }
@@ -89,7 +91,9 @@ describe('Project Service', () => {
   it('validates paths exist', async () => {
     const { addProjectRepo } = await import('@src/store/project.ts');
 
-    await expect(addProjectRepo('test-project', '/nonexistent/path/abc123')).rejects.toThrow('Invalid path');
+    await expect(
+      addProjectRepo('test-project', { name: 'bad-repo', path: '/nonexistent/path/abc123' })
+    ).rejects.toThrow('Invalid path');
   });
 });
 

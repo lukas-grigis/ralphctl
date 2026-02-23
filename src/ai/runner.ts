@@ -29,10 +29,29 @@ export type RunnerOptions = ExecutorOptions;
 // SETUP SCRIPT EXECUTION
 // ============================================================================
 
+/** Default timeout for setup scripts: 5 minutes. Override via RALPHCTL_SETUP_TIMEOUT_MS. */
+const DEFAULT_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
+
+function getSetupTimeoutMs(): number {
+  const envVal = process.env['RALPHCTL_SETUP_TIMEOUT_MS'];
+  if (envVal) {
+    const parsed = Number(envVal);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_SETUP_TIMEOUT_MS;
+}
+
 /**
  * Run setupScript for every unique projectPath that has remaining tasks.
+ *
  * This is "stage zero" — the environment must be ready before any AI agent
  * starts work (aligned with the Anthropic effective-harnesses article).
+ *
+ * Design notes:
+ * - Setup always runs (quality > speed) — ensures deps and artifacts are current
+ * - Fail-fast on multi-repo — partial setup is worse than no setup, so we abort
+ *   on first failure rather than continuing with an inconsistent environment
+ * - Repos without a configured setup script are skipped with a dim warning
  *
  * @returns { success: true } or { success: false, error: string }
  */
@@ -50,6 +69,8 @@ async function runSetupScripts(
     return { success: true };
   }
 
+  const timeoutMs = getSetupTimeoutMs();
+
   for (const projectPath of uniquePaths) {
     // Find a representative task for this path so we can look up its project
     const taskForPath = remainingTasks.find((t) => t.projectPath === projectPath);
@@ -57,21 +78,37 @@ async function runSetupScripts(
 
     const project = await getProjectForTask(taskForPath, sprint);
 
-    // Resolve setup script: explicit repo config wins, then heuristic detection
+    // Setup scripts come from explicit repo config only — no runtime auto-detection.
+    // Heuristic detection is used as suggestions during `project add` / `project repo add`.
     const setupScript = getEffectiveSetupScript(project, projectPath);
-    if (!setupScript) continue;
-
     const repo = project?.repositories.find((r) => r.path === projectPath);
     const repoName = repo?.name ?? projectPath;
 
+    if (!setupScript) {
+      log.dim(`  No setup script for ${repoName} — configure via 'project add'`);
+      continue;
+    }
+
     log.info(`\nRunning setup for ${repoName}: ${setupScript}`);
 
+    // Trust boundary: setupScripts are user-configured via `project add` or
+    // `project repo add` — they are NOT arbitrary AI-generated commands.
     const result = spawnSync(setupScript, {
       cwd: projectPath,
       shell: true,
       stdio: 'inherit',
       encoding: 'utf-8',
+      timeout: timeoutMs,
     });
+
+    if (result.signal === 'SIGTERM') {
+      return {
+        success: false,
+        error:
+          `Setup timed out for ${repoName} after ${String(timeoutMs / 1000)}s: ${setupScript}\n` +
+          `  Set RALPHCTL_SETUP_TIMEOUT_MS to increase the timeout (current: ${String(timeoutMs)}ms)`,
+      };
+    }
 
     if (result.status !== 0) {
       return {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectVerifyScript, getEffectiveVerifyScript, getRecentGitHistory } from './task-context.ts';
+import { getEffectiveVerifyScript, getRecentGitHistory } from './task-context.ts';
 import { parseExecutionResult } from './parser.ts';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -97,110 +97,6 @@ describe('parseExecutionResult', () => {
   });
 });
 
-describe('detectVerifyScript', () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'ralphctl-test-'));
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('detects npm scripts from package.json', () => {
-    writeFileSync(
-      join(tempDir, 'package.json'),
-      JSON.stringify({
-        scripts: {
-          lint: 'eslint .',
-          typecheck: 'tsc --noEmit',
-          test: 'vitest',
-        },
-      })
-    );
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('npm run lint && npm run typecheck && npm run test');
-  });
-
-  it('detects npm with only lint script', () => {
-    writeFileSync(
-      join(tempDir, 'package.json'),
-      JSON.stringify({
-        scripts: {
-          lint: 'eslint .',
-        },
-      })
-    );
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('npm run lint');
-  });
-
-  it('detects Python projects', () => {
-    writeFileSync(join(tempDir, 'pyproject.toml'), '[tool.pytest]');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('pytest');
-  });
-
-  it('detects Go projects', () => {
-    writeFileSync(join(tempDir, 'go.mod'), 'module example.com/test');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('go test ./...');
-  });
-
-  it('detects Rust projects', () => {
-    writeFileSync(join(tempDir, 'Cargo.toml'), '[package]');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('cargo test');
-  });
-
-  it('detects Gradle projects', () => {
-    writeFileSync(join(tempDir, 'build.gradle'), 'plugins {}');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('./gradlew check');
-  });
-
-  it('detects Maven projects', () => {
-    writeFileSync(join(tempDir, 'pom.xml'), '<project></project>');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('mvn clean install');
-  });
-
-  it('detects Makefile projects', () => {
-    writeFileSync(join(tempDir, 'Makefile'), 'check:\n\techo "checking"');
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBe('make check || make test');
-  });
-
-  it('returns null for unknown project type', () => {
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBeNull();
-  });
-
-  it('returns null for package.json without relevant scripts', () => {
-    writeFileSync(
-      join(tempDir, 'package.json'),
-      JSON.stringify({
-        scripts: {
-          start: 'node index.js',
-          build: 'tsc',
-        },
-      })
-    );
-
-    const result = detectVerifyScript(tempDir);
-    expect(result).toBeNull();
-  });
-});
-
 describe('getEffectiveVerifyScript', () => {
   let tempDir: string;
 
@@ -231,13 +127,14 @@ describe('getEffectiveVerifyScript', () => {
     expect(result).toBe('custom-verify-command');
   });
 
-  it('falls back to auto-detection when no explicit script', () => {
+  it('returns null when no explicit script (no runtime auto-detection)', () => {
     const project: Project = {
       name: 'test',
       displayName: 'Test',
       repositories: [{ name: 'test', path: tempDir }],
     };
 
+    // package.json exists but no explicit verifyScript — should return null
     writeFileSync(
       join(tempDir, 'package.json'),
       JSON.stringify({
@@ -246,10 +143,10 @@ describe('getEffectiveVerifyScript', () => {
     );
 
     const result = getEffectiveVerifyScript(project, tempDir);
-    expect(result).toBe('npm run test');
+    expect(result).toBeNull();
   });
 
-  it('returns null when no project and no detection', () => {
+  it('returns null when no project', () => {
     const result = getEffectiveVerifyScript(undefined, tempDir);
     expect(result).toBeNull();
   });
