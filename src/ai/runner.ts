@@ -30,6 +30,7 @@ import {
   type SetupStatus,
 } from '@src/ai/task-context.ts';
 import type { Sprint } from '@src/schemas/index.ts';
+import { assertSafeCwd } from '@src/utils/paths.ts';
 
 // Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/ai/executor.ts';
@@ -118,6 +119,7 @@ export async function runSetupScripts(
 
     // Trust boundary: setupScripts are user-configured via `project add` or
     // `project repo add` — they are NOT arbitrary AI-generated commands.
+    assertSafeCwd(projectPath);
     const result = spawnSync(setupScript, {
       cwd: projectPath,
       shell: true,
