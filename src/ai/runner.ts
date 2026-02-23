@@ -207,17 +207,13 @@ export async function runSprint(
     throw err;
   }
 
-  // Stage zero: run setup scripts for all repositories (unless skipped)
-  if (!options.skipSetup) {
-    const setupResult = await runSetupScripts(id, sprint);
-    if (!setupResult.success) {
-      log.newline();
-      showError(setupResult.error);
-      log.newline();
-      return undefined;
-    }
-  } else {
-    log.dim('Skipping setup scripts (--skip-setup)');
+  // Stage zero: run setup scripts for all repositories
+  const setupResult = await runSetupScripts(id, sprint);
+  if (!setupResult.success) {
+    log.newline();
+    showError(setupResult.error);
+    log.newline();
+    return undefined;
   }
 
   // Execute the task loop (parallel or sequential)

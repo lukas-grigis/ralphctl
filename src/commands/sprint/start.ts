@@ -9,7 +9,6 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
     count: null,
     session: false,
     noCommit: false,
-    skipSetup: false,
   };
   let sprintId: string | undefined;
 
@@ -58,8 +57,6 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       options.failFast = false;
     } else if (arg === '-f' || arg === '--force') {
       options.force = true;
-    } else if (arg === '--skip-setup') {
-      options.skipSetup = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }
