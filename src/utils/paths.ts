@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { lstat, realpath, stat } from 'node:fs/promises';
 
 // Repo root: always the cloned repo directory (for schemas, etc.)
@@ -10,9 +11,9 @@ function getRepoRoot(): string {
   return join(__dirname, '..', '..');
 }
 
-// Data directory: RALPHCTL_ROOT env var (if set) or {repoRoot}/ralphctl-data/
+// Data directory: RALPHCTL_ROOT env var (if set) or ~/.ralphctl/
 export function getDataDir(): string {
-  return process.env['RALPHCTL_ROOT'] ?? join(getRepoRoot(), 'ralphctl-data');
+  return process.env['RALPHCTL_ROOT'] ?? join(homedir(), '.ralphctl');
 }
 
 // Config path (moved to data directory)
