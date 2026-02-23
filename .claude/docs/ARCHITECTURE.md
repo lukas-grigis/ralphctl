@@ -551,16 +551,25 @@ Builds context for task execution. Uses primacy/recency layout (important info a
 ```typescript
 interface TaskContext { sprint: Sprint; task: Task; project?: Project }
 
+// Setup status types — populated by runSetupScripts, consumed by buildFullTaskContext
+type SetupStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' }
+type SetupResults = Map<string, SetupStatus>  // projectPath → SetupStatus
+
 getRecentGitHistory(projectPath: string, count?: number): string
 getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null   // explicit config only
 getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null    // explicit config only
 formatTask(ctx: TaskContext): string
-buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null): string
+buildFullTaskContext(ctx: TaskContext, progressSummary: string | null, gitHistory: string, verifyScript: string | null, setupStatus?: SetupStatus): string
 getContextFileName(sprintId: string, taskId: string): string
 async writeTaskContextFile(projectPath: string, taskContent: string, instructions: string, sprintId: string, taskId: string): Promise<string>
 async getProjectForTask(task: Task, sprint: Sprint): Promise<Project | undefined>
 runPreFlightCheck(ctx: TaskContext, noCommit: boolean): void
 ```
+
+**Setup status in task context:** When `setupStatus` is provided, an "Environment Setup" section is rendered telling the
+AI agent what happened during stage zero — whether a setup script ran (and which command), or that no script is
+configured. This prevents agents from wasting turns re-running `npm install` and helps them discover commands when no
+scripts are configured.
 
 ### Runner (`claude/runner.ts`)
 
@@ -587,6 +596,7 @@ interface RunOptions {
 - Fail-fast on multi-repo — partial setup is worse than no setup
 - Timeout: 5 minutes default, override via `RALPHCTL_SETUP_TIMEOUT_MS` env var
 - Repos without a configured setup script are skipped with a dim warning
+- Returns `SetupResults` map (projectPath → `SetupStatus`) — threaded to executor so each AI agent knows what ran
 
 **Completion signals:**
 
@@ -620,8 +630,8 @@ interface ExecutionSummary {
 
 type StopReason = 'all_completed' | 'count_reached' | 'task_blocked' | 'user_paused' | 'no_tasks' | 'all_blocked'
 
-async executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
-async executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary>
+async executeTaskLoop(sprintId: string, options: ExecutorOptions, setupResults?: SetupResults): Promise<ExecutionSummary>
+async executeTaskLoopParallel(sprintId: string, options: ExecutorOptions, setupResults?: SetupResults): Promise<ExecutionSummary>
 ```
 
 **Parallel execution** launches one task per unique `projectPath` concurrently. Session/step mode forces sequential.

@@ -30,6 +30,8 @@ import {
   getProjectForTask,
   getRecentGitHistory,
   runPreFlightCheck,
+  type SetupResults,
+  type SetupStatus,
   type TaskContext,
   writeTaskContextFile,
 } from '@src/ai/task-context.ts';
@@ -97,7 +99,8 @@ async function executeTask(
   options: ExecutorOptions,
   sprintId: string,
   resumeSessionId?: string,
-  provider?: ProviderAdapter
+  provider?: ProviderAdapter,
+  setupStatus?: SetupStatus
 ): Promise<TaskExecutionResult> {
   const p = provider ?? (await getActiveProvider());
   const label = p.displayName;
@@ -110,7 +113,7 @@ async function executeTask(
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript, setupStatus);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -190,7 +193,7 @@ async function executeTask(
     const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript);
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, verifyScript, setupStatus);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -260,7 +263,11 @@ async function areAllRemainingBlocked(sprintId: string): Promise<boolean> {
  * Sequential execution loop - executes tasks one at a time.
  * Used for session mode, step mode, or --concurrency 1.
  */
-export async function executeTaskLoop(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+export async function executeTaskLoop(
+  sprintId: string,
+  options: ExecutorOptions,
+  setupResults?: SetupResults
+): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
@@ -368,7 +375,7 @@ export async function executeTaskLoop(sprintId: string, options: ExecutorOptions
     }
 
     // Execute task with AI provider
-    const result = await executeTask(ctx, options, sprintId, undefined, provider);
+    const result = await executeTask(ctx, options, sprintId, undefined, provider, setupResults?.get(task.projectPath));
 
     if (!result.success) {
       console.log(warning('\nTask not completed.'));
@@ -494,7 +501,11 @@ function pickTasksToLaunch(
  * Parallel execution loop - runs tasks concurrently across different repos.
  * At most one task per projectPath runs at a time to avoid git conflicts.
  */
-export async function executeTaskLoopParallel(sprintId: string, options: ExecutorOptions): Promise<ExecutionSummary> {
+export async function executeTaskLoopParallel(
+  sprintId: string,
+  options: ExecutorOptions,
+  setupResults?: SetupResults
+): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
@@ -639,7 +650,14 @@ export async function executeTaskLoopParallel(sprintId: string, options: Executo
             try {
               const project = await getProjectForTask(task, sprint);
               const ctx: TaskContext = { sprint, task, project };
-              const result = await executeTask(ctx, options, sprintId, resumeId, provider);
+              const result = await executeTask(
+                ctx,
+                options,
+                sprintId,
+                resumeId,
+                provider,
+                setupResults?.get(task.projectPath)
+              );
 
               // Store session ID for potential future resume
               if (result.sessionId) {

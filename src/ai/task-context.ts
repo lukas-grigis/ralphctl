@@ -17,6 +17,12 @@ export interface TaskContext {
   project?: Project;
 }
 
+/** Outcome of a setup script for a single project path. */
+export type SetupStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' };
+
+/** Map from projectPath → SetupStatus, populated by runSetupScripts. */
+export type SetupResults = Map<string, SetupStatus>;
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -112,7 +118,8 @@ export function buildFullTaskContext(
   ctx: TaskContext,
   progressSummary: string | null,
   gitHistory: string,
-  verifyScript: string | null
+  verifyScript: string | null,
+  setupStatus?: SetupStatus
 ): string {
   const lines: string[] = [];
 
@@ -130,6 +137,34 @@ export function buildFullTaskContext(
     lines.push('```');
   } else {
     lines.push('Read CLAUDE.md in the project root to find verification commands.');
+  }
+
+  // Environment setup awareness — tell the agent what happened during stage zero
+  if (setupStatus) {
+    lines.push('');
+    lines.push('## Environment Setup');
+    lines.push('');
+    if (setupStatus.ran) {
+      lines.push(`The following setup command was already executed before this task started:`);
+      lines.push('');
+      lines.push('```bash');
+      lines.push(setupStatus.script);
+      lines.push('```');
+      lines.push('');
+      lines.push('Dependencies are current. Do not re-run this command unless you encounter dependency errors.');
+    } else if (!verifyScript) {
+      lines.push(
+        'No setup or verify scripts are configured for this repository. ' +
+          'Read CLAUDE.md or project configuration files (package.json, pyproject.toml, etc.) ' +
+          'to discover build, test, and lint commands.'
+      );
+    } else {
+      lines.push(
+        'No setup script is configured for this repository. ' +
+          'If you encounter missing dependency errors, check CLAUDE.md or project configuration files ' +
+          'for the correct install command.'
+      );
+    }
   }
 
   // ═══ REFERENCE ZONE (middle — lower attention is OK) ═══

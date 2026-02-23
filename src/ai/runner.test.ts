@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getEffectiveVerifyScript, getRecentGitHistory } from './task-context.ts';
+import {
+  buildFullTaskContext,
+  getEffectiveVerifyScript,
+  getRecentGitHistory,
+  type SetupStatus,
+  type TaskContext,
+} from './task-context.ts';
 import { parseExecutionResult } from './parser.ts';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import type { Project } from '@src/schemas/index.ts';
+import type { Project, Sprint, Task } from '@src/schemas/index.ts';
 
 describe('parseExecutionResult', () => {
   describe('completion signals', () => {
@@ -171,5 +177,64 @@ describe('getRecentGitHistory', () => {
   it('returns error message for non-existent directory', () => {
     const result = getRecentGitHistory('/nonexistent/path/that/does/not/exist');
     expect(result).toContain('Unable to retrieve git history');
+  });
+});
+
+describe('buildFullTaskContext with setup status', () => {
+  const baseTask: Task = {
+    id: 'task-1',
+    name: 'Test task',
+    steps: ['Step 1'],
+    status: 'in_progress',
+    order: 1,
+    blockedBy: [],
+    projectPath: '/tmp/test-project',
+    verified: false,
+  };
+
+  const baseSprint: Sprint = {
+    id: 'sprint-1',
+    name: 'Test sprint',
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00Z',
+    activatedAt: '2026-01-01T00:00:00Z',
+    closedAt: null,
+    tickets: [],
+  };
+
+  const baseCtx: TaskContext = { sprint: baseSprint, task: baseTask };
+  const gitHistory = 'abc1234 some commit';
+
+  it('shows setup command when setup ran successfully', () => {
+    const setupStatus: SetupStatus = { ran: true, script: 'pnpm install' };
+    const result = buildFullTaskContext(baseCtx, null, gitHistory, 'pnpm test', setupStatus);
+
+    expect(result).toContain('## Environment Setup');
+    expect(result).toContain('pnpm install');
+    expect(result).toContain('Do not re-run this command');
+  });
+
+  it('tells agent to discover commands when no setup and no verify', () => {
+    const setupStatus: SetupStatus = { ran: false, reason: 'no-script' };
+    const result = buildFullTaskContext(baseCtx, null, gitHistory, null, setupStatus);
+
+    expect(result).toContain('## Environment Setup');
+    expect(result).toContain('No setup or verify scripts are configured');
+    expect(result).toContain('CLAUDE.md');
+  });
+
+  it('gives targeted guidance when no setup but verify exists', () => {
+    const setupStatus: SetupStatus = { ran: false, reason: 'no-script' };
+    const result = buildFullTaskContext(baseCtx, null, gitHistory, 'pnpm test', setupStatus);
+
+    expect(result).toContain('## Environment Setup');
+    expect(result).toContain('No setup script is configured');
+    expect(result).toContain('missing dependency errors');
+  });
+
+  it('omits section when setupStatus is undefined (backward compat)', () => {
+    const result = buildFullTaskContext(baseCtx, null, gitHistory, 'pnpm test');
+
+    expect(result).not.toContain('## Environment Setup');
   });
 });

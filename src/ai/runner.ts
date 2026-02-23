@@ -16,7 +16,12 @@ import {
   type ExecutionSummary,
   type ExecutorOptions,
 } from '@src/ai/executor.ts';
-import { getEffectiveSetupScript, getProjectForTask } from '@src/ai/task-context.ts';
+import {
+  getEffectiveSetupScript,
+  getProjectForTask,
+  type SetupResults,
+  type SetupStatus,
+} from '@src/ai/task-context.ts';
 import type { Sprint } from '@src/schemas/index.ts';
 
 // Re-export types for convenience
@@ -52,13 +57,15 @@ function getSetupTimeoutMs(): number {
  * - Fail-fast on multi-repo — partial setup is worse than no setup, so we abort
  *   on first failure rather than continuing with an inconsistent environment
  * - Repos without a configured setup script are skipped with a dim warning
+ * - Returns a SetupResults map so the executor can inform each AI agent what ran
  *
- * @returns { success: true } or { success: false, error: string }
+ * @returns { success, results } — results maps projectPath → SetupStatus
  */
 async function runSetupScripts(
   sprintId: string,
   sprint: Sprint
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<{ success: true; results: SetupResults } | { success: false; error: string }> {
+  const results: SetupResults = new Map();
   const tasks = await getTasks(sprintId);
   const remainingTasks = tasks.filter((t) => t.status !== 'done');
 
@@ -66,7 +73,7 @@ async function runSetupScripts(
   const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
 
   if (uniquePaths.length === 0) {
-    return { success: true };
+    return { success: true, results };
   }
 
   const timeoutMs = getSetupTimeoutMs();
@@ -86,6 +93,7 @@ async function runSetupScripts(
 
     if (!setupScript) {
       log.dim(`  No setup script for ${repoName} — configure via 'project add'`);
+      results.set(projectPath, { ran: false, reason: 'no-script' } satisfies SetupStatus);
       continue;
     }
 
@@ -118,9 +126,10 @@ async function runSetupScripts(
     }
 
     log.success(`Setup complete: ${repoName}`);
+    results.set(projectPath, { ran: true, script: setupScript } satisfies SetupStatus);
   }
 
-  return { success: true };
+  return { success: true, results };
 }
 
 /**
@@ -255,7 +264,9 @@ export async function runSprint(
   }
 
   // Execute the task loop (parallel or sequential)
-  const summary = parallel ? await executeTaskLoopParallel(id, options) : await executeTaskLoop(id, options);
+  const summary = parallel
+    ? await executeTaskLoopParallel(id, options, setupResult.results)
+    : await executeTaskLoop(id, options, setupResult.results);
 
   // Print summary
   printHeader('Summary');
