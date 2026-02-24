@@ -47,6 +47,7 @@ pnpm typecheck && pnpm lint && pnpm test
 - **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for setup/verify scripts
 - **Setup tracking** — `sprint.setupRanAt` records per-repo timestamps; re-runs skip already-completed setups; `--refresh-setup` forces re-execution; cleared on sprint close
 - **Per-task pre-flight** — harness runs `verifyScript` before each AI task; self-heals via `setupScript` on failure for `todo` tasks; passes failure context to agent for `in_progress` tasks
+- **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice; branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch` auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
 
 ## Common Mistakes to Avoid
 
