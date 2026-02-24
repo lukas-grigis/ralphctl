@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
-import { existsSync } from 'node:fs';
 import { lstat, realpath, stat } from 'node:fs/promises';
 
 // Repo root: always the cloned repo directory (for schemas, etc.)
@@ -9,14 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 function getRepoRoot(): string {
-  // Walk up from __dirname to find the package root (works in both source and bundle contexts)
-  let dir = __dirname;
-  while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, 'package.json'))) {
-      return dir;
-    }
-    dir = dirname(dir);
-  }
   return join(__dirname, '..', '..');
 }
 

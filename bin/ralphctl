@@ -1,2 +1,12 @@
-#!/usr/bin/env node
-import '../dist/cli.mjs';
+#!/usr/bin/env bash
+# Resolve symlinks so this works via pnpm link --global
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+REPO_DIR="$SCRIPT_DIR/.."
+
+exec "$REPO_DIR/node_modules/.bin/tsx" --tsconfig "$REPO_DIR/tsconfig.json" "$REPO_DIR/src/cli.ts" "$@"
