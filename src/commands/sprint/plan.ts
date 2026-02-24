@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { confirm } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
+  emoji,
   field,
   icons,
   log,
@@ -16,7 +18,7 @@ import {
   terminalBell,
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
-import { getTasks, listTasks, validateImportTasks } from '@src/store/task.ts';
+import { getTasks, listTasks, reorderByDependencies, validateImportTasks } from '@src/store/task.ts';
 import {
   allRequirementsApproved,
   formatTicketDisplay,
@@ -68,7 +70,14 @@ function parseArgs(args: string[]): { sprintId?: string; options: PlanOptions } 
 async function getSprintContext(
   sprintName: string,
   ticketsByProject: Map<string, Ticket[]>,
-  existingTasks: { id: string; name: string; status: string; projectPath: string }[]
+  existingTasks: {
+    id: string;
+    name: string;
+    description?: string;
+    status: string;
+    ticketId?: string;
+    projectPath: string;
+  }[]
 ): Promise<string> {
   const lines: string[] = [];
   lines.push(`# Sprint: ${sprintName}`);
@@ -122,8 +131,14 @@ async function getSprintContext(
     lines.push('');
     lines.push('## Existing Tasks');
     lines.push('');
+    lines.push(
+      '> These are tasks from a previous planning run. Your output will replace all existing tasks entirely. You may reuse, modify, or drop existing tasks, and add new ones. Generate a complete task set covering ALL tickets.'
+    );
+    lines.push('');
     for (const task of existingTasks) {
-      lines.push(`- ${task.id}: ${task.name} [${task.status}] (${task.projectPath})`);
+      const desc = task.description ? ` — ${task.description}` : '';
+      const ticket = task.ticketId ? ` ticket:${task.ticketId}` : '';
+      lines.push(`- ${task.id}: ${task.name} [${task.status}] (${task.projectPath})${ticket}${desc}`);
     }
   }
 
@@ -197,7 +212,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
   const sprint = await getSprint(id);
 
-  // Check sprint status - must be draft to plan
+  // Check sprint status — draft only
   try {
     assertSprintStatus(sprint, ['draft'], 'plan');
   } catch (err) {
@@ -215,9 +230,12 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // Always process ALL tickets
+  const ticketsToProcess = sprint.tickets;
+
   // Check if all tickets have approved requirements
-  if (!allRequirementsApproved(sprint.tickets)) {
-    const pendingTickets = getPendingRequirements(sprint.tickets);
+  if (!allRequirementsApproved(ticketsToProcess)) {
+    const pendingTickets = getPendingRequirements(ticketsToProcess);
     showWarning('Not all tickets have approved requirements.');
     log.dim(`Pending: ${String(pendingTickets.length)} ticket(s)`);
     for (const ticket of pendingTickets) {
@@ -228,19 +246,43 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // Group tickets by project
-  const ticketsByProject = groupTicketsByProject(sprint.tickets);
-  const tasks = await listTasks(id);
+  // Check for existing tasks (re-plan scenario)
+  const existingTasks = await listTasks(id);
+  const isReplan = existingTasks.length > 0;
+
+  if (isReplan) {
+    if (options.auto) {
+      showInfo(`Re-plan: ${String(existingTasks.length)} existing task(s) will be replaced with a fresh plan.`);
+      log.newline();
+    } else {
+      const proceed = await confirm({
+        message: `${emoji.donut} ${String(existingTasks.length)} task(s) already exist. Re-planning will replace all tasks. Continue?`,
+        default: true,
+      });
+
+      if (!proceed) {
+        log.dim('Cancelled.');
+        log.newline();
+        return;
+      }
+    }
+  }
+
+  // Group tickets to process by project
+  const ticketsByProject = groupTicketsByProject(ticketsToProcess);
 
   // Resolve AI provider early for display names
   const providerName = providerDisplayName(await resolveProvider());
 
+  // Determine mode label
+  const modeLabel = options.auto ? 'Auto (headless)' : 'Interactive';
+
   printHeader('Sprint Planning', icons.sprint);
   console.log(field('Sprint', sprint.name));
   console.log(field('ID', sprint.id));
-  console.log(field('Tickets', String(sprint.tickets.length)));
+  console.log(field('Tickets', String(ticketsToProcess.length)));
   console.log(field('Projects', String(ticketsByProject.size)));
-  console.log(field('Mode', options.auto ? 'Auto (headless)' : 'Interactive'));
+  console.log(field('Mode', modeLabel));
   console.log(field('Provider', providerName));
 
   for (const [proj, tickets] of ticketsByProject) {
@@ -248,11 +290,11 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   }
   console.log('');
 
-  // Collect repositories by project for selection UI
+  // Collect repositories by project for selection UI (from tickets being planned)
   const reposByProject = new Map<string, Repository[]>();
   const defaultPaths: string[] = []; // First repo path per project
 
-  for (const ticket of sprint.tickets) {
+  for (const ticket of ticketsToProcess) {
     if (reposByProject.has(ticket.projectName)) continue; // Already processed
     try {
       const project = await getProject(ticket.projectName);
@@ -263,9 +305,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     }
   }
 
-  // Collect previously saved affected repos from tickets (for resumability)
+  // Collect previously saved affected repos from tickets being planned (for resumability)
   const savedPaths = new Set<string>();
-  for (const ticket of sprint.tickets) {
+  for (const ticket of ticketsToProcess) {
     if (ticket.affectedRepositories) {
       for (const path of ticket.affectedRepositories) {
         savedPaths.add(path);
@@ -296,8 +338,8 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     );
   }
 
-  // Persist selected paths to ticket.affectedRepositories
-  for (const ticket of sprint.tickets) {
+  // Persist selected paths to ticket.affectedRepositories (only for planned tickets)
+  for (const ticket of ticketsToProcess) {
     const projectRepos = reposByProject.get(ticket.projectName);
     if (projectRepos) {
       const projectRepoPaths = new Set(projectRepos.map((r) => r.path));
@@ -317,7 +359,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const context = await getSprintContext(
     sprint.name,
     ticketsByProject,
-    tasks.map((t) => ({ id: t.id, name: t.name, status: t.status, projectPath: t.projectPath }))
+    existingTasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      status: t.status,
+      ticketId: t.ticketId,
+      projectPath: t.projectPath,
+    }))
   );
   const schema = await getTaskImportSchema();
 
@@ -386,9 +435,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     console.log(renderParsedTasksTable(parsedTasks));
     console.log('');
 
-    // Validate before import
-    const existingTasks = await getTasks(id);
-    const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
+    // Validate before import — when replacing, pass empty existingTasks since new set is self-contained
+    const validationExistingTasks = isReplan ? [] : await getTasks(id);
+    const validationErrors = validateImportTasks(parsedTasks, validationExistingTasks, ticketIds);
     if (validationErrors.length > 0) {
       showError('Validation failed');
       for (const err of validationErrors) {
@@ -399,7 +448,11 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     }
 
     showInfo('Importing tasks...');
-    const imported = await importTasks(parsedTasks, id);
+    const imported = await importTasks(parsedTasks, id, isReplan ? { replace: true } : undefined);
+
+    await reorderByDependencies(id);
+    log.dim('Tasks reordered by dependencies.');
+
     terminalBell();
     showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
     log.newline();
@@ -410,7 +463,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
     showInfo(`Starting interactive ${providerName} session...`);
     console.log(
-      muted(`  Planning ${String(sprint.tickets.length)} ticket(s) across ${String(ticketsByProject.size)} project(s)`)
+      muted(
+        `  Planning ${String(ticketsToProcess.length)} ticket(s) across ${String(ticketsByProject.size)} project(s)`
+      )
     );
     console.log(muted(`  Exploring: ${selectedPaths.join(', ')}`));
     console.log(muted(`\n  ${providerName} will read planning-context.md and explore the repos.`));
@@ -463,9 +518,9 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       console.log(renderParsedTasksTable(parsedTasks));
       console.log('');
 
-      // Validate before import
-      const existingTasks = await getTasks(id);
-      const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
+      // Validate before import — when replacing, pass empty existingTasks since new set is self-contained
+      const validationExistingTasks = isReplan ? [] : await getTasks(id);
+      const validationErrors = validateImportTasks(parsedTasks, validationExistingTasks, ticketIds);
       if (validationErrors.length > 0) {
         showError('Validation failed');
         for (const err of validationErrors) {
@@ -476,7 +531,11 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
       }
 
       showInfo('Importing tasks...');
-      const imported = await importTasks(parsedTasks, id);
+      const imported = await importTasks(parsedTasks, id, isReplan ? { replace: true } : undefined);
+
+      await reorderByDependencies(id);
+      log.dim('Tasks reordered by dependencies.');
+
       terminalBell();
       showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
       log.newline();
