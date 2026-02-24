@@ -15,7 +15,7 @@ pnpm install
 pnpm dev --help
 pnpm dev sprint create
 
-# Or run installed CLI
+# Or run installed CLI (works from any directory)
 ./bin/ralphctl
 
 # Run without args for interactive menu mode (recommended)
