@@ -723,6 +723,8 @@ export async function executeTaskLoopParallel(
   const inFlightPaths = new Set<string>();
   const running = new Map<string, Promise<ParallelTaskResult>>();
   const taskSessionIds = new Map<string, string>(); // taskId → AI session ID
+  const branchRetries = new Map<string, number>(); // taskId → branch verification attempts
+  const MAX_BRANCH_RETRIES = 3;
   let preFlightDone = false;
 
   try {
@@ -840,8 +842,25 @@ export async function executeTaskLoopParallel(
           // Pre-flight branch verification (if sprint has a branch set)
           if (sprint.branch) {
             if (!verifySprintBranch(task.projectPath, sprint.branch)) {
+              const attempt = (branchRetries.get(task.id) ?? 0) + 1;
+              branchRetries.set(task.id, attempt);
+
+              if (attempt < MAX_BRANCH_RETRIES) {
+                // Transient failure — re-enqueue for retry (similar to rate-limited tasks)
+                console.log(
+                  warning(
+                    `\n  Branch verification failed (attempt ${String(attempt)}/${String(MAX_BRANCH_RETRIES)}): expected '${sprint.branch}' in ${task.projectPath}`
+                  )
+                );
+                console.log(muted(`  Task ${task.id} will retry on next loop iteration.`));
+                continue;
+              }
+
+              // Exhausted retries — treat as a real failure
               console.log(
-                warning(`\n  Branch verification failed: expected '${sprint.branch}' in ${task.projectPath}`)
+                warning(
+                  `\n  Branch verification failed after ${String(MAX_BRANCH_RETRIES)} attempts: expected '${sprint.branch}' in ${task.projectPath}`
+                )
               );
               console.log(muted(`  Task ${task.id} not started — wrong branch.`));
               hasFailed = true;
@@ -929,7 +948,14 @@ export async function executeTaskLoopParallel(
 
       // Wait for any task to complete
       if (running.size === 0) {
-        // Nothing launched and nothing running — stop
+        // Check if any tasks are pending branch retry before giving up
+        const hasPendingBranchRetry = [...branchRetries.entries()].some(([, count]) => count < MAX_BRANCH_RETRIES);
+        if (hasPendingBranchRetry) {
+          // Brief delay before retrying to avoid tight-looping
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
+        // Nothing launched, nothing running, no retries pending — stop
         break;
       }
 

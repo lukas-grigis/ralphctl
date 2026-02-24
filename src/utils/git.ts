@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
 /**
@@ -108,26 +108,34 @@ export function verifyCurrentBranch(cwd: string, expected: string): boolean {
 
 /**
  * Detect the default branch (main or master) from remote origin.
- * Falls back to 'main' if detection fails.
+ * Falls back to checking local branches if no remote is configured.
+ * Throws on unexpected git errors (permissions, corrupted repo, etc.).
  */
 export function getDefaultBranch(cwd: string): string {
   assertSafeCwd(cwd);
-  try {
-    const result = execSync('git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  const result = spawnSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  if (result.status === 0) {
     // refs/remotes/origin/main → main
-    const ref = result.trim();
+    const ref = result.stdout.trim();
     const parts = ref.split('/');
     return parts[parts.length - 1] ?? 'main';
-  } catch {
-    // Fallback: check if 'main' or 'master' exists locally
+  }
+
+  // "not a symbolic ref" — remote ref not configured, safe to fall through
+  const stderr = result.stderr.trim();
+  if (stderr.includes('is not a symbolic ref') || stderr.includes('No such ref')) {
     if (branchExists(cwd, 'main')) return 'main';
     if (branchExists(cwd, 'master')) return 'master';
     return 'main';
   }
+
+  // Unexpected error — don't swallow it
+  throw new Error(`Failed to detect default branch in ${cwd}: ${stderr}`);
 }
 
 /**
