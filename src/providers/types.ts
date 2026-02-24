@@ -55,6 +55,12 @@ export interface ProviderAdapter {
   /** Base CLI args for permission/tool access. */
   readonly baseArgs: string[];
 
+  /**
+   * Whether this provider is experimental (not fully stable).
+   * Copilot CLI is in public preview; Claude Code is GA.
+   */
+  readonly experimental: boolean;
+
   /** Build args for interactive mode (inherits stdio). */
   buildInteractiveArgs(prompt: string, extraArgs?: string[]): string[];
 
@@ -63,6 +69,13 @@ export interface ProviderAdapter {
 
   /** Parse JSON output from --output-format json. */
   parseJsonOutput(stdout: string): { result: string; sessionId: string | null };
+
+  /**
+   * Extract a session ID after a headless process completes.
+   * Called when parseJsonOutput returns sessionId: null.
+   * Copilot: parses the --share output file; Claude: not needed (JSON output has it).
+   */
+  extractSessionId?(cwd: string): Promise<string | null>;
 
   /** Detect rate limit signals in stderr. */
   detectRateLimit(stderr: string): RateLimitInfo;
