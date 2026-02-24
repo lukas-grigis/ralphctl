@@ -120,8 +120,9 @@ function buildPlanActions(ctx: MenuContext): MenuItem[] {
     disabled: refineDisabled,
   });
 
-  // Plan Tasks — requires draft + all requirements approved
+  // Plan Tasks — requires draft sprint
   let planDisabled: string | false = false;
+  const planDesc = 'Generate tasks from requirements';
   if (!hasSprint) {
     planDisabled = 'create a sprint first';
   } else if (!isDraft) {
@@ -132,9 +133,9 @@ function buildPlanActions(ctx: MenuContext): MenuItem[] {
     planDisabled = 'refine all tickets first';
   }
   items.push({
-    name: 'Plan Tasks',
+    name: ctx.taskCount > 0 ? 'Re-Plan Tasks' : 'Plan Tasks',
     value: 'action:sprint:plan',
-    description: 'Generate tasks from requirements',
+    description: planDesc,
     disabled: planDisabled,
   });
 

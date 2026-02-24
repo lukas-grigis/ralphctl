@@ -31,6 +31,16 @@ Testable acceptance criteria for all features. For constraints, see the root CLA
 - [ ] Repository selection saved to `ticket.affectedRepositories` during planning
 - [ ] `sprint ideate` creates ticket and generates tasks in one session
 
+## Incremental Planning (Re-plan)
+
+- [ ] `sprint plan` auto-detects existing tasks — no special flag needed
+- [ ] When tasks exist, all tickets AND existing tasks are passed as AI context
+- [ ] AI generates a complete task set (can modify, update, reorder, or add tasks)
+- [ ] Imported tasks replace all existing tasks (safe — draft tasks are always `todo`)
+- [ ] Re-plan stays draft-only — no active sprint relaxations
+- [ ] `reorderByDependencies` runs after every import (initial or re-plan)
+- [ ] Duplicate task order numbers are detected by `sprint health`
+
 ## Task Execution
 
 - [ ] Tasks execute in dependency order

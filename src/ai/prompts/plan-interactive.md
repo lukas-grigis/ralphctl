@@ -134,7 +134,7 @@ Before writing the final JSON, verify every item:
 The sprint contains:
 
 - **Tickets**: Things to be done (may have optional ID/link if from an issue tracker)
-- **Existing Tasks**: Tasks already planned (avoid duplicating these)
+- **Existing Tasks**: Tasks from a previous planning run (your output replaces all existing tasks)
 - **Projects**: Each ticket belongs to a project which may have multiple repository paths
 
 {{CONTEXT}}

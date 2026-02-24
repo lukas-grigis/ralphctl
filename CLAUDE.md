@@ -101,6 +101,7 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 **Direct Tasks:** `sprint create` → `task add` (repeat) → `sprint start`
 **AI-Assisted:** `sprint create` → `ticket add` → `sprint refine` → `sprint plan` → `sprint start`
 **Quick Ideation:** `sprint create` → `sprint ideate` → `sprint start` (combines refine + plan for quick ideas)
+**Re-Plan:** (draft sprint) `ticket add` → `sprint refine` → `sprint plan` (replaces existing tasks)
 
 ## Sprint State Machine
 
@@ -108,10 +109,11 @@ Status: `draft` → `active` → `closed`
 
 | Operation           | Draft | Active | Closed |
 | ------------------- | :---: | :----: | :----: |
-| Add/edit/rm ticket  |   ✓   |   ✗    |   ✗    |
+| Add ticket          |   ✓   |   ✗    |   ✗    |
+| Edit/remove ticket  |   ✓   |   ✗    |   ✗    |
 | Refine requirements |   ✓   |   ✗    |   ✗    |
 | Ideate (quick)      |   ✓   |   ✗    |   ✗    |
-| Plan/add tasks      |   ✓   |   ✗    |   ✗    |
+| Plan tasks          |   ✓   |   ✗    |   ✗    |
 | Start (execute)     |  ✓\*  |   ✓    |   ✗    |
 | Update task status  |   ✗   |   ✓    |   ✗    |
 | Close               |   ✗   |   ✓    |   ✗    |
@@ -132,6 +134,23 @@ Status: `draft` → `active` → `closed`
 - User selects repos via checkbox UI (before Claude starts) → saved to `ticket.affectedRepositories`
 - Claude explores confirmed repos only → generates tasks split by repo with dependencies
 - Repo selection persists for resumability
+
+### Draft Re-Plan
+
+Running `sprint plan` on a draft sprint that already has tasks triggers re-plan mode:
+
+1. Add new tickets to the draft sprint (`ticket add`)
+2. Refine their requirements (`sprint refine`)
+3. Run `sprint plan` — auto-detects existing tasks
+
+**Behavior:**
+
+- Processes ALL tickets (not just unplanned ones)
+- Existing tasks are included as AI context so Claude can reuse, modify, or drop them
+- AI generates a complete replacement task set covering all tickets
+- New tasks atomically replace all existing tasks via `saveTasks()` (interruption-safe)
+- `reorderByDependencies` runs after every import
+- Interactive mode shows confirmation prompt before replacing
 
 ## Development
 

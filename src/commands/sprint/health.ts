@@ -79,6 +79,43 @@ function checkTicketsWithoutTasks(sprint: Sprint, tasks: Task[]): HealthCheck {
   };
 }
 
+function checkDuplicateOrders(tasks: Task[]): HealthCheck {
+  const orderCounts = new Map<number, string[]>();
+  for (const task of tasks) {
+    const existing = orderCounts.get(task.order) ?? [];
+    existing.push(`${task.name} ${colors.muted(`(${task.id})`)}`);
+    orderCounts.set(task.order, existing);
+  }
+
+  const items: string[] = [];
+  for (const [order, taskNames] of orderCounts) {
+    if (taskNames.length > 1) {
+      items.push(`Order ${String(order)}: ${taskNames.join(', ')}`);
+    }
+  }
+
+  return {
+    name: 'Duplicate Task Orders',
+    status: items.length > 0 ? 'warn' : 'pass',
+    items,
+  };
+}
+
+function checkPendingRequirementsOnActive(sprint: Sprint): HealthCheck {
+  if (sprint.status !== 'active') {
+    return { name: 'Pending Requirements', status: 'pass', items: [] };
+  }
+
+  const pending = sprint.tickets.filter((t) => t.requirementStatus === 'pending');
+  const items = pending.map((t) => `${t.title} ${colors.muted(`(${t.id})`)} — refine before planning`);
+
+  return {
+    name: 'Pending Requirements',
+    status: items.length > 0 ? 'warn' : 'pass',
+    items,
+  };
+}
+
 function checkTasksWithoutSteps(tasks: Task[]): HealthCheck {
   const empty = tasks.filter((t) => t.steps.length === 0);
   const items = empty.map((t) => `${t.name} ${colors.muted(`(${t.id})`)}`);
@@ -139,6 +176,8 @@ export async function sprintHealthCommand(): Promise<void> {
     checkOrphanedDeps(tasks),
     checkTicketsWithoutTasks(sprint, tasks),
     checkTasksWithoutSteps(tasks),
+    checkDuplicateOrders(tasks),
+    checkPendingRequirementsOnActive(sprint),
   ];
 
   for (const check of checks) {

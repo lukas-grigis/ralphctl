@@ -4,8 +4,9 @@ import { log, renderTable } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/store/task.ts';
 import { getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
-import { type ImportTask, ImportTasksSchema } from '@src/schemas/index.ts';
+import { type ImportTask, ImportTasksSchema, type Task } from '@src/schemas/index.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
+import { generateUuid8 } from '@src/utils/ids.ts';
 
 /**
  * Load the task import JSON schema from file.
@@ -73,9 +74,27 @@ export function renderParsedTasksTable(parsedTasks: ImportTask[]): string {
 
 /**
  * Import tasks with two-pass ID resolution.
+ * When `replace: true`, builds the complete task list in memory and writes atomically
+ * (interruption-safe: original tasks.json untouched until final write).
+ * When `replace: false` (default), appends via addTask() one-by-one.
  * Returns the number of successfully imported tasks.
  */
-export async function importTasks(tasks: ImportTask[], sprintId: string): Promise<number> {
+export async function importTasks(
+  tasks: ImportTask[],
+  sprintId: string,
+  options?: { replace?: boolean }
+): Promise<number> {
+  if (options?.replace) {
+    return importTasksReplace(tasks, sprintId);
+  }
+
+  return importTasksAppend(tasks, sprintId);
+}
+
+/**
+ * Append tasks one-by-one via addTask() (first plan — no existing tasks).
+ */
+async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise<number> {
   // Build mapping from local IDs to real IDs
   const localToRealId = new Map<string, string>();
 
@@ -84,7 +103,6 @@ export async function importTasks(tasks: ImportTask[], sprintId: string): Promis
 
   for (const taskInput of tasks) {
     try {
-      // projectPath is required from AI output
       const projectPath = taskInput.projectPath;
 
       // Create task without blockedBy first
@@ -135,4 +153,55 @@ export async function importTasks(tasks: ImportTask[], sprintId: string): Promis
   });
 
   return createdTasks.length;
+}
+
+/**
+ * Build the complete task list in memory and write atomically via saveTasks().
+ * Original tasks.json is untouched until the final write — interruption-safe.
+ */
+async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promise<number> {
+  // Build mapping from local IDs to real IDs
+  const localToRealId = new Map<string, string>();
+  const newTasks: Task[] = [];
+
+  // First pass: generate real IDs and build mapping
+  for (const taskInput of tasks) {
+    const realId = generateUuid8();
+    if (taskInput.id) {
+      localToRealId.set(taskInput.id, realId);
+    }
+
+    newTasks.push({
+      id: realId,
+      name: taskInput.name,
+      description: taskInput.description,
+      steps: taskInput.steps ?? [],
+      status: 'todo',
+      order: newTasks.length + 1,
+      ticketId: taskInput.ticketId,
+      blockedBy: [], // Set in second pass
+      projectPath: taskInput.projectPath,
+      verified: false,
+    });
+
+    log.itemSuccess(`${realId}: ${taskInput.name}`);
+  }
+
+  // Second pass: resolve blockedBy references
+  for (let i = 0; i < tasks.length; i++) {
+    const taskInput = tasks[i];
+    const newTask = newTasks[i];
+    if (!taskInput || !newTask) continue;
+
+    const blockedBy = (taskInput.blockedBy ?? [])
+      .map((localId) => localToRealId.get(localId) ?? '')
+      .filter((id) => id !== '');
+
+    newTask.blockedBy = blockedBy;
+  }
+
+  // Atomic write — replaces all existing tasks in one operation
+  await saveTasks(newTasks, sprintId);
+
+  return newTasks.length;
 }
