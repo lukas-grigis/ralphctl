@@ -68,6 +68,8 @@ cd ralphctl
 pnpm install
 ```
 
+No build step required — the CLI runs TypeScript source directly via [tsx](https://tsx.is/).
+
 ### Make `ralphctl` Available on Your PATH
 
 **Option A — pnpm link (recommended):**
