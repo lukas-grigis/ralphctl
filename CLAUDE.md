@@ -11,12 +11,11 @@ CLI tool for managing sprints and tasks with AI-assisted coding (Claude Code + G
 # Install dependencies
 pnpm install
 
-# Run CLI in dev mode (no build needed — uses tsx)
+# Run CLI in dev mode
 pnpm dev --help
 pnpm dev sprint create
 
-# Build and run installed CLI
-pnpm build
+# Or run installed CLI (works from any directory)
 ./bin/ralphctl
 
 # Run without args for interactive menu mode (recommended)
@@ -157,8 +156,7 @@ Running `sprint plan` on a draft sprint that already has tasks triggers re-plan 
 ## Development
 
 ```bash
-pnpm dev <command>     # Run CLI (source via tsx, no build needed)
-pnpm build             # Compile to dist/ (required before ./bin/ralphctl)
+pnpm dev <command>     # Run CLI
 pnpm typecheck         # Type check
 pnpm lint              # Lint
 pnpm test              # Run tests
