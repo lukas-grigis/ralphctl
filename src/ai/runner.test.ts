@@ -202,6 +202,7 @@ describe('buildFullTaskContext with setup status', () => {
     closedAt: null,
     tickets: [],
     setupRanAt: {},
+    branch: null,
   };
 
   const baseCtx: TaskContext = { sprint: baseSprint, task: baseTask };
@@ -266,6 +267,7 @@ describe('buildFullTaskContext with preFlightResult', () => {
     closedAt: null,
     tickets: [],
     setupRanAt: {},
+    branch: null,
   };
 
   const baseCtx: TaskContext = { sprint: baseSprint, task: baseTask };
@@ -305,6 +307,65 @@ describe('buildFullTaskContext with preFlightResult', () => {
     const result = buildFullTaskContext(baseCtx, null, gitHistory, 'pnpm test', setupStatus);
 
     expect(result).not.toContain('## Pre-Flight Verification');
+  });
+});
+
+// ============================================================================
+// Branch context rendering tests
+// ============================================================================
+
+describe('buildFullTaskContext with branch', () => {
+  const baseTask: Task = {
+    id: 'task-1',
+    name: 'Test task',
+    steps: ['Step 1'],
+    status: 'in_progress',
+    order: 1,
+    blockedBy: [],
+    projectPath: '/tmp/test-project',
+    verified: false,
+  };
+
+  const gitHistory = 'abc1234 some commit';
+
+  it('includes branch section when sprint.branch is set', () => {
+    const sprint: Sprint = {
+      id: '20260224-143200-auth-feature',
+      name: 'Test sprint',
+      status: 'active',
+      createdAt: '2026-01-01T00:00:00Z',
+      activatedAt: '2026-01-01T00:00:00Z',
+      closedAt: null,
+      tickets: [],
+      setupRanAt: {},
+      branch: 'ralphctl/20260224-143200-auth-feature',
+    };
+
+    const ctx: TaskContext = { sprint, task: baseTask };
+    const result = buildFullTaskContext(ctx, null, gitHistory, 'pnpm test');
+
+    expect(result).toContain('## Branch');
+    expect(result).toContain('ralphctl/20260224-143200-auth-feature');
+    expect(result).toContain('Do not switch branches');
+  });
+
+  it('omits branch section when sprint.branch is null', () => {
+    const sprint: Sprint = {
+      id: '20260224-143200-auth-feature',
+      name: 'Test sprint',
+      status: 'active',
+      createdAt: '2026-01-01T00:00:00Z',
+      activatedAt: '2026-01-01T00:00:00Z',
+      closedAt: null,
+      tickets: [],
+      setupRanAt: {},
+      branch: null,
+    };
+
+    const ctx: TaskContext = { sprint, task: baseTask };
+    const result = buildFullTaskContext(ctx, null, gitHistory, 'pnpm test');
+
+    expect(result).not.toContain('## Branch');
   });
 });
 
@@ -357,7 +418,7 @@ describe('runSetupScripts', () => {
     verified: false,
   });
 
-  const makeSprint = (setupRanAt: Record<string, string> = {}): Sprint => ({
+  const makeSprint = (setupRanAt: Record<string, string> = {}, branch: string | null = null): Sprint => ({
     id: '20260101-000000-test',
     name: 'Test sprint',
     status: 'active',
@@ -366,6 +427,7 @@ describe('runSetupScripts', () => {
     closedAt: null,
     tickets: [],
     setupRanAt,
+    branch,
   });
 
   beforeEach(async () => {
@@ -571,6 +633,7 @@ describe('runPreFlightForTask', () => {
     closedAt: null,
     tickets: [],
     setupRanAt: {},
+    branch: null,
   };
 
   beforeEach(() => {
@@ -707,5 +770,146 @@ describe('runPreFlightForTask', () => {
     expect(result.blocked).toBe(true);
     expect(result.preFlightResult).toBeNull();
     expect(result.blockedReason).toContain('Pre-flight verification failed');
+  });
+});
+
+// ============================================================================
+// ensureSprintBranches tests
+// ============================================================================
+
+vi.mock('@src/utils/git.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@src/utils/git.ts')>();
+  return {
+    ...actual,
+    hasUncommittedChanges: vi.fn(),
+    getCurrentBranch: vi.fn(),
+    createAndCheckoutBranch: vi.fn(),
+    isValidBranchName: actual.isValidBranchName,
+    generateBranchName: actual.generateBranchName,
+    verifyCurrentBranch: actual.verifyCurrentBranch,
+  };
+});
+
+describe('ensureSprintBranches', () => {
+  const makeTask = (projectPath: string, status: 'todo' | 'in_progress' | 'done' = 'todo'): Task => ({
+    id: `task-${projectPath.replace(/\//g, '-')}`,
+    name: `Task for ${projectPath}`,
+    steps: [],
+    status,
+    order: 1,
+    blockedBy: [],
+    projectPath,
+    verified: false,
+  });
+
+  const makeSprint = (branch: string | null = null): Sprint => ({
+    id: '20260101-000000-test',
+    name: 'Test sprint',
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00Z',
+    activatedAt: '2026-01-01T00:00:00Z',
+    closedAt: null,
+    tickets: [],
+    setupRanAt: {},
+    branch,
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    const taskStore = await import('@src/store/task.ts');
+    vi.mocked(taskStore.getTasks).mockResolvedValue([]);
+
+    const sprintStore = await import('@src/store/sprint.ts');
+    vi.mocked(sprintStore.saveSprint).mockResolvedValue(undefined);
+
+    const git = await import('@src/utils/git.ts');
+    vi.mocked(git.hasUncommittedChanges).mockReturnValue(false);
+    vi.mocked(git.getCurrentBranch).mockReturnValue('main');
+    vi.mocked(git.createAndCheckoutBranch).mockReturnValue(undefined);
+  });
+
+  it('creates branches in all repos with remaining tasks', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+    const { saveSprint } = await import('@src/store/sprint.ts');
+    const git = await import('@src/utils/git.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha'), makeTask('/repo/beta')]);
+
+    const sprint = makeSprint();
+    await ensureSprintBranches('sprint-1', sprint, 'ralphctl/20260101-000000-test');
+
+    expect(git.createAndCheckoutBranch).toHaveBeenCalledWith('/repo/alpha', 'ralphctl/20260101-000000-test');
+    expect(git.createAndCheckoutBranch).toHaveBeenCalledWith('/repo/beta', 'ralphctl/20260101-000000-test');
+    expect(sprint.branch).toBe('ralphctl/20260101-000000-test');
+    expect(saveSprint).toHaveBeenCalledWith(sprint);
+  });
+
+  it('skips done tasks', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+    const git = await import('@src/utils/git.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha', 'done'), makeTask('/repo/beta', 'todo')]);
+
+    const sprint = makeSprint();
+    await ensureSprintBranches('sprint-1', sprint, 'ralphctl/test');
+
+    expect(git.createAndCheckoutBranch).toHaveBeenCalledTimes(1);
+    expect(git.createAndCheckoutBranch).toHaveBeenCalledWith('/repo/beta', 'ralphctl/test');
+  });
+
+  it('skips create when already on the target branch', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+    const git = await import('@src/utils/git.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha')]);
+    vi.mocked(git.getCurrentBranch).mockReturnValue('ralphctl/test');
+
+    const sprint = makeSprint();
+    await ensureSprintBranches('sprint-1', sprint, 'ralphctl/test');
+
+    expect(git.createAndCheckoutBranch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when repo has uncommitted changes', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+    const git = await import('@src/utils/git.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha')]);
+    vi.mocked(git.hasUncommittedChanges).mockReturnValue(true);
+
+    const sprint = makeSprint();
+    await expect(ensureSprintBranches('sprint-1', sprint, 'ralphctl/test')).rejects.toThrow('uncommitted changes');
+  });
+
+  it('does not call saveSprint when branch is already set', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+    const { saveSprint } = await import('@src/store/sprint.ts');
+    const git = await import('@src/utils/git.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha')]);
+    vi.mocked(git.getCurrentBranch).mockReturnValue('ralphctl/test');
+
+    const sprint = makeSprint('ralphctl/test');
+    await ensureSprintBranches('sprint-1', sprint, 'ralphctl/test');
+
+    expect(saveSprint).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid branch names', async () => {
+    const { ensureSprintBranches } = await import('./runner.ts');
+    const { getTasks } = await import('@src/store/task.ts');
+
+    vi.mocked(getTasks).mockResolvedValue([makeTask('/repo/alpha')]);
+
+    const sprint = makeSprint();
+    await expect(ensureSprintBranches('sprint-1', sprint, 'bad name with spaces')).rejects.toThrow(
+      'Invalid branch name'
+    );
   });
 });

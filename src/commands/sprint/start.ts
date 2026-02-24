@@ -59,6 +59,14 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       options.force = true;
     } else if (arg === '--refresh-setup') {
       options.refreshSetup = true;
+    } else if (arg === '-b' || arg === '--branch') {
+      options.branch = true;
+    } else if (arg === '--branch-name') {
+      const nameStr = args[++i];
+      if (!nameStr) {
+        throw new Error('--branch-name requires a value');
+      }
+      options.branchName = nameStr;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }

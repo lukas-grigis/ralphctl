@@ -102,6 +102,7 @@ export async function createSprint(name?: string): Promise<Sprint> {
     closedAt: null,
     tickets: [],
     setupRanAt: {},
+    branch: null,
   };
 
   const sprintDir = getSprintDir(id);

@@ -46,6 +46,9 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
   if (sprint.closedAt) {
     infoLines.push(labelValue('Closed', new Date(sprint.closedAt).toLocaleString()));
   }
+  if (sprint.branch) {
+    infoLines.push(labelValue('Branch', sprint.branch));
+  }
 
   log.newline();
   console.log(renderCard(`${icons.sprint} ${sprint.name}`, infoLines));

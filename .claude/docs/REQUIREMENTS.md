@@ -54,6 +54,21 @@ Testable acceptance criteria for all features. For constraints, see the root CLA
 - [ ] Rate-limited tasks auto-resume via session ID
 - [ ] Structured exit codes for scripting integration
 
+## Branch Management
+
+- [ ] `sprint start` prompts for branch strategy on first run (keep current, auto, custom)
+- [ ] `--branch` flag auto-generates `ralphctl/<sprint-id>` branch name
+- [ ] `--branch-name <name>` sets a custom branch name
+- [ ] Branch is created in all repos with remaining tasks
+- [ ] Uncommitted changes in any repo fail-fast before branch creation
+- [ ] Branch name persisted to `sprint.branch` for resume
+- [ ] Subsequent runs skip prompt and use saved branch
+- [ ] Pre-flight branch verification before each task execution
+- [ ] `sprint show` displays branch when set
+- [ ] `sprint health` checks branch consistency across repos
+- [ ] `sprint close --create-pr` creates PRs for sprint branches
+- [ ] Agent context includes branch section telling agent which branch it's on
+
 ## Multi-Project Support
 
 - [ ] Projects can have multiple repositories
