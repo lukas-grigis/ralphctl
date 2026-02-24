@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import { mkdtemp, writeFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { claudeAdapter } from './claude.ts';
 import { copilotAdapter } from './copilot.ts';
 import { getProvider } from './index.ts';
@@ -16,6 +19,10 @@ describe('claudeAdapter', () => {
 
     it('has displayName "Claude"', () => {
       expect(claudeAdapter.displayName).toBe('Claude');
+    });
+
+    it('experimental is false (Claude Code is GA)', () => {
+      expect(claudeAdapter.experimental).toBe(false);
     });
 
     it('baseArgs includes --permission-mode and acceptEdits', () => {
@@ -220,6 +227,10 @@ describe('copilotAdapter', () => {
       expect(copilotAdapter.displayName).toBe('Copilot');
     });
 
+    it('experimental is true (Copilot CLI is public preview)', () => {
+      expect(copilotAdapter.experimental).toBe(true);
+    });
+
     it('baseArgs includes --allow-all-tools', () => {
       expect(copilotAdapter.baseArgs).toContain('--allow-all-tools');
     });
@@ -249,6 +260,21 @@ describe('copilotAdapter', () => {
       expect(args).toContain('-s');
     });
 
+    it('includes --autopilot for autonomous headless execution', () => {
+      const args = copilotAdapter.buildHeadlessArgs();
+      expect(args).toContain('--autopilot');
+    });
+
+    it('includes --no-ask-user to suppress interactive prompts in headless mode', () => {
+      const args = copilotAdapter.buildHeadlessArgs();
+      expect(args).toContain('--no-ask-user');
+    });
+
+    it('includes --share to enable session ID capture via output file', () => {
+      const args = copilotAdapter.buildHeadlessArgs();
+      expect(args).toContain('--share');
+    });
+
     it('does NOT include --output-format json (not supported by Copilot CLI)', () => {
       const args = copilotAdapter.buildHeadlessArgs();
       expect(args).not.toContain('--output-format');
@@ -266,10 +292,13 @@ describe('copilotAdapter', () => {
       expect(args).toContain('gpt-4');
     });
 
-    it('orders args correctly: -p, -s, base args, extra args', () => {
+    it('orders args correctly: -p, -s, --autopilot, --no-ask-user, --share first', () => {
       const args = copilotAdapter.buildHeadlessArgs();
       expect(args[0]).toBe('-p');
       expect(args[1]).toBe('-s');
+      expect(args[2]).toBe('--autopilot');
+      expect(args[3]).toBe('--no-ask-user');
+      expect(args[4]).toBe('--share');
     });
   });
 
@@ -337,6 +366,42 @@ describe('copilotAdapter', () => {
     it('returns empty object', () => {
       const env = copilotAdapter.getSpawnEnv();
       expect(env).toEqual({});
+    });
+  });
+
+  describe('extractSessionId', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('defines extractSessionId (session capture via --share)', () => {
+      expect(typeof copilotAdapter.extractSessionId).toBe('function');
+    });
+
+    it('extracts session ID from copilot-session-<ID>.md filename', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session-abc123.md'), '# Session');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBe('abc123');
+    });
+
+    it('cleans up the share file after extracting ID', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session-xyz789.md'), '# Session');
+      await copilotAdapter.extractSessionId?.(dir);
+      const remaining = await readdir(dir);
+      expect(remaining).not.toContain('copilot-session-xyz789.md');
+    });
+
+    it('returns null when no share file exists', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBeNull();
+    });
+
+    it('returns null for non-existent directory', async () => {
+      const id = await copilotAdapter.extractSessionId?.('/tmp/ralphctl-nonexistent-dir-xyz');
+      expect(id).toBeNull();
     });
   });
 });
