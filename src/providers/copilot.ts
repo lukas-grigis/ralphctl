@@ -1,4 +1,4 @@
-import { readdir, unlink } from 'node:fs/promises';
+import { lstat, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
 
@@ -47,13 +47,19 @@ export const copilotAdapter: ProviderAdapter = {
     // Glob for the file, extract the ID from the filename, then clean it up.
     try {
       const files = await readdir(cwd);
-      const shareFile = files.find((f) => /^copilot-session-.+\.md$/.test(f));
+      // Session ID must start with alphanumeric/underscore (not hyphen) to prevent argument injection
+      const shareFile = files.find((f) => /^copilot-session-[a-zA-Z0-9_][a-zA-Z0-9_-]*\.md$/.test(f));
       if (!shareFile) return null;
-      const match = /^copilot-session-(.+)\.md$/.exec(shareFile);
+      const match = /^copilot-session-([a-zA-Z0-9_][a-zA-Z0-9_-]{0,127})\.md$/.exec(shareFile);
       if (!match?.[1]) return null;
-      await unlink(join(cwd, shareFile)).catch(() => {
-        // Best-effort cleanup — don't fail session ID capture if unlink fails
-      });
+      // Only delete regular files — refuse symlinks to prevent TOCTOU attacks
+      const filePath = join(cwd, shareFile);
+      const stat = await lstat(filePath).catch(() => null);
+      if (stat?.isFile()) {
+        await unlink(filePath).catch(() => {
+          // Best-effort cleanup — don't fail session ID capture if unlink fails
+        });
+      }
       return match[1];
     } catch {
       return null;

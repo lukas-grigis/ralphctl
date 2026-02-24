@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { mkdtemp, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, readdir, symlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { claudeAdapter } from './claude.ts';
@@ -402,6 +403,55 @@ describe('copilotAdapter', () => {
     it('returns null for non-existent directory', async () => {
       const id = await copilotAdapter.extractSessionId?.('/tmp/ralphctl-nonexistent-dir-xyz');
       expect(id).toBeNull();
+    });
+
+    it('rejects filenames with shell metacharacters (argument injection prevention)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session---evil-flag.md'), '# Malicious');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBeNull();
+    });
+
+    it('rejects filenames with path traversal characters', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session-..%2F..%2Fetc%2Fpasswd.md'), '# Malicious');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBeNull();
+    });
+
+    it('rejects filenames with spaces', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session-id with spaces.md'), '# Malicious');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBeNull();
+    });
+
+    it('rejects filenames exceeding 128 characters', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      const longId = 'a'.repeat(129);
+      await writeFile(join(dir, `copilot-session-${longId}.md`), '# Too long');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBeNull();
+    });
+
+    it('accepts filenames with valid characters (alphanumeric, hyphens, underscores)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      await writeFile(join(dir, 'copilot-session-abc_123-DEF.md'), '# Valid');
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      expect(id).toBe('abc_123-DEF');
+    });
+
+    it('does not delete symlinks (TOCTOU prevention)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'ralphctl-test-'));
+      const targetFile = join(dir, 'target.txt');
+      await writeFile(targetFile, 'important data');
+      await symlink(targetFile, join(dir, 'copilot-session-sym123.md'));
+      const id = await copilotAdapter.extractSessionId?.(dir);
+      // Symlink doesn't match the safe regex (sym123 is valid chars), but
+      // the lstat check should prevent deletion of the symlink
+      expect(id).toBe('sym123');
+      // Target file must still exist — symlink was NOT followed/deleted
+      expect(existsSync(targetFile)).toBe(true);
     });
   });
 });

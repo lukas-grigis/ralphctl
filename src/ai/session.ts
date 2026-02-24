@@ -170,8 +170,12 @@ export async function spawnHeadlessRaw(
   return new Promise((resolve, reject) => {
     const allArgs = p.buildHeadlessArgs(options.args ?? []);
 
-    // Add --resume if resuming a session
+    // Add --resume if resuming a session (validate format to prevent argument injection)
     if (options.resumeSessionId) {
+      if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(options.resumeSessionId)) {
+        reject(new SpawnError('Invalid session ID format', '', 1, null, p));
+        return;
+      }
       allArgs.push('--resume', options.resumeSessionId);
     }
 
@@ -235,7 +239,9 @@ export async function spawnHeadlessRaw(
         } else {
           resolve({ stdout: result, stderr, exitCode: 0, sessionId });
         }
-      })();
+      })().catch((err: unknown) => {
+        reject(new SpawnError(`Unexpected error in close handler: ${String(err)}`, '', 1, null, p));
+      });
     });
 
     child.on('error', (err) => {
