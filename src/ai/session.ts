@@ -170,8 +170,12 @@ export async function spawnHeadlessRaw(
   return new Promise((resolve, reject) => {
     const allArgs = p.buildHeadlessArgs(options.args ?? []);
 
-    // Add --resume if resuming a session
+    // Add --resume if resuming a session (validate format to prevent argument injection)
     if (options.resumeSessionId) {
+      if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(options.resumeSessionId)) {
+        reject(new SpawnError('Invalid session ID format', '', 1, null, p));
+        return;
+      }
       allArgs.push('--resume', options.resumeSessionId);
     }
 
@@ -213,24 +217,31 @@ export async function spawnHeadlessRaw(
     });
 
     child.on('close', (code) => {
-      const exitCode = code ?? 1;
+      void (async () => {
+        const exitCode = code ?? 1;
 
-      // Parse JSON output to extract result text and session ID
-      const { result, sessionId } = p.parseJsonOutput(rawStdout);
+        // Parse output to extract result text and session ID.
+        // For Claude: JSON output contains session_id directly.
+        // For Copilot: plain text output; session ID captured via --share file.
+        const { result, sessionId: parsedSessionId } = p.parseJsonOutput(rawStdout);
+        const sessionId = parsedSessionId ?? (await p.extractSessionId?.(options.cwd)) ?? null;
 
-      if (exitCode !== 0) {
-        reject(
-          new SpawnError(
-            `${p.displayName} CLI exited with code ${String(exitCode)}: ${stderr}`,
-            stderr,
-            exitCode,
-            sessionId,
-            p
-          )
-        );
-      } else {
-        resolve({ stdout: result, stderr, exitCode: 0, sessionId });
-      }
+        if (exitCode !== 0) {
+          reject(
+            new SpawnError(
+              `${p.displayName} CLI exited with code ${String(exitCode)}: ${stderr}`,
+              stderr,
+              exitCode,
+              sessionId,
+              p
+            )
+          );
+        } else {
+          resolve({ stdout: result, stderr, exitCode: 0, sessionId });
+        }
+      })().catch((err: unknown) => {
+        reject(new SpawnError(`Unexpected error in close handler: ${String(err)}`, '', 1, null, p));
+      });
     });
 
     child.on('error', (err) => {

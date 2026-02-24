@@ -113,6 +113,28 @@ describe('SpawnError', () => {
   });
 });
 
+describe('session ID validation', () => {
+  it('rejects session IDs with shell metacharacters', () => {
+    // spawnHeadlessRaw validates resumeSessionId before using it as --resume arg
+    // We test the regex directly since spawning requires a real binary
+    const SAFE_SESSION_ID = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/;
+    expect(SAFE_SESSION_ID.test('--evil-flag')).toBe(false);
+    expect(SAFE_SESSION_ID.test('$(whoami)')).toBe(false);
+    expect(SAFE_SESSION_ID.test('id;rm -rf /')).toBe(false);
+    expect(SAFE_SESSION_ID.test('../../../etc/passwd')).toBe(false);
+    expect(SAFE_SESSION_ID.test('')).toBe(false);
+    expect(SAFE_SESSION_ID.test('a'.repeat(129))).toBe(false);
+  });
+
+  it('accepts valid session IDs', () => {
+    const SAFE_SESSION_ID = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/;
+    expect(SAFE_SESSION_ID.test('abc123')).toBe(true);
+    expect(SAFE_SESSION_ID.test('49e58e81-a626-4419-b2f5-9f8798f62953')).toBe(true);
+    expect(SAFE_SESSION_ID.test('session_abc-123_DEF')).toBe(true);
+    expect(SAFE_SESSION_ID.test('a'.repeat(128))).toBe(true);
+  });
+});
+
 describe('parseJsonOutput', () => {
   it('extracts result and session_id from valid JSON', () => {
     const json = JSON.stringify({

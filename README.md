@@ -175,6 +175,9 @@ ralphctl sprint start       # Headless (fully automated)
 
 RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both providers share the same prompt templates and workflow — just pick your preferred assistant.
 
+> [!NOTE]
+> **GitHub Copilot provider is in public preview.** A warning is shown each time it is used. Some features work differently — see the table below.
+
 ### Set Your Preferred Provider
 
 ```bash
@@ -191,6 +194,19 @@ ralphctl config show
 ### First-Run Behavior
 
 If no provider is configured, ralphctl prompts you to choose on first command that requires AI assistance (e.g., `sprint refine`, `sprint plan`, `sprint start`). Your selection is saved globally.
+
+### Provider Differences
+
+| Feature                        | Claude Code                             | GitHub Copilot                                                          |
+| ------------------------------ | --------------------------------------- | ----------------------------------------------------------------------- |
+| Status                         | ✅ GA                                   | ⚠️ Public preview                                                       |
+| Headless execution             | ✅ `-p --output-format json`            | ✅ `-p -s --autopilot --no-ask-user`                                    |
+| Session IDs                    | ✅ In JSON output (`session_id`)        | ✅ Captured via `--share` output file                                   |
+| Session resume (`--resume`)    | ✅ Full support                         | ✅ Supported when session ID is available                               |
+| Per-tool permissions           | ✅ Settings files + `--permission-mode` | ⚠️ `--allow-all-tools` (all-or-nothing by default)                      |
+| Fine-grained tool control      | ✅ `allow`/`deny` in settings files     | ✅ `--allow-tool`, `--deny-tool` flags (not yet used)                   |
+| Pre-flight permission warnings | ✅ Reads settings files                 | — No-op (all tools already granted)                                     |
+| Rate limit detection           | ✅ Validated patterns                   | ⚠️ Borrowed from Claude — not yet validated against real Copilot errors |
 
 ### Requirements
 

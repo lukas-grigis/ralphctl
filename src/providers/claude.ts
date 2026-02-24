@@ -11,6 +11,8 @@ export const claudeAdapter: ProviderAdapter = {
   binary: 'claude',
   baseArgs: ['--permission-mode', 'acceptEdits'],
 
+  experimental: false,
+
   buildInteractiveArgs(prompt: string, extraArgs: string[] = []): string[] {
     return [...this.baseArgs, ...extraArgs, '--', prompt];
   },
