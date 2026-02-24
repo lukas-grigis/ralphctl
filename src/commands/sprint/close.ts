@@ -5,7 +5,7 @@ import { closeSprint, getSprint, listSprints, SprintNotFoundError, SprintStatusE
 import { areAllTasksDone, listTasks } from '@src/store/task.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
 import { formatSprintStatus, log, showError, showRandomQuote, showSuccess, showWarning } from '@src/theme/ui.ts';
-import { getDefaultBranch, isGhAvailable } from '@src/utils/git.ts';
+import { branchExists, getDefaultBranch, isGhAvailable } from '@src/utils/git.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
 export async function sprintCloseCommand(args: string[]): Promise<void> {
@@ -116,6 +116,12 @@ async function createPullRequests(sprintId: string, branchName: string, sprintNa
   for (const projectPath of uniquePaths) {
     try {
       assertSafeCwd(projectPath);
+
+      if (!branchExists(projectPath, branchName)) {
+        log.dim(`Branch '${branchName}' not found in ${projectPath} — skipping`);
+        continue;
+      }
+
       const baseBranch = getDefaultBranch(projectPath);
       const title = `Sprint: ${sprintName}`;
 

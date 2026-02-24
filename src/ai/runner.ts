@@ -146,7 +146,9 @@ export async function ensureSprintBranches(sprintId: string, sprint: Sprint, bra
       if (err instanceof Error && err.message.includes('uncommitted changes')) {
         throw err;
       }
-      // Not a git repo or other git error — skip silently
+      // Not a git repo or other git error — skip with notice
+      log.dim(`  Skipping ${projectPath} — not a git repository`);
+      continue;
     }
   }
 
