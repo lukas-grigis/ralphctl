@@ -3,6 +3,7 @@ import type { ProviderAdapter } from '@src/providers/types.ts';
 import { claudeAdapter } from '@src/providers/claude.ts';
 import { copilotAdapter } from '@src/providers/copilot.ts';
 import { resolveProvider } from '@src/utils/provider.ts';
+import { showWarning } from '@src/theme/ui.ts';
 
 export type { ProviderAdapter } from '@src/providers/types.ts';
 export type {
@@ -29,8 +30,14 @@ export function getProvider(provider: AiProvider): ProviderAdapter {
 /**
  * Resolve the active provider from config (prompting on first use)
  * and return its adapter.
+ *
+ * Prints a warning when the resolved provider is marked experimental.
  */
 export async function getActiveProvider(): Promise<ProviderAdapter> {
   const provider = await resolveProvider();
-  return getProvider(provider);
+  const adapter = getProvider(provider);
+  if (adapter.experimental) {
+    showWarning(`${adapter.displayName} provider is in public preview — some features may not work as expected.`);
+  }
+  return adapter;
 }
