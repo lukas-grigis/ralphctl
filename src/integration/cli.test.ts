@@ -264,3 +264,83 @@ describe('Error Handling', () => {
     await expect(getTask('nonexistent', sprint.id)).rejects.toThrow(TaskNotFoundError);
   });
 });
+
+describe('Draft Re-Plan', () => {
+  it('addTask rejects on active sprint', async () => {
+    const { createSprint, activateSprint } = await import('@src/store/sprint.ts');
+    const { addTicket } = await import('@src/store/ticket.ts');
+    const { addTask } = await import('@src/store/task.ts');
+
+    const sprint = await createSprint('Active Test');
+    await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    await activateSprint(sprint.id);
+
+    // Adding tasks to active sprint should always fail (draft-only)
+    await expect(addTask({ name: 'Task', projectPath: projectDir }, sprint.id)).rejects.toThrow(/add tasks/);
+  });
+
+  it('addTicket rejects on active sprint', async () => {
+    const { createSprint, activateSprint } = await import('@src/store/sprint.ts');
+    const { addTicket } = await import('@src/store/ticket.ts');
+
+    const sprint = await createSprint('Active Ticket Test');
+    await activateSprint(sprint.id);
+
+    // Adding tickets to active sprint should fail (draft-only)
+    await expect(addTicket({ title: 'New Ticket', projectName: 'test-project' }, sprint.id)).rejects.toThrow(
+      /add tickets/
+    );
+  });
+
+  it('importTasks with replace: true atomically replaces all tasks', async () => {
+    const { createSprint } = await import('@src/store/sprint.ts');
+    const { addTicket } = await import('@src/store/ticket.ts');
+    const { addTask, listTasks } = await import('@src/store/task.ts');
+    const { importTasks } = await import('@src/commands/sprint/plan-utils.ts');
+
+    const sprint = await createSprint('Replace Test');
+    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+
+    // Create initial tasks
+    await addTask({ name: 'Old Task A', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
+    await addTask({ name: 'Old Task B', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
+
+    const before = await listTasks(sprint.id);
+    expect(before.length).toBe(2);
+
+    // Import replacement tasks
+    const imported = await importTasks(
+      [
+        { name: 'New Task 1', projectPath: projectDir, ticketId: ticket.id, id: 'new-1' },
+        {
+          name: 'New Task 2',
+          projectPath: projectDir,
+          ticketId: ticket.id,
+          id: 'new-2',
+          blockedBy: ['new-1'],
+        },
+        { name: 'New Task 3', projectPath: projectDir, ticketId: ticket.id },
+      ],
+      sprint.id,
+      { replace: true }
+    );
+
+    expect(imported).toBe(3);
+
+    const after = await listTasks(sprint.id);
+    expect(after.length).toBe(3);
+
+    // Old tasks should be gone
+    const names = after.map((t) => t.name);
+    expect(names).not.toContain('Old Task A');
+    expect(names).not.toContain('Old Task B');
+    expect(names).toContain('New Task 1');
+    expect(names).toContain('New Task 2');
+    expect(names).toContain('New Task 3');
+
+    // blockedBy should be resolved to real IDs
+    const task2 = after.find((t) => t.name === 'New Task 2');
+    const task1 = after.find((t) => t.name === 'New Task 1');
+    expect(task2?.blockedBy).toEqual([task1?.id]);
+  });
+});
