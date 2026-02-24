@@ -71,7 +71,12 @@ export async function runWizard(): Promise<void> {
     while (addMore) {
       try {
         const ticket = await addSingleTicketInteractive({});
-        if (ticket) ticketCount++;
+        if (ticket) {
+          ticketCount++;
+        } else {
+          // No ticket created (no projects, or unrecoverable error) — exit loop
+          break;
+        }
       } catch (err) {
         if (err instanceof Error) {
           log.error(`Failed to add ticket: ${err.message}`);
