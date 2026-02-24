@@ -41,6 +41,7 @@ import {
 import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
+import { verifySprintBranch } from '@src/ai/runner.ts';
 
 // ============================================================================
 // TYPES
@@ -65,6 +66,10 @@ export interface ExecutorOptions {
   force?: boolean;
   /** Force re-run of setup scripts even if they already ran this sprint */
   refreshSetup?: boolean;
+  /** Auto-generate sprint branch (ralphctl/<sprint-id>) */
+  branch?: boolean;
+  /** Custom branch name for sprint execution */
+  branchName?: string;
 }
 
 /** Reason why execution stopped */
@@ -514,6 +519,23 @@ export async function executeTaskLoop(
       };
     }
 
+    // Pre-flight branch verification (if sprint has a branch set)
+    if (sprint.branch) {
+      if (!verifySprintBranch(task.projectPath, sprint.branch)) {
+        console.log(warning(`\nBranch verification failed: expected '${sprint.branch}' in ${task.projectPath}`));
+        console.log(muted(`Task ${task.id} remains in_progress.`));
+        const remaining = await getRemainingTasks(sprintId);
+        return {
+          completed: completedCount,
+          remaining: remaining.length,
+          stopReason: 'task_blocked',
+          blockedTask: task,
+          blockedReason: `Repository ${task.projectPath} is not on expected branch '${sprint.branch}'`,
+          exitCode: EXIT_ERROR,
+        };
+      }
+    }
+
     if (options.session) {
       console.log(highlight(`\n[Task Context for ${label}]`));
       console.log(muted('─'.repeat(50)));
@@ -813,6 +835,25 @@ export async function executeTaskLoopParallel(
               console.log(muted('Fail-fast: waiting for running tasks to finish...'));
             }
             continue;
+          }
+
+          // Pre-flight branch verification (if sprint has a branch set)
+          if (sprint.branch) {
+            if (!verifySprintBranch(task.projectPath, sprint.branch)) {
+              console.log(
+                warning(`\n  Branch verification failed: expected '${sprint.branch}' in ${task.projectPath}`)
+              );
+              console.log(muted(`  Task ${task.id} not started — wrong branch.`));
+              hasFailed = true;
+              if (!firstBlockedTask) {
+                firstBlockedTask = task;
+                firstBlockedReason = `Repository ${task.projectPath} is not on expected branch '${sprint.branch}'`;
+              }
+              if (failFast) {
+                console.log(muted('Fail-fast: waiting for running tasks to finish...'));
+              }
+              continue;
+            }
           }
 
           // Mark as in_progress only after pre-flight passes

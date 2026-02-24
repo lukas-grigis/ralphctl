@@ -48,6 +48,11 @@
         "format": "date-time"
       }
     },
+    "branch": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Branch name used for sprint execution. When set, all repos checkout this branch before task execution."
+    },
     "tickets": {
       "type": "array",
       "default": [],

@@ -121,8 +121,12 @@ Examples:
   sprint
     .command('close [id]')
     .description('Close an active sprint')
-    .action(async (id?: string) => {
-      await sprintCloseCommand(id ? [id] : []);
+    .option('--create-pr', 'Create pull requests for sprint branches')
+    .action(async (id?: string, opts?: { createPr?: boolean }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.createPr) args.push('--create-pr');
+      await sprintCloseCommand(args);
     });
 
   sprint
@@ -162,6 +166,8 @@ Examples:
     .option('--fail-fast', 'Stop launching new tasks on first failure')
     .option('-f, --force', 'Skip precondition checks (e.g., unplanned tickets)')
     .option('--refresh-setup', 'Force re-run setup scripts even if they already ran this sprint')
+    .option('-b, --branch', 'Create sprint branch (ralphctl/<sprint-id>) in all repos')
+    .option('--branch-name <name>', 'Use a custom branch name for sprint execution')
     .addHelpText(
       'after',
       `
@@ -176,6 +182,12 @@ Parallel Execution:
   At most one task per repository runs at a time to avoid git conflicts.
   Use --concurrency 1 to force sequential execution.
   Session (--session) and step (--step) modes always run sequentially.
+
+Branch Management:
+  Use -b/--branch to auto-create a sprint branch in all repos.
+  Use --branch-name <name> to specify a custom branch name.
+  On first run, an interactive prompt offers branch strategy selection.
+  The chosen branch is persisted and reused on subsequent runs.
 `
     )
     .action(
@@ -191,6 +203,8 @@ Parallel Execution:
           failFast?: boolean;
           force?: boolean;
           refreshSetup?: boolean;
+          branch?: boolean;
+          branchName?: string;
         }
       ) => {
         const args: string[] = [];
@@ -204,6 +218,8 @@ Parallel Execution:
         if (opts?.failFast) args.push('--fail-fast');
         if (opts?.force) args.push('--force');
         if (opts?.refreshSetup) args.push('--refresh-setup');
+        if (opts?.branch) args.push('--branch');
+        if (opts?.branchName) args.push('--branch-name', opts.branchName);
         await sprintStartCommand(args);
       }
     );
