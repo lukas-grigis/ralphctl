@@ -2,8 +2,8 @@
 
 CLI tool for managing sprints and tasks with AI-assisted coding (Claude Code + GitHub Copilot). Ralph Wiggum themed.
 
-@.claude/docs/REQUIREMENTS.md - What the app does, why features exist, design rationale
-@.claude/docs/ARCHITECTURE.md - Technical implementation: data models, services, APIs
+@.claude/docs/REQUIREMENTS.md - Acceptance criteria checklists
+@.claude/docs/ARCHITECTURE.md - Data models, file storage, error/exit tables
 
 ## Quick Start
 
@@ -33,11 +33,6 @@ pnpm typecheck && pnpm lint && pnpm test
 - **Node.js 24+** (managed via `mise.toml`)
 - **pnpm 10+**
 - **Claude CLI** or **GitHub Copilot CLI** installed and configured (see Provider Configuration below)
-
-## Interactive Mode
-
-**Run `ralphctl` with no arguments to enter interactive menu mode** — context-aware menus with persistent status header,
-workflow guidance, and Quick Start wizard. This is the recommended way to use ralphctl for most workflows.
 
 ## Architecture Constraints
 
@@ -84,50 +79,22 @@ workflow guidance, and Quick Start wizard. This is the recommended way to use ra
 
 ### Provider Configuration
 
-RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends via a provider abstraction layer. Both providers share the same prompt templates and workflow.
-
-**Set your preferred provider:**
-
 ```bash
 ralphctl config set provider claude      # Use Claude Code CLI
 ralphctl config set provider copilot     # Use GitHub Copilot CLI
 ```
 
-**View current configuration:**
-
-```bash
-ralphctl config show
-```
-
-**First-run behavior:** If no provider is configured, ralphctl prompts you to choose on first use. Your selection is stored globally in `config.json`.
-
-**Requirements:**
-
-- **Claude Code:** Install the `claude` CLI and configure your API key ([docs](https://docs.anthropic.com/en/docs/claude-code))
-- **GitHub Copilot:** Install the `copilot` CLI and authenticate ([docs](https://docs.github.com/en/copilot/github-copilot-in-the-cli))
-
-Both CLIs must be in your PATH and properly authenticated.
+Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authenticated.
 
 ### Provider Differences
 
-**Permission model** — the two providers handle tool/command permissions completely differently:
+| Aspect              | Claude Code                                              | GitHub Copilot      |
+| ------------------- | -------------------------------------------------------- | ------------------- |
+| CLI flag            | `--permission-mode acceptEdits`                          | `--allow-all-tools` |
+| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
+| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
 
-| Aspect              | Claude Code                                              | GitHub Copilot          |
-| ------------------- | -------------------------------------------------------- | ----------------------- |
-| CLI flag            | `--permission-mode acceptEdits`                          | `--allow-all-tools`     |
-| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None — flags only       |
-| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable          |
-| Pre-flight warnings | `checkTaskPermissions()` reads settings files            | Returns empty (skipped) |
-
-**Claude** permission checks look for `permissions.allow` / `permissions.deny` arrays in settings JSON. Pre-flight warnings
-are shown before a session starts if git commit, verify script, or setup script are not pre-approved.
-
-**Copilot** bypasses all per-tool approval via `--allow-all-tools`. There are no settings files to read, and
-`getProviderPermissions()` short-circuits to return empty arrays when `provider === 'copilot'`.
-
-> **Important:** `checkTaskPermissions()` in `src/ai/task-context.ts` does not receive a `provider` argument — it always
-> performs Claude-style file checks. This is benign for Copilot (the settings files simply won't exist), but be aware
-> when extending permission logic that provider must be threaded through for correct behaviour.
+`checkTaskPermissions()` in `src/ai/task-context.ts` always performs Claude-style file checks (benign for Copilot — settings files won't exist). Thread `provider` through if extending permission logic.
 
 ### Workflow Paths
 
@@ -217,6 +184,14 @@ Use Task tool with these `subagent_type` values for specialized work.
 Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting.
 See `.claude/agents/designer.md` for complete UX guidelines and helper reference.
 
+## Task Execution Signals
+
+The harness parses these XML signals from AI agent output:
+
+- `<task-verified>output</task-verified>` — verification passed (required before completion in headless mode)
+- `<task-complete>` — task finished successfully
+- `<task-blocked>reason</task-blocked>` — task cannot proceed
+
 ## Parallel Execution
 
 `sprint start` runs tasks in parallel by default (one per unique `projectPath`):
@@ -232,5 +207,4 @@ of modified files, verification commands, and current task context.
 
 ## References
 
-- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
-  The design philosophy behind ralphctl's execution harness: setup scripts as stage-zero pre-flight checks, verify scripts as post-task gates, parallel execution with rate-limit coordination, and session resumability. Consult this when extending or modifying the runner/executor layer.
+- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) — consult when extending the runner/executor layer.
