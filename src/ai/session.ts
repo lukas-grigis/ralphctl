@@ -213,24 +213,29 @@ export async function spawnHeadlessRaw(
     });
 
     child.on('close', (code) => {
-      const exitCode = code ?? 1;
+      void (async () => {
+        const exitCode = code ?? 1;
 
-      // Parse JSON output to extract result text and session ID
-      const { result, sessionId } = p.parseJsonOutput(rawStdout);
+        // Parse output to extract result text and session ID.
+        // For Claude: JSON output contains session_id directly.
+        // For Copilot: plain text output; session ID captured via --share file.
+        const { result, sessionId: parsedSessionId } = p.parseJsonOutput(rawStdout);
+        const sessionId = parsedSessionId ?? (await p.extractSessionId?.(options.cwd)) ?? null;
 
-      if (exitCode !== 0) {
-        reject(
-          new SpawnError(
-            `${p.displayName} CLI exited with code ${String(exitCode)}: ${stderr}`,
-            stderr,
-            exitCode,
-            sessionId,
-            p
-          )
-        );
-      } else {
-        resolve({ stdout: result, stderr, exitCode: 0, sessionId });
-      }
+        if (exitCode !== 0) {
+          reject(
+            new SpawnError(
+              `${p.displayName} CLI exited with code ${String(exitCode)}: ${stderr}`,
+              stderr,
+              exitCode,
+              sessionId,
+              p
+            )
+          );
+        } else {
+          resolve({ stdout: result, stderr, exitCode: 0, sessionId });
+        }
+      })();
     });
 
     child.on('error', (err) => {
