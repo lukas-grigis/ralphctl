@@ -114,6 +114,7 @@ export const SprintSchema = z.object({
   closedAt: z.iso.datetime().nullable().default(null),
   tickets: z.array(TicketSchema).default([]),
   setupRanAt: z.record(z.string(), z.iso.datetime()).default({}),
+  branch: z.string().nullable().default(null),
 });
 export type Sprint = z.infer<typeof SprintSchema>;
 

@@ -3,6 +3,7 @@ import { getTasks } from '@src/store/task.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { icons, log, printHeader, progressBar, renderCard, showError } from '@src/theme/ui.ts';
 import type { Sprint, Task } from '@src/schemas/index.ts';
+import { getCurrentBranch } from '@src/utils/git.ts';
 
 // ============================================================================
 // Health Check Types
@@ -116,6 +117,33 @@ function checkPendingRequirementsOnActive(sprint: Sprint): HealthCheck {
   };
 }
 
+function checkBranchConsistency(sprint: Sprint, tasks: Task[]): HealthCheck {
+  if (!sprint.branch) {
+    return { name: 'Branch Consistency', status: 'pass', items: [] };
+  }
+
+  const remainingTasks = tasks.filter((t) => t.status !== 'done');
+  const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
+  const items: string[] = [];
+
+  for (const projectPath of uniquePaths) {
+    try {
+      const current = getCurrentBranch(projectPath);
+      if (current !== sprint.branch) {
+        items.push(`${projectPath} — on '${current}', expected '${sprint.branch}'`);
+      }
+    } catch {
+      items.push(`${projectPath} — unable to determine branch`);
+    }
+  }
+
+  return {
+    name: 'Branch Consistency',
+    status: items.length > 0 ? 'warn' : 'pass',
+    items,
+  };
+}
+
 function checkTasksWithoutSteps(tasks: Task[]): HealthCheck {
   const empty = tasks.filter((t) => t.steps.length === 0);
   const items = empty.map((t) => `${t.name} ${colors.muted(`(${t.id})`)}`);
@@ -178,6 +206,7 @@ export async function sprintHealthCommand(): Promise<void> {
     checkTasksWithoutSteps(tasks),
     checkDuplicateOrders(tasks),
     checkPendingRequirementsOnActive(sprint),
+    checkBranchConsistency(sprint, tasks),
   ];
 
   for (const check of checks) {

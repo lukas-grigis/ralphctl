@@ -137,6 +137,16 @@ export function buildFullTaskContext(
 
   lines.push(formatTask(ctx));
 
+  // Branch awareness — tell the agent which branch it's on
+  if (ctx.sprint.branch) {
+    lines.push('');
+    lines.push('## Branch');
+    lines.push('');
+    lines.push(
+      `You are working on branch \`${ctx.sprint.branch}\`. All commits go to this branch. Do not switch branches.`
+    );
+  }
+
   // Verification command — near the top so it's easy to find
   lines.push('');
   lines.push('## Verification Command');

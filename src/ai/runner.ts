@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { confirm } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import { log, printHeader, showError, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import {
   activateSprint,
@@ -31,12 +31,172 @@ import {
 } from '@src/ai/task-context.ts';
 import type { Sprint } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
+import {
+  createAndCheckoutBranch,
+  generateBranchName,
+  getCurrentBranch,
+  hasUncommittedChanges,
+  isValidBranchName,
+  verifyCurrentBranch,
+} from '@src/utils/git.ts';
 
 // Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/ai/executor.ts';
 
 // Alias for backward compatibility
 export type RunnerOptions = ExecutorOptions;
+
+// ============================================================================
+// BRANCH MANAGEMENT
+// ============================================================================
+
+/**
+ * Prompt the user to select a branch strategy for sprint execution.
+ * Returns the branch name to use, or null for no branch management.
+ */
+export async function promptBranchStrategy(sprintId: string): Promise<string | null> {
+  const autoBranch = generateBranchName(sprintId);
+
+  const strategy = await select({
+    message: 'How should this sprint manage branches?',
+    choices: [
+      {
+        name: `Create sprint branch: ${autoBranch} (Recommended)`,
+        value: 'auto',
+      },
+      {
+        name: 'Keep current branch (no branch management)',
+        value: 'keep',
+      },
+      {
+        name: 'Custom branch name',
+        value: 'custom',
+      },
+    ],
+  });
+
+  if (strategy === 'keep') return null;
+  if (strategy === 'auto') return autoBranch;
+
+  // Custom branch name
+  const customName = await input({
+    message: 'Enter branch name:',
+    validate: (value) => {
+      if (!value.trim()) return 'Branch name cannot be empty';
+      if (!isValidBranchName(value.trim())) {
+        return 'Invalid branch name. Use alphanumeric characters, hyphens, underscores, dots, and slashes.';
+      }
+      return true;
+    },
+  });
+
+  return customName.trim();
+}
+
+/**
+ * Resolve the branch to use for sprint execution.
+ *
+ * Priority:
+ * 1. options.branchName — explicit CLI override
+ * 2. options.branch — auto-generate from sprint ID
+ * 3. sprint.branch — saved from previous run (resume)
+ * 4. Interactive prompt — first run without flags
+ *
+ * Returns the branch name or null (no branch management).
+ */
+export async function resolveBranch(
+  sprintId: string,
+  sprint: Sprint,
+  options: ExecutorOptions
+): Promise<string | null> {
+  if (options.branchName) return options.branchName;
+  if (options.branch) return generateBranchName(sprintId);
+  if (sprint.branch) return sprint.branch;
+  return promptBranchStrategy(sprintId);
+}
+
+/**
+ * Create/checkout the sprint branch in every repo that has remaining tasks.
+ *
+ * - Collects unique projectPath values from remaining tasks
+ * - Fails fast if any repo has uncommitted changes
+ * - Creates or checks out the branch (idempotent for resume)
+ * - Persists sprint.branch for subsequent runs
+ */
+export async function ensureSprintBranches(sprintId: string, sprint: Sprint, branchName: string): Promise<void> {
+  if (!isValidBranchName(branchName)) {
+    throw new Error(`Invalid branch name: ${branchName}`);
+  }
+
+  const tasks = await getTasks(sprintId);
+  const remainingTasks = tasks.filter((t) => t.status !== 'done');
+  const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
+
+  if (uniquePaths.length === 0) return;
+
+  // Check for uncommitted changes in all repos first (fail-fast)
+  for (const projectPath of uniquePaths) {
+    try {
+      if (hasUncommittedChanges(projectPath)) {
+        throw new Error(
+          `Repository at ${projectPath} has uncommitted changes. ` + 'Commit or stash them before starting the sprint.'
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('uncommitted changes')) {
+        throw err;
+      }
+      // Not a git repo or other git error — skip with notice
+      log.dim(`  Skipping ${projectPath} — not a git repository`);
+      continue;
+    }
+  }
+
+  // Create/checkout branch in each repo
+  for (const projectPath of uniquePaths) {
+    try {
+      const currentBranch = getCurrentBranch(projectPath);
+      if (currentBranch === branchName) {
+        log.dim(`  Already on branch '${branchName}' in ${projectPath}`);
+      } else {
+        createAndCheckoutBranch(projectPath, branchName);
+        log.success(`  Branch '${branchName}' ready in ${projectPath}`);
+      }
+    } catch (err) {
+      throw new Error(
+        `Failed to create branch '${branchName}' in ${projectPath}: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err }
+      );
+    }
+  }
+
+  // Persist the branch name
+  if (sprint.branch !== branchName) {
+    sprint.branch = branchName;
+    await saveSprint(sprint);
+  }
+}
+
+/**
+ * Verify a repo is on the expected sprint branch before task execution.
+ * Attempts auto-recovery via checkout if on wrong branch.
+ *
+ * @returns true if on correct branch, false if recovery failed
+ */
+export function verifySprintBranch(projectPath: string, expectedBranch: string): boolean {
+  try {
+    if (verifyCurrentBranch(projectPath, expectedBranch)) {
+      return true;
+    }
+
+    // Attempt auto-recovery
+    log.dim(`  Branch mismatch in ${projectPath} — checking out '${expectedBranch}'`);
+    createAndCheckoutBranch(projectPath, expectedBranch);
+    return verifyCurrentBranch(projectPath, expectedBranch);
+  } catch {
+    return false;
+  }
+}
 
 // ============================================================================
 // SETUP SCRIPT EXECUTION
@@ -228,6 +388,9 @@ export async function runSprint(
     }
   }
 
+  // Resolve branch strategy before activation (prompt while still interactable)
+  const branchName = await resolveBranch(id, sprint, options);
+
   // Auto-activate if sprint is draft
   if (sprint.status === 'draft') {
     sprint = await activateSprint(id);
@@ -260,6 +423,23 @@ export async function runSprint(
   log.dim(`Mode: ${modes.join(', ')}`);
   if (options.count) {
     log.dim(`Limit: ${String(options.count)} task(s)`);
+  }
+
+  // Display branch info
+  if (branchName) {
+    log.info(`Branch: ${branchName}`);
+  }
+
+  // Ensure sprint branches are created/checked out in all repos
+  if (branchName) {
+    try {
+      await ensureSprintBranches(id, sprint, branchName);
+    } catch (err) {
+      log.newline();
+      showError(err instanceof Error ? err.message : String(err));
+      log.newline();
+      return undefined;
+    }
   }
 
   // Reorder tasks by dependencies

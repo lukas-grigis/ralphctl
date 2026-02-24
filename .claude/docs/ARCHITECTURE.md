@@ -36,6 +36,7 @@ interface Sprint {
   closedAt: string | null;
   tickets: Ticket[];
   setupRanAt: Record<string, string>; // projectPath → ISO8601 (cleared on close)
+  branch: string | null; // Sprint branch name (null = no branch management)
 }
 ```
 
