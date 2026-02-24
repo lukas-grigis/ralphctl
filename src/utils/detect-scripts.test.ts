@@ -168,9 +168,101 @@ describe('suggestVerifyScript', () => {
     expect(suggestVerifyScript(tempDir)).toBe('yarn test');
   });
 
-  it('returns null for package.json without relevant scripts', () => {
+  it('matches lint:check alias', () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ scripts: { 'lint:check': 'eslint .', test: 'vitest' } })
+    );
+    expect(suggestVerifyScript(tempDir)).toBe('npm run lint:check && npm run test');
+  });
+
+  it('matches type-check alias', () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ scripts: { lint: 'eslint .', 'type-check': 'tsc --noEmit', test: 'jest' } })
+    );
+    expect(suggestVerifyScript(tempDir)).toBe('npm run lint && npm run type-check && npm run test');
+  });
+
+  it('matches tsc alias for typecheck', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { tsc: 'tsc --noEmit' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run tsc');
+  });
+
+  it('matches check-types alias for typecheck', () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ scripts: { 'check-types': 'tsc --noEmit', 'test:unit': 'vitest' } })
+    );
+    expect(suggestVerifyScript(tempDir)).toBe('npm run check-types && npm run test:unit');
+  });
+
+  it('matches test:unit alias', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { 'test:unit': 'vitest' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run test:unit');
+  });
+
+  it('matches test:run alias', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run test:run');
+  });
+
+  it('matches vitest alias', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { vitest: 'vitest run' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run vitest');
+  });
+
+  it('matches jest alias', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { jest: 'jest --coverage' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run jest');
+  });
+
+  it('matches eslint alias for lint', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { eslint: 'eslint .' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm run eslint');
+  });
+
+  it('prefers first alias in each category', () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ scripts: { lint: 'eslint .', 'lint:check': 'eslint . --max-warnings=0' } })
+    );
+    // 'lint' comes before 'lint:check' in the alias list, so it wins
+    expect(suggestVerifyScript(tempDir)).toBe('npm run lint');
+  });
+
+  it('falls back to build script when no primary scripts match', () => {
     writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { start: 'node index.js', build: 'tsc' } }));
-    expect(suggestVerifyScript(tempDir)).toBeNull();
+    expect(suggestVerifyScript(tempDir)).toBe('npm run build');
+  });
+
+  it('falls back to compile script when no primary scripts match', () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ scripts: { start: 'node index.js', compile: 'tsc' } })
+    );
+    expect(suggestVerifyScript(tempDir)).toBe('npm run compile');
+  });
+
+  it('falls back to package manager test when no scripts match at all', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { start: 'node index.js' } }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm test');
+  });
+
+  it('falls back to pnpm test when no scripts match and pnpm detected', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: { start: 'node index.js' } }));
+    writeFileSync(join(tempDir, 'pnpm-lock.yaml'), '');
+    expect(suggestVerifyScript(tempDir)).toBe('pnpm test');
+  });
+
+  it('falls back to package manager test for empty scripts object', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ scripts: {} }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm test');
+  });
+
+  it('falls back to package manager test when no scripts field at all', () => {
+    writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ name: 'my-app' }));
+    expect(suggestVerifyScript(tempDir)).toBe('npm test');
   });
 
   it('detects Python projects', () => {

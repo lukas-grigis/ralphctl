@@ -105,26 +105,13 @@ export async function addScriptsToRepository(repo: Repository): Promise<Reposito
     setupScript = custom.trim() || undefined;
   }
 
-  // Verify script
-  if (suggestedVerify) {
-    log.info(`  Suggested verify: ${suggestedVerify}`);
-    const useVerify = await confirm({
-      message: '  Use suggested verify script?',
-      default: true,
-    });
-    if (useVerify) {
-      verifyScript = suggestedVerify;
-    } else {
-      const custom = await input({
-        message: '  Verify script (optional):',
-      });
-      verifyScript = custom.trim() || undefined;
-    }
-  } else {
-    const custom = await input({
+  // Verify script — pre-fill with suggestion so user can edit inline
+  {
+    const verifyInput = await input({
       message: '  Verify script (optional):',
+      default: suggestedVerify ?? undefined,
     });
-    verifyScript = custom.trim() || undefined;
+    verifyScript = verifyInput.trim() || undefined;
   }
 
   return {

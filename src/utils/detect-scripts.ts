@@ -83,6 +83,24 @@ export function suggestSetupScript(projectPath: string, type?: ProjectType): str
   }
 }
 
+/** Alias groups for Node.js verify script detection (first match wins per group). */
+const NODE_SCRIPT_ALIASES: { category: string; names: string[] }[] = [
+  { category: 'lint', names: ['lint', 'eslint', 'lint:check'] },
+  { category: 'typecheck', names: ['typecheck', 'type-check', 'tsc', 'check-types'] },
+  { category: 'test', names: ['test', 'test:unit', 'test:run', 'vitest', 'jest'] },
+];
+
+const NODE_SCRIPT_FALLBACK_ALIASES: { category: string; names: string[] }[] = [
+  { category: 'build', names: ['build', 'compile'] },
+];
+
+/**
+ * Find the first matching script name from a group of aliases.
+ */
+function findNodeScript(scripts: Record<string, string>, aliases: string[]): string | undefined {
+  return aliases.find((name) => name in scripts);
+}
+
 /**
  * Suggest a verify script based on project type.
  * Calls detectProjectType internally if type is not provided.
@@ -103,13 +121,26 @@ export function suggestVerifyScript(projectPath: string, type?: ProjectType): st
         const pkgManager = detectNodePackageManager(projectPath);
         const run = pkgManager === 'npm' ? 'npm run' : pkgManager;
 
-        if (scripts['lint']) commands.push(`${run} lint`);
-        if (scripts['typecheck']) commands.push(`${run} typecheck`);
-        if (scripts['test']) commands.push(`${run} test`);
+        // Match primary aliases (lint, typecheck, test)
+        for (const group of NODE_SCRIPT_ALIASES) {
+          const match = findNodeScript(scripts, group.names);
+          if (match) commands.push(`${run} ${match}`);
+        }
+
+        // If no primary matches, try fallback aliases (build, compile)
+        if (commands.length === 0) {
+          for (const group of NODE_SCRIPT_FALLBACK_ALIASES) {
+            const match = findNodeScript(scripts, group.names);
+            if (match) commands.push(`${run} ${match}`);
+          }
+        }
 
         if (commands.length > 0) {
           return commands.join(' && ');
         }
+
+        // Last resort: suggest package manager test command
+        return `${pkgManager} test`;
       } catch {
         // Fallback if can't read package.json
       }
