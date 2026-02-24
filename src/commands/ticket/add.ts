@@ -188,6 +188,9 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
       count++;
       lastProjectName = ticket.projectName;
       log.dim(`${String(count)} ticket(s) added in this session`);
+    } else {
+      // No ticket created (no projects, or unrecoverable error) — exit loop
+      break;
     }
 
     const another = await confirm({
