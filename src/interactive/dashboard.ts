@@ -87,6 +87,16 @@ export function getNextAction(data: DashboardData): NextAction | null {
     if (approvedCount > 0 && totalTasks === 0) {
       return { label: 'Plan Tasks', description: 'Requirements approved', group: 'sprint', subCommand: 'plan' };
     }
+    // Draft with tasks but unplanned tickets — suggest re-plan
+    if (totalTasks > 0 && data.plannedTicketCount < ticketCount) {
+      const unplanned = ticketCount - data.plannedTicketCount;
+      return {
+        label: 'Re-Plan Tasks',
+        description: `${String(unplanned)} unplanned ticket${unplanned !== 1 ? 's' : ''}`,
+        group: 'sprint',
+        subCommand: 'plan',
+      };
+    }
     if (totalTasks > 0) {
       return {
         label: 'Start Sprint',
