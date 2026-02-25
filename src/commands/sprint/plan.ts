@@ -94,8 +94,8 @@ async function getSprintContext(
       lines.push('### Repositories');
       for (const repo of project.repositories) {
         lines.push(`- **${repo.name}**: ${repo.path}`);
-        if (repo.verifyScript) {
-          lines.push(`  - Verify: \`${repo.verifyScript}\``);
+        if (repo.checkScript) {
+          lines.push(`  - Check: \`${repo.checkScript}\``);
         }
       }
     } catch {
