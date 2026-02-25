@@ -136,22 +136,22 @@ from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthr
 - Logs git commit hash for each project path to progress.md
 - Enables diffing what changed during the sprint
 
-### Repository Verification Scripts
+### Repository Check Scripts
 
-Each repository within a project can have its own setup and verify scripts:
+Each repository within a project can have its own check script:
 
 ```
 my-app/
-├── frontend/  → setupScript: "npm install", verifyScript: "npm test"
-├── backend/   → setupScript: "pip install -e .", verifyScript: "pytest"
-└── shared/    → setupScript: "pnpm install", verifyScript: "pnpm typecheck"
+├── frontend/  → checkScript: "npm install && npm test"
+├── backend/   → checkScript: "pip install -e . && pytest"
+└── shared/    → checkScript: "pnpm install && pnpm typecheck"
 ```
 
 Scripts are configured per-repository during `project add` (interactive mode auto-detects based on project type).
 
-**Resolution order for verification:**
+**Resolution order for check script:**
 
-1. Explicit `verifyScript` on the repository (recommended)
+1. Explicit `checkScript` on the repository (recommended)
 2. Auto-detection from package.json/pyproject.toml/etc. (convenience fallback)
 3. Agent reads target repository's CLAUDE.md (ultimate fallback)
 

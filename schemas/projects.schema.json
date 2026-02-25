@@ -37,13 +37,9 @@
               "minLength": 1,
               "description": "Absolute path to the repository"
             },
-            "setupScript": {
+            "checkScript": {
               "type": "string",
-              "description": "Setup command to run before starting work (e.g., npm install)"
-            },
-            "verifyScript": {
-              "type": "string",
-              "description": "Verification command to run after changes (e.g., npm test)"
+              "description": "Idempotent check command that bootstraps and verifies the environment (e.g., pnpm install && pnpm typecheck && pnpm lint && pnpm test)"
             }
           }
         }

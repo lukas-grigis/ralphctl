@@ -57,8 +57,8 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       options.failFast = false;
     } else if (arg === '-f' || arg === '--force') {
       options.force = true;
-    } else if (arg === '--refresh-setup') {
-      options.refreshSetup = true;
+    } else if (arg === '--refresh-check') {
+      options.refreshCheck = true;
     } else if (arg === '-b' || arg === '--branch') {
       options.branch = true;
     } else if (arg === '--branch-name') {

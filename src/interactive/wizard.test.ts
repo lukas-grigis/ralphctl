@@ -53,7 +53,7 @@ describe('runWizard — ticket loop', () => {
       activatedAt: null,
       closedAt: null,
       tickets: [],
-      setupRanAt: {},
+      checkRanAt: {},
       branch: null,
     });
   });
@@ -103,7 +103,7 @@ describe('runWizard — ticket loop', () => {
         { id: 'abc12345', title: 'Test ticket', projectName: 'my-project', requirementStatus: 'pending' },
         { id: 'def67890', title: 'Another ticket', projectName: 'my-project', requirementStatus: 'pending' },
       ],
-      setupRanAt: {},
+      checkRanAt: {},
       branch: null,
     });
 

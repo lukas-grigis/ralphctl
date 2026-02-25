@@ -61,7 +61,7 @@ export async function createMultiProjectEnv(
     name: string;
     displayName: string;
     description?: string;
-    verifyScript?: string;
+    checkScript?: string;
   }[]
 ): Promise<{
   testDir: string;
@@ -91,7 +91,7 @@ export async function createMultiProjectEnv(
         {
           name: project.name,
           path: dir,
-          verifyScript: project.verifyScript,
+          checkScript: project.checkScript,
         },
       ],
     });

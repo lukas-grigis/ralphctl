@@ -16,8 +16,7 @@ export type RequirementStatus = z.infer<typeof RequirementStatusSchema>;
 export const RepositorySchema = z.object({
   name: z.string().min(1), // Auto-derived from basename(path)
   path: z.string().min(1), // Absolute path
-  setupScript: z.string().optional(), // e.g., "npm install" or "pip install -e ."
-  verifyScript: z.string().optional(), // e.g., "npm test" or "pytest"
+  checkScript: z.string().optional(), // e.g., "pnpm install && pnpm typecheck && pnpm lint && pnpm test"
 });
 export type Repository = z.infer<typeof RepositorySchema>;
 
@@ -113,7 +112,7 @@ export const SprintSchema = z.object({
   activatedAt: z.iso.datetime().nullable().default(null),
   closedAt: z.iso.datetime().nullable().default(null),
   tickets: z.array(TicketSchema).default([]),
-  setupRanAt: z.record(z.string(), z.iso.datetime()).default({}),
+  checkRanAt: z.record(z.string(), z.iso.datetime()).default({}),
   branch: z.string().nullable().default(null),
 });
 export type Sprint = z.infer<typeof SprintSchema>;

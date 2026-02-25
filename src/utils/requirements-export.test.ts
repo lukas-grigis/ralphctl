@@ -16,7 +16,7 @@ describe('requirements-export', () => {
         activatedAt: null,
         closedAt: null,
         tickets: [],
-        setupRanAt: {},
+        checkRanAt: {},
         branch: null,
       };
 
@@ -49,7 +49,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets: [ticket],
-        setupRanAt: {},
+        checkRanAt: {},
         branch: null,
       };
 
@@ -86,7 +86,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets: [ticket],
-        setupRanAt: {},
+        checkRanAt: {},
         branch: null,
       };
 
@@ -125,7 +125,7 @@ describe('requirements-export', () => {
         activatedAt: '2026-01-01T13:00:00Z',
         closedAt: null,
         tickets,
-        setupRanAt: {},
+        checkRanAt: {},
         branch: null,
       };
 
@@ -157,7 +157,7 @@ describe('requirements-export', () => {
         activatedAt: null,
         closedAt: null,
         tickets: [ticket],
-        setupRanAt: {},
+        checkRanAt: {},
         branch: null,
       };
 
