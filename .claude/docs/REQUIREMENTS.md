@@ -49,8 +49,9 @@ Testable acceptance criteria for all features. For constraints, see the root CLA
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks pause execution
 - [ ] Verification required before completion (headless mode)
-- [ ] Pre-existing verification catches broken state
-- [ ] Verification results stored in task
+- [ ] `checkScript` runs at sprint start
+- [ ] `checkScript` runs after every task completion as a post-task gate
+- [ ] Task not marked done if check gate fails
 - [ ] Rate-limited tasks auto-resume via session ID
 - [ ] Structured exit codes for scripting integration
 

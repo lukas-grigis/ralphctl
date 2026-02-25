@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { confirm, input, select } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
@@ -18,20 +18,14 @@ import {
 } from '@src/theme/ui.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
 import { browseDirectory } from '@src/interactive/file-browser.ts';
-import {
-  detectProjectType,
-  getProjectTypeLabel,
-  suggestSetupScript,
-  suggestVerifyScript,
-} from '@src/utils/detect-scripts.ts';
+import { detectCheckScriptCandidates, suggestCheckScript } from '@src/utils/detect-scripts.ts';
 
 export interface ProjectAddOptions {
   name?: string;
   displayName?: string;
   paths?: string[];
   description?: string;
-  setupScript?: string;
-  verifyScript?: string;
+  checkScript?: string;
   interactive?: boolean; // Set by REPL, not a CLI flag
 }
 
@@ -59,78 +53,31 @@ function hasAiInstructions(repoPath: string): boolean {
 }
 
 /**
- * Add setup/verify scripts to a repository interactively.
+ * Add check script to a repository interactively.
  * Exported so `project repo add` can reuse the same flow.
  */
-export async function addScriptsToRepository(repo: Repository): Promise<Repository> {
-  // Detect project type with graceful fallback on errors (e.g., invalid package.json)
-  let detectedType: ReturnType<typeof detectProjectType> = 'other';
-  let suggestedSetup: string | null = null;
-  let suggestedVerify: string | null = null;
+export async function addCheckScriptToRepository(repo: Repository): Promise<Repository> {
+  let suggested: string | null = null;
 
   try {
-    detectedType = detectProjectType(repo.path);
-    suggestedSetup = suggestSetupScript(repo.path, detectedType);
-    suggestedVerify = suggestVerifyScript(repo.path, detectedType);
+    const detection = detectCheckScriptCandidates(repo.path);
+    if (detection) {
+      log.success(`  Detected: ${detection.typeLabel}`);
+      suggested = suggestCheckScript(repo.path);
+    }
   } catch {
     // Auto-detection failed, continue with manual entry
   }
 
-  if (detectedType !== 'other') {
-    log.success(`  Detected: ${getProjectTypeLabel(detectedType)}`);
-  }
-
-  let setupScript: string | undefined;
-  let verifyScript: string | undefined;
-
-  // Setup script
-  if (suggestedSetup) {
-    log.info(`  Suggested setup: ${suggestedSetup}`);
-    const useSetup = await confirm({
-      message: '  Use suggested setup script?',
-      default: true,
-    });
-    if (useSetup) {
-      setupScript = suggestedSetup;
-    } else {
-      const custom = await input({
-        message: '  Setup script (optional):',
-      });
-      setupScript = custom.trim() || undefined;
-    }
-  } else {
-    const custom = await input({
-      message: '  Setup script (optional):',
-    });
-    setupScript = custom.trim() || undefined;
-  }
-
-  // Verify script
-  if (suggestedVerify) {
-    log.info(`  Suggested verify: ${suggestedVerify}`);
-    const useVerify = await confirm({
-      message: '  Use suggested verify script?',
-      default: true,
-    });
-    if (useVerify) {
-      verifyScript = suggestedVerify;
-    } else {
-      const custom = await input({
-        message: '  Verify script (optional):',
-      });
-      verifyScript = custom.trim() || undefined;
-    }
-  } else {
-    const custom = await input({
-      message: '  Verify script (optional):',
-    });
-    verifyScript = custom.trim() || undefined;
-  }
+  const checkInput = await input({
+    message: '  Check script (optional):',
+    default: suggested ?? undefined,
+  });
+  const checkScript = checkInput.trim() || undefined;
 
   return {
     ...repo,
-    setupScript,
-    verifyScript,
+    checkScript,
   };
 }
 
@@ -189,8 +136,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     repositories = options.paths.map((p) => {
       const resolved = resolve(p.trim());
       const repo: Repository = { name: basename(resolved), path: resolved };
-      if (options.setupScript) repo.setupScript = options.setupScript;
-      if (options.verifyScript) repo.verifyScript = options.verifyScript;
+      if (options.checkScript) repo.checkScript = options.checkScript;
       return repo;
     });
     const trimmedDesc = options.description?.trim();
@@ -288,7 +234,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
 
       // Add scripts to first repository
       log.info(`\nConfiguring: ${firstRepo.name}`);
-      repositories[0] = await addScriptsToRepository(firstRepo);
+      repositories[0] = await addCheckScriptToRepository(firstRepo);
     }
 
     // Ask for additional paths
@@ -314,7 +260,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const newRepo = { name: basename(resolved), path: resolved };
             log.success(`Added: ${newRepo.name}`);
             // Add scripts for this repository
-            const repoWithScripts = await addScriptsToRepository(newRepo);
+            const repoWithScripts = await addCheckScriptToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
             log.error(`Invalid path: ${validation}`);
@@ -334,7 +280,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
             const newRepo = { name: basename(resolved), path: resolved };
             log.success(`Added: ${newRepo.name}`);
             // Add scripts for this repository
-            const repoWithScripts = await addScriptsToRepository(newRepo);
+            const repoWithScripts = await addCheckScriptToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
             log.error(`Invalid path: ${validation}`);
@@ -371,13 +317,10 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     console.log(field('Repositories', ''));
     for (const repo of created.repositories) {
       log.item(`${repo.name} → ${repo.path}`);
-      if (repo.setupScript) {
-        console.log(`        Setup: ${repo.setupScript}`);
-      }
-      if (repo.verifyScript) {
-        console.log(`        Verify: ${repo.verifyScript}`);
+      if (repo.checkScript) {
+        console.log(`        Check: ${repo.checkScript}`);
       } else {
-        console.log(`        Verify: ${muted('(not configured)')}`);
+        console.log(`        Check: ${muted('(not configured)')}`);
       }
     }
     console.log('');

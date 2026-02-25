@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
@@ -27,20 +26,18 @@ import {
   buildFullTaskContext,
   formatTask,
   getContextFileName,
-  getEffectiveSetupScript,
-  getEffectiveVerifyScript,
+  getEffectiveCheckScript,
   getProjectForTask,
   getRecentGitHistory,
-  type PreFlightResult,
-  runPreFlightCheck,
-  type SetupResults,
-  type SetupStatus,
+  runPermissionCheck,
+  type CheckResults,
+  type CheckStatus,
   type TaskContext,
   writeTaskContextFile,
 } from '@src/ai/task-context.ts';
+import { runLifecycleHook } from '@src/ai/lifecycle.ts';
 import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
-import { assertSafeCwd } from '@src/utils/paths.ts';
 import { verifySprintBranch } from '@src/ai/runner.ts';
 
 // ============================================================================
@@ -64,8 +61,8 @@ export interface ExecutorOptions {
   failFast?: boolean;
   /** Skip precondition checks (e.g., unplanned tickets) */
   force?: boolean;
-  /** Force re-run of setup scripts even if they already ran this sprint */
-  refreshSetup?: boolean;
+  /** Force re-run of check scripts even if they already ran this sprint */
+  refreshCheck?: boolean;
   /** Auto-generate sprint branch (ralphctl/<sprint-id>) */
   branch?: boolean;
   /** Custom branch name for sprint execution */
@@ -97,113 +94,6 @@ export interface ExecutionSummary {
 }
 
 // ============================================================================
-// PRE-FLIGHT VERIFICATION
-// ============================================================================
-
-/** Default timeout for setup and verify scripts: 5 minutes. Override via RALPHCTL_SETUP_TIMEOUT_MS. */
-const DEFAULT_SCRIPT_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Max characters of pre-flight failure output included in context or block reasons. */
-const MAX_PREFLIGHT_OUTPUT_CHARS = 500;
-
-function getVerifyTimeoutMs(): number {
-  const envVal = process.env['RALPHCTL_SETUP_TIMEOUT_MS'];
-  if (envVal) {
-    const parsed = Number(envVal);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  }
-  return DEFAULT_SCRIPT_TIMEOUT_MS;
-}
-
-/**
- * Run verification script as a pre-flight check before an AI task starts.
- *
- * @returns null if no verifyScript configured, or a PreFlightResult
- */
-export function runPreFlightVerify(projectPath: string, verifyScript: string): { passed: boolean; output: string } {
-  assertSafeCwd(projectPath);
-  const timeoutMs = getVerifyTimeoutMs();
-  const result = spawnSync(verifyScript, {
-    cwd: projectPath,
-    shell: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    encoding: 'utf-8',
-    timeout: timeoutMs,
-  });
-
-  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-  return { passed: result.status === 0, output };
-}
-
-/**
- * Run pre-flight verification with self-healing retry for a task.
- *
- * Logic:
- * 1. No verifyScript → skip (return null)
- * 2. Verify passes → { status: 'passed', script }
- * 3. Verify fails + task is 'todo' → self-heal: re-run setupScript, retry verify
- *    - Pass → proceed
- *    - Fail → block task
- * 4. Verify fails + task is 'in_progress' → { status: 'failed-resuming', script, output }
- */
-export function runPreFlightForTask(
-  ctx: TaskContext,
-  verifyScript: string | null
-): { preFlightResult: PreFlightResult; blocked: boolean; blockedReason?: string } {
-  if (!verifyScript) {
-    return { preFlightResult: null, blocked: false };
-  }
-
-  const projectPath = ctx.task.projectPath;
-  const first = runPreFlightVerify(projectPath, verifyScript);
-
-  if (first.passed) {
-    return { preFlightResult: { status: 'passed', script: verifyScript }, blocked: false };
-  }
-
-  // Verify failed — behavior depends on task status
-  if (ctx.task.status === 'in_progress') {
-    // Resuming task — pass failure context to Claude
-    return {
-      preFlightResult: { status: 'failed-resuming', script: verifyScript, output: first.output },
-      blocked: false,
-    };
-  }
-
-  // Task is 'todo' — attempt self-heal via setupScript
-  const setupScript = getEffectiveSetupScript(ctx.project, projectPath);
-  if (setupScript) {
-    console.log(warning(`  Pre-flight failed — self-healing via: ${setupScript}`));
-    assertSafeCwd(projectPath);
-    const heal = spawnSync(setupScript, {
-      cwd: projectPath,
-      shell: true,
-      stdio: 'inherit',
-      encoding: 'utf-8',
-      timeout: getVerifyTimeoutMs(),
-    });
-
-    if (heal.status === 0) {
-      // Retry verify after self-heal
-      const retry = runPreFlightVerify(projectPath, verifyScript);
-      if (retry.passed) {
-        console.log(success('  Self-heal succeeded — verification now passes'));
-        return { preFlightResult: { status: 'passed', script: verifyScript }, blocked: false };
-      }
-    }
-  }
-
-  // Self-heal failed or no setup script — block the task
-  const trimmedOutput = first.output.slice(0, MAX_PREFLIGHT_OUTPUT_CHARS);
-  const ellipsis = first.output.length > MAX_PREFLIGHT_OUTPUT_CHARS ? '\n... (output truncated)' : '';
-  return {
-    preFlightResult: null,
-    blocked: true,
-    blockedReason: `Pre-flight verification failed:\n${trimmedOutput}${ellipsis}`,
-  };
-}
-
-// ============================================================================
 // TASK EXECUTION
 // ============================================================================
 
@@ -218,8 +108,7 @@ async function executeTask(
   sprintId: string,
   resumeSessionId?: string,
   provider?: ProviderAdapter,
-  setupStatus?: SetupStatus,
-  preFlightResult?: PreFlightResult
+  checkStatus?: CheckStatus
 ): Promise<TaskExecutionResult> {
   const p = provider ?? (await getActiveProvider());
   const label = p.displayName;
@@ -229,17 +118,10 @@ async function executeTask(
   if (options.session) {
     const contextFileName = getContextFileName(sprintId, ctx.task.id);
     const gitHistory = getRecentGitHistory(projectPath, 20);
-    const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
+    const checkScript = getEffectiveCheckScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(
-      ctx,
-      progressSummary || null,
-      gitHistory,
-      verifyScript,
-      setupStatus,
-      preFlightResult
-    );
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, checkScript, checkStatus);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -316,17 +198,10 @@ async function executeTask(
     // Fresh session — build full context
     const contextFileName = getContextFileName(sprintId, ctx.task.id);
     const gitHistory = getRecentGitHistory(projectPath, 20);
-    const verifyScript = getEffectiveVerifyScript(ctx.project, projectPath);
+    const checkScript = getEffectiveCheckScript(ctx.project, projectPath);
     const allProgress = await getProgress(sprintId);
     const progressSummary = summarizeProgressForContext(allProgress, projectPath, 3);
-    const fullTaskContent = buildFullTaskContext(
-      ctx,
-      progressSummary || null,
-      gitHistory,
-      verifyScript,
-      setupStatus,
-      preFlightResult
-    );
+    const fullTaskContent = buildFullTaskContext(ctx, progressSummary || null, gitHistory, checkScript, checkStatus);
     const progressFilePath = getProgressFilePath(sprintId);
     const instructions = buildTaskExecutionPrompt(progressFilePath, options.noCommit, contextFileName);
     const contextFile = await writeTaskContextFile(projectPath, fullTaskContent, instructions, sprintId, ctx.task.id);
@@ -399,7 +274,7 @@ async function areAllRemainingBlocked(sprintId: string): Promise<boolean> {
 export async function executeTaskLoop(
   sprintId: string,
   options: ExecutorOptions,
-  setupResults?: SetupResults
+  checkResults?: CheckResults
 ): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
@@ -492,34 +367,12 @@ export async function executeTaskLoop(
     const ctx: TaskContext = { sprint, task, project };
     const taskPrompt = formatTask(ctx);
 
-    // Run pre-flight permission check (only on first task of the loop)
+    // Run permission check (only on first task of the loop)
     if (completedCount === 0) {
-      runPreFlightCheck(ctx, options.noCommit, provider.name);
+      runPermissionCheck(ctx, options.noCommit, provider.name);
     }
 
-    // Run per-task pre-flight verification (harness-level, before AI starts)
-    const verifyScript = getEffectiveVerifyScript(project, task.projectPath);
-    const { preFlightResult, blocked, blockedReason } = runPreFlightForTask(ctx, verifyScript);
-
-    if (blocked) {
-      console.log(warning(`\nPre-flight verification blocked task: ${task.name}`));
-      if (blockedReason) {
-        console.log(warning(blockedReason));
-      }
-      console.log(muted(`Task ${task.id} remains in_progress.`));
-
-      const remaining = await getRemainingTasks(sprintId);
-      return {
-        completed: completedCount,
-        remaining: remaining.length,
-        stopReason: 'task_blocked',
-        blockedTask: task,
-        blockedReason: blockedReason ?? 'Pre-flight verification failed',
-        exitCode: EXIT_ERROR,
-      };
-    }
-
-    // Pre-flight branch verification (if sprint has a branch set)
+    // Branch verification (if sprint has a branch set)
     if (sprint.branch) {
       if (!verifySprintBranch(task.projectPath, sprint.branch)) {
         console.log(warning(`\nBranch verification failed: expected '${sprint.branch}' in ${task.projectPath}`));
@@ -547,15 +400,7 @@ export async function executeTaskLoop(
     }
 
     // Execute task with AI provider
-    const result = await executeTask(
-      ctx,
-      options,
-      sprintId,
-      undefined,
-      provider,
-      setupResults?.get(task.projectPath),
-      preFlightResult
-    );
+    const result = await executeTask(ctx, options, sprintId, undefined, provider, checkResults?.get(task.projectPath));
 
     if (!result.success) {
       console.log(warning('\nTask not completed.'));
@@ -587,6 +432,28 @@ export async function executeTaskLoop(
         sprintId
       );
       console.log(success('Verification: passed'));
+    }
+
+    // Post-task check hook — run checkScript as a gate before marking done
+    const checkScript = getEffectiveCheckScript(project, task.projectPath);
+    if (checkScript) {
+      console.log(muted(`Running post-task check: ${checkScript}`));
+      const hookResult = runLifecycleHook(task.projectPath, checkScript, 'taskComplete');
+      if (!hookResult.passed) {
+        console.log(warning(`\nPost-task check failed for: ${task.name}`));
+        console.log(muted('Task remains in_progress. Execution paused.'));
+        console.log(muted(`Resume with: ralphctl sprint start ${sprintId}\n`));
+        const remaining = await getRemainingTasks(sprintId);
+        return {
+          completed: completedCount,
+          remaining: remaining.length,
+          stopReason: 'task_blocked',
+          blockedTask: task,
+          blockedReason: `Post-task check failed: ${hookResult.output.slice(0, 500)}`,
+          exitCode: EXIT_ERROR,
+        };
+      }
+      console.log(success('Post-task check: passed'));
     }
 
     // Update task status: in_progress → done
@@ -684,7 +551,7 @@ function pickTasksToLaunch(
 export async function executeTaskLoopParallel(
   sprintId: string,
   options: ExecutorOptions,
-  setupResults?: SetupResults
+  checkResults?: CheckResults
 ): Promise<ExecutionSummary> {
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
@@ -725,7 +592,7 @@ export async function executeTaskLoopParallel(
   const taskSessionIds = new Map<string, string>(); // taskId → AI session ID
   const branchRetries = new Map<string, number>(); // taskId → branch verification attempts
   const MAX_BRANCH_RETRIES = 3;
-  let preFlightDone = false;
+  let permissionCheckDone = false;
 
   try {
     // Check for resumable in_progress tasks
@@ -800,46 +667,17 @@ export async function executeTaskLoopParallel(
         for (const task of toStart) {
           if (completedCount + running.size >= targetCount) break;
 
-          // Cache project lookup — reused for permission check, pre-flight, and execution
+          // Cache project lookup — reused for permission check and execution
           const project = await getProjectForTask(task, sprint);
 
-          // Run pre-flight permission check once (before any task starts)
-          if (!preFlightDone) {
+          // Run permission check once (before any task starts)
+          if (!permissionCheckDone) {
             const ctx: TaskContext = { sprint, task, project };
-            runPreFlightCheck(ctx, options.noCommit, provider.name);
-            preFlightDone = true;
+            runPermissionCheck(ctx, options.noCommit, provider.name);
+            permissionCheckDone = true;
           }
 
-          // Run per-task pre-flight verification BEFORE marking in_progress
-          // (avoids leaving task stuck in in_progress if pre-flight blocks it)
-          const pfVerifyScript = getEffectiveVerifyScript(project, task.projectPath);
-          const preFlightCtx: TaskContext = { sprint, task, project };
-          const {
-            preFlightResult: pfResult,
-            blocked: pfBlocked,
-            blockedReason: pfReason,
-          } = runPreFlightForTask(preFlightCtx, pfVerifyScript);
-
-          if (pfBlocked) {
-            console.log(warning(`\n  Pre-flight verification blocked task: ${task.name}`));
-            if (pfReason) {
-              console.log(warning(`  ${pfReason}`));
-            }
-            console.log(muted(`  Task ${task.id} not started — pre-flight failed.`));
-
-            hasFailed = true;
-            if (!firstBlockedTask) {
-              firstBlockedTask = task;
-              firstBlockedReason = pfReason ?? 'Pre-flight verification failed';
-            }
-
-            if (failFast) {
-              console.log(muted('Fail-fast: waiting for running tasks to finish...'));
-            }
-            continue;
-          }
-
-          // Pre-flight branch verification (if sprint has a branch set)
+          // Branch verification (if sprint has a branch set)
           if (sprint.branch) {
             if (!verifySprintBranch(task.projectPath, sprint.branch)) {
               const attempt = (branchRetries.get(task.id) ?? 0) + 1;
@@ -904,8 +742,7 @@ export async function executeTaskLoopParallel(
                 sprintId,
                 resumeId,
                 provider,
-                setupResults?.get(task.projectPath),
-                pfResult
+                checkResults?.get(task.projectPath)
               );
 
               // Store session ID for potential future resume
@@ -1028,6 +865,27 @@ export async function executeTaskLoopParallel(
           console.log(success(`Verification passed: ${settled.task.name}`));
         }
 
+        // Post-task check hook
+        const taskProject = await getProjectForTask(settled.task, sprint);
+        const taskCheckScript = getEffectiveCheckScript(taskProject, settled.task.projectPath);
+        if (taskCheckScript) {
+          const hookResult = runLifecycleHook(settled.task.projectPath, taskCheckScript, 'taskComplete');
+          if (!hookResult.passed) {
+            console.log(warning(`\nPost-task check failed for: ${settled.task.name}`));
+            console.log(muted(`Task ${settled.task.id} remains in_progress.`));
+            hasFailed = true;
+            if (!firstBlockedTask) {
+              firstBlockedTask = settled.task;
+              firstBlockedReason = `Post-task check failed: ${hookResult.output.slice(0, 500)}`;
+            }
+            if (failFast) {
+              console.log(muted('Fail-fast: waiting for running tasks to finish...'));
+            }
+            continue;
+          }
+          console.log(success(`Post-task check passed: ${settled.task.name}`));
+        }
+
         // Mark done
         await updateTaskStatus(settled.task.id, 'done', sprintId);
         console.log(success(`Completed: ${settled.task.name}`));
@@ -1061,6 +919,16 @@ export async function executeTaskLoopParallel(
               { verified: true, verificationOutput: r.value.result.verificationOutput },
               sprintId
             );
+          }
+          // Post-task check hook
+          const drainProject = await getProjectForTask(r.value.task, sprint);
+          const drainCheckScript = getEffectiveCheckScript(drainProject, r.value.task.projectPath);
+          if (drainCheckScript) {
+            const hookResult = runLifecycleHook(r.value.task.projectPath, drainCheckScript, 'taskComplete');
+            if (!hookResult.passed) {
+              console.log(warning(`Post-task check failed for: ${r.value.task.name}`));
+              continue;
+            }
           }
           await updateTaskStatus(r.value.task.id, 'done', sprintId);
           console.log(success(`Completed: ${r.value.task.name}`));

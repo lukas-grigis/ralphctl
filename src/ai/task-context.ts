@@ -7,9 +7,6 @@ import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { AiProvider, Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
-/** Max characters of pre-flight failure output included in AI context. */
-const MAX_PREFLIGHT_OUTPUT_CHARS = 500;
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -20,17 +17,11 @@ export interface TaskContext {
   project?: Project;
 }
 
-/** Outcome of a setup script for a single project path. */
-export type SetupStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' };
+/** Outcome of a check script for a single project path. */
+export type CheckStatus = { ran: true; script: string } | { ran: false; reason: 'no-script' };
 
-/** Map from projectPath → SetupStatus, populated by runSetupScripts. */
-export type SetupResults = Map<string, SetupStatus>;
-
-/** Result of harness-level pre-flight verification before an AI task starts. */
-export type PreFlightResult =
-  | { status: 'passed'; script: string }
-  | { status: 'failed-resuming'; script: string; output: string }
-  | null;
+/** Map from projectPath → CheckStatus, populated by runCheckScripts. */
+export type CheckResults = Map<string, CheckStatus>;
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -54,30 +45,15 @@ export function getRecentGitHistory(projectPath: string, count = 20): string {
 }
 
 /**
- * Get verify script from explicit repository config only.
- * Returns null if no verify script is configured — no runtime auto-detection.
+ * Get check script from explicit repository config only.
+ * Returns null if no check script is configured — no runtime auto-detection.
  * Heuristic detection is used only as suggestions during `project add`.
  */
-export function getEffectiveVerifyScript(project: Project | undefined, projectPath: string): string | null {
+export function getEffectiveCheckScript(project: Project | undefined, projectPath: string): string | null {
   if (project) {
     const repo = project.repositories.find((r) => r.path === projectPath);
-    if (repo?.verifyScript) {
-      return repo.verifyScript;
-    }
-  }
-  return null;
-}
-
-/**
- * Get setup script from explicit repository config only.
- * Returns null if no setup script is configured — no runtime auto-detection.
- * Heuristic detection is used only as suggestions during `project add`.
- */
-export function getEffectiveSetupScript(project: Project | undefined, projectPath: string): string | null {
-  if (project) {
-    const repo = project.repositories.find((r) => r.path === projectPath);
-    if (repo?.setupScript) {
-      return repo.setupScript;
+    if (repo?.checkScript) {
+      return repo.checkScript;
     }
   }
   return null;
@@ -119,7 +95,7 @@ export function formatTask(ctx: TaskContext): string {
  * Build the full task context with primacy/recency optimization.
  *
  * Layout applies the primacy/recency effect:
- * - HIGH ATTENTION (start): Task directive, steps, verification
+ * - HIGH ATTENTION (start): Task directive, steps, check script
  * - REFERENCE (middle): Prior learnings, ticket requirements, git history
  * - HIGH ATTENTION (end): Instructions (appended by writeTaskContextFile)
  */
@@ -127,9 +103,8 @@ export function buildFullTaskContext(
   ctx: TaskContext,
   progressSummary: string | null,
   gitHistory: string,
-  verifyScript: string | null,
-  setupStatus?: SetupStatus,
-  preFlightResult?: PreFlightResult
+  checkScript: string | null,
+  checkStatus?: CheckStatus
 ): string {
   const lines: string[] = [];
 
@@ -147,81 +122,35 @@ export function buildFullTaskContext(
     );
   }
 
-  // Verification command — near the top so it's easy to find
+  // Check script — near the top so it's easy to find
   lines.push('');
-  lines.push('## Verification Command');
+  lines.push('## Check Script');
   lines.push('');
-  if (verifyScript) {
+  if (checkScript) {
+    lines.push('The harness runs this command at sprint start and after every task as a post-task gate:');
+    lines.push('');
     lines.push('```bash');
-    lines.push(verifyScript);
+    lines.push(checkScript);
     lines.push('```');
+    lines.push('');
+    lines.push('Your task is NOT marked done unless this command passes after completion.');
   } else {
-    lines.push('Read CLAUDE.md in the project root to find verification commands.');
+    lines.push('No check script is configured. Read CLAUDE.md in the project root to find verification commands.');
   }
 
-  // Environment setup awareness — tell the agent what happened during stage zero
-  if (setupStatus) {
+  // Check status awareness — tell the agent what happened during stage zero
+  if (checkStatus) {
     lines.push('');
-    lines.push('## Environment Setup');
+    lines.push('## Environment Status');
     lines.push('');
-    if (setupStatus.ran) {
-      lines.push(`The following setup command was already executed before this task started:`);
-      lines.push('');
-      lines.push('```bash');
-      lines.push(setupStatus.script);
-      lines.push('```');
-      lines.push('');
-      lines.push('Dependencies are current. Do not re-run this command unless you encounter dependency errors.');
-    } else if (!verifyScript) {
+    if (checkStatus.ran) {
+      lines.push('The check script ran successfully at sprint start. Dependencies are current.');
+      lines.push('Do not re-run the install portion unless you encounter dependency errors.');
+    } else {
       lines.push(
-        'No setup or verify scripts are configured for this repository. ' +
+        'No check script is configured for this repository. ' +
           'Read CLAUDE.md or project configuration files (package.json, pyproject.toml, etc.) ' +
           'to discover build, test, and lint commands.'
-      );
-    } else {
-      lines.push(
-        'No setup script is configured for this repository. ' +
-          'If you encounter missing dependency errors, check CLAUDE.md or project configuration files ' +
-          'for the correct install command.'
-      );
-    }
-  }
-
-  // Pre-flight verification — tell the agent what the harness found
-  if (preFlightResult) {
-    lines.push('');
-    lines.push('## Pre-Flight Verification');
-    lines.push('');
-    if (preFlightResult.status === 'passed') {
-      lines.push(`The harness ran the project verification command before your session started:`);
-      lines.push('');
-      lines.push('```bash');
-      lines.push(preFlightResult.script);
-      lines.push('```');
-      lines.push('');
-      lines.push('Environment is clean. Any verification failures after your changes are yours to fix.');
-    } else {
-      lines.push(`**Resuming task — verification was failing before your session started.**`);
-      lines.push('');
-      lines.push('The harness ran:');
-      lines.push('');
-      lines.push('```bash');
-      lines.push(preFlightResult.script);
-      lines.push('```');
-      lines.push('');
-      lines.push('Output:');
-      lines.push('');
-      lines.push('```');
-      const truncatedOutput = preFlightResult.output.slice(0, MAX_PREFLIGHT_OUTPUT_CHARS);
-      lines.push(truncatedOutput);
-      if (preFlightResult.output.length > MAX_PREFLIGHT_OUTPUT_CHARS) {
-        lines.push('... (output truncated)');
-      }
-      lines.push('```');
-      lines.push('');
-      lines.push(
-        'Assess the failure. If caused by your prior changes, fix them. ' +
-          'If pre-existing, signal `<task-blocked>Pre-existing failure: [details]</task-blocked>`.'
       );
     }
   }
@@ -317,21 +246,16 @@ export async function getProjectForTask(task: Task, sprint: Sprint): Promise<Pro
 // ============================================================================
 
 /**
- * Run pre-flight permission checks and display any warnings.
+ * Run permission checks and display any warnings.
  *
  * For Claude: warns about operations that may need approval in settings files.
  * For Copilot: no-op — all tools are granted via --allow-all-tools.
  */
-export function runPreFlightCheck(ctx: TaskContext, noCommit: boolean, provider?: AiProvider): void {
-  const verifyScript = getEffectiveVerifyScript(ctx.project, ctx.task.projectPath);
-
-  // Find the repository that matches the project path for setup script
-  const repo = ctx.project?.repositories.find((r) => r.path === ctx.task.projectPath);
-  const setupScript = repo?.setupScript;
+export function runPermissionCheck(ctx: TaskContext, noCommit: boolean, provider?: AiProvider): void {
+  const checkScript = getEffectiveCheckScript(ctx.project, ctx.task.projectPath);
 
   const warnings = checkTaskPermissions(ctx.task.projectPath, {
-    verifyScript,
-    setupScript,
+    checkScript,
     needsCommit: !noCommit,
     provider,
   });

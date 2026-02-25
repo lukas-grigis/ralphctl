@@ -29,14 +29,10 @@ export async function projectShowCommand(args: string[]): Promise<void> {
     for (const repo of project.repositories) {
       log.newline();
       const repoLines: string[] = [labelValue('Path', repo.path)];
-      if (repo.setupScript) {
-        repoLines.push(labelValue('Setup', colors.info(repo.setupScript)));
-      }
-      if (repo.verifyScript) {
-        repoLines.push(labelValue('Verify', colors.info(repo.verifyScript)));
-      }
-      if (!repo.setupScript && !repo.verifyScript) {
-        repoLines.push(muted('No scripts configured'));
+      if (repo.checkScript) {
+        repoLines.push(labelValue('Check', colors.info(repo.checkScript)));
+      } else {
+        repoLines.push(muted('No check script configured'));
       }
       console.log(renderCard(`  ${repo.name}`, repoLines));
     }
