@@ -28,8 +28,7 @@ ralphctl project repo remove <name> <path>   # Remove repository from project
 
 In interactive mode, after adding each repository path, you'll be prompted to configure:
 
-- **Setup script** - Command to prepare the repo (e.g., `npm install`)
-- **Verify script** - Command to verify changes (e.g., `npm test`)
+- **Check script** - Command to verify the repo state (e.g., `npm install && npm test`)
 
 Scripts are auto-detected based on project type (Node.js, Python, Go, Rust, Java).
 
