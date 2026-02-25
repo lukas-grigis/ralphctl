@@ -19,8 +19,7 @@ interface Project {
 interface Repository {
   name: string; // Auto-derived from basename(path)
   path: string; // Absolute path (validated as existing directory)
-  setupScript?: string; // e.g., "npm install"
-  verifyScript?: string; // e.g., "npm test"
+  checkScript?: string; // e.g., "pnpm install && pnpm typecheck && pnpm lint && pnpm test"
 }
 ```
 
@@ -35,7 +34,7 @@ interface Sprint {
   activatedAt: string | null;
   closedAt: string | null;
   tickets: Ticket[];
-  setupRanAt: Record<string, string>; // projectPath → ISO8601 (cleared on close)
+  checkRanAt: Record<string, string>; // projectPath → ISO8601 (cleared on close)
   branch: string | null; // Sprint branch name (null = no branch management)
 }
 ```
