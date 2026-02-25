@@ -76,6 +76,8 @@ pnpm typecheck && pnpm lint && pnpm test
 9. Close sprint       → ralphctl sprint close
 ```
 
+**Optional:** Enable shell tab-completion with `ralphctl completion install` (bash, zsh, fish).
+
 **Optional:** Configure your preferred AI provider with `ralphctl config set provider <claude|copilot>` (prompted on first use if not set).
 
 ### Provider Configuration
