@@ -101,7 +101,7 @@ export async function createSprint(name?: string): Promise<Sprint> {
     activatedAt: null,
     closedAt: null,
     tickets: [],
-    setupRanAt: {},
+    checkRanAt: {},
     branch: null,
   };
 
@@ -188,7 +188,7 @@ export async function closeSprint(sprintId: string): Promise<Sprint> {
 
   sprint.status = 'closed';
   sprint.closedAt = new Date().toISOString();
-  sprint.setupRanAt = {};
+  sprint.checkRanAt = {};
   await saveSprint(sprint);
 
   return sprint;
