@@ -171,8 +171,7 @@ export interface PermissionWarning {
 export function checkTaskPermissions(
   projectPath: string,
   options: {
-    verifyScript?: string | null;
-    setupScript?: string | null;
+    checkScript?: string | null;
     needsCommit?: boolean;
     provider?: AiProvider;
   }
@@ -192,26 +191,14 @@ export function checkTaskPermissions(
     }
   }
 
-  // Check verify script permission
-  if (options.verifyScript) {
-    const verifyAllowed = isToolAllowed(permissions, 'Bash', options.verifyScript);
-    if (verifyAllowed !== true) {
+  // Check check script permission
+  if (options.checkScript) {
+    const checkAllowed = isToolAllowed(permissions, 'Bash', options.checkScript);
+    if (checkAllowed !== true) {
       warnings.push({
         tool: 'Bash',
-        specifier: options.verifyScript,
-        message: `Verify script "${options.verifyScript}" may require approval`,
-      });
-    }
-  }
-
-  // Check setup script permission
-  if (options.setupScript) {
-    const setupAllowed = isToolAllowed(permissions, 'Bash', options.setupScript);
-    if (setupAllowed !== true) {
-      warnings.push({
-        tool: 'Bash',
-        specifier: options.setupScript,
-        message: `Setup script "${options.setupScript}" may require approval`,
+        specifier: options.checkScript,
+        message: `Check script "${options.checkScript}" may require approval`,
       });
     }
   }
