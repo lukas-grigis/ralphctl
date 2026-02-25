@@ -8,6 +8,7 @@ import { registerTicketCommands } from '@src/commands/ticket/index.ts';
 import { registerProgressCommands } from '@src/commands/progress/index.ts';
 import { registerDashboardCommands } from '@src/commands/dashboard/index.ts';
 import { registerConfigCommands } from '@src/commands/config/index.ts';
+import { registerCompletionCommands } from '@src/commands/completion/index.ts';
 import { error } from '@src/theme/index.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
 
@@ -37,8 +38,15 @@ registerTicketCommands(program);
 registerProgressCommands(program);
 registerDashboardCommands(program);
 registerConfigCommands(program);
+registerCompletionCommands(program);
 
 async function main(): Promise<void> {
+  // Shell completion: intercept before any output (banner, interactive mode)
+  if (process.env['COMP_CWORD'] && process.env['COMP_POINT'] && process.env['COMP_LINE']) {
+    const { handleCompletionRequest } = await import('@src/completion/handle.ts');
+    if (await handleCompletionRequest(program)) return;
+  }
+
   // No args or 'interactive' → interactive mode
   if (process.argv.length <= 2 || process.argv[2] === 'interactive') {
     // Interactive mode shows its own banner
