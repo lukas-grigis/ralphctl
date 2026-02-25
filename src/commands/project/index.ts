@@ -26,8 +26,7 @@ Examples:
     .option('--display-name <name>', 'Human-readable name')
     .option('--path <path...>', 'Repository path (repeatable)')
     .option('--description <desc>', 'Optional description')
-    .option('--setup-script <cmd>', 'Setup command')
-    .option('--verify-script <cmd>', 'Verification command')
+    .option('--check-script <cmd>', 'Check command (install + verify)')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
     .action(
       async (opts: {
@@ -35,8 +34,7 @@ Examples:
         displayName?: string;
         path?: string[];
         description?: string;
-        setupScript?: string;
-        verifyScript?: string;
+        checkScript?: string;
         interactive?: boolean;
       }) => {
         await projectAddCommand({
@@ -44,8 +42,7 @@ Examples:
           displayName: opts.displayName,
           paths: opts.path,
           description: opts.description,
-          setupScript: opts.setupScript,
-          verifyScript: opts.verifyScript,
+          checkScript: opts.checkScript,
           // --no-interactive sets interactive=false, otherwise true (prompt for missing)
           interactive: opts.interactive !== false,
         });
