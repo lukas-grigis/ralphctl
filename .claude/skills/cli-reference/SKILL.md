@@ -161,6 +161,17 @@ ralphctl status       # Alias for dashboard
 Displays current sprint status, ticket/task counts, and task progress bar. Shows a helpful empty state if no current
 sprint exists.
 
+## Completion
+
+```bash
+ralphctl completion install     # Enable shell tab-completion (bash, zsh, fish)
+ralphctl completion uninstall   # Remove shell tab-completion
+```
+
+Tab-completion introspects the Commander program tree at completion time — completions stay in sync with commands
+automatically. Dynamic completions include project names (`--project`), sprint IDs (positional args), status enums
+(`--status`), and config keys/values (`config set`).
+
 ## Interactive Mode
 
 ```bash
