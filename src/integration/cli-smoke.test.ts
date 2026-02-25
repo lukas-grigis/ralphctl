@@ -179,13 +179,13 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
         name: 'ecommerce-frontend',
         displayName: 'E-Commerce Frontend',
         description: 'React storefront application',
-        verifyScript: 'npm test',
+        checkScript: 'npm test',
       },
       {
         name: 'ecommerce-backend',
         displayName: 'E-Commerce Backend',
         description: 'Node.js API service',
-        verifyScript: 'npm run test:unit',
+        checkScript: 'npm run test:unit',
       },
     ]);
     scenarioDir = multiEnv.testDir;
