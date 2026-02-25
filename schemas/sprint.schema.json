@@ -39,10 +39,10 @@
       "default": null,
       "description": "ISO 8601 timestamp when sprint was closed"
     },
-    "setupRanAt": {
+    "checkRanAt": {
       "type": "object",
       "default": {},
-      "description": "Map of projectPath → ISO 8601 timestamp recording when setup script last ran (per sprint lifecycle)",
+      "description": "Map of projectPath → ISO 8601 timestamp recording when check script last ran (per sprint lifecycle)",
       "additionalProperties": {
         "type": "string",
         "format": "date-time"
