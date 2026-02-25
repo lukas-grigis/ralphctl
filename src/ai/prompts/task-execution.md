@@ -35,15 +35,12 @@ Perform these checks IN ORDER before writing any code:
    discovered, and gotchas encountered. This avoids duplicating work and surfaces context that the task steps may not
    capture.
 3. **Check git state** — Run `git status` to check for uncommitted changes
-4. **Check Pre-Flight status** — Look for the "Pre-Flight Verification" section in your context file:
-   - **If present and passed** — The harness already verified the environment is clean. Skip to step 5.
-   - **If present and failed-resuming** — You are resuming a task. Read the failure output and assess whether it is from
-     your prior changes or pre-existing. Fix if yours; signal `<task-blocked>` if pre-existing.
-   - **If absent** — No harness pre-flight ran. Run the project's verification commands yourself (see Verification
-     Command in the context file or CLAUDE.md). If ANY verification fails, STOP immediately:
-     ```
-     <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
-     ```
+4. **Check environment** — Look at the "Check Script" and "Environment Status" sections in your context file. If a check
+   script is configured, the harness ran it at sprint start. If not configured, run the project's verification commands
+   yourself (see CLAUDE.md). If ANY check fails, STOP:
+   ```
+   <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
+   ```
 5. **Review context** — Check the Prior Task Learnings section for warnings or gotchas from previous tasks
 
 Only proceed to Phase 2 if ALL startup checks pass.
@@ -64,8 +61,9 @@ Only proceed to Phase 2 if ALL startup checks pass.
 Complete these steps IN ORDER:
 
 1. **Confirm all steps done** — Every task step has been completed
-2. **Run ALL verification commands** — Execute every verification command (see Verification Command section in the
-   context file or CLAUDE.md). Fix any failures before proceeding.
+2. **Run ALL verification commands** — Execute every verification command (see Check Script section in the context file
+   or CLAUDE.md). Fix any failures before proceeding. The harness runs the check script as a post-task gate — your task
+   is not marked done unless it passes.
    {{COMMIT_STEP}}
 3. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
 
