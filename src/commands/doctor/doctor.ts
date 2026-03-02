@@ -1,0 +1,238 @@
+import { spawnSync } from 'node:child_process';
+import { access, constants } from 'node:fs/promises';
+import { join } from 'node:path';
+import { getConfig } from '@src/store/config.ts';
+import { listProjects } from '@src/store/project.ts';
+import { SprintSchema } from '@src/schemas/index.ts';
+import { getDataDir, getSprintFilePath } from '@src/utils/paths.ts';
+import { validateProjectPath } from '@src/utils/paths.ts';
+import { fileExists, readValidatedJson } from '@src/utils/storage.ts';
+import { colors, getQuoteForContext } from '@src/theme/index.ts';
+import { log, printHeader } from '@src/theme/ui.ts';
+
+const REQUIRED_NODE_MAJOR = 24;
+
+interface CheckResult {
+  name: string;
+  status: 'pass' | 'fail' | 'skip';
+  detail?: string;
+}
+
+/**
+ * Check Node.js version >= 24.0.0
+ */
+function checkNodeVersion(): CheckResult {
+  const version = process.version; // e.g., "v24.1.0"
+  const match = /^v(\d+)/.exec(version);
+  const major = match ? Number(match[1]) : 0;
+
+  if (major >= REQUIRED_NODE_MAJOR) {
+    return { name: 'Node.js version', status: 'pass', detail: version };
+  }
+  return {
+    name: 'Node.js version',
+    status: 'fail',
+    detail: `${version} (requires >= ${String(REQUIRED_NODE_MAJOR)}.0.0)`,
+  };
+}
+
+/**
+ * Check git is installed
+ */
+function checkGitInstalled(): CheckResult {
+  const result = spawnSync('git', ['--version'], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  if (result.status === 0) {
+    const version = result.stdout.trim();
+    return { name: 'Git installed', status: 'pass', detail: version };
+  }
+  return { name: 'Git installed', status: 'fail', detail: 'git not found in PATH' };
+}
+
+/**
+ * Check git identity (user.name and user.email)
+ */
+function checkGitIdentity(): CheckResult {
+  const nameResult = spawnSync('git', ['config', 'user.name'], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const emailResult = spawnSync('git', ['config', 'user.email'], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const name = nameResult.status === 0 ? nameResult.stdout.trim() : '';
+  const email = emailResult.status === 0 ? emailResult.stdout.trim() : '';
+
+  if (name && email) {
+    return { name: 'Git identity', status: 'pass', detail: `${name} <${email}>` };
+  }
+
+  const missing: string[] = [];
+  if (!name) missing.push('user.name');
+  if (!email) missing.push('user.email');
+  return { name: 'Git identity', status: 'fail', detail: `missing: ${missing.join(', ')}` };
+}
+
+/**
+ * Check AI provider binary is on PATH
+ */
+async function checkAiProvider(): Promise<CheckResult> {
+  const config = await getConfig();
+  const provider = config.aiProvider;
+
+  if (!provider) {
+    return { name: 'AI provider binary', status: 'skip', detail: 'not configured' };
+  }
+
+  const binary = provider === 'claude' ? 'claude' : 'copilot';
+  const result = spawnSync('which', [binary], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  if (result.status === 0) {
+    return { name: 'AI provider binary', status: 'pass', detail: `${binary} found` };
+  }
+  return {
+    name: 'AI provider binary',
+    status: 'fail',
+    detail: `${binary} not found in PATH (provider: ${provider})`,
+  };
+}
+
+/**
+ * Check data directory exists and is writable
+ */
+async function checkDataDirectory(): Promise<CheckResult> {
+  const dataDir = getDataDir();
+
+  try {
+    await access(dataDir, constants.R_OK | constants.W_OK);
+    return { name: 'Data directory', status: 'pass', detail: dataDir };
+  } catch {
+    return { name: 'Data directory', status: 'fail', detail: `${dataDir} not accessible or writable` };
+  }
+}
+
+/**
+ * Check project paths exist and are git repos
+ */
+async function checkProjectPaths(): Promise<CheckResult> {
+  const projects = await listProjects();
+
+  if (projects.length === 0) {
+    return { name: 'Project paths', status: 'skip', detail: 'no projects registered' };
+  }
+
+  const issues: string[] = [];
+
+  for (const project of projects) {
+    for (const repo of project.repositories) {
+      const validation = await validateProjectPath(repo.path);
+      if (validation !== true) {
+        issues.push(`${project.name}/${repo.name}: ${validation}`);
+        continue;
+      }
+
+      const gitDir = join(repo.path, '.git');
+      if (!(await fileExists(gitDir))) {
+        issues.push(`${project.name}/${repo.name}: not a git repository`);
+      }
+    }
+  }
+
+  if (issues.length === 0) {
+    const repoCount = projects.reduce((sum, p) => sum + p.repositories.length, 0);
+    return {
+      name: 'Project paths',
+      status: 'pass',
+      detail: `${String(repoCount)} repo${repoCount !== 1 ? 's' : ''} verified`,
+    };
+  }
+
+  return { name: 'Project paths', status: 'fail', detail: issues.join('; ') };
+}
+
+/**
+ * Check current sprint validity
+ */
+async function checkCurrentSprint(): Promise<CheckResult> {
+  const config = await getConfig();
+  const sprintId = config.currentSprint;
+
+  if (!sprintId) {
+    return { name: 'Current sprint', status: 'skip', detail: 'no current sprint set' };
+  }
+
+  const sprintPath = getSprintFilePath(sprintId);
+  if (!(await fileExists(sprintPath))) {
+    return { name: 'Current sprint', status: 'fail', detail: `sprint file missing: ${sprintId}` };
+  }
+
+  try {
+    const sprint = await readValidatedJson(sprintPath, SprintSchema);
+    return { name: 'Current sprint', status: 'pass', detail: `${sprint.name} (${sprint.status})` };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { name: 'Current sprint', status: 'fail', detail: `invalid sprint data: ${message}` };
+  }
+}
+
+/**
+ * Run all doctor checks and print results.
+ */
+export async function doctorCommand(): Promise<void> {
+  printHeader('System Health Check', 'i');
+
+  const results: CheckResult[] = [];
+
+  // Synchronous checks
+  results.push(checkNodeVersion());
+  results.push(checkGitInstalled());
+  results.push(checkGitIdentity());
+
+  // Async checks
+  results.push(await checkAiProvider());
+  results.push(await checkDataDirectory());
+  results.push(await checkProjectPaths());
+  results.push(await checkCurrentSprint());
+
+  // Print results
+  for (const result of results) {
+    if (result.status === 'pass') {
+      log.success(`${result.name}${result.detail ? colors.muted(` — ${result.detail}`) : ''}`);
+    } else if (result.status === 'fail') {
+      log.error(result.name);
+      if (result.detail) {
+        log.dim(`    ${result.detail}`);
+      }
+    } else {
+      log.dim(`${result.name} — ${result.detail ?? 'skipped'}`);
+    }
+  }
+
+  // Summary
+  log.newline();
+  const passed = results.filter((r) => r.status === 'pass').length;
+  const failed = results.filter((r) => r.status === 'fail').length;
+  const total = results.filter((r) => r.status !== 'skip').length;
+
+  if (failed === 0) {
+    log.success(`All checks passed (${String(passed)}/${String(total)})`);
+    log.newline();
+    const quote = getQuoteForContext('success');
+    log.dim(`"${quote}"`);
+  } else {
+    log.error(`${String(passed)}/${String(total)} checks passed, ${String(failed)} failed`);
+    log.newline();
+    const quote = getQuoteForContext('error');
+    log.dim(`"${quote}"`);
+  }
+
+  log.newline();
+}

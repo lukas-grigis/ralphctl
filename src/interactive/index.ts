@@ -59,6 +59,9 @@ import { progressShowCommand } from '@src/commands/progress/show.ts';
 // Command imports - config
 import { configShowCommand, configSetCommand } from '@src/commands/config/config.ts';
 
+// Command imports - doctor
+import { doctorCommand } from '@src/commands/doctor/doctor.ts';
+
 // Custom theme with donut selector
 const selectTheme = {
   icon: { cursor: emoji.donut },
@@ -119,6 +122,9 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
   progress: {
     log: () => progressLogCommand([]),
     show: () => progressShowCommand(),
+  },
+  doctor: {
+    run: () => doctorCommand(),
   },
   config: {
     show: () => configShowCommand(),
