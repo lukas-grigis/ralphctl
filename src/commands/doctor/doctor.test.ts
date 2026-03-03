@@ -7,12 +7,15 @@ import { join } from 'node:path';
 let testEnv: TestEnvironment;
 
 beforeEach(async () => {
+  vi.resetModules();
   testEnv = await createTestEnv();
   process.env['RALPHCTL_ROOT'] = testEnv.testDir;
+  process.exitCode = undefined;
 });
 
 afterEach(async () => {
   delete process.env['RALPHCTL_ROOT'];
+  process.exitCode = undefined;
   await testEnv.cleanup();
   vi.restoreAllMocks();
 });
@@ -32,136 +35,104 @@ async function captureOutput(fn: () => Promise<void>): Promise<string> {
   return logs.join('\n');
 }
 
-describe('doctor command', () => {
-  it('reports Node.js version as pass', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+// ============================================================================
+// Unit tests — assert on CheckResult objects directly
+// ============================================================================
 
-    // Node >= 24 in this project
-    expect(output).toContain('Node.js version');
-    expect(output).toMatch(/\+.*Node\.js version/);
+describe('check functions', () => {
+  it('checkNodeVersion returns pass for Node >= 24', async () => {
+    const { checkNodeVersion } = await import('./doctor.ts');
+    const result = checkNodeVersion();
+
+    expect(result.status).toBe('pass');
+    expect(result.name).toBe('Node.js version');
+    expect(result.detail).toMatch(/^v\d+/);
   });
 
-  it('reports git installed as pass', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+  it('checkGitInstalled returns pass when git is available', async () => {
+    const { checkGitInstalled } = await import('./doctor.ts');
+    const result = checkGitInstalled();
 
-    expect(output).toContain('Git installed');
-    expect(output).toMatch(/\+.*Git installed/);
+    expect(result.status).toBe('pass');
+    expect(result.name).toBe('Git installed');
+    expect(result.detail).toMatch(/git version/);
   });
 
-  it('reports git identity check', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+  it('checkGitIdentity returns pass or warn', async () => {
+    const { checkGitIdentity } = await import('./doctor.ts');
+    const result = checkGitIdentity();
 
-    // In test environments git identity may or may not be set
-    expect(output).toContain('Git identity');
+    expect(result.name).toBe('Git identity');
+    // CI may not have git identity configured — warn is acceptable
+    expect(['pass', 'warn']).toContain(result.status);
+    if (result.status === 'pass') {
+      expect(result.detail).toContain('<');
+    } else {
+      expect(result.detail).toContain('missing');
+    }
   });
 
-  it('skips AI provider when not configured', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+  it('checkAiProvider returns skip when not configured', async () => {
+    const { checkAiProvider } = await import('./doctor.ts');
+    const result = await checkAiProvider();
 
-    expect(output).toContain('AI provider binary');
-    expect(output).toContain('not configured');
+    expect(result.status).toBe('skip');
+    expect(result.detail).toBe('not configured');
   });
 
-  it('checks AI provider binary when configured', async () => {
-    // Set provider to claude in config
+  it('checkAiProvider checks binary when configured', async () => {
     await writeFile(
       join(testEnv.testDir, 'config.json'),
       JSON.stringify({ currentSprint: null, aiProvider: 'claude' })
     );
 
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+    const { checkAiProvider } = await import('./doctor.ts');
+    const result = await checkAiProvider();
 
-    expect(output).toContain('AI provider binary');
-    expect(output).toContain('claude');
+    expect(result.name).toBe('AI provider binary');
+    expect(result.detail).toContain('claude');
+    // Pass or fail depending on whether claude CLI is installed
+    expect(['pass', 'fail']).toContain(result.status);
   });
 
-  it('reports data directory status', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+  it('checkDataDirectory returns pass for writable dir', async () => {
+    const { checkDataDirectory } = await import('./doctor.ts');
+    const result = await checkDataDirectory();
 
-    expect(output).toContain('Data directory');
-    // The test env creates the data dir, so it should pass
-    expect(output).toMatch(/\+.*Data directory/);
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe(testEnv.testDir);
   });
 
-  it('reports project paths when projects exist', async () => {
-    // createTestEnv sets up a project with a valid path
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
-
-    expect(output).toContain('Project paths');
-    // The test project path exists but may not have .git — expect fail or pass
-  });
-
-  it('skips project paths when no projects registered', async () => {
-    // Overwrite projects.json with empty array
+  it('checkProjectPaths returns skip when no projects', async () => {
     await writeFile(join(testEnv.testDir, 'projects.json'), JSON.stringify([]));
 
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
 
-    expect(output).toContain('Project paths');
-    expect(output).toContain('no projects registered');
+    expect(result.status).toBe('skip');
+    expect(result.detail).toBe('no projects registered');
   });
 
-  it('skips current sprint when none set', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+  it('checkProjectPaths returns fail when path is not a git repo', async () => {
+    // Default test env has a project dir without .git
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
 
-    expect(output).toContain('Current sprint');
-    expect(output).toContain('no current sprint set');
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('not a git repository');
   });
 
-  it('validates current sprint when set', async () => {
-    // Create a sprint and set it as current
-    const { createSprint } = await import('@src/store/sprint.ts');
-    const { setCurrentSprint } = await import('@src/store/config.ts');
+  it('checkProjectPaths returns pass when repo has .git', async () => {
+    await mkdir(join(testEnv.projectDir, '.git'), { recursive: true });
 
-    const sprint = await createSprint('Doctor Test');
-    await setCurrentSprint(sprint.id);
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
 
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
-
-    expect(output).toContain('Current sprint');
-    expect(output).toContain('Doctor Test');
-    expect(output).toMatch(/\+.*Current sprint/);
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('1 repo verified');
   });
 
-  it('detects invalid current sprint reference', async () => {
-    // Set a nonexistent sprint ID
-    await writeFile(join(testEnv.testDir, 'config.json'), JSON.stringify({ currentSprint: '99999999-999999-ghost' }));
-
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
-
-    expect(output).toContain('Current sprint');
-    expect(output).toMatch(/x.*Current sprint/);
-  });
-
-  it('shows summary line', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
-
-    // Should contain a summary with checks passed count
-    expect(output).toMatch(/checks passed/);
-  });
-
-  it('shows Ralph quote at the end', async () => {
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
-
-    // Should end with a quoted Ralph Wiggum line (contains ")
-    expect(output).toContain('"');
-  });
-
-  it('detects missing project path', async () => {
-    // Set up a project with a nonexistent path
+  it('checkProjectPaths detects missing path', async () => {
     await writeFile(
       join(testEnv.testDir, 'projects.json'),
       JSON.stringify([
@@ -173,32 +144,90 @@ describe('doctor command', () => {
       ])
     );
 
-    const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
 
-    expect(output).toMatch(/x.*Project paths/);
-    expect(output).toContain('ghost-project');
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('ghost-project');
   });
 
-  it('detects project path that is not a git repo', async () => {
-    // The test project dir exists but doesn't have .git
+  it('checkCurrentSprint returns skip when none set', async () => {
+    const { checkCurrentSprint } = await import('./doctor.ts');
+    const result = await checkCurrentSprint();
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toBe('no current sprint set');
+  });
+
+  it('checkCurrentSprint returns pass for valid sprint', async () => {
+    const { createSprint } = await import('@src/store/sprint.ts');
+    const { setCurrentSprint } = await import('@src/store/config.ts');
+
+    const sprint = await createSprint('Doctor Test');
+    await setCurrentSprint(sprint.id);
+
+    const { checkCurrentSprint } = await import('./doctor.ts');
+    const result = await checkCurrentSprint();
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('Doctor Test');
+  });
+
+  it('checkCurrentSprint returns fail for missing sprint file', async () => {
+    await writeFile(join(testEnv.testDir, 'config.json'), JSON.stringify({ currentSprint: '99999999-999999-ghost' }));
+
+    const { checkCurrentSprint } = await import('./doctor.ts');
+    const result = await checkCurrentSprint();
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('sprint file missing');
+  });
+});
+
+// ============================================================================
+// Integration tests — full command output
+// ============================================================================
+
+describe('doctor command', () => {
+  it('prints all check names and summary', async () => {
     const { doctorCommand } = await import('./doctor.ts');
     const output = await captureOutput(() => doctorCommand());
 
+    expect(output).toContain('Node.js version');
+    expect(output).toContain('Git installed');
+    expect(output).toContain('Git identity');
+    expect(output).toContain('AI provider binary');
+    expect(output).toContain('Data directory');
     expect(output).toContain('Project paths');
-    // projectDir from createTestEnv doesn't have .git, so should fail
-    expect(output).toContain('not a git repository');
+    expect(output).toContain('Current sprint');
+    expect(output).toMatch(/checks passed/);
   });
 
-  it('passes project paths when repo has .git', async () => {
-    // Create a .git directory in the test project dir
+  it('shows Ralph quote at the end', async () => {
+    const { doctorCommand } = await import('./doctor.ts');
+    const output = await captureOutput(() => doctorCommand());
+
+    expect(output).toContain('"');
+  });
+
+  it('sets exit code when checks fail', async () => {
+    // Point to a nonexistent data directory
+    process.env['RALPHCTL_ROOT'] = '/tmp/this-definitely-does-not-exist-ralphctl-doctor';
+
+    const { doctorCommand } = await import('./doctor.ts');
+    await captureOutput(() => doctorCommand());
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('does not set exit code when only warnings present', async () => {
+    // Create .git so project paths pass
     await mkdir(join(testEnv.projectDir, '.git'), { recursive: true });
 
     const { doctorCommand } = await import('./doctor.ts');
-    const output = await captureOutput(() => doctorCommand());
+    await captureOutput(() => doctorCommand());
 
-    expect(output).toContain('Project paths');
-    expect(output).toMatch(/\+.*Project paths/);
-    expect(output).toContain('1 repo verified');
+    // Git identity might warn, but no failures — exit code should remain unset
+    expect(process.exitCode).toBeUndefined();
   });
 });

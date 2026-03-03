@@ -8,20 +8,21 @@ import { getDataDir, getSprintFilePath } from '@src/utils/paths.ts';
 import { validateProjectPath } from '@src/utils/paths.ts';
 import { fileExists, readValidatedJson } from '@src/utils/storage.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
-import { log, printHeader } from '@src/theme/ui.ts';
+import { icons, log, printHeader } from '@src/theme/ui.ts';
+import { EXIT_ERROR } from '@src/utils/exit-codes.ts';
 
 const REQUIRED_NODE_MAJOR = 24;
 
-interface CheckResult {
+export interface CheckResult {
   name: string;
-  status: 'pass' | 'fail' | 'skip';
+  status: 'pass' | 'warn' | 'fail' | 'skip';
   detail?: string;
 }
 
 /**
  * Check Node.js version >= 24.0.0
  */
-function checkNodeVersion(): CheckResult {
+export function checkNodeVersion(): CheckResult {
   const version = process.version; // e.g., "v24.1.0"
   const match = /^v(\d+)/.exec(version);
   const major = match ? Number(match[1]) : 0;
@@ -39,10 +40,10 @@ function checkNodeVersion(): CheckResult {
 /**
  * Check git is installed
  */
-function checkGitInstalled(): CheckResult {
+export function checkGitInstalled(): CheckResult {
   const result = spawnSync('git', ['--version'], {
     encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   if (result.status === 0) {
@@ -55,14 +56,14 @@ function checkGitInstalled(): CheckResult {
 /**
  * Check git identity (user.name and user.email)
  */
-function checkGitIdentity(): CheckResult {
+export function checkGitIdentity(): CheckResult {
   const nameResult = spawnSync('git', ['config', 'user.name'], {
     encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   const emailResult = spawnSync('git', ['config', 'user.email'], {
     encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   const name = nameResult.status === 0 ? nameResult.stdout.trim() : '';
@@ -75,13 +76,13 @@ function checkGitIdentity(): CheckResult {
   const missing: string[] = [];
   if (!name) missing.push('user.name');
   if (!email) missing.push('user.email');
-  return { name: 'Git identity', status: 'fail', detail: `missing: ${missing.join(', ')}` };
+  return { name: 'Git identity', status: 'warn', detail: `missing: ${missing.join(', ')}` };
 }
 
 /**
  * Check AI provider binary is on PATH
  */
-async function checkAiProvider(): Promise<CheckResult> {
+export async function checkAiProvider(): Promise<CheckResult> {
   const config = await getConfig();
   const provider = config.aiProvider;
 
@@ -92,7 +93,7 @@ async function checkAiProvider(): Promise<CheckResult> {
   const binary = provider === 'claude' ? 'claude' : 'copilot';
   const result = spawnSync('which', [binary], {
     encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   if (result.status === 0) {
@@ -108,7 +109,7 @@ async function checkAiProvider(): Promise<CheckResult> {
 /**
  * Check data directory exists and is writable
  */
-async function checkDataDirectory(): Promise<CheckResult> {
+export async function checkDataDirectory(): Promise<CheckResult> {
   const dataDir = getDataDir();
 
   try {
@@ -122,7 +123,7 @@ async function checkDataDirectory(): Promise<CheckResult> {
 /**
  * Check project paths exist and are git repos
  */
-async function checkProjectPaths(): Promise<CheckResult> {
+export async function checkProjectPaths(): Promise<CheckResult> {
   const projects = await listProjects();
 
   if (projects.length === 0) {
@@ -161,7 +162,7 @@ async function checkProjectPaths(): Promise<CheckResult> {
 /**
  * Check current sprint validity
  */
-async function checkCurrentSprint(): Promise<CheckResult> {
+export async function checkCurrentSprint(): Promise<CheckResult> {
   const config = await getConfig();
   const sprintId = config.currentSprint;
 
@@ -187,7 +188,7 @@ async function checkCurrentSprint(): Promise<CheckResult> {
  * Run all doctor checks and print results.
  */
 export async function doctorCommand(): Promise<void> {
-  printHeader('System Health Check', 'i');
+  printHeader('System Health Check', icons.info);
 
   const results: CheckResult[] = [];
 
@@ -196,34 +197,49 @@ export async function doctorCommand(): Promise<void> {
   results.push(checkGitInstalled());
   results.push(checkGitIdentity());
 
-  // Async checks
-  results.push(await checkAiProvider());
-  results.push(await checkDataDirectory());
-  results.push(await checkProjectPaths());
-  results.push(await checkCurrentSprint());
+  // Async checks (independent — run in parallel)
+  const asyncResults = await Promise.all([
+    checkAiProvider(),
+    checkDataDirectory(),
+    checkProjectPaths(),
+    checkCurrentSprint(),
+  ]);
+  results.push(...asyncResults);
 
   // Print results
   for (const result of results) {
     if (result.status === 'pass') {
       log.success(`${result.name}${result.detail ? colors.muted(` — ${result.detail}`) : ''}`);
+    } else if (result.status === 'warn') {
+      log.warn(`${result.name}${result.detail ? colors.muted(` — ${result.detail}`) : ''}`);
     } else if (result.status === 'fail') {
       log.error(result.name);
       if (result.detail) {
         log.dim(`    ${result.detail}`);
       }
     } else {
-      log.dim(`${result.name} — ${result.detail ?? 'skipped'}`);
+      log.raw(
+        `${icons.bullet}  ${colors.muted(result.name)} ${colors.muted('—')} ${colors.muted(result.detail ?? 'skipped')}`
+      );
     }
   }
 
   // Summary
   log.newline();
   const passed = results.filter((r) => r.status === 'pass').length;
+  const warned = results.filter((r) => r.status === 'warn').length;
   const failed = results.filter((r) => r.status === 'fail').length;
   const total = results.filter((r) => r.status !== 'skip').length;
 
-  if (failed === 0) {
+  if (failed === 0 && warned === 0) {
     log.success(`All checks passed (${String(passed)}/${String(total)})`);
+    log.newline();
+    const quote = getQuoteForContext('success');
+    log.dim(`"${quote}"`);
+  } else if (failed === 0) {
+    log.success(
+      `${String(passed)}/${String(total)} checks passed, ${String(warned)} warning${warned !== 1 ? 's' : ''}`
+    );
     log.newline();
     const quote = getQuoteForContext('success');
     log.dim(`"${quote}"`);
@@ -232,6 +248,7 @@ export async function doctorCommand(): Promise<void> {
     log.newline();
     const quote = getQuoteForContext('error');
     log.dim(`"${quote}"`);
+    process.exitCode = EXIT_ERROR;
   }
 
   log.newline();
