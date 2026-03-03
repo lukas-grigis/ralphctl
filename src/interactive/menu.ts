@@ -241,6 +241,7 @@ export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultVal
   items.push(titled('SETUP'));
   items.push({ name: 'Projects', value: 'project', description: 'Manage projects & repositories' });
   items.push({ name: 'Configuration', value: 'config', description: 'AI provider, settings' });
+  items.push({ name: 'Doctor', value: 'action:doctor:run', description: 'Check environment health' });
 
   // Session
   items.push(titled('SESSION'));
