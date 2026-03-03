@@ -221,22 +221,30 @@ Both CLIs must be in your PATH.
 
 ## CLI Overview
 
-| Command                  | Description                        |
-| ------------------------ | ---------------------------------- |
-| `ralphctl`               | Interactive menu mode              |
-| `ralphctl config show`   | Show current configuration         |
-| `ralphctl config set`    | Set configuration values           |
-| `ralphctl project add`   | Register a project and its repos   |
-| `ralphctl sprint create` | Create a new sprint                |
-| `ralphctl ticket add`    | Add a work item to a sprint        |
-| `ralphctl sprint refine` | Refine requirements with AI        |
-| `ralphctl sprint plan`   | Generate tasks from requirements   |
-| `ralphctl sprint ideate` | Quick single-session refine + plan |
-| `ralphctl sprint start`  | Execute tasks with AI              |
-| `ralphctl sprint health` | Diagnose blockers and stale tasks  |
-| `ralphctl sprint close`  | Close an active sprint             |
-| `ralphctl task list`     | List tasks in the current sprint   |
-| `ralphctl task next`     | Show the next unblocked task       |
+| Command                        | Description                             |
+| ------------------------------ | --------------------------------------- |
+| `ralphctl`                     | Interactive menu mode                   |
+| `ralphctl doctor`              | Check environment health and setup      |
+| `ralphctl config show`         | Show current configuration              |
+| `ralphctl config set`          | Set configuration values                |
+| `ralphctl project add`         | Register a project and its repos        |
+| `ralphctl sprint create`       | Create a new sprint                     |
+| `ralphctl sprint list`         | List all sprints                        |
+| `ralphctl sprint show`         | Show current sprint details             |
+| `ralphctl sprint switch`       | Quick sprint switcher                   |
+| `ralphctl ticket add`          | Add a work item to a sprint             |
+| `ralphctl sprint refine`       | Refine requirements with AI             |
+| `ralphctl sprint plan`         | Generate tasks from requirements        |
+| `ralphctl sprint ideate`       | Quick single-session refine + plan      |
+| `ralphctl sprint requirements` | Export refined requirements to markdown |
+| `ralphctl sprint start`        | Execute tasks with AI                   |
+| `ralphctl sprint health`       | Diagnose blockers and stale tasks       |
+| `ralphctl sprint close`        | Close an active sprint                  |
+| `ralphctl sprint delete`       | Delete a sprint permanently             |
+| `ralphctl task list`           | List tasks in the current sprint        |
+| `ralphctl task next`           | Show the next unblocked task            |
+| `ralphctl dashboard`           | Sprint overview with progress bar       |
+| `ralphctl completion install`  | Enable shell tab-completion             |
 
 Run `ralphctl <command> --help` for details on any command.
 

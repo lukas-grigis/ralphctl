@@ -70,6 +70,19 @@ Testable acceptance criteria for all features. For constraints, see the root CLA
 - [ ] `sprint close --create-pr` creates PRs for sprint branches
 - [ ] Agent context includes branch section telling agent which branch it's on
 
+## Doctor (Environment Health)
+
+- [ ] Checks Node.js version >= 24.0.0
+- [ ] Checks `git` is installed and in PATH
+- [ ] Warns (not fails) when git identity (`user.name`/`user.email`) is missing
+- [ ] Checks configured AI provider binary (`claude` or `copilot`) is in PATH
+- [ ] Skips AI provider check when no provider is configured
+- [ ] Verifies data directory is accessible and writable
+- [ ] Validates all registered project repository paths exist and are git repos
+- [ ] Validates current sprint file exists and parses correctly
+- [ ] Skips sprint check when no current sprint is set
+- [ ] Sets non-zero exit code on failures (warnings don't affect exit code)
+
 ## Multi-Project Support
 
 - [ ] Projects can have multiple repositories
