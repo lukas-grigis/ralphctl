@@ -9,6 +9,7 @@ import { registerProgressCommands } from '@src/commands/progress/index.ts';
 import { registerDashboardCommands } from '@src/commands/dashboard/index.ts';
 import { registerConfigCommands } from '@src/commands/config/index.ts';
 import { registerCompletionCommands } from '@src/commands/completion/index.ts';
+import { registerDoctorCommands } from '@src/commands/doctor/index.ts';
 import { error } from '@src/theme/index.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
 
@@ -39,6 +40,7 @@ registerProgressCommands(program);
 registerDashboardCommands(program);
 registerConfigCommands(program);
 registerCompletionCommands(program);
+registerDoctorCommands(program);
 
 async function main(): Promise<void> {
   // Shell completion: intercept before any output (banner, interactive mode)
