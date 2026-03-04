@@ -80,6 +80,6 @@ jobs:
             ${{ steps.notes.outputs.notes }}
 
             ---
-            **Full changelog:** https://github.com/${{ github.repository }}/compare/${{ steps.version.outputs.version }}...HEAD
+            **Full changelog:** https://github.com/${{ github.repository }}/compare/v${{ steps.version.outputs.version }}...HEAD
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
