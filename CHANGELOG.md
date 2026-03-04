@@ -4,6 +4,52 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.0.2] - 2026-03-03
+
+### Added
+
+- **Doctor command** — `ralphctl doctor` checks Node.js version, git, AI provider binary, data directory, project repos, and current sprint health
+- **Shell tab-completion** — `ralphctl completion install` for bash, zsh, and fish via tabtab
+- **Branch management** — `sprint start` prompts for branch strategy (keep current, auto, custom); `--branch` and `--branch-name` flags; pre-flight verification; `sprint close --create-pr` creates PRs
+- **Provider abstraction** — `config set provider claude|copilot` with adapter layer; experimental Copilot CLI support with headless execution and session ID capture
+- **Draft re-plan** — running `sprint plan` on a draft with existing tasks passes all tickets + tasks as AI context for atomic replacement
+- **Check script model** — single idempotent `checkScript` per repo replaces old `setupScript`/`verifyScript`; runs at sprint start and as a post-task gate
+- **Lifecycle hooks** — `runLifecycleHook()` abstraction in `src/ai/lifecycle.ts` with `RALPHCTL_LIFECYCLE_EVENT` env var
+- **Ecosystem detection** — extensible `EcosystemDetector[]` registry (node, python, go, rust, gradle, maven, makefile) for check script suggestions during project setup
+- **Sprint health improvements** — duplicate task order and pending requirements diagnostics; branch consistency checks across repos
+- **Interactive mode enhancements** — Escape key navigation, styled section titles, flat workflow section, provider config in REPL, refined/planned counts in status header, guards for unrefined/unplanned tickets
+- **Inline multiline editor** — replaced with `@inquirer/editor` and configurable editor settings via `config set editor`
+- **CI/CD** — GitHub Actions pipeline with lint, typecheck, test, format check; Dependabot; automated GitHub Release pipeline
+- **Schema sync tests** — JSON schema ↔ Zod schema validation
+
+### Changed
+
+- Renamed `claude` module to `ai` for provider-agnostic naming
+- Replaced tsup build with bash wrapper approach for CLI outside repo root
+- Default data directory changed to `~/.ralphctl` (was `ralphctl-data/`)
+- Separated repo root from data directory with smart `RALPHCTL_ROOT` handling
+- Removed `externalId` field and `--id`/`--editor` CLI flags from ticket command
+- Documentation restructured — moved to `.claude/docs/`, slimmed CLAUDE.md from 613 to 160 lines with skill-based reference material
+- Replaced raw color functions with theme helpers across all commands
+- Improved card rendering and terminal width awareness
+
+### Fixed
+
+- Sanitize session IDs and harden file operations against path traversal
+- Pre-flight execution security and correctness hardening
+- Preserve error cause in re-thrown errors
+- Thread provider through `checkTaskPermissions()`
+- Branch management error handling and retry logic
+- Interactive mode duplicate quote, closed sprint status header, and dashboard duplication
+- ANSI code handling in CLI test field extraction
+- Redundant file reads eliminated in interactive menu context loading
+
+### Dependencies
+
+- Bumped `zod` from 3.x to 4.x
+- Bumped `@inquirer/prompts` from 7.x to 8.x
+- Bumped `@types/node`, `globals`, `ora`, `typescript-eslint`, and other dev dependencies
+
 ## [0.0.1] - 2026-02-15
 
 ### Added
