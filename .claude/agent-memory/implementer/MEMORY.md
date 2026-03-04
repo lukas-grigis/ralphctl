@@ -10,7 +10,7 @@ src/
 ├── theme/             # UI helpers (index.ts = colors/quotes, ui.ts = formatting)
 ├── utils/             # Utilities (paths.ts, storage.ts, ids.ts, file-lock.ts)
 ├── interactive/       # Interactive mode (menu.ts, selectors.ts)
-└── claude/            # Claude integration (session.ts, executor.ts, runner.ts)
+└── ai/                # Claude integration (session.ts, executor.ts, runner.ts)
 ```
 
 ## TypeScript Patterns

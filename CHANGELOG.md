@@ -4,6 +4,19 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.0.3] - 2026-03-06
+
+### Changed
+
+- Normalized git author identity across commit history
+- Updated package metadata for open-source release (description, homepage, private flag)
+- Moved `tsx` from devDependencies to dependencies (runtime requirement for `bin/ralphctl`)
+- Fixed stale path references in SECURITY.md, CONTRIBUTING.md, and agent memory files
+- Fixed changelog compare link in release workflow to include `v` prefix
+- Corrected documentation table descriptions in README.md
+- Cleaned up stale `dist/` build artifacts
+- Edited documentation for public release
+
 ## [0.0.2] - 2026-03-03
 
 ### Added
@@ -15,9 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Draft re-plan** — running `sprint plan` on a draft with existing tasks passes all tickets + tasks as AI context for atomic replacement
 - **Check script model** — single idempotent `checkScript` per repo replaces old `setupScript`/`verifyScript`; runs at sprint start and as a post-task gate
 - **Lifecycle hooks** — `runLifecycleHook()` abstraction in `src/ai/lifecycle.ts` with `RALPHCTL_LIFECYCLE_EVENT` env var
-- **Ecosystem detection** — extensible `EcosystemDetector[]` registry (node, python, go, rust, gradle, maven, makefile) for check script suggestions during project setup
-- **Sprint health improvements** — duplicate task order and pending requirements diagnostics; branch consistency checks across repos
-- **Interactive mode enhancements** — Escape key navigation, styled section titles, flat workflow section, provider config in REPL, refined/planned counts in status header, guards for unrefined/unplanned tickets
+- **Ecosystem detection** — `EcosystemDetector[]` registry (node, python, go, rust, gradle, maven, makefile) for check script suggestions during project setup
+- **Sprint health** — duplicate task order and pending requirements diagnostics; branch consistency checks across repos
+- **Interactive mode** — Escape key navigation, styled section titles, flat workflow section, provider config in REPL, refined/planned counts in status header, guards for unrefined/unplanned tickets
 - **Inline multiline editor** — replaced with `@inquirer/editor` and configurable editor settings via `config set editor`
 - **CI/CD** — GitHub Actions pipeline with lint, typecheck, test, format check; Dependabot; automated GitHub Release pipeline
 - **Schema sync tests** — JSON schema ↔ Zod schema validation
@@ -36,13 +49,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 
 - Sanitize session IDs and harden file operations against path traversal
-- Pre-flight execution security and correctness hardening
+- Fixed pre-flight execution checks for security and correctness
 - Preserve error cause in re-thrown errors
 - Thread provider through `checkTaskPermissions()`
 - Branch management error handling and retry logic
 - Interactive mode duplicate quote, closed sprint status header, and dashboard duplication
 - ANSI code handling in CLI test field extraction
-- Redundant file reads eliminated in interactive menu context loading
+- Removed redundant file reads in interactive menu context loading
 
 ### Dependencies
 

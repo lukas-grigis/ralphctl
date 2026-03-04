@@ -23,7 +23,7 @@ If you discover a security vulnerability in RalphCTL, please report it through [
 
 RalphCTL is a local CLI tool. The main security considerations are:
 
-- **File system access** — ralphctl reads/writes to `ralphctl-data/` and project directories
+- **File system access** — ralphctl reads/writes to `~/.ralphctl/` and project directories
 - **Process spawning** — ralphctl spawns `claude` CLI processes with user-provided prompts
 - **No network access** — ralphctl itself makes no network requests (Claude CLI handles its own connections)
 

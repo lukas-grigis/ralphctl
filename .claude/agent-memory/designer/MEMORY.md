@@ -266,4 +266,4 @@ log.newline();
 
 ### Real Example
 
-See `/Users/grigis/Workzone/grigis/ralphctl/src/commands/sprint/refine.ts` for the per-ticket refinement flow.
+See `src/commands/sprint/refine.ts` for the per-ticket refinement flow.
