@@ -35,15 +35,20 @@ Scripts are auto-detected based on project type (Node.js, Python, Go, Rust, Java
 ## Sprint
 
 ```bash
-ralphctl sprint create [options]   # Create new sprint (becomes current)
-ralphctl sprint list               # List all sprints
-ralphctl sprint show               # Show current sprint details
-ralphctl sprint context            # Output full context (for planning)
-ralphctl sprint current [id|-]     # Show/set current sprint (- opens selector)
-ralphctl sprint refine [options]   # Refine ticket requirements (Phase 1)
-ralphctl sprint plan [options]     # Plan tasks with Claude (Phase 2)
-ralphctl sprint start [options]    # Start implementation loop with Claude
-ralphctl sprint close              # Close active sprint
+ralphctl sprint create [options]        # Create new sprint (becomes current)
+ralphctl sprint list [--status <s>]     # List all sprints (filter by draft/active/closed)
+ralphctl sprint show [id]               # Show current sprint details
+ralphctl sprint context [id]            # Output full context (for planning)
+ralphctl sprint current [id|-]          # Show/set current sprint (- opens selector)
+ralphctl sprint switch                  # Quick sprint switcher (opens selector)
+ralphctl sprint refine [id] [options]   # Refine ticket requirements (Phase 1)
+ralphctl sprint ideate [id] [options]   # Quick idea to tasks (refine + plan in one session)
+ralphctl sprint plan [id] [options]     # Plan tasks with AI (Phase 2)
+ralphctl sprint requirements [id]       # Export refined requirements to markdown file
+ralphctl sprint health                  # Check sprint health (blockers, stale tasks)
+ralphctl sprint start [id] [options]    # Start implementation loop with AI
+ralphctl sprint close [id] [options]    # Close active sprint
+ralphctl sprint delete [id] [-y]        # Delete a sprint permanently
 ```
 
 ### Sprint Create Options
@@ -73,13 +78,34 @@ Examples:
 --all-paths            # Include all project repositories (may be slow)
 ```
 
+### Sprint Ideate Options
+
+```bash
+--auto                 # Headless mode (no user interaction)
+--all-paths            # Include all project repositories
+--project <name>       # Pre-select project (skip interactive selection)
+```
+
+### Sprint Close Options
+
+```bash
+--create-pr            # Create pull requests for sprint branches
+```
+
 ### Sprint Start Options
 
 ```bash
--s, --session         # Interactive Claude session (collaborate with Claude)
--t, --step            # Step through tasks with approval between each
--c, --count <n>       # Limit to N tasks
---no-commit           # Skip auto-commit after task completion
+-s, --session          # Interactive AI session (collaborate with your AI provider)
+-t, --step             # Step through tasks with approval between each
+-c, --count <n>        # Limit to N tasks
+--no-commit            # Skip auto-commit after task completion
+--concurrency <n>      # Max parallel tasks (default: auto based on unique repos)
+--max-retries <n>      # Max rate-limit retries per task (default: 5)
+--fail-fast            # Stop launching new tasks on first failure
+-f, --force            # Skip precondition checks (e.g., unplanned tickets)
+--refresh-check        # Force re-run check scripts even if already ran this sprint
+-b, --branch           # Create sprint branch (ralphctl/<sprint-id>) in all repos
+--branch-name <name>   # Use a custom branch name for sprint execution
 ```
 
 ## Ticket
@@ -171,6 +197,24 @@ ralphctl completion uninstall   # Remove shell tab-completion
 Tab-completion introspects the Commander program tree at completion time — completions stay in sync with commands
 automatically. Dynamic completions include project names (`--project`), sprint IDs (positional args), status enums
 (`--status`), and config keys/values (`config set`).
+
+## Doctor
+
+```bash
+ralphctl doctor                 # Run all environment health checks
+```
+
+Checks performed:
+
+- **Node.js version** — verifies >= 24.0.0
+- **Git installation** — verifies `git` is in PATH
+- **Git identity** — checks `user.name` and `user.email` are configured (warn if missing)
+- **AI provider** — checks configured provider binary (`claude` or `copilot`) is in PATH
+- **Data directory** — verifies `~/.ralphctl/` (or `RALPHCTL_ROOT`) is accessible and writable
+- **Project paths** — validates all registered repository paths exist and are git repos
+- **Current sprint** — validates the current sprint file exists and parses correctly
+
+Status values: `pass`, `warn`, `fail`, `skip`. Exit code is non-zero only on failures (warnings don't affect exit code).
 
 ## Interactive Mode
 

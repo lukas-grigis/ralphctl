@@ -65,6 +65,7 @@ pnpm typecheck && pnpm lint && pnpm test
 ## Workflow
 
 ```
+0. Check setup        → ralphctl doctor (environment health check)
 1. Add projects       → ralphctl project add
 2. Create sprint      → ralphctl sprint create (draft, becomes current)
 3. Add tickets        → ralphctl ticket add --project <name>
