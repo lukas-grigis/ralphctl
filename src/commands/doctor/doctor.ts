@@ -1,6 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { access, constants } from 'node:fs/promises';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { getConfig } from '@src/store/config.ts';
 import { listProjects } from '@src/store/project.ts';
 import { SprintSchema } from '@src/schemas/index.ts';
@@ -10,6 +10,7 @@ import { fileExists, readValidatedJson } from '@src/utils/storage.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { icons, log, printHeader } from '@src/theme/ui.ts';
 import { EXIT_ERROR } from '@src/utils/exit-codes.ts';
+import { isGlabAvailable } from '@src/utils/git.ts';
 
 const REQUIRED_NODE_MAJOR = 24;
 
@@ -107,6 +108,20 @@ export async function checkAiProvider(): Promise<CheckResult> {
 }
 
 /**
+ * Check glab CLI availability (informational — for GitLab issue enrichment)
+ */
+export function checkGlabInstalled(): CheckResult {
+  if (isGlabAvailable()) {
+    return { name: 'GitLab CLI (glab)', status: 'pass', detail: 'installed' };
+  }
+  return {
+    name: 'GitLab CLI (glab)',
+    status: 'skip',
+    detail: 'not installed (optional — needed for GitLab issue enrichment)',
+  };
+}
+
+/**
  * Check data directory exists and is writable
  */
 export async function checkDataDirectory(): Promise<CheckResult> {
@@ -196,6 +211,7 @@ export async function doctorCommand(): Promise<void> {
   results.push(checkNodeVersion());
   results.push(checkGitInstalled());
   results.push(checkGitIdentity());
+  results.push(checkGlabInstalled());
 
   // Async checks (independent — run in parallel)
   const asyncResults = await Promise.all([

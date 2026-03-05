@@ -19,7 +19,9 @@ src/store/progress.test.ts      # Progress store tests
 src/store/task.test.ts          # Task store tests (topological sort, validation)
 src/store/ticket.test.ts        # Ticket store tests
 src/theme/index.test.ts         # Theme tests
-src/utils/ids.test.ts           # ID generation tests
+src/utils/ids.test.ts             # ID generation tests
+src/utils/issue-fetch.test.ts     # Issue fetch: parseIssueUrl, fetchIssue (gh/glab), fetchIssueFromUrl,
+                                  #   formatIssueContext, IssueFetchError — spawnSync mocked via vi.mock
 ```
 
 ## Interactive Mode Coverage
@@ -165,6 +167,7 @@ inside beforeEach/test bodies to get the mocked versions after `vi.clearAllMocks
 - [x] `runSetupScripts` — timestamp recording, skip on cached, refresh flag, partial-failure safety
 - [x] `runPreFlightVerify` — pass/fail detection
 - [x] `runPreFlightForTask` — no-script skip, pass, fail-resuming, self-heal pass/fail, block on no setup
+- [x] `issue-fetch` utils — parseIssueUrl (GitHub + GitLab + edge cases), fetchIssue (gh/glab CLI), formatIssueContext
 
 ### Coverage Gaps
 

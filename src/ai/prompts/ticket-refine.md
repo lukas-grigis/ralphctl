@@ -222,6 +222,8 @@ The `ref` field should match either:
 
 {{TICKET}}
 
+{{ISSUE_CONTEXT}}
+
 ---
 
 Start by reading the ticket. Identify what is already clear and what is missing, then ask your first question — focus on

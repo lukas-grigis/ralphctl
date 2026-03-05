@@ -1,11 +1,24 @@
 import { confirm, input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import { emoji, field, fieldMultiline, icons, log, showEmpty, showError, showSuccess } from '@src/theme/ui.ts';
+import {
+  createSpinner,
+  emoji,
+  field,
+  fieldMultiline,
+  icons,
+  log,
+  renderCard,
+  showEmpty,
+  showError,
+  showSuccess,
+  showWarning,
+} from '@src/theme/ui.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
 import { addTicket } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
+import { IssueFetchError, fetchIssueFromUrl, type IssueData } from '@src/utils/issue-fetch.ts';
 import type { Ticket } from '@src/schemas/index.ts';
 
 export interface TicketAddOptions {
@@ -14,6 +27,48 @@ export interface TicketAddOptions {
   link?: string;
   project?: string;
   interactive?: boolean; // Set by REPL or CLI (default true unless --no-interactive)
+}
+
+/**
+ * Attempt to fetch issue data from a URL. Returns the data if the user confirms,
+ * undefined otherwise. Non-fatal — warns on failure and returns undefined.
+ */
+function tryFetchIssue(url: string): IssueData | undefined {
+  const spinner = createSpinner('Fetching issue data...');
+  spinner.start();
+
+  let data: IssueData | null;
+  try {
+    data = fetchIssueFromUrl(url);
+  } catch (err) {
+    spinner.fail('Could not fetch issue data');
+    if (err instanceof IssueFetchError) {
+      showWarning(err.message);
+    } else if (err instanceof Error) {
+      showWarning(err.message);
+    }
+    log.newline();
+    return undefined;
+  }
+
+  if (!data) {
+    spinner.stop();
+    return undefined;
+  }
+
+  spinner.succeed('Issue data fetched');
+  log.newline();
+
+  // Show summary card
+  const bodyPreview = data.body.length > 200 ? data.body.slice(0, 200) + '...' : data.body;
+  const cardLines = [`Title: ${data.title}`, '', bodyPreview];
+  if (data.comments.length > 0) {
+    cardLines.push('', `${String(data.comments.length)} comment(s)`);
+  }
+  console.log(renderCard(`${icons.info} Fetched Issue`, cardLines));
+  log.newline();
+
+  return data;
 }
 
 function validateUrl(url: string): boolean {
@@ -96,19 +151,9 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
     })),
   });
 
-  let title = await input({
-    message: `${icons.ticket} Title:`,
-    default: options.title?.trim(),
-    validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
-  });
-
-  const description = await editorInput({
-    message: 'Description (recommended):',
-    default: options.description?.trim(),
-  });
-
+  // Link prompt first — enables issue fetching for pre-fill
   const link: string | undefined = await input({
-    message: `${icons.info} Link (optional):`,
+    message: `${icons.info} Issue link (optional):`,
     default: options.link?.trim(),
     validate: (v) => {
       if (!v) return true;
@@ -116,12 +161,30 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
     },
   });
 
+  const trimmedLink = link.trim();
+  const normalizedLink = trimmedLink === '' ? undefined : trimmedLink;
+
+  // Try to fetch issue data if a valid issue URL was provided
+  let prefill: IssueData | undefined;
+  if (normalizedLink) {
+    prefill = tryFetchIssue(normalizedLink);
+  }
+
+  let title = await input({
+    message: `${icons.ticket} Title:`,
+    default: prefill?.title ?? options.title?.trim(),
+    validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
+  });
+
+  const description = await editorInput({
+    message: 'Description (recommended):',
+    default: prefill?.body ?? options.description?.trim(),
+  });
+
   // Trim and normalize empty strings to undefined
   title = title.trim();
   const trimmedDescription = description.trim();
   const normalizedDescription = trimmedDescription === '' ? undefined : trimmedDescription;
-  const trimmedLink = link.trim();
-  const normalizedLink = trimmedLink === '' ? undefined : trimmedLink;
 
   try {
     const ticket = await addTicket({
