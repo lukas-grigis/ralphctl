@@ -5,7 +5,7 @@ import { formatTicketDisplay, listTickets } from '@src/store/ticket.ts';
 import { listTasks } from '@src/store/task.ts';
 import { emoji, formatSprintStatus, formatTaskStatus } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';
-import type { Repository, SprintStatus, TaskStatus } from '@src/schemas/index.ts';
+import type { Repository, SprintStatus, TaskStatus, Ticket } from '@src/schemas/index.ts';
 import { escapableSelect } from './escapable.ts';
 
 /**
@@ -144,38 +144,48 @@ export async function selectSprint(message = 'Select sprint:', filter?: SprintSt
 }
 
 /**
- * Select a ticket from the current sprint.
- * @returns ticket ID or null if no tickets exist
+ * Select a ticket from the current sprint, optionally filtered.
+ * @returns ticket ID or null if no tickets exist/match
  */
-export async function selectTicket(message = 'Select ticket:'): Promise<string | null> {
+export async function selectTicket(
+  message = 'Select ticket:',
+  filter?: (t: Ticket) => boolean
+): Promise<string | null> {
   const tickets = await listTickets();
-  if (tickets.length === 0) {
-    console.log(muted('\nNo tickets found.'));
-    const create = await confirm({
-      message: 'Add one now?',
-      default: true,
-    });
-    if (create) {
-      const { ticketAddCommand } = await import('@src/commands/ticket/add.ts');
-      await ticketAddCommand({ interactive: true });
-      // Re-check
-      const updated = await listTickets();
-      if (updated.length === 0) return null;
-      if (updated.length === 1 && updated[0]) return updated[0].id;
-      return escapableSelect({
-        message: `${emoji.donut} ${message}`,
-        choices: updated.map((t) => ({
-          name: formatTicketDisplay(t),
-          value: t.id,
-        })),
+  const filtered = filter ? tickets.filter(filter) : tickets;
+
+  if (filtered.length === 0) {
+    if (tickets.length === 0) {
+      console.log(muted('\nNo tickets found.'));
+      const create = await confirm({
+        message: 'Add one now?',
+        default: true,
       });
+      if (create) {
+        const { ticketAddCommand } = await import('@src/commands/ticket/add.ts');
+        await ticketAddCommand({ interactive: true });
+        // Re-check
+        const updated = await listTickets();
+        const refiltered = filter ? updated.filter(filter) : updated;
+        if (refiltered.length === 0) return null;
+        if (refiltered.length === 1 && refiltered[0]) return refiltered[0].id;
+        return escapableSelect({
+          message: `${emoji.donut} ${message}`,
+          choices: refiltered.map((t) => ({
+            name: formatTicketDisplay(t),
+            value: t.id,
+          })),
+        });
+      }
+      return null;
     }
+    console.log(muted('\nNo matching tickets found.\n'));
     return null;
   }
 
   return escapableSelect({
     message: `${emoji.donut} ${message}`,
-    choices: tickets.map((t) => ({
+    choices: filtered.map((t) => ({
       name: formatTicketDisplay(t),
       value: t.id,
     })),
