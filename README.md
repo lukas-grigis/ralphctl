@@ -175,7 +175,7 @@ ralphctl sprint start       # Headless (fully automated)
 
 ## AI Provider Configuration
 
-RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both providers share the same prompt templates and workflow — just pick your preferred assistant.
+RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both use the same prompt templates and workflow.
 
 > [!NOTE]
 > **GitHub Copilot provider is in public preview.** A warning is shown each time it is used. Some features work differently — see the table below.
@@ -252,13 +252,13 @@ Run `ralphctl <command> --help` for details on any command.
 
 ## Documentation
 
-| Document                                          | Description                                       |
-| ------------------------------------------------- | ------------------------------------------------- |
-| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md) | Feature rationale and design decisions            |
-| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) | Technical architecture, data models, service APIs |
-| [CLAUDE.md](./CLAUDE.md)                          | Developer guide and Claude Code project config    |
-| [CONTRIBUTING.md](./CONTRIBUTING.md)              | How to contribute                                 |
-| [CHANGELOG.md](./CHANGELOG.md)                    | Version history                                   |
+| Document                                          | Description                                    |
+| ------------------------------------------------- | ---------------------------------------------- |
+| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature requirements   |
+| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, and error reference |
+| [CLAUDE.md](./CLAUDE.md)                          | Developer guide and Claude Code project config |
+| [CONTRIBUTING.md](./CONTRIBUTING.md)              | How to contribute                              |
+| [CHANGELOG.md](./CHANGELOG.md)                    | Version history                                |
 
 ---
 

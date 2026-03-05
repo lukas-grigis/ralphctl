@@ -87,7 +87,7 @@ src/
 ├── commands/        # CLI command implementations
 ├── interactive/     # REPL/menu mode
 ├── store/           # Data persistence layer
-├── claude/          # Claude CLI integration
+├── ai/              # Claude CLI integration
 ├── theme/           # UI components and styling
 ├── schemas/         # Zod validation schemas
 └── utils/           # Pure utilities
