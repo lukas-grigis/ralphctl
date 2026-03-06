@@ -1,8 +1,11 @@
 [![CI](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml/badge.svg)](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml)
-![Node.js](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
-![CLI](https://img.shields.io/badge/CLI-pnpm-orange)
+[![GitHub Release](https://img.shields.io/github/v/release/lukas-grigis/ralphctl?style=flat&logo=github&label=release&color=2ea44f)](https://github.com/lukas-grigis/ralphctl/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat&logo=opensourceinitiative&logoColor=white)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/node-%E2%89%A5_24-5fa04e?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-10-f69220?style=flat&logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat&logo=git&logoColor=white)](./CONTRIBUTING.md)
+[![GitHub Discussions](https://img.shields.io/github/discussions/lukas-grigis/ralphctl?style=flat&logo=github&label=discussions)](https://github.com/lukas-grigis/ralphctl/discussions)
 
 ```
   🍩 ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗     🍩
