@@ -12,6 +12,8 @@
 src/ai/runner.test.ts       # Runner/executor tests: parseExecutionResult, getEffectiveVerifyScript,
                             #   getRecentGitHistory, buildFullTaskContext (setup + pre-flight rendering),
                             #   runSetupScripts, runPreFlightVerify, runPreFlightForTask
+src/commands/ticket/refine.test.ts # ticketRefineCommand: sprint resolution, ticket selection,
+                                   #   AI session flow, issue link fetching, approval/rejection
 src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
 src/integration/cli.test.ts     # CLI integration tests
 src/schemas/index.test.ts       # Schema validation tests (incl. SprintSchema backward compat for setupRanAt)
@@ -19,7 +21,9 @@ src/store/progress.test.ts      # Progress store tests
 src/store/task.test.ts          # Task store tests (topological sort, validation)
 src/store/ticket.test.ts        # Ticket store tests
 src/theme/index.test.ts         # Theme tests
-src/utils/ids.test.ts           # ID generation tests
+src/utils/ids.test.ts             # ID generation tests
+src/utils/issue-fetch.test.ts     # Issue fetch: parseIssueUrl, fetchIssue (gh/glab), fetchIssueFromUrl,
+                                  #   formatIssueContext, IssueFetchError — spawnSync mocked via vi.mock
 ```
 
 ## Interactive Mode Coverage
@@ -153,6 +157,50 @@ vi.mock('@src/ai/task-context.ts', async (importOriginal) => {
 vi.mock calls must be at module top level (not inside describe/it). Use dynamic imports
 inside beforeEach/test bodies to get the mocked versions after `vi.clearAllMocks()`.
 
+### vi.resetAllMocks() vs vi.clearAllMocks()
+
+- `vi.clearAllMocks()` — clears call history only; mock implementations/return values persist.
+  Safe to use when `vi.mock()` factories set stable defaults.
+- `vi.resetAllMocks()` — clears call history AND mock return values/implementations.
+  Required when tests need clean isolation, BUT you must re-establish all default mocks in `beforeEach`.
+
+**Pattern for command tests with many mocked modules:**
+
+```typescript
+beforeEach(() => {
+  vi.resetAllMocks();
+  // Re-establish every default needed across all tests:
+  vi.mocked(resolveSprintId).mockResolvedValue('sprint-id');
+  vi.mocked(assertSprintStatus).mockReturnValue(undefined);
+  vi.mocked(getRefinementDir).mockReturnValue('/tmp/dir'); // don't forget path utils!
+  vi.mocked(getSchemaPath).mockReturnValue('/tmp/schema.json');
+  vi.mocked(resolveProvider).mockResolvedValue('claude');
+  vi.mocked(providerDisplayName).mockReturnValue('Claude');
+  vi.mocked(createSpinner).mockReturnValue({ start, stop, succeed, fail });
+  // ... all others
+});
+```
+
+**Common gotcha:** `vi.mock()` factory functions with `.mockReturnValue(...)` are wiped by
+`resetAllMocks()`. Always re-set in `beforeEach` after calling `resetAllMocks()`.
+
+### Testing multi-step guard logic
+
+When a command has sequential guards (e.g., "no approved tickets" check before "ticket not approved" check),
+test data must satisfy all earlier guards to reach the guard being tested:
+
+```typescript
+// Wrong: only a pending ticket — exits at "no approved tickets" guard
+makeSprint([makeTicket({ requirementStatus: 'pending' })]);
+
+// Correct: one approved ticket (passes first guard) + the pending one to test:
+makeSprint([
+  makeTicket({ id: 'approved-one', requirementStatus: 'approved' }),
+  makeTicket({ id: 'target', requirementStatus: 'pending' }),
+]);
+await command('target'); // reaches the "not approved" error
+```
+
 ## Coverage Status
 
 ### Well Covered
@@ -165,6 +213,8 @@ inside beforeEach/test bodies to get the mocked versions after `vi.clearAllMocks
 - [x] `runSetupScripts` — timestamp recording, skip on cached, refresh flag, partial-failure safety
 - [x] `runPreFlightVerify` — pass/fail detection
 - [x] `runPreFlightForTask` — no-script skip, pass, fail-resuming, self-heal pass/fail, block on no setup
+- [x] `issue-fetch` utils — parseIssueUrl (GitHub + GitLab + edge cases), fetchIssue (gh/glab CLI), formatIssueContext
+- [x] `ticketRefineCommand` — 18 tests covering all guards, AI session flow, issue fetch, approval/rejection
 
 ### Coverage Gaps
 

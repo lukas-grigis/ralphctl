@@ -4,6 +4,7 @@ import { ticketEditCommand } from '@src/commands/ticket/edit.ts';
 import { ticketListCommand } from '@src/commands/ticket/list.ts';
 import { ticketShowCommand } from '@src/commands/ticket/show.ts';
 import { ticketRemoveCommand } from '@src/commands/ticket/remove.ts';
+import { ticketRefineCommand } from '@src/commands/ticket/refine.ts';
 
 export function registerTicketCommands(program: Command): void {
   const ticket = program.command('ticket').description('Manage tickets');
@@ -91,6 +92,13 @@ Examples:
     .description('Show ticket details')
     .action(async (id?: string) => {
       await ticketShowCommand(id ? [id] : []);
+    });
+
+  ticket
+    .command('refine [id]')
+    .description('Re-refine an approved ticket')
+    .action(async (id?: string) => {
+      await ticketRefineCommand(id);
     });
 
   ticket

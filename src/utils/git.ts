@@ -172,3 +172,14 @@ export function isGhAvailable(): boolean {
   });
   return result.status === 0;
 }
+
+/**
+ * Check if the `glab` CLI is available in PATH.
+ */
+export function isGlabAvailable(): boolean {
+  const result = spawnSync('glab', ['--version'], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  return result.status === 0;
+}

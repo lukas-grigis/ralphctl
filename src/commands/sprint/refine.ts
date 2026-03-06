@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
 import { colors, info } from '@src/theme/index.ts';
@@ -19,17 +19,16 @@ import {
   showWarning,
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
-import { formatTicketDisplay, getPendingRequirements } from '@src/store/ticket.ts';
+import { getPendingRequirements } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
 import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
-import { spawnInteractive } from '@src/ai/session.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath, getSprintDir } from '@src/utils/paths.ts';
-import { type RefinedRequirement, RefinedRequirementsSchema, type Ticket } from '@src/schemas/index.ts';
+import { IssueFetchError, fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
+import { type RefinedRequirement } from '@src/schemas/index.ts';
 import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
-import { extractJsonArray } from '@src/utils/json-extract.ts';
 import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
-import { getActiveProvider } from '@src/providers/index.ts';
+import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from '@src/commands/ticket/refine-utils.ts';
 
 interface RefineOptions {
   project?: string;
@@ -52,82 +51,6 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
   }
 
   return { sprintId, options };
-}
-
-/**
- * Format a single ticket for the AI prompt.
- */
-function formatTicketForPrompt(ticket: Ticket): string {
-  const lines: string[] = [];
-
-  lines.push(`### ${formatTicketDisplay(ticket)}`);
-  lines.push(`Project: ${ticket.projectName}`);
-
-  if (ticket.description) {
-    lines.push('');
-    lines.push('**Description:**');
-    lines.push(ticket.description);
-  }
-  if (ticket.link) {
-    lines.push('');
-    lines.push(`**Link:** ${ticket.link}`);
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function parseRequirementsFile(content: string): RefinedRequirement[] {
-  // Try to extract a balanced JSON array from the content (handles surrounding text)
-  const jsonStr = extractJsonArray(content);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`, { cause: err });
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected JSON array');
-  }
-
-  // Validate against schema
-  const result = RefinedRequirementsSchema.safeParse(parsed);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => {
-        const path = issue.path.length > 0 ? `[${issue.path.join('.')}]` : '';
-        return `  ${path}: ${issue.message}`;
-      })
-      .join('\n');
-    throw new Error(`Invalid requirements format:\n${issues}`);
-  }
-
-  return result.data;
-}
-
-async function runAiSession(workingDir: string, prompt: string, ticketTitle: string): Promise<void> {
-  // Write full context to a file for reference
-  const contextFile = join(workingDir, 'refine-context.md');
-  await writeFile(contextFile, prompt, 'utf-8');
-
-  const provider = await getActiveProvider();
-
-  // Build initial prompt that tells the AI to read the context file
-  const startPrompt = `I need help refining the requirements for "${ticketTitle}". The full context is in refine-context.md. Please read that file now and follow the instructions to help refine the ticket requirements.`;
-
-  const result = spawnInteractive(
-    startPrompt,
-    {
-      cwd: workingDir,
-    },
-    provider
-  );
-
-  if (result.error) {
-    throw new Error(result.error);
-  }
 }
 
 export async function sprintRefineCommand(args: string[]): Promise<void> {
@@ -251,12 +174,35 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
       continue;
     }
 
+    // Fetch live issue data if ticket has an issue link
+    let issueContext = '';
+    if (ticket.link) {
+      const fetchSpinner = createSpinner('Fetching issue data...');
+      fetchSpinner.start();
+      try {
+        const issueData = fetchIssueFromUrl(ticket.link);
+        if (issueData) {
+          issueContext = formatIssueContext(issueData);
+          fetchSpinner.succeed(`Issue data fetched (${String(issueData.comments.length)} comment(s))`);
+        } else {
+          fetchSpinner.stop();
+        }
+      } catch (err) {
+        fetchSpinner.fail('Could not fetch issue data');
+        if (err instanceof IssueFetchError) {
+          showWarning(`${err.message} — continuing without issue context`);
+        } else if (err instanceof Error) {
+          showWarning(`${err.message} — continuing without issue context`);
+        }
+      }
+    }
+
     // Prepare AI session - use sprint's refinement directory
     const refineDir = getRefinementDir(id, ticket.id);
     await mkdir(refineDir, { recursive: true });
     const outputFile = join(refineDir, 'requirements.json');
     const ticketContent = formatTicketForPrompt(ticket);
-    const prompt = buildTicketRefinePrompt(ticketContent, outputFile, schema);
+    const prompt = buildTicketRefinePrompt(ticketContent, outputFile, schema, issueContext);
 
     log.dim(`Working directory: ${refineDir}`);
     log.dim(`Requirements output: ${outputFile}`);

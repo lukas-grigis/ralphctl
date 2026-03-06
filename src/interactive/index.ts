@@ -41,6 +41,7 @@ import { ticketEditCommand } from '@src/commands/ticket/edit.ts';
 import { ticketListCommand } from '@src/commands/ticket/list.ts';
 import { ticketShowCommand } from '@src/commands/ticket/show.ts';
 import { ticketRemoveCommand } from '@src/commands/ticket/remove.ts';
+import { ticketRefineCommand } from '@src/commands/ticket/refine.ts';
 
 // Command imports - task
 import { taskAddCommand } from '@src/commands/task/add.ts';
@@ -107,6 +108,7 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
     edit: () => ticketEditCommand(undefined, { interactive: true }),
     list: () => ticketListCommand([]),
     show: () => ticketShowCommand([]),
+    refine: () => ticketRefineCommand(undefined, { interactive: true }),
     remove: () => ticketRemoveCommand([]),
   },
   task: {

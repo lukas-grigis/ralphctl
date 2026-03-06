@@ -61,7 +61,7 @@ export interface MenuContext {
 
 const WORKFLOW_ACTIONS: Record<string, Set<string>> = {
   sprint: new Set(['create', 'refine', 'ideate', 'plan', 'start', 'close']),
-  ticket: new Set(['add']),
+  ticket: new Set(['add', 'refine']),
   task: new Set(['add', 'import']),
   progress: new Set(['log']),
 };
@@ -298,6 +298,22 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
   items.push({ name: 'Edit', value: 'edit', description: 'Edit a ticket' });
   items.push({ name: 'List', value: 'list', description: 'List all tickets' });
   items.push({ name: 'Show', value: 'show', description: 'Show ticket details' });
+
+  // Re-refine — requires draft sprint with approved tickets
+  const approvedCount = ctx.ticketCount - ctx.pendingRequirements;
+  let refineDisabled: string | false = false;
+  if (ctx.currentSprintStatus !== 'draft') {
+    refineDisabled = 'need draft sprint';
+  } else if (approvedCount === 0) {
+    refineDisabled = 'no approved tickets';
+  }
+  items.push({
+    name: 'Refine',
+    value: 'refine',
+    description: 'Re-refine approved requirements',
+    disabled: refineDisabled,
+  });
+
   items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a ticket' });
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
