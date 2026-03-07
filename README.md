@@ -1,11 +1,15 @@
+[![npm version](https://img.shields.io/npm/v/ralphctl?style=flat&logo=npm&logoColor=white&color=cb3837)](https://www.npmjs.com/package/ralphctl)
+[![npm downloads](https://img.shields.io/npm/dm/ralphctl?style=flat&logo=npm&logoColor=white&color=cb3837)](https://www.npmjs.com/package/ralphctl)
 [![CI](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml/badge.svg)](https://github.com/lukas-grigis/ralphctl/actions/workflows/ci.yml)
-[![GitHub Release](https://img.shields.io/github/v/release/lukas-grigis/ralphctl?style=flat&logo=github&label=release&color=2ea44f)](https://github.com/lukas-grigis/ralphctl/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat&logo=opensourceinitiative&logoColor=white)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A5_24-5fa04e?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![pnpm](https://img.shields.io/badge/pnpm-10-f69220?style=flat&logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4?style=flat&logo=prettier&logoColor=white)](https://prettier.io/)
+[![ESLint](https://img.shields.io/badge/ESLint-4b32c3?style=flat&logo=eslint&logoColor=white)](https://eslint.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat&logo=git&logoColor=white)](./CONTRIBUTING.md)
-[![GitHub Discussions](https://img.shields.io/github/discussions/lukas-grigis/ralphctl?style=flat&logo=github&label=discussions)](https://github.com/lukas-grigis/ralphctl/discussions)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-191919?style=flat&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
+[![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
+[![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 ```
   🍩 ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗     🍩
@@ -21,22 +25,56 @@
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes before 1.0.
+> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes before 1.0. Read the [blog post](https://lukasgrigis.dev/blog/building-ralphctl) for the backstory.
 
 You write tickets, your AI buddy (Claude or Copilot) refines the requirements, then breaks them into tasks and executes them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because why not.
+
+---
+
+## Install
+
+```bash
+npm install -g ralphctl
+```
+
+This installs the `ralphctl` command globally.
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) **>= 24.0.0**
+- [Git](https://git-scm.com/)
+- Either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated
+
+### 2-Minute Quick Start
+
+```bash
+# 1. Register a project (points to your repo)
+ralphctl project add
+
+# 2. Create a sprint
+ralphctl sprint create --name "my-first-sprint"
+
+# 3. Add a ticket
+ralphctl ticket add --project my-app --title "Add user authentication"
+
+# 4. Let AI refine requirements, plan tasks, and execute
+ralphctl sprint refine
+ralphctl sprint plan
+ralphctl sprint start
+```
+
+Or just run `ralphctl` with no arguments for an interactive menu that walks you through everything.
 
 ---
 
 ## Table of Contents
 
 - [Features](#features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
 - [CLI Overview](#cli-overview)
+- [AI Provider Configuration](#ai-provider-configuration)
 - [Documentation](#documentation)
 - [Development](#development)
 - [Contributing](#contributing)
-- [Security](#security)
 - [License](#license)
 
 ---
@@ -53,126 +91,51 @@ You write tickets, your AI buddy (Claude or Copilot) refines the requirements, t
 
 ---
 
-## Installation
+## CLI Overview
 
-### Prerequisites
+### Getting Started
 
-- [Node.js](https://nodejs.org/) **>= 24.0.0** (managed via [mise](https://mise.jdx.dev/) — see `mise.toml`)
-- [pnpm](https://pnpm.io/) **>= 10**
-- Either:
-  - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — for Claude Code
-  - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`copilot`) — for GitHub Copilot
+| Command                                          | Description                         |
+| ------------------------------------------------ | ----------------------------------- |
+| `ralphctl`                                       | Interactive menu mode (recommended) |
+| `ralphctl doctor`                                | Check environment health            |
+| `ralphctl config set provider <claude\|copilot>` | Set AI provider                     |
+| `ralphctl config show`                           | Show current configuration          |
+| `ralphctl completion install`                    | Enable shell tab-completion         |
 
-### Clone & Install
+### Project & Sprint Setup
 
-```bash
-git clone https://github.com/lukas-grigis/ralphctl.git
-cd ralphctl
-pnpm install
-```
+| Command                  | Description                      |
+| ------------------------ | -------------------------------- |
+| `ralphctl project add`   | Register a project and its repos |
+| `ralphctl sprint create` | Create a new sprint (draft)      |
+| `ralphctl sprint list`   | List all sprints                 |
+| `ralphctl sprint show`   | Show current sprint details      |
+| `ralphctl sprint switch` | Quick sprint switcher            |
+| `ralphctl ticket add`    | Add a work item to a sprint      |
 
-No build step required — the CLI runs TypeScript source directly via [tsx](https://tsx.is/).
+### AI-Assisted Planning
 
-### Make `ralphctl` Available on Your PATH
+| Command                        | Description                             |
+| ------------------------------ | --------------------------------------- |
+| `ralphctl sprint refine`       | Clarify requirements with AI (WHAT)     |
+| `ralphctl sprint plan`         | Generate tasks from requirements (HOW)  |
+| `ralphctl sprint ideate`       | Quick single-session refine + plan      |
+| `ralphctl sprint requirements` | Export refined requirements to markdown |
 
-**Option A — pnpm link (recommended):**
+### Execution & Monitoring
 
-```bash
-pnpm link --global
-ralphctl --help          # works from anywhere
-```
+| Command                  | Description                       |
+| ------------------------ | --------------------------------- |
+| `ralphctl sprint start`  | Execute tasks with AI             |
+| `ralphctl sprint health` | Diagnose blockers and stale tasks |
+| `ralphctl dashboard`     | Sprint overview with progress bar |
+| `ralphctl task list`     | List tasks in the current sprint  |
+| `ralphctl task next`     | Show the next unblocked task      |
+| `ralphctl sprint close`  | Close an active sprint            |
+| `ralphctl sprint delete` | Delete a sprint permanently       |
 
-**Option B — add `bin/` to your PATH:**
-
-```bash
-# Add to ~/.zshrc or ~/.bashrc
-export PATH="/path/to/ralphctl/bin:$PATH"
-```
-
-**Option C — development mode only:**
-
-```bash
-pnpm dev --help          # runs via tsx, no global install needed
-```
-
-### Verify Installation
-
-```bash
-ralphctl --version       # prints version
-ralphctl --help          # shows all commands
-ralphctl                 # interactive menu mode
-```
-
-### Data Directory
-
-RalphCTL stores all sprint, project, and task data in `~/.ralphctl/` by default:
-
-```
-~/.ralphctl/
-├── config.json          # Global config (current sprint, AI provider)
-├── projects.json        # Project definitions
-└── sprints/             # Per-sprint directories
-    └── <sprint-id>/
-        ├── sprint.json  # Sprint + tickets
-        ├── tasks.json   # Task array
-        └── progress.md  # Append-only log
-```
-
-To store data elsewhere, set the `RALPHCTL_ROOT` environment variable:
-
-```bash
-export RALPHCTL_ROOT="/path/to/custom/data-dir"
-```
-
-When set, ralphctl stores data files (`config.json`, `projects.json`, `sprints/`) directly in the specified directory. Schemas and other repo assets always resolve from the installed repo location.
-
----
-
-## Quick Start
-
-### Workflow 1: Direct Tasks
-
-When you already know what needs doing.
-
-```bash
-# 1. Register a project
-ralphctl project add --name my-app --display-name "My App" --path ~/code/my-app
-
-# 2. Create a sprint
-ralphctl sprint create --name "quick-fixes"
-
-# 3. Add tasks directly
-ralphctl task add --name "Fix login bug" --project ~/code/my-app
-
-# 4. Run them
-ralphctl sprint start -s
-```
-
-### Workflow 2: AI-Assisted Planning
-
-When you have vague tickets that need breaking down.
-
-```bash
-# 1. Register a project (if not already done)
-ralphctl project add --name my-app --display-name "My App" --path ~/code/frontend --path ~/code/backend
-
-# 2. Create a sprint
-ralphctl sprint create --name "v1.0-features"
-
-# 3. Add tickets
-ralphctl ticket add --project my-app --title "Add user authentication"
-ralphctl ticket add --project my-app --title "Implement search API"
-
-# 4. Refine requirements with Claude (clarify WHAT)
-ralphctl sprint refine
-
-# 5. Plan tasks with Claude (decide HOW, pick affected repos)
-ralphctl sprint plan
-
-# 6. Execute
-ralphctl sprint start -s    # Interactive session
-ralphctl sprint start       # Headless (fully automated)
-```
+Run `ralphctl <command> --help` for details on any command.
 
 ---
 
@@ -180,100 +143,61 @@ ralphctl sprint start       # Headless (fully automated)
 
 RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both use the same prompt templates and workflow.
 
-> [!NOTE]
-> **GitHub Copilot provider is in public preview.** A warning is shown each time it is used. Some features work differently — see the table below.
-
-### Set Your Preferred Provider
-
 ```bash
-# Use Claude Code
-ralphctl config set provider claude
-
-# Use GitHub Copilot
-ralphctl config set provider copilot
-
-# View current configuration
-ralphctl config show
+ralphctl config set provider claude      # Use Claude Code
+ralphctl config set provider copilot     # Use GitHub Copilot
 ```
 
-### First-Run Behavior
-
-If no provider is configured, ralphctl prompts you to choose on first command that requires AI assistance (e.g., `sprint refine`, `sprint plan`, `sprint start`). Your selection is saved globally.
+Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and authenticated.
 
 ### Provider Differences
 
-| Feature                        | Claude Code                             | GitHub Copilot                                                          |
-| ------------------------------ | --------------------------------------- | ----------------------------------------------------------------------- |
-| Status                         | ✅ GA                                   | ⚠️ Public preview                                                       |
-| Headless execution             | ✅ `-p --output-format json`            | ✅ `-p -s --autopilot --no-ask-user`                                    |
-| Session IDs                    | ✅ In JSON output (`session_id`)        | ✅ Captured via `--share` output file                                   |
-| Session resume (`--resume`)    | ✅ Full support                         | ✅ Supported when session ID is available                               |
-| Per-tool permissions           | ✅ Settings files + `--permission-mode` | ⚠️ `--allow-all-tools` (all-or-nothing by default)                      |
-| Fine-grained tool control      | ✅ `allow`/`deny` in settings files     | ✅ `--allow-tool`, `--deny-tool` flags (not yet used)                   |
-| Pre-flight permission warnings | ✅ Reads settings files                 | — No-op (all tools already granted)                                     |
-| Rate limit detection           | ✅ Validated patterns                   | ⚠️ Borrowed from Claude — not yet validated against real Copilot errors |
-
-### Requirements
-
-- **Claude Code:** Install the `claude` CLI and authenticate ([docs](https://docs.anthropic.com/en/docs/claude-code))
-- **GitHub Copilot:** Install the `copilot` CLI and authenticate ([docs](https://docs.github.com/en/copilot/github-copilot-in-the-cli))
-
-Both CLIs must be in your PATH.
-
----
-
-## CLI Overview
-
-| Command                        | Description                             |
-| ------------------------------ | --------------------------------------- |
-| `ralphctl`                     | Interactive menu mode                   |
-| `ralphctl doctor`              | Check environment health and setup      |
-| `ralphctl config show`         | Show current configuration              |
-| `ralphctl config set`          | Set configuration values                |
-| `ralphctl project add`         | Register a project and its repos        |
-| `ralphctl sprint create`       | Create a new sprint                     |
-| `ralphctl sprint list`         | List all sprints                        |
-| `ralphctl sprint show`         | Show current sprint details             |
-| `ralphctl sprint switch`       | Quick sprint switcher                   |
-| `ralphctl ticket add`          | Add a work item to a sprint             |
-| `ralphctl sprint refine`       | Refine requirements with AI             |
-| `ralphctl sprint plan`         | Generate tasks from requirements        |
-| `ralphctl sprint ideate`       | Quick single-session refine + plan      |
-| `ralphctl sprint requirements` | Export refined requirements to markdown |
-| `ralphctl sprint start`        | Execute tasks with AI                   |
-| `ralphctl sprint health`       | Diagnose blockers and stale tasks       |
-| `ralphctl sprint close`        | Close an active sprint                  |
-| `ralphctl sprint delete`       | Delete a sprint permanently             |
-| `ralphctl task list`           | List tasks in the current sprint        |
-| `ralphctl task next`           | Show the next unblocked task            |
-| `ralphctl dashboard`           | Sprint overview with progress bar       |
-| `ralphctl completion install`  | Enable shell tab-completion             |
-
-Run `ralphctl <command> --help` for details on any command.
+| Feature                     | Claude Code                          | GitHub Copilot                                                       |
+| --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Status                      | GA                                   | Public preview                                                       |
+| Headless execution          | `-p --output-format json`            | `-p -s --autopilot --no-ask-user`                                    |
+| Session IDs                 | In JSON output (`session_id`)        | Captured via `--share` output file                                   |
+| Session resume (`--resume`) | Full support                         | Supported when session ID is available                               |
+| Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
+| Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
+| Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
 
 ---
 
 ## Documentation
 
-| Document                                          | Description                                    |
-| ------------------------------------------------- | ---------------------------------------------- |
-| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature requirements   |
-| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, and error reference |
-| [CLAUDE.md](./CLAUDE.md)                          | Developer guide and Claude Code project config |
-| [CONTRIBUTING.md](./CONTRIBUTING.md)              | How to contribute                              |
-| [CHANGELOG.md](./CHANGELOG.md)                    | Version history                                |
+| Document                                                    | Description                                    |
+| ----------------------------------------------------------- | ---------------------------------------------- |
+| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md)           | Acceptance criteria and feature requirements   |
+| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md)           | Data models, file storage, and error reference |
+| [CLAUDE.md](./CLAUDE.md)                                    | Developer guide and Claude Code project config |
+| [CONTRIBUTING.md](./CONTRIBUTING.md)                        | How to contribute                              |
+| [CHANGELOG.md](./CHANGELOG.md)                              | Version history                                |
+| [Blog post](https://lukasgrigis.dev/blog/building-ralphctl) | Background and motivation                      |
+
+---
+
+## Data Directory
+
+RalphCTL stores all data in `~/.ralphctl/` by default. Override with `RALPHCTL_ROOT`:
+
+```bash
+export RALPHCTL_ROOT="/path/to/custom/data-dir"
+```
 
 ---
 
 ## Development
 
 ```bash
-pnpm dev <command>     # Run CLI in development mode
-pnpm test              # Run tests
-pnpm test:watch        # Tests in watch mode
-pnpm test:coverage     # Tests with coverage report
-pnpm lint              # Lint
-pnpm typecheck         # Type check
+git clone https://github.com/lukas-grigis/ralphctl.git
+cd ralphctl
+pnpm install
+pnpm dev --help          # Run CLI in dev mode (tsx, no build needed)
+pnpm build               # Compile for npm distribution (tsup)
+pnpm typecheck           # Type check
+pnpm test                # Run tests
+pnpm lint                # Lint
 ```
 
 ---
@@ -282,7 +206,7 @@ pnpm typecheck         # Type check
 
 Contributions are welcome! Please **open an issue first** to discuss what you'd like to change.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full guide — dev setup, code style, and PR process.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full guide — dev setup, code style, PR process, and releasing.
 
 This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md) code of conduct.
 

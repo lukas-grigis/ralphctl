@@ -1,11 +1,21 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// In dev: __dirname is src/ai/prompts/, templates are right here.
+// In dist bundle: __dirname is dist/, templates are at dist/prompts/.
+function getPromptDir(): string {
+  const bundled = join(__dirname, 'prompts');
+  if (existsSync(bundled)) return bundled;
+  return __dirname;
+}
+
+const promptDir = getPromptDir();
+
 function loadTemplate(name: string): string {
-  return readFileSync(join(__dirname, `${name}.md`), 'utf-8');
+  return readFileSync(join(promptDir, `${name}.md`), 'utf-8');
 }
 
 function buildPlanPrompt(template: string, context: string, schema: string): string {

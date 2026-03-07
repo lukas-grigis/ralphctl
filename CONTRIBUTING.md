@@ -37,8 +37,9 @@ pnpm typecheck && pnpm lint && pnpm test
 ### Development workflow
 
 ```bash
-pnpm dev <command>       # Run CLI in dev mode
+pnpm dev <command>       # Run CLI in dev mode (tsx, no build needed)
 pnpm dev                 # Interactive menu mode
+pnpm build               # Compile for npm distribution (tsup)
 pnpm test:watch          # Tests in watch mode
 pnpm lint:fix            # Auto-fix lint issues
 pnpm format              # Format all files with Prettier
@@ -108,6 +109,18 @@ See [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) for the full technical ref
 - Large refactors without prior discussion
 - Features that add complexity without clear user benefit
 - Dependencies with restrictive licenses
+
+## Releasing
+
+Releases are automated via GitHub Actions. To publish a new version:
+
+1. Bump the version in `package.json`
+2. Update `CHANGELOG.md` with the new version section
+3. Commit: `git commit -am "chore: bump version to X.Y.Z"`
+4. Tag: `git tag vX.Y.Z`
+5. Push: `git push origin main --tags`
+
+The release pipeline will run CI checks, publish to npm, and create a GitHub Release with the changelog section for that version.
 
 ## Questions?
 
