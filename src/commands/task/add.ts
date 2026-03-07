@@ -3,7 +3,7 @@ import { confirm, input } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
-import { validateProjectPath } from '@src/utils/paths.ts';
+import { expandTilde, validateProjectPath } from '@src/utils/paths.ts';
 import { addTask } from '@src/store/task.ts';
 import { formatTicketDisplay, getTicket, listTickets } from '@src/store/ticket.ts';
 import { getProject, listProjects } from '@src/store/project.ts';
@@ -238,7 +238,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
               return result;
             },
           });
-          projectPath = resolve(projectPath.trim());
+          projectPath = resolve(expandTilde(projectPath.trim()));
         } else {
           // Two-step selector: project → repository
           const selectedPath = await selectProjectRepository('Select repository:');
@@ -257,7 +257,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
             return result;
           },
         });
-        projectPath = resolve(projectPath.trim());
+        projectPath = resolve(expandTilde(projectPath.trim()));
       }
     }
 

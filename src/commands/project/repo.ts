@@ -1,4 +1,5 @@
 import { basename, resolve } from 'node:path';
+import { expandTilde } from '@src/utils/paths.ts';
 import { confirm, input, select } from '@inquirer/prompts';
 import { muted } from '@src/theme/index.ts';
 import { addProjectRepo, getProject, ProjectNotFoundError, removeProjectRepo } from '@src/store/project.ts';
@@ -24,7 +25,7 @@ export async function projectRepoAddCommand(args: string[]): Promise<void> {
   });
 
   try {
-    const resolvedPath = resolve(path);
+    const resolvedPath = resolve(expandTilde(path));
     const bareRepo = { name: basename(resolvedPath), path: resolvedPath };
 
     // Prompt for setup/verify scripts (with heuristic suggestions)

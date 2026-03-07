@@ -84,7 +84,8 @@ export async function listProjects(): Promise<Projects> {
 
   const projects = await readValidatedJson(filePath, ProjectsSchema);
 
-  // Correct any tilde paths that were stored by earlier migrations
+  // One-time cleanup: correct any tilde paths stored before write-time expansion was added.
+  // Safe to remove once existing users have been migrated.
   const hasTildePaths = projects.some((p) => p.repositories.some((r) => r.path.startsWith('~')));
 
   if (hasTildePaths) {
@@ -137,7 +138,7 @@ export async function createProject(project: Project): Promise<Project> {
   // Validate that all repository paths exist
   const pathErrors: string[] = [];
   for (const repo of project.repositories) {
-    const resolved = resolve(repo.path);
+    const resolved = resolve(expandTilde(repo.path));
     const validation = await validateProjectPath(resolved);
     if (validation !== true) {
       pathErrors.push(`  ${repo.path}: ${validation}`);
@@ -153,7 +154,7 @@ export async function createProject(project: Project): Promise<Project> {
     repositories: project.repositories.map((repo) => ({
       ...repo,
       name: repo.name || basename(repo.path),
-      path: resolve(repo.path),
+      path: resolve(expandTilde(repo.path)),
     })),
   };
 
@@ -179,7 +180,7 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
   if (updates.repositories) {
     const pathErrors: string[] = [];
     for (const repo of updates.repositories) {
-      const resolved = resolve(repo.path);
+      const resolved = resolve(expandTilde(repo.path));
       const validation = await validateProjectPath(resolved);
       if (validation !== true) {
         pathErrors.push(`  ${repo.path}: ${validation}`);
@@ -192,7 +193,7 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
     updates.repositories = updates.repositories.map((repo) => ({
       ...repo,
       name: repo.name || basename(repo.path),
-      path: resolve(repo.path),
+      path: resolve(expandTilde(repo.path)),
     }));
   }
 
@@ -246,7 +247,7 @@ export async function getProjectRepos(name: string): Promise<Repository[]> {
  */
 export async function addProjectRepo(name: string, repo: Repository): Promise<Project> {
   const project = await getProject(name);
-  const resolvedPath = resolve(repo.path);
+  const resolvedPath = resolve(expandTilde(repo.path));
 
   // Validate the path
   const validation = await validateProjectPath(resolvedPath);
@@ -277,7 +278,7 @@ export async function addProjectRepo(name: string, repo: Repository): Promise<Pr
  */
 export async function removeProjectRepo(name: string, path: string): Promise<Project> {
   const project = await getProject(name);
-  const resolvedPath = resolve(path);
+  const resolvedPath = resolve(expandTilde(path));
 
   const newRepos = project.repositories.filter((r) => r.path !== resolvedPath);
 
