@@ -53,7 +53,7 @@ jobs:
 
       - name: Verify npm pack installs correctly
         run: |
-          TARBALL=$(pnpm pack --pack-destination /tmp)
+          TARBALL=$(pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
           cd /tmp && mkdir -p ralphctl-smoke && cd ralphctl-smoke
           npm init -y
           npm install "$TARBALL"
