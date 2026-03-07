@@ -1,8 +1,7 @@
 {
   "name": "ralphctl",
-  "version": "0.0.0",
+  "version": "0.1.1",
   "description": "Sprint and task management CLI for AI-assisted coding",
-  "private": true,
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
   "license": "MIT",
@@ -25,10 +24,18 @@
     "developer-tools"
   ],
   "bin": {
-    "ralphctl": "./bin/ralphctl"
+    "ralphctl": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist/",
+    "schemas/"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
-    "preinstall": "npx only-allow pnpm",
+    "build": "tsup && mkdir -p dist/prompts && cp src/ai/prompts/*.md dist/prompts/",
+    "prepublishOnly": "pnpm build",
     "dev": "tsx src/cli.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -51,7 +58,6 @@
     "gradient-string": "^3.0.0",
     "ora": "^9.3.0",
     "tabtab": "^3.0.2",
-    "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -64,6 +70,8 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.3.1",
     "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vitest": "^4.0.18"

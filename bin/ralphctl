@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Resolve symlinks so this works via pnpm link --global
+# Dev-only entry point for pnpm link --global / local development.
+# npm installs use dist/cli.mjs instead (see package.json "bin").
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
   DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
