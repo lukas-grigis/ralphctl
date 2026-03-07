@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { getProjectsFilePath, validateProjectPath } from '../utils/paths.js';
+import { expandTilde, getProjectsFilePath, validateProjectPath } from '../utils/paths.js';
 import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/storage.js';
 import { type Project, type Projects, ProjectsSchema, type Repository } from '../schemas/index.js';
 
@@ -48,7 +48,7 @@ function migrateProjectIfNeeded(project: LegacyProject): Project {
       displayName: project.displayName,
       repositories: project.paths.map((p) => ({
         name: basename(p),
-        path: p,
+        path: resolve(expandTilde(p)),
       })),
       description: project.description,
     };
@@ -82,7 +82,24 @@ export async function listProjects(): Promise<Projects> {
     return validated;
   }
 
-  return readValidatedJson(filePath, ProjectsSchema);
+  const projects = await readValidatedJson(filePath, ProjectsSchema);
+
+  // Correct any tilde paths that were stored by earlier migrations
+  const hasTildePaths = projects.some((p) => p.repositories.some((r) => r.path.startsWith('~')));
+
+  if (hasTildePaths) {
+    const corrected = projects.map((project) => ({
+      ...project,
+      repositories: project.repositories.map((repo) =>
+        repo.path.startsWith('~') ? { ...repo, path: resolve(expandTilde(repo.path)) } : repo
+      ),
+    }));
+    const validated = ProjectsSchema.parse(corrected);
+    await writeValidatedJson(filePath, validated, ProjectsSchema);
+    return validated;
+  }
+
+  return projects;
 }
 
 /**

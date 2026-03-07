@@ -92,12 +92,22 @@ export function assertSafeCwd(path: string): void {
 }
 
 /**
+ * Expand a leading `~` or `~/` to the user's home directory.
+ * Returns the path unchanged if it does not start with `~`.
+ */
+export function expandTilde(path: string): string {
+  if (path === '~') return homedir();
+  if (path.startsWith('~/')) return homedir() + path.slice(1);
+  return path;
+}
+
+/**
  * Validate that a path exists and is a directory.
  * Returns `true` if valid, or an error message string if invalid.
  */
 export async function validateProjectPath(path: string): Promise<string | true> {
   try {
-    const resolved = resolve(path);
+    const resolved = resolve(expandTilde(path));
     const lstats = await lstat(resolved);
     if (lstats.isSymbolicLink()) {
       const realPath = await realpath(resolved);
