@@ -4,6 +4,15 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-03-07
+
+### Fixed
+
+- Fixed tilde (`~`) path expansion — `~/repos/myproject` now resolves correctly in all project and task commands (#40)
+- Added `expandTilde()` helper used consistently at write time across `createProject`, `updateProject`, `addProjectRepo`, `removeProjectRepo`, and all CLI path inputs
+- Added one-time read-time migration to correct any previously stored tilde paths
+- Added unit tests for `expandTilde()` and doctor tilde path validation
+
 ## [0.1.1] - 2026-03-07
 
 ### Fixed

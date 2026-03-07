@@ -1,6 +1,6 @@
 {
   "name": "ralphctl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sprint and task management CLI for AI-assisted coding",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
