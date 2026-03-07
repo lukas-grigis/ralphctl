@@ -41,3 +41,20 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify dist works
+        run: node dist/cli.mjs --version
+
+      - name: Verify dist works from arbitrary cwd
+        run: cd /tmp && node $GITHUB_WORKSPACE/dist/cli.mjs --version
+
+      - name: Verify npm pack installs correctly
+        run: |
+          TARBALL=$(pnpm pack --pack-destination /tmp)
+          cd /tmp && mkdir -p ralphctl-smoke && cd ralphctl-smoke
+          npm init -y
+          npm install "$TARBALL"
+          ./node_modules/.bin/ralphctl --version
