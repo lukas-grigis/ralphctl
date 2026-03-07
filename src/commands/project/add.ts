@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { input, select } from '@inquirer/prompts';
 import { error, muted } from '@src/theme/index.ts';
-import { validateProjectPath } from '@src/utils/paths.ts';
+import { expandTilde, validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
 import type { Project, Repository } from '@src/schemas/index.ts';
 import {
@@ -111,7 +111,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     if (options.paths) {
       const spinner = options.paths.length > 1 ? createSpinner('Validating repository paths...').start() : null;
       for (const path of options.paths) {
-        const resolved = resolve(path.trim());
+        const resolved = resolve(expandTilde(path.trim()));
         const validation = await validateProjectPath(resolved);
         if (validation !== true) {
           errors.push(`--path ${path}: ${validation}`);
@@ -134,7 +134,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     // Convert paths to repositories with auto-derived names
     // In non-interactive mode, apply CLI flags if provided (otherwise no scripts)
     repositories = options.paths.map((p) => {
-      const resolved = resolve(p.trim());
+      const resolved = resolve(expandTilde(p.trim()));
       const repo: Repository = { name: basename(resolved), path: resolved };
       if (options.checkScript) repo.checkScript = options.checkScript;
       return repo;
@@ -168,7 +168,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     // Add any paths from options first
     if (options.paths) {
       for (const p of options.paths) {
-        const resolved = resolve(p.trim());
+        const resolved = resolve(expandTilde(p.trim()));
         const validation = await validateProjectPath(resolved);
         if (validation === true) {
           repositories.push({ name: basename(resolved), path: resolved });
@@ -210,7 +210,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         firstPath = firstPath.trim();
       }
 
-      const resolved = resolve(firstPath);
+      const resolved = resolve(expandTilde(firstPath));
       const validation = await validateProjectPath(resolved);
       if (validation !== true) {
         showError(`Invalid path: ${validation}`);
@@ -254,7 +254,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       } else if (addAction === 'browse') {
         const browsed = await browseDirectory('Select repository directory:');
         if (browsed) {
-          const resolved = resolve(browsed);
+          const resolved = resolve(expandTilde(browsed));
           const validation = await validateProjectPath(resolved);
           if (validation === true) {
             const newRepo = { name: basename(resolved), path: resolved };
@@ -274,7 +274,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         if (additionalPath.trim() === '') {
           addMore = false;
         } else {
-          const resolved = resolve(additionalPath.trim());
+          const resolved = resolve(expandTilde(additionalPath.trim()));
           const validation = await validateProjectPath(resolved);
           if (validation === true) {
             const newRepo = { name: basename(resolved), path: resolved };

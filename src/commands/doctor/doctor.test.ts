@@ -151,6 +151,65 @@ describe('check functions', () => {
     expect(result.detail).toContain('ghost-project');
   });
 
+  it('checkProjectPaths passes for tilde path pointing to existing directory', async () => {
+    // Create a .git dir so the repo check also passes
+    await mkdir(join(testEnv.projectDir, '.git'), { recursive: true });
+
+    // Create a subdirectory to use as a tilde-expanded path
+    const fakeHome = testEnv.projectDir;
+    const subDir = join(fakeHome, 'myrepo');
+    await mkdir(join(subDir, '.git'), { recursive: true });
+
+    // Store a project with a tilde path — mock homedir so ~ resolves to fakeHome
+    vi.doMock('node:os', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:os')>();
+      return { ...actual, homedir: () => fakeHome };
+    });
+
+    await writeFile(
+      join(testEnv.testDir, 'projects.json'),
+      JSON.stringify([
+        {
+          name: 'tilde-project',
+          displayName: 'Tilde Project',
+          repositories: [{ name: 'myrepo', path: '~/myrepo' }],
+        },
+      ])
+    );
+
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('1 repo verified');
+  });
+
+  it('checkProjectPaths fails for tilde path pointing to nonexistent directory', async () => {
+    const fakeHome = testEnv.projectDir;
+
+    vi.doMock('node:os', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:os')>();
+      return { ...actual, homedir: () => fakeHome };
+    });
+
+    await writeFile(
+      join(testEnv.testDir, 'projects.json'),
+      JSON.stringify([
+        {
+          name: 'ghost-tilde',
+          displayName: 'Ghost Tilde',
+          repositories: [{ name: 'nope', path: '~/nonexistent-dir' }],
+        },
+      ])
+    );
+
+    const { checkProjectPaths } = await import('./doctor.ts');
+    const result = await checkProjectPaths();
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('ghost-tilde');
+  });
+
   it('checkCurrentSprint returns skip when none set', async () => {
     const { checkCurrentSprint } = await import('./doctor.ts');
     const result = await checkCurrentSprint();
