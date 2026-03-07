@@ -4,6 +4,36 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-03-07
+
+### Fixed
+
+- Fixed `npm install -g ralphctl` — CLI now works when installed globally via npm
+- Fixed npm bin entry warning ("script name was invalid and removed")
+
+### Changed
+
+- Added tsup build step to compile TypeScript and resolve `@src/*` path aliases for distribution
+- Moved `tsx` back to devDependencies (no longer needed at runtime for npm installs)
+- Removed `.npmignore` (redundant with `files` allowlist in package.json)
+- Cleaned up `.gitignore` (removed unused template entries for Next.js, Playwright, Storybook, CDK, etc.)
+- CI pipeline now validates build output and runs npm install smoke test
+- Release pipeline includes build step and tag/version consistency check before npm publish
+- npm publish now includes `--provenance` for supply chain security
+
+## [0.1.0] - 2026-03-07
+
+### Added
+
+- **npm publishing** — `ralphctl` package name reserved on npm
+- Release pipeline for automated npm publish and GitHub Release creation
+- `.npmignore` and `files` configuration for clean package contents
+
+### Changed
+
+- Streamlined README for end-user onboarding
+- Added release process documentation to CONTRIBUTING.md
+
 ## [0.0.3] - 2026-03-06
 
 ### Changed

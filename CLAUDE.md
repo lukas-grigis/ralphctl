@@ -159,7 +159,8 @@ Running `sprint plan` on a draft sprint that already has tasks triggers re-plan 
 ## Development
 
 ```bash
-pnpm dev <command>     # Run CLI
+pnpm dev <command>     # Run CLI (tsx, no build needed)
+pnpm build             # Compile for npm distribution (tsup)
 pnpm typecheck         # Type check
 pnpm lint              # Lint
 pnpm test              # Run tests
