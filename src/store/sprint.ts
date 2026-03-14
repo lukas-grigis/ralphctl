@@ -12,7 +12,6 @@ import {
   listDirs,
   readValidatedJson,
   removeDir,
-  ValidationError,
   writeValidatedJson,
 } from '@src/utils/storage.ts';
 import { type Sprint, SprintSchema, type SprintStatus, type Tasks, TasksSchema } from '@src/schemas/index.ts';
@@ -20,34 +19,8 @@ import { getCurrentSprint } from '@src/store/config.ts';
 import { generateSprintId } from '@src/utils/ids.ts';
 import { logBaselines } from '@src/store/progress.ts';
 
-export class SprintNotFoundError extends Error {
-  public readonly sprintId: string;
-
-  constructor(sprintId: string) {
-    super(`Sprint not found: ${sprintId}`);
-    this.name = 'SprintNotFoundError';
-    this.sprintId = sprintId;
-  }
-}
-
-export class SprintStatusError extends Error {
-  public readonly currentStatus: SprintStatus;
-  public readonly operation: string;
-
-  constructor(message: string, currentStatus: SprintStatus, operation: string) {
-    super(message);
-    this.name = 'SprintStatusError';
-    this.currentStatus = currentStatus;
-    this.operation = operation;
-  }
-}
-
-export class NoCurrentSprintError extends Error {
-  constructor() {
-    super('No sprint specified and no current sprint set.');
-    this.name = 'NoCurrentSprintError';
-  }
-}
+export { SprintNotFoundError, SprintStatusError, NoCurrentSprintError } from '@src/errors.ts';
+import { SprintNotFoundError, SprintStatusError, NoCurrentSprintError } from '@src/errors.ts';
 
 /**
  * Assert that a sprint is in one of the allowed statuses for an operation.
@@ -108,9 +81,17 @@ export async function createSprint(name?: string): Promise<Sprint> {
   const sprintDir = getSprintDir(id);
   await ensureDir(sprintDir);
 
-  await writeValidatedJson(getSprintFilePath(id), sprint, SprintSchema);
-  await writeValidatedJson(getTasksFilePath(id), [], TasksSchema);
-  await appendToFile(getProgressFilePath(id), `# Sprint: ${displayName}\n\nCreated: ${now}\n\n---\n\n`);
+  const writeSprintResult = await writeValidatedJson(getSprintFilePath(id), sprint, SprintSchema);
+  if (!writeSprintResult.ok) throw writeSprintResult.error;
+
+  const writeTasksResult = await writeValidatedJson(getTasksFilePath(id), [], TasksSchema);
+  if (!writeTasksResult.ok) throw writeTasksResult.error;
+
+  const appendResult = await appendToFile(
+    getProgressFilePath(id),
+    `# Sprint: ${displayName}\n\nCreated: ${now}\n\n---\n\n`
+  );
+  if (!appendResult.ok) throw appendResult.error;
 
   return sprint;
 }
@@ -129,11 +110,14 @@ export async function getSprint(sprintId: string): Promise<Sprint> {
   if (!(await fileExists(sprintPath))) {
     throw new SprintNotFoundError(sprintId);
   }
-  return readValidatedJson(sprintPath, SprintSchema);
+  const result = await readValidatedJson(sprintPath, SprintSchema);
+  if (!result.ok) throw result.error;
+  return result.value;
 }
 
 export async function saveSprint(sprint: Sprint): Promise<void> {
-  await writeValidatedJson(getSprintFilePath(sprint.id), sprint, SprintSchema);
+  const result = await writeValidatedJson(getSprintFilePath(sprint.id), sprint, SprintSchema);
+  if (!result.ok) throw result.error;
 }
 
 export async function listSprints(): Promise<Sprint[]> {
@@ -142,15 +126,11 @@ export async function listSprints(): Promise<Sprint[]> {
 
   const sprints: Sprint[] = [];
   for (const dir of dirs) {
-    try {
-      const sprint = await getSprint(dir);
-      sprints.push(sprint);
-    } catch (err) {
-      if (err instanceof ValidationError || err instanceof SprintNotFoundError) {
-        continue; // Skip invalid/corrupt sprint directories
-      }
-      throw err;
-    }
+    const sprintPath = getSprintFilePath(dir);
+    if (!(await fileExists(sprintPath))) continue; // Skip missing sprint files
+    const result = await readValidatedJson(sprintPath, SprintSchema);
+    if (!result.ok) continue; // Skip invalid/corrupt sprint directories
+    sprints.push(result.value);
   }
 
   // Sort by creation date (newest first)
@@ -167,7 +147,9 @@ export async function activateSprint(sprintId: string): Promise<Sprint> {
   await saveSprint(sprint);
 
   // Log baseline git state for each unique project path
-  const tasks: Tasks = await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
+  const tasksResult = await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
+  if (!tasksResult.ok) throw tasksResult.error;
+  const tasks: Tasks = tasksResult.value;
   const projectPaths = tasks.map((t) => t.projectPath).filter((p): p is string => !!p);
 
   if (projectPaths.length > 0) {

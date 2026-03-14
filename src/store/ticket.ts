@@ -3,25 +3,21 @@ import { readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
 import { type Sprint, SprintSchema, type Ticket } from '@src/schemas/index.ts';
 import { assertSprintStatus, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
-import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
+import { projectExists } from '@src/store/project.ts';
 
-export class TicketNotFoundError extends Error {
-  public readonly ticketId: string;
-
-  constructor(ticketId: string) {
-    super(`Ticket not found: ${ticketId}`);
-    this.name = 'TicketNotFoundError';
-    this.ticketId = ticketId;
-  }
-}
+export { TicketNotFoundError } from '@src/errors.ts';
+import { TicketNotFoundError } from '@src/errors.ts';
 
 async function getSprintData(sprintId?: string): Promise<Sprint> {
   const id = await resolveSprintId(sprintId);
-  return readValidatedJson(getSprintFilePath(id), SprintSchema);
+  const result = await readValidatedJson(getSprintFilePath(id), SprintSchema);
+  if (!result.ok) throw result.error;
+  return result.value;
 }
 
 async function saveSprintData(sprint: Sprint): Promise<void> {
-  await writeValidatedJson(getSprintFilePath(sprint.id), sprint, SprintSchema);
+  const result = await writeValidatedJson(getSprintFilePath(sprint.id), sprint, SprintSchema);
+  if (!result.ok) throw result.error;
 }
 
 export interface AddTicketInput {
@@ -38,15 +34,8 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
   assertSprintStatus(sprint, ['draft'], 'add tickets');
 
   // Validate that the project exists
-  try {
-    await getProject(input.projectName);
-  } catch (err) {
-    if (err instanceof ProjectNotFoundError) {
-      throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`, {
-        cause: err,
-      });
-    }
-    throw err;
+  if (!(await projectExists(input.projectName))) {
+    throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`);
   }
 
   const ticket: Ticket = {

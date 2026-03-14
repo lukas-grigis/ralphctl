@@ -1,5 +1,7 @@
 import type { Command } from 'commander';
 import type { CompletionItem } from 'tabtab';
+import { IOError } from '@src/errors.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 
 export interface CompletionContext {
   /** The full line typed so far */
@@ -14,13 +16,15 @@ type DynamicResolver = () => Promise<CompletionItem[]>;
 
 const dynamicResolvers: Record<string, DynamicResolver> = {
   '--project': async () => {
-    try {
-      const { listProjects } = await import('@src/store/project.ts');
-      const projects = await listProjects();
-      return projects.map((p) => ({ name: p.name, description: p.displayName }));
-    } catch {
-      return [];
-    }
+    const result = await wrapAsync(
+      async () => {
+        const { listProjects } = await import('@src/store/project.ts');
+        return listProjects();
+      },
+      (err) => new IOError('Failed to load projects for completion', err instanceof Error ? err : undefined)
+    );
+    if (!result.ok) return [];
+    return result.value.map((p) => ({ name: p.name, description: p.displayName }));
   },
   '--status': () => {
     // Context-dependent but we return all possible values — shell filtering handles partial match
@@ -54,18 +58,21 @@ const configValueCompletions: Record<string, CompletionItem[]> = {
 
 /**
  * Try to load sprint IDs for positional completion.
+ * Degrades gracefully — returns empty on any error.
  */
 async function getSprintCompletions(): Promise<CompletionItem[]> {
-  try {
-    const { listSprints } = await import('@src/store/sprint.ts');
-    const sprints = await listSprints();
-    return sprints.map((s) => ({
-      name: s.id,
-      description: `${s.name} (${s.status})`,
-    }));
-  } catch {
-    return [];
-  }
+  const result = await wrapAsync(
+    async () => {
+      const { listSprints } = await import('@src/store/sprint.ts');
+      return listSprints();
+    },
+    (err) => new IOError('Failed to load sprints for completion', err instanceof Error ? err : undefined)
+  );
+  if (!result.ok) return [];
+  return result.value.map((s) => ({
+    name: s.id,
+    description: `${s.name} (${s.status})`,
+  }));
 }
 
 /**

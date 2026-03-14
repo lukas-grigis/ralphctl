@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process';
 import { basename } from 'node:path';
+import { Result } from 'typescript-result';
 import type { Project, Repository } from '@src/schemas/index.ts';
+import { IOError } from '@src/errors.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 
 /**
@@ -78,6 +80,24 @@ function scoreRepo(repo: Repository, keywords: Set<string>): number {
 }
 
 /**
+ * Safely run a git command in a repo directory.
+ * Returns the stdout on success, or an IOError on failure.
+ */
+function safeGitExec(repoPath: string, command: string) {
+  try {
+    assertSafeCwd(repoPath);
+    const output = execSync(command, {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return Result.ok(output);
+  } catch (err) {
+    return Result.error(new IOError(`Git command failed: ${command}`, err instanceof Error ? err : undefined));
+  }
+}
+
+/**
  * Get recently modified paths from git history.
  * Returns paths that were modified in the last N commits.
  */
@@ -85,22 +105,12 @@ function getRecentlyModifiedPaths(repos: Repository[], commits = 50): Map<string
   const pathCounts = new Map<string, number>();
 
   for (const repo of repos) {
-    try {
-      assertSafeCwd(repo.path);
-      // Get list of modified files from git log
-      const result = execSync(`git log -${String(commits)} --name-only --pretty=format:`, {
-        cwd: repo.path,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+    const result = safeGitExec(repo.path, `git log -${String(commits)} --name-only --pretty=format:`);
+    if (!result.ok) continue;
 
-      // Count modifications per path
-      const currentCount = pathCounts.get(repo.path) ?? 0;
-      const files = result.split('\n').filter((f) => f.trim());
-      pathCounts.set(repo.path, currentCount + files.length);
-    } catch {
-      // Ignore git errors (path might not be a git repo)
-    }
+    const currentCount = pathCounts.get(repo.path) ?? 0;
+    const files = result.value.split('\n').filter((f) => f.trim());
+    pathCounts.set(repo.path, currentCount + files.length);
   }
 
   return pathCounts;
@@ -113,47 +123,23 @@ function getRecentlyModifiedPaths(repos: Repository[], commits = 50): Map<string
 function getCoModifiedPaths(primaryPath: string, allRepos: Repository[]): string[] {
   const coModified: string[] = [];
 
-  // This is a simplified version - just return paths that share recent commits
-  // A full implementation would analyze actual co-commit patterns
+  const primaryResult = safeGitExec(primaryPath, 'git log -20 --pretty=format:%H');
+  if (!primaryResult.ok) return coModified;
 
-  try {
-    assertSafeCwd(primaryPath);
-    // Get commit hashes for primary path
-    const primaryCommits = execSync('git log -20 --pretty=format:%H', {
-      cwd: primaryPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-      .split('\n')
-      .filter((h) => h.trim());
+  const primaryCommits = primaryResult.value.split('\n').filter((h) => h.trim());
+  const primarySet = new Set(primaryCommits);
 
-    const primarySet = new Set(primaryCommits);
+  for (const repo of allRepos) {
+    if (repo.path === primaryPath) continue;
 
-    // Check each other path for overlapping commits
-    for (const repo of allRepos) {
-      if (repo.path === primaryPath) continue;
+    const otherResult = safeGitExec(repo.path, 'git log -20 --pretty=format:%H');
+    if (!otherResult.ok) continue;
 
-      try {
-        assertSafeCwd(repo.path);
-        const otherCommits = execSync('git log -20 --pretty=format:%H', {
-          cwd: repo.path,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-          .split('\n')
-          .filter((h) => h.trim());
-
-        // Count overlapping commits
-        const overlap = otherCommits.filter((h) => primarySet.has(h)).length;
-        if (overlap > 3) {
-          coModified.push(repo.path);
-        }
-      } catch {
-        // Ignore errors
-      }
+    const otherCommits = otherResult.value.split('\n').filter((h) => h.trim());
+    const overlap = otherCommits.filter((h) => primarySet.has(h)).length;
+    if (overlap > 3) {
+      coModified.push(repo.path);
     }
-  } catch {
-    // Ignore errors
   }
 
   return coModified;

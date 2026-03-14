@@ -1,4 +1,6 @@
 import { editor } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { IOError } from '@src/errors.ts';
 import { resolveEditor } from '@src/utils/editor.ts';
 
 export interface EditorInputOptions {
@@ -14,11 +16,12 @@ export interface EditorInputOptions {
  *
  * Falls back to readline-based multilineInput when stdin is not a TTY.
  */
-export async function editorInput(options: EditorInputOptions): Promise<string> {
+export async function editorInput(options: EditorInputOptions) {
   // Non-TTY fallback: delegate to readline-based multilineInput
   if (!process.stdin.isTTY) {
     const { multilineInput } = await import('@src/utils/multiline.ts');
-    return multilineInput({ message: options.message, default: options.default });
+    const value = await multilineInput({ message: options.message, default: options.default });
+    return Result.ok(value);
   }
 
   const editorCmd = await resolveEditor();
@@ -33,7 +36,14 @@ export async function editorInput(options: EditorInputOptions): Promise<string> 
       default: options.default,
       postfix: '.md',
     });
-    return result.trim();
+    return Result.ok(result.trim());
+  } catch (err) {
+    return Result.error(
+      new IOError(
+        `Editor failed: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err : undefined
+      )
+    );
   } finally {
     if (prevVisual === undefined) delete process.env['VISUAL'];
     else process.env['VISUAL'] = prevVisual;

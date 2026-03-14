@@ -5,41 +5,20 @@ import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprin
 import { generateUuid8 } from '@src/utils/ids.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
 
-export class TaskNotFoundError extends Error {
-  public readonly taskId: string;
-
-  constructor(taskId: string) {
-    super(`Task not found: ${taskId}`);
-    this.name = 'TaskNotFoundError';
-    this.taskId = taskId;
-  }
-}
-
-export class TaskStatusError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TaskStatusError';
-  }
-}
-
-export class DependencyCycleError extends Error {
-  public readonly cycle: string[];
-
-  constructor(cycle: string[]) {
-    super(`Dependency cycle detected: ${cycle.join(' → ')}`);
-    this.name = 'DependencyCycleError';
-    this.cycle = cycle;
-  }
-}
+export { TaskNotFoundError, DependencyCycleError } from '@src/errors.ts';
+import { TaskNotFoundError, DependencyCycleError } from '@src/errors.ts';
 
 export async function getTasks(sprintId?: string): Promise<Tasks> {
   const id = await resolveSprintId(sprintId);
-  return readValidatedJson(getTasksFilePath(id), TasksSchema);
+  const result = await readValidatedJson(getTasksFilePath(id), TasksSchema);
+  if (!result.ok) throw result.error;
+  return result.value;
 }
 
 export async function saveTasks(tasks: Tasks, sprintId?: string): Promise<void> {
   const id = await resolveSprintId(sprintId);
-  await writeValidatedJson(getTasksFilePath(id), tasks, TasksSchema);
+  const result = await writeValidatedJson(getTasksFilePath(id), tasks, TasksSchema);
+  if (!result.ok) throw result.error;
 }
 
 export async function getTask(taskId: string, sprintId?: string): Promise<Task> {
@@ -70,7 +49,7 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  return withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const maxOrder = tasks.reduce((max, t) => Math.max(max, t.order), 0);
 
@@ -91,6 +70,8 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
     await saveTasks(tasks, id);
     return task;
   });
+  if (!lockResult.ok) throw lockResult.error;
+  return lockResult.value;
 }
 
 export async function removeTask(taskId: string, sprintId?: string): Promise<void> {
@@ -103,7 +84,7 @@ export async function removeTask(taskId: string, sprintId?: string): Promise<voi
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  await withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const index = tasks.findIndex((t) => t.id === taskId);
     if (index === -1) {
@@ -112,6 +93,7 @@ export async function removeTask(taskId: string, sprintId?: string): Promise<voi
     tasks.splice(index, 1);
     await saveTasks(tasks, id);
   });
+  if (!lockResult.ok) throw lockResult.error;
 }
 
 export async function updateTaskStatus(taskId: string, status: TaskStatus, sprintId?: string): Promise<Task> {
@@ -124,7 +106,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus, sprin
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  return withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const task = tasks.find((t) => t.id === taskId);
     if (!task) {
@@ -135,6 +117,8 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus, sprin
     await saveTasks(tasks, id);
     return task;
   });
+  if (!lockResult.ok) throw lockResult.error;
+  return lockResult.value;
 }
 
 export interface UpdateTaskInput {
@@ -152,7 +136,7 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  return withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const task = tasks.find((t) => t.id === taskId);
     if (!task) {
@@ -169,6 +153,8 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
     await saveTasks(tasks, id);
     return task;
   });
+  if (!lockResult.ok) throw lockResult.error;
+  return lockResult.value;
 }
 
 /**
@@ -231,7 +217,7 @@ export async function reorderTask(taskId: string, newOrder: number, sprintId?: s
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  return withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const task = tasks.find((t) => t.id === taskId);
     if (!task) {
@@ -261,6 +247,8 @@ export async function reorderTask(taskId: string, newOrder: number, sprintId?: s
     await saveTasks(tasks, id);
     return task;
   });
+  if (!lockResult.ok) throw lockResult.error;
+  return lockResult.value;
 }
 
 export async function listTasks(sprintId?: string): Promise<Tasks> {
@@ -328,7 +316,7 @@ export async function reorderByDependencies(sprintId?: string): Promise<void> {
   const tasksFilePath = getTasksFilePath(id);
 
   // Use file lock for atomic read-modify-write
-  await withFileLock(tasksFilePath, async () => {
+  const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     if (tasks.length === 0) return;
 
@@ -341,6 +329,7 @@ export async function reorderByDependencies(sprintId?: string): Promise<void> {
 
     await saveTasks(sorted, id);
   });
+  if (!lockResult.ok) throw lockResult.error;
 }
 
 /**
@@ -428,7 +417,7 @@ export function validateImportTasks(
     })),
   ];
 
-  // Check for cycles
+  // Check for cycles using topologicalSort (throws DependencyCycleError on cycle)
   try {
     topologicalSort(combinedTasks);
   } catch (err) {

@@ -4,10 +4,13 @@ import { claudeAdapter } from '@src/providers/claude.ts';
 import { copilotAdapter } from '@src/providers/copilot.ts';
 import { resolveProvider } from '@src/utils/provider.ts';
 import { showWarning } from '@src/theme/ui.ts';
+import { ProviderError } from '@src/errors.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 
 export type { ProviderAdapter } from '@src/providers/types.ts';
 export type {
   HeadlessSpawnOptions,
+  ParsedOutput,
   RateLimitInfo,
   SpawnAsyncOptions,
   SpawnInteractiveResult,
@@ -40,4 +43,20 @@ export async function getActiveProvider(): Promise<ProviderAdapter> {
     showWarning(`${adapter.displayName} provider is in public preview — some features may not work as expected.`);
   }
   return adapter;
+}
+
+/**
+ * Result-returning variant of `getActiveProvider`.
+ * Returns `Result<ProviderAdapter, ProviderError>` — an error result when provider resolution fails
+ * (e.g., config unreadable, interactive prompt cancelled).
+ */
+export function getActiveProviderResult() {
+  return wrapAsync(
+    () => getActiveProvider(),
+    (err) =>
+      new ProviderError(
+        `Failed to resolve AI provider: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err : undefined
+      )
+  );
 }

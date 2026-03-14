@@ -1,6 +1,7 @@
 import { getConfigPath } from '@src/utils/paths.ts';
 import { fileExists, readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
 import { type AiProvider, type Config, ConfigSchema } from '@src/schemas/index.ts';
+import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
 
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,
@@ -13,11 +14,11 @@ export async function getConfig(): Promise<Config> {
   if (!(await fileExists(configPath))) {
     return DEFAULT_CONFIG;
   }
-  return readValidatedJson(configPath, ConfigSchema);
+  return unwrapOrThrow(await readValidatedJson(configPath, ConfigSchema));
 }
 
 export async function saveConfig(config: Config): Promise<void> {
-  await writeValidatedJson(getConfigPath(), config, ConfigSchema);
+  unwrapOrThrow(await writeValidatedJson(getConfigPath(), config, ConfigSchema));
 }
 
 /**

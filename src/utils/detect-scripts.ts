@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Result } from 'typescript-result';
+import { IOError } from '@src/errors.ts';
 
 /**
  * Canonical project-type detection and script suggestion.
@@ -92,14 +94,20 @@ const NODE_FALLBACK_GROUPS: { label: string; aliases: string[] }[] = [
   { label: 'build', aliases: ['build', 'compile'] },
 ];
 
-function readPackageJsonScripts(projectPath: string): Record<string, string> {
+function safeReadPackageJsonScripts(projectPath: string) {
   try {
     const raw = readFileSync(join(projectPath, 'package.json'), 'utf-8');
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return pkg.scripts ?? {};
+    return Result.ok(pkg.scripts ?? ({} as Record<string, string>));
   } catch {
-    return {};
+    return Result.error(new IOError('Failed to read package.json'));
   }
+}
+
+function readPackageJsonScripts(projectPath: string): Record<string, string> {
+  const result = safeReadPackageJsonScripts(projectPath);
+  if (!result.ok) return {};
+  return result.value;
 }
 
 const nodeDetector: EcosystemDetector = {

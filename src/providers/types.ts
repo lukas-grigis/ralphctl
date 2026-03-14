@@ -1,6 +1,15 @@
 import type { AiProvider } from '@src/schemas/index.ts';
 
 // ============================================================================
+// Parsed output from provider CLI
+// ============================================================================
+
+export interface ParsedOutput {
+  result: string;
+  sessionId: string | null;
+}
+
+// ============================================================================
 // Spawn options & results (provider-agnostic)
 // ============================================================================
 
@@ -67,13 +76,22 @@ export interface ProviderAdapter {
   /** Build args for headless/print mode (captures stdout). */
   buildHeadlessArgs(extraArgs?: string[]): string[];
 
-  /** Parse JSON output from --output-format json. */
-  parseJsonOutput(stdout: string): { result: string; sessionId: string | null };
+  /**
+   * Parse JSON output from --output-format json.
+   *
+   * Implementations use Result-based internal logic for JSON parsing.
+   * Always returns a valid ParsedOutput — on parse failure, falls back
+   * to treating raw stdout as the result text with null sessionId.
+   */
+  parseJsonOutput(stdout: string): ParsedOutput;
 
   /**
    * Extract a session ID after a headless process completes.
    * Called when parseJsonOutput returns sessionId: null.
    * Copilot: parses the --share output file; Claude: not needed (JSON output has it).
+   *
+   * Implementations use Result-based internal logic for I/O.
+   * Returns null when no session file is found or on filesystem errors (graceful degradation).
    */
   extractSessionId?(cwd: string): Promise<string | null>;
 

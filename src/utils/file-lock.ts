@@ -1,20 +1,12 @@
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { Result } from 'typescript-result';
+import { LockError } from '@src/errors.ts';
 
 /**
  * Simple file-based lock for preventing concurrent access.
  * Uses a .lock file with process info.
  */
-
-export class LockAcquisitionError extends Error {
-  public readonly lockPath: string;
-
-  constructor(message: string, lockPath: string) {
-    super(message);
-    this.name = 'LockAcquisitionError';
-    this.lockPath = lockPath;
-  }
-}
 
 export interface LockInfo {
   pid: number;
@@ -68,9 +60,9 @@ async function isLockStale(lockPath: string): Promise<boolean> {
 
 /**
  * Acquire a lock on a file path.
- * Returns a release function that must be called when done.
+ * Returns a Result containing a release function that must be called when done.
  */
-export async function acquireLock(filePath: string): Promise<() => Promise<void>> {
+export async function acquireLock(filePath: string) {
   const lockPath = getLockPath(filePath);
   const lockInfo: LockInfo = {
     pid: process.pid,
@@ -88,13 +80,13 @@ export async function acquireLock(filePath: string): Promise<() => Promise<void>
       await writeFile(lockPath, JSON.stringify(lockInfo), { flag: 'wx', mode: 0o600 });
 
       // Success - return release function
-      return async () => {
+      return Result.ok(async () => {
         try {
           await unlink(lockPath);
         } catch {
           // Ignore errors during cleanup
         }
-      };
+      });
     } catch (err) {
       // File exists - check if stale
       if (err instanceof Error && 'code' in err && err.code === 'EEXIST') {
@@ -114,21 +106,34 @@ export async function acquireLock(filePath: string): Promise<() => Promise<void>
         continue;
       }
 
-      throw err;
+      return Result.error(
+        new LockError(
+          `Failed to acquire lock: ${err instanceof Error ? err.message : String(err)}`,
+          lockPath,
+          err instanceof Error ? err : undefined
+        )
+      );
     }
   }
 
-  throw new LockAcquisitionError(`Failed to acquire lock after ${String(MAX_RETRIES)} retries`, lockPath);
+  return Result.error(new LockError(`Failed to acquire lock after ${String(MAX_RETRIES)} retries`, lockPath));
 }
 
 /**
  * Execute a function with a file lock.
  * Automatically acquires and releases the lock.
+ * Returns the result of the callback, or a LockError if the lock cannot be acquired.
  */
-export async function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
-  const release = await acquireLock(filePath);
+export async function withFileLock<T>(filePath: string, fn: () => Promise<T>) {
+  const lockResult = await acquireLock(filePath);
+  if (!lockResult.ok) {
+    return lockResult;
+  }
+
+  const release = lockResult.value;
   try {
-    return await fn();
+    const value = await fn();
+    return Result.ok(value);
   } finally {
     await release();
   }
