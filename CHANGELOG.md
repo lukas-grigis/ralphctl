@@ -4,6 +4,16 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-03-14
+
+### Changed
+
+- Extracted `ensureError()` helper to eliminate duplicated inline error mapper pattern across 39 files (#44)
+- Replaced `Result.try()` wrappers around `assertSprintStatus` with direct try/catch for clearer error handling (#44)
+- `project.ts` now throws `ValidationError` (instead of generic `Error`) for path validation failures — errors display cleanly without stack traces (#44)
+- Added unit tests for `result-helpers` (`wrapAsync`, `zodParse`, `unwrapOrThrow`, `ensureError`) (#44)
+- Documented Result/throwing boundary convention in CLAUDE.md (#44)
+
 ## [0.1.2] - 2026-03-07
 
 ### Fixed
