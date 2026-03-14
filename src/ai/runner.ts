@@ -1,6 +1,6 @@
 import { confirm, input, select } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, printHeader, showError, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import {
   activateSprint,
@@ -391,10 +391,7 @@ export async function runSprint(
 
   // Ensure sprint branches are created/checked out in all repos
   if (branchName) {
-    const ensureR = await wrapAsync(
-      () => ensureSprintBranches(id, sprint, branchName),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const ensureR = await wrapAsync(() => ensureSprintBranches(id, sprint, branchName), ensureError);
     if (!ensureR.ok) {
       log.newline();
       showError(ensureR.error.message);
@@ -404,10 +401,7 @@ export async function runSprint(
   }
 
   // Reorder tasks by dependencies
-  const reorderR = await wrapAsync(
-    () => reorderByDependencies(id),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const reorderR = await wrapAsync(() => reorderByDependencies(id), ensureError);
   if (!reorderR.ok) {
     if (reorderR.error instanceof DependencyCycleError) {
       log.newline();

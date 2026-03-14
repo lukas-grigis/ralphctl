@@ -17,7 +17,7 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 const TOTAL_STEPS = 5;
 
@@ -37,192 +37,171 @@ function showStepProgress(step: number, title: string): void {
  * through creating a sprint, adding tickets, refining, planning, and starting.
  */
 export async function runWizard(): Promise<void> {
-  const r = await wrapAsync(
-    async () => {
-      printHeader('Sprint Setup Wizard', emoji.donut);
-      log.dim('This wizard will guide you through setting up a new sprint.');
-      log.dim('You can skip optional steps along the way.');
+  const r = await wrapAsync(async () => {
+    printHeader('Sprint Setup Wizard', emoji.donut);
+    log.dim('This wizard will guide you through setting up a new sprint.');
+    log.dim('You can skip optional steps along the way.');
+    log.newline();
+
+    // ── Step 1: Create Sprint ──────────────────────────────────────────────
+    showStepProgress(1, 'Create Sprint');
+
+    const createResult = await wrapAsync(() => sprintCreateCommand({ interactive: true }), ensureError);
+    if (!createResult.ok) {
+      log.error(`Sprint creation failed: ${createResult.error.message}`);
       log.newline();
+      showWarning('Cannot continue without a sprint. Wizard aborted.');
+      return;
+    }
 
-      // ── Step 1: Create Sprint ──────────────────────────────────────────────
-      showStepProgress(1, 'Create Sprint');
+    const sprintId = await getCurrentSprint();
+    if (!sprintId) {
+      showWarning('No current sprint set. Wizard aborted.');
+      return;
+    }
 
-      const createResult = await wrapAsync(
-        () => sprintCreateCommand({ interactive: true }),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
-      if (!createResult.ok) {
-        log.error(`Sprint creation failed: ${createResult.error.message}`);
-        log.newline();
-        showWarning('Cannot continue without a sprint. Wizard aborted.');
-        return;
-      }
+    // ── Step 2: Add Tickets ────────────────────────────────────────────────
+    showStepProgress(2, 'Add Tickets');
 
-      const sprintId = await getCurrentSprint();
-      if (!sprintId) {
-        showWarning('No current sprint set. Wizard aborted.');
-        return;
-      }
+    let ticketCount = 0;
+    let addMore = true;
 
-      // ── Step 2: Add Tickets ────────────────────────────────────────────────
-      showStepProgress(2, 'Add Tickets');
+    while (addMore) {
+      const ticketResult = await wrapAsync(() => addSingleTicketInteractive({}), ensureError);
 
-      let ticketCount = 0;
-      let addMore = true;
-
-      while (addMore) {
-        const ticketResult = await wrapAsync(
-          () => addSingleTicketInteractive({}),
-          (err) => (err instanceof Error ? err : new Error(String(err)))
-        );
-
-        if (ticketResult.ok) {
-          if (ticketResult.value) {
-            ticketCount++;
-          } else {
-            // No ticket created (no projects, or unrecoverable error) — exit loop
-            break;
-          }
+      if (ticketResult.ok) {
+        if (ticketResult.value) {
+          ticketCount++;
         } else {
-          log.error(`Failed to add ticket: ${ticketResult.error.message}`);
-        }
-
-        log.newline();
-        addMore = await confirm({
-          message: `${emoji.donut} Add another ticket?`,
-          default: true,
-        });
-      }
-
-      if (ticketCount === 0) {
-        log.newline();
-        showWarning('No tickets added. You can add them later with: ralphctl ticket add');
-      }
-
-      // ── Step 3: Refine Requirements ────────────────────────────────────────
-      showStepProgress(3, 'Refine Requirements');
-
-      if (ticketCount === 0) {
-        log.dim('Skipped -- no tickets to refine.');
-      } else {
-        const shouldRefine = await confirm({
-          message: `${emoji.donut} Refine requirements now?`,
-          default: true,
-        });
-
-        if (shouldRefine) {
-          const refineResult = await wrapAsync(
-            () => sprintRefineCommand([]),
-            (err) => (err instanceof Error ? err : new Error(String(err)))
-          );
-          if (!refineResult.ok) {
-            log.error(`Refinement failed: ${refineResult.error.message}`);
-            log.dim('You can refine later with: ralphctl sprint refine');
-          }
-        } else {
-          log.dim('Skipped. You can refine later with: ralphctl sprint refine');
-        }
-      }
-
-      // ── Step 4: Plan Tasks ─────────────────────────────────────────────────
-      showStepProgress(4, 'Plan Tasks');
-
-      // Check if refinement was completed (all requirements approved)
-      let canPlan = false;
-      const sprintCheckResult = await wrapAsync(
-        () => getSprint(sprintId),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
-      if (sprintCheckResult.ok) {
-        const sprint = sprintCheckResult.value;
-        const hasTickets = sprint.tickets.length > 0;
-        const allApproved = hasTickets && sprint.tickets.every((t) => t.requirementStatus === 'approved');
-        canPlan = allApproved;
-
-        if (!hasTickets) {
-          log.dim('Skipped -- no tickets to plan.');
-        } else if (!allApproved) {
-          log.dim('Skipped -- not all requirements are approved yet.');
-          log.dim('Refine first with: ralphctl sprint refine');
+          // No ticket created (no projects, or unrecoverable error) — exit loop
+          break;
         }
       } else {
-        log.dim('Skipped -- could not read sprint state.');
+        log.error(`Failed to add ticket: ${ticketResult.error.message}`);
       }
 
-      if (canPlan) {
-        const shouldPlan = await confirm({
-          message: `${emoji.donut} Generate tasks now?`,
-          default: true,
-        });
+      log.newline();
+      addMore = await confirm({
+        message: `${emoji.donut} Add another ticket?`,
+        default: true,
+      });
+    }
 
-        if (shouldPlan) {
-          const planResult = await wrapAsync(
-            () => sprintPlanCommand([]),
-            (err) => (err instanceof Error ? err : new Error(String(err)))
-          );
-          if (!planResult.ok) {
-            log.error(`Planning failed: ${planResult.error.message}`);
-            log.dim('You can plan later with: ralphctl sprint plan');
-          }
-        } else {
-          log.dim('Skipped. You can plan later with: ralphctl sprint plan');
-        }
-      }
+    if (ticketCount === 0) {
+      log.newline();
+      showWarning('No tickets added. You can add them later with: ralphctl ticket add');
+    }
 
-      // ── Step 5: Start Execution ────────────────────────────────────────────
-      showStepProgress(5, 'Start Execution');
+    // ── Step 3: Refine Requirements ────────────────────────────────────────
+    showStepProgress(3, 'Refine Requirements');
 
-      const shouldStart = await confirm({
-        message: `${emoji.donut} Start execution now?`,
-        default: false,
+    if (ticketCount === 0) {
+      log.dim('Skipped -- no tickets to refine.');
+    } else {
+      const shouldRefine = await confirm({
+        message: `${emoji.donut} Refine requirements now?`,
+        default: true,
       });
 
-      if (shouldStart) {
-        const startResult = await wrapAsync(
-          // Note: sprintStartCommand may call process.exit() on completion
-          () => sprintStartCommand([]),
-          (err) => (err instanceof Error ? err : new Error(String(err)))
-        );
-        if (!startResult.ok) {
-          log.error(`Execution failed: ${startResult.error.message}`);
+      if (shouldRefine) {
+        const refineResult = await wrapAsync(() => sprintRefineCommand([]), ensureError);
+        if (!refineResult.ok) {
+          log.error(`Refinement failed: ${refineResult.error.message}`);
+          log.dim('You can refine later with: ralphctl sprint refine');
         }
-        return;
+      } else {
+        log.dim('Skipped. You can refine later with: ralphctl sprint refine');
       }
+    }
 
-      // ── Completion Summary ─────────────────────────────────────────────────
-      log.newline();
-      printSeparator();
-      showSuccess('Wizard complete!');
-      log.newline();
+    // ── Step 4: Plan Tasks ─────────────────────────────────────────────────
+    showStepProgress(4, 'Plan Tasks');
 
-      const summaryResult = await wrapAsync(
-        () => getSprint(sprintId),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
+    // Check if refinement was completed (all requirements approved)
+    let canPlan = false;
+    const sprintCheckResult = await wrapAsync(() => getSprint(sprintId), ensureError);
+    if (sprintCheckResult.ok) {
+      const sprint = sprintCheckResult.value;
+      const hasTickets = sprint.tickets.length > 0;
+      const allApproved = hasTickets && sprint.tickets.every((t) => t.requirementStatus === 'approved');
+      canPlan = allApproved;
+
+      if (!hasTickets) {
+        log.dim('Skipped -- no tickets to plan.');
+      } else if (!allApproved) {
+        log.dim('Skipped -- not all requirements are approved yet.');
+        log.dim('Refine first with: ralphctl sprint refine');
+      }
+    } else {
+      log.dim('Skipped -- could not read sprint state.');
+    }
+
+    if (canPlan) {
+      const shouldPlan = await confirm({
+        message: `${emoji.donut} Generate tasks now?`,
+        default: true,
+      });
+
+      if (shouldPlan) {
+        const planResult = await wrapAsync(() => sprintPlanCommand([]), ensureError);
+        if (!planResult.ok) {
+          log.error(`Planning failed: ${planResult.error.message}`);
+          log.dim('You can plan later with: ralphctl sprint plan');
+        }
+      } else {
+        log.dim('Skipped. You can plan later with: ralphctl sprint plan');
+      }
+    }
+
+    // ── Step 5: Start Execution ────────────────────────────────────────────
+    showStepProgress(5, 'Start Execution');
+
+    const shouldStart = await confirm({
+      message: `${emoji.donut} Start execution now?`,
+      default: false,
+    });
+
+    if (shouldStart) {
+      const startResult = await wrapAsync(
+        // Note: sprintStartCommand may call process.exit() on completion
+        () => sprintStartCommand([]),
+        ensureError
       );
-      if (summaryResult.ok) {
-        const sprint = summaryResult.value;
-        log.info(`Sprint "${sprint.name}" is ready.`);
-        log.item(`${icons.ticket}  ${String(sprint.tickets.length)} ticket(s)`);
-
-        const approvedCount = sprint.tickets.filter((t) => t.requirementStatus === 'approved').length;
-        if (sprint.tickets.length > 0) {
-          log.item(`${icons.success}  ${String(approvedCount)}/${String(sprint.tickets.length)} requirements approved`);
-        }
+      if (!startResult.ok) {
+        log.error(`Execution failed: ${startResult.error.message}`);
       }
-      // Sprint read failed — skip summary details
+      return;
+    }
 
-      log.newline();
-      log.dim('Next steps:');
-      if (ticketCount === 0) {
-        log.item('ralphctl ticket add --project <name>');
+    // ── Completion Summary ─────────────────────────────────────────────────
+    log.newline();
+    printSeparator();
+    showSuccess('Wizard complete!');
+    log.newline();
+
+    const summaryResult = await wrapAsync(() => getSprint(sprintId), ensureError);
+    if (summaryResult.ok) {
+      const sprint = summaryResult.value;
+      log.info(`Sprint "${sprint.name}" is ready.`);
+      log.item(`${icons.ticket}  ${String(sprint.tickets.length)} ticket(s)`);
+
+      const approvedCount = sprint.tickets.filter((t) => t.requirementStatus === 'approved').length;
+      if (sprint.tickets.length > 0) {
+        log.item(`${icons.success}  ${String(approvedCount)}/${String(sprint.tickets.length)} requirements approved`);
       }
-      log.item('ralphctl sprint refine');
-      log.item('ralphctl sprint plan');
-      log.item('ralphctl sprint start');
-      log.newline();
-    },
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+    }
+    // Sprint read failed — skip summary details
+
+    log.newline();
+    log.dim('Next steps:');
+    if (ticketCount === 0) {
+      log.item('ralphctl ticket add --project <name>');
+    }
+    log.item('ralphctl sprint refine');
+    log.item('ralphctl sprint plan');
+    log.item('ralphctl sprint start');
+    log.newline();
+  }, ensureError);
 
   if (!r.ok) {
     if (r.error.name === 'ExitPromptError') {

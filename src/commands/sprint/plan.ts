@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -90,10 +90,7 @@ async function getSprintContext(
     lines.push(`## Project: ${projectName}`);
 
     // Get project repositories
-    const projectR = await wrapAsync(
-      () => getProject(projectName),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const projectR = await wrapAsync(() => getProject(projectName), ensureError);
     if (projectR.ok) {
       lines.push('');
       lines.push('### Repositories');
@@ -205,10 +202,7 @@ async function invokeAiAuto(prompt: string, repoPaths: string[], planDir: string
 export async function sprintPlanCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  const idR = await wrapAsync(
-    () => resolveSprintId(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
   if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showNextStep('ralphctl sprint create', 'create a new sprint');
@@ -220,11 +214,10 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   const sprint = await getSprint(id);
 
   // Check sprint status — draft only
-  const statusR = Result.try(() => {
+  try {
     assertSprintStatus(sprint, ['draft'], 'plan');
-  });
-  if (!statusR.ok) {
-    showError(statusR.error.message);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : String(err));
     log.newline();
     return;
   }
@@ -302,10 +295,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
   for (const ticket of ticketsToProcess) {
     if (reposByProject.has(ticket.projectName)) continue; // Already processed
-    const projectR = await wrapAsync(
-      () => getProject(ticket.projectName),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const projectR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
     if (projectR.ok) {
       reposByProject.set(ticket.projectName, projectR.value.repositories);
       if (projectR.value.repositories[0]) defaultPaths.push(projectR.value.repositories[0].path);
@@ -396,10 +386,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`${providerName} is planning tasks...`);
     spinner.start();
 
-    const outputR = await wrapAsync(
-      () => invokeAiAuto(prompt, selectedPaths, planDir),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const outputR = await wrapAsync(() => invokeAiAuto(prompt, selectedPaths, planDir), ensureError);
     if (!outputR.ok) {
       spinner.fail(`${providerName} planning failed`);
       showError(`Failed to invoke ${providerName}: ${outputR.error.message}`);
@@ -476,10 +463,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     console.log(muted(`\n  ${providerName} will read planning-context.md and explore the repos.`));
     console.log(muted(`  When done, ask ${providerName} to write tasks to: ${outputFile}\n`));
 
-    const interactiveR = await wrapAsync(
-      () => invokeAiInteractive(prompt, selectedPaths, planDir),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const interactiveR = await wrapAsync(() => invokeAiInteractive(prompt, selectedPaths, planDir), ensureError);
     if (!interactiveR.ok) {
       showError(`Failed to invoke ${providerName}: ${interactiveR.error.message}`);
       showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
@@ -492,10 +476,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     if (await fileExists(outputFile)) {
       showInfo('Task file found. Processing...');
 
-      const contentR = await wrapAsync(
-        () => readFile(outputFile, 'utf-8'),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
       if (!contentR.ok) {
         showError(`Failed to read task file: ${outputFile}`);
         log.newline();

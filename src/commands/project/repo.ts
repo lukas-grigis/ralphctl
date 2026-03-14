@@ -1,7 +1,7 @@
 import { basename, resolve } from 'node:path';
 import { expandTilde } from '@src/utils/paths.ts';
 import { confirm, input, select } from '@inquirer/prompts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { addProjectRepo, getProject, ProjectNotFoundError, removeProjectRepo } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
@@ -32,10 +32,7 @@ export async function projectRepoAddCommand(args: string[]): Promise<void> {
   log.info(`\nConfiguring: ${bareRepo.name}`);
   const repoWithScripts = await addCheckScriptToRepository(bareRepo);
 
-  const addR = await wrapAsync(
-    () => addProjectRepo(projectName, repoWithScripts),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const addR = await wrapAsync(() => addProjectRepo(projectName, repoWithScripts), ensureError);
   if (!addR.ok) {
     if (addR.error instanceof ProjectNotFoundError) {
       showError(`Project not found: ${projectName}`);
@@ -68,10 +65,7 @@ export async function projectRepoRemoveCommand(args: string[]): Promise<void> {
     projectName = selected;
   }
 
-  const projectR = await wrapAsync(
-    () => getProject(projectName),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const projectR = await wrapAsync(() => getProject(projectName), ensureError);
   if (!projectR.ok) {
     if (projectR.error instanceof ProjectNotFoundError) {
       showError(`Project not found: ${projectName}`);
@@ -111,10 +105,7 @@ export async function projectRepoRemoveCommand(args: string[]): Promise<void> {
     }
   }
 
-  const removeR = await wrapAsync(
-    () => removeProjectRepo(projectName, path),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const removeR = await wrapAsync(() => removeProjectRepo(projectName, path), ensureError);
   if (!removeR.ok) {
     if (removeR.error instanceof ProjectNotFoundError) {
       showError(`Project not found: ${projectName}`);

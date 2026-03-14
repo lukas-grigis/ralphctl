@@ -32,6 +32,13 @@ export async function wrapAsync<T, E>(fn: () => Promise<T>, mapError: (err: unkn
 }
 
 /**
+ * Normalize an unknown thrown value into an Error instance.
+ */
+export function ensureError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/**
  * Unwrap a Result at a boundary (e.g. top-level CLI handler).
  * Throws the error if the result represents a failure.
  */

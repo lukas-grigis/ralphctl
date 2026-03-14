@@ -1,5 +1,5 @@
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { getCurrentSprintOrThrow } from '@src/store/sprint.ts';
 import { getTasks } from '@src/store/task.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
@@ -182,10 +182,7 @@ function renderCheckCard(check: HealthCheck): string {
 // ============================================================================
 
 export async function sprintHealthCommand(): Promise<void> {
-  const sprintR = await wrapAsync(
-    () => getCurrentSprintOrThrow(),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const sprintR = await wrapAsync(() => getCurrentSprintOrThrow(), ensureError);
   if (!sprintR.ok) {
     showError(sprintR.error.message);
     return;

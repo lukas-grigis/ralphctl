@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { logProgress } from '@src/store/progress.ts';
 import {
@@ -12,14 +12,11 @@ import { editorInput } from '@src/utils/editor-input.ts';
 
 export async function progressLogCommand(args: string[]): Promise<void> {
   // FAIL FAST: Check sprint status before collecting any input
-  const statusCheckR = await wrapAsync(
-    async () => {
-      const sprintId = await resolveSprintId();
-      const sprint = await getSprint(sprintId);
-      assertSprintStatus(sprint, ['active'], 'log progress');
-    },
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const statusCheckR = await wrapAsync(async () => {
+    const sprintId = await resolveSprintId();
+    const sprint = await getSprint(sprintId);
+    assertSprintStatus(sprint, ['active'], 'log progress');
+  }, ensureError);
   if (!statusCheckR.ok) {
     const err = statusCheckR.error;
     if (err instanceof SprintStatusError) {
@@ -60,10 +57,7 @@ export async function progressLogCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const logR = await wrapAsync(
-    () => logProgress(message),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const logR = await wrapAsync(() => logProgress(message), ensureError);
   if (!logR.ok) {
     if (logR.error instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)

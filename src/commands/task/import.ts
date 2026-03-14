@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { createSpinner, log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
@@ -34,10 +34,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const contentR = await wrapAsync(
-    () => readFile(filePath, 'utf-8'),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const contentR = await wrapAsync(() => readFile(filePath, 'utf-8'), ensureError);
   if (!contentR.ok) {
     showError(`Failed to read file: ${filePath}`);
     log.newline();
@@ -102,7 +99,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
           blockedBy: [], // Set later
           projectPath: taskInput.projectPath,
         }),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
+      ensureError
     );
     if (!addR.ok) {
       if (addR.error instanceof SprintStatusError) {

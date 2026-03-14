@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { getTicket, TicketNotFoundError } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
@@ -14,10 +14,7 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
     ticketId = selected;
   }
 
-  const ticketR = await wrapAsync(
-    () => getTicket(ticketId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const ticketR = await wrapAsync(() => getTicket(ticketId), ensureError);
   if (!ticketR.ok) {
     if (ticketR.error instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${ticketId}`);
@@ -42,10 +39,7 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
   }
 
   // Repositories
-  const projectR = await wrapAsync(
-    () => getProject(ticket.projectName),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const projectR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
   if (projectR.ok) {
     infoLines.push('');
     for (const repo of projectR.value.repositories) {

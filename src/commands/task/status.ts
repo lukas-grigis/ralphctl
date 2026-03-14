@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { TaskNotFoundError, updateTaskStatus } from '@src/store/task.ts';
 import { formatTaskStatus, log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { type TaskStatus, TaskStatusSchema } from '@src/schemas/index.ts';
@@ -71,10 +71,7 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
     return;
   }
 
-  const updateR = await wrapAsync(
-    () => updateTaskStatus(taskId, result.data),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const updateR = await wrapAsync(() => updateTaskStatus(taskId, result.data), ensureError);
   if (!updateR.ok) {
     if (updateR.error instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);

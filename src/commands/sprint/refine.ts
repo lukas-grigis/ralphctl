@@ -2,7 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { colors, info } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -58,10 +58,7 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
 export async function sprintRefineCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  const idR = await wrapAsync(
-    () => resolveSprintId(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
   if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showTip('Specify a sprint ID or create one first.');
@@ -73,11 +70,10 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   const sprint = await getSprint(id);
 
   // Check sprint status - must be draft to refine
-  const statusR = Result.try(() => {
+  try {
     assertSprintStatus(sprint, ['draft'], 'refine');
-  });
-  if (!statusR.ok) {
-    showError(statusR.error.message);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : String(err));
     log.newline();
     return;
   }
@@ -154,10 +150,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     log.newline();
 
     // Validate project exists
-    const projectR = await wrapAsync(
-      () => getProject(ticket.projectName),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const projectR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
     if (!projectR.ok) {
       showWarning(`Project '${ticket.projectName}' not found.`);
       log.dim('Skipping this ticket.');
@@ -215,10 +208,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`Starting ${providerName} session...`);
     spinner.start();
 
-    const sessionR = await wrapAsync(
-      () => runAiSession(refineDir, prompt, ticket.title),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const sessionR = await wrapAsync(() => runAiSession(refineDir, prompt, ticket.title), ensureError);
     if (!sessionR.ok) {
       spinner.fail(`${providerName} session failed`);
       showError(sessionR.error.message);
@@ -232,10 +222,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
 
     // Process the requirements file
     if (await fileExists(outputFile)) {
-      const contentR = await wrapAsync(
-        () => readFile(outputFile, 'utf-8'),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
       if (!contentR.ok) {
         showError(`Failed to read requirements file: ${outputFile}`);
         log.newline();
@@ -341,10 +328,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     const sprintDir = getSprintDir(id);
     const outputPath = join(sprintDir, 'requirements.md');
 
-    const exportR = await wrapAsync(
-      () => exportRequirementsToMarkdown(updatedSprint, outputPath),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const exportR = await wrapAsync(() => exportRequirementsToMarkdown(updatedSprint, outputPath), ensureError);
     if (exportR.ok) {
       log.dim(`Requirements saved to: ${outputPath}`);
     } else {

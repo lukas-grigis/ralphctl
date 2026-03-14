@@ -48,6 +48,7 @@ pnpm typecheck && pnpm lint && pnpm test
 - **Check tracking** — `sprint.checkRanAt` records per-repo timestamps; re-runs skip already-completed checks; `--refresh-check` forces re-execution; cleared on sprint close
 - **Post-task gate** — harness runs `checkScript` after every AI task; task not marked done if gate fails
 - **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice; branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch` auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
+- **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
 
 ## Common Mistakes to Avoid
 

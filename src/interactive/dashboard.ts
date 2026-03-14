@@ -5,7 +5,7 @@ import { getPendingRequirements } from '@src/store/ticket.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { boxChars, emoji, formatSprintStatus, icons, progressBar } from '@src/theme/ui.ts';
 import type { Sprint, Tasks } from '@src/schemas/index.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 // ============================================================================
 // STATUS DASHBOARD
@@ -31,31 +31,28 @@ export async function loadDashboardData(): Promise<DashboardData | null> {
   const sprintId = await getCurrentSprint();
   if (!sprintId) return null;
 
-  const r = await wrapAsync(
-    async () => {
-      const sprint = await getSprint(sprintId);
-      const tasks = await getTasks(sprintId);
+  const r = await wrapAsync(async () => {
+    const sprint = await getSprint(sprintId);
+    const tasks = await getTasks(sprintId);
 
-      const pendingTickets = getPendingRequirements(sprint.tickets);
-      const pendingCount = pendingTickets.length;
-      const approvedCount = sprint.tickets.length - pendingCount;
+    const pendingTickets = getPendingRequirements(sprint.tickets);
+    const pendingCount = pendingTickets.length;
+    const approvedCount = sprint.tickets.length - pendingCount;
 
-      // Count tasks that are blocked (not done, and have unresolved blockers)
-      const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-      const blockedCount = tasks.filter(
-        (t) => t.status !== 'done' && t.blockedBy.length > 0 && !t.blockedBy.every((id) => doneIds.has(id))
-      ).length;
+    // Count tasks that are blocked (not done, and have unresolved blockers)
+    const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+    const blockedCount = tasks.filter(
+      (t) => t.status !== 'done' && t.blockedBy.length > 0 && !t.blockedBy.every((id) => doneIds.has(id))
+    ).length;
 
-      // Count tickets that have at least one associated task
-      const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
-      const plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
+    // Count tickets that have at least one associated task
+    const ticketIdsWithTasks = new Set(tasks.map((t) => t.ticketId).filter(Boolean));
+    const plannedTicketCount = sprint.tickets.filter((t) => ticketIdsWithTasks.has(t.id)).length;
 
-      const aiProvider = await getAiProvider();
+    const aiProvider = await getAiProvider();
 
-      return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount, aiProvider };
-    },
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+    return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount, aiProvider };
+  }, ensureError);
 
   return r.ok ? r.value : null;
 }

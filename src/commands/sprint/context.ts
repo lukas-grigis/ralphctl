@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, showNextStep, showWarning } from '@src/theme/ui.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
@@ -10,10 +10,7 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
 
   let id: string;
-  const idR = await wrapAsync(
-    () => resolveSprintId(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
   if (!idR.ok) {
     // No current sprint set - offer selection
     const selected = await selectSprint('Select sprint to show context for:');
@@ -49,10 +46,7 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
       console.log(`### Project: ${projectName}`);
 
       // Get project repositories for context
-      const projectR = await wrapAsync(
-        () => getProject(projectName),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const projectR = await wrapAsync(() => getProject(projectName), ensureError);
       if (projectR.ok) {
         const repoPaths = projectR.value.repositories.map((r) => `${r.name} (${r.path})`);
         console.log(`Repositories: ${repoPaths.join(', ')}`);

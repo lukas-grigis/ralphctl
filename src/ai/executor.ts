@@ -1,6 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
 import { ProcessManager } from '@src/ai/process-manager.ts';
 import {
@@ -731,7 +731,7 @@ export async function executeTaskLoopParallel(
             const ctx: TaskContext = { sprint, task, project };
             const resultR = await wrapAsync(
               () => executeTask(ctx, options, sprintId, resumeId, provider, checkResults?.get(task.projectPath)),
-              (err) => (err instanceof Error ? err : new Error(String(err)))
+              ensureError
             );
             inFlightPaths.delete(task.projectPath); // always runs — was in finally
 

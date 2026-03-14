@@ -4,7 +4,7 @@ import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/stor
 import { type Project, type Projects, ProjectsSchema, type Repository } from '../schemas/index.js';
 
 export { ProjectNotFoundError, ProjectExistsError } from '../errors.js';
-import { ProjectNotFoundError, ProjectExistsError, ParseError } from '../errors.js';
+import { ProjectNotFoundError, ProjectExistsError, ParseError, ValidationError } from '../errors.js';
 
 /**
  * Migration: Convert old paths[] format to repositories[] format.
@@ -132,7 +132,7 @@ export async function createProject(project: Project): Promise<Project> {
     }
   }
   if (pathErrors.length > 0) {
-    throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+    throw new ValidationError(`Invalid project paths:\n${pathErrors.join('\n')}`, 'repositories');
   }
 
   // Resolve all paths to absolute and derive names, preserving scripts
@@ -175,7 +175,7 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
       }
     }
     if (pathErrors.length > 0) {
-      throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+      throw new ValidationError(`Invalid project paths:\n${pathErrors.join('\n')}`, 'repositories');
     }
     // Resolve paths to absolute and ensure names, preserving scripts
     updates.repositories = updates.repositories.map((repo) => ({
@@ -242,7 +242,7 @@ export async function addProjectRepo(name: string, repo: Repository): Promise<Pr
   // Validate the path
   const validation = await validateProjectPath(resolvedPath);
   if (!validation.ok) {
-    throw new Error(`Invalid path ${repo.path}: ${validation.error.message}`);
+    throw new ValidationError(`Invalid path ${repo.path}: ${validation.error.message}`, repo.path);
   }
 
   // Check if path already exists
@@ -273,7 +273,7 @@ export async function removeProjectRepo(name: string, path: string): Promise<Pro
   const newRepos = project.repositories.filter((r) => r.path !== resolvedPath);
 
   if (newRepos.length === 0) {
-    throw new Error('Cannot remove the last repository from a project');
+    throw new ValidationError('Cannot remove the last repository from a project', 'repositories');
   }
 
   if (newRepos.length === project.repositories.length) {

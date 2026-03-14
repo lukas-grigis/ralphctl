@@ -12,7 +12,7 @@ import { getTasksFilePath } from '@src/utils/paths.ts';
 import { readValidatedJson } from '@src/utils/storage.ts';
 import { select } from '@inquirer/prompts';
 import { escapableSelect } from './escapable.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -310,7 +310,7 @@ export async function interactiveMode(): Promise<void> {
           },
           { escLabel: 'exit' }
         ),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
+      ensureError
     );
 
     if (!commandResult.ok) {
@@ -382,7 +382,7 @@ async function handleSubMenu(
           loop: true,
           theme: selectTheme,
         }),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
+      ensureError
     );
 
     if (!subCommandResult.ok) {
@@ -430,10 +430,7 @@ async function executeCommand(group: string, subCommand: string): Promise<void> 
     return;
   }
 
-  const r = await wrapAsync(
-    () => handler(),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const r = await wrapAsync(() => handler(), ensureError);
   if (!r.ok) {
     log.error(r.error.message);
   }

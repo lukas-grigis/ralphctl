@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { input, select } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
@@ -147,10 +147,7 @@ function parseIdeateOutput(output: string): { requirements: string; tasks: unkno
 export async function sprintIdeateCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  const idR = await wrapAsync(
-    () => resolveSprintId(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
   if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showNextStep('ralphctl sprint create', 'create a new sprint');
@@ -162,11 +159,10 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   const sprint = await getSprint(id);
 
   // Check sprint status - must be draft to ideate
-  const statusR = Result.try(() => {
+  try {
     assertSprintStatus(sprint, ['draft'], 'ideate');
-  });
-  if (!statusR.ok) {
-    showError(statusR.error.message);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : String(err));
     log.newline();
     return;
   }
@@ -208,10 +204,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   }
 
   // Validate project exists
-  const projectR = await wrapAsync(
-    () => getProject(projectName),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const projectR = await wrapAsync(() => getProject(projectName), ensureError);
   if (!projectR.ok) {
     showError(`Project '${projectName}' not found.`);
     log.newline();
@@ -307,10 +300,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`${providerName} is refining idea and planning tasks...`);
     spinner.start();
 
-    const outputR = await wrapAsync(
-      () => invokeAiAuto(prompt, selectedPaths, ideateDir),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const outputR = await wrapAsync(() => invokeAiAuto(prompt, selectedPaths, ideateDir), ensureError);
     if (!outputR.ok) {
       spinner.fail(`${providerName} session failed`);
       showError(`Failed to invoke ${providerName}: ${outputR.error.message}`);
@@ -400,10 +390,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     console.log(muted(`\n  ${providerName} will guide you through requirements refinement and task planning.`));
     console.log(muted(`  When done, ask ${providerName} to write the output to: ${outputFile}\n`));
 
-    const interactiveR = await wrapAsync(
-      () => invokeAiInteractive(prompt, selectedPaths, ideateDir),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const interactiveR = await wrapAsync(() => invokeAiInteractive(prompt, selectedPaths, ideateDir), ensureError);
     if (!interactiveR.ok) {
       showError(`Failed to invoke ${providerName}: ${interactiveR.error.message}`);
       showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
@@ -416,10 +403,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     if (await fileExists(outputFile)) {
       showInfo('Output file found. Processing...');
 
-      const contentR = await wrapAsync(
-        () => readFile(outputFile, 'utf-8'),
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
       if (!contentR.ok) {
         showError(`Failed to read output file: ${outputFile}`);
         log.newline();

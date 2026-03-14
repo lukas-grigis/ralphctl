@@ -1,6 +1,6 @@
 import { confirm, input, select } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -113,10 +113,7 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
   const link = trimmedLink === '' ? undefined : trimmedLink;
   const projectName = trimmedProject;
 
-  const addR = await wrapAsync(
-    () => addTicket({ title, description, link, projectName }),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const addR = await wrapAsync(() => addTicket({ title, description, link, projectName }), ensureError);
   if (!addR.ok) {
     handleTicketError(addR.error);
     return;
@@ -187,7 +184,7 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
 
   const addR = await wrapAsync(
     () => addTicket({ title, description: normalizedDescription, link: normalizedLink, projectName }),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
+    ensureError
   );
   if (!addR.ok) {
     handleTicketError(addR.error);

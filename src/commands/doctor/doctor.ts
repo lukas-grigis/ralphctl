@@ -1,7 +1,7 @@
 import { access, constants } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { getConfig } from '@src/store/config.ts';
 import { listProjects } from '@src/store/project.ts';
 import { SprintSchema } from '@src/schemas/index.ts';
@@ -128,10 +128,7 @@ export function checkGlabInstalled(): CheckResult {
 export async function checkDataDirectory(): Promise<CheckResult> {
   const dataDir = getDataDir();
 
-  const accessR = await wrapAsync(
-    () => access(dataDir, constants.R_OK | constants.W_OK),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const accessR = await wrapAsync(() => access(dataDir, constants.R_OK | constants.W_OK), ensureError);
   if (accessR.ok) {
     return { name: 'Data directory', status: 'pass', detail: dataDir };
   }

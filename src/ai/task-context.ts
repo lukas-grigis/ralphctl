@@ -7,7 +7,7 @@ import { checkTaskPermissions } from '@src/ai/permissions.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { AiProvider, Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 // ============================================================================
 // TYPES
@@ -232,10 +232,7 @@ export async function getProjectForTask(task: Task, sprint: Sprint): Promise<Pro
   const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
   if (!ticket) return undefined;
 
-  const r = await wrapAsync(
-    async () => getProject(ticket.projectName),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const r = await wrapAsync(async () => getProject(ticket.projectName), ensureError);
   if (r.ok) return r.value;
   if (r.error instanceof ProjectNotFoundError) return undefined;
   throw r.error;

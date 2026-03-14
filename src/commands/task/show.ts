@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { colors, muted } from '@src/theme/index.ts';
 import { getTask, TaskNotFoundError } from '@src/store/task.ts';
 import { getTicket } from '@src/store/ticket.ts';
@@ -24,10 +24,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
     taskId = selected;
   }
 
-  const taskR = await wrapAsync(
-    () => getTask(taskId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const taskR = await wrapAsync(() => getTask(taskId), ensureError);
   if (!taskR.ok) {
     if (taskR.error instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
@@ -88,10 +85,7 @@ export async function taskShowCommand(args: string[]): Promise<void> {
   // Requirements card (from linked ticket, if refined)
   if (task.ticketId) {
     const taskTicketId = task.ticketId;
-    const ticketR = await wrapAsync(
-      () => getTicket(taskTicketId),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const ticketR = await wrapAsync(() => getTicket(taskTicketId), ensureError);
     if (ticketR.ok && ticketR.value.requirements) {
       log.newline();
       const reqLines = ticketR.value.requirements.split('\n');

@@ -1,5 +1,5 @@
 import { input } from '@inquirer/prompts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { formatTicketDisplay, getTicket, TicketNotFoundError, updateTicket } from '@src/store/ticket.ts';
@@ -43,10 +43,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   }
 
   // Fetch existing ticket
-  const ticketR = await wrapAsync(
-    () => getTicket(resolvedId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const ticketR = await wrapAsync(() => getTicket(resolvedId), ensureError);
   if (!ticketR.ok) {
     if (ticketR.error instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${resolvedId}`);
@@ -147,10 +144,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
     return;
   }
 
-  const updateR = await wrapAsync(
-    () => updateTicket(ticket.id, updates),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const updateR = await wrapAsync(() => updateTicket(ticket.id, updates), ensureError);
   if (!updateR.ok) {
     if (updateR.error instanceof SprintStatusError) {
       showError(updateR.error.message);

@@ -1,4 +1,4 @@
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { getCurrentSprint, setCurrentSprint } from '@src/store/config.ts';
 import { getSprint, SprintNotFoundError } from '@src/store/sprint.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
@@ -26,10 +26,7 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
       return;
     }
 
-    const sprintR = await wrapAsync(
-      () => getSprint(currentSprintId),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const sprintR = await wrapAsync(() => getSprint(currentSprintId), ensureError);
     if (sprintR.ok) {
       printHeader('Current Sprint');
       console.log(field('ID', sprintR.value.id));
@@ -58,14 +55,11 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
     log.newline();
   } else {
     // Set by ID
-    const setR = await wrapAsync(
-      async () => {
-        const sprint = await getSprint(sprintId);
-        await setCurrentSprint(sprintId);
-        return sprint;
-      },
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const setR = await wrapAsync(async () => {
+      const sprint = await getSprint(sprintId);
+      await setCurrentSprint(sprintId);
+      return sprint;
+    }, ensureError);
     if (setR.ok) {
       showSuccess('Current sprint set!', [
         ['ID', setR.value.id],

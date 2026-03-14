@@ -1,7 +1,7 @@
 import readline from 'node:readline';
 import { select } from '@inquirer/prompts';
 import { bold, dim } from 'colorette';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 type SelectConfig<Value> = Parameters<typeof select<Value>>[0];
 
@@ -68,7 +68,7 @@ export async function escapableSelect<Value>(
 
   const r = await wrapAsync(
     () => select(withEscapeHint(config, options?.escLabel ?? 'back'), { signal: controller.signal }),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
+    ensureError
   );
   process.stdin.removeListener('keypress', onKeypress);
   if (!r.ok) {

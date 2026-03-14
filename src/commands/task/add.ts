@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
@@ -31,14 +31,11 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
   const isInteractive = options.interactive !== false;
 
   // FAIL FAST: Check sprint status before collecting any input
-  const statusCheckR = await wrapAsync(
-    async () => {
-      const sprintId = await resolveSprintId();
-      const sprint = await getSprint(sprintId);
-      assertSprintStatus(sprint, ['draft'], 'add tasks');
-    },
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const statusCheckR = await wrapAsync(async () => {
+    const sprintId = await resolveSprintId();
+    const sprint = await getSprint(sprintId);
+    assertSprintStatus(sprint, ['draft'], 'add tasks');
+  }, ensureError);
   if (!statusCheckR.ok) {
     const err = statusCheckR.error;
     if (err instanceof SprintStatusError) {
@@ -102,14 +99,11 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     // Get project path from ticket or option
     if (ticketId) {
       const resolvedTicketId = ticketId;
-      const ticketProjectR = await wrapAsync(
-        async () => {
-          const ticket = await getTicket(resolvedTicketId);
-          const project = await getProject(ticket.projectName);
-          return project.repositories[0]?.path;
-        },
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const ticketProjectR = await wrapAsync(async () => {
+        const ticket = await getTicket(resolvedTicketId);
+        const project = await getProject(ticket.projectName);
+        return project.repositories[0]?.path;
+      }, ensureError);
       if (ticketProjectR.ok) {
         projectPath = ticketProjectR.value;
       } else {
@@ -199,10 +193,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
         ticketId = ticketChoice;
         const ticket = tickets.find((t) => t.id === ticketChoice);
         if (ticket) {
-          const projR = await wrapAsync(
-            () => getProject(ticket.projectName),
-            (err) => (err instanceof Error ? err : new Error(String(err)))
-          );
+          const projR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
           if (projR.ok) {
             const project = projR.value;
             // Auto-select first repo for ticket, or prompt if multiple
@@ -227,14 +218,11 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     } else if (options.ticket) {
       ticketId = options.ticket;
       const resolvedTicketId = ticketId;
-      const tpR = await wrapAsync(
-        async () => {
-          const ticket = await getTicket(resolvedTicketId);
-          const project = await getProject(ticket.projectName);
-          return project.repositories[0]?.path;
-        },
-        (err) => (err instanceof Error ? err : new Error(String(err)))
-      );
+      const tpR = await wrapAsync(async () => {
+        const ticket = await getTicket(resolvedTicketId);
+        const project = await getProject(ticket.projectName);
+        return project.repositories[0]?.path;
+      }, ensureError);
       if (tpR.ok) {
         projectPath = tpR.value;
       }
@@ -298,10 +286,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     exitWithCode(EXIT_ERROR);
   }
 
-  const addR = await wrapAsync(
-    () => addTask({ name, description, steps, ticketId, projectPath }),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const addR = await wrapAsync(() => addTask({ name, description, steps, ticketId, projectPath }), ensureError);
   if (!addR.ok) {
     if (addR.error instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)

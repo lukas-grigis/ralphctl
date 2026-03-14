@@ -4,8 +4,7 @@ import { log, renderTable } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/store/task.ts';
 import { getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
-import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, unwrapOrThrow, wrapAsync } from '@src/utils/result-helpers.ts';
 import { type ImportTask, ImportTasksSchema, type Task } from '@src/schemas/index.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
@@ -104,27 +103,24 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
   const createdTasks: { task: ImportTask; realId: string }[] = [];
 
   for (const taskInput of tasks) {
-    const addR = await wrapAsync(
-      async () => {
-        const projectPath = taskInput.projectPath;
+    const addR = await wrapAsync(async () => {
+      const projectPath = taskInput.projectPath;
 
-        // Create task without blockedBy first
-        const task = await addTask(
-          {
-            name: taskInput.name,
-            description: taskInput.description,
-            steps: taskInput.steps ?? [],
-            ticketId: taskInput.ticketId,
-            blockedBy: [], // Set later
-            projectPath,
-          },
-          sprintId
-        );
+      // Create task without blockedBy first
+      const task = await addTask(
+        {
+          name: taskInput.name,
+          description: taskInput.description,
+          steps: taskInput.steps ?? [],
+          ticketId: taskInput.ticketId,
+          blockedBy: [], // Set later
+          projectPath,
+        },
+        sprintId
+      );
 
-        return task;
-      },
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+      return task;
+    }, ensureError);
 
     if (addR.ok) {
       const task = addR.value;

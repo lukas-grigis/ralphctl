@@ -2,7 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import {
   createSpinner,
   emoji,
@@ -37,10 +37,7 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   const isInteractive = options.interactive !== false;
 
   // Resolve sprint
-  const sprintIdR = await wrapAsync(
-    () => resolveSprintId(),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const sprintIdR = await wrapAsync(() => resolveSprintId(), ensureError);
   if (!sprintIdR.ok) {
     showWarning('No current sprint set.');
     showTip('Create a sprint first or set one with: ralphctl sprint current');
@@ -52,11 +49,10 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   const sprint = await getSprint(sprintId);
 
   // Must be draft
-  const statusR = Result.try(() => {
+  try {
     assertSprintStatus(sprint, ['draft'], 'refine ticket');
-  });
-  if (!statusR.ok) {
-    showError(statusR.error.message);
+  } catch (err) {
+    showError(err instanceof Error ? err.message : String(err));
     log.newline();
     return;
   }
@@ -167,10 +163,7 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   const spinner = createSpinner(`Starting ${providerName} session...`);
   spinner.start();
 
-  const sessionR = await wrapAsync(
-    () => runAiSession(refineDir, prompt, ticket.title),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const sessionR = await wrapAsync(() => runAiSession(refineDir, prompt, ticket.title), ensureError);
   if (!sessionR.ok) {
     spinner.fail(`${providerName} session failed`);
     showError(sessionR.error.message);
@@ -188,10 +181,7 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
     return;
   }
 
-  const contentR = await wrapAsync(
-    () => readFile(outputFile, 'utf-8'),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
   if (!contentR.ok) {
     showError(`Failed to read requirements file: ${outputFile}`);
     log.newline();

@@ -1,5 +1,5 @@
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { type RunnerOptions, runSprint } from '@src/ai/runner.ts';
 import { SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/utils/exit-codes.ts';
@@ -87,10 +87,7 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
 
   const { sprintId, options } = parseR.value;
 
-  const runR = await wrapAsync(
-    () => runSprint(sprintId, options),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const runR = await wrapAsync(() => runSprint(sprintId, options), ensureError);
   if (!runR.ok) {
     const err = runR.error;
     if (err instanceof SprintNotFoundError) {

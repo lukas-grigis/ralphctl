@@ -1,5 +1,5 @@
 import { confirm } from '@inquirer/prompts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { getProject, ProjectNotFoundError, removeProject } from '@src/store/project.ts';
 import { selectProject } from '@src/interactive/selectors.ts';
@@ -15,10 +15,7 @@ export async function projectRemoveCommand(args: string[]): Promise<void> {
     projectName = selected;
   }
 
-  const projectR = await wrapAsync(
-    () => getProject(projectName),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const projectR = await wrapAsync(() => getProject(projectName), ensureError);
   if (!projectR.ok) {
     if (projectR.error instanceof ProjectNotFoundError) {
       showError(`Project not found: ${projectName}`);

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { confirm } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { closeSprint, getSprint, listSprints, SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/store/task.ts';
@@ -68,15 +68,12 @@ export async function sprintCloseCommand(args: string[]): Promise<void> {
     }
   }
 
-  const closeR = await wrapAsync(
-    async () => {
-      // Load sprint before closing (need branch info for PR creation)
-      const sprintBeforeClose = await getSprint(sprintId);
-      const sprint = await closeSprint(sprintId);
-      return { sprintBeforeClose, sprint };
-    },
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const closeR = await wrapAsync(async () => {
+    // Load sprint before closing (need branch info for PR creation)
+    const sprintBeforeClose = await getSprint(sprintId);
+    const sprint = await closeSprint(sprintId);
+    return { sprintBeforeClose, sprint };
+  }, ensureError);
   if (!closeR.ok) {
     const err = closeR.error;
     if (err instanceof SprintNotFoundError) {

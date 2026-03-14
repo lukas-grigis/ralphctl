@@ -1,5 +1,5 @@
 import { confirm } from '@inquirer/prompts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { deleteSprint, getSprint, SprintNotFoundError } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
@@ -17,10 +17,7 @@ export async function sprintDeleteCommand(args: string[]): Promise<void> {
     sprintId = selected;
   }
 
-  const sprintR = await wrapAsync(
-    () => getSprint(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const sprintR = await wrapAsync(() => getSprint(sprintId), ensureError);
   if (!sprintR.ok) {
     if (sprintR.error instanceof SprintNotFoundError) {
       showError(`Sprint not found: ${sprintId}`);
@@ -33,10 +30,7 @@ export async function sprintDeleteCommand(args: string[]): Promise<void> {
   const sprint = sprintR.value;
 
   let taskCount = 0;
-  const tasksR = await wrapAsync(
-    () => listTasks(sprintId),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const tasksR = await wrapAsync(() => listTasks(sprintId), ensureError);
   if (tasksR.ok) {
     taskCount = tasksR.value.length;
   }

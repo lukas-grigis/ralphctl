@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { input, select } from '@inquirer/prompts';
 import { Result } from 'typescript-result';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { expandTilde, validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
@@ -299,10 +299,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     description,
   };
 
-  const createR = await wrapAsync(
-    () => createProject(project),
-    (err) => (err instanceof Error ? err : new Error(String(err)))
-  );
+  const createR = await wrapAsync(() => createProject(project), ensureError);
   if (!createR.ok) {
     if (createR.error instanceof ProjectExistsError) {
       showError(`Project "${name}" already exists.`);

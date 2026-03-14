@@ -3,7 +3,7 @@ import { ProcessManager } from '@src/ai/process-manager.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { SpawnError } from '@src/errors.ts';
 
 import type { HeadlessSpawnOptions, SpawnResult, SpawnSyncOptions, SpawnAsyncOptions } from '@src/providers/types.ts';
@@ -212,10 +212,7 @@ export async function spawnWithRetry(
       throw new SpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId);
     }
 
-    const r = await wrapAsync(
-      async () => spawnHeadlessRaw({ ...options, resumeSessionId }, p),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
-    );
+    const r = await wrapAsync(async () => spawnHeadlessRaw({ ...options, resumeSessionId }, p), ensureError);
 
     if (r.ok) return r.value;
 

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { Result } from 'typescript-result';
 import { emoji } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';
-import { wrapAsync } from '@src/utils/result-helpers.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { escapableSelect } from './escapable.ts';
 
 interface BrowseChoice {
@@ -116,7 +116,7 @@ export async function browseDirectory(message = 'Browse to directory:', startPat
           pageSize: 15,
           loop: false,
         }),
-      (err) => (err instanceof Error ? err : new Error(String(err)))
+      ensureError
     );
 
     if (!selectResult.ok) {
