@@ -1,6 +1,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import {
   createSpinner,
   emoji,
@@ -20,7 +22,7 @@ import { formatTicketDisplay } from '@src/store/ticket.ts';
 import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath } from '@src/utils/paths.ts';
-import { IssueFetchError, fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
+import { fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
 import { type RefinedRequirement } from '@src/schemas/index.ts';
 import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
@@ -35,26 +37,27 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   const isInteractive = options.interactive !== false;
 
   // Resolve sprint
-  let sprintId: string;
-  try {
-    sprintId = await resolveSprintId();
-  } catch {
+  const sprintIdR = await wrapAsync(
+    () => resolveSprintId(),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!sprintIdR.ok) {
     showWarning('No current sprint set.');
     showTip('Create a sprint first or set one with: ralphctl sprint current');
     log.newline();
     return;
   }
+  const sprintId = sprintIdR.value;
 
   const sprint = await getSprint(sprintId);
 
   // Must be draft
-  try {
+  const statusR = Result.try(() => {
     assertSprintStatus(sprint, ['draft'], 'refine ticket');
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-      log.newline();
-    }
+  });
+  if (!statusR.ok) {
+    showError(statusR.error.message);
+    log.newline();
     return;
   }
 
@@ -128,21 +131,18 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   // Fetch live issue data if ticket has a link
   let issueContext = '';
   if (ticket.link) {
+    const ticketLink = ticket.link;
     const fetchSpinner = createSpinner('Fetching issue data...');
     fetchSpinner.start();
-    try {
-      const issueData = fetchIssueFromUrl(ticket.link);
-      if (issueData) {
-        issueContext = formatIssueContext(issueData);
-        fetchSpinner.succeed(`Issue data fetched (${String(issueData.comments.length)} comment(s))`);
-      } else {
-        fetchSpinner.stop();
-      }
-    } catch (err) {
+    const fetchR = Result.try(() => fetchIssueFromUrl(ticketLink));
+    if (!fetchR.ok) {
       fetchSpinner.fail('Could not fetch issue data');
-      if (err instanceof IssueFetchError || err instanceof Error) {
-        showWarning(`${err.message} — continuing without issue context`);
-      }
+      showWarning(`${fetchR.error.message} — continuing without issue context`);
+    } else if (fetchR.value) {
+      issueContext = formatIssueContext(fetchR.value);
+      fetchSpinner.succeed(`Issue data fetched (${String(fetchR.value.comments.length)} comment(s))`);
+    } else {
+      fetchSpinner.stop();
     }
   }
 
@@ -167,17 +167,17 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   const spinner = createSpinner(`Starting ${providerName} session...`);
   spinner.start();
 
-  try {
-    await runAiSession(refineDir, prompt, ticket.title);
-    spinner.succeed(`${providerName} session completed`);
-  } catch (err) {
+  const sessionR = await wrapAsync(
+    () => runAiSession(refineDir, prompt, ticket.title),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!sessionR.ok) {
     spinner.fail(`${providerName} session failed`);
-    if (err instanceof Error) {
-      showError(err.message);
-    }
+    showError(sessionR.error.message);
     log.newline();
     return;
   }
+  spinner.succeed(`${providerName} session completed`);
 
   log.newline();
 
@@ -188,25 +188,24 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
     return;
   }
 
-  let content: string;
-  try {
-    content = await readFile(outputFile, 'utf-8');
-  } catch {
+  const contentR = await wrapAsync(
+    () => readFile(outputFile, 'utf-8'),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!contentR.ok) {
     showError(`Failed to read requirements file: ${outputFile}`);
     log.newline();
     return;
   }
+  const content = contentR.value;
 
-  let refinedRequirements: RefinedRequirement[];
-  try {
-    refinedRequirements = parseRequirementsFile(content);
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(`Failed to parse requirements file: ${err.message}`);
-    }
+  const parseR = Result.try(() => parseRequirementsFile(content));
+  if (!parseR.ok) {
+    showError(`Failed to parse requirements file: ${parseR.error.message}`);
     log.newline();
     return;
   }
+  const refinedRequirements = parseR.value;
 
   if (refinedRequirements.length === 0) {
     showWarning('No requirements found in output file.');

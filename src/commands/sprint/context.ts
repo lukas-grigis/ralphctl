@@ -1,3 +1,4 @@
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, showNextStep, showWarning } from '@src/theme/ui.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
@@ -9,9 +10,11 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
 
   let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(
+    () => resolveSprintId(sprintId),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!idR.ok) {
     // No current sprint set - offer selection
     const selected = await selectSprint('Select sprint to show context for:');
     if (!selected) {
@@ -21,6 +24,8 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
       return;
     }
     id = selected;
+  } else {
+    id = idR.value;
   }
 
   const sprint = await getSprint(id);
@@ -44,11 +49,14 @@ export async function sprintContextCommand(args: string[]): Promise<void> {
       console.log(`### Project: ${projectName}`);
 
       // Get project repositories for context
-      try {
-        const project = await getProject(projectName);
-        const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
+      const projectR = await wrapAsync(
+        () => getProject(projectName),
+        (err) => (err instanceof Error ? err : new Error(String(err)))
+      );
+      if (projectR.ok) {
+        const repoPaths = projectR.value.repositories.map((r) => `${r.name} (${r.path})`);
         console.log(`Repositories: ${repoPaths.join(', ')}`);
-      } catch {
+      } else {
         console.log('Repositories: (project not found)');
       }
       console.log('');

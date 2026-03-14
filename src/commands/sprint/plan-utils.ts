@@ -4,6 +4,8 @@ import { log, renderTable } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/store/task.ts';
 import { getSchemaPath, getTasksFilePath } from '@src/utils/paths.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
+import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { type ImportTask, ImportTasksSchema, type Task } from '@src/schemas/index.ts';
 import { extractJsonArray } from '@src/utils/json-extract.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
@@ -102,55 +104,62 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
   const createdTasks: { task: ImportTask; realId: string }[] = [];
 
   for (const taskInput of tasks) {
-    try {
-      const projectPath = taskInput.projectPath;
+    const addR = await wrapAsync(
+      async () => {
+        const projectPath = taskInput.projectPath;
 
-      // Create task without blockedBy first
-      const task = await addTask(
-        {
-          name: taskInput.name,
-          description: taskInput.description,
-          steps: taskInput.steps ?? [],
-          ticketId: taskInput.ticketId,
-          blockedBy: [], // Set later
-          projectPath,
-        },
-        sprintId
-      );
+        // Create task without blockedBy first
+        const task = await addTask(
+          {
+            name: taskInput.name,
+            description: taskInput.description,
+            steps: taskInput.steps ?? [],
+            ticketId: taskInput.ticketId,
+            blockedBy: [], // Set later
+            projectPath,
+          },
+          sprintId
+        );
 
+        return task;
+      },
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+
+    if (addR.ok) {
+      const task = addR.value;
       // Map local ID to real ID
       if (taskInput.id) {
         localToRealId.set(taskInput.id, task.id);
       }
-
       createdTasks.push({ task: taskInput, realId: task.id });
       log.itemSuccess(`${task.id}: ${task.name}`);
-    } catch (err) {
+    } else {
       log.itemError(`Failed to add: ${taskInput.name}`);
-      if (err instanceof Error) {
-        console.log(muted(`    ${err.message}`));
-      }
+      console.log(muted(`    ${addR.error.message}`));
     }
   }
 
   // Second pass: update blockedBy with resolved real IDs (under file lock)
   const tasksFilePath = getTasksFilePath(sprintId);
-  await withFileLock(tasksFilePath, async () => {
-    const allTasks = await getTasks(sprintId);
-    for (const { task: taskInput, realId } of createdTasks) {
-      const blockedBy = (taskInput.blockedBy ?? [])
-        .map((localId) => localToRealId.get(localId) ?? '')
-        .filter((id) => id !== '');
+  unwrapOrThrow(
+    await withFileLock(tasksFilePath, async () => {
+      const allTasks = await getTasks(sprintId);
+      for (const { task: taskInput, realId } of createdTasks) {
+        const blockedBy = (taskInput.blockedBy ?? [])
+          .map((localId) => localToRealId.get(localId) ?? '')
+          .filter((id) => id !== '');
 
-      if (blockedBy.length > 0) {
-        const taskToUpdate = allTasks.find((t) => t.id === realId);
-        if (taskToUpdate) {
-          taskToUpdate.blockedBy = blockedBy;
+        if (blockedBy.length > 0) {
+          const taskToUpdate = allTasks.find((t) => t.id === realId);
+          if (taskToUpdate) {
+            taskToUpdate.blockedBy = blockedBy;
+          }
         }
       }
-    }
-    await saveTasks(allTasks, sprintId);
-  });
+      await saveTasks(allTasks, sprintId);
+    })
+  );
 
   return createdTasks.length;
 }

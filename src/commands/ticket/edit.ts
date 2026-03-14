@@ -1,4 +1,5 @@
 import { input } from '@inquirer/prompts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { formatTicketDisplay, getTicket, TicketNotFoundError, updateTicket } from '@src/store/ticket.ts';
@@ -42,18 +43,20 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   }
 
   // Fetch existing ticket
-  let ticket;
-  try {
-    ticket = await getTicket(resolvedId);
-  } catch (err) {
-    if (err instanceof TicketNotFoundError) {
+  const ticketR = await wrapAsync(
+    () => getTicket(resolvedId),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!ticketR.ok) {
+    if (ticketR.error instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${resolvedId}`);
       showNextStep('ralphctl ticket list', 'see available tickets');
       if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
-    throw err;
+    throw ticketR.error;
   }
+  const ticket = ticketR.value;
 
   let newTitle: string | undefined;
   let newDescription: string | undefined;
@@ -71,10 +74,15 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
       validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
     });
 
-    newDescription = await editorInput({
+    const descR = await editorInput({
       message: 'Description:',
       default: ticket.description,
     });
+    if (!descR.ok) {
+      showError(`Editor input failed: ${descR.error.message}`);
+      return;
+    }
+    newDescription = descR.value;
 
     newLink = await input({
       message: `${icons.info} Link:`,
@@ -139,28 +147,32 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
     return;
   }
 
-  try {
-    const updated = await updateTicket(ticket.id, updates);
-
-    showSuccess('Ticket updated!', [
-      ['ID', updated.id],
-      ['Title', updated.title],
-      ['Project', updated.projectName],
-    ]);
-
-    if (updated.description) {
-      console.log(fieldMultiline('Description', updated.description));
-    }
-    if (updated.link) {
-      console.log(field('Link', updated.link));
-    }
-    console.log('');
-  } catch (err) {
-    if (err instanceof SprintStatusError) {
-      showError(err.message);
+  const updateR = await wrapAsync(
+    () => updateTicket(ticket.id, updates),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!updateR.ok) {
+    if (updateR.error instanceof SprintStatusError) {
+      showError(updateR.error.message);
     } else {
-      throw err;
+      throw updateR.error;
     }
     if (!isInteractive) exitWithCode(EXIT_ERROR);
+    return;
   }
+
+  const updated = updateR.value;
+  showSuccess('Ticket updated!', [
+    ['ID', updated.id],
+    ['Title', updated.title],
+    ['Project', updated.projectName],
+  ]);
+
+  if (updated.description) {
+    console.log(fieldMultiline('Description', updated.description));
+  }
+  if (updated.link) {
+    console.log(field('Link', updated.link));
+  }
+  console.log('');
 }

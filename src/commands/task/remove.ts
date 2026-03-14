@@ -1,4 +1,5 @@
 import { confirm } from '@inquirer/prompts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { getTask, removeTask, TaskNotFoundError } from '@src/store/task.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
@@ -15,33 +16,42 @@ export async function taskRemoveCommand(args: string[]): Promise<void> {
     taskId = selected;
   }
 
-  try {
-    const task = await getTask(taskId);
+  const opR = await wrapAsync(
+    async () => {
+      const task = await getTask(taskId);
 
-    if (!skipConfirm) {
-      const confirmed = await confirm({
-        message: `Remove task "${task.name}" (${task.id})?`,
-        default: false,
-      });
+      if (!skipConfirm) {
+        const confirmed = await confirm({
+          message: `Remove task "${task.name}" (${task.id})?`,
+          default: false,
+        });
 
-      if (!confirmed) {
-        console.log(muted('\nTask removal cancelled.\n'));
-        return;
+        if (!confirmed) {
+          console.log(muted('\nTask removal cancelled.\n'));
+          return null;
+        }
       }
-    }
 
-    await removeTask(taskId);
-    showSuccess('Task removed', [['ID', taskId]]);
-    log.newline();
-  } catch (err) {
-    if (err instanceof TaskNotFoundError) {
+      await removeTask(taskId);
+      return task;
+    },
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!opR.ok) {
+    if (opR.error instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
       log.newline();
-    } else if (err instanceof SprintStatusError) {
-      showError(err.message);
+    } else if (opR.error instanceof SprintStatusError) {
+      showError(opR.error.message);
       log.newline();
     } else {
-      throw err;
+      throw opR.error;
     }
+    return;
+  }
+
+  if (opR.value !== null) {
+    showSuccess('Task removed', [['ID', taskId]]);
+    log.newline();
   }
 }

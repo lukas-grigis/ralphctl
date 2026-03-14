@@ -12,6 +12,7 @@ import { getTasksFilePath } from '@src/utils/paths.ts';
 import { readValidatedJson } from '@src/utils/storage.ts';
 import { select } from '@inquirer/prompts';
 import { escapableSelect } from './escapable.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 
 // Command imports - project
 import { projectAddCommand } from '@src/commands/project/add.ts';
@@ -183,11 +184,9 @@ function showWelcomeBanner(): void {
  * Read tasks for a sprint, returning empty array if the file doesn't exist yet.
  */
 async function readTasksSafe(sprintId: string): Promise<Tasks> {
-  try {
-    return await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
-  } catch {
-    return [];
-  }
+  const result = await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
+  if (!result.ok) return [];
+  return result.value;
 }
 
 /**
@@ -277,78 +276,84 @@ export async function interactiveMode(): Promise<void> {
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
-    try {
-      const { ctx, dashboardData } = await getMenuContext();
+    const { ctx, dashboardData } = await getMenuContext();
 
-      // Clear and re-render banner + content each iteration
-      clearScreen();
-      showWelcomeBanner();
+    // Clear and re-render banner + content each iteration
+    clearScreen();
+    showWelcomeBanner();
 
-      // Persistent status header before main menu
-      const statusLines = renderStatusHeader(dashboardData);
-      if (statusLines.length > 0) {
-        for (const line of statusLines) {
-          console.log(line);
-        }
-        log.newline();
+    // Persistent status header before main menu
+    const statusLines = renderStatusHeader(dashboardData);
+    if (statusLines.length > 0) {
+      for (const line of statusLines) {
+        console.log(line);
       }
+      log.newline();
+    }
 
-      const { items: mainMenu, defaultValue } = buildMainMenu(ctx);
+    const { items: mainMenu, defaultValue } = buildMainMenu(ctx);
 
-      // ESC re-renders with Exit pre-selected; Enter on Exit actually exits
-      const effectiveDefault = escPressed ? 'exit' : defaultValue;
-      escPressed = false;
+    // ESC re-renders with Exit pre-selected; Enter on Exit actually exits
+    const effectiveDefault = escPressed ? 'exit' : defaultValue;
+    escPressed = false;
 
-      const command = await escapableSelect(
-        {
-          message: `${emoji.donut} What would you like to do?`,
-          choices: mainMenu,
-          default: effectiveDefault,
-          pageSize: 30,
-          loop: true,
-          theme: selectTheme,
-        },
-        { escLabel: 'exit' }
-      );
+    const commandResult = await wrapAsync(
+      () =>
+        escapableSelect(
+          {
+            message: `${emoji.donut} What would you like to do?`,
+            choices: mainMenu,
+            default: effectiveDefault,
+            pageSize: 30,
+            loop: true,
+            theme: selectTheme,
+          },
+          { escLabel: 'exit' }
+        ),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
 
-      if (command === null) {
-        escPressed = true;
-        continue;
-      }
-
-      if (command === 'exit') {
+    if (!commandResult.ok) {
+      if (commandResult.error.name === 'ExitPromptError') {
         showFarewell();
         break;
       }
+      throw commandResult.error;
+    }
 
-      // Direct action dispatch (next action + workflow actions)
-      if (command.startsWith('action:')) {
-        const parts = command.split(':');
-        const group = parts[1] ?? '';
-        const subCommand = parts[2] ?? '';
-        log.newline();
-        await executeCommand(group, subCommand);
-        log.newline();
-        await pressEnterToContinue();
-        continue;
-      }
+    const command = commandResult.value;
 
-      if (command === 'wizard') {
-        const { runWizard } = await import('./wizard.ts');
-        await runWizard();
-        continue;
-      }
+    if (command === null) {
+      escPressed = true;
+      continue;
+    }
 
-      const subMenu = buildSubMenu(command, ctx);
-      if (subMenu) {
-        await handleSubMenu(command, subMenu);
-      }
-    } catch (err) {
-      if ((err as Error).name === 'ExitPromptError') {
-        showFarewell();
-        break;
-      }
-      throw err;
+    if (command === 'exit') {
+      showFarewell();
+      break;
+    }
+
+    // Direct action dispatch (next action + workflow actions)
+    if (command.startsWith('action:')) {
+      const parts = command.split(':');
+      const group = parts[1] ?? '';
+      const subCommand = parts[2] ?? '';
+      log.newline();
+      await executeCommand(group, subCommand);
+      log.newline();
+      await pressEnterToContinue();
+      continue;
+    }
+
+    if (command === 'wizard') {
+      const { runWizard } = await import('./wizard.ts');
+      await runWizard();
+      continue;
+    }
+
+    const subMenu = buildSubMenu(command, ctx);
+    if (subMenu) {
+      await handleSubMenu(command, subMenu);
     }
   }
 }
@@ -367,42 +372,48 @@ async function handleSubMenu(
 
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control variable
   while (true) {
-    try {
-      log.newline();
-      const subCommand = await escapableSelect({
-        message: `${emoji.donut} ${currentTitle}`,
-        choices: currentItems,
-        pageSize: 30,
-        loop: true,
-        theme: selectTheme,
-      });
+    log.newline();
+    const subCommandResult = await wrapAsync(
+      () =>
+        escapableSelect({
+          message: `${emoji.donut} ${currentTitle}`,
+          choices: currentItems,
+          pageSize: 30,
+          loop: true,
+          theme: selectTheme,
+        }),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
 
-      if (subCommand === null || subCommand === 'back') {
-        break;
-      }
-
-      log.newline();
-      await executeCommand(commandGroup, subCommand);
-      log.newline();
-
-      // Workflow actions return to main menu so next action updates
-      if (isWorkflowAction(commandGroup, subCommand)) {
-        break;
-      }
-
-      // Management actions stay in submenu — refresh context
-      const { ctx: refreshedCtx } = await getMenuContext();
-      const refreshedMenu = buildSubMenu(commandGroup, refreshedCtx);
-      if (refreshedMenu) {
-        currentTitle = refreshedMenu.title;
-        currentItems = refreshedMenu.items;
-      }
-    } catch (err) {
-      if ((err as Error).name === 'ExitPromptError') {
+    if (!subCommandResult.ok) {
+      if (subCommandResult.error.name === 'ExitPromptError') {
         // Ctrl+C in submenu returns to main menu
         break;
       }
-      throw err;
+      throw subCommandResult.error;
+    }
+
+    const subCommand = subCommandResult.value;
+
+    if (subCommand === null || subCommand === 'back') {
+      break;
+    }
+
+    log.newline();
+    await executeCommand(commandGroup, subCommand);
+    log.newline();
+
+    // Workflow actions return to main menu so next action updates
+    if (isWorkflowAction(commandGroup, subCommand)) {
+      break;
+    }
+
+    // Management actions stay in submenu — refresh context
+    const { ctx: refreshedCtx } = await getMenuContext();
+    const refreshedMenu = buildSubMenu(commandGroup, refreshedCtx);
+    if (refreshedMenu) {
+      currentTitle = refreshedMenu.title;
+      currentItems = refreshedMenu.items;
     }
   }
 }
@@ -419,11 +430,11 @@ async function executeCommand(group: string, subCommand: string): Promise<void> 
     return;
   }
 
-  try {
-    await handler();
-  } catch (err) {
-    if (err instanceof Error) {
-      log.error(err.message);
-    }
+  const r = await wrapAsync(
+    () => handler(),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!r.ok) {
+    log.error(r.error.message);
   }
 }

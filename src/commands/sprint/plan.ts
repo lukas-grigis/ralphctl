@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -88,17 +90,20 @@ async function getSprintContext(
     lines.push(`## Project: ${projectName}`);
 
     // Get project repositories
-    try {
-      const project = await getProject(projectName);
+    const projectR = await wrapAsync(
+      () => getProject(projectName),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (projectR.ok) {
       lines.push('');
       lines.push('### Repositories');
-      for (const repo of project.repositories) {
+      for (const repo of projectR.value.repositories) {
         lines.push(`- **${repo.name}**: ${repo.path}`);
         if (repo.checkScript) {
           lines.push(`  - Check: \`${repo.checkScript}\``);
         }
       }
-    } catch {
+    } else {
       lines.push('Repositories: (project not found)');
     }
     lines.push('');
@@ -200,26 +205,27 @@ async function invokeAiAuto(prompt: string, repoPaths: string[], planDir: string
 export async function sprintPlanCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(
+    () => resolveSprintId(sprintId),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showNextStep('ralphctl sprint create', 'create a new sprint');
     log.newline();
     return;
   }
+  const id = idR.value;
 
   const sprint = await getSprint(id);
 
   // Check sprint status — draft only
-  try {
+  const statusR = Result.try(() => {
     assertSprintStatus(sprint, ['draft'], 'plan');
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-      log.newline();
-    }
+  });
+  if (!statusR.ok) {
+    showError(statusR.error.message);
+    log.newline();
     return;
   }
 
@@ -296,13 +302,15 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
 
   for (const ticket of ticketsToProcess) {
     if (reposByProject.has(ticket.projectName)) continue; // Already processed
-    try {
-      const project = await getProject(ticket.projectName);
-      reposByProject.set(ticket.projectName, project.repositories);
-      if (project.repositories[0]) defaultPaths.push(project.repositories[0].path);
-    } catch {
-      // Project not found, skip
+    const projectR = await wrapAsync(
+      () => getProject(ticket.projectName),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (projectR.ok) {
+      reposByProject.set(ticket.projectName, projectR.value.repositories);
+      if (projectR.value.repositories[0]) defaultPaths.push(projectR.value.repositories[0].path);
     }
+    // Project not found — skip silently
   }
 
   // Collect previously saved affected repos from tickets being planned (for resumability)
@@ -388,19 +396,19 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`${providerName} is planning tasks...`);
     spinner.start();
 
-    let output: string;
-    try {
-      output = await invokeAiAuto(prompt, selectedPaths, planDir);
-      spinner.succeed(`${providerName} finished planning`);
-    } catch (err) {
+    const outputR = await wrapAsync(
+      () => invokeAiAuto(prompt, selectedPaths, planDir),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (!outputR.ok) {
       spinner.fail(`${providerName} planning failed`);
-      if (err instanceof Error) {
-        showError(`Failed to invoke ${providerName}: ${err.message}`);
-        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
-        log.newline();
-      }
+      showError(`Failed to invoke ${providerName}: ${outputR.error.message}`);
+      showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
+      log.newline();
       return;
     }
+    spinner.succeed(`${providerName} finished planning`);
+    const output = outputR.value;
 
     // Check for planning-blocked signal before parsing JSON
     const blockedReason = parsePlanningBlocked(output);
@@ -411,18 +419,15 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     }
 
     console.log(muted('Parsing response...'));
-    let parsedTasks: ImportTask[];
-    try {
-      parsedTasks = parseTasksJson(output);
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to parse ${providerName} output: ${err.message}`);
-        log.dim('Raw output:');
-        console.log(output);
-        log.newline();
-      }
+    const parsedR = Result.try(() => parseTasksJson(output));
+    if (!parsedR.ok) {
+      showError(`Failed to parse ${providerName} output: ${parsedR.error.message}`);
+      log.dim('Raw output:');
+      console.log(output);
+      log.newline();
       return;
     }
+    const parsedTasks: ImportTask[] = parsedR.value;
 
     if (parsedTasks.length === 0) {
       showWarning('No tasks generated.');
@@ -471,14 +476,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     console.log(muted(`\n  ${providerName} will read planning-context.md and explore the repos.`));
     console.log(muted(`  When done, ask ${providerName} to write tasks to: ${outputFile}\n`));
 
-    try {
-      await invokeAiInteractive(prompt, selectedPaths, planDir);
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to invoke ${providerName}: ${err.message}`);
-        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
-        log.newline();
-      }
+    const interactiveR = await wrapAsync(
+      () => invokeAiInteractive(prompt, selectedPaths, planDir),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (!interactiveR.ok) {
+      showError(`Failed to invoke ${providerName}: ${interactiveR.error.message}`);
+      showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
+      log.newline();
       return;
     }
 
@@ -487,25 +492,23 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     if (await fileExists(outputFile)) {
       showInfo('Task file found. Processing...');
 
-      let content: string;
-      try {
-        content = await readFile(outputFile, 'utf-8');
-      } catch {
+      const contentR = await wrapAsync(
+        () => readFile(outputFile, 'utf-8'),
+        (err) => (err instanceof Error ? err : new Error(String(err)))
+      );
+      if (!contentR.ok) {
         showError(`Failed to read task file: ${outputFile}`);
         log.newline();
         return;
       }
 
-      let parsedTasks: ImportTask[];
-      try {
-        parsedTasks = parseTasksJson(content);
-      } catch (err) {
-        if (err instanceof Error) {
-          showError(`Failed to parse task file: ${err.message}`);
-          log.newline();
-        }
+      const parsedR = Result.try(() => parseTasksJson(contentR.value));
+      if (!parsedR.ok) {
+        showError(`Failed to parse task file: ${parsedR.error.message}`);
+        log.newline();
         return;
       }
+      const parsedTasks: ImportTask[] = parsedR.value;
 
       if (parsedTasks.length === 0) {
         showWarning('No tasks in file.');

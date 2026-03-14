@@ -194,8 +194,7 @@ export class ProcessManager {
       try {
         callback();
       } catch (err) {
-        const error = err as Error;
-        console.error('Error in cleanup callback:', error.message);
+        console.error('Error in cleanup callback:', err instanceof Error ? err.message : String(err));
       }
     }
     this.cleanupCallbacks.clear();

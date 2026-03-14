@@ -1,8 +1,10 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { Result } from 'typescript-result';
 import { emoji } from '@src/theme/ui.ts';
 import { muted } from '@src/theme/index.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { escapableSelect } from './escapable.ts';
 
 interface BrowseChoice {
@@ -16,39 +18,30 @@ interface BrowseChoice {
  * Excludes hidden directories (starting with .).
  */
 function listDirectories(dirPath: string): string[] {
-  try {
-    const entries = readdirSync(dirPath, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-      .map((e) => e.name)
-      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-  } catch {
-    return [];
-  }
+  const r = Result.try(() => readdirSync(dirPath, { withFileTypes: true }));
+  if (!r.ok) return [];
+  return r.value
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e) => e.name)
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 }
 
 /**
  * Check if a directory contains subdirectories.
  */
 function hasSubdirectories(dirPath: string): boolean {
-  try {
-    const entries = readdirSync(dirPath, { withFileTypes: true });
-    return entries.some((e) => e.isDirectory() && !e.name.startsWith('.'));
-  } catch {
-    return false;
-  }
+  const r = Result.try(() => readdirSync(dirPath, { withFileTypes: true }));
+  if (!r.ok) return false;
+  return r.value.some((e) => e.isDirectory() && !e.name.startsWith('.'));
 }
 
 /**
  * Check if a path is likely a git repository.
  */
 function isGitRepo(dirPath: string): boolean {
-  try {
-    const gitDir = join(dirPath, '.git');
-    return statSync(gitDir).isDirectory();
-  } catch {
-    return false;
-  }
+  const r = Result.try(() => statSync(join(dirPath, '.git')));
+  if (!r.ok) return false;
+  return r.value.isDirectory();
 }
 
 /**
@@ -115,39 +108,43 @@ export async function browseDirectory(message = 'Browse to directory:', startPat
       value: '__CANCEL__',
     });
 
-    try {
-      const selected = await escapableSelect({
-        message: `${emoji.donut} ${message}\n   ${muted(currentPath)}`,
-        choices,
-        pageSize: 15,
-        loop: false,
-      });
+    const selectResult = await wrapAsync(
+      () =>
+        escapableSelect({
+          message: `${emoji.donut} ${message}\n   ${muted(currentPath)}`,
+          choices,
+          pageSize: 15,
+          loop: false,
+        }),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
 
-      if (selected === null) {
-        return null;
-      }
-
-      switch (selected) {
-        case '__SELECT__':
-          return currentPath;
-        case '__PARENT__':
-          currentPath = parentDir;
-          break;
-        case '__HOME__':
-          currentPath = homedir();
-          break;
-        case '__CANCEL__':
-          return null;
-        default:
-          // Navigate into selected directory
-          currentPath = selected;
-      }
-    } catch (err) {
+    if (!selectResult.ok) {
       // Handle Ctrl+C
-      if ((err as Error).name === 'ExitPromptError') {
+      if (selectResult.error.name === 'ExitPromptError') return null;
+      throw selectResult.error;
+    }
+
+    const selected = selectResult.value;
+
+    if (selected === null) {
+      return null;
+    }
+
+    switch (selected) {
+      case '__SELECT__':
+        return currentPath;
+      case '__PARENT__':
+        currentPath = parentDir;
+        break;
+      case '__HOME__':
+        currentPath = homedir();
+        break;
+      case '__CANCEL__':
         return null;
-      }
-      throw err;
+      default:
+        // Navigate into selected directory
+        currentPath = selected;
     }
   }
 }

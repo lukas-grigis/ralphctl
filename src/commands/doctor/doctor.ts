@@ -1,6 +1,7 @@
 import { access, constants } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { getConfig } from '@src/store/config.ts';
 import { listProjects } from '@src/store/project.ts';
 import { SprintSchema } from '@src/schemas/index.ts';
@@ -127,12 +128,14 @@ export function checkGlabInstalled(): CheckResult {
 export async function checkDataDirectory(): Promise<CheckResult> {
   const dataDir = getDataDir();
 
-  try {
-    await access(dataDir, constants.R_OK | constants.W_OK);
+  const accessR = await wrapAsync(
+    () => access(dataDir, constants.R_OK | constants.W_OK),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (accessR.ok) {
     return { name: 'Data directory', status: 'pass', detail: dataDir };
-  } catch {
-    return { name: 'Data directory', status: 'fail', detail: `${dataDir} not accessible or writable` };
   }
+  return { name: 'Data directory', status: 'fail', detail: `${dataDir} not accessible or writable` };
 }
 
 /**
@@ -150,8 +153,8 @@ export async function checkProjectPaths(): Promise<CheckResult> {
   for (const project of projects) {
     for (const repo of project.repositories) {
       const validation = await validateProjectPath(repo.path);
-      if (validation !== true) {
-        issues.push(`${project.name}/${repo.name}: ${validation}`);
+      if (!validation.ok) {
+        issues.push(`${project.name}/${repo.name}: ${validation.error.message}`);
         continue;
       }
 
@@ -190,13 +193,11 @@ export async function checkCurrentSprint(): Promise<CheckResult> {
     return { name: 'Current sprint', status: 'fail', detail: `sprint file missing: ${sprintId}` };
   }
 
-  try {
-    const sprint = await readValidatedJson(sprintPath, SprintSchema);
-    return { name: 'Current sprint', status: 'pass', detail: `${sprint.name} (${sprint.status})` };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { name: 'Current sprint', status: 'fail', detail: `invalid sprint data: ${message}` };
+  const result = await readValidatedJson(sprintPath, SprintSchema);
+  if (!result.ok) {
+    return { name: 'Current sprint', status: 'fail', detail: `invalid sprint data: ${result.error.message}` };
   }
+  return { name: 'Current sprint', status: 'pass', detail: `${result.value.name} (${result.value.status})` };
 }
 
 /**

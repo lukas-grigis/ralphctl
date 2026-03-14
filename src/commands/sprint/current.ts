@@ -1,3 +1,4 @@
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { getCurrentSprint, setCurrentSprint } from '@src/store/config.ts';
 import { getSprint, SprintNotFoundError } from '@src/store/sprint.ts';
 import { selectSprint } from '@src/interactive/selectors.ts';
@@ -25,14 +26,17 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
       return;
     }
 
-    try {
-      const sprint = await getSprint(currentSprintId);
+    const sprintR = await wrapAsync(
+      () => getSprint(currentSprintId),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (sprintR.ok) {
       printHeader('Current Sprint');
-      console.log(field('ID', sprint.id));
-      console.log(field('Name', sprint.name));
-      console.log(field('Status', formatSprintStatus(sprint.status)));
+      console.log(field('ID', sprintR.value.id));
+      console.log(field('Name', sprintR.value.name));
+      console.log(field('Status', formatSprintStatus(sprintR.value.status)));
       log.newline();
-    } catch {
+    } else {
       showWarning(`Current sprint "${currentSprintId}" no longer exists.`);
       showNextStep('ralphctl sprint current -', 'select a different sprint');
       log.newline();
@@ -54,22 +58,26 @@ export async function sprintCurrentCommand(args: string[]): Promise<void> {
     log.newline();
   } else {
     // Set by ID
-    try {
-      const sprint = await getSprint(sprintId);
-      await setCurrentSprint(sprintId);
+    const setR = await wrapAsync(
+      async () => {
+        const sprint = await getSprint(sprintId);
+        await setCurrentSprint(sprintId);
+        return sprint;
+      },
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (setR.ok) {
       showSuccess('Current sprint set!', [
-        ['ID', sprint.id],
-        ['Name', sprint.name],
+        ['ID', setR.value.id],
+        ['Name', setR.value.name],
       ]);
       log.newline();
-    } catch (err) {
-      if (err instanceof SprintNotFoundError) {
-        showError(`Sprint not found: ${sprintId}`);
-        showNextStep('ralphctl sprint list', 'see available sprints');
-        log.newline();
-      } else {
-        throw err;
-      }
+    } else if (setR.error instanceof SprintNotFoundError) {
+      showError(`Sprint not found: ${sprintId}`);
+      showNextStep('ralphctl sprint list', 'see available sprints');
+      log.newline();
+    } else {
+      throw setR.error;
     }
   }
 }

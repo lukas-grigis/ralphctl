@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import { Result } from 'typescript-result';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { createSpinner, log, showError, showNextStep } from '@src/theme/ui.ts';
 import { addTask, getTasks, saveTasks, validateImportTasks } from '@src/store/task.ts';
@@ -32,23 +34,23 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     return;
   }
 
-  let content: string;
-  try {
-    content = await readFile(filePath, 'utf-8');
-  } catch {
+  const contentR = await wrapAsync(
+    () => readFile(filePath, 'utf-8'),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!contentR.ok) {
     showError(`Failed to read file: ${filePath}`);
     log.newline();
     return;
   }
 
-  let data: unknown;
-  try {
-    data = JSON.parse(content);
-  } catch {
+  const dataR = Result.try(() => JSON.parse(contentR.value) as unknown);
+  if (!dataR.ok) {
     showError('Invalid JSON format.');
     log.newline();
     return;
   }
+  const data = dataR.value;
 
   const result = ImportTasksSchema.safeParse(data);
   if (!result.success) {
@@ -90,43 +92,45 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   const spinner = createSpinner(`Importing ${String(tasks.length)} task(s)...`).start();
   let imported = 0;
   for (const taskInput of tasks) {
-    try {
-      // projectPath is required from the schema
-      const task = await addTask({
-        name: taskInput.name,
-        description: taskInput.description,
-        steps: taskInput.steps ?? [],
-        ticketId: taskInput.ticketId,
-        blockedBy: [], // Set later
-        projectPath: taskInput.projectPath,
-      });
-
-      // Map local ID to real ID
-      if (taskInput.id) {
-        localToRealId.set(taskInput.id, task.id);
-      }
-
-      createdTasks.push({ task: taskInput, realId: task.id });
-      imported++;
-      spinner.text = `Importing tasks... (${String(imported)}/${String(tasks.length)})`;
-    } catch (err) {
-      if (err instanceof SprintStatusError) {
+    const addR = await wrapAsync(
+      () =>
+        addTask({
+          name: taskInput.name,
+          description: taskInput.description,
+          steps: taskInput.steps ?? [],
+          ticketId: taskInput.ticketId,
+          blockedBy: [], // Set later
+          projectPath: taskInput.projectPath,
+        }),
+      (err) => (err instanceof Error ? err : new Error(String(err)))
+    );
+    if (!addR.ok) {
+      if (addR.error instanceof SprintStatusError) {
         spinner.fail('Import failed');
-        showError(err.message);
+        showError(addR.error.message);
         log.newline();
         return;
       }
       log.itemError(`Failed to add: ${taskInput.name}`);
-      if (err instanceof Error) {
-        console.log(muted(`    ${err.message}`));
-      }
+      console.log(muted(`    ${addR.error.message}`));
+      continue;
     }
+
+    const task = addR.value;
+    // Map local ID to real ID
+    if (taskInput.id) {
+      localToRealId.set(taskInput.id, task.id);
+    }
+
+    createdTasks.push({ task: taskInput, realId: task.id });
+    imported++;
+    spinner.text = `Importing tasks... (${String(imported)}/${String(tasks.length)})`;
   }
 
   // Second pass: update blockedBy with resolved real IDs (under file lock)
   spinner.text = 'Resolving task dependencies...';
   const tasksFilePath = getTasksFilePath(sprintId);
-  await withFileLock(tasksFilePath, async () => {
+  const lockR = await withFileLock(tasksFilePath, async () => {
     const allTasks = await getTasks();
     for (const { task: taskInput, realId } of createdTasks) {
       const blockedBy = (taskInput.blockedBy ?? [])
@@ -142,6 +146,11 @@ export async function taskImportCommand(args: string[]): Promise<void> {
     }
     await saveTasks(allTasks);
   });
+  if (!lockR.ok) {
+    showError(`Failed to update dependencies: ${lockR.error.message}`);
+    log.newline();
+    return;
+  }
 
   spinner.succeed(`Imported ${String(imported)}/${String(tasks.length)} tasks`);
   for (const { task: taskInput, realId } of createdTasks) {

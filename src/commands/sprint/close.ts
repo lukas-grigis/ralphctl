@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { confirm } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { closeSprint, getSprint, listSprints, SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/store/task.ts';
@@ -66,26 +68,17 @@ export async function sprintCloseCommand(args: string[]): Promise<void> {
     }
   }
 
-  try {
-    // Load sprint before closing (need branch info for PR creation)
-    const sprintBeforeClose = await getSprint(sprintId);
-    const sprint = await closeSprint(sprintId);
-    showSuccess('Sprint closed!', [
-      ['ID', sprint.id],
-      ['Name', sprint.name],
-      ['Status', formatSprintStatus(sprint.status)],
-    ]);
-    showRandomQuote();
-    log.newline();
-
-    // Create PRs if requested and sprint had a branch
-    if (createPr && sprintBeforeClose.branch) {
-      await createPullRequests(sprintId, sprintBeforeClose.branch, sprint.name);
-    } else if (createPr && !sprintBeforeClose.branch) {
-      log.dim('No sprint branch set — skipping PR creation.');
-      log.newline();
-    }
-  } catch (err) {
+  const closeR = await wrapAsync(
+    async () => {
+      // Load sprint before closing (need branch info for PR creation)
+      const sprintBeforeClose = await getSprint(sprintId);
+      const sprint = await closeSprint(sprintId);
+      return { sprintBeforeClose, sprint };
+    },
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!closeR.ok) {
+    const err = closeR.error;
     if (err instanceof SprintNotFoundError) {
       showError(`Sprint not found: ${sprintId}`);
       log.newline();
@@ -95,6 +88,24 @@ export async function sprintCloseCommand(args: string[]): Promise<void> {
     } else {
       throw err;
     }
+    return;
+  }
+
+  const { sprintBeforeClose, sprint } = closeR.value;
+  showSuccess('Sprint closed!', [
+    ['ID', sprint.id],
+    ['Name', sprint.name],
+    ['Status', formatSprintStatus(sprint.status)],
+  ]);
+  showRandomQuote();
+  log.newline();
+
+  // Create PRs if requested and sprint had a branch
+  if (createPr && sprintBeforeClose.branch) {
+    await createPullRequests(sprintId, sprintBeforeClose.branch, sprint.name);
+  } else if (createPr && !sprintBeforeClose.branch) {
+    log.dim('No sprint branch set — skipping PR creation.');
+    log.newline();
   }
 }
 
@@ -114,66 +125,69 @@ async function createPullRequests(sprintId: string, branchName: string, sprintNa
   const uniquePaths = [...new Set(tasks.map((t) => t.projectPath))];
 
   for (const projectPath of uniquePaths) {
-    try {
+    const prR = Result.try(() => {
       assertSafeCwd(projectPath);
+      return { branchExists: branchExists(projectPath, branchName) };
+    });
+    if (!prR.ok) {
+      showWarning(`Error creating PR for ${projectPath}: ${prR.error.message}`);
+      continue;
+    }
 
-      if (!branchExists(projectPath, branchName)) {
-        log.dim(`Branch '${branchName}' not found in ${projectPath} — skipping`);
-        continue;
-      }
+    if (!prR.value.branchExists) {
+      log.dim(`Branch '${branchName}' not found in ${projectPath} — skipping`);
+      continue;
+    }
 
-      const baseBranch = getDefaultBranch(projectPath);
-      const title = `Sprint: ${sprintName}`;
+    const baseBranch = getDefaultBranch(projectPath);
+    const title = `Sprint: ${sprintName}`;
 
-      log.info(`Creating PR in ${projectPath}...`);
+    log.info(`Creating PR in ${projectPath}...`);
 
-      // Push the branch first
-      const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], {
+    // Push the branch first
+    const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], {
+      cwd: projectPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (pushResult.status !== 0) {
+      showWarning(`Failed to push branch in ${projectPath}: ${pushResult.stderr.trim()}`);
+      log.dim(
+        `  Manual: cd ${projectPath} && git push -u origin ${branchName} && gh pr create --base ${baseBranch} --head ${branchName} --title "${title}"`
+      );
+      continue;
+    }
+
+    const result = spawnSync(
+      'gh',
+      [
+        'pr',
+        'create',
+        '--base',
+        baseBranch,
+        '--head',
+        branchName,
+        '--title',
+        title,
+        '--body',
+        `Sprint: ${sprintName}\nID: ${sprintId}`,
+      ],
+      {
         cwd: projectPath,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      if (pushResult.status !== 0) {
-        showWarning(`Failed to push branch in ${projectPath}: ${pushResult.stderr.trim()}`);
-        log.dim(
-          `  Manual: cd ${projectPath} && git push -u origin ${branchName} && gh pr create --base ${baseBranch} --head ${branchName} --title "${title}"`
-        );
-        continue;
       }
+    );
 
-      const result = spawnSync(
-        'gh',
-        [
-          'pr',
-          'create',
-          '--base',
-          baseBranch,
-          '--head',
-          branchName,
-          '--title',
-          title,
-          '--body',
-          `Sprint: ${sprintName}\nID: ${sprintId}`,
-        ],
-        {
-          cwd: projectPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }
+    if (result.status === 0) {
+      const prUrl = result.stdout.trim();
+      showSuccess(`PR created: ${prUrl}`);
+    } else {
+      showWarning(`Failed to create PR in ${projectPath}: ${result.stderr.trim()}`);
+      log.dim(
+        `  Manual: cd ${projectPath} && gh pr create --base ${baseBranch} --head ${branchName} --title "${title}"`
       );
-
-      if (result.status === 0) {
-        const prUrl = result.stdout.trim();
-        showSuccess(`PR created: ${prUrl}`);
-      } else {
-        showWarning(`Failed to create PR in ${projectPath}: ${result.stderr.trim()}`);
-        log.dim(
-          `  Manual: cd ${projectPath} && gh pr create --base ${baseBranch} --head ${branchName} --title "${title}"`
-        );
-      }
-    } catch (err) {
-      showWarning(`Error creating PR for ${projectPath}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   log.newline();

@@ -1,3 +1,5 @@
+import { Result } from 'typescript-result';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 import { getCurrentSprintOrThrow } from '@src/store/sprint.ts';
 import { getTasks } from '@src/store/task.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
@@ -127,13 +129,11 @@ function checkBranchConsistency(sprint: Sprint, tasks: Task[]): HealthCheck {
   const items: string[] = [];
 
   for (const projectPath of uniquePaths) {
-    try {
-      const current = getCurrentBranch(projectPath);
-      if (current !== sprint.branch) {
-        items.push(`${projectPath} — on '${current}', expected '${sprint.branch}'`);
-      }
-    } catch {
+    const branchR = Result.try(() => getCurrentBranch(projectPath));
+    if (!branchR.ok) {
       items.push(`${projectPath} — unable to determine branch`);
+    } else if (branchR.value !== sprint.branch) {
+      items.push(`${projectPath} — on '${branchR.value}', expected '${sprint.branch}'`);
     }
   }
 
@@ -182,17 +182,15 @@ function renderCheckCard(check: HealthCheck): string {
 // ============================================================================
 
 export async function sprintHealthCommand(): Promise<void> {
-  let sprint: Sprint;
-  try {
-    sprint = await getCurrentSprintOrThrow();
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-    } else {
-      showError('Unknown error');
-    }
+  const sprintR = await wrapAsync(
+    () => getCurrentSprintOrThrow(),
+    (err) => (err instanceof Error ? err : new Error(String(err)))
+  );
+  if (!sprintR.ok) {
+    showError(sprintR.error.message);
     return;
   }
+  const sprint: Sprint = sprintR.value;
 
   const tasks = await getTasks(sprint.id);
 
