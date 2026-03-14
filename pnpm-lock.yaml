@@ -26,6 +26,9 @@ importers:
       tabtab:
         specifier: ^3.0.2
         version: 3.0.2
+      typescript-result:
+        specifier: ^3.5.2
+        version: 3.5.2
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1498,6 +1501,10 @@ packages:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
       typescript: '>=4.8.4 <6.0.0'
 
+  typescript-result@3.5.2:
+    resolution: {integrity: sha512-kYBOXx/WOdwnfRfkOgEy+Or0VKxR9No1znb+5jPBYplksjx/koluC/OwIgBgYCCPgukxMuwXqMcv1qSDlvrlFA==}
+    engines: {node: '>=18'}
+
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -2911,6 +2918,8 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
+
+  typescript-result@3.5.2: {}
 
   typescript@5.9.3: {}
 
