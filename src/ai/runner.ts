@@ -1,4 +1,6 @@
 import { confirm, input, select } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, printHeader, showError, showRandomQuote, showSuccess, showWarning, terminalBell } from '@src/theme/ui.ts';
 import {
   activateSprint,
@@ -39,10 +41,7 @@ import {
   verifyCurrentBranch,
 } from '@src/utils/git.ts';
 
-// Re-export types for convenience
 export type { ExecutorOptions, ExecutionSummary } from '@src/ai/executor.ts';
-
-// Alias for backward compatibility
 export type RunnerOptions = ExecutorOptions;
 
 // ============================================================================
@@ -135,25 +134,22 @@ export async function ensureSprintBranches(sprintId: string, sprint: Sprint, bra
 
   // Check for uncommitted changes in all repos first (fail-fast)
   for (const projectPath of uniquePaths) {
-    try {
-      if (hasUncommittedChanges(projectPath)) {
-        throw new Error(
-          `Repository at ${projectPath} has uncommitted changes. ` + 'Commit or stash them before starting the sprint.'
-        );
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('uncommitted changes')) {
-        throw err;
-      }
-      // Not a git repo or other git error — skip with notice
+    const uncommittedR = Result.try(() => hasUncommittedChanges(projectPath));
+    if (!uncommittedR.ok) {
+      // hasUncommittedChanges threw — not a git repo or other git error
       log.dim(`  Skipping ${projectPath} — not a git repository`);
       continue;
+    }
+    if (uncommittedR.value) {
+      throw new Error(
+        `Repository at ${projectPath} has uncommitted changes. ` + 'Commit or stash them before starting the sprint.'
+      );
     }
   }
 
   // Create/checkout branch in each repo
   for (const projectPath of uniquePaths) {
-    try {
+    const branchR = Result.try(() => {
       const currentBranch = getCurrentBranch(projectPath);
       if (currentBranch === branchName) {
         log.dim(`  Already on branch '${branchName}' in ${projectPath}`);
@@ -161,11 +157,11 @@ export async function ensureSprintBranches(sprintId: string, sprint: Sprint, bra
         createAndCheckoutBranch(projectPath, branchName);
         log.success(`  Branch '${branchName}' ready in ${projectPath}`);
       }
-    } catch (err) {
-      throw new Error(
-        `Failed to create branch '${branchName}' in ${projectPath}: ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err }
-      );
+    });
+    if (!branchR.ok) {
+      throw new Error(`Failed to create branch '${branchName}' in ${projectPath}: ${branchR.error.message}`, {
+        cause: branchR.error,
+      });
     }
   }
 
@@ -183,18 +179,14 @@ export async function ensureSprintBranches(sprintId: string, sprint: Sprint, bra
  * @returns true if on correct branch, false if recovery failed
  */
 export function verifySprintBranch(projectPath: string, expectedBranch: string): boolean {
-  try {
-    if (verifyCurrentBranch(projectPath, expectedBranch)) {
-      return true;
-    }
-
+  const r = Result.try(() => {
+    if (verifyCurrentBranch(projectPath, expectedBranch)) return true;
     // Attempt auto-recovery
     log.dim(`  Branch mismatch in ${projectPath} — checking out '${expectedBranch}'`);
     createAndCheckoutBranch(projectPath, expectedBranch);
     return verifyCurrentBranch(projectPath, expectedBranch);
-  } catch {
-    return false;
-  }
+  });
+  return r.ok ? r.value : false;
 }
 
 // ============================================================================
@@ -399,30 +391,28 @@ export async function runSprint(
 
   // Ensure sprint branches are created/checked out in all repos
   if (branchName) {
-    try {
-      await ensureSprintBranches(id, sprint, branchName);
-    } catch (err) {
+    const ensureR = await wrapAsync(() => ensureSprintBranches(id, sprint, branchName), ensureError);
+    if (!ensureR.ok) {
       log.newline();
-      showError(err instanceof Error ? err.message : String(err));
+      showError(ensureR.error.message);
       log.newline();
       return undefined;
     }
   }
 
   // Reorder tasks by dependencies
-  try {
-    await reorderByDependencies(id);
-    log.dim('Tasks reordered by dependencies');
-  } catch (err) {
-    if (err instanceof DependencyCycleError) {
+  const reorderR = await wrapAsync(() => reorderByDependencies(id), ensureError);
+  if (!reorderR.ok) {
+    if (reorderR.error instanceof DependencyCycleError) {
       log.newline();
-      showWarning(err.message);
+      showWarning(reorderR.error.message);
       log.dim('Fix the dependency cycle before starting.');
       log.newline();
       return undefined;
     }
-    throw err;
+    throw reorderR.error;
   }
+  log.dim('Tasks reordered by dependencies');
 
   // Stage zero: run check scripts for all repositories
   const checkResult = await runCheckScripts(id, sprint, options.refreshCheck);

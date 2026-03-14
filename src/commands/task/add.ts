@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/theme/ui.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
@@ -30,13 +31,14 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
   const isInteractive = options.interactive !== false;
 
   // FAIL FAST: Check sprint status before collecting any input
-  try {
+  const statusCheckR = await wrapAsync(async () => {
     const sprintId = await resolveSprintId();
     const sprint = await getSprint(sprintId);
     assertSprintStatus(sprint, ['draft'], 'add tasks');
-  } catch (err) {
+  }, ensureError);
+  if (!statusCheckR.ok) {
+    const err = statusCheckR.error;
     if (err instanceof SprintStatusError) {
-      // Show only the main error, not the built-in hint
       const mainError = err.message.split('\n')[0] ?? err.message;
       showError(mainError);
       showNextSteps([
@@ -96,28 +98,31 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
 
     // Get project path from ticket or option
     if (ticketId) {
-      try {
-        const ticket = await getTicket(ticketId);
-        // Get first repository path from project
+      const resolvedTicketId = ticketId;
+      const ticketProjectR = await wrapAsync(async () => {
+        const ticket = await getTicket(resolvedTicketId);
         const project = await getProject(ticket.projectName);
-        projectPath = project.repositories[0]?.path;
-      } catch {
+        return project.repositories[0]?.path;
+      }, ensureError);
+      if (ticketProjectR.ok) {
+        projectPath = ticketProjectR.value;
+      } else {
         if (!trimmedProject) {
           showError(`Ticket not found: ${ticketId}`);
           console.log(muted('  Provide --project or a valid --ticket\n'));
           exitWithCode(EXIT_ERROR);
         }
         const validation = await validateProjectPath(trimmedProject);
-        if (validation !== true) {
-          showError(`Invalid project path: ${validation}`);
+        if (!validation.ok) {
+          showError(`Invalid project path: ${validation.error.message}`);
           exitWithCode(EXIT_ERROR);
         }
         projectPath = resolve(trimmedProject);
       }
     } else if (trimmedProject) {
       const validation = await validateProjectPath(trimmedProject);
-      if (validation !== true) {
-        showError(`Invalid project path: ${validation}`);
+      if (!validation.ok) {
+        showError(`Invalid project path: ${validation.error.message}`);
         exitWithCode(EXIT_ERROR);
       }
       projectPath = resolve(trimmedProject);
@@ -134,10 +139,15 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
       validate: (v) => (v.trim().length > 0 ? true : 'Name is required'),
     });
 
-    description = await editorInput({
+    const descR = await editorInput({
       message: 'Description (optional):',
       default: options.description?.trim(),
     });
+    if (!descR.ok) {
+      showError(`Editor input failed: ${descR.error.message}`);
+      return;
+    }
+    description = descR.value;
 
     // Add steps one by one
     steps = options.steps ? [...options.steps] : [];
@@ -183,8 +193,9 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
         ticketId = ticketChoice;
         const ticket = tickets.find((t) => t.id === ticketChoice);
         if (ticket) {
-          try {
-            const project = await getProject(ticket.projectName);
+          const projR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
+          if (projR.ok) {
+            const project = projR.value;
             // Auto-select first repo for ticket, or prompt if multiple
             if (project.repositories.length === 1) {
               projectPath = project.repositories[0]?.path;
@@ -199,20 +210,23 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
                 })),
               });
             }
-          } catch {
+          } else {
             log.warn(`Project '${ticket.projectName}' not found, will prompt for path.`);
           }
         }
       }
     } else if (options.ticket) {
       ticketId = options.ticket;
-      try {
-        const ticket = await getTicket(ticketId);
+      const resolvedTicketId = ticketId;
+      const tpR = await wrapAsync(async () => {
+        const ticket = await getTicket(resolvedTicketId);
         const project = await getProject(ticket.projectName);
-        projectPath = project.repositories[0]?.path;
-      } catch {
-        // Will prompt for project below
+        return project.repositories[0]?.path;
+      }, ensureError);
+      if (tpR.ok) {
+        projectPath = tpR.value;
       }
+      // Will prompt for project below if not found
     }
 
     // If no project from ticket, use two-step selector
@@ -235,7 +249,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
             default: options.project?.trim() ?? process.cwd(),
             validate: async (v) => {
               const result = await validateProjectPath(v.trim());
-              return result;
+              return result.ok ? true : result.error.message;
             },
           });
           projectPath = resolve(expandTilde(projectPath.trim()));
@@ -254,7 +268,7 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
           default: options.project?.trim() ?? process.cwd(),
           validate: async (v) => {
             const result = await validateProjectPath(v.trim());
-            return result;
+            return result.ok ? true : result.error.message;
           },
         });
         projectPath = resolve(expandTilde(projectPath.trim()));
@@ -272,36 +286,11 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
     exitWithCode(EXIT_ERROR);
   }
 
-  try {
-    const task = await addTask({
-      name,
-      description,
-      steps,
-      ticketId,
-      projectPath,
-    });
-
-    showSuccess('Task added!', [
-      ['ID', task.id],
-      ['Name', task.name],
-      ['Project', task.projectPath],
-      ['Order', String(task.order)],
-    ]);
-
-    if (task.ticketId) {
-      console.log(field('Ticket', task.ticketId));
-    }
-    if (task.steps.length > 0) {
-      console.log(field('Steps', ''));
-      task.steps.forEach((step, i) => {
-        console.log(muted(`    ${String(i + 1)}. ${step}`));
-      });
-    }
-    console.log('');
-  } catch (err) {
-    if (err instanceof SprintStatusError) {
+  const addR = await wrapAsync(() => addTask({ name, description, steps, ticketId, projectPath }), ensureError);
+  if (!addR.ok) {
+    if (addR.error instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)
-      const mainError = err.message.split('\n')[0] ?? err.message;
+      const mainError = addR.error.message.split('\n')[0] ?? addR.error.message;
       showError(mainError);
       showNextSteps([
         ['ralphctl sprint close', 'close current sprint'],
@@ -311,6 +300,25 @@ export async function taskAddCommand(options: TaskAddOptions = {}): Promise<void
       if (!isInteractive) exitWithCode(EXIT_ERROR);
       return;
     }
-    throw err;
+    throw addR.error;
   }
+
+  const task = addR.value;
+  showSuccess('Task added!', [
+    ['ID', task.id],
+    ['Name', task.name],
+    ['Project', task.projectPath],
+    ['Order', String(task.order)],
+  ]);
+
+  if (task.ticketId) {
+    console.log(field('Ticket', task.ticketId));
+  }
+  if (task.steps.length > 0) {
+    console.log(field('Steps', ''));
+    task.steps.forEach((step, i) => {
+      console.log(muted(`    ${String(i + 1)}. ${step}`));
+    });
+  }
+  console.log('');
 }

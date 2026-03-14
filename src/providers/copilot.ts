@@ -1,6 +1,8 @@
 import { lstat, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
+import { IOError } from '@src/errors.ts';
+import type { ParsedOutput, ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
+import { wrapAsync } from '@src/utils/result-helpers.ts';
 
 /**
  * GitHub Copilot CLI adapter.
@@ -36,7 +38,7 @@ export const copilotAdapter: ProviderAdapter = {
     return ['-p', '-s', '--autopilot', '--no-ask-user', '--share', ...this.baseArgs, ...extraArgs];
   },
 
-  parseJsonOutput(stdout: string): { result: string; sessionId: string | null } {
+  parseJsonOutput(stdout: string): ParsedOutput {
     // Copilot CLI outputs plain text (no JSON mode), so return as-is.
     // Session ID is captured separately via extractSessionId (--share output file).
     return { result: stdout.trim(), sessionId: null };
@@ -45,25 +47,26 @@ export const copilotAdapter: ProviderAdapter = {
   async extractSessionId(cwd: string): Promise<string | null> {
     // --share writes ./copilot-session-<ID>.md in the CWD when the process exits.
     // Glob for the file, extract the ID from the filename, then clean it up.
-    try {
-      const files = await readdir(cwd);
-      // Session ID must start with alphanumeric/underscore (not hyphen) to prevent argument injection
-      const shareFile = files.find((f) => /^copilot-session-[a-zA-Z0-9_][a-zA-Z0-9_-]*\.md$/.test(f));
-      if (!shareFile) return null;
-      const match = /^copilot-session-([a-zA-Z0-9_][a-zA-Z0-9_-]{0,127})\.md$/.exec(shareFile);
-      if (!match?.[1]) return null;
-      // Only delete regular files — refuse symlinks to prevent TOCTOU attacks
-      const filePath = join(cwd, shareFile);
-      const stat = await lstat(filePath).catch(() => null);
-      if (stat?.isFile()) {
-        await unlink(filePath).catch(() => {
-          // Best-effort cleanup — don't fail session ID capture if unlink fails
-        });
-      }
-      return match[1];
-    } catch {
-      return null;
+    const filesResult = await wrapAsync(
+      () => readdir(cwd),
+      (err) => new IOError(`Failed to read directory: ${cwd}`, err instanceof Error ? err : undefined)
+    );
+    if (!filesResult.ok) return null;
+    const files = filesResult.value;
+    // Session ID must start with alphanumeric/underscore (not hyphen) to prevent argument injection
+    const shareFile = files.find((f) => /^copilot-session-[a-zA-Z0-9_][a-zA-Z0-9_-]*\.md$/.test(f));
+    if (!shareFile) return null;
+    const match = /^copilot-session-([a-zA-Z0-9_][a-zA-Z0-9_-]{0,127})\.md$/.exec(shareFile);
+    if (!match?.[1]) return null;
+    // Only delete regular files — refuse symlinks to prevent TOCTOU attacks
+    const filePath = join(cwd, shareFile);
+    const stat = await lstat(filePath).catch(() => null);
+    if (stat?.isFile()) {
+      await unlink(filePath).catch(() => {
+        // Best-effort cleanup — don't fail session ID capture if unlink fails
+      });
     }
+    return match[1];
   },
 
   detectRateLimit(stderr: string): RateLimitInfo {

@@ -1,3 +1,4 @@
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { logProgress } from '@src/store/progress.ts';
 import {
@@ -11,11 +12,13 @@ import { editorInput } from '@src/utils/editor-input.ts';
 
 export async function progressLogCommand(args: string[]): Promise<void> {
   // FAIL FAST: Check sprint status before collecting any input
-  try {
+  const statusCheckR = await wrapAsync(async () => {
     const sprintId = await resolveSprintId();
     const sprint = await getSprint(sprintId);
     assertSprintStatus(sprint, ['active'], 'log progress');
-  } catch (err) {
+  }, ensureError);
+  if (!statusCheckR.ok) {
+    const err = statusCheckR.error;
     if (err instanceof SprintStatusError) {
       const mainError = err.message.split('\n')[0] ?? err.message;
       showError(mainError);
@@ -36,9 +39,15 @@ export async function progressLogCommand(args: string[]): Promise<void> {
   let message = args.join(' ').trim();
 
   if (!message) {
-    message = await editorInput({
+    const editorR = await editorInput({
       message: 'Progress message:',
     });
+    if (!editorR.ok) {
+      showError(`Editor input failed: ${editorR.error.message}`);
+      log.newline();
+      return;
+    }
+    message = editorR.value;
     message = message.trim();
   }
 
@@ -48,17 +57,18 @@ export async function progressLogCommand(args: string[]): Promise<void> {
     return;
   }
 
-  try {
-    await logProgress(message);
-    showSuccess('Progress logged.');
-    log.newline();
-  } catch (err) {
-    if (err instanceof SprintStatusError) {
+  const logR = await wrapAsync(() => logProgress(message), ensureError);
+  if (!logR.ok) {
+    if (logR.error instanceof SprintStatusError) {
       // Fallback handler (shouldn't reach here due to early check)
-      showError(err.message);
+      showError(logR.error.message);
       log.newline();
     } else {
-      throw err;
+      throw logR.error;
     }
+    return;
   }
+
+  showSuccess('Progress logged.');
+  log.newline();
 }

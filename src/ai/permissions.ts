@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { Result } from 'typescript-result';
 import type { AiProvider } from '@src/schemas/index.ts';
 
 interface PermissionsConfig {
@@ -23,7 +24,7 @@ export interface ProviderPermissions {
  * For Copilot: returns empty permissions (Copilot uses --available-tools/--excluded-tools flags)
  *
  * @param projectPath - Project directory to check for settings
- * @param provider - AI provider (defaults to 'claude' for backward compat)
+ * @param provider - AI provider (defaults to 'claude')
  * @returns Combined permissions from both sources
  */
 export function getProviderPermissions(projectPath: string, provider?: AiProvider): ProviderPermissions {
@@ -40,34 +41,36 @@ export function getProviderPermissions(projectPath: string, provider?: AiProvide
   // Check project-level settings (.claude/settings.local.json)
   const projectSettingsPath = join(projectPath, '.claude', 'settings.local.json');
   if (existsSync(projectSettingsPath)) {
-    try {
+    const projectResult = Result.try(() => {
       const content = readFileSync(projectSettingsPath, 'utf-8');
-      const settings = JSON.parse(content) as SettingsFile;
+      return JSON.parse(content) as SettingsFile;
+    });
+    if (projectResult.ok) {
+      const settings = projectResult.value;
       if (settings.permissions?.allow) {
         permissions.allow.push(...settings.permissions.allow);
       }
       if (settings.permissions?.deny) {
         permissions.deny.push(...settings.permissions.deny);
       }
-    } catch {
-      // Ignore parse errors
     }
   }
 
   // Check user-level settings (~/.claude/settings.json)
   const userSettingsPath = join(homedir(), '.claude', 'settings.json');
   if (existsSync(userSettingsPath)) {
-    try {
+    const userResult = Result.try(() => {
       const content = readFileSync(userSettingsPath, 'utf-8');
-      const settings = JSON.parse(content) as SettingsFile;
+      return JSON.parse(content) as SettingsFile;
+    });
+    if (userResult.ok) {
+      const settings = userResult.value;
       if (settings.permissions?.allow) {
         permissions.allow.push(...settings.permissions.allow);
       }
       if (settings.permissions?.deny) {
         permissions.deny.push(...settings.permissions.deny);
       }
-    } catch {
-      // Ignore parse errors
     }
   }
 

@@ -17,6 +17,7 @@ import { sprintPlanCommand } from '@src/commands/sprint/plan.ts';
 import { sprintStartCommand } from '@src/commands/sprint/start.ts';
 import { getCurrentSprint } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 const TOTAL_STEPS = 5;
 
@@ -36,7 +37,7 @@ function showStepProgress(step: number, title: string): void {
  * through creating a sprint, adding tickets, refining, planning, and starting.
  */
 export async function runWizard(): Promise<void> {
-  try {
+  const r = await wrapAsync(async () => {
     printHeader('Sprint Setup Wizard', emoji.donut);
     log.dim('This wizard will guide you through setting up a new sprint.');
     log.dim('You can skip optional steps along the way.');
@@ -45,12 +46,9 @@ export async function runWizard(): Promise<void> {
     // ── Step 1: Create Sprint ──────────────────────────────────────────────
     showStepProgress(1, 'Create Sprint');
 
-    try {
-      await sprintCreateCommand({ interactive: true });
-    } catch (err) {
-      if (err instanceof Error) {
-        log.error(`Sprint creation failed: ${err.message}`);
-      }
+    const createResult = await wrapAsync(() => sprintCreateCommand({ interactive: true }), ensureError);
+    if (!createResult.ok) {
+      log.error(`Sprint creation failed: ${createResult.error.message}`);
       log.newline();
       showWarning('Cannot continue without a sprint. Wizard aborted.');
       return;
@@ -69,18 +67,17 @@ export async function runWizard(): Promise<void> {
     let addMore = true;
 
     while (addMore) {
-      try {
-        const ticket = await addSingleTicketInteractive({});
-        if (ticket) {
+      const ticketResult = await wrapAsync(() => addSingleTicketInteractive({}), ensureError);
+
+      if (ticketResult.ok) {
+        if (ticketResult.value) {
           ticketCount++;
         } else {
           // No ticket created (no projects, or unrecoverable error) — exit loop
           break;
         }
-      } catch (err) {
-        if (err instanceof Error) {
-          log.error(`Failed to add ticket: ${err.message}`);
-        }
+      } else {
+        log.error(`Failed to add ticket: ${ticketResult.error.message}`);
       }
 
       log.newline();
@@ -107,12 +104,9 @@ export async function runWizard(): Promise<void> {
       });
 
       if (shouldRefine) {
-        try {
-          await sprintRefineCommand([]);
-        } catch (err) {
-          if (err instanceof Error) {
-            log.error(`Refinement failed: ${err.message}`);
-          }
+        const refineResult = await wrapAsync(() => sprintRefineCommand([]), ensureError);
+        if (!refineResult.ok) {
+          log.error(`Refinement failed: ${refineResult.error.message}`);
           log.dim('You can refine later with: ralphctl sprint refine');
         }
       } else {
@@ -125,8 +119,9 @@ export async function runWizard(): Promise<void> {
 
     // Check if refinement was completed (all requirements approved)
     let canPlan = false;
-    try {
-      const sprint = await getSprint(sprintId);
+    const sprintCheckResult = await wrapAsync(() => getSprint(sprintId), ensureError);
+    if (sprintCheckResult.ok) {
+      const sprint = sprintCheckResult.value;
       const hasTickets = sprint.tickets.length > 0;
       const allApproved = hasTickets && sprint.tickets.every((t) => t.requirementStatus === 'approved');
       canPlan = allApproved;
@@ -137,7 +132,7 @@ export async function runWizard(): Promise<void> {
         log.dim('Skipped -- not all requirements are approved yet.');
         log.dim('Refine first with: ralphctl sprint refine');
       }
-    } catch {
+    } else {
       log.dim('Skipped -- could not read sprint state.');
     }
 
@@ -148,12 +143,9 @@ export async function runWizard(): Promise<void> {
       });
 
       if (shouldPlan) {
-        try {
-          await sprintPlanCommand([]);
-        } catch (err) {
-          if (err instanceof Error) {
-            log.error(`Planning failed: ${err.message}`);
-          }
+        const planResult = await wrapAsync(() => sprintPlanCommand([]), ensureError);
+        if (!planResult.ok) {
+          log.error(`Planning failed: ${planResult.error.message}`);
           log.dim('You can plan later with: ralphctl sprint plan');
         }
       } else {
@@ -170,13 +162,13 @@ export async function runWizard(): Promise<void> {
     });
 
     if (shouldStart) {
-      try {
+      const startResult = await wrapAsync(
         // Note: sprintStartCommand may call process.exit() on completion
-        await sprintStartCommand([]);
-      } catch (err) {
-        if (err instanceof Error) {
-          log.error(`Execution failed: ${err.message}`);
-        }
+        () => sprintStartCommand([]),
+        ensureError
+      );
+      if (!startResult.ok) {
+        log.error(`Execution failed: ${startResult.error.message}`);
       }
       return;
     }
@@ -187,8 +179,9 @@ export async function runWizard(): Promise<void> {
     showSuccess('Wizard complete!');
     log.newline();
 
-    try {
-      const sprint = await getSprint(sprintId);
+    const summaryResult = await wrapAsync(() => getSprint(sprintId), ensureError);
+    if (summaryResult.ok) {
+      const sprint = summaryResult.value;
       log.info(`Sprint "${sprint.name}" is ready.`);
       log.item(`${icons.ticket}  ${String(sprint.tickets.length)} ticket(s)`);
 
@@ -196,9 +189,8 @@ export async function runWizard(): Promise<void> {
       if (sprint.tickets.length > 0) {
         log.item(`${icons.success}  ${String(approvedCount)}/${String(sprint.tickets.length)} requirements approved`);
       }
-    } catch {
-      // Sprint read failed, skip summary details
     }
+    // Sprint read failed — skip summary details
 
     log.newline();
     log.dim('Next steps:');
@@ -209,13 +201,15 @@ export async function runWizard(): Promise<void> {
     log.item('ralphctl sprint plan');
     log.item('ralphctl sprint start');
     log.newline();
-  } catch (err) {
-    if ((err as Error).name === 'ExitPromptError') {
+  }, ensureError);
+
+  if (!r.ok) {
+    if (r.error.name === 'ExitPromptError') {
       log.newline();
       showWarning('Wizard cancelled');
       log.newline();
       return;
     }
-    throw err;
+    throw r.error;
   }
 }

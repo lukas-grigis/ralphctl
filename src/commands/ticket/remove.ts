@@ -1,4 +1,5 @@
 import { confirm } from '@inquirer/prompts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { muted } from '@src/theme/index.ts';
 import { formatTicketDisplay, getTicket, removeTicket, TicketNotFoundError } from '@src/store/ticket.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
@@ -15,7 +16,7 @@ export async function ticketRemoveCommand(args: string[]): Promise<void> {
     ticketId = selected;
   }
 
-  try {
+  const opR = await wrapAsync(async () => {
     const ticket = await getTicket(ticketId);
 
     if (!skipConfirm) {
@@ -26,23 +27,29 @@ export async function ticketRemoveCommand(args: string[]): Promise<void> {
 
       if (!confirmed) {
         console.log(muted('\nTicket removal cancelled.\n'));
-        return;
+        return null;
       }
     }
 
     await removeTicket(ticketId);
-    showSuccess('Ticket removed', [['ID', ticketId]]);
-    log.newline();
-  } catch (err) {
-    if (err instanceof TicketNotFoundError) {
+    return ticket;
+  }, ensureError);
+  if (!opR.ok) {
+    if (opR.error instanceof TicketNotFoundError) {
       showError(`Ticket not found: ${ticketId}`);
       showNextStep('ralphctl ticket list', 'see available tickets');
       log.newline();
-    } else if (err instanceof SprintStatusError) {
-      showError(err.message);
+    } else if (opR.error instanceof SprintStatusError) {
+      showError(opR.error.message);
       log.newline();
     } else {
-      throw err;
+      throw opR.error;
     }
+    return;
+  }
+
+  if (opR.value !== null) {
+    showSuccess('Ticket removed', [['ID', ticketId]]);
+    log.newline();
   }
 }

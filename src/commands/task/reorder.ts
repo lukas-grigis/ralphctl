@@ -1,3 +1,4 @@
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { reorderTask, TaskNotFoundError } from '@src/store/task.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { inputPositiveInt, selectTask } from '@src/interactive/selectors.ts';
@@ -23,23 +24,24 @@ export async function taskReorderCommand(args: string[]): Promise<void> {
     newOrder = await inputPositiveInt('New position (1 = highest priority):');
   }
 
-  try {
-    const task = await reorderTask(taskId, newOrder);
-    showSuccess('Task reordered!', [
-      ['ID', task.id],
-      ['Name', task.name],
-      ['New Order', String(task.order)],
-    ]);
-    log.newline();
-  } catch (err) {
-    if (err instanceof TaskNotFoundError) {
+  const reorderR = await wrapAsync(() => reorderTask(taskId, newOrder), ensureError);
+  if (!reorderR.ok) {
+    if (reorderR.error instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
       log.newline();
-    } else if (err instanceof SprintStatusError) {
-      showError(err.message);
+    } else if (reorderR.error instanceof SprintStatusError) {
+      showError(reorderR.error.message);
       log.newline();
     } else {
-      throw err;
+      throw reorderR.error;
     }
+    return;
   }
+
+  showSuccess('Task reordered!', [
+    ['ID', reorderR.value.id],
+    ['Name', reorderR.value.name],
+    ['New Order', String(reorderR.value.order)],
+  ]);
+  log.newline();
 }

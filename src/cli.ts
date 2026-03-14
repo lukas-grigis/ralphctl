@@ -11,7 +11,10 @@ import { registerConfigCommands } from '@src/commands/config/index.ts';
 import { registerCompletionCommands } from '@src/commands/completion/index.ts';
 import { registerDoctorCommands } from '@src/commands/doctor/index.ts';
 import { error } from '@src/theme/index.ts';
+import { showError } from '@src/theme/ui.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
+import { DomainError } from '@src/errors.ts';
+import { EXIT_ERROR } from '@src/utils/exit-codes.ts';
 
 const program = new Command();
 program
@@ -60,6 +63,12 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(error('Fatal error:'), err);
-  process.exit(1);
+  if (err instanceof DomainError) {
+    // Domain errors carry user-facing messages — display them cleanly
+    showError(err.message);
+    process.exit(EXIT_ERROR);
+  }
+  // Truly unexpected errors (programming bugs, unhandled edge cases)
+  console.error(error('Unexpected error — please report this bug:'), err instanceof Error ? err.stack : String(err));
+  process.exit(EXIT_ERROR);
 });

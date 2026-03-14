@@ -3,6 +3,8 @@ import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { lstat, realpath, stat } from 'node:fs/promises';
+import { Result } from 'typescript-result';
+import { IOError } from '@src/errors.ts';
 
 // Repo/package root: walk up from __dirname to find package.json.
 // Works in both dev (src/utils/) and dist (dist/) contexts.
@@ -103,9 +105,9 @@ export function expandTilde(path: string): string {
 
 /**
  * Validate that a path exists and is a directory.
- * Returns `true` if valid, or an error message string if invalid.
+ * Returns a Result: ok(true) if valid, or an IOError with a descriptive message if invalid.
  */
-export async function validateProjectPath(path: string): Promise<string | true> {
+export async function validateProjectPath(path: string) {
   try {
     const resolved = resolve(expandTilde(path));
     const lstats = await lstat(resolved);
@@ -113,15 +115,17 @@ export async function validateProjectPath(path: string): Promise<string | true> 
       const realPath = await realpath(resolved);
       const realStats = await stat(realPath);
       if (!realStats.isDirectory()) {
-        return 'Symlink target is not a directory';
+        return Result.error(new IOError('Symlink target is not a directory'));
       }
-      return true;
+      return Result.ok(true);
     }
     if (!lstats.isDirectory()) {
-      return 'Path is not a directory';
+      return Result.error(new IOError('Path is not a directory'));
     }
-    return true;
-  } catch {
-    return 'Directory does not exist';
+    return Result.ok(true);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    const message = code === 'EACCES' ? 'Permission denied' : 'Directory does not exist';
+    return Result.error(new IOError(message, err instanceof Error ? err : undefined));
   }
 }

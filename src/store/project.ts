@@ -3,25 +3,8 @@ import { expandTilde, getProjectsFilePath, validateProjectPath } from '../utils/
 import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/storage.js';
 import { type Project, type Projects, ProjectsSchema, type Repository } from '../schemas/index.js';
 
-export class ProjectNotFoundError extends Error {
-  public readonly projectName: string;
-
-  constructor(projectName: string) {
-    super(`Project not found: ${projectName}`);
-    this.name = 'ProjectNotFoundError';
-    this.projectName = projectName;
-  }
-}
-
-export class ProjectExistsError extends Error {
-  public readonly projectName: string;
-
-  constructor(projectName: string) {
-    super(`Project already exists: ${projectName}`);
-    this.name = 'ProjectExistsError';
-    this.projectName = projectName;
-  }
-}
+export { ProjectNotFoundError, ProjectExistsError } from '../errors.js';
+import { ProjectNotFoundError, ProjectExistsError, ParseError, ValidationError } from '../errors.js';
 
 /**
  * Migration: Convert old paths[] format to repositories[] format.
@@ -54,7 +37,7 @@ function migrateProjectIfNeeded(project: LegacyProject): Project {
     };
   }
 
-  throw new Error(`Invalid project data: no paths or repositories for ${project.name}`);
+  throw new ParseError(`Invalid project data: no paths or repositories for ${project.name}`);
 }
 
 /**
@@ -78,11 +61,14 @@ export async function listProjects(): Promise<Projects> {
   if (needsMigration) {
     const migrated = rawData.map(migrateProjectIfNeeded);
     const validated = ProjectsSchema.parse(migrated);
-    await writeValidatedJson(filePath, validated, ProjectsSchema);
+    const writeResult = await writeValidatedJson(filePath, validated, ProjectsSchema);
+    if (!writeResult.ok) throw writeResult.error;
     return validated;
   }
 
-  const projects = await readValidatedJson(filePath, ProjectsSchema);
+  const result = await readValidatedJson(filePath, ProjectsSchema);
+  if (!result.ok) throw result.error;
+  const projects = result.value;
 
   // One-time cleanup: correct any tilde paths stored before write-time expansion was added.
   // Safe to remove once existing users have been migrated.
@@ -96,7 +82,8 @@ export async function listProjects(): Promise<Projects> {
       ),
     }));
     const validated = ProjectsSchema.parse(corrected);
-    await writeValidatedJson(filePath, validated, ProjectsSchema);
+    const writeResult = await writeValidatedJson(filePath, validated, ProjectsSchema);
+    if (!writeResult.ok) throw writeResult.error;
     return validated;
   }
 
@@ -140,12 +127,12 @@ export async function createProject(project: Project): Promise<Project> {
   for (const repo of project.repositories) {
     const resolved = resolve(expandTilde(repo.path));
     const validation = await validateProjectPath(resolved);
-    if (validation !== true) {
-      pathErrors.push(`  ${repo.path}: ${validation}`);
+    if (!validation.ok) {
+      pathErrors.push(`  ${repo.path}: ${validation.error.message}`);
     }
   }
   if (pathErrors.length > 0) {
-    throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+    throw new ValidationError(`Invalid project paths:\n${pathErrors.join('\n')}`, 'repositories');
   }
 
   // Resolve all paths to absolute and derive names, preserving scripts
@@ -159,7 +146,8 @@ export async function createProject(project: Project): Promise<Project> {
   };
 
   projects.push(normalizedProject);
-  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  const writeResult = await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  if (!writeResult.ok) throw writeResult.error;
 
   return normalizedProject;
 }
@@ -182,12 +170,12 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
     for (const repo of updates.repositories) {
       const resolved = resolve(expandTilde(repo.path));
       const validation = await validateProjectPath(resolved);
-      if (validation !== true) {
-        pathErrors.push(`  ${repo.path}: ${validation}`);
+      if (!validation.ok) {
+        pathErrors.push(`  ${repo.path}: ${validation.error.message}`);
       }
     }
     if (pathErrors.length > 0) {
-      throw new Error(`Invalid project paths:\n${pathErrors.join('\n')}`);
+      throw new ValidationError(`Invalid project paths:\n${pathErrors.join('\n')}`, 'repositories');
     }
     // Resolve paths to absolute and ensure names, preserving scripts
     updates.repositories = updates.repositories.map((repo) => ({
@@ -210,7 +198,8 @@ export async function updateProject(name: string, updates: Partial<Omit<Project,
   };
 
   projects[index] = updatedProject;
-  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  const writeResult = await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  if (!writeResult.ok) throw writeResult.error;
 
   return updatedProject;
 }
@@ -228,7 +217,8 @@ export async function removeProject(name: string): Promise<void> {
   }
 
   projects.splice(index, 1);
-  await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  const writeResult = await writeValidatedJson(getProjectsFilePath(), projects, ProjectsSchema);
+  if (!writeResult.ok) throw writeResult.error;
 }
 
 /**
@@ -251,8 +241,8 @@ export async function addProjectRepo(name: string, repo: Repository): Promise<Pr
 
   // Validate the path
   const validation = await validateProjectPath(resolvedPath);
-  if (validation !== true) {
-    throw new Error(`Invalid path ${repo.path}: ${validation}`);
+  if (!validation.ok) {
+    throw new ValidationError(`Invalid path ${repo.path}: ${validation.error.message}`, repo.path);
   }
 
   // Check if path already exists
@@ -283,7 +273,7 @@ export async function removeProjectRepo(name: string, path: string): Promise<Pro
   const newRepos = project.repositories.filter((r) => r.path !== resolvedPath);
 
   if (newRepos.length === 0) {
-    throw new Error('Cannot remove the last repository from a project');
+    throw new ValidationError('Cannot remove the last repository from a project', 'repositories');
   }
 
   if (newRepos.length === project.repositories.length) {

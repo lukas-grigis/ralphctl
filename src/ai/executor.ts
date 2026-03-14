@@ -1,5 +1,6 @@
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
 import { ProcessManager } from '@src/ai/process-manager.ts';
 import {
@@ -17,8 +18,9 @@ import { buildTaskExecutionPrompt } from '@src/ai/prompts/index.ts';
 import type { Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
 import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
-import type { SpawnResult } from '@src/ai/session.ts';
-import { SpawnError, spawnInteractive, spawnWithRetry } from '@src/ai/session.ts';
+import type { SpawnResult } from '@src/providers/types.ts';
+import { spawnInteractive, spawnWithRetry } from '@src/ai/session.ts';
+import { SpawnError } from '@src/errors.ts';
 import { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
 import { EXIT_ALL_BLOCKED, EXIT_ERROR, EXIT_NO_TASKS, EXIT_SUCCESS } from '@src/utils/exit-codes.ts';
 import { getSprint } from '@src/store/sprint.ts';
@@ -150,11 +152,7 @@ async function executeTask(
         sessionId: null,
       };
     } finally {
-      try {
-        await unlink(contextFile);
-      } catch {
-        // Ignore cleanup errors
-      }
+      await unlink(contextFile).catch(() => undefined);
     }
   }
 
@@ -192,7 +190,7 @@ async function executeTask(
       spinner.fail(`${label} failed: ${ctx.task.name}`);
       throw err;
     } finally {
-      deregister(); // Clean up callback registration
+      deregister();
     }
   } else {
     // Fresh session — build full context
@@ -235,12 +233,8 @@ async function executeTask(
       spinner.fail(`${label} failed: ${ctx.task.name}`);
       throw err;
     } finally {
-      deregister(); // Clean up callback registration
-      try {
-        await unlink(contextFile);
-      } catch {
-        // Ignore cleanup errors
-      }
+      deregister();
+      await unlink(contextFile).catch(() => undefined);
     }
   }
 
@@ -734,49 +728,32 @@ export async function executeTaskLoopParallel(
           inFlightPaths.add(task.projectPath);
 
           const taskPromise = (async (): Promise<ParallelTaskResult> => {
-            try {
-              const ctx: TaskContext = { sprint, task, project };
-              const result = await executeTask(
-                ctx,
-                options,
-                sprintId,
-                resumeId,
-                provider,
-                checkResults?.get(task.projectPath)
-              );
+            const ctx: TaskContext = { sprint, task, project };
+            const resultR = await wrapAsync(
+              () => executeTask(ctx, options, sprintId, resumeId, provider, checkResults?.get(task.projectPath)),
+              ensureError
+            );
+            inFlightPaths.delete(task.projectPath); // always runs — was in finally
 
-              // Store session ID for potential future resume
-              if (result.sessionId) {
-                taskSessionIds.set(task.id, result.sessionId);
-              }
-
-              return { task, result, error: null, isRateLimited: false };
-            } catch (err) {
+            if (!resultR.ok) {
+              const err = resultR.error;
               if (err instanceof SpawnError && err.rateLimited) {
                 // Store session ID from error for resume after cooldown
                 if (err.sessionId) {
                   taskSessionIds.set(task.id, err.sessionId);
                 }
-                const delay = err.retryAfterMs ?? 60_000;
-                coordinator.pause(delay);
-
-                return {
-                  task,
-                  result: null,
-                  error: err,
-                  isRateLimited: true,
-                };
+                coordinator.pause(err.retryAfterMs ?? 60_000);
+                return { task, result: null, error: err, isRateLimited: true };
               }
-
-              return {
-                task,
-                result: null,
-                error: err instanceof Error ? err : new Error(String(err)),
-                isRateLimited: false,
-              };
-            } finally {
-              inFlightPaths.delete(task.projectPath);
+              return { task, result: null, error: err, isRateLimited: false };
             }
+
+            const result = resultR.value;
+            // Store session ID for potential future resume
+            if (result.sessionId) {
+              taskSessionIds.set(task.id, result.sessionId);
+            }
+            return { task, result, error: null, isRateLimited: false };
           })();
 
           running.set(task.id, taskPromise);
@@ -966,8 +943,3 @@ export async function executeTaskLoopParallel(
     exitCode: EXIT_SUCCESS,
   };
 }
-
-// Re-export for backward compatibility
-export { formatTask as formatTaskContext } from '@src/ai/task-context.ts';
-// Re-export TaskContext type for consumers
-export type { TaskContext } from '@src/ai/task-context.ts';

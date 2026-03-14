@@ -5,6 +5,7 @@ import { getPendingRequirements } from '@src/store/ticket.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { boxChars, emoji, formatSprintStatus, icons, progressBar } from '@src/theme/ui.ts';
 import type { Sprint, Tasks } from '@src/schemas/index.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 // ============================================================================
 // STATUS DASHBOARD
@@ -30,7 +31,7 @@ export async function loadDashboardData(): Promise<DashboardData | null> {
   const sprintId = await getCurrentSprint();
   if (!sprintId) return null;
 
-  try {
+  const r = await wrapAsync(async () => {
     const sprint = await getSprint(sprintId);
     const tasks = await getTasks(sprintId);
 
@@ -51,9 +52,9 @@ export async function loadDashboardData(): Promise<DashboardData | null> {
     const aiProvider = await getAiProvider();
 
     return { sprint, tasks, approvedCount, pendingCount, blockedCount, plannedTicketCount, aiProvider };
-  } catch {
-    return null;
-  }
+  }, ensureError);
+
+  return r.ok ? r.value : null;
 }
 
 export interface NextAction {

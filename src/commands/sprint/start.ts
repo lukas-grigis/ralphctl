@@ -1,3 +1,5 @@
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { type RunnerOptions, runSprint } from '@src/ai/runner.ts';
 import { SprintNotFoundError, SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/utils/exit-codes.ts';
@@ -76,29 +78,18 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
 }
 
 export async function sprintStartCommand(args: string[]): Promise<void> {
-  let sprintId: string | undefined;
-  let options: RunnerOptions;
-
-  try {
-    const parsed = parseArgs(args);
-    sprintId = parsed.sprintId;
-    options = parsed.options;
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-      log.newline();
-    }
+  const parseR = Result.try(() => parseArgs(args));
+  if (!parseR.ok) {
+    showError(parseR.error.message);
+    log.newline();
     exitWithCode(EXIT_ERROR);
   }
 
-  try {
-    const summary = await runSprint(sprintId, options);
+  const { sprintId, options } = parseR.value;
 
-    // Exit with appropriate code based on execution summary
-    if (summary) {
-      exitWithCode(summary.exitCode);
-    }
-  } catch (err) {
+  const runR = await wrapAsync(() => runSprint(sprintId, options), ensureError);
+  if (!runR.ok) {
+    const err = runR.error;
     if (err instanceof SprintNotFoundError) {
       showError(`Sprint not found: ${sprintId ?? 'unknown'}`);
       log.newline();
@@ -107,7 +98,7 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
       showError(err.message);
       log.newline();
       exitWithCode(EXIT_ERROR);
-    } else if (err instanceof Error && err.message.includes('No sprint specified')) {
+    } else if (err.message.includes('No sprint specified')) {
       showWarning('No sprint specified and no active sprint set.');
       showNextStep('ralphctl sprint start <id>', 'specify a sprint ID');
       log.newline();
@@ -115,5 +106,12 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
     } else {
       throw err;
     }
+    return;
+  }
+
+  // Exit with appropriate code based on execution summary
+  const summary = runR.value;
+  if (summary) {
+    exitWithCode(summary.exitCode);
   }
 }

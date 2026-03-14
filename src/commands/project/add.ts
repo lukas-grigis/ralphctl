@@ -1,6 +1,8 @@
 import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { input, select } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import { expandTilde, validateProjectPath } from '@src/utils/paths.ts';
 import { createProject, ProjectExistsError } from '@src/store/project.ts';
@@ -37,12 +39,9 @@ function validateSlug(slug: string): boolean {
  * Check if a path is a git repository.
  */
 function isGitRepo(path: string): boolean {
-  try {
-    const gitDir = join(path, '.git');
-    return existsSync(gitDir) && statSync(gitDir).isDirectory();
-  } catch {
-    return false;
-  }
+  const gitDir = join(path, '.git');
+  const r = Result.try(() => existsSync(gitDir) && statSync(gitDir).isDirectory());
+  return r.ok ? r.value : false;
 }
 
 /**
@@ -59,14 +58,10 @@ function hasAiInstructions(repoPath: string): boolean {
 export async function addCheckScriptToRepository(repo: Repository): Promise<Repository> {
   let suggested: string | null = null;
 
-  try {
-    const detection = detectCheckScriptCandidates(repo.path);
-    if (detection) {
-      log.success(`  Detected: ${detection.typeLabel}`);
-      suggested = suggestCheckScript(repo.path);
-    }
-  } catch {
-    // Auto-detection failed, continue with manual entry
+  const detectR = Result.try(() => detectCheckScriptCandidates(repo.path));
+  if (detectR.ok && detectR.value) {
+    log.success(`  Detected: ${detectR.value.typeLabel}`);
+    suggested = suggestCheckScript(repo.path);
   }
 
   const checkInput = await input({
@@ -113,8 +108,8 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       for (const path of options.paths) {
         const resolved = resolve(expandTilde(path.trim()));
         const validation = await validateProjectPath(resolved);
-        if (validation !== true) {
-          errors.push(`--path ${path}: ${validation}`);
+        if (!validation.ok) {
+          errors.push(`--path ${path}: ${validation.error.message}`);
         }
       }
       spinner?.succeed('Paths validated');
@@ -170,7 +165,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       for (const p of options.paths) {
         const resolved = resolve(expandTilde(p.trim()));
         const validation = await validateProjectPath(resolved);
-        if (validation === true) {
+        if (validation.ok) {
           repositories.push({ name: basename(resolved), path: resolved });
         }
       }
@@ -204,7 +199,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
           default: process.cwd(),
           validate: async (v) => {
             const result = await validateProjectPath(v.trim());
-            return result;
+            return result.ok ? true : result.error.message;
           },
         });
         firstPath = firstPath.trim();
@@ -212,8 +207,8 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
 
       const resolved = resolve(expandTilde(firstPath));
       const validation = await validateProjectPath(resolved);
-      if (validation !== true) {
-        showError(`Invalid path: ${validation}`);
+      if (!validation.ok) {
+        showError(`Invalid path: ${validation.error.message}`);
         exitWithCode(EXIT_ERROR);
       }
       repositories.push({ name: basename(resolved), path: resolved });
@@ -256,14 +251,14 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         if (browsed) {
           const resolved = resolve(expandTilde(browsed));
           const validation = await validateProjectPath(resolved);
-          if (validation === true) {
+          if (validation.ok) {
             const newRepo = { name: basename(resolved), path: resolved };
             log.success(`Added: ${newRepo.name}`);
             // Add scripts for this repository
             const repoWithScripts = await addCheckScriptToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            log.error(`Invalid path: ${validation}`);
+            log.error(`Invalid path: ${validation.error.message}`);
           }
         }
       } else {
@@ -276,14 +271,14 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
         } else {
           const resolved = resolve(expandTilde(additionalPath.trim()));
           const validation = await validateProjectPath(resolved);
-          if (validation === true) {
+          if (validation.ok) {
             const newRepo = { name: basename(resolved), path: resolved };
             log.success(`Added: ${newRepo.name}`);
             // Add scripts for this repository
             const repoWithScripts = await addCheckScriptToRepository(newRepo);
             repositories.push(repoWithScripts);
           } else {
-            log.error(`Invalid path: ${validation}`);
+            log.error(`Invalid path: ${validation.error.message}`);
           }
         }
       }
@@ -297,40 +292,41 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     description = trimmedDescInteractive === '' ? undefined : trimmedDescInteractive;
   }
 
-  try {
-    const project: Project = {
-      name,
-      displayName,
-      repositories,
-      description,
-    };
+  const project: Project = {
+    name,
+    displayName,
+    repositories,
+    description,
+  };
 
-    const created = await createProject(project);
-
-    showSuccess('Project added!', [
-      ['Name', created.name],
-      ['Display Name', created.displayName],
-    ]);
-    if (created.description) {
-      console.log(field('Description', created.description));
-    }
-    console.log(field('Repositories', ''));
-    for (const repo of created.repositories) {
-      log.item(`${repo.name} → ${repo.path}`);
-      if (repo.checkScript) {
-        console.log(`        Check: ${repo.checkScript}`);
-      } else {
-        console.log(`        Check: ${muted('(not configured)')}`);
-      }
-    }
-    console.log('');
-  } catch (err) {
-    if (err instanceof ProjectExistsError) {
+  const createR = await wrapAsync(() => createProject(project), ensureError);
+  if (!createR.ok) {
+    if (createR.error instanceof ProjectExistsError) {
       showError(`Project "${name}" already exists.`);
       showNextStep(`ralphctl project remove ${name}`, 'remove existing project first');
       log.newline();
     } else {
-      throw err;
+      throw createR.error;
+    }
+    return;
+  }
+
+  const created = createR.value;
+  showSuccess('Project added!', [
+    ['Name', created.name],
+    ['Display Name', created.displayName],
+  ]);
+  if (created.description) {
+    console.log(field('Description', created.description));
+  }
+  console.log(field('Repositories', ''));
+  for (const repo of created.repositories) {
+    log.item(`${repo.name} → ${repo.path}`);
+    if (repo.checkScript) {
+      console.log(`        Check: ${repo.checkScript}`);
+    } else {
+      console.log(`        Check: ${muted('(not configured)')}`);
     }
   }
+  console.log('');
 }

@@ -10,6 +10,9 @@ import { registerTicketCommands } from '@src/commands/ticket/index.ts';
 import { registerProgressCommands } from '@src/commands/progress/index.ts';
 import { registerConfigCommands } from '@src/commands/config/index.ts';
 import { cliMetadata } from '@src/cli-metadata.ts';
+import { DomainError } from '@src/errors.ts';
+import { showError } from '@src/theme/ui.ts';
+import { EXIT_ERROR } from '@src/utils/exit-codes.ts';
 
 export interface CliResult {
   stdout: string;
@@ -99,6 +102,10 @@ export async function runCli(args: string[], env: Record<string, string>): Promi
     // Commander throws on exitOverride
     if (err instanceof Error && 'exitCode' in err) {
       code = (err as { exitCode: number }).exitCode;
+    } else if (err instanceof DomainError) {
+      // Mirror real CLI behavior: domain errors display via showError() → stdout
+      showError(err.message);
+      code = EXIT_ERROR;
     } else if (err instanceof Error) {
       stderr.push(err.message);
       code = 1;

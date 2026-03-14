@@ -1,4 +1,6 @@
 import { confirm, input, select } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -18,7 +20,7 @@ import { addTicket } from '@src/store/ticket.ts';
 import { listProjects, projectExists } from '@src/store/project.ts';
 import { SprintStatusError } from '@src/store/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
-import { IssueFetchError, fetchIssueFromUrl, type IssueData } from '@src/utils/issue-fetch.ts';
+import { fetchIssueFromUrl, type IssueData } from '@src/utils/issue-fetch.ts';
 import type { Ticket } from '@src/schemas/index.ts';
 
 export interface TicketAddOptions {
@@ -37,19 +39,14 @@ function tryFetchIssue(url: string): IssueData | undefined {
   const spinner = createSpinner('Fetching issue data...');
   spinner.start();
 
-  let data: IssueData | null;
-  try {
-    data = fetchIssueFromUrl(url);
-  } catch (err) {
+  const fetchR = Result.try(() => fetchIssueFromUrl(url));
+  if (!fetchR.ok) {
     spinner.fail('Could not fetch issue data');
-    if (err instanceof IssueFetchError) {
-      showWarning(err.message);
-    } else if (err instanceof Error) {
-      showWarning(err.message);
-    }
+    showWarning(fetchR.error.message);
     log.newline();
     return undefined;
   }
+  const data = fetchR.value;
 
   if (!data) {
     spinner.stop();
@@ -116,18 +113,12 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
   const link = trimmedLink === '' ? undefined : trimmedLink;
   const projectName = trimmedProject;
 
-  try {
-    const ticket = await addTicket({
-      title,
-      description,
-      link,
-      projectName,
-    });
-
-    showTicketResult(ticket);
-  } catch (err) {
-    handleTicketError(err);
+  const addR = await wrapAsync(() => addTicket({ title, description, link, projectName }), ensureError);
+  if (!addR.ok) {
+    handleTicketError(addR.error);
+    return;
   }
+  showTicketResult(addR.value);
 }
 
 /**
@@ -176,30 +167,31 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
     validate: (v) => (v.trim().length > 0 ? true : 'Title is required'),
   });
 
-  const description = await editorInput({
+  const descR = await editorInput({
     message: 'Description (recommended):',
     default: prefill?.body ?? options.description?.trim(),
   });
+  if (!descR.ok) {
+    showError(`Editor input failed: ${descR.error.message}`);
+    return null;
+  }
+  const description = descR.value;
 
   // Trim and normalize empty strings to undefined
   title = title.trim();
   const trimmedDescription = description.trim();
   const normalizedDescription = trimmedDescription === '' ? undefined : trimmedDescription;
 
-  try {
-    const ticket = await addTicket({
-      title,
-      description: normalizedDescription,
-      link: normalizedLink,
-      projectName,
-    });
-
-    showTicketResult(ticket);
-    return ticket;
-  } catch (err) {
-    handleTicketError(err);
+  const addR = await wrapAsync(
+    () => addTicket({ title, description: normalizedDescription, link: normalizedLink, projectName }),
+    ensureError
+  );
+  if (!addR.ok) {
+    handleTicketError(addR.error);
     return null;
   }
+  showTicketResult(addR.value);
+  return addR.value;
 }
 
 /**

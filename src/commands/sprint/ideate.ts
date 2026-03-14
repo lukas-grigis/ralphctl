@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { input, select } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { editorInput } from '@src/utils/editor-input.ts';
 import { error, muted } from '@src/theme/index.ts';
 import {
@@ -122,15 +124,13 @@ function parseIdeateOutput(output: string): { requirements: string; tasks: unkno
   // Try to extract a balanced JSON object from the output
   const jsonStr = extractJsonObject(output);
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`, { cause: err });
+  const parseR = Result.try(() => JSON.parse(jsonStr) as unknown);
+  if (!parseR.ok) {
+    throw new Error(`Invalid JSON: ${parseR.error.message}`, { cause: parseR.error });
   }
 
   // Validate against schema
-  const result = IdeateOutputSchema.safeParse(parsed);
+  const result = IdeateOutputSchema.safeParse(parseR.value);
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => {
@@ -147,15 +147,14 @@ function parseIdeateOutput(output: string): { requirements: string; tasks: unkno
 export async function sprintIdeateCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
+  if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showNextStep('ralphctl sprint create', 'create a new sprint');
     log.newline();
     return;
   }
+  const id = idR.value;
 
   const sprint = await getSprint(id);
 
@@ -163,10 +162,8 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   try {
     assertSprintStatus(sprint, ['draft'], 'ideate');
   } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-      log.newline();
-    }
+    showError(err instanceof Error ? err.message : String(err));
+    log.newline();
     return;
   }
 
@@ -207,14 +204,13 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   }
 
   // Validate project exists
-  let project: Awaited<ReturnType<typeof getProject>>;
-  try {
-    project = await getProject(projectName);
-  } catch {
+  const projectR = await wrapAsync(() => getProject(projectName), ensureError);
+  if (!projectR.ok) {
     showError(`Project '${projectName}' not found.`);
     log.newline();
     return;
   }
+  const project = projectR.value;
 
   // Prompt for idea title and description
   const ideaTitle = await input({
@@ -222,9 +218,15 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     validate: (value) => (value.trim().length > 0 ? true : 'Title is required'),
   });
 
-  const ideaDescription = await editorInput({
+  const editorR = await editorInput({
     message: 'Idea description (what you want to build):',
   });
+  if (!editorR.ok) {
+    showError(`Editor input failed: ${editorR.error.message}`);
+    log.newline();
+    return;
+  }
+  const ideaDescription = editorR.value;
 
   if (!ideaDescription.trim()) {
     showError('Description is required.');
@@ -298,19 +300,16 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`${providerName} is refining idea and planning tasks...`);
     spinner.start();
 
-    let output: string;
-    try {
-      output = await invokeAiAuto(prompt, selectedPaths, ideateDir);
-      spinner.succeed(`${providerName} finished`);
-    } catch (err) {
+    const outputR = await wrapAsync(() => invokeAiAuto(prompt, selectedPaths, ideateDir), ensureError);
+    if (!outputR.ok) {
       spinner.fail(`${providerName} session failed`);
-      if (err instanceof Error) {
-        showError(`Failed to invoke ${providerName}: ${err.message}`);
-        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
-        log.newline();
-      }
+      showError(`Failed to invoke ${providerName}: ${outputR.error.message}`);
+      showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
+      log.newline();
       return;
     }
+    spinner.succeed(`${providerName} finished`);
+    const output = outputR.value;
 
     // Check for planning-blocked signal before parsing JSON
     const blockedReason = parsePlanningBlocked(output);
@@ -321,18 +320,15 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     }
 
     log.dim('Parsing response...');
-    let ideateOutput: { requirements: string; tasks: unknown[] };
-    try {
-      ideateOutput = parseIdeateOutput(output);
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to parse ${providerName} output: ${err.message}`);
-        log.dim('Raw output:');
-        console.log(output);
-        log.newline();
-      }
+    const ideateR = Result.try(() => parseIdeateOutput(output));
+    if (!ideateR.ok) {
+      showError(`Failed to parse ${providerName} output: ${ideateR.error.message}`);
+      log.dim('Raw output:');
+      console.log(output);
+      log.newline();
       return;
     }
+    const ideateOutput = ideateR.value;
 
     // Update ticket with requirements
     const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticket.id);
@@ -347,16 +343,13 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     log.newline();
 
     // Parse and validate tasks
-    let parsedTasks: ReturnType<typeof parseTasksJson>;
-    try {
-      parsedTasks = parseTasksJson(JSON.stringify(ideateOutput.tasks));
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to parse tasks: ${err.message}`);
-        log.newline();
-      }
+    const parsedTasksR = Result.try(() => parseTasksJson(JSON.stringify(ideateOutput.tasks)));
+    if (!parsedTasksR.ok) {
+      showError(`Failed to parse tasks: ${parsedTasksR.error.message}`);
+      log.newline();
       return;
     }
+    const parsedTasks = parsedTasksR.value;
 
     if (parsedTasks.length === 0) {
       showWarning('No tasks generated.');
@@ -397,14 +390,11 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     console.log(muted(`\n  ${providerName} will guide you through requirements refinement and task planning.`));
     console.log(muted(`  When done, ask ${providerName} to write the output to: ${outputFile}\n`));
 
-    try {
-      await invokeAiInteractive(prompt, selectedPaths, ideateDir);
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to invoke ${providerName}: ${err.message}`);
-        showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
-        log.newline();
-      }
+    const interactiveR = await wrapAsync(() => invokeAiInteractive(prompt, selectedPaths, ideateDir), ensureError);
+    if (!interactiveR.ok) {
+      showError(`Failed to invoke ${providerName}: ${interactiveR.error.message}`);
+      showTip(`Make sure the ${providerName.toLowerCase()} CLI is installed and configured.`);
+      log.newline();
       return;
     }
 
@@ -413,25 +403,20 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     if (await fileExists(outputFile)) {
       showInfo('Output file found. Processing...');
 
-      let content: string;
-      try {
-        content = await readFile(outputFile, 'utf-8');
-      } catch {
+      const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
+      if (!contentR.ok) {
         showError(`Failed to read output file: ${outputFile}`);
         log.newline();
         return;
       }
 
-      let ideateOutput: { requirements: string; tasks: unknown[] };
-      try {
-        ideateOutput = parseIdeateOutput(content);
-      } catch (err) {
-        if (err instanceof Error) {
-          showError(`Failed to parse output file: ${err.message}`);
-          log.newline();
-        }
+      const ideateR = Result.try(() => parseIdeateOutput(contentR.value));
+      if (!ideateR.ok) {
+        showError(`Failed to parse output file: ${ideateR.error.message}`);
+        log.newline();
         return;
       }
+      const ideateOutput = ideateR.value;
 
       // Update ticket with requirements
       const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticket.id);
@@ -446,16 +431,13 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       log.newline();
 
       // Parse and validate tasks
-      let parsedTasks: ReturnType<typeof parseTasksJson>;
-      try {
-        parsedTasks = parseTasksJson(JSON.stringify(ideateOutput.tasks));
-      } catch (err) {
-        if (err instanceof Error) {
-          showError(`Failed to parse tasks: ${err.message}`);
-          log.newline();
-        }
+      const parsedTasksR = Result.try(() => parseTasksJson(JSON.stringify(ideateOutput.tasks)));
+      if (!parsedTasksR.ok) {
+        showError(`Failed to parse tasks: ${parsedTasksR.error.message}`);
+        log.newline();
         return;
       }
+      const parsedTasks = parsedTasksR.value;
 
       if (parsedTasks.length === 0) {
         showWarning('No tasks in file.');

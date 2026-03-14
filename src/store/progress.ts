@@ -1,9 +1,10 @@
 import { execSync } from 'node:child_process';
 import { assertSafeCwd, getProgressFilePath } from '@src/utils/paths.ts';
-import { appendToFile, FileNotFoundError, readTextFile } from '@src/utils/storage.ts';
+import { appendToFile, readTextFile } from '@src/utils/storage.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
 import { log } from '@src/theme/ui.ts';
+import { StorageError } from '@src/errors.ts';
 
 export interface LogProgressOptions {
   sprintId?: string;
@@ -21,9 +22,12 @@ export async function logProgress(message: string, options: LogProgressOptions =
   const projectMarker = options.projectPath ? `**Project:** ${options.projectPath}\n\n` : '';
   const entry = `## ${timestamp}\n\n${projectMarker}${message}\n\n---\n\n`;
   const progressPath = getProgressFilePath(id);
-  await withFileLock(progressPath, async () => {
-    await appendToFile(progressPath, entry);
+
+  const lockResult = await withFileLock(progressPath, async () => {
+    const appendResult = await appendToFile(progressPath, entry);
+    if (!appendResult.ok) throw appendResult.error;
   });
+  if (!lockResult.ok) throw lockResult.error;
 }
 
 function isExecError(err: unknown): err is Error & { status: number } {
@@ -111,19 +115,24 @@ export async function logBaselines(options: LogBaselinesOptions): Promise<void> 
   lines.push('---');
   lines.push('');
 
-  await appendToFile(getProgressFilePath(sprintId), lines.join('\n'));
+  const appendResult = await appendToFile(getProgressFilePath(sprintId), lines.join('\n'));
+  if (!appendResult.ok) throw appendResult.error;
 }
 
 export async function getProgress(sprintId?: string): Promise<string> {
   const id = await resolveSprintId(sprintId);
-  try {
-    return await readTextFile(getProgressFilePath(id));
-  } catch (err) {
-    if (err instanceof FileNotFoundError) {
+  const result = await readTextFile(getProgressFilePath(id));
+  if (!result.ok) {
+    // File not found is expected for sprints without progress yet
+    if (
+      result.error instanceof StorageError &&
+      (result.error.cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+    ) {
       return '';
     }
-    throw err;
+    throw result.error;
   }
+  return result.value;
 }
 
 /**

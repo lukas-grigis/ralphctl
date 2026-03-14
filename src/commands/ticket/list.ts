@@ -1,3 +1,4 @@
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { colors, muted, success } from '@src/theme/index.ts';
 import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/store/ticket.ts';
 import { getProject } from '@src/store/project.ts';
@@ -92,12 +93,12 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     log.raw(`${colors.info(icons.project)} ${colors.info(projectName)}`);
 
     // Show project repos
-    try {
-      const project = await getProject(projectName);
-      for (const repo of project.repositories) {
+    const projectR = await wrapAsync(() => getProject(projectName), ensureError);
+    if (projectR.ok) {
+      for (const repo of projectR.value.repositories) {
         log.raw(`    ${muted(repo.name)} ${muted('→')} ${muted(repo.path)}`, 1);
       }
-    } catch {
+    } else {
       log.raw(`    ${muted('(project not found)')}`, 1);
     }
     log.newline();

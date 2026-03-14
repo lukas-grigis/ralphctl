@@ -3,89 +3,10 @@ import { ProcessManager } from '@src/ai/process-manager.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
 import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
+import { SpawnError } from '@src/errors.ts';
 
-// Re-export types from providers for backward compatibility
-export type { HeadlessSpawnOptions, SpawnResult } from '@src/providers/types.ts';
-export type { SpawnSyncOptions, SpawnAsyncOptions } from '@src/providers/types.ts';
-
-// Local import aliases for use in function signatures
 import type { HeadlessSpawnOptions, SpawnResult, SpawnSyncOptions, SpawnAsyncOptions } from '@src/providers/types.ts';
-
-/** Parsed JSON result from provider CLI --output-format json */
-export interface ProviderJsonResult {
-  type: string;
-  subtype: string;
-  is_error: boolean;
-  result: string;
-  session_id: string;
-  duration_ms: number;
-  total_cost_usd: number;
-  num_turns: number;
-}
-
-export class SpawnError extends Error {
-  public readonly stderr: string;
-  public readonly exitCode: number;
-  public readonly rateLimited: boolean;
-  public readonly retryAfterMs: number | null;
-  /** Session ID if available (for resume after rate limit) */
-  public readonly sessionId: string | null;
-
-  constructor(
-    message: string,
-    stderr: string,
-    exitCode: number,
-    sessionId?: string | null,
-    provider?: ProviderAdapter
-  ) {
-    super(message);
-    this.name = 'SpawnError';
-    this.stderr = stderr;
-    this.exitCode = exitCode;
-    this.sessionId = sessionId ?? null;
-    const rl = provider ? provider.detectRateLimit(stderr) : detectRateLimitFallback(stderr);
-    this.rateLimited = rl.rateLimited;
-    this.retryAfterMs = rl.retryAfterMs;
-  }
-}
-
-/**
- * Fallback rate limit detection (used when no provider is available).
- */
-function detectRateLimitFallback(stderr: string): { rateLimited: boolean; retryAfterMs: number | null } {
-  const patterns = [/rate.?limit/i, /\b429\b/, /too many requests/i, /overloaded/i, /\b529\b/];
-  const isRateLimited = patterns.some((p) => p.test(stderr));
-  if (!isRateLimited) {
-    return { rateLimited: false, retryAfterMs: null };
-  }
-  const retryMatch = /retry.?after:?\s*(\d+)/i.exec(stderr);
-  const retryAfterMs = retryMatch?.[1] ? parseInt(retryMatch[1], 10) * 1000 : null;
-  return { rateLimited: true, retryAfterMs };
-}
-
-/**
- * Detect rate limit signals in stderr output.
- * @deprecated Use provider.detectRateLimit() instead.
- */
-export function detectRateLimit(stderr: string): { rateLimited: boolean; retryAfterMs: number | null } {
-  return detectRateLimitFallback(stderr);
-}
-
-/**
- * Parse JSON output from provider CLI --output-format json.
- * @deprecated Use provider.parseJsonOutput() instead.
- */
-export function parseJsonOutput(stdout: string): { result: string; sessionId: string | null } {
-  try {
-    const parsed = JSON.parse(stdout) as Partial<ProviderJsonResult>;
-    return {
-      result: parsed.result ?? stdout,
-      sessionId: parsed.session_id ?? null,
-    };
-  } catch {
-    return { result: stdout, sessionId: null };
-  }
-}
 
 /**
  * Spawn AI CLI for interactive session.
@@ -173,7 +94,7 @@ export async function spawnHeadlessRaw(
     // Add --resume if resuming a session (validate format to prevent argument injection)
     if (options.resumeSessionId) {
       if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(options.resumeSessionId)) {
-        reject(new SpawnError('Invalid session ID format', '', 1, null, p));
+        reject(new SpawnError('Invalid session ID format', '', 1));
         return;
       }
       allArgs.push('--resume', options.resumeSessionId);
@@ -190,7 +111,7 @@ export async function spawnHeadlessRaw(
     try {
       manager.registerChild(child);
     } catch {
-      reject(new SpawnError('Cannot spawn during shutdown', '', 1, null, p));
+      reject(new SpawnError('Cannot spawn during shutdown', '', 1));
       return;
     }
 
@@ -198,7 +119,7 @@ export async function spawnHeadlessRaw(
     const MAX_PROMPT_SIZE = 1_000_000; // 1MB
     if (options.prompt) {
       if (options.prompt.length > MAX_PROMPT_SIZE) {
-        reject(new SpawnError('Prompt exceeds maximum size (1MB)', '', 1, null, p));
+        reject(new SpawnError('Prompt exceeds maximum size (1MB)', '', 1));
         return;
       }
       child.stdin.write(options.prompt);
@@ -232,20 +153,19 @@ export async function spawnHeadlessRaw(
               `${p.displayName} CLI exited with code ${String(exitCode)}: ${stderr}`,
               stderr,
               exitCode,
-              sessionId,
-              p
+              sessionId
             )
           );
         } else {
           resolve({ stdout: result, stderr, exitCode: 0, sessionId });
         }
       })().catch((err: unknown) => {
-        reject(new SpawnError(`Unexpected error in close handler: ${String(err)}`, '', 1, null, p));
+        reject(new SpawnError(`Unexpected error in close handler: ${String(err)}`, '', 1));
       });
     });
 
     child.on('error', (err) => {
-      reject(new SpawnError(`Failed to spawn ${p.binary} CLI: ${err.message}`, '', 1, null, p));
+      reject(new SpawnError(`Failed to spawn ${p.binary} CLI: ${err.message}`, '', 1));
     });
   });
 }
@@ -289,29 +209,30 @@ export async function spawnWithRetry(
     // Check total elapsed time before each attempt
     const elapsed = Date.now() - startTime;
     if (attempt > 0 && elapsed >= totalTimeoutMs) {
-      throw new SpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId, p);
+      throw new SpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId);
     }
 
-    try {
-      return await spawnHeadlessRaw({ ...options, resumeSessionId }, p);
-    } catch (err) {
-      if (!(err instanceof SpawnError) || !err.rateLimited) {
-        throw err;
-      }
+    const r = await wrapAsync(async () => spawnHeadlessRaw({ ...options, resumeSessionId }, p), ensureError);
 
-      // Capture session ID for resume on next attempt
-      if (err.sessionId) {
-        resumeSessionId = err.sessionId;
-      }
+    if (r.ok) return r.value;
 
-      if (attempt >= maxRetries) {
-        throw err;
-      }
-
-      const delay = Math.min(err.retryAfterMs ?? BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS) + jitter();
-      retryOptions?.onRetry?.(attempt + 1, delay, err);
-      await sleep(delay);
+    const err = r.error;
+    if (!(err instanceof SpawnError) || !err.rateLimited) {
+      throw err;
     }
+
+    // Capture session ID for resume on next attempt
+    if (err.sessionId) {
+      resumeSessionId = err.sessionId;
+    }
+
+    if (attempt >= maxRetries) {
+      throw err;
+    }
+
+    const delay = Math.min(err.retryAfterMs ?? BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS) + jitter();
+    retryOptions?.onRetry?.(attempt + 1, delay, err);
+    await sleep(delay);
   }
 
   // Unreachable, but satisfies TypeScript

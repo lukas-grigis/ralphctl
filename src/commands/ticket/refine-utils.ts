@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Result } from 'typescript-result';
 import { formatTicketDisplay } from '@src/store/ticket.ts';
 import { spawnInteractive } from '@src/ai/session.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
@@ -36,12 +37,11 @@ export function parseRequirementsFile(content: string): RefinedRequirement[] {
   // Try to extract a balanced JSON array from the content (handles surrounding text)
   const jsonStr = extractJsonArray(content);
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (err) {
-    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : 'parse error'}`, { cause: err });
+  const parseR = Result.try(() => JSON.parse(jsonStr) as unknown);
+  if (!parseR.ok) {
+    throw new Error(`Invalid JSON: ${parseR.error.message}`, { cause: parseR.error });
   }
+  const parsed = parseR.value;
 
   if (!Array.isArray(parsed)) {
     throw new Error('Expected JSON array');

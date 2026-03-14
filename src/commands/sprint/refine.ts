@@ -1,6 +1,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { confirm } from '@inquirer/prompts';
+import { Result } from 'typescript-result';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { colors, info } from '@src/theme/index.ts';
 import {
   createSpinner,
@@ -56,15 +58,14 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
 export async function sprintRefineCommand(args: string[]): Promise<void> {
   const { sprintId, options } = parseArgs(args);
 
-  let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
+  if (!idR.ok) {
     showWarning('No sprint specified and no current sprint set.');
     showTip('Specify a sprint ID or create one first.');
     log.newline();
     return;
   }
+  const id = idR.value;
 
   const sprint = await getSprint(id);
 
@@ -72,10 +73,8 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   try {
     assertSprintStatus(sprint, ['draft'], 'refine');
   } catch (err) {
-    if (err instanceof Error) {
-      showError(err.message);
-      log.newline();
-    }
+    showError(err instanceof Error ? err.message : String(err));
+    log.newline();
     return;
   }
 
@@ -151,9 +150,8 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     log.newline();
 
     // Validate project exists
-    try {
-      await getProject(ticket.projectName);
-    } catch {
+    const projectR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
+    if (!projectR.ok) {
       showWarning(`Project '${ticket.projectName}' not found.`);
       log.dim('Skipping this ticket.');
       log.newline();
@@ -179,21 +177,20 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     if (ticket.link) {
       const fetchSpinner = createSpinner('Fetching issue data...');
       fetchSpinner.start();
-      try {
-        const issueData = fetchIssueFromUrl(ticket.link);
-        if (issueData) {
-          issueContext = formatIssueContext(issueData);
-          fetchSpinner.succeed(`Issue data fetched (${String(issueData.comments.length)} comment(s))`);
-        } else {
-          fetchSpinner.stop();
-        }
-      } catch (err) {
+      const link = ticket.link;
+      const issueR = Result.try(() => fetchIssueFromUrl(link));
+      if (issueR.ok && issueR.value) {
+        issueContext = formatIssueContext(issueR.value);
+        fetchSpinner.succeed(`Issue data fetched (${String(issueR.value.comments.length)} comment(s))`);
+      } else if (!issueR.ok) {
         fetchSpinner.fail('Could not fetch issue data');
-        if (err instanceof IssueFetchError) {
-          showWarning(`${err.message} — continuing without issue context`);
-        } else if (err instanceof Error) {
-          showWarning(`${err.message} — continuing without issue context`);
+        if (issueR.error instanceof IssueFetchError) {
+          showWarning(`${issueR.error.message} — continuing without issue context`);
+        } else {
+          showWarning(`${issueR.error.message} — continuing without issue context`);
         }
+      } else {
+        fetchSpinner.stop();
       }
     }
 
@@ -211,44 +208,36 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     const spinner = createSpinner(`Starting ${providerName} session...`);
     spinner.start();
 
-    try {
-      await runAiSession(refineDir, prompt, ticket.title);
-      spinner.succeed(`${providerName} session completed`);
-    } catch (err) {
+    const sessionR = await wrapAsync(() => runAiSession(refineDir, prompt, ticket.title), ensureError);
+    if (!sessionR.ok) {
       spinner.fail(`${providerName} session failed`);
-      if (err instanceof Error) {
-        showError(err.message);
-      }
+      showError(sessionR.error.message);
       log.newline();
       skipped++;
       continue;
     }
+    spinner.succeed(`${providerName} session completed`);
 
     log.newline();
 
     // Process the requirements file
     if (await fileExists(outputFile)) {
-      let content: string;
-      try {
-        content = await readFile(outputFile, 'utf-8');
-      } catch {
+      const contentR = await wrapAsync(() => readFile(outputFile, 'utf-8'), ensureError);
+      if (!contentR.ok) {
         showError(`Failed to read requirements file: ${outputFile}`);
         log.newline();
         skipped++;
         continue;
       }
 
-      let refinedRequirements: RefinedRequirement[];
-      try {
-        refinedRequirements = parseRequirementsFile(content);
-      } catch (err) {
-        if (err instanceof Error) {
-          showError(`Failed to parse requirements file: ${err.message}`);
-        }
+      const parseR = Result.try(() => parseRequirementsFile(contentR.value));
+      if (!parseR.ok) {
+        showError(`Failed to parse requirements file: ${parseR.error.message}`);
         log.newline();
         skipped++;
         continue;
       }
+      const refinedRequirements: RefinedRequirement[] = parseR.value;
 
       if (refinedRequirements.length === 0) {
         showWarning('No requirements found in output file.');
@@ -339,15 +328,11 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     const sprintDir = getSprintDir(id);
     const outputPath = join(sprintDir, 'requirements.md');
 
-    try {
-      await exportRequirementsToMarkdown(updatedSprint, outputPath);
+    const exportR = await wrapAsync(() => exportRequirementsToMarkdown(updatedSprint, outputPath), ensureError);
+    if (exportR.ok) {
       log.dim(`Requirements saved to: ${outputPath}`);
-    } catch (err) {
-      if (err instanceof Error) {
-        showError(`Failed to write requirements: ${err.message}`);
-      } else {
-        showError('Failed to write requirements: Unknown error');
-      }
+    } else {
+      showError(`Failed to write requirements: ${exportR.error.message}`);
     }
 
     showTip('Run "ralphctl sprint plan" to generate tasks.');

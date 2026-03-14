@@ -1,6 +1,7 @@
 import readline from 'node:readline';
 import { select } from '@inquirer/prompts';
 import { bold, dim } from 'colorette';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 type SelectConfig<Value> = Parameters<typeof select<Value>>[0];
 
@@ -65,17 +66,14 @@ export async function escapableSelect<Value>(
 
   process.stdin.on('keypress', onKeypress);
 
-  try {
-    const result = await select(withEscapeHint(config, options?.escLabel ?? 'back'), {
-      signal: controller.signal,
-    });
-    return result;
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortPromptError') {
-      return null;
-    }
-    throw err;
-  } finally {
-    process.stdin.removeListener('keypress', onKeypress);
+  const r = await wrapAsync(
+    () => select(withEscapeHint(config, options?.escLabel ?? 'back'), { signal: controller.signal }),
+    ensureError
+  );
+  process.stdin.removeListener('keypress', onKeypress);
+  if (!r.ok) {
+    if (r.error.name === 'AbortPromptError') return null;
+    throw r.error;
   }
+  return r.value as Value;
 }

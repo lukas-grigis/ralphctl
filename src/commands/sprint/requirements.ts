@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { getSprintDir } from '@src/utils/paths.ts';
 import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
@@ -9,12 +10,13 @@ export async function sprintRequirementsCommand(args: string[] = []): Promise<vo
   const sprintId = args.find((a) => !a.startsWith('-'));
 
   let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
+  if (!idR.ok) {
     const selected = await selectSprint('Select sprint to export requirements from:');
     if (!selected) return;
     id = selected;
+  } else {
+    id = idR.value;
   }
 
   const sprint = await getSprint(id);
@@ -41,18 +43,13 @@ export async function sprintRequirementsCommand(args: string[] = []): Promise<vo
   const sprintDir = getSprintDir(id);
   const outputPath = join(sprintDir, 'requirements.md');
 
-  try {
-    await exportRequirementsToMarkdown(sprint, outputPath);
-    showSuccess('Requirements written to:');
-    log.item(outputPath);
-  } catch (err) {
-    if (err instanceof Error) {
-      showError(`Failed to write requirements: ${err.message}`);
-    } else {
-      showError('Failed to write requirements: Unknown error');
-    }
+  const exportR = await wrapAsync(() => exportRequirementsToMarkdown(sprint, outputPath), ensureError);
+  if (!exportR.ok) {
+    showError(`Failed to write requirements: ${exportR.error.message}`);
     return;
   }
+  showSuccess('Requirements written to:');
+  log.item(outputPath);
 
   log.newline();
 }

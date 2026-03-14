@@ -1,3 +1,4 @@
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { TaskNotFoundError, updateTaskStatus } from '@src/store/task.ts';
 import { formatTaskStatus, log, showError, showNextStep, showSuccess } from '@src/theme/ui.ts';
 import { type TaskStatus, TaskStatusSchema } from '@src/schemas/index.ts';
@@ -70,30 +71,31 @@ export async function taskStatusCommand(args: string[], options: TaskStatusOptio
     return;
   }
 
-  try {
-    const task = await updateTaskStatus(taskId, result.data);
-    showSuccess('Task status updated!', [
-      ['ID', task.id],
-      ['Name', task.name],
-      ['Status', formatTaskStatus(task.status)],
-    ]);
-    log.newline();
-  } catch (err) {
-    if (err instanceof TaskNotFoundError) {
+  const updateR = await wrapAsync(() => updateTaskStatus(taskId, result.data), ensureError);
+  if (!updateR.ok) {
+    if (updateR.error instanceof TaskNotFoundError) {
       showError(`Task not found: ${taskId}`);
       showNextStep('ralphctl task list', 'see available tasks');
       log.newline();
       if (options.noInteractive) {
         exitWithCode(EXIT_ERROR);
       }
-    } else if (err instanceof SprintStatusError) {
-      showError(err.message);
+    } else if (updateR.error instanceof SprintStatusError) {
+      showError(updateR.error.message);
       log.newline();
       if (options.noInteractive) {
         exitWithCode(EXIT_ERROR);
       }
     } else {
-      throw err;
+      throw updateR.error;
     }
+    return;
   }
+
+  showSuccess('Task status updated!', [
+    ['ID', updateR.value.id],
+    ['Name', updateR.value.name],
+    ['Status', formatTaskStatus(updateR.value.status)],
+  ]);
+  log.newline();
 }

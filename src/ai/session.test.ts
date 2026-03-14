@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SpawnError } from './session.ts';
+import { SpawnError } from '@src/errors.ts';
 import { claudeAdapter } from '@src/providers/claude.ts';
 
-// Use the provider adapter's methods directly (the deprecated aliases still work but lint warns)
 const detectRateLimit = (stderr: string) => claudeAdapter.detectRateLimit(stderr);
 const parseJsonOutput = (stdout: string) => claudeAdapter.parseJsonOutput(stdout);
 

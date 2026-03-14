@@ -1,3 +1,4 @@
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { colors, muted } from '@src/theme/index.ts';
 import { getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { listTasks } from '@src/store/task.ts';
@@ -21,12 +22,13 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
   const sprintId = args[0];
 
   let id: string;
-  try {
-    id = await resolveSprintId(sprintId);
-  } catch {
+  const idR = await wrapAsync(() => resolveSprintId(sprintId), ensureError);
+  if (!idR.ok) {
     const selected = await selectSprint('Select sprint to show:');
     if (!selected) return;
     id = selected;
+  } else {
+    id = idR.value;
   }
 
   const sprint = await getSprint(id);

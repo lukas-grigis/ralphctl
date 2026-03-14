@@ -1,11 +1,13 @@
 import { execSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Result } from 'typescript-result';
 import { muted, warning } from '@src/theme/index.ts';
 import { checkTaskPermissions } from '@src/ai/permissions.ts';
 import { getProject, ProjectNotFoundError } from '@src/store/project.ts';
 import type { AiProvider, Project, Sprint, Task } from '@src/schemas/index.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
+import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
 // ============================================================================
 // TYPES
@@ -31,7 +33,7 @@ export type CheckResults = Map<string, CheckStatus>;
  * Get recent git history for a project path.
  */
 export function getRecentGitHistory(projectPath: string, count = 20): string {
-  try {
+  const r = Result.try(() => {
     assertSafeCwd(projectPath);
     const result = execSync(`git log -${String(count)} --oneline --no-decorate`, {
       cwd: projectPath,
@@ -39,9 +41,8 @@ export function getRecentGitHistory(projectPath: string, count = 20): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return result.trim();
-  } catch {
-    return '(Unable to retrieve git history)';
-  }
+  });
+  return r.ok ? r.value : '(Unable to retrieve git history)';
 }
 
 /**
@@ -231,14 +232,10 @@ export async function getProjectForTask(task: Task, sprint: Sprint): Promise<Pro
   const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
   if (!ticket) return undefined;
 
-  try {
-    return await getProject(ticket.projectName);
-  } catch (err) {
-    if (err instanceof ProjectNotFoundError) {
-      return undefined;
-    }
-    throw err;
-  }
+  const r = await wrapAsync(async () => getProject(ticket.projectName), ensureError);
+  if (r.ok) return r.value;
+  if (r.error instanceof ProjectNotFoundError) return undefined;
+  throw r.error;
 }
 
 // ============================================================================

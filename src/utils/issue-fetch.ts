@@ -1,4 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { Result } from 'typescript-result';
+import { IssueFetchError } from '@src/errors.ts';
+import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
+
+export { IssueFetchError } from '@src/errors.ts';
 
 const MAX_COMMENTS = 20;
 
@@ -98,7 +103,7 @@ interface GlabIssueResponse {
   notes?: GlabNote[];
 }
 
-function fetchGitHubIssue(parsed: ParsedIssueUrl): IssueData {
+function fetchGitHubIssueResult(parsed: ParsedIssueUrl) {
   const result = spawnSync(
     'gh',
     [
@@ -115,7 +120,7 @@ function fetchGitHubIssue(parsed: ParsedIssueUrl): IssueData {
 
   if (result.status !== 0) {
     const stderr = result.stderr.trim();
-    throw new IssueFetchError(`gh issue view failed: ${stderr || 'unknown error'}`);
+    return Result.error(new IssueFetchError(`gh issue view failed: ${stderr || 'unknown error'}`));
   }
 
   const data = JSON.parse(result.stdout) as GhIssueResponse;
@@ -126,15 +131,15 @@ function fetchGitHubIssue(parsed: ParsedIssueUrl): IssueData {
     body: c.body ?? '',
   }));
 
-  return {
+  return Result.ok<IssueData>({
     title: data.title ?? '',
     body: data.body ?? '',
     comments,
     url: `https://${parsed.hostname}/${parsed.owner}/${parsed.repo}/issues/${String(parsed.number)}`,
-  };
+  });
 }
 
-function fetchGitLabIssue(parsed: ParsedIssueUrl): IssueData {
+function fetchGitLabIssueResult(parsed: ParsedIssueUrl) {
   // Fetch issue details
   const result = spawnSync(
     'glab',
@@ -144,7 +149,7 @@ function fetchGitLabIssue(parsed: ParsedIssueUrl): IssueData {
 
   if (result.status !== 0) {
     const stderr = result.stderr.trim();
-    throw new IssueFetchError(`glab issue view failed: ${stderr || 'unknown error'}`);
+    return Result.error(new IssueFetchError(`glab issue view failed: ${stderr || 'unknown error'}`));
   }
 
   const data = JSON.parse(result.stdout) as GlabIssueResponse;
@@ -170,12 +175,22 @@ function fetchGitLabIssue(parsed: ParsedIssueUrl): IssueData {
     }
   }
 
-  return {
+  return Result.ok<IssueData>({
     title: data.title ?? '',
     body: data.description ?? '',
     comments,
     url: `https://${parsed.hostname}/${parsed.owner}/${parsed.repo}/-/issues/${String(parsed.number)}`,
-  };
+  });
+}
+
+/**
+ * Fetch issue data from GitHub or GitLab using CLI tools — Result-returning version.
+ */
+export function fetchIssueResult(parsed: ParsedIssueUrl) {
+  if (parsed.host === 'github') {
+    return fetchGitHubIssueResult(parsed);
+  }
+  return fetchGitLabIssueResult(parsed);
 }
 
 /**
@@ -183,10 +198,17 @@ function fetchGitLabIssue(parsed: ParsedIssueUrl): IssueData {
  * Throws IssueFetchError on failure.
  */
 export function fetchIssue(parsed: ParsedIssueUrl): IssueData {
-  if (parsed.host === 'github') {
-    return fetchGitHubIssue(parsed);
-  }
-  return fetchGitLabIssue(parsed);
+  return unwrapOrThrow(fetchIssueResult(parsed));
+}
+
+/**
+ * Fetch issue data from a URL string — Result-returning version.
+ * Returns null if the URL is not a recognized issue URL.
+ */
+export function fetchIssueFromUrlResult(url: string) {
+  const parsed = parseIssueUrl(url);
+  if (!parsed) return null;
+  return fetchIssueResult(parsed);
 }
 
 /**
@@ -234,11 +256,4 @@ export function formatIssueContext(data: IssueData): string {
   }
 
   return lines.join('\n');
-}
-
-export class IssueFetchError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'IssueFetchError';
-  }
 }

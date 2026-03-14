@@ -1,4 +1,5 @@
-import type { ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
+import { Result } from 'typescript-result';
+import type { ParsedOutput, ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
 
 /**
  * Claude Code CLI adapter.
@@ -21,19 +22,17 @@ export const claudeAdapter: ProviderAdapter = {
     return ['-p', '--output-format', 'json', ...this.baseArgs, ...extraArgs];
   },
 
-  parseJsonOutput(stdout: string): { result: string; sessionId: string | null } {
-    try {
-      const parsed = JSON.parse(stdout) as {
-        result?: string;
-        session_id?: string;
-      };
-      return {
-        result: parsed.result ?? stdout,
-        sessionId: parsed.session_id ?? null,
-      };
-    } catch {
+  parseJsonOutput(stdout: string): ParsedOutput {
+    const jsonResult = Result.try(() => JSON.parse(stdout) as unknown);
+    if (!jsonResult.ok) {
+      // JSON parse failed — treat raw stdout as the result text
       return { result: stdout, sessionId: null };
     }
+    const parsed = jsonResult.value as { result?: string; session_id?: string };
+    return {
+      result: parsed.result ?? stdout,
+      sessionId: parsed.session_id ?? null,
+    };
   },
 
   detectRateLimit(stderr: string): RateLimitInfo {
