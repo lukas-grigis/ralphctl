@@ -27,9 +27,14 @@ function getHookTimeoutMs(): number {
  * Scripts are user-configured via `project add` or `project repo add` —
  * they are NOT arbitrary AI-generated commands.
  */
-export function runLifecycleHook(projectPath: string, script: string, event: LifecycleEvent): HookResult {
+export function runLifecycleHook(
+  projectPath: string,
+  script: string,
+  event: LifecycleEvent,
+  timeoutOverrideMs?: number
+): HookResult {
   assertSafeCwd(projectPath);
-  const timeoutMs = getHookTimeoutMs();
+  const timeoutMs = timeoutOverrideMs ?? getHookTimeoutMs();
 
   const result = spawnSync(script, {
     cwd: projectPath,
