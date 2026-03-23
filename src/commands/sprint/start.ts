@@ -69,6 +69,22 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
         throw new Error('--branch-name requires a value');
       }
       options.branchName = nameStr;
+    } else if (arg === '--max-budget-usd') {
+      const budgetStr = args[++i];
+      if (!budgetStr) {
+        throw new Error('--max-budget-usd requires a number');
+      }
+      const budget = parseFloat(budgetStr);
+      if (isNaN(budget) || budget <= 0) {
+        throw new Error('--max-budget-usd must be a positive number');
+      }
+      options.maxBudgetUsd = budget;
+    } else if (arg === '--fallback-model') {
+      const modelStr = args[++i];
+      if (!modelStr) {
+        throw new Error('--fallback-model requires a model name');
+      }
+      options.fallbackModel = modelStr;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }

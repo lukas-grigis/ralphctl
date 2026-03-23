@@ -40,6 +40,11 @@
             "checkScript": {
               "type": "string",
               "description": "Idempotent check command that bootstraps and verifies the environment (e.g., pnpm install && pnpm typecheck && pnpm lint && pnpm test)"
+            },
+            "checkTimeout": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Per-repo timeout in milliseconds for check script execution (overrides RALPHCTL_SETUP_TIMEOUT_MS)"
             }
           }
         }

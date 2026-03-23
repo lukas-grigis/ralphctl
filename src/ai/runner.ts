@@ -254,7 +254,7 @@ export async function runCheckScripts(
 
     log.info(`\nRunning check for ${repoName}: ${checkScript}`);
 
-    const hookResult = runLifecycleHook(projectPath, checkScript, 'sprintStart');
+    const hookResult = runLifecycleHook(projectPath, checkScript, 'sprintStart', repo?.checkTimeout);
 
     if (!hookResult.passed) {
       return {

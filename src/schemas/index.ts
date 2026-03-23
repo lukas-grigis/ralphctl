@@ -17,6 +17,7 @@ export const RepositorySchema = z.object({
   name: z.string().min(1), // Auto-derived from basename(path)
   path: z.string().min(1), // Absolute path
   checkScript: z.string().optional(), // e.g., "pnpm install && pnpm typecheck && pnpm lint && pnpm test"
+  checkTimeout: z.number().positive().optional(), // Per-repo timeout in ms (overrides RALPHCTL_SETUP_TIMEOUT_MS)
 });
 export type Repository = z.infer<typeof RepositorySchema>;
 

@@ -186,7 +186,7 @@ export async function deleteSprint(sprintId: string): Promise<Sprint> {
 export async function getCurrentSprintOrThrow(): Promise<Sprint> {
   const currentSprintId = await getCurrentSprint();
   if (!currentSprintId) {
-    throw new Error('No current sprint. Use "ralphctl sprint create" to create one.');
+    throw new NoCurrentSprintError();
   }
   return getSprint(currentSprintId);
 }
@@ -194,7 +194,7 @@ export async function getCurrentSprintOrThrow(): Promise<Sprint> {
 export async function getActiveSprintOrThrow(): Promise<Sprint> {
   const activeSprint = await findActiveSprint();
   if (!activeSprint) {
-    throw new Error('No active sprint. Use "ralphctl sprint start" to start a draft sprint.');
+    throw new NoCurrentSprintError();
   }
   return activeSprint;
 }

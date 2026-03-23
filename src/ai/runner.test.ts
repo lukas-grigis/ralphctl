@@ -447,7 +447,7 @@ describe('runCheckScripts', () => {
     if (!result.success) return;
 
     // Script WAS executed despite existing timestamp
-    expect(runLifecycleHook).toHaveBeenCalledWith('/repo/alpha', 'pnpm install', 'sprintStart');
+    expect(runLifecycleHook).toHaveBeenCalledWith('/repo/alpha', 'pnpm install', 'sprintStart', undefined);
 
     // Timestamp was updated and sprint persisted
     expect(saveSprint).toHaveBeenCalledWith(sprint);

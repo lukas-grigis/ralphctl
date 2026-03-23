@@ -69,6 +69,10 @@ export interface ExecutorOptions {
   branch?: boolean;
   /** Custom branch name for sprint execution */
   branchName?: string;
+  /** Max USD budget per AI task (Claude --max-budget-usd, headless only) */
+  maxBudgetUsd?: number;
+  /** Fallback model when primary is overloaded (Claude --fallback-model, headless only) */
+  fallbackModel?: string;
 }
 
 /** Reason why execution stopped */
@@ -102,6 +106,20 @@ export interface ExecutionSummary {
 /** Extended result that includes session ID for resume capability */
 interface TaskExecutionResult extends ExecutionResult {
   sessionId: string | null;
+}
+
+/** Build provider-specific CLI args from executor options (budget, fallback model). */
+function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter): string[] {
+  // These flags are Claude-only — Copilot CLI doesn't support them
+  if (provider.name !== 'claude') return [];
+  const args: string[] = [];
+  if (options.maxBudgetUsd != null) {
+    args.push('--max-budget-usd', String(options.maxBudgetUsd));
+  }
+  if (options.fallbackModel) {
+    args.push('--fallback-model', options.fallbackModel);
+  }
+  return args;
 }
 
 async function executeTask(
@@ -173,7 +191,7 @@ async function executeTask(
       spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
-          args: ['--add-dir', sprintDir],
+          args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: 'Continue where you left off. Complete the task and signal completion.',
           resumeSessionId,
         },
@@ -217,7 +235,7 @@ async function executeTask(
       spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
-          args: ['--add-dir', sprintDir],
+          args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: contextContent,
         },
         {
@@ -515,15 +533,18 @@ interface ParallelTaskResult {
 
 /**
  * Pick tasks to launch: one per unique projectPath, respecting concurrency limit.
- * Excludes repos that already have an in-flight task.
+ * Excludes repos that already have an in-flight task or have failed checks.
  */
-function pickTasksToLaunch(
+export function pickTasksToLaunch(
   readyTasks: Task[],
   inFlightPaths: Set<string>,
   concurrencyLimit: number,
-  currentInFlight: number
+  currentInFlight: number,
+  failedPaths?: Set<string>
 ): Task[] {
-  const available = readyTasks.filter((t) => !inFlightPaths.has(t.projectPath));
+  const available = readyTasks.filter(
+    (t) => !inFlightPaths.has(t.projectPath) && !(failedPaths?.has(t.projectPath) ?? false)
+  );
 
   // Deduplicate by projectPath — pick the first (lowest order) task per repo
   const byPath = new Map<string, Task>();
@@ -585,6 +606,7 @@ export async function executeTaskLoopParallel(
   const running = new Map<string, Promise<ParallelTaskResult>>();
   const taskSessionIds = new Map<string, string>(); // taskId → AI session ID
   const branchRetries = new Map<string, number>(); // taskId → branch verification attempts
+  const failedPaths = new Set<string>(); // repos where post-task checks failed
   const MAX_BRANCH_RETRIES = 3;
   let permissionCheckDone = false;
 
@@ -644,19 +666,24 @@ export async function executeTaskLoopParallel(
         }
 
         // Tasks exist but none are launchable — all blocked
+        const hasFailures = hasFailed || failedPaths.size > 0;
+        if (failedPaths.size > 0) {
+          console.log(warning(`\nRepos with failed checks: ${[...failedPaths].join(', ')}`));
+        }
         return {
           completed: completedCount,
           remaining: remaining.length,
-          stopReason: hasFailed ? 'task_blocked' : 'all_blocked',
+          stopReason: hasFailures ? 'task_blocked' : 'all_blocked',
           blockedTask: firstBlockedTask,
           blockedReason: firstBlockedReason ?? 'All remaining tasks are blocked by dependencies',
-          exitCode: hasFailed ? EXIT_ERROR : EXIT_ALL_BLOCKED,
+          exitCode: hasFailures ? EXIT_ERROR : EXIT_ALL_BLOCKED,
         };
       }
 
       // Pick tasks to launch (if we should)
+      // Per-repo failures don't block other repos — only global hasFailed (branch failures) respects failFast
       if (!hasFailed || !failFast) {
-        const toStart = pickTasksToLaunch(launchCandidates, inFlightPaths, concurrencyLimit, running.size);
+        const toStart = pickTasksToLaunch(launchCandidates, inFlightPaths, concurrencyLimit, running.size, failedPaths);
 
         for (const task of toStart) {
           if (completedCount + running.size >= targetCount) break;
@@ -846,17 +873,20 @@ export async function executeTaskLoopParallel(
         const taskProject = await getProjectForTask(settled.task, sprint);
         const taskCheckScript = getEffectiveCheckScript(taskProject, settled.task.projectPath);
         if (taskCheckScript) {
-          const hookResult = runLifecycleHook(settled.task.projectPath, taskCheckScript, 'taskComplete');
+          const taskRepo = taskProject?.repositories.find((r) => r.path === settled.task.projectPath);
+          const hookResult = runLifecycleHook(
+            settled.task.projectPath,
+            taskCheckScript,
+            'taskComplete',
+            taskRepo?.checkTimeout
+          );
           if (!hookResult.passed) {
             console.log(warning(`\nPost-task check failed for: ${settled.task.name}`));
-            console.log(muted(`Task ${settled.task.id} remains in_progress.`));
-            hasFailed = true;
+            console.log(muted(`Task ${settled.task.id} remains in_progress. Repo ${settled.task.projectPath} paused.`));
+            failedPaths.add(settled.task.projectPath);
             if (!firstBlockedTask) {
               firstBlockedTask = settled.task;
               firstBlockedReason = `Post-task check failed: ${hookResult.output.slice(0, 500)}`;
-            }
-            if (failFast) {
-              console.log(muted('Fail-fast: waiting for running tasks to finish...'));
             }
             continue;
           }
@@ -901,7 +931,13 @@ export async function executeTaskLoopParallel(
           const drainProject = await getProjectForTask(r.value.task, sprint);
           const drainCheckScript = getEffectiveCheckScript(drainProject, r.value.task.projectPath);
           if (drainCheckScript) {
-            const hookResult = runLifecycleHook(r.value.task.projectPath, drainCheckScript, 'taskComplete');
+            const drainRepo = drainProject?.repositories.find((repo) => repo.path === r.value.task.projectPath);
+            const hookResult = runLifecycleHook(
+              r.value.task.projectPath,
+              drainCheckScript,
+              'taskComplete',
+              drainRepo?.checkTimeout
+            );
             if (!hookResult.passed) {
               console.log(warning(`Post-task check failed for: ${r.value.task.name}`));
               continue;

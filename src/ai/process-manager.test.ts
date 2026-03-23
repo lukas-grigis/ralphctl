@@ -173,7 +173,7 @@ describe('ProcessManager', () => {
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called');
       });
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {
         // Mock implementation
       });
 
@@ -187,11 +187,11 @@ describe('ProcessManager', () => {
       expect(errorCallback).toHaveBeenCalled();
       expect(normalCallback).toHaveBeenCalled();
 
-      // Error should have been logged
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error in cleanup callback:', 'Cleanup error');
+      // Error should have been logged (via log.error which calls console.log)
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Cleanup error'));
 
       exitSpy.mockRestore();
-      consoleErrorSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
   });
 
@@ -239,7 +239,7 @@ describe('ProcessManager', () => {
         throw err;
       });
 
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {
         // Mock implementation
       });
 
@@ -248,9 +248,10 @@ describe('ProcessManager', () => {
         manager.killAll('SIGTERM');
       }).not.toThrow();
       expect(killSpy).toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Permission denied'));
+      // log.warn calls console.log with themed output containing the message
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Permission denied'));
 
-      consoleWarnSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
 
     it('should handle unknown errors', () => {
@@ -261,7 +262,7 @@ describe('ProcessManager', () => {
         throw new Error('Unknown error');
       });
 
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {
         // Mock implementation
       });
 
@@ -270,9 +271,10 @@ describe('ProcessManager', () => {
         manager.killAll('SIGTERM');
       }).not.toThrow();
       expect(killSpy).toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalled();
+      // log.error calls console.log with themed output
+      expect(consoleLogSpy).toHaveBeenCalled();
 
-      consoleErrorSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
   });
 
