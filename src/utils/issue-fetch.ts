@@ -131,7 +131,7 @@ function fetchGitHubIssueResult(parsed: ParsedIssueUrl) {
     body: c.body ?? '',
   }));
 
-  return Result.ok<IssueData>({
+  return Result.ok({
     title: data.title ?? '',
     body: data.body ?? '',
     comments,
@@ -175,7 +175,7 @@ function fetchGitLabIssueResult(parsed: ParsedIssueUrl) {
     }
   }
 
-  return Result.ok<IssueData>({
+  return Result.ok({
     title: data.title ?? '',
     body: data.description ?? '',
     comments,

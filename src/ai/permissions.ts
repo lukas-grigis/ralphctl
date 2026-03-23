@@ -180,6 +180,12 @@ export function checkTaskPermissions(
   }
 ): PermissionWarning[] {
   const warnings: PermissionWarning[] = [];
+
+  // Copilot manages permissions via --allow-all-tools — no warnings needed
+  if (options.provider === 'copilot') {
+    return warnings;
+  }
+
   const permissions = getProviderPermissions(projectPath, options.provider);
 
   // Check git commit permission

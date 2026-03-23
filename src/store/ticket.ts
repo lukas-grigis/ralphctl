@@ -6,7 +6,7 @@ import { generateUuid8 } from '@src/utils/ids.ts';
 import { projectExists } from '@src/store/project.ts';
 
 export { TicketNotFoundError } from '@src/errors.ts';
-import { TicketNotFoundError } from '@src/errors.ts';
+import { TicketNotFoundError, ProjectNotFoundError } from '@src/errors.ts';
 
 async function getSprintData(sprintId?: string): Promise<Sprint> {
   const id = await resolveSprintId(sprintId);
@@ -35,7 +35,7 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
 
   // Validate that the project exists
   if (!(await projectExists(input.projectName))) {
-    throw new Error(`Project '${input.projectName}' does not exist. Add it first with 'ralphctl project add'.`);
+    throw new ProjectNotFoundError(input.projectName);
   }
 
   const ticket: Ticket = {
