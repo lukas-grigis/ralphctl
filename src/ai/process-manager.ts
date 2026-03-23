@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { EXIT_INTERRUPTED } from '@src/utils/exit-codes.ts';
+import { log } from '@src/theme/ui.ts';
 
 /**
  * Graceful shutdown timeout - how long to wait for children to exit after SIGTERM
@@ -39,6 +40,10 @@ export class ProcessManager {
 
   /** Timestamp of first SIGINT (for double-signal detection) */
   private firstSigintAt: number | null = null;
+
+  /** Stored signal handler references for cleanup */
+  private sigintHandler: (() => void) | null = null;
+  private sigtermHandler: (() => void) | null = null;
 
   private constructor() {
     // Private constructor for singleton
@@ -144,10 +149,10 @@ export class ProcessManager {
           this.children.delete(child);
         } else if (error.code === 'EPERM') {
           // Permission denied - log warning
-          console.warn(`Warning: Permission denied killing process ${String(child.pid)}`);
+          log.warn(`Permission denied killing process ${String(child.pid)}`);
         } else {
           // Unknown error - log but continue
-          console.error(`Error killing process ${String(child.pid)}:`, error.message);
+          log.error(`Error killing process ${String(child.pid)}: ${error.message}`);
         }
       }
     }
@@ -169,7 +174,7 @@ export class ProcessManager {
     if (signal === 'SIGINT' && this.firstSigintAt) {
       const now = Date.now();
       if (now - this.firstSigintAt < FORCE_QUIT_WINDOW_MS) {
-        console.log('\n\nForce quit (double signal) — killing all processes immediately...');
+        log.warn('\n\nForce quit (double signal) — killing all processes immediately...');
         this.killAll('SIGKILL');
         process.exit(1);
         return;
@@ -187,14 +192,14 @@ export class ProcessManager {
       this.firstSigintAt = Date.now();
     }
 
-    console.log('\n\nShutting down gracefully... (press Ctrl+C again to force-quit)');
+    log.dim('\n\nShutting down gracefully... (press Ctrl+C again to force-quit)');
 
     // Run cleanup callbacks
     for (const callback of this.cleanupCallbacks) {
       try {
         callback();
       } catch (err) {
-        console.error('Error in cleanup callback:', err instanceof Error ? err.message : String(err));
+        log.error(`Error in cleanup callback: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     this.cleanupCallbacks.clear();
@@ -211,7 +216,7 @@ export class ProcessManager {
 
     // Force-kill any remaining children
     if (this.children.size > 0) {
-      console.log(`Force-killing ${String(this.children.size)} remaining process(es)...`);
+      log.warn(`Force-killing ${String(this.children.size)} remaining process(es)...`);
       this.killAll('SIGKILL');
     }
 
@@ -224,6 +229,15 @@ export class ProcessManager {
    * @internal
    */
   public dispose(): void {
+    // Remove signal handlers to prevent listener accumulation across test resets
+    if (this.sigintHandler) {
+      process.removeListener('SIGINT', this.sigintHandler);
+      this.sigintHandler = null;
+    }
+    if (this.sigtermHandler) {
+      process.removeListener('SIGTERM', this.sigtermHandler);
+      this.sigtermHandler = null;
+    }
     this.children.clear();
     this.cleanupCallbacks.clear();
     this.exiting = false;
@@ -234,14 +248,16 @@ export class ProcessManager {
   /**
    * Install signal handlers for SIGINT and SIGTERM.
    * Uses process.on() (persistent) not process.once() (one-shot).
+   * Stores handler references so dispose() can remove them.
    */
   private installSignalHandlers(): void {
-    process.on('SIGINT', () => {
+    this.sigintHandler = () => {
       void this.shutdown('SIGINT');
-    });
-
-    process.on('SIGTERM', () => {
+    };
+    this.sigtermHandler = () => {
       void this.shutdown('SIGTERM');
-    });
+    };
+    process.on('SIGINT', this.sigintHandler);
+    process.on('SIGTERM', this.sigtermHandler);
   }
 }
