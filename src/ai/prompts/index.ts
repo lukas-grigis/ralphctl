@@ -41,8 +41,8 @@ export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boo
   const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.\n';
   return template
     .replaceAll('{{PROGRESS_FILE}}', progressFilePath)
-    .replace('{{COMMIT_STEP}}', commitStep)
-    .replace('{{COMMIT_CONSTRAINT}}', commitConstraint)
+    .replaceAll('{{COMMIT_STEP}}', commitStep)
+    .replaceAll('{{COMMIT_CONSTRAINT}}', commitConstraint)
     .replaceAll('{{CONTEXT_FILE}}', contextFileName);
 }
 

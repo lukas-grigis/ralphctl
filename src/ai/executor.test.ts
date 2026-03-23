@@ -86,4 +86,25 @@ describe('pickTasksToLaunch', () => {
     const result = pickTasksToLaunch(tasks, new Set(), 2, 5);
     expect(result).toEqual([]);
   });
+
+  it('excludes tasks whose projectPath is in failedPaths', () => {
+    const tasks = [makeTask('t1', '/repo/a', 1), makeTask('t2', '/repo/b', 2), makeTask('t3', '/repo/c', 3)];
+    const failedPaths = new Set(['/repo/a', '/repo/c']);
+    const result = pickTasksToLaunch(tasks, new Set(), 5, 0, failedPaths);
+    expect(result).toHaveLength(1);
+    expect(result.at(0)?.id).toBe('t2');
+  });
+
+  it('returns all tasks when failedPaths is empty', () => {
+    const tasks = [makeTask('t1', '/repo/a', 1), makeTask('t2', '/repo/b', 2)];
+    const result = pickTasksToLaunch(tasks, new Set(), 5, 0, new Set());
+    expect(result).toHaveLength(2);
+  });
+
+  it('returns empty when all tasks are in failedPaths', () => {
+    const tasks = [makeTask('t1', '/repo/a', 1), makeTask('t2', '/repo/b', 2)];
+    const failedPaths = new Set(['/repo/a', '/repo/b']);
+    const result = pickTasksToLaunch(tasks, new Set(), 5, 0, failedPaths);
+    expect(result).toEqual([]);
+  });
 });

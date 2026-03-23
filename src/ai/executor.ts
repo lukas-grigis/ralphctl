@@ -931,7 +931,13 @@ export async function executeTaskLoopParallel(
           const drainProject = await getProjectForTask(r.value.task, sprint);
           const drainCheckScript = getEffectiveCheckScript(drainProject, r.value.task.projectPath);
           if (drainCheckScript) {
-            const hookResult = runLifecycleHook(r.value.task.projectPath, drainCheckScript, 'taskComplete');
+            const drainRepo = drainProject?.repositories.find((repo) => repo.path === r.value.task.projectPath);
+            const hookResult = runLifecycleHook(
+              r.value.task.projectPath,
+              drainCheckScript,
+              'taskComplete',
+              drainRepo?.checkTimeout
+            );
             if (!hookResult.passed) {
               console.log(warning(`Post-task check failed for: ${r.value.task.name}`));
               continue;
