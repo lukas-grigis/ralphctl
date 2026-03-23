@@ -168,6 +168,8 @@ Examples:
     .option('--refresh-check', 'Force re-run check scripts even if they already ran this sprint')
     .option('-b, --branch', 'Create sprint branch (ralphctl/<sprint-id>) in all repos')
     .option('--branch-name <name>', 'Use a custom branch name for sprint execution')
+    .option('--max-budget-usd <amount>', 'Max USD budget per AI task (Claude only)')
+    .option('--fallback-model <model>', 'Fallback model when primary is overloaded (Claude only)')
     .addHelpText(
       'after',
       `
@@ -205,6 +207,8 @@ Branch Management:
           refreshCheck?: boolean;
           branch?: boolean;
           branchName?: string;
+          maxBudgetUsd?: string;
+          fallbackModel?: string;
         }
       ) => {
         const args: string[] = [];
@@ -220,6 +224,8 @@ Branch Management:
         if (opts?.refreshCheck) args.push('--refresh-check');
         if (opts?.branch) args.push('--branch');
         if (opts?.branchName) args.push('--branch-name', opts.branchName);
+        if (opts?.maxBudgetUsd) args.push('--max-budget-usd', opts.maxBudgetUsd);
+        if (opts?.fallbackModel) args.push('--fallback-model', opts.fallbackModel);
         await sprintStartCommand(args);
       }
     );

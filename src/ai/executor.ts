@@ -69,6 +69,10 @@ export interface ExecutorOptions {
   branch?: boolean;
   /** Custom branch name for sprint execution */
   branchName?: string;
+  /** Max USD budget per AI task (Claude --max-budget-usd, headless only) */
+  maxBudgetUsd?: number;
+  /** Fallback model when primary is overloaded (Claude --fallback-model, headless only) */
+  fallbackModel?: string;
 }
 
 /** Reason why execution stopped */
@@ -102,6 +106,20 @@ export interface ExecutionSummary {
 /** Extended result that includes session ID for resume capability */
 interface TaskExecutionResult extends ExecutionResult {
   sessionId: string | null;
+}
+
+/** Build provider-specific CLI args from executor options (budget, fallback model). */
+function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter): string[] {
+  // These flags are Claude-only — Copilot CLI doesn't support them
+  if (provider.name !== 'claude') return [];
+  const args: string[] = [];
+  if (options.maxBudgetUsd != null) {
+    args.push('--max-budget-usd', String(options.maxBudgetUsd));
+  }
+  if (options.fallbackModel) {
+    args.push('--fallback-model', options.fallbackModel);
+  }
+  return args;
 }
 
 async function executeTask(
@@ -173,7 +191,7 @@ async function executeTask(
       spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
-          args: ['--add-dir', sprintDir],
+          args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: 'Continue where you left off. Complete the task and signal completion.',
           resumeSessionId,
         },
@@ -217,7 +235,7 @@ async function executeTask(
       spawnResult = await spawnWithRetry(
         {
           cwd: projectPath,
-          args: ['--add-dir', sprintDir],
+          args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: contextContent,
         },
         {
