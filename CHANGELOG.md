@@ -4,6 +4,19 @@ All notable changes to RalphCTL will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-03-23
+
+### Changed
+
+- Opted into Node.js 24 for GitHub Actions runners (CI and release workflows)
+
+### Dependencies
+
+- Bumped `@inquirer/prompts` from 8.3.0 to 8.3.2
+- Bumped `eslint` from 10.0.3 to 10.1.0
+- Bumped `typescript-eslint` from 8.57.0 to 8.57.1
+- Bumped dev dependencies (4 updates)
+
 ## [0.1.3] - 2026-03-14
 
 ### Changed
