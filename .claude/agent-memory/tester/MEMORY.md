@@ -9,6 +9,21 @@
 ## Test Files Found
 
 ```
+src/ai/permissions.test.ts  # isToolAllowed (pure): exact name, Bash(*), prefix:*, exact specifier, deny
+                            #   getProviderPermissions: copilot returns empty, project-level settings.local.json,
+                            #   malformed JSON, missing permissions section — homedir() mocked via vi.mock('node:os')
+                            #   checkTaskPermissions: copilot no warnings, needsCommit flag, Bash(*) coverage,
+                            #   commit and script warnings simultaneously
+src/ai/prompts/index.test.ts # buildInteractivePrompt, buildAutoPrompt, buildTaskExecutionPrompt (noCommit),
+                             #   buildTicketRefinePrompt (with/without issueContext), buildIdeatePrompt,
+                             #   buildIdeateAutoPrompt — all check no unreplaced tokens (except known
+                             #   {{PROGRESS_FILE}} second-occurrence bug in task-execution.md)
+src/ai/executor.test.ts     # pickTasksToLaunch: empty tasks, in-flight filtering, path dedup
+                            #   (first-encountered wins, not lowest order), concurrency limit,
+                            #   slot math (limit - inFlight), all-same-path, zero limit
+src/ai/parser.test.ts       # parseExecutionResult: complete+verified, complete-without-verified,
+                            #   blocked with reason/empty, no signals, verified-only, verified+blocked,
+                            #   large output, multiline verified content
 src/ai/runner.test.ts       # Runner/executor tests: parseExecutionResult, getEffectiveVerifyScript,
                             #   getRecentGitHistory, buildFullTaskContext (setup + pre-flight rendering),
                             #   runSetupScripts, runPreFlightVerify, runPreFlightForTask
@@ -17,7 +32,15 @@ src/commands/ticket/refine.test.ts # ticketRefineCommand: sprint resolution, tic
 src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
 src/integration/cli.test.ts     # CLI integration tests
 src/schemas/index.test.ts       # Schema validation tests (incl. SprintSchema backward compat for setupRanAt)
+src/store/config.test.ts        # Config store: getConfig default, saveConfig roundtrip,
+                                #   setCurrentSprint/setAiProvider/setEditor persist and read back
 src/store/progress.test.ts      # Progress store tests
+src/store/project.test.ts       # Project store: listProjects, createProject, getProject,
+                                #   ProjectExistsError/ProjectNotFoundError, removeProject,
+                                #   addProjectRepo, removeProjectRepo (incl. last-repo guard)
+src/store/sprint.test.ts        # Sprint store: assertSprintStatus (pure), createSprint,
+                                #   activateSprint, closeSprint, getCurrentSprintOrThrow,
+                                #   full create→activate→close lifecycle integration
 src/store/task.test.ts          # Task store tests (topological sort, validation)
 src/store/ticket.test.ts        # Ticket store tests
 src/theme/index.test.ts         # Theme tests
@@ -205,7 +228,7 @@ await command('target'); // reaches the "not approved" error
 
 ### Well Covered
 
-- [x] Store logic (tickets, tasks, sprints, progress)
+- [x] Store logic (tickets, tasks, sprints, progress, config, projects)
 - [x] CLI commands (comprehensive smoke tests in `cli-smoke.test.ts`)
 - [x] Schema validation (incl. backward compat for new optional fields via `.default({})`)
 - [x] Ticket edit command (CLI E2E tests)
@@ -215,12 +238,44 @@ await command('target'); // reaches the "not approved" error
 - [x] `runPreFlightForTask` — no-script skip, pass, fail-resuming, self-heal pass/fail, block on no setup
 - [x] `issue-fetch` utils — parseIssueUrl (GitHub + GitLab + edge cases), fetchIssue (gh/glab CLI), formatIssueContext
 - [x] `ticketRefineCommand` — 18 tests covering all guards, AI session flow, issue fetch, approval/rejection
+- [x] `parseExecutionResult` — 11 tests covering all signal combinations (src/ai/parser.test.ts)
+- [x] `pickTasksToLaunch` — 10 tests covering concurrency, dedup, in-flight filtering (src/ai/executor.test.ts)
+- [x] `isToolAllowed` + `getProviderPermissions` + `checkTaskPermissions` — permissions module (src/ai/permissions.test.ts)
+- [x] All prompt builders — token replacement, noCommit variations, distinct outputs (src/ai/prompts/index.test.ts)
 
 ### Coverage Gaps
 
 - [ ] Interactive mode menu dispatch (indirect coverage via CLI tests is sufficient)
 - [ ] Interactive flows (src/interactive/) - need mock prompts for direct testing
 - [ ] Command handlers (src/commands/\*) - partial, mostly via integration tests
+
+## Gotchas
+
+- **Mocking node:os homedir for file I/O isolation**: Functions that read from `homedir()` (e.g., `getProviderPermissions`
+  reads `~/.claude/settings.json`) will pick up real user settings unless mocked. Use:
+
+  ```typescript
+  vi.mock('node:os', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:os')>();
+    return { ...actual, homedir: () => join(actual.tmpdir(), 'fake-home-nonexistent') };
+  });
+  ```
+
+  Then import the module under test AFTER the `vi.mock()` call (dynamic import after mock registration).
+
+- **Template builder .replace() vs .replaceAll()**: `buildTaskExecutionPrompt` uses `.replace()` for
+  `{{PROGRESS_FILE}}` so the second occurrence in the template remains unreplaced. Tests should not assert
+  `findUnreplacedTokens(result) === []` for that builder — instead test that the first occurrence is replaced
+  and document the known behavior. `{{CONTEXT_FILE}}` correctly uses `.replaceAll()`.
+
+- **Optional boolean fields**: `ExecutionResult.verified` is `boolean | undefined` — when not set it is
+  `undefined`, not `false`. Use `.toBeFalsy()` or `.not.toBe(true)` rather than `.toBe(false)`.
+- **`pickTasksToLaunch` picks first-encountered per path**, not lowest `order` value. If callers need
+  lowest-order semantics they must pre-sort `readyTasks` before calling. Tests must reflect this.
+- **vitest globals are not ambient** — always import `{ describe, expect, it, vi, beforeEach, afterEach }`
+  from `'vitest'` explicitly, even though `vitest.config.ts` has `globals: true` (tsc requires the imports).
+- **`export` needed to test internal functions** — added `export` to `pickTasksToLaunch` in executor.ts to
+  enable direct unit testing; the linter simultaneously added an optional `failedPaths` param.
 
 ## Test Conventions
 
