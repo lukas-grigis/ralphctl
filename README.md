@@ -155,9 +155,9 @@ Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and 
 | Feature                     | Claude Code                          | GitHub Copilot                                                       |
 | --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
 | Status                      | GA                                   | Public preview                                                       |
-| Headless execution          | `-p --output-format json`            | `-p -s --autopilot --no-ask-user`                                    |
-| Session IDs                 | In JSON output (`session_id`)        | Captured via `--share` output file                                   |
-| Session resume (`--resume`) | Full support                         | Supported when session ID is available                               |
+| Headless execution          | `-p --output-format json`            | `-p --output-format json --autopilot --no-ask-user`                  |
+| Session IDs                 | In JSON output (`session_id`)        | In JSON output (`session_id`), `--share` file as fallback            |
+| Session resume (`--resume`) | Full support                         | Full support                                                         |
 | Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
 | Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
 | Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
