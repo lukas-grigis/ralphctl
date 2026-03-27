@@ -136,7 +136,8 @@ export function buildFullTaskContext(
     lines.push('');
     lines.push('Your task is NOT marked done unless this command passes after completion.');
   } else {
-    lines.push('No check script is configured. Read CLAUDE.md in the project root to find verification commands.');
+    lines.push('No check script is configured. Check the project root for instruction files');
+    lines.push('(CLAUDE.md, .github/copilot-instructions.md, README) to find verification commands.');
   }
 
   // Check status awareness — tell the agent what happened during stage zero
@@ -150,7 +151,8 @@ export function buildFullTaskContext(
     } else {
       lines.push(
         'No check script is configured for this repository. ' +
-          'Read CLAUDE.md or project configuration files (package.json, pyproject.toml, etc.) ' +
+          'Check project instruction files (CLAUDE.md, .github/copilot-instructions.md, README) ' +
+          'or configuration files (package.json, pyproject.toml, etc.) ' +
           'to discover build, test, and lint commands.'
       );
     }
