@@ -37,7 +37,7 @@ Perform these checks IN ORDER before writing any code:
 3. **Check git state** — Run `git status` to check for uncommitted changes
 4. **Check environment** — Look at the "Check Script" and "Environment Status" sections in your context file. If a check
    script is configured, the harness ran it at sprint start. If not configured, run the project's verification commands
-   yourself (see CLAUDE.md). If ANY check fails, STOP:
+   yourself (check CLAUDE.md, .github/copilot-instructions.md, or project config). If ANY check fails, STOP:
    ```
    <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
    ```
@@ -47,8 +47,9 @@ Only proceed to Phase 2 if ALL startup checks pass.
 
 ## Phase 2: Implementation
 
-1. **Read CLAUDE.md and .claude/ directory** — Read CLAUDE.md for project conventions, verification commands, and
-   patterns. Check `.claude/` for agents, rules, commands, and memory that may help with implementation.
+1. **Read project instructions** — Read the repository instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`,
+   or equivalent) for project conventions, verification commands, and patterns. Check `.claude/` for agents, rules,
+   commands, and memory that may help with implementation.
 2. **Follow declared steps precisely** — Execute each step in order as specified:
    - Each step references specific files and actions — do exactly what is specified
    - Do NOT skip steps or combine them unless they are trivially related
@@ -62,8 +63,8 @@ Complete these steps IN ORDER:
 
 1. **Confirm all steps done** — Every task step has been completed
 2. **Run ALL verification commands** — Execute every verification command (see Check Script section in the context file
-   or CLAUDE.md). Fix any failures before proceeding. The harness runs the check script as a post-task gate — your task
-   is not marked done unless it passes.
+   or project instructions). Fix any failures before proceeding. The harness runs the check script as a post-task
+   gate — your task is not marked done unless it passes.
    {{COMMIT_STEP}}
 3. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
 

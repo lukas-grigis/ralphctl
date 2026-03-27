@@ -52,7 +52,8 @@ Analyze the idea and produce complete, implementation-agnostic requirements:
 
 Explore the selected repositories and produce implementation tasks:
 
-1. **Explore codebase** — Read CLAUDE.md (if exists), understand project structure, find patterns
+1. **Explore codebase** — Read the repository instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, etc.)
+   when present, understand project structure, find patterns
 2. **Map requirements to implementation** — Determine which parts map to which repository
 3. **Create tasks** — Following the Planning Common Context guidelines below
 4. **Validate** — Ensure tasks are non-overlapping, properly ordered, and completable
@@ -111,7 +112,7 @@ If you cannot produce a valid plan, output `<planning-blocked>reason</planning-b
 - Each task has `id`, `name`, `projectPath`, `steps`, and optional `blockedBy`
 - `projectPath` must be one of the Selected Repositories paths
 - Steps reference actual files discovered during exploration
-- Verification steps use commands from CLAUDE.md if available
+- Verification steps use commands from the repository instruction files if available
 - Tasks properly ordered by dependencies
 
 **Example:**

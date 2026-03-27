@@ -1,16 +1,18 @@
-## Project Resources (`.claude/` directory)
+## Project Resources (instruction files and `.claude/` directory)
 
-Each repository may have a `.claude/` directory with project-specific resources. Check it during exploration and leverage
-these throughout planning:
+Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration and
+leverage them throughout planning:
 
-- **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory (also check root `CLAUDE.md`)
+- **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory
+- **`.github/copilot-instructions.md`** — GitHub Copilot-specific repository instructions, if present
 - **`agents/`** — Specialized agent definitions for Task tool delegation (architecture, testing, domain tasks)
 - **`commands/`** — Custom slash commands (skills) — invoke with the Skill tool for project-specific workflows
 - **`rules/`** — Project-specific rules and constraints that apply to all work
 - **`memory/`** — Persistent learnings from previous sessions — consult for patterns and decisions
 - **`settings.json` / `settings.local.json`** — Tool permissions, model preferences, hooks
 
-If CLAUDE.md exists, treat its instructions as authoritative for that codebase.
+If repository instruction files exist (`CLAUDE.md`, `.github/copilot-instructions.md`), treat their instructions as
+authoritative for that codebase.
 
 ## What Makes a Great Task
 
@@ -25,7 +27,7 @@ Every task must have:
 
 ### Task Sizing
 
-Completable in a single Claude session: 1-3 primary files (up to 5-7 total with tests), ~50-200 lines of meaningful
+Completable in a single AI session: 1-3 primary files (up to 5-7 total with tests), ~50-200 lines of meaningful
 changes, one logical change per task. Split if too large, merge if too small.
 
 **TOO GRANULAR (avoid):**
@@ -120,7 +122,8 @@ Every task must include explicit, actionable steps — the implementation checkl
 
 1. **Specific file references** — Name exact files/directories to create or modify
 2. **Concrete actions** — "Add function X to file Y", not "implement the feature"
-3. **Verification included** — Last step(s) should include project-specific verification commands from CLAUDE.md
+3. **Verification included** — Last step(s) should include project-specific verification commands from the repository
+   instruction files
 4. **No ambiguity** — Another developer should be able to follow steps without guessing
 
 **BAD (vague):**
@@ -149,7 +152,7 @@ Every task must include explicit, actionable steps — the implementation checkl
 }
 ```
 
-Use actual file paths discovered during exploration. Reference CLAUDE.md for verification commands.
+Use actual file paths discovered during exploration. Reference the repository instruction files for verification commands.
 
 ## Task Naming
 
