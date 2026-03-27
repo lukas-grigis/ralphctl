@@ -17,41 +17,29 @@ import type { HeadlessSpawnOptions, SpawnResult, SpawnSyncOptions, SpawnAsyncOpt
  *
  * @param prompt - Optional initial prompt to start the session with.
  * @param options - Spawn options (cwd, args, env).
- * @param provider - Provider adapter (defaults to active provider resolved from config).
+ * @param provider - Provider adapter (resolved from config is NOT supported — callers must pass explicitly).
  */
 export function spawnInteractive(
   prompt: string,
   options: SpawnSyncOptions,
-  provider?: ProviderAdapter
+  provider: ProviderAdapter
 ): { code: number; error?: string } {
   assertSafeCwd(options.cwd);
 
-  // If no provider given, use a synchronous fallback (claude) since we can't await here
-  const p =
-    provider ??
-    ({
-      binary: 'claude',
-      baseArgs: ['--permission-mode', 'acceptEdits'],
-      buildInteractiveArgs: (pr: string, extra: string[] = []) => [
-        ...['--permission-mode', 'acceptEdits'],
-        ...extra,
-        '--',
-        pr,
-      ],
-    } as Pick<ProviderAdapter, 'binary' | 'baseArgs' | 'buildInteractiveArgs'>);
-
-  const args = prompt ? p.buildInteractiveArgs(prompt, options.args ?? []) : [...p.baseArgs, ...(options.args ?? [])];
+  const args = prompt
+    ? provider.buildInteractiveArgs(prompt, options.args ?? [])
+    : [...provider.baseArgs, ...(options.args ?? [])];
 
   const env = options.env ? { ...process.env, ...options.env } : undefined;
 
-  const result = spawnSync(p.binary, args, {
+  const result = spawnSync(provider.binary, args, {
     cwd: options.cwd,
     stdio: 'inherit',
     env,
   });
 
   if (result.error) {
-    return { code: 1, error: `Failed to spawn ${p.binary} CLI: ${result.error.message}` };
+    return { code: 1, error: `Failed to spawn ${provider.binary} CLI: ${result.error.message}` };
   }
 
   return { code: result.status ?? 1 };
@@ -91,13 +79,14 @@ export async function spawnHeadlessRaw(
   return new Promise((resolve, reject) => {
     const allArgs = p.buildHeadlessArgs(options.args ?? []);
 
-    // Add --resume if resuming a session (validate format to prevent argument injection)
+    // Add provider-specific resume args if resuming a session
     if (options.resumeSessionId) {
-      if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(options.resumeSessionId)) {
+      try {
+        allArgs.push(...p.buildResumeArgs(options.resumeSessionId));
+      } catch {
         reject(new SpawnError('Invalid session ID format', '', 1));
         return;
       }
-      allArgs.push('--resume', options.resumeSessionId);
     }
 
     const child = spawn(p.binary, allArgs, {
@@ -115,6 +104,8 @@ export async function spawnHeadlessRaw(
       return;
     }
 
+    const MAX_STDOUT_SIZE = 10_000_000; // 10MB — guard against runaway provider output
+
     // Write prompt to stdin if provided, then close
     const MAX_PROMPT_SIZE = 1_000_000; // 1MB
     if (options.prompt) {
@@ -130,7 +121,9 @@ export async function spawnHeadlessRaw(
     let stderr = '';
 
     child.stdout.on('data', (data: Buffer) => {
-      rawStdout += data.toString();
+      if (rawStdout.length < MAX_STDOUT_SIZE) {
+        rawStdout += data.toString();
+      }
     });
 
     child.stderr.on('data', (data: Buffer) => {
@@ -142,8 +135,9 @@ export async function spawnHeadlessRaw(
         const exitCode = code ?? 1;
 
         // Parse output to extract result text and session ID.
-        // For Claude: JSON output contains session_id directly.
-        // For Copilot: plain text output; session ID captured via --share file.
+        // Both providers now use --output-format json; session ID is in JSON output.
+        // extractSessionId is called as a fallback (e.g., Copilot's --share file)
+        // when JSON output doesn't contain a session_id.
         const { result, sessionId: parsedSessionId } = p.parseJsonOutput(rawStdout);
         const sessionId = parsedSessionId ?? (await p.extractSessionId?.(options.cwd)) ?? null;
 
