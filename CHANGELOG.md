@@ -2,7 +2,8 @@
 
 All notable changes to RalphCTL will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
+to [Semantic Versioning](https://semver.org/).
 
 ## [0.1.4] - 2026-03-23
 
@@ -23,7 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - Extracted `ensureError()` helper to eliminate duplicated inline error mapper pattern across 39 files (#44)
 - Replaced `Result.try()` wrappers around `assertSprintStatus` with direct try/catch for clearer error handling (#44)
-- `project.ts` now throws `ValidationError` (instead of generic `Error`) for path validation failures — errors display cleanly without stack traces (#44)
+- `project.ts` now throws `ValidationError` (instead of generic `Error`) for path validation failures — errors display
+  cleanly without stack traces (#44)
 - Added unit tests for `result-helpers` (`wrapAsync`, `zodParse`, `unwrapOrThrow`, `ensureError`) (#44)
 - Documented Result/throwing boundary convention in CLAUDE.md (#44)
 
@@ -32,7 +34,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 
 - Fixed tilde (`~`) path expansion — `~/repos/myproject` now resolves correctly in all project and task commands (#40)
-- Added `expandTilde()` helper used consistently at write time across `createProject`, `updateProject`, `addProjectRepo`, `removeProjectRepo`, and all CLI path inputs
+- Added `expandTilde()` helper used consistently at write time across `createProject`, `updateProject`,
+  `addProjectRepo`, `removeProjectRepo`, and all CLI path inputs
 - Added one-time read-time migration to correct any previously stored tilde paths
 - Added unit tests for `expandTilde()` and doctor tilde path validation
 
@@ -83,18 +86,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 
-- **Doctor command** — `ralphctl doctor` checks Node.js version, git, AI provider binary, data directory, project repos, and current sprint health
+- **Doctor command** — `ralphctl doctor` checks Node.js version, git, AI provider binary, data directory, project repos,
+  and current sprint health
 - **Shell tab-completion** — `ralphctl completion install` for bash, zsh, and fish via tabtab
-- **Branch management** — `sprint start` prompts for branch strategy (keep current, auto, custom); `--branch` and `--branch-name` flags; pre-flight verification; `sprint close --create-pr` creates PRs
-- **Provider abstraction** — `config set provider claude|copilot` with adapter layer; experimental Copilot CLI support with headless execution and session ID capture
-- **Draft re-plan** — running `sprint plan` on a draft with existing tasks passes all tickets + tasks as AI context for atomic replacement
-- **Check script model** — single idempotent `checkScript` per repo replaces old `setupScript`/`verifyScript`; runs at sprint start and as a post-task gate
-- **Lifecycle hooks** — `runLifecycleHook()` abstraction in `src/ai/lifecycle.ts` with `RALPHCTL_LIFECYCLE_EVENT` env var
-- **Ecosystem detection** — `EcosystemDetector[]` registry (node, python, go, rust, gradle, maven, makefile) for check script suggestions during project setup
+- **Branch management** — `sprint start` prompts for branch strategy (keep current, auto, custom); `--branch` and
+  `--branch-name` flags; pre-flight verification; `sprint close --create-pr` creates PRs
+- **Provider abstraction** — `config set provider claude|copilot` with adapter layer; experimental Copilot CLI support
+  with headless execution and session ID capture
+- **Draft re-plan** — running `sprint plan` on a draft with existing tasks passes all tickets + tasks as AI context for
+  atomic replacement
+- **Check script model** — single idempotent `checkScript` per repo replaces old `setupScript`/`verifyScript`; runs at
+  sprint start and as a post-task gate
+- **Lifecycle hooks** — `runLifecycleHook()` abstraction in `src/ai/lifecycle.ts` with `RALPHCTL_LIFECYCLE_EVENT` env
+  var
+- **Ecosystem detection** — `EcosystemDetector[]` registry (node, python, go, rust, gradle, maven, makefile) for check
+  script suggestions during project setup
 - **Sprint health** — duplicate task order and pending requirements diagnostics; branch consistency checks across repos
-- **Interactive mode** — Escape key navigation, styled section titles, flat workflow section, provider config in REPL, refined/planned counts in status header, guards for unrefined/unplanned tickets
-- **Inline multiline editor** — replaced with `@inquirer/editor` and configurable editor settings via `config set editor`
-- **CI/CD** — GitHub Actions pipeline with lint, typecheck, test, format check; Dependabot; automated GitHub Release pipeline
+- **Interactive mode** — Escape key navigation, styled section titles, flat workflow section, provider config in REPL,
+  refined/planned counts in status header, guards for unrefined/unplanned tickets
+- **Inline multiline editor** — replaced with `@inquirer/editor` and configurable editor settings via
+  `config set editor`
+- **CI/CD** — GitHub Actions pipeline with lint, typecheck, test, format check; Dependabot; automated GitHub Release
+  pipeline
 - **Schema sync tests** — JSON schema ↔ Zod schema validation
 
 ### Changed
@@ -104,7 +117,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Default data directory changed to `~/.ralphctl` (was `ralphctl-data/`)
 - Separated repo root from data directory with smart `RALPHCTL_ROOT` handling
 - Removed `externalId` field and `--id`/`--editor` CLI flags from ticket command
-- Documentation restructured — moved to `.claude/docs/`, slimmed CLAUDE.md from 613 to 160 lines with skill-based reference material
+- Documentation restructured — moved to `.claude/docs/`, slimmed CLAUDE.md from 613 to 160 lines with skill-based
+  reference material
 - Replaced raw color functions with theme helpers across all commands
 - Improved card rendering and terminal width awareness
 

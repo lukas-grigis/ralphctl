@@ -2,12 +2,15 @@
 
 > _"Me fail English? That's unpossible!"_ — Ralph Wiggum
 
-Thanks for your interest in contributing! RalphCTL is a side project and contributions are welcome — here's how to make the process smooth for everyone.
+Thanks for your interest in contributing! RalphCTL is a side project and contributions are welcome — here's how to make
+the process smooth for everyone.
 
 ## Ground rules
 
-1. **Open an issue first.** Before writing code, open an issue describing what you'd like to change. This avoids duplicate work and gives us a chance to discuss the approach before you invest time.
-2. **Keep PRs focused.** One logical change per PR. If you find an unrelated bug while working, open a separate issue for it.
+1. **Open an issue first.** Before writing code, open an issue describing what you'd like to change. This avoids
+   duplicate work and gives us a chance to discuss the approach before you invest time.
+2. **Keep PRs focused.** One logical change per PR. If you find an unrelated bug while working, open a separate issue
+   for it.
 3. **All checks must pass.** Lint, typecheck, and tests are non-negotiable.
 
 ## Getting started
@@ -16,7 +19,8 @@ Thanks for your interest in contributing! RalphCTL is a side project and contrib
 
 - [Node.js](https://nodejs.org/) **>= 24.0.0** (we use [mise](https://mise.jdx.dev/) for version management)
 - [pnpm](https://pnpm.io/) **>= 10**
-- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured (only needed for integration testing)
+- [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured (only needed for integration
+  testing)
 
 ### Setup
 
@@ -53,9 +57,11 @@ pnpm format              # Format all files with Prettier
    git checkout -b feature/my-change
    ```
 
-2. **Write your code.** Follow the existing patterns — strict TypeScript, no `any` types, use the theme helpers from `src/theme/ui.ts` for CLI output.
+2. **Write your code.** Follow the existing patterns — strict TypeScript, no `any` types, use the theme helpers from
+   `src/theme/ui.ts` for CLI output.
 
-3. **Add tests.** If you're adding behavior, add tests. If you're fixing a bug, add a regression test. Tests live next to the code they test (`*.test.ts`).
+3. **Add tests.** If you're adding behavior, add tests. If you're fixing a bug, add a regression test. Tests live next
+   to the code they test (`*.test.ts`).
 
 4. **Run all checks:**
 
@@ -79,7 +85,8 @@ pnpm format              # Format all files with Prettier
 - **TypeScript** — strict mode, no `any`, `noUncheckedIndexedAccess` enabled
 - **Formatting** — Prettier handles it (runs automatically via pre-commit hook)
 - **Linting** — ESLint with TypeScript rules
-- **UI output** — use helpers from `src/theme/ui.ts` (`showSuccess`, `showError`, `log.*`, etc.) — don't add raw emoji or `console.log`
+- **UI output** — use helpers from `src/theme/ui.ts` (`showSuccess`, `showError`, `log.*`, etc.) — don't add raw emoji
+  or `console.log`
 
 ## Project structure
 
@@ -120,7 +127,8 @@ Releases are automated via GitHub Actions. To publish a new version:
 4. Tag: `git tag vX.Y.Z`
 5. Push: `git push origin main --tags`
 
-The release pipeline will run CI checks, publish to npm, and create a GitHub Release with the changelog section for that version.
+The release pipeline will run CI checks, publish to npm, and create a GitHub Release with the changelog section for that
+version.
 
 ## Questions?
 

@@ -47,7 +47,8 @@ Only proceed to Phase 2 if ALL startup checks pass.
 
 ## Phase 2: Implementation
 
-1. **Read project instructions** — Read the repository instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`,
+1. **Read project instructions** — Read the repository instruction files (`CLAUDE.md`,
+   `.github/copilot-instructions.md`,
    or equivalent) for project conventions, verification commands, and patterns. Check `.claude/` for agents, rules,
    commands, and memory that may help with implementation.
 2. **Follow declared steps precisely** — Execute each step in order as specified:

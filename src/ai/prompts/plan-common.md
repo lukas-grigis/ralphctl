@@ -1,6 +1,7 @@
 ## Project Resources (instruction files and `.claude/` directory)
 
-Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration and
+Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration
+and
 leverage them throughout planning:
 
 - **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory
@@ -152,7 +153,8 @@ Every task must include explicit, actionable steps — the implementation checkl
 }
 ```
 
-Use actual file paths discovered during exploration. Reference the repository instruction files for verification commands.
+Use actual file paths discovered during exploration. Reference the repository instruction files for verification
+commands.
 
 ## Task Naming
 

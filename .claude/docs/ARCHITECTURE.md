@@ -1,6 +1,7 @@
 # RalphCTL - Architecture
 
-Data models, file storage, and reference tables. For constraints, see the root CLAUDE.md. For acceptance criteria, see [REQUIREMENTS.md](./REQUIREMENTS.md).
+Data models, file storage, and reference tables. For constraints, see the root CLAUDE.md. For acceptance criteria,
+see [REQUIREMENTS.md](./REQUIREMENTS.md).
 
 ## Data Models
 

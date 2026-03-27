@@ -240,7 +240,8 @@ await command('target'); // reaches the "not approved" error
 - [x] `ticketRefineCommand` — 18 tests covering all guards, AI session flow, issue fetch, approval/rejection
 - [x] `parseExecutionResult` — 11 tests covering all signal combinations (src/ai/parser.test.ts)
 - [x] `pickTasksToLaunch` — 10 tests covering concurrency, dedup, in-flight filtering (src/ai/executor.test.ts)
-- [x] `isToolAllowed` + `getProviderPermissions` + `checkTaskPermissions` — permissions module (src/ai/permissions.test.ts)
+- [x] `isToolAllowed` + `getProviderPermissions` + `checkTaskPermissions` — permissions module (
+      src/ai/permissions.test.ts)
 - [x] All prompt builders — token replacement, noCommit variations, distinct outputs (src/ai/prompts/index.test.ts)
 
 ### Coverage Gaps
@@ -251,7 +252,8 @@ await command('target'); // reaches the "not approved" error
 
 ## Gotchas
 
-- **Mocking node:os homedir for file I/O isolation**: Functions that read from `homedir()` (e.g., `getProviderPermissions`
+- **Mocking node:os homedir for file I/O isolation**: Functions that read from `homedir()` (e.g.,
+  `getProviderPermissions`
   reads `~/.claude/settings.json`) will pick up real user settings unless mocked. Use:
 
   ```typescript

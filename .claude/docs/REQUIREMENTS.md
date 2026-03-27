@@ -1,6 +1,7 @@
 # RalphCTL - Acceptance Criteria
 
-Testable acceptance criteria for all features. For constraints, see the root CLAUDE.md. For data models, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+Testable acceptance criteria for all features. For constraints, see the root CLAUDE.md. For data models,
+see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Project Lifecycle
 
