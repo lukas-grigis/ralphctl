@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePlanningBlocked } from './plan-utils.ts';
+import { buildHeadlessAiRequest, parsePlanningBlocked } from './plan-utils.ts';
 
 describe('parsePlanningBlocked', () => {
   it('returns trimmed reason for single-line signal', () => {
@@ -33,5 +33,34 @@ Some output after`;
   it('returns empty string for empty signal', () => {
     const output = '<planning-blocked></planning-blocked>';
     expect(parsePlanningBlocked(output)).toBe('');
+  });
+});
+
+describe('buildHeadlessAiRequest', () => {
+  it('returns provider-neutral --add-dir args and keeps prompt separate', () => {
+    const request = buildHeadlessAiRequest(['/repo/api', '/repo/web'], 'Plan the sprint');
+
+    expect(request).toEqual({
+      args: ['--add-dir', '/repo/api', '--add-dir', '/repo/web'],
+      prompt: 'Plan the sprint',
+    });
+  });
+
+  it('does not include Claude-specific headless flags in extra args', () => {
+    const request = buildHeadlessAiRequest(['/repo/api'], 'Ideate this feature');
+
+    expect(request.args).not.toContain('--permission-mode');
+    expect(request.args).not.toContain('plan');
+    expect(request.args).not.toContain('--print');
+    expect(request.args).not.toContain('-p');
+  });
+
+  it('returns empty args when no repo paths are provided', () => {
+    const request = buildHeadlessAiRequest([], 'Prompt only');
+
+    expect(request).toEqual({
+      args: [],
+      prompt: 'Prompt only',
+    });
   });
 });

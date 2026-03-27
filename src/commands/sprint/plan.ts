@@ -37,6 +37,7 @@ import { selectProjectPaths } from '@src/interactive/selectors.ts';
 import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import {
+  buildHeadlessAiRequest,
   getTaskImportSchema,
   importTasks,
   parsePlanningBlocked,
@@ -160,9 +161,8 @@ async function invokeAiInteractive(prompt: string, repoPaths: string[], planDir:
   // Build initial prompt that tells the AI to read the context file
   const startPrompt = `I need help planning tasks for a sprint. The full planning context is in planning-context.md (${String(ticketCount)} tickets). Please read that file now and follow the instructions to help me plan implementation tasks.`;
 
-  // Build args - pass all repo paths in a single --add-dir to avoid variadic option
-  // consuming the positional prompt argument
-  const args: string[] = ['--add-dir', ...repoPaths];
+  // One --add-dir per path (Copilot requires repeated flags; Claude also accepts this form)
+  const args: string[] = repoPaths.flatMap((path) => ['--add-dir', path]);
 
   const result = spawnInteractive(
     startPrompt,
@@ -181,18 +181,13 @@ async function invokeAiInteractive(prompt: string, repoPaths: string[], planDir:
 
 async function invokeAiAuto(prompt: string, repoPaths: string[], planDir: string): Promise<string> {
   const provider = await getActiveProvider();
-
-  // Build args - all repo paths via --add-dir (neutral CWD in planning dir)
-  const args: string[] = ['--permission-mode', 'plan', '--print'];
-  for (const path of repoPaths) {
-    args.push('--add-dir', path);
-  }
-  args.push('-p', prompt);
+  const request = buildHeadlessAiRequest(repoPaths, prompt);
 
   return spawnHeadless(
     {
       cwd: planDir,
-      args,
+      args: request.args,
+      prompt: request.prompt,
       env: provider.getSpawnEnv(),
     },
     provider
