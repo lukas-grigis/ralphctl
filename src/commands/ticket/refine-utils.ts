@@ -79,6 +79,7 @@ export async function runAiSession(workingDir: string, prompt: string, ticketTit
     startPrompt,
     {
       cwd: workingDir,
+      env: provider.getSpawnEnv(),
     },
     provider
   );

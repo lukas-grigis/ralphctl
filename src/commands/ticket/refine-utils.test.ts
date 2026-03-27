@@ -158,6 +158,7 @@ describe('runAiSession', () => {
     binary: 'claude',
     baseArgs: [],
     buildInteractiveArgs: (prompt: string) => ['--', prompt],
+    getSpawnEnv: () => ({}),
   };
 
   beforeEach(() => {
@@ -197,6 +198,21 @@ describe('runAiSession', () => {
 
     const provider = (mockSpawnInteractive.mock.calls[0] ?? [])[2];
     expect(provider).toBe(fakeProvider);
+  });
+
+  it('passes provider env vars to spawnInteractive', async () => {
+    const providerWithEnv = {
+      ...fakeProvider,
+      getSpawnEnv: () => ({ CUSTOM_VAR: 'value' }),
+    };
+    mockGetActiveProvider.mockResolvedValue(
+      providerWithEnv as unknown as Awaited<ReturnType<typeof getActiveProvider>>
+    );
+
+    await runAiSession('/tmp/workdir', 'prompt', 'Ticket Title');
+
+    const call = mockSpawnInteractive.mock.calls[0] ?? [];
+    expect((call[1] as { env: Record<string, string> }).env).toEqual({ CUSTOM_VAR: 'value' });
   });
 
   it('throws when spawnInteractive returns an error', async () => {
