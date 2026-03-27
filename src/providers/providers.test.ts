@@ -212,6 +212,30 @@ describe('claudeAdapter', () => {
       });
     });
   });
+
+  describe('buildResumeArgs', () => {
+    it('returns --resume with session ID as separate args', () => {
+      const args = claudeAdapter.buildResumeArgs('abc123');
+      expect(args).toEqual(['--resume', 'abc123']);
+    });
+
+    it('accepts valid session IDs with hyphens and underscores', () => {
+      const args = claudeAdapter.buildResumeArgs('session_123-def');
+      expect(args).toEqual(['--resume', 'session_123-def']);
+    });
+
+    it('throws on invalid session ID (starts with hyphen)', () => {
+      expect(() => claudeAdapter.buildResumeArgs('--evil')).toThrow('Invalid session ID format');
+    });
+
+    it('throws on empty session ID', () => {
+      expect(() => claudeAdapter.buildResumeArgs('')).toThrow('Invalid session ID format');
+    });
+
+    it('throws on session ID exceeding 128 characters', () => {
+      expect(() => claudeAdapter.buildResumeArgs('a'.repeat(129))).toThrow('Invalid session ID format');
+    });
+  });
 });
 
 describe('copilotAdapter', () => {
@@ -255,10 +279,15 @@ describe('copilotAdapter', () => {
   });
 
   describe('buildHeadlessArgs', () => {
-    it('returns args with -p and -s (silent) flags', () => {
+    it('returns args with -p flag', () => {
       const args = copilotAdapter.buildHeadlessArgs();
       expect(args).toContain('-p');
-      expect(args).toContain('-s');
+    });
+
+    it('includes --output-format json for structured output', () => {
+      const args = copilotAdapter.buildHeadlessArgs();
+      expect(args).toContain('--output-format');
+      expect(args).toContain('json');
     });
 
     it('includes --autopilot for autonomous headless execution', () => {
@@ -271,15 +300,14 @@ describe('copilotAdapter', () => {
       expect(args).toContain('--no-ask-user');
     });
 
-    it('includes --share to enable session ID capture via output file', () => {
+    it('includes --share as fallback for session ID capture', () => {
       const args = copilotAdapter.buildHeadlessArgs();
       expect(args).toContain('--share');
     });
 
-    it('does NOT include --output-format json (not supported by Copilot CLI)', () => {
+    it('does NOT include -s (silent) — JSON output replaces silent mode', () => {
       const args = copilotAdapter.buildHeadlessArgs();
-      expect(args).not.toContain('--output-format');
-      expect(args).not.toContain('json');
+      expect(args).not.toContain('-s');
     });
 
     it('includes base args', () => {
@@ -293,27 +321,68 @@ describe('copilotAdapter', () => {
       expect(args).toContain('gpt-4');
     });
 
-    it('orders args correctly: -p, -s, --autopilot, --no-ask-user, --share first', () => {
+    it('orders args correctly: -p, --output-format, json, --autopilot, --no-ask-user, --share first', () => {
       const args = copilotAdapter.buildHeadlessArgs();
       expect(args[0]).toBe('-p');
-      expect(args[1]).toBe('-s');
-      expect(args[2]).toBe('--autopilot');
-      expect(args[3]).toBe('--no-ask-user');
-      expect(args[4]).toBe('--share');
+      expect(args[1]).toBe('--output-format');
+      expect(args[2]).toBe('json');
+      expect(args[3]).toBe('--autopilot');
+      expect(args[4]).toBe('--no-ask-user');
+      expect(args[5]).toBe('--share');
     });
   });
 
   describe('parseJsonOutput', () => {
-    it('returns plain text as-is with null sessionId (Copilot has no JSON mode)', () => {
-      const output = 'Task completed successfully';
+    it('parses valid JSON with result and session_id from last JSONL line', () => {
+      const output = JSON.stringify({
+        result: 'Task completed successfully',
+        session_id: 'copilot-abc123',
+      });
       const parsed = copilotAdapter.parseJsonOutput(output);
       expect(parsed).toEqual({
         result: 'Task completed successfully',
+        sessionId: 'copilot-abc123',
+      });
+    });
+
+    it('extracts result from last line of multi-line JSONL output', () => {
+      const line1 = JSON.stringify({ type: 'progress', message: 'Working...' });
+      const line2 = JSON.stringify({ result: 'All done', session_id: 'sess-456' });
+      const parsed = copilotAdapter.parseJsonOutput(`${line1}\n${line2}`);
+      expect(parsed.result).toBe('All done');
+      expect(parsed.sessionId).toBe('sess-456');
+    });
+
+    it('supports result_text field as alternative to result', () => {
+      const output = JSON.stringify({
+        result_text: 'Generated code here',
+        session_id: 'xyz-789',
+      });
+      const parsed = copilotAdapter.parseJsonOutput(output);
+      expect(parsed.result).toBe('Generated code here');
+      expect(parsed.sessionId).toBe('xyz-789');
+    });
+
+    it('prefers result over result_text when both present', () => {
+      const output = JSON.stringify({
+        result: 'Primary result',
+        result_text: 'Secondary result',
+        session_id: 'abc',
+      });
+      const parsed = copilotAdapter.parseJsonOutput(output);
+      expect(parsed.result).toBe('Primary result');
+    });
+
+    it('falls back to raw text for non-JSON output (graceful degradation)', () => {
+      const output = 'Plain text output from CLI';
+      const parsed = copilotAdapter.parseJsonOutput(output);
+      expect(parsed).toEqual({
+        result: 'Plain text output from CLI',
         sessionId: null,
       });
     });
 
-    it('trims whitespace from output', () => {
+    it('trims whitespace from non-JSON output', () => {
       const output = '  Some result with whitespace  \n';
       const parsed = copilotAdapter.parseJsonOutput(output);
       expect(parsed).toEqual({
@@ -330,12 +399,11 @@ describe('copilotAdapter', () => {
       });
     });
 
-    it('does not attempt JSON parsing — returns raw even for valid JSON strings', () => {
-      const jsonStr = JSON.stringify({ result: 'hello', session_id: 'abc' });
-      const parsed = copilotAdapter.parseJsonOutput(jsonStr);
-      // Copilot adapter treats ALL output as plain text
+    it('returns null sessionId when JSON lacks session_id', () => {
+      const output = JSON.stringify({ result: 'hello' });
+      const parsed = copilotAdapter.parseJsonOutput(output);
+      expect(parsed.result).toBe('hello');
       expect(parsed.sessionId).toBeNull();
-      expect(parsed.result).toBe(jsonStr.trim());
     });
   });
 
@@ -347,6 +415,16 @@ describe('copilotAdapter', () => {
 
     it('detects HTTP 429 status', () => {
       const result = copilotAdapter.detectRateLimit('HTTP error 429 Too Many Requests');
+      expect(result.rateLimited).toBe(true);
+    });
+
+    it('detects GitHub API rate limit exceeded', () => {
+      const result = copilotAdapter.detectRateLimit('API rate limit exceeded for user');
+      expect(result.rateLimited).toBe(true);
+    });
+
+    it('detects GitHub secondary rate limit', () => {
+      const result = copilotAdapter.detectRateLimit('You have exceeded a secondary rate limit');
       expect(result.rateLimited).toBe(true);
     });
 
@@ -367,6 +445,37 @@ describe('copilotAdapter', () => {
     it('returns empty object', () => {
       const env = copilotAdapter.getSpawnEnv();
       expect(env).toEqual({});
+    });
+  });
+
+  describe('buildResumeArgs', () => {
+    it('returns --resume=sessionId as a single arg (optional-value syntax)', () => {
+      const args = copilotAdapter.buildResumeArgs('abc123');
+      expect(args).toEqual(['--resume=abc123']);
+    });
+
+    it('accepts valid session IDs with hyphens and underscores', () => {
+      const args = copilotAdapter.buildResumeArgs('session_123-def');
+      expect(args).toEqual(['--resume=session_123-def']);
+    });
+
+    it('uses equals syntax unlike Claude (which uses space-separated args)', () => {
+      const claudeArgs = claudeAdapter.buildResumeArgs('abc123');
+      const copilotArgs = copilotAdapter.buildResumeArgs('abc123');
+      expect(claudeArgs).toHaveLength(2); // ['--resume', 'abc123']
+      expect(copilotArgs).toHaveLength(1); // ['--resume=abc123']
+    });
+
+    it('throws on invalid session ID (starts with hyphen)', () => {
+      expect(() => copilotAdapter.buildResumeArgs('--evil')).toThrow('Invalid session ID format');
+    });
+
+    it('throws on empty session ID', () => {
+      expect(() => copilotAdapter.buildResumeArgs('')).toThrow('Invalid session ID format');
+    });
+
+    it('throws on session ID exceeding 128 characters', () => {
+      expect(() => copilotAdapter.buildResumeArgs('a'.repeat(129))).toThrow('Invalid session ID format');
     });
   });
 

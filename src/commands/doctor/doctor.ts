@@ -99,7 +99,8 @@ export async function checkAiProvider(): Promise<CheckResult> {
   });
 
   if (result.status === 0) {
-    return { name: 'AI provider binary', status: 'pass', detail: `${binary} found` };
+    const detail = provider === 'copilot' ? `${binary} found (public preview)` : `${binary} found`;
+    return { name: 'AI provider binary', status: 'pass', detail };
   }
   return {
     name: 'AI provider binary',
