@@ -1,12 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { ProcessManager } from '@src/ai/process-manager.ts';
 import { assertSafeCwd } from '@src/utils/paths.ts';
+import type { HeadlessSpawnOptions, SpawnAsyncOptions, SpawnResult, SpawnSyncOptions } from '@src/providers/types.ts';
 import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { SpawnError } from '@src/errors.ts';
-
-import type { HeadlessSpawnOptions, SpawnResult, SpawnSyncOptions, SpawnAsyncOptions } from '@src/providers/types.ts';
 
 /**
  * Spawn AI CLI for interactive session.

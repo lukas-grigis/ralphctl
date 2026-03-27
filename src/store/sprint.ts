@@ -18,9 +18,9 @@ import { type Sprint, SprintSchema, type SprintStatus, type Tasks, TasksSchema }
 import { getCurrentSprint } from '@src/store/config.ts';
 import { generateSprintId } from '@src/utils/ids.ts';
 import { logBaselines } from '@src/store/progress.ts';
+import { NoCurrentSprintError, SprintNotFoundError, SprintStatusError } from '@src/errors.ts';
 
 export { SprintNotFoundError, SprintStatusError, NoCurrentSprintError } from '@src/errors.ts';
-import { SprintNotFoundError, SprintStatusError, NoCurrentSprintError } from '@src/errors.ts';
 
 /**
  * Assert that a sprint is in one of the allowed statuses for an operation.

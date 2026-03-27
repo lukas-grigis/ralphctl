@@ -1,4 +1,4 @@
-import type { Result, AsyncResult } from 'typescript-result';
+import type { AsyncResult, Result } from 'typescript-result';
 
 // Re-export Result types for convenience
 export type { Result, AsyncResult };

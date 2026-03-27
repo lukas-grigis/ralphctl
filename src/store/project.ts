@@ -2,9 +2,9 @@ import { basename, resolve } from 'node:path';
 import { expandTilde, getProjectsFilePath, validateProjectPath } from '../utils/paths.js';
 import { fileExists, readValidatedJson, writeValidatedJson } from '../utils/storage.js';
 import { type Project, type Projects, ProjectsSchema, type Repository } from '../schemas/index.js';
+import { ParseError, ProjectExistsError, ProjectNotFoundError, ValidationError } from '../errors.js';
 
 export { ProjectNotFoundError, ProjectExistsError } from '../errors.js';
-import { ProjectNotFoundError, ProjectExistsError, ParseError, ValidationError } from '../errors.js';
 
 /**
  * Migration: Convert old paths[] format to repositories[] format.

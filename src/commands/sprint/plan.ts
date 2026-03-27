@@ -34,7 +34,7 @@ import { buildAutoPrompt, buildInteractivePrompt } from '@src/ai/prompts/index.t
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import {
   buildHeadlessAiRequest,

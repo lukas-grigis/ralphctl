@@ -25,10 +25,10 @@ import {
   type ExecutorOptions,
 } from '@src/ai/executor.ts';
 import {
-  getEffectiveCheckScript,
-  getProjectForTask,
   type CheckResults,
   type CheckStatus,
+  getEffectiveCheckScript,
+  getProjectForTask,
 } from '@src/ai/task-context.ts';
 import { runLifecycleHook } from '@src/ai/lifecycle.ts';
 import type { Sprint } from '@src/schemas/index.ts';

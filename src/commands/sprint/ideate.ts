@@ -30,7 +30,7 @@ import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
 import { extractJsonObject } from '@src/utils/json-extract.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import {
   buildHeadlessAiRequest,

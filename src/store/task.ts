@@ -4,9 +4,9 @@ import { type Task, type Tasks, TasksSchema, type TaskStatus } from '@src/schema
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
+import { DependencyCycleError, TaskNotFoundError } from '@src/errors.ts';
 
 export { TaskNotFoundError, DependencyCycleError } from '@src/errors.ts';
-import { TaskNotFoundError, DependencyCycleError } from '@src/errors.ts';
 
 export async function getTasks(sprintId?: string): Promise<Tasks> {
   const id = await resolveSprintId(sprintId);

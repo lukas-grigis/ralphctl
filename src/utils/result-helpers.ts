@@ -1,6 +1,6 @@
-import { Result } from 'typescript-result';
 import type { AsyncResult } from 'typescript-result';
-import type { ZodType, ZodError } from 'zod';
+import { Result } from 'typescript-result';
+import type { ZodError, ZodType } from 'zod';
 import { ValidationError } from '@src/errors.ts';
 
 export type { AsyncResult };

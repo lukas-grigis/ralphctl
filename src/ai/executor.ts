@@ -19,6 +19,7 @@ import type { Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
 import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
 import type { SpawnResult } from '@src/providers/types.ts';
+import { type ProviderAdapter } from '@src/providers/types.ts';
 import { spawnInteractive, spawnWithRetry } from '@src/ai/session.ts';
 import { SpawnError } from '@src/errors.ts';
 import { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
@@ -26,19 +27,18 @@ import { EXIT_ALL_BLOCKED, EXIT_ERROR, EXIT_NO_TASKS, EXIT_SUCCESS } from '@src/
 import { getSprint } from '@src/store/sprint.ts';
 import {
   buildFullTaskContext,
+  type CheckResults,
+  type CheckStatus,
   formatTask,
   getContextFileName,
   getEffectiveCheckScript,
   getProjectForTask,
   getRecentGitHistory,
   runPermissionCheck,
-  type CheckResults,
-  type CheckStatus,
   type TaskContext,
   writeTaskContextFile,
 } from '@src/ai/task-context.ts';
 import { runLifecycleHook } from '@src/ai/lifecycle.ts';
-import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import { verifySprintBranch } from '@src/ai/runner.ts';
 

@@ -24,7 +24,7 @@ import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath } from '@src/utils/paths.ts';
 import { fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
 import { type RefinedRequirement } from '@src/schemas/index.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { selectTicket } from '@src/interactive/selectors.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/utils/exit-codes.ts';
