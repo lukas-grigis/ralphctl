@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { select } from '@inquirer/prompts';
+import { escapableSelect } from './escapable.ts';
 
 // Mock @inquirer/prompts before importing the module under test
 vi.mock('@inquirer/prompts', () => ({
   select: vi.fn(),
 }));
-
-import { select } from '@inquirer/prompts';
-import { escapableSelect } from './escapable.ts';
 
 const selectMock = vi.mocked(select);
 

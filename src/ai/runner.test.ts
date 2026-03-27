@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildFullTaskContext,
+  type CheckStatus,
   getEffectiveCheckScript,
   getRecentGitHistory,
-  type CheckStatus,
   type TaskContext,
 } from './task-context.ts';
 import { parseExecutionResult } from './parser.ts';

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-import { resolveCompletions, type CompletionContext } from './resolver.ts';
+import { type CompletionContext, resolveCompletions } from './resolver.ts';
 
 /**
  * Build a mock Commander program mirroring the real CLI structure.

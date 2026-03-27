@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestEnv, type TestEnvironment } from '@src/test-utils/setup.ts';
 import {
-  getConfig,
-  saveConfig,
-  setCurrentSprint,
-  getCurrentSprint,
-  setAiProvider,
   getAiProvider,
+  getConfig,
+  getCurrentSprint,
   getEditor,
+  saveConfig,
+  setAiProvider,
+  setCurrentSprint,
   setEditor,
 } from './config.ts';
 
