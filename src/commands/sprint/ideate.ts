@@ -30,9 +30,10 @@ import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
 import { extractJsonObject } from '@src/utils/json-extract.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import {
+  buildHeadlessAiRequest,
   getTaskImportSchema,
   importTasks,
   parsePlanningBlocked,
@@ -82,8 +83,8 @@ async function invokeAiInteractive(prompt: string, repoPaths: string[], ideateDi
   // Build initial prompt that tells the AI to start the two-phase process
   const startPrompt = `I have a quick idea I want to implement. The full context is in ideate-context.md. Please read that file and help me refine the idea into requirements and then plan implementation tasks.`;
 
-  // Build args - pass all repo paths in a single --add-dir
-  const args: string[] = ['--add-dir', ...repoPaths];
+  // One --add-dir per path (Copilot requires repeated flags; Claude also accepts this form)
+  const args: string[] = repoPaths.flatMap((path) => ['--add-dir', path]);
 
   const result = spawnInteractive(
     startPrompt,
@@ -102,18 +103,13 @@ async function invokeAiInteractive(prompt: string, repoPaths: string[], ideateDi
 
 async function invokeAiAuto(prompt: string, repoPaths: string[], ideateDir: string): Promise<string> {
   const provider = await getActiveProvider();
-
-  // Build args - all repo paths via --add-dir (neutral CWD in ideation dir)
-  const args: string[] = ['--permission-mode', 'plan', '--print'];
-  for (const path of repoPaths) {
-    args.push('--add-dir', path);
-  }
-  args.push('-p', prompt);
+  const request = buildHeadlessAiRequest(repoPaths, prompt);
 
   return spawnHeadless(
     {
       cwd: ideateDir,
-      args,
+      args: request.args,
+      prompt: request.prompt,
       env: provider.getSpawnEnv(),
     },
     provider

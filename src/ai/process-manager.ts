@@ -204,7 +204,7 @@ export class ProcessManager {
     }
     this.cleanupCallbacks.clear();
 
-    // Send SIGINT to children — claude CLI handles SIGINT for graceful shutdown.
+    // Send SIGINT to children — both Claude and Copilot CLIs handle SIGINT for graceful shutdown.
     // SIGTERM may be ignored by some child process trees.
     this.killAll('SIGINT');
 

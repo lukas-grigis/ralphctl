@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Sprint, Ticket } from '@src/schemas/index.ts';
+import { confirm } from '@inquirer/prompts';
+import { mkdir, readFile } from 'node:fs/promises';
+import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
+import { selectTicket } from '@src/interactive/selectors.ts';
+import { fileExists } from '@src/utils/storage.ts';
+import { fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
+import { exitWithCode } from '@src/utils/exit-codes.ts';
+import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
+import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
+import { createSpinner, showError, showWarning } from '@src/theme/ui.ts';
+import { getRefinementDir, getSchemaPath } from '@src/utils/paths.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 
 // --- Module mocks (must be at top level) ---
 
@@ -97,19 +109,6 @@ vi.mock('@src/theme/ui.ts', () => ({
 }));
 
 // --- Imports after mocks ---
-
-import { confirm } from '@inquirer/prompts';
-import { mkdir, readFile } from 'node:fs/promises';
-import { resolveSprintId, getSprint, assertSprintStatus, saveSprint } from '@src/store/sprint.ts';
-import { selectTicket } from '@src/interactive/selectors.ts';
-import { fileExists } from '@src/utils/storage.ts';
-import { fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
-import { exitWithCode } from '@src/utils/exit-codes.ts';
-import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
-import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
-import { showError, showWarning, createSpinner } from '@src/theme/ui.ts';
-import { getRefinementDir, getSchemaPath } from '@src/utils/paths.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
 
 // --- Test helpers ---
 

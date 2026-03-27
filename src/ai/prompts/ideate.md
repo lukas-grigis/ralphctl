@@ -79,8 +79,8 @@ Focus: Determine HOW to implement the approved requirements
 
 **Steps:**
 
-1. **Explore the codebase** — Read CLAUDE.md (if exists), check project structure, find similar implementations, extract
-   verification commands
+1. **Explore the codebase** — Read the repository instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`,
+   etc.) when present, check project structure, find similar implementations, extract verification commands
 2. **Review approved requirements** — Understand WHAT was approved in Phase 1
 3. **Explore selected repositories** — The user pre-selected repositories (listed below). Deep-dive to understand
    patterns, conventions, and existing code

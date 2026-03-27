@@ -84,6 +84,9 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
       if (!modelStr) {
         throw new Error('--fallback-model requires a model name');
       }
+      if (!/^[a-zA-Z0-9._-]{1,100}$/.test(modelStr)) {
+        throw new Error('Invalid model name — must be 1-100 alphanumeric characters, dots, hyphens, or underscores');
+      }
       options.fallbackModel = modelStr;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;

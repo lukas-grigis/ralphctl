@@ -35,6 +35,13 @@ export const claudeAdapter: ProviderAdapter = {
     };
   },
 
+  buildResumeArgs(sessionId: string): string[] {
+    if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(sessionId)) {
+      throw new Error('Invalid session ID format');
+    }
+    return ['--resume', sessionId];
+  },
+
   detectRateLimit(stderr: string): RateLimitInfo {
     const patterns = [/rate.?limit/i, /\b429\b/, /too many requests/i, /overloaded/i, /\b529\b/];
     const isRateLimited = patterns.some((p) => p.test(stderr));

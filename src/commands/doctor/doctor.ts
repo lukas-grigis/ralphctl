@@ -5,8 +5,7 @@ import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 import { getConfig } from '@src/store/config.ts';
 import { listProjects } from '@src/store/project.ts';
 import { SprintSchema } from '@src/schemas/index.ts';
-import { getDataDir, getSprintFilePath } from '@src/utils/paths.ts';
-import { validateProjectPath } from '@src/utils/paths.ts';
+import { getDataDir, getSprintFilePath, validateProjectPath } from '@src/utils/paths.ts';
 import { fileExists, readValidatedJson } from '@src/utils/storage.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { icons, log, printHeader } from '@src/theme/ui.ts';
@@ -99,7 +98,8 @@ export async function checkAiProvider(): Promise<CheckResult> {
   });
 
   if (result.status === 0) {
-    return { name: 'AI provider binary', status: 'pass', detail: `${binary} found` };
+    const detail = provider === 'copilot' ? `${binary} found (public preview)` : `${binary} found`;
+    return { name: 'AI provider binary', status: 'pass', detail };
   }
   return {
     name: 'AI provider binary',

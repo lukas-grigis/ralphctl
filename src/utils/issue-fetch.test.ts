@@ -1,11 +1,12 @@
-import { type SpawnSyncReturns } from 'node:child_process';
+// Import the mock after vi.mock is declared
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  IssueFetchError,
   fetchIssue,
   fetchIssueFromUrl,
   formatIssueContext,
   type IssueData,
+  IssueFetchError,
   type ParsedIssueUrl,
   parseIssueUrl,
 } from './issue-fetch.ts';
@@ -13,9 +14,6 @@ import {
 vi.mock('node:child_process', () => ({
   spawnSync: vi.fn(),
 }));
-
-// Import the mock after vi.mock is declared
-import { spawnSync } from 'node:child_process';
 
 const mockSpawnSync = vi.mocked(spawnSync);
 

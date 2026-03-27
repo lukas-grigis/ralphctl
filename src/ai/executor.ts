@@ -19,6 +19,7 @@ import type { Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
 import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
 import type { SpawnResult } from '@src/providers/types.ts';
+import { type ProviderAdapter } from '@src/providers/types.ts';
 import { spawnInteractive, spawnWithRetry } from '@src/ai/session.ts';
 import { SpawnError } from '@src/errors.ts';
 import { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
@@ -26,19 +27,18 @@ import { EXIT_ALL_BLOCKED, EXIT_ERROR, EXIT_NO_TASKS, EXIT_SUCCESS } from '@src/
 import { getSprint } from '@src/store/sprint.ts';
 import {
   buildFullTaskContext,
+  type CheckResults,
+  type CheckStatus,
   formatTask,
   getContextFileName,
   getEffectiveCheckScript,
   getProjectForTask,
   getRecentGitHistory,
   runPermissionCheck,
-  type CheckResults,
-  type CheckStatus,
   type TaskContext,
   writeTaskContextFile,
 } from '@src/ai/task-context.ts';
 import { runLifecycleHook } from '@src/ai/lifecycle.ts';
-import { type ProviderAdapter } from '@src/providers/types.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import { verifySprintBranch } from '@src/ai/runner.ts';
 
@@ -69,9 +69,9 @@ export interface ExecutorOptions {
   branch?: boolean;
   /** Custom branch name for sprint execution */
   branchName?: string;
-  /** Max USD budget per AI task (Claude --max-budget-usd, headless only) */
+  /** Max USD budget per AI task (--max-budget-usd, Claude only) */
   maxBudgetUsd?: number;
-  /** Fallback model when primary is overloaded (Claude --fallback-model, headless only) */
+  /** Fallback model when primary is overloaded (--fallback-model, Claude only) */
   fallbackModel?: string;
 }
 
@@ -110,8 +110,16 @@ interface TaskExecutionResult extends ExecutionResult {
 
 /** Build provider-specific CLI args from executor options (budget, fallback model). */
 function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter): string[] {
-  // These flags are Claude-only — Copilot CLI doesn't support them
-  if (provider.name !== 'claude') return [];
+  if (provider.name !== 'claude') {
+    // These flags are Claude-only — warn if the user passed them with another provider
+    if (options.maxBudgetUsd != null) {
+      console.log(warning(`--max-budget-usd is only supported with the Claude provider — ignored`));
+    }
+    if (options.fallbackModel) {
+      console.log(warning(`--fallback-model is only supported with the Claude provider — ignored`));
+    }
+    return [];
+  }
   const args: string[] = [];
   if (options.maxBudgetUsd != null) {
     args.push('--max-budget-usd', String(options.maxBudgetUsd));
@@ -152,6 +160,7 @@ async function executeTask(
         {
           cwd: projectPath,
           args: ['--add-dir', sprintDir],
+          env: p.getSpawnEnv(),
         },
         p
       );
@@ -194,6 +203,7 @@ async function executeTask(
           args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: 'Continue where you left off. Complete the task and signal completion.',
           resumeSessionId,
+          env: p.getSpawnEnv(),
         },
         {
           maxRetries: options.maxRetries,
@@ -237,6 +247,7 @@ async function executeTask(
           cwd: projectPath,
           args: ['--add-dir', sprintDir, ...buildProviderArgs(options, p)],
           prompt: contextContent,
+          env: p.getSpawnEnv(),
         },
         {
           maxRetries: options.maxRetries,

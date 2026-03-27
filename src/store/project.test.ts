@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestEnv, type TestEnvironment } from '@src/test-utils/setup.ts';
 import {
-  listProjects,
-  getProject,
-  createProject,
-  removeProject,
   addProjectRepo,
+  createProject,
+  getProject,
+  listProjects,
+  removeProject,
   removeProjectRepo,
 } from './project.ts';
-import { ProjectNotFoundError, ProjectExistsError, ValidationError } from '@src/errors.ts';
+import { ProjectExistsError, ProjectNotFoundError, ValidationError } from '@src/errors.ts';
 
 let env: TestEnvironment;
 

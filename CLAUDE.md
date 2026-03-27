@@ -43,12 +43,18 @@ pnpm typecheck && pnpm lint && pnpm test
 - **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/schemas/index.ts`
 - **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
 - **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
-- **Check scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`; heuristic detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during project setup, never as a runtime fallback
+- **Check scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`; heuristic
+  detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during project setup, never as a
+  runtime fallback
 - **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for check scripts
-- **Check tracking** — `sprint.checkRanAt` records per-repo timestamps; re-runs skip already-completed checks; `--refresh-check` forces re-execution; cleared on sprint close
+- **Check tracking** — `sprint.checkRanAt` records per-repo timestamps; re-runs skip already-completed checks;
+  `--refresh-check` forces re-execution; cleared on sprint close
 - **Post-task gate** — harness runs `checkScript` after every AI task; task not marked done if gate fails
-- **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice; branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch` auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
-- **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
+- **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice;
+  branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
+  auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
+- **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at
+  command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
 
 ## Common Mistakes to Avoid
 
@@ -60,8 +66,10 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
   selection timing)
 - Don't hardcode provider-specific logic outside `src/providers/` — use the provider abstraction layer
-- Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses `--allow-all-tools` (see Provider Differences below)
-- Don't add runtime auto-detection of check scripts — detection logic in `src/utils/detect-scripts.ts` is for suggestions during `project add` only
+- Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses
+  `--allow-all-tools` (see Provider Differences below)
+- Don't add runtime auto-detection of check scripts — detection logic in `src/utils/detect-scripts.ts` is for
+  suggestions during `project add` only
 
 ## Workflow
 
@@ -80,7 +88,8 @@ pnpm typecheck && pnpm lint && pnpm test
 
 **Optional:** Enable shell tab-completion with `ralphctl completion install` (bash, zsh, fish).
 
-**Optional:** Configure your preferred AI provider with `ralphctl config set provider <claude|copilot>` (prompted on first use if not set).
+**Optional:** Configure your preferred AI provider with `ralphctl config set provider <claude|copilot>` (prompted on
+first use if not set).
 
 ### Provider Configuration
 
@@ -99,7 +108,8 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 | Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
 | Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
 
-`checkTaskPermissions()` in `src/ai/task-context.ts` always performs Claude-style file checks (benign for Copilot — settings files won't exist). Thread `provider` through if extending permission logic.
+`checkTaskPermissions()` in `src/ai/task-context.ts` always performs Claude-style file checks (benign for Copilot —
+settings files won't exist). Thread `provider` through if extending permission logic.
 
 ### Workflow Paths
 
@@ -232,4 +242,5 @@ of modified files, verification commands, and current task context.
 
 ## References
 
-- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) — consult when extending the runner/executor layer.
+- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) —
+  consult when extending the runner/executor layer.

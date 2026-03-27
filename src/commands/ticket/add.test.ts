@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { confirm } from '@inquirer/prompts';
+import { addSingleTicketInteractive, ticketAddCommand } from './add.ts';
 
 vi.mock('@inquirer/prompts', () => ({
   confirm: vi.fn(),
@@ -14,9 +16,6 @@ vi.mock('@src/store/project.ts', () => ({
   listProjects: vi.fn().mockResolvedValue([]),
   projectExists: vi.fn().mockResolvedValue(false),
 }));
-
-import { confirm } from '@inquirer/prompts';
-import { addSingleTicketInteractive, ticketAddCommand } from './add.ts';
 
 describe('ticketAddCommand — no projects', () => {
   afterEach(() => {

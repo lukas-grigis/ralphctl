@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFile } from 'node:fs/promises';
+import { spawnInteractive } from '@src/ai/session.ts';
+import { getActiveProvider } from '@src/providers/index.ts';
+import type { Ticket } from '@src/schemas/index.ts';
+import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
@@ -11,12 +16,6 @@ vi.mock('@src/ai/session.ts', () => ({
 vi.mock('@src/providers/index.ts', () => ({
   getActiveProvider: vi.fn(),
 }));
-
-import { writeFile } from 'node:fs/promises';
-import { spawnInteractive } from '@src/ai/session.ts';
-import { getActiveProvider } from '@src/providers/index.ts';
-import type { Ticket } from '@src/schemas/index.ts';
-import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 
 const mockWriteFile = vi.mocked(writeFile);
 const mockSpawnInteractive = vi.mocked(spawnInteractive);
@@ -158,6 +157,7 @@ describe('runAiSession', () => {
     binary: 'claude',
     baseArgs: [],
     buildInteractiveArgs: (prompt: string) => ['--', prompt],
+    getSpawnEnv: () => ({}),
   };
 
   beforeEach(() => {
@@ -197,6 +197,21 @@ describe('runAiSession', () => {
 
     const provider = (mockSpawnInteractive.mock.calls[0] ?? [])[2];
     expect(provider).toBe(fakeProvider);
+  });
+
+  it('passes provider env vars to spawnInteractive', async () => {
+    const providerWithEnv = {
+      ...fakeProvider,
+      getSpawnEnv: () => ({ CUSTOM_VAR: 'value' }),
+    };
+    mockGetActiveProvider.mockResolvedValue(
+      providerWithEnv as unknown as Awaited<ReturnType<typeof getActiveProvider>>
+    );
+
+    await runAiSession('/tmp/workdir', 'prompt', 'Ticket Title');
+
+    const call = mockSpawnInteractive.mock.calls[0] ?? [];
+    expect((call[1] as { env: Record<string, string> }).env).toEqual({ CUSTOM_VAR: 'value' });
   });
 
   it('throws when spawnInteractive returns an error', async () => {

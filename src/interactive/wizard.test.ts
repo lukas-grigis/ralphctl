@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { confirm } from '@inquirer/prompts';
+import { addSingleTicketInteractive } from '@src/commands/ticket/add.ts';
+import { getCurrentSprint } from '@src/store/config.ts';
+import { getSprint } from '@src/store/sprint.ts';
+import { runWizard } from './wizard.ts';
 
 vi.mock('@inquirer/prompts', () => ({
   confirm: vi.fn(),
@@ -31,12 +36,6 @@ vi.mock('@src/store/config.ts', () => ({
 vi.mock('@src/store/sprint.ts', () => ({
   getSprint: vi.fn(),
 }));
-
-import { confirm } from '@inquirer/prompts';
-import { addSingleTicketInteractive } from '@src/commands/ticket/add.ts';
-import { getCurrentSprint } from '@src/store/config.ts';
-import { getSprint } from '@src/store/sprint.ts';
-import { runWizard } from './wizard.ts';
 
 const confirmMock = vi.mocked(confirm);
 const addTicketMock = vi.mocked(addSingleTicketInteractive);

@@ -27,6 +27,27 @@ export function parsePlanningBlocked(output: string): string | null {
 }
 
 /**
+ * Build provider-neutral headless spawn options for sprint planning/ideation.
+ *
+ * Provider-specific headless flags (for example Claude's `--output-format json`
+ * or Copilot's `--autopilot`) are added by the provider adapter inside
+ * spawnHeadless(). This helper only adds repo access flags and passes the prompt
+ * separately via stdin.
+ */
+export function buildHeadlessAiRequest(
+  repoPaths: string[],
+  prompt: string
+): {
+  args: string[];
+  prompt: string;
+} {
+  return {
+    args: repoPaths.flatMap((path) => ['--add-dir', path]),
+    prompt,
+  };
+}
+
+/**
  * Parse AI output to extract and validate task JSON array.
  */
 export function parseTasksJson(output: string): ImportTask[] {

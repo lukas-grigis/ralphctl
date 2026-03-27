@@ -25,9 +25,12 @@
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes before 1.0. Read the [blog post](https://lukasgrigis.dev/blog/building-ralphctl) for the backstory.
+> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes
+> before 1.0. Read the [blog post](https://lukasgrigis.dev/blog/building-ralphctl) for the backstory.
 
-You write tickets, your AI buddy (Claude or Copilot) refines the requirements, then breaks them into tasks and executes them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because why not.
+You write tickets, your AI buddy (Claude or Copilot) refines the requirements, then breaks them into tasks and executes
+them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because
+why not.
 
 ---
 
@@ -43,7 +46,8 @@ This installs the `ralphctl` command globally.
 
 - [Node.js](https://nodejs.org/) **>= 24.0.0**
 - [Git](https://git-scm.com/)
-- Either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated
+- Either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
+  or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated
 
 ### 2-Minute Quick Start
 
@@ -81,7 +85,8 @@ Or just run `ralphctl` with no arguments for an interactive menu that walks you 
 
 ## Features
 
-- **Two-phase planning** — clarify requirements first (what), then generate tasks (how), with a human approval gate between them
+- **Two-phase planning** — clarify requirements first (what), then generate tasks (how), with a human approval gate
+  between them
 - **Multi-repo sprints** — a single sprint can track tickets across multiple repositories
 - **Task dependencies** — `blockedBy` references with topological sort; tasks run in the right order
 - **Interactive or headless** — pair with Claude in a session, or let it run unattended
@@ -141,7 +146,8 @@ Run `ralphctl <command> --help` for details on any command.
 
 ## AI Provider Configuration
 
-RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both use the same prompt templates and workflow.
+RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both use the same prompt templates and
+workflow.
 
 ```bash
 ralphctl config set provider claude      # Use Claude Code
@@ -155,9 +161,9 @@ Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and 
 | Feature                     | Claude Code                          | GitHub Copilot                                                       |
 | --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
 | Status                      | GA                                   | Public preview                                                       |
-| Headless execution          | `-p --output-format json`            | `-p -s --autopilot --no-ask-user`                                    |
-| Session IDs                 | In JSON output (`session_id`)        | Captured via `--share` output file                                   |
-| Session resume (`--resume`) | Full support                         | Supported when session ID is available                               |
+| Headless execution          | `-p --output-format json`            | `-p --output-format json --autopilot --no-ask-user`                  |
+| Session IDs                 | In JSON output (`session_id`)        | In JSON output (`session_id`), `--share` file as fallback            |
+| Session resume (`--resume`) | Full support                         | Full support                                                         |
 | Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
 | Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
 | Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
@@ -214,7 +220,9 @@ This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md) code of co
 
 ## Security
 
-To report a vulnerability, use [GitHub's private reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new). See [SECURITY.md](./SECURITY.md) for details.
+To report a vulnerability,
+use [GitHub's private reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new).
+See [SECURITY.md](./SECURITY.md) for details.
 
 ---
 

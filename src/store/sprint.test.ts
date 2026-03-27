@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestEnv, type TestEnvironment } from '@src/test-utils/setup.ts';
-import { assertSprintStatus, createSprint, activateSprint, closeSprint, getCurrentSprintOrThrow } from './sprint.ts';
-import { SprintStatusError, NoCurrentSprintError } from '@src/errors.ts';
+import { activateSprint, assertSprintStatus, closeSprint, createSprint, getCurrentSprintOrThrow } from './sprint.ts';
+import { NoCurrentSprintError, SprintStatusError } from '@src/errors.ts';
 import { setCurrentSprint } from '@src/store/config.ts';
 import type { Sprint } from '@src/schemas/index.ts';
 

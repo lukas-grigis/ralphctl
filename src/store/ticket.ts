@@ -4,9 +4,9 @@ import { type Sprint, SprintSchema, type Ticket } from '@src/schemas/index.ts';
 import { assertSprintStatus, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
 import { projectExists } from '@src/store/project.ts';
+import { ProjectNotFoundError, TicketNotFoundError } from '@src/errors.ts';
 
 export { TicketNotFoundError } from '@src/errors.ts';
-import { TicketNotFoundError, ProjectNotFoundError } from '@src/errors.ts';
 
 async function getSprintData(sprintId?: string): Promise<Sprint> {
   const id = await resolveSprintId(sprintId);

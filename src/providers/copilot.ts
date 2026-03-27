@@ -1,5 +1,6 @@
 import { lstat, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Result } from 'typescript-result';
 import { IOError } from '@src/errors.ts';
 import type { ParsedOutput, ProviderAdapter, RateLimitInfo } from '@src/providers/types.ts';
 import { wrapAsync } from '@src/utils/result-helpers.ts';
@@ -11,9 +12,8 @@ import { wrapAsync } from '@src/utils/result-helpers.ts';
  *
  * Key differences from Claude Code CLI:
  * - Interactive mode uses `-i PROMPT` (not `-- PROMPT`)
- * - No `--output-format json`; uses `-s` (silent) for clean stdout
- * - Headless output is plain text — session_id is not in stdout, but can be
- *   captured via `--share` which writes `./copilot-session-<ID>.md` on exit
+ * - JSON output via `--output-format json` produces JSONL (one JSON object per line)
+ * - `--share` kept as fallback for session ID capture when JSON output lacks session_id
  * - Requires `--autopilot` for autonomous continuation in headless mode
  * - Requires `--no-ask-user` to suppress interactive prompts in headless mode
  * - Status: public preview (experimental: true)
@@ -31,17 +31,44 @@ export const copilotAdapter: ProviderAdapter = {
 
   buildHeadlessArgs(extraArgs: string[] = []): string[] {
     // -p: execute prompt programmatically (exits after completion)
-    // -s: silent — output only the agent response (no usage stats)
+    // --output-format json: structured JSONL output with session_id and result
     // --autopilot: enable autonomous continuation without user intervention
     // --no-ask-user: disable ask_user tool so agent doesn't block waiting for input
-    // --share: write session to ./copilot-session-<ID>.md so we can capture the session ID
-    return ['-p', '-s', '--autopilot', '--no-ask-user', '--share', ...this.baseArgs, ...extraArgs];
+    // --share: fallback for session ID capture if JSON output lacks session_id
+    return ['-p', '--output-format', 'json', '--autopilot', '--no-ask-user', '--share', ...this.baseArgs, ...extraArgs];
   },
 
   parseJsonOutput(stdout: string): ParsedOutput {
-    // Copilot CLI outputs plain text (no JSON mode), so return as-is.
-    // Session ID is captured separately via extractSessionId (--share output file).
+    // Copilot CLI with --output-format json produces JSONL (one JSON object per line).
+    // Try to parse the last non-empty line as JSON to extract result and session_id.
+    // Falls back to treating stdout as plain text if JSON parsing fails.
+    const lines = stdout.trim().split('\n').filter(Boolean);
+    if (lines.length === 0) {
+      return { result: '', sessionId: null };
+    }
+
+    // Try parsing the last line first (most likely to contain the final result)
+    const lastLine = lines.at(-1) ?? '';
+    const jsonResult = Result.try(() => JSON.parse(lastLine) as unknown);
+    if (jsonResult.ok) {
+      const parsed = jsonResult.value as { result?: string; result_text?: string; session_id?: string };
+      return {
+        result: parsed.result ?? parsed.result_text ?? lastLine,
+        sessionId: parsed.session_id ?? null,
+      };
+    }
+
+    // JSON parse failed — treat raw stdout as the result text.
+    // Session ID will be captured via extractSessionId (--share file fallback).
     return { result: stdout.trim(), sessionId: null };
+  },
+
+  buildResumeArgs(sessionId: string): string[] {
+    if (!/^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/.test(sessionId)) {
+      throw new Error('Invalid session ID format');
+    }
+    // Copilot uses optional-value syntax: --resume=<id>
+    return [`--resume=${sessionId}`];
   },
 
   async extractSessionId(cwd: string): Promise<string | null> {
@@ -70,9 +97,11 @@ export const copilotAdapter: ProviderAdapter = {
   },
 
   detectRateLimit(stderr: string): RateLimitInfo {
-    // TODO: These patterns are borrowed from the Claude adapter and have not been validated
-    // against real Copilot CLI rate-limit error messages. If Copilot CLI produces different
-    // error output (e.g. GitHub API 429 responses), add patterns here based on real observations.
+    // Copilot CLI proxies through GitHub API, which returns standard HTTP 429 responses.
+    // Patterns cover both GitHub API errors and common rate-limit language.
+    // Patterns cover GitHub API errors (429, "rate limit exceeded", "secondary rate limit")
+    // and common rate-limit language. /rate.?limit/i is intentionally broad — it subsumes
+    // more specific patterns like "API rate limit exceeded" and "secondary rate limit".
     const patterns = [/rate.?limit/i, /\b429\b/, /too many requests/i, /overloaded/i, /\b529\b/];
     const isRateLimited = patterns.some((p) => p.test(stderr));
     if (!isRateLimited) {
@@ -84,6 +113,8 @@ export const copilotAdapter: ProviderAdapter = {
   },
 
   getSpawnEnv(): Record<string, string> {
+    // Copilot CLI doesn't have an equivalent to CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD.
+    // The prompt instructions tell the agent to read .github/copilot-instructions.md explicitly.
     return {};
   },
 };

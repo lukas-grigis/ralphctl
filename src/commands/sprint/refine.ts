@@ -26,10 +26,10 @@ import { getProject } from '@src/store/project.ts';
 import { buildTicketRefinePrompt } from '@src/ai/prompts/index.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getRefinementDir, getSchemaPath, getSprintDir } from '@src/utils/paths.ts';
-import { IssueFetchError, fetchIssueFromUrl, formatIssueContext } from '@src/utils/issue-fetch.ts';
+import { fetchIssueFromUrl, formatIssueContext, IssueFetchError } from '@src/utils/issue-fetch.ts';
 import { type RefinedRequirement } from '@src/schemas/index.ts';
 import { exportRequirementsToMarkdown } from '@src/utils/requirements-export.ts';
-import { resolveProvider, providerDisplayName } from '@src/utils/provider.ts';
+import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from '@src/commands/ticket/refine-utils.ts';
 
 interface RefineOptions {

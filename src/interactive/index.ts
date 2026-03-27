@@ -1,11 +1,10 @@
 import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/ui.ts';
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
-import { renderStatusHeader } from './dashboard.ts';
+import { type DashboardData, getNextAction, renderStatusHeader } from './dashboard.ts';
 import { getAiProvider, getConfig } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
-import { getNextAction, type DashboardData } from './dashboard.ts';
 import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
 import { type Tasks, TasksSchema } from '@src/schemas/index.ts';
 import { getTasksFilePath } from '@src/utils/paths.ts';
@@ -59,7 +58,7 @@ import { progressLogCommand } from '@src/commands/progress/log.ts';
 import { progressShowCommand } from '@src/commands/progress/show.ts';
 
 // Command imports - config
-import { configShowCommand, configSetCommand } from '@src/commands/config/config.ts';
+import { configSetCommand, configShowCommand } from '@src/commands/config/config.ts';
 
 // Command imports - doctor
 import { doctorCommand } from '@src/commands/doctor/doctor.ts';

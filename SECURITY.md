@@ -2,7 +2,8 @@
 
 ## Reporting a vulnerability
 
-If you discover a security vulnerability in RalphCTL, please report it through [GitHub's private vulnerability reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new).
+If you discover a security vulnerability in RalphCTL, please report it
+through [GitHub's private vulnerability reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new).
 
 **Please do not open a public issue for security vulnerabilities.**
 

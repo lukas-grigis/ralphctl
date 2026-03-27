@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { ProviderPermissions } from './permissions.ts';
+import { checkTaskPermissions, getProviderPermissions, isToolAllowed } from './permissions.ts';
 
 // Mock homedir to prevent reading the real ~/.claude/settings.json during tests.
 // The mocked homedir points to a non-existent directory so no user-level settings
@@ -13,9 +15,6 @@ vi.mock('node:os', async (importOriginal) => {
     homedir: () => join(actual.tmpdir(), 'ralphctl-fake-home-nonexistent'),
   };
 });
-
-import { checkTaskPermissions, getProviderPermissions, isToolAllowed } from './permissions.ts';
-import type { ProviderPermissions } from './permissions.ts';
 
 // ---------------------------------------------------------------------------
 // isToolAllowed — pure function, no I/O

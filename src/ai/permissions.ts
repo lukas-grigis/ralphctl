@@ -21,7 +21,7 @@ export interface ProviderPermissions {
 /**
  * Get AI provider permissions from settings files.
  * For Claude: checks .claude/settings.local.json and ~/.claude/settings.json
- * For Copilot: returns empty permissions (Copilot uses --available-tools/--excluded-tools flags)
+ * For Copilot: returns empty permissions (all tools granted via --allow-all-tools flag)
  *
  * @param projectPath - Project directory to check for settings
  * @param provider - AI provider (defaults to 'claude')
