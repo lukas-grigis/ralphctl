@@ -95,6 +95,15 @@ export interface ProviderAdapter {
    */
   extractSessionId?(cwd: string): Promise<string | null>;
 
+  /**
+   * Build CLI args for resuming a previous session.
+   * Claude: `['--resume', sessionId]`
+   * Copilot: `['--resume=' + sessionId]` (optional-value syntax)
+   *
+   * Validates the session ID format and throws if invalid (prevents argument injection).
+   */
+  buildResumeArgs(sessionId: string): string[];
+
   /** Detect rate limit signals in stderr. */
   detectRateLimit(stderr: string): RateLimitInfo;
 

@@ -34,13 +34,15 @@ export function getProvider(provider: AiProvider): ProviderAdapter {
  * Resolve the active provider from config (prompting on first use)
  * and return its adapter.
  *
- * Prints a warning when the resolved provider is marked experimental.
+ * Prints a warning once when the resolved provider is marked experimental.
  */
+let experimentalWarningShown = false;
 export async function getActiveProvider(): Promise<ProviderAdapter> {
   const provider = await resolveProvider();
   const adapter = getProvider(provider);
-  if (adapter.experimental) {
+  if (adapter.experimental && !experimentalWarningShown) {
     showWarning(`${adapter.displayName} provider is in public preview — some features may not work as expected.`);
+    experimentalWarningShown = true;
   }
   return adapter;
 }
