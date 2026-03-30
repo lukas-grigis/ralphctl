@@ -64,6 +64,7 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
       blockedBy: input.blockedBy ?? [],
       projectPath: input.projectPath,
       verified: false,
+      evaluated: false,
     };
 
     tasks.push(task);
@@ -414,6 +415,7 @@ export function validateImportTasks(
       }),
       projectPath: '/tmp', // Placeholder for validation only
       verified: false,
+      evaluated: false,
     })),
   ];
 

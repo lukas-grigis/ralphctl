@@ -7,6 +7,7 @@ import type { AiProvider } from '@src/schemas/index.ts';
 export interface ParsedOutput {
   result: string;
   sessionId: string | null;
+  model: string | null;
 }
 
 // ============================================================================
@@ -36,6 +37,8 @@ export interface SpawnResult {
   exitCode: number;
   /** Session ID from CLI (available with --output-format json) */
   sessionId: string | null;
+  /** Model identifier from CLI (available with --output-format json) */
+  model: string | null;
 }
 
 export interface SpawnInteractiveResult {

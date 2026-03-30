@@ -207,6 +207,7 @@ async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promis
       ticketId: taskInput.ticketId,
       blockedBy: [], // Set in second pass
       projectPath: taskInput.projectPath,
+      evaluated: false,
       verified: false,
     });
 

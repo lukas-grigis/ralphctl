@@ -26,12 +26,13 @@ export const claudeAdapter: ProviderAdapter = {
     const jsonResult = Result.try(() => JSON.parse(stdout) as unknown);
     if (!jsonResult.ok) {
       // JSON parse failed — treat raw stdout as the result text
-      return { result: stdout, sessionId: null };
+      return { result: stdout, sessionId: null, model: null };
     }
-    const parsed = jsonResult.value as { result?: string; session_id?: string };
+    const parsed = jsonResult.value as { result?: string; session_id?: string; model?: string };
     return {
       result: parsed.result ?? stdout,
       sessionId: parsed.session_id ?? null,
+      model: parsed.model ?? null,
     };
   },
 

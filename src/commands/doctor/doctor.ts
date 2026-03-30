@@ -175,6 +175,25 @@ export async function checkProjectPaths(): Promise<CheckResult> {
 }
 
 /**
+ * Check evaluation iteration config is explicitly set
+ */
+export async function checkEvaluationConfig(): Promise<CheckResult> {
+  const config = await getConfig();
+  if (config.evaluationIterations == null) {
+    return {
+      name: 'Evaluation config',
+      status: 'warn',
+      detail: 'evaluationIterations not set — defaulting to 1 (set via: ralphctl config set evaluationIterations <n>)',
+    };
+  }
+  return {
+    name: 'Evaluation config',
+    status: 'pass',
+    detail: `evaluationIterations: ${String(config.evaluationIterations)}`,
+  };
+}
+
+/**
  * Check current sprint validity
  */
 export async function checkCurrentSprint(): Promise<CheckResult> {
@@ -217,6 +236,7 @@ export async function doctorCommand(): Promise<void> {
     checkDataDirectory(),
     checkProjectPaths(),
     checkCurrentSprint(),
+    checkEvaluationConfig(),
   ]);
   results.push(...asyncResults);
 
