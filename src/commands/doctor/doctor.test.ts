@@ -241,6 +241,38 @@ describe('check functions', () => {
     expect(result.status).toBe('fail');
     expect(result.detail).toContain('sprint file missing');
   });
+
+  it('checkEvaluationConfig warns when evaluationIterations not set', async () => {
+    // Default config.json has no evaluationIterations field
+    const { checkEvaluationConfig } = await import('./doctor.ts');
+    const result = await checkEvaluationConfig();
+
+    expect(result.name).toBe('Evaluation config');
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('not set');
+  });
+
+  it('checkEvaluationConfig passes when evaluationIterations is set', async () => {
+    const { setEvaluationIterations } = await import('@src/store/config.ts');
+    await setEvaluationIterations(2);
+
+    const { checkEvaluationConfig } = await import('./doctor.ts');
+    const result = await checkEvaluationConfig();
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('2');
+  });
+
+  it('checkEvaluationConfig passes when evaluationIterations is explicitly 0 (disabled)', async () => {
+    const { setEvaluationIterations } = await import('@src/store/config.ts');
+    await setEvaluationIterations(0);
+
+    const { checkEvaluationConfig } = await import('./doctor.ts');
+    const result = await checkEvaluationConfig();
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('0');
+  });
 });
 
 // ============================================================================

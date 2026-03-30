@@ -69,6 +69,44 @@ describe('TaskSchema', () => {
     const result = TaskSchema.safeParse(zeroOrder);
     expect(result.success).toBe(false);
   });
+
+  it('accepts task with evaluated=true', () => {
+    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p', evaluated: true };
+    const result = TaskSchema.safeParse(task);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluated).toBe(true);
+  });
+
+  it('defaults evaluated to false', () => {
+    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p' };
+    const result = TaskSchema.safeParse(task);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluated).toBe(false);
+  });
+
+  it('accepts evaluationOutput as optional string', () => {
+    const task = {
+      id: 'abc',
+      name: 'Test',
+      status: 'done',
+      order: 1,
+      projectPath: '/p',
+      evaluationOutput: 'Looks good',
+    };
+    const result = TaskSchema.safeParse(task);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluationOutput).toBe('Looks good');
+  });
+
+  it('backward compat: old task JSON without evaluated/evaluationOutput parses successfully', () => {
+    const oldTask = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p' };
+    const result = TaskSchema.safeParse(oldTask);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.evaluated).toBe(false);
+      expect(result.data.evaluationOutput).toBeUndefined();
+    }
+  });
 });
 
 describe('TicketSchema', () => {
@@ -309,6 +347,39 @@ describe('ConfigSchema', () => {
   it('rejects invalid aiProvider value', () => {
     const result = ConfigSchema.safeParse({ aiProvider: 'invalid' });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts evaluationIterations as optional integer >= 0', () => {
+    const config = { currentSprint: null, aiProvider: 'claude', evaluationIterations: 2 };
+    const result = ConfigSchema.safeParse(config);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluationIterations).toBe(2);
+  });
+
+  it('accepts evaluationIterations: 0 (disabled)', () => {
+    const config = { currentSprint: null, aiProvider: null, evaluationIterations: 0 };
+    const result = ConfigSchema.safeParse(config);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluationIterations).toBe(0);
+  });
+
+  it('rejects evaluationIterations less than 0', () => {
+    const config = { evaluationIterations: -1 };
+    const result = ConfigSchema.safeParse(config);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects evaluationIterations as non-integer', () => {
+    const config = { evaluationIterations: 1.5 };
+    const result = ConfigSchema.safeParse(config);
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts missing evaluationIterations (optional field)', () => {
+    const config = { currentSprint: null, aiProvider: null };
+    const result = ConfigSchema.safeParse(config);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.evaluationIterations).toBeUndefined();
   });
 });
 
