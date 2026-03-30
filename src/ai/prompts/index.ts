@@ -97,3 +97,29 @@ export function buildIdeateAutoPrompt(
     .replace('{{SCHEMA}}', schema)
     .replace('{{COMMON}}', common);
 }
+
+export interface EvaluatorPromptContext {
+  taskName: string;
+  taskDescription: string;
+  taskSteps: string[];
+  projectPath: string;
+  checkScriptSection: string | null;
+}
+
+export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
+  const template = loadTemplate('task-evaluation');
+
+  const descriptionSection = ctx.taskDescription ? `\n**Description:** ${ctx.taskDescription}` : '';
+
+  const stepsSection =
+    ctx.taskSteps.length > 0 ? `\n**Implementation Steps:**\n${ctx.taskSteps.map((s) => `- ${s}`).join('\n')}` : '';
+
+  const checkSection = ctx.checkScriptSection ? `\n\n${ctx.checkScriptSection}` : '';
+
+  return template
+    .replaceAll('{{TASK_NAME}}', ctx.taskName)
+    .replace('{{TASK_DESCRIPTION_SECTION}}', descriptionSection)
+    .replace('{{TASK_STEPS_SECTION}}', stepsSection)
+    .replace('{{PROJECT_PATH}}', ctx.projectPath)
+    .replace('{{CHECK_SCRIPT_SECTION}}', checkSection);
+}

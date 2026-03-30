@@ -86,6 +86,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: 'Task completed successfully',
         sessionId: 'abc123',
+        model: null,
       });
     });
 
@@ -97,6 +98,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: output,
         sessionId: 'abc123',
+        model: null,
       });
     });
 
@@ -108,6 +110,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: 'Task completed',
         sessionId: null,
+        model: null,
       });
     });
 
@@ -117,6 +120,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: 'Plain text output',
         sessionId: null,
+        model: null,
       });
     });
 
@@ -126,6 +130,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: '{ invalid json }',
         sessionId: null,
+        model: null,
       });
     });
 
@@ -134,6 +139,7 @@ describe('claudeAdapter', () => {
       expect(parsed).toEqual({
         result: '',
         sessionId: null,
+        model: null,
       });
     });
   });
@@ -342,6 +348,7 @@ describe('copilotAdapter', () => {
       expect(parsed).toEqual({
         result: 'Task completed successfully',
         sessionId: 'copilot-abc123',
+        model: null,
       });
     });
 
@@ -379,6 +386,7 @@ describe('copilotAdapter', () => {
       expect(parsed).toEqual({
         result: 'Plain text output from CLI',
         sessionId: null,
+        model: null,
       });
     });
 
@@ -388,6 +396,7 @@ describe('copilotAdapter', () => {
       expect(parsed).toEqual({
         result: 'Some result with whitespace',
         sessionId: null,
+        model: null,
       });
     });
 
@@ -396,6 +405,7 @@ describe('copilotAdapter', () => {
       expect(parsed).toEqual({
         result: '',
         sessionId: null,
+        model: null,
       });
     });
 
