@@ -5,6 +5,47 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-31
+
+### Added
+
+- **Generator-evaluator pattern** — autonomous code review after task completion with model ladder
+  (Opus->Sonnet, Sonnet->Haiku, Haiku->Haiku); configurable `evaluationIterations`; `--no-evaluate` flag (#49)
+- **Sprint ideation** — `sprint ideate` combines refine + plan in one session for quick ideas; auto-assigns ticketId;
+  handles bare tasks array output (#51)
+- **Budget and model controls** — `--max-budget-usd` and `--fallback-model` flags for `sprint start`
+- **Per-repo check timeout** — configurable check script timeout per repository with failure isolation
+- **Interactive config menu** — editor and evaluation iterations configurable from interactive mode
+
+### Changed
+
+- Rebranded from task management CLI to agent harness — updated description, README, and all documentation (#50)
+- Achieved Copilot CLI parity with Claude Code provider (JSON output, session management, headless args) (#47)
+- Provider-agnostic prompt templates and session routing through adapters
+- Improved model name validation and provider handling security
+
+### Fixed
+
+- Stale sprint overwrite in ideation flow
+- Hardened output parser for ideation and planning
+- Provider spawn environment passed to all task execution paths
+- `PROGRESS_FILE` placeholder replacement in task execution prompt
+- MaxListeners leak in ProcessManager
+- Replaced bare Error throws with domain errors
+- Copilot permission check for settings file detection
+
+### Tests
+
+- Comprehensive evaluator tests
+- Store layer tests (sprint, config, project)
+- Parser and executor unit tests
+- Permissions and prompt template tests
+
+### Dependencies
+
+- Updated in-range dependencies
+- Added coverage tooling
+
 ## [0.1.4] - 2026-03-23
 
 ### Changed
