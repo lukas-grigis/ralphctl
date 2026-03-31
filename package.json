@@ -1,7 +1,7 @@
 {
   "name": "ralphctl",
   "version": "0.1.4",
-  "description": "Sprint and task management CLI for AI-assisted coding",
+  "description": "Agent harness for long-running AI coding tasks — orchestrates Claude Code & GitHub Copilot across repositories",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
   "license": "MIT",
@@ -15,13 +15,15 @@
   },
   "keywords": [
     "cli",
-    "claude",
-    "ai",
-    "sprint",
-    "task-management",
-    "planning",
+    "agent-harness",
+    "claude-code",
+    "github-copilot",
+    "ai-coding",
+    "task-orchestration",
     "anthropic",
-    "developer-tools"
+    "developer-tools",
+    "long-running-agents",
+    "generator-evaluator"
   ],
   "bin": {
     "ralphctl": "./dist/cli.mjs"
