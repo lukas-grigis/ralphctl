@@ -15,7 +15,7 @@ import {
 import { getProgress, logProgress, summarizeProgressForContext } from '@src/store/progress.ts';
 import { getProgressFilePath, getSprintDir } from '@src/utils/paths.ts';
 import { buildTaskExecutionPrompt } from '@src/ai/prompts/index.ts';
-import type { Task } from '@src/schemas/index.ts';
+import type { Project, Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
 import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
 import type { SpawnResult } from '@src/providers/types.ts';
@@ -279,6 +279,115 @@ async function executeTask(
 }
 
 // ============================================================================
+// SHARED EVALUATION LOOP
+// ============================================================================
+
+/** Max characters to persist in evaluationOutput (prevents tasks.json bloat). */
+const MAX_EVAL_OUTPUT = 2000;
+
+/**
+ * Run the evaluation loop for a completed task.
+ * Shared between sequential and parallel executors to avoid duplication.
+ *
+ * Spawns an independent evaluator session, and if evaluation fails, resumes the
+ * generator with critique, re-runs the check gate, and re-evaluates — up to
+ * `evalIterations` times. Stores the evaluation result regardless of outcome.
+ */
+async function runEvaluationLoop(params: {
+  task: Task;
+  result: { sessionId: string | null; model: string | null };
+  project: Project | undefined;
+  sprintId: string;
+  provider: ProviderAdapter;
+  options: ExecutorOptions;
+  evalIterations: number;
+  checkTimeout?: number;
+  useSpinner?: boolean;
+}): Promise<void> {
+  const {
+    task,
+    result,
+    project,
+    sprintId,
+    provider,
+    options,
+    evalIterations,
+    checkTimeout,
+    useSpinner = false,
+  } = params;
+
+  const evalCheckScript = getEffectiveCheckScript(project, task.projectPath);
+  const sprintDir = getSprintDir(sprintId);
+  let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider);
+
+  for (let i = 0; i < evalIterations && !evalResult.passed; i++) {
+    console.log(warning(`Evaluation failed for ${task.name} (iteration ${String(i + 1)}/${String(evalIterations)})`));
+    console.log(muted(evalResult.output.slice(0, 500)));
+
+    // Resume generator with critique
+    const resumeSpinner = useSpinner ? createSpinner(`Fixing evaluation issues: ${task.name}`).start() : null;
+    const resumeResult = await spawnWithRetry(
+      {
+        cwd: task.projectPath,
+        args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
+        prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify and signal completion.`,
+        resumeSessionId: result.sessionId ?? undefined,
+        env: provider.getSpawnEnv(),
+      },
+      {
+        maxRetries: options.maxRetries,
+        ...(resumeSpinner
+          ? {
+              onRetry: (attempt: number, delayMs: number) => {
+                resumeSpinner.text = `Rate limited, retrying in ${String(Math.round(delayMs / 1000))}s (attempt ${String(attempt)})...`;
+              },
+            }
+          : {}),
+      },
+      provider
+    );
+    resumeSpinner?.succeed(`Fix attempt completed: ${task.name}`);
+
+    const fixResult = parseExecutionResult(resumeResult.stdout);
+    if (!fixResult.success) {
+      console.log(warning(`Generator could not fix issues after feedback: ${task.name}`));
+      break;
+    }
+
+    // Re-run check script
+    const recheckScript = getEffectiveCheckScript(project, task.projectPath);
+    if (recheckScript) {
+      const recheckResult = runLifecycleHook(task.projectPath, recheckScript, 'taskComplete', checkTimeout);
+      if (!recheckResult.passed) {
+        console.log(warning(`Post-task check failed after generator fix: ${task.name}`));
+        break;
+      }
+    }
+
+    // Re-evaluate
+    evalResult = await runEvaluation(task, resumeResult.model ?? result.model, evalCheckScript, sprintId, provider);
+  }
+
+  // Store evaluation result (truncated to prevent tasks.json bloat)
+  await updateTask(
+    task.id,
+    {
+      evaluated: true,
+      evaluationOutput: evalResult.output.slice(0, MAX_EVAL_OUTPUT),
+    },
+    sprintId
+  );
+
+  if (!evalResult.passed) {
+    console.log(
+      warning(`Evaluation did not pass after ${String(evalIterations)} iteration(s) — marking done: ${task.name}`)
+    );
+  } else {
+    console.log(success(`Evaluation passed: ${task.name}`));
+  }
+}
+
+// ============================================================================
 // SEQUENTIAL EXECUTION LOOP
 // ============================================================================
 
@@ -309,9 +418,10 @@ export async function executeTaskLoop(
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
-  // Resolve provider once for the entire loop
+  // Resolve provider and evaluation config once for the entire loop
   const provider = await getActiveProvider();
   const label = provider.displayName;
+  const evalIterations = await getEvaluationIterations();
 
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
@@ -487,71 +597,17 @@ export async function executeTaskLoop(
     }
 
     // Evaluation loop (if enabled)
-    const evalIterations = await getEvaluationIterations();
     if (evalIterations > 0 && !options.noEvaluate && !options.session) {
-      const evalCheckScript = getEffectiveCheckScript(project, task.projectPath);
-      const sprintDir = getSprintDir(sprintId);
-      let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider);
-
-      for (let i = 0; i < evalIterations && !evalResult.passed; i++) {
-        console.log(warning(`Evaluation failed (iteration ${String(i + 1)}/${String(evalIterations)})`));
-        console.log(muted(evalResult.output.slice(0, 500)));
-
-        // Resume generator with critique
-        const resumeSpinner = createSpinner(`Fixing evaluation issues: ${task.name}`).start();
-        const resumeResult = await spawnWithRetry(
-          {
-            cwd: task.projectPath,
-            args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
-            prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify and signal completion.`,
-            resumeSessionId: result.sessionId ?? undefined,
-            env: provider.getSpawnEnv(),
-          },
-          {
-            maxRetries: options.maxRetries,
-            onRetry: (attempt, delayMs) => {
-              resumeSpinner.text = `Rate limited, retrying in ${String(Math.round(delayMs / 1000))}s (attempt ${String(attempt)})...`;
-            },
-          },
-          provider
-        );
-        resumeSpinner.succeed(`Fix attempt completed: ${task.name}`);
-
-        const fixResult = parseExecutionResult(resumeResult.stdout);
-        if (!fixResult.success) {
-          console.log(warning('Generator could not fix issues after feedback'));
-          break;
-        }
-
-        // Re-run check script
-        const recheckScript = getEffectiveCheckScript(project, task.projectPath);
-        if (recheckScript) {
-          const recheckResult = runLifecycleHook(task.projectPath, recheckScript, 'taskComplete');
-          if (!recheckResult.passed) {
-            console.log(warning('Post-task check failed after generator fix attempt'));
-            break;
-          }
-        }
-
-        // Re-evaluate
-        evalResult = await runEvaluation(task, resumeResult.model ?? result.model, evalCheckScript, sprintId, provider);
-      }
-
-      // Store evaluation result (regardless of pass/fail)
-      await updateTask(
-        task.id,
-        {
-          evaluated: true,
-          evaluationOutput: evalResult.output,
-        },
-        sprintId
-      );
-
-      if (!evalResult.passed) {
-        console.log(warning(`Evaluation did not pass after ${String(evalIterations)} iteration(s) — marking done`));
-      } else {
-        console.log(success('Evaluation: passed'));
-      }
+      await runEvaluationLoop({
+        task,
+        result,
+        project,
+        sprintId,
+        provider,
+        options,
+        evalIterations,
+        useSpinner: true,
+      });
     }
 
     // Update task status: in_progress → done
@@ -657,9 +713,10 @@ export async function executeTaskLoopParallel(
   // Install signal handlers eagerly so Ctrl+C works before the first child spawns
   ProcessManager.getInstance().ensureHandlers();
 
-  // Resolve provider once for the entire loop
+  // Resolve provider and evaluation config once for the entire loop
   const provider = await getActiveProvider();
   const label = provider.displayName;
+  const evalIterations = await getEvaluationIterations();
 
   const sprint = await getSprint(sprintId);
   let completedCount = 0;
@@ -980,85 +1037,18 @@ export async function executeTaskLoopParallel(
         }
 
         // Evaluation loop (if enabled)
-        const evalIterations = await getEvaluationIterations();
         if (evalIterations > 0 && !options.noEvaluate && !options.session) {
-          const evalCheckScript = getEffectiveCheckScript(taskProject, settled.task.projectPath);
-          const sprintDir = getSprintDir(sprintId);
-          let evalResult = await runEvaluation(settled.task, settled.result.model, evalCheckScript, sprintId, provider);
-
-          for (let i = 0; i < evalIterations && !evalResult.passed; i++) {
-            console.log(
-              warning(
-                `Evaluation failed for ${settled.task.name} (iteration ${String(i + 1)}/${String(evalIterations)})`
-              )
-            );
-            console.log(muted(evalResult.output.slice(0, 500)));
-
-            // Resume generator with critique
-            const resumeResult = await spawnWithRetry(
-              {
-                cwd: settled.task.projectPath,
-                args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
-                prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify and signal completion.`,
-                resumeSessionId: settled.result.sessionId ?? undefined,
-                env: provider.getSpawnEnv(),
-              },
-              {
-                maxRetries: options.maxRetries,
-              },
-              provider
-            );
-
-            const fixResult = parseExecutionResult(resumeResult.stdout);
-            if (!fixResult.success) {
-              console.log(warning(`Generator could not fix issues after feedback: ${settled.task.name}`));
-              break;
-            }
-
-            // Re-run check script
-            if (taskCheckScript) {
-              const taskRepo = taskProject?.repositories.find((r) => r.path === settled.task.projectPath);
-              const recheckResult = runLifecycleHook(
-                settled.task.projectPath,
-                taskCheckScript,
-                'taskComplete',
-                taskRepo?.checkTimeout
-              );
-              if (!recheckResult.passed) {
-                console.log(warning(`Post-task check failed after generator fix: ${settled.task.name}`));
-                break;
-              }
-            }
-
-            // Re-evaluate
-            evalResult = await runEvaluation(
-              settled.task,
-              resumeResult.model ?? settled.result.model,
-              evalCheckScript,
-              sprintId,
-              provider
-            );
-          }
-
-          // Store evaluation result (regardless of pass/fail)
-          await updateTask(
-            settled.task.id,
-            {
-              evaluated: true,
-              evaluationOutput: evalResult.output,
-            },
-            sprintId
-          );
-
-          if (!evalResult.passed) {
-            console.log(
-              warning(
-                `Evaluation did not pass after ${String(evalIterations)} iteration(s) — marking done: ${settled.task.name}`
-              )
-            );
-          } else {
-            console.log(success(`Evaluation passed: ${settled.task.name}`));
-          }
+          const taskRepo = taskProject?.repositories.find((r) => r.path === settled.task.projectPath);
+          await runEvaluationLoop({
+            task: settled.task,
+            result: settled.result,
+            project: taskProject,
+            sprintId,
+            provider,
+            options,
+            evalIterations,
+            checkTimeout: taskRepo?.checkTimeout,
+          });
         }
 
         // Mark done

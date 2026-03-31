@@ -19,7 +19,7 @@ You are working in this project directory:
 
 ### Investigation Steps
 
-1. Run `git diff HEAD~1` (or an appropriate range) to see what was changed in this task
+1. Run `git log --oneline -10` to identify the commits from this task, then run `git diff <base>..HEAD` for the full range of changes (tasks may produce multiple commits — do not assume a single commit)
 2. Read the changed files carefully to understand the full implementation context
 3. Look at surrounding code to understand patterns and conventions
 4. Compare the actual changes against the task specification above

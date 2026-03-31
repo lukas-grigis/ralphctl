@@ -1,9 +1,9 @@
 import { getConfigPath } from '@src/utils/paths.ts';
 import { fileExists, readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
 import { type AiProvider, type Config, ConfigSchema } from '@src/schemas/index.ts';
+import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
 
 export const DEFAULT_EVALUATION_ITERATIONS = 1;
-import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
 
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,
