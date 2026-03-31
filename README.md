@@ -20,7 +20,7 @@
      ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
 ```
 
-**Sprint and task management CLI for AI-assisted coding with Claude Code or GitHub Copilot.**
+**Agent harness for long-running AI coding tasks — orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) & [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli) across repositories.**
 
 > _"I'm helping!"_ — Ralph Wiggum
 
@@ -28,9 +28,10 @@
 > **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes
 > before 1.0. Read the [blog post](https://lukasgrigis.dev/blog/building-ralphctl) for the backstory.
 
-You write tickets, your AI buddy (Claude or Copilot) refines the requirements, then breaks them into tasks and executes
-them. RalphCTL keeps track of the state so nothing gets lost between sessions. Ralph Wiggum personality included because
-why not.
+RalphCTL decomposes work into dependency-ordered tasks, executes them through AI coding agents, and runs a
+[generator-evaluator loop](https://www.anthropic.com/engineering/harness-design-long-running-apps) to catch issues
+before moving on. It manages context across sessions so nothing gets lost — whether you're working on a single ticket
+or coordinating changes across multiple repositories. Ralph Wiggum personality included because why not.
 
 ---
 
@@ -85,13 +86,13 @@ Or just run `ralphctl` with no arguments for an interactive menu that walks you 
 
 ## Features
 
-- **Two-phase planning** — clarify requirements first (what), then generate tasks (how), with a human approval gate
-  between them
-- **Multi-repo sprints** — a single sprint can track tickets across multiple repositories
-- **Task dependencies** — `blockedBy` references with topological sort; tasks run in the right order
-- **Interactive or headless** — pair with Claude in a session, or let it run unattended
-- **Sprint lifecycle** — state machine (draft -> active -> closed) with file locking for concurrent safety
+- **Task decomposition** — breaks tickets into dependency-ordered tasks with topological sort
+- **Generator-evaluator loop** — independent AI review after each task; iterates until quality passes or budget exhausted
+- **Multi-repo orchestration** — coordinate changes across multiple repositories in a single run
 - **Parallel execution** — one task per repo at a time, with automatic rate limit backoff and session resume
+- **Two-phase planning** — clarify requirements first (what), then generate tasks (how), with a human approval gate
+- **Context persistence** — state survives across sessions; interrupted work resumes where it left off
+- **Interactive or headless** — pair with your AI agent in a session, or let it run unattended
 - **Menu mode** — run `ralphctl` with no arguments for an interactive menu
 
 ---

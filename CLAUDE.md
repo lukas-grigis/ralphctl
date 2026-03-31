@@ -1,6 +1,6 @@
-# RalphCTL - Sprint & Task Management for AI-Assisted Coding
+# RalphCTL - Agent Harness for AI Coding Tasks
 
-CLI tool for managing sprints and tasks with AI-assisted coding (Claude Code + GitHub Copilot). Ralph Wiggum themed.
+CLI harness that orchestrates long-running AI coding agents (Claude Code + GitHub Copilot) — task decomposition, dependency-ordered execution, generator-evaluator loop, multi-repo support. Ralph Wiggum themed.
 
 @.claude/docs/REQUIREMENTS.md - Acceptance criteria checklists
 @.claude/docs/ARCHITECTURE.md - Data models, file storage, error/exit tables
