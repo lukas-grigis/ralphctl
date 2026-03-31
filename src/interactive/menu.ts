@@ -376,6 +376,12 @@ function buildConfigSubMenu(): SubMenu {
 
   items.push({ name: 'Show Settings', value: 'show', description: 'View current configuration' });
   items.push({ name: 'Set AI Provider', value: 'set provider', description: 'Choose Claude Code or GitHub Copilot' });
+  items.push({ name: 'Set Editor', value: 'set editor', description: 'Editor for refinement sessions' });
+  items.push({
+    name: 'Set Evaluation Iterations',
+    value: 'set evaluationIterations',
+    description: 'Generator-evaluator loop count (0 = disabled)',
+  });
   items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
 
