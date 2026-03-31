@@ -99,6 +99,9 @@ interface Config {
         ├── tasks.json
         ├── progress.md               # Append-only log
         ├── requirements.md           # Exported via `sprint requirements`
+        ├── ideation/<ticket-id>/
+        │   ├── ideate-context.md
+        │   └── output.json
         ├── refinement/<ticket-id>/
         │   ├── refine-context.md
         │   └── requirements.json
