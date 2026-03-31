@@ -53,6 +53,14 @@ pnpm typecheck && pnpm lint && pnpm test
 - **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice;
   branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
   auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
+- **Evaluator pattern** — Generator-evaluator separation (independent code review after task completion):
+  - `evaluationIterations` is global config (in config.json), not per-sprint or per-task
+  - Default fallback is 1 (one evaluation + one iteration attempt if fails); missing config is detected by `doctor` with warning
+  - Evaluator uses model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku for Claude); Copilot evaluator uses same model (no control)
+  - Evaluator is autonomous (full tool access, investigates diffs and context itself) — not a static diff review
+  - `--no-evaluate` CLI flag overrides global config for single run; in session/interactive mode, evaluation is disabled (model handles all feedback)
+  - Evaluator never permanently blocks — task always completes; failure after all iterations logs warning but marks done
+  - Iteration loop: AI task → check gate → evaluation → if failed/iterations remain, resume generator with critique, re-check, re-evaluate → done
 - **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at
   command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
 
@@ -244,3 +252,5 @@ of modified files, verification commands, and current task context.
 
 - [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) —
   consult when extending the runner/executor layer.
+- [Anthropic — Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) —
+  generator-evaluator pattern, context management, iterative refinement, and model-specific tuning strategies.

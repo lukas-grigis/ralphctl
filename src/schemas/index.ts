@@ -63,6 +63,8 @@ export const TaskSchema = z.object({
   projectPath: z.string().min(1), // Single path for execution
   verified: z.boolean().default(false), // Whether verification passed
   verificationOutput: z.string().optional(), // Output from verification run
+  evaluated: z.boolean().default(false), // Whether evaluation passed
+  evaluationOutput: z.string().optional(), // Output from evaluation run
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -127,5 +129,6 @@ export const ConfigSchema = z.object({
   currentSprint: z.string().nullable().default(null),
   aiProvider: AiProviderSchema.nullable().default(null),
   editor: z.string().nullable().default(null),
+  evaluationIterations: z.number().int().min(0).optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;

@@ -56,6 +56,21 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [ ] Rate-limited tasks auto-resume via session ID
 - [ ] Structured exit codes for scripting integration
 
+## Evaluator Pattern
+
+- [ ] Evaluator runs after task completion + check gate pass (not on check failure)
+- [ ] Evaluator uses model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku)
+- [ ] Copilot evaluator spawns without model override (no model control)
+- [ ] `evaluationIterations` config controls max evaluation rounds (default: 1)
+- [ ] Failed evaluation resumes generator with critique, re-checks, re-evaluates
+- [ ] Evaluation never blocks task completion — task always proceeds to `done`
+- [ ] `--no-evaluate` flag skips evaluation for a single run
+- [ ] Session/interactive mode disables evaluation
+- [ ] `evaluationOutput` truncated to 2000 chars before persisting
+- [ ] `evaluated` field set to `true` after evaluation runs
+- [ ] `doctor` warns when `evaluationIterations` is not configured
+- [ ] `config set evaluationIterations` and `config show` work correctly
+
 ## Branch Management
 
 - [ ] `sprint start` prompts for branch strategy on first run (keep current, auto, custom)

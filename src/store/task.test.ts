@@ -14,6 +14,7 @@ function createTask(id: string, blockedBy: string[] = [], overrides?: Partial<Ta
     blockedBy,
     projectPath: '/tmp/test',
     verified: false,
+    evaluated: false,
     ...overrides,
   };
 }

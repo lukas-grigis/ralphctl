@@ -71,6 +71,8 @@ interface Task {
   projectPath: string; // Execution directory
   verified: boolean; // Default: false
   verificationOutput?: string;
+  evaluated: boolean; // Default: false — whether evaluator ran
+  evaluationOutput?: string; // Evaluator critique/output (truncated to 2000 chars)
 }
 ```
 
@@ -80,6 +82,8 @@ interface Task {
 interface Config {
   currentSprint: string | null;
   aiProvider: 'claude' | 'copilot' | null;
+  editor: string | null;
+  evaluationIterations?: number; // 0 = disabled, default fallback: 1
 }
 ```
 

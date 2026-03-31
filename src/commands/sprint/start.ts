@@ -88,6 +88,8 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
         throw new Error('Invalid model name — must be 1-100 alphanumeric characters, dots, hyphens, or underscores');
       }
       options.fallbackModel = modelStr;
+    } else if (arg === '--no-evaluate') {
+      options.noEvaluate = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }

@@ -15,6 +15,16 @@
       "enum": ["claude", "copilot", null],
       "default": null,
       "description": "AI provider to use for code generation (claude or copilot)"
+    },
+    "editor": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Editor command for editing files (e.g., 'subl -w', 'code --wait', 'vim')"
+    },
+    "evaluationIterations": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of evaluation iterations (0 = disabled, default fallback: 1)"
     }
   }
 }

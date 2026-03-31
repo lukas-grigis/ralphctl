@@ -9,6 +9,8 @@
 ## Test Files Found
 
 ```
+src/ai/evaluator.test.ts    # parseEvaluationResult: passed/failed signals, empty critique, no signal, precedence
+                            #   getEvaluatorModel: Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku, null model, Copilot→null
 src/ai/permissions.test.ts  # isToolAllowed (pure): exact name, Bash(*), prefix:*, exact specifier, deny
                             #   getProviderPermissions: copilot returns empty, project-level settings.local.json,
                             #   malformed JSON, missing permissions section — homedir() mocked via vi.mock('node:os')
@@ -32,8 +34,11 @@ src/commands/ticket/refine.test.ts # ticketRefineCommand: sprint resolution, tic
 src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
 src/integration/cli.test.ts     # CLI integration tests
 src/schemas/index.test.ts       # Schema validation tests (incl. SprintSchema backward compat for setupRanAt)
+                                #   TaskSchema: evaluated/evaluationOutput fields + backward compat
+                                #   ConfigSchema: evaluationIterations (int >=0, optional, rejects negative/float)
 src/store/config.test.ts        # Config store: getConfig default, saveConfig roundtrip,
-                                #   setCurrentSprint/setAiProvider/setEditor persist and read back
+                                #   setCurrentSprint/setAiProvider/setEditor/setEvaluationIterations persist and read back
+                                #   getEvaluationIterations: defaults to 1 when field missing
 src/store/progress.test.ts      # Progress store tests
 src/store/project.test.ts       # Project store: listProjects, createProject, getProject,
                                 #   ProjectExistsError/ProjectNotFoundError, removeProject,
@@ -243,6 +248,8 @@ await command('target'); // reaches the "not approved" error
 - [x] `isToolAllowed` + `getProviderPermissions` + `checkTaskPermissions` — permissions module (
       src/ai/permissions.test.ts)
 - [x] All prompt builders — token replacement, noCommit variations, distinct outputs (src/ai/prompts/index.test.ts)
+- [x] `parseEvaluationResult` + `getEvaluatorModel` — evaluator module (src/ai/evaluator.test.ts)
+- [x] `evaluationIterations` config field — schema, store getter/setter, doctor check
 
 ### Coverage Gaps
 

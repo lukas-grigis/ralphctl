@@ -5,10 +5,12 @@ import {
   getConfig,
   getCurrentSprint,
   getEditor,
+  getEvaluationIterations,
   saveConfig,
   setAiProvider,
   setCurrentSprint,
   setEditor,
+  setEvaluationIterations,
 } from './config.ts';
 
 let env: TestEnvironment;
@@ -109,5 +111,41 @@ describe('setEditor / getEditor', () => {
 
     const editor = await getEditor();
     expect(editor).toBeNull();
+  });
+});
+
+describe('setEvaluationIterations / getEvaluationIterations', () => {
+  it('returns default (1) when config field is missing', async () => {
+    const iterations = await getEvaluationIterations();
+    expect(iterations).toBe(1);
+  });
+
+  it('persists a value and reads it back', async () => {
+    await setEvaluationIterations(3);
+    const iterations = await getEvaluationIterations();
+    expect(iterations).toBe(3);
+  });
+
+  it('returns 0 when explicitly set to 0 (disabled)', async () => {
+    await setEvaluationIterations(0);
+    const iterations = await getEvaluationIterations();
+    expect(iterations).toBe(0);
+  });
+
+  it('persists across multiple reads', async () => {
+    await setEvaluationIterations(5);
+    const first = await getEvaluationIterations();
+    const second = await getEvaluationIterations();
+    expect(first).toBe(5);
+    expect(second).toBe(5);
+  });
+
+  it('returns default (1) after config file is removed', async () => {
+    const { rm } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await rm(join(env.testDir, 'config.json'), { force: true });
+
+    const iterations = await getEvaluationIterations();
+    expect(iterations).toBe(1);
   });
 });

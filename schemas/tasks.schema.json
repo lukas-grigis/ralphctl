@@ -66,6 +66,15 @@
       "verificationOutput": {
         "type": "string",
         "description": "Output from the verification run"
+      },
+      "evaluated": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the evaluator ran on this task"
+      },
+      "evaluationOutput": {
+        "type": "string",
+        "description": "Output from the evaluation run (truncated to 2000 chars)"
       }
     }
   }

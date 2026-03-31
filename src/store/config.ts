@@ -3,6 +3,8 @@ import { fileExists, readValidatedJson, writeValidatedJson } from '@src/utils/st
 import { type AiProvider, type Config, ConfigSchema } from '@src/schemas/index.ts';
 import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
 
+export const DEFAULT_EVALUATION_ITERATIONS = 1;
+
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,
   aiProvider: null,
@@ -71,5 +73,23 @@ export async function getEditor(): Promise<string | null> {
 export async function setEditor(editor: string): Promise<void> {
   const config = await getConfig();
   config.editor = editor;
+  await saveConfig(config);
+}
+
+/**
+ * Get the configured evaluation iteration count.
+ * Returns the default (1) when the field is missing from config (safe fallback for upgrades).
+ */
+export async function getEvaluationIterations(): Promise<number> {
+  const config = await getConfig();
+  return config.evaluationIterations ?? DEFAULT_EVALUATION_ITERATIONS;
+}
+
+/**
+ * Set the evaluation iteration count (0 = disabled).
+ */
+export async function setEvaluationIterations(iterations: number): Promise<void> {
+  const config = await getConfig();
+  config.evaluationIterations = iterations;
   await saveConfig(config);
 }

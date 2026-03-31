@@ -64,6 +64,7 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
       blockedBy: input.blockedBy ?? [],
       projectPath: input.projectPath,
       verified: false,
+      evaluated: false,
     };
 
     tasks.push(task);
@@ -124,6 +125,8 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus, sprin
 export interface UpdateTaskInput {
   verified?: boolean;
   verificationOutput?: string;
+  evaluated?: boolean;
+  evaluationOutput?: string;
 }
 
 export async function updateTask(taskId: string, updates: UpdateTaskInput, sprintId?: string): Promise<Task> {
@@ -148,6 +151,12 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
     }
     if (updates.verificationOutput !== undefined) {
       task.verificationOutput = updates.verificationOutput;
+    }
+    if (updates.evaluated !== undefined) {
+      task.evaluated = updates.evaluated;
+    }
+    if (updates.evaluationOutput !== undefined) {
+      task.evaluationOutput = updates.evaluationOutput;
     }
 
     await saveTasks(tasks, id);
@@ -414,6 +423,7 @@ export function validateImportTasks(
       }),
       projectPath: '/tmp', // Placeholder for validation only
       verified: false,
+      evaluated: false,
     })),
   ];
 

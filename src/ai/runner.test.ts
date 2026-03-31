@@ -190,6 +190,7 @@ describe('buildFullTaskContext with check status', () => {
     blockedBy: [],
     projectPath: '/tmp/test-project',
     verified: false,
+    evaluated: false,
   };
 
   const baseSprint: Sprint = {
@@ -253,6 +254,7 @@ describe('buildFullTaskContext with branch', () => {
     blockedBy: [],
     projectPath: '/tmp/test-project',
     verified: false,
+    evaluated: false,
   };
 
   const gitHistory = 'abc1234 some commit';
@@ -340,6 +342,7 @@ describe('runCheckScripts', () => {
     blockedBy: [],
     projectPath,
     verified: false,
+    evaluated: false,
   });
 
   const makeSprint = (checkRanAt: Record<string, string> = {}, branch: string | null = null): Sprint => ({
@@ -516,6 +519,7 @@ describe('ensureSprintBranches', () => {
     blockedBy: [],
     projectPath,
     verified: false,
+    evaluated: false,
   });
 
   const makeSprint = (branch: string | null = null): Sprint => ({
