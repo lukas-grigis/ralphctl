@@ -31,6 +31,9 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [ ] `sprint plan` requires all tickets `approved`
 - [ ] Repository selection saved to `ticket.affectedRepositories` during planning
 - [ ] `sprint ideate` creates ticket and generates tasks in one session
+- [ ] `sprint ideate` auto-assigns ticketId to generated tasks
+- [ ] `sprint ideate` handles bare tasks array output (requirements treated as empty)
+- [ ] `sprint ideate` runs `reorderByDependencies` after task import
 
 ## Incremental Planning (Re-plan)
 

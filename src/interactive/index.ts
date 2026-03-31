@@ -2,14 +2,14 @@ import { clearScreen, emoji, log, printSeparator, showBanner } from '@src/theme/
 import { colors, getQuoteForContext } from '@src/theme/index.ts';
 import { buildMainMenu, buildSubMenu, isWorkflowAction, type MenuContext, type MenuItem } from './menu.ts';
 import { type DashboardData, getNextAction, renderStatusHeader } from './dashboard.ts';
-import { getAiProvider, getConfig } from '@src/store/config.ts';
+import { getAiProvider, getConfig, getEditor, getEvaluationIterations } from '@src/store/config.ts';
 import { getSprint } from '@src/store/sprint.ts';
 import { listProjects } from '@src/store/project.ts';
 import { allRequirementsApproved, getPendingRequirements } from '@src/store/ticket.ts';
 import { type Tasks, TasksSchema } from '@src/schemas/index.ts';
 import { getTasksFilePath } from '@src/utils/paths.ts';
 import { readValidatedJson } from '@src/utils/storage.ts';
-import { select } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { escapableSelect } from './escapable.ts';
 import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
 
@@ -141,6 +141,26 @@ const commandMap: Record<string, Record<string, CommandHandler>> = {
         theme: selectTheme,
       });
       await configSetCommand(['provider', choice]);
+    },
+    'set editor': async () => {
+      const current = await getEditor();
+      const value = await input({
+        message: `${emoji.donut} Which editor should open for refinement?`,
+        default: current ?? undefined,
+        theme: selectTheme,
+      });
+      if (value.trim()) {
+        await configSetCommand(['editor', value.trim()]);
+      }
+    },
+    'set evaluationIterations': async () => {
+      const current = await getEvaluationIterations();
+      const value = await input({
+        message: `${emoji.donut} How many evaluation loops? (0 = disabled)`,
+        default: String(current),
+        theme: selectTheme,
+      });
+      await configSetCommand(['evaluationIterations', value.trim()]);
     },
   },
 };

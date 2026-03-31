@@ -21,7 +21,7 @@ import {
 } from '@src/theme/ui.ts';
 import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src/store/sprint.ts';
 import { addTicket } from '@src/store/ticket.ts';
-import { getTasks, validateImportTasks } from '@src/store/task.ts';
+import { getTasks, reorderByDependencies, validateImportTasks } from '@src/store/task.ts';
 import { getProject, listProjects } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getIdeateDir } from '@src/utils/paths.ts';
@@ -29,7 +29,7 @@ import { buildIdeateAutoPrompt, buildIdeatePrompt } from '@src/ai/prompts/index.
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
-import { extractJsonObject } from '@src/utils/json-extract.ts';
+import { extractJsonArray, extractJsonObject } from '@src/utils/json-extract.ts';
 import { providerDisplayName, resolveProvider } from '@src/utils/provider.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import {
@@ -116,28 +116,55 @@ async function invokeAiAuto(prompt: string, repoPaths: string[], ideateDir: stri
   );
 }
 
-function parseIdeateOutput(output: string): { requirements: string; tasks: unknown[] } {
-  // Try to extract a balanced JSON object from the output
+export function parseIdeateOutput(output: string): { requirements: string; tasks: unknown[] } {
+  const firstBrace = output.indexOf('{');
+  const firstBracket = output.indexOf('[');
+  const objectFirst = firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket);
+
+  if (objectFirst) {
+    return parseIdeateObject(output);
+  }
+
+  // Bare tasks array (or array appears before any object)
+  if (firstBracket !== -1) {
+    const arrayR = Result.try(() => extractJsonArray(output));
+    if (arrayR.ok) {
+      const parseR = Result.try(() => JSON.parse(arrayR.value) as unknown);
+      if (parseR.ok && Array.isArray(parseR.value)) {
+        return { requirements: '', tasks: parseR.value as unknown[] };
+      }
+    }
+  }
+
+  throw new Error('No valid ideate output found — expected { requirements, tasks } object or a tasks array');
+}
+
+function parseIdeateObject(output: string): { requirements: string; tasks: unknown[] } {
   const jsonStr = extractJsonObject(output);
+  const parsed = JSON.parse(jsonStr) as unknown;
 
-  const parseR = Result.try(() => JSON.parse(jsonStr) as unknown);
-  if (!parseR.ok) {
-    throw new Error(`Invalid JSON: ${parseR.error.message}`, { cause: parseR.error });
+  const result = IdeateOutputSchema.safeParse(parsed);
+  if (result.success) {
+    return result.data;
   }
 
-  // Validate against schema
-  const result = IdeateOutputSchema.safeParse(parseR.value);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => {
-        const path = issue.path.length > 0 ? `[${issue.path.join('.')}]` : '';
-        return `  ${path}: ${issue.message}`;
-      })
-      .join('\n');
-    throw new Error(`Invalid ideate output format:\n${issues}`);
+  // Schema failed — salvage tasks directly from the parsed object
+  if (typeof parsed === 'object' && parsed !== null && 'tasks' in parsed) {
+    const obj = parsed as Record<string, unknown>;
+    if (Array.isArray(obj['tasks'])) {
+      const requirements = typeof obj['requirements'] === 'string' ? obj['requirements'] : '';
+      return { requirements, tasks: obj['tasks'] as unknown[] };
+    }
   }
 
-  return result.data;
+  // Object found but no salvageable tasks — throw with schema details
+  const issues = result.error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? `[${issue.path.join('.')}]` : '';
+      return `  ${path}: ${issue.message}`;
+    })
+    .join('\n');
+  throw new Error(`Invalid ideate output format:\n${issues}`);
 }
 
 export async function sprintIdeateCommand(args: string[]): Promise<void> {
@@ -270,9 +297,13 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     selectedPaths = await selectProjectPaths(reposByProject, 'Select paths to explore:');
   }
 
-  // Save selected paths to ticket.affectedRepositories
-  ticket.affectedRepositories = selectedPaths;
-  await saveSprint(sprint);
+  // Re-read sprint after addTicket() saved it (avoid stale overwrite)
+  const updatedSprint = await getSprint(id);
+  const savedTicket = updatedSprint.tickets.find((t) => t.id === ticket.id);
+  if (savedTicket) {
+    savedTicket.affectedRepositories = selectedPaths;
+  }
+  await saveSprint(updatedSprint);
 
   if (selectedPaths.length > 1) {
     console.log(muted(`Paths: ${selectedPaths.join(', ')}`));
@@ -326,14 +357,14 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     }
     const ideateOutput = ideateR.value;
 
-    // Update ticket with requirements
-    const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticket.id);
-    const ticketToUpdate = sprint.tickets[ticketIdx];
-    if (ticketIdx !== -1 && ticketToUpdate) {
-      ticketToUpdate.requirements = ideateOutput.requirements;
-      ticketToUpdate.requirementStatus = 'approved';
+    // Update ticket with requirements (re-read to avoid stale data)
+    const autoSprint = await getSprint(id);
+    const autoTicket = autoSprint.tickets.find((t) => t.id === ticket.id);
+    if (autoTicket) {
+      autoTicket.requirements = ideateOutput.requirements;
+      autoTicket.requirementStatus = 'approved';
     }
-    await saveSprint(sprint);
+    await saveSprint(autoSprint);
 
     showSuccess('Requirements approved and saved!');
     log.newline();
@@ -346,6 +377,11 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       return;
     }
     const parsedTasks = parsedTasksR.value;
+
+    // Auto-assign ticketId — ideation is always single-ticket
+    for (const task of parsedTasks) {
+      task.ticketId ??= ticket.id;
+    }
 
     if (parsedTasks.length === 0) {
       showWarning('No tasks generated.');
@@ -360,7 +396,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
 
     // Validate before import
     const existingTasks = await getTasks(id);
-    const ticketIds = new Set(sprint.tickets.map((t) => t.id));
+    const ticketIds = new Set(autoSprint.tickets.map((t) => t.id));
     const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
     if (validationErrors.length > 0) {
       showError('Validation failed');
@@ -371,8 +407,16 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       return;
     }
 
+    if (ideateOutput.requirements === '') {
+      showWarning('AI output was a bare tasks array — requirements not captured.');
+    }
+
     showInfo('Importing tasks...');
     const imported = await importTasks(parsedTasks, id);
+
+    await reorderByDependencies(id);
+    log.dim('Tasks reordered by dependencies.');
+
     terminalBell();
     showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
     log.newline();
@@ -414,14 +458,14 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       }
       const ideateOutput = ideateR.value;
 
-      // Update ticket with requirements
-      const ticketIdx = sprint.tickets.findIndex((t) => t.id === ticket.id);
-      const ticketToUpdate = sprint.tickets[ticketIdx];
-      if (ticketIdx !== -1 && ticketToUpdate) {
-        ticketToUpdate.requirements = ideateOutput.requirements;
-        ticketToUpdate.requirementStatus = 'approved';
+      // Update ticket with requirements (re-read to avoid stale data)
+      const interactiveSprint = await getSprint(id);
+      const interactiveTicket = interactiveSprint.tickets.find((t) => t.id === ticket.id);
+      if (interactiveTicket) {
+        interactiveTicket.requirements = ideateOutput.requirements;
+        interactiveTicket.requirementStatus = 'approved';
       }
-      await saveSprint(sprint);
+      await saveSprint(interactiveSprint);
 
       showSuccess('Requirements approved and saved!');
       log.newline();
@@ -434,6 +478,11 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
         return;
       }
       const parsedTasks = parsedTasksR.value;
+
+      // Auto-assign ticketId — ideation is always single-ticket
+      for (const task of parsedTasks) {
+        task.ticketId ??= ticket.id;
+      }
 
       if (parsedTasks.length === 0) {
         showWarning('No tasks in file.');
@@ -448,7 +497,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
 
       // Validate before import
       const existingTasks = await getTasks(id);
-      const ticketIds = new Set(sprint.tickets.map((t) => t.id));
+      const ticketIds = new Set(interactiveSprint.tickets.map((t) => t.id));
       const validationErrors = validateImportTasks(parsedTasks, existingTasks, ticketIds);
       if (validationErrors.length > 0) {
         showError('Validation failed');
@@ -459,8 +508,16 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
         return;
       }
 
+      if (ideateOutput.requirements === '') {
+        showWarning('AI output was a bare tasks array — requirements not captured.');
+      }
+
       showInfo('Importing tasks...');
       const imported = await importTasks(parsedTasks, id);
+
+      await reorderByDependencies(id);
+      log.dim('Tasks reordered by dependencies.');
+
       terminalBell();
       showSuccess(`Imported ${String(imported)}/${String(parsedTasks.length)} tasks.`);
       log.newline();
