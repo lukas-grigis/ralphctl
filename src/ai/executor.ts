@@ -330,7 +330,7 @@ async function runEvaluationLoop(params: {
       {
         cwd: task.projectPath,
         args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
-        prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify and signal completion.`,
+        prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify${options.noCommit ? '' : ', commit your fix,'} and signal completion.`,
         resumeSessionId: result.sessionId ?? undefined,
         env: provider.getSpawnEnv(),
       },
