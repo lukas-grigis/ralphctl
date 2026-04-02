@@ -5,6 +5,22 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-04-02
+
+### Changed
+
+- Redesigned README — new "Why ralphctl?" section, workflow diagram, features reframed as user benefits, collapsed CLI
+  reference and provider comparison tables
+- Improved 7 AI prompt templates — fixed `__tests__` rendering bug, added evaluator pass-bar guidance, clarified harness
+  check behavior, added blocker handling to ideate-auto, softened prescriptive acceptance criteria wording
+- Enhanced evaluation resume prompt with structured iteration steps and scope boundaries (aligned with Anthropic harness
+  design patterns)
+
+### Fixed
+
+- Incorrect `dashboard` command reference in README (actual CLI command is `status`)
+- Stale test comment claiming `.replace()` when code uses `.replaceAll()`; strengthened token replacement assertion
+
 ## [0.2.1] - 2026-04-01
 
 ### Fixed
