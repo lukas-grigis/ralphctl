@@ -79,11 +79,11 @@ Before outputting JSON, verify EVERY item on this checklist:
    instructions
 7. **projectPath assigned** — Every task has a `projectPath` from the project's repository paths
 8. **Clear done state** — For each task, the question "how do I know this is done?" has an obvious answer
-9. **Valid JSON** — The output parses as a JSON array of task objects matching the schema
+9. **Valid JSON** — The output parses as valid JSON matching the schema
 
 ## Output
 
-**IMPORTANT:** Output ONLY a valid JSON array. No markdown, no explanation, no commentary — just the JSON.
+**IMPORTANT:** Output ONLY valid JSON matching the schema below. No markdown, no explanation, no commentary — just the JSON.
 If you cannot produce tasks, output a `<planning-blocked>` signal instead.
 
 JSON Schema:

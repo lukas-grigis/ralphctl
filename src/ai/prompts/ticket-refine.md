@@ -105,7 +105,7 @@ approval. Iterate until approved.
 Before writing to file, verify ALL of these are true:
 
 - [ ] Problem statement is clear and agreed upon
-- [ ] Every requirement has 2+ acceptance criteria with multiple scenarios each (happy path + edge case minimum)
+- [ ] Every requirement has acceptance criteria covering key scenarios (happy path + edge/error cases at minimum)
 - [ ] Scope boundaries are explicit (what's in AND what's out)
 - [ ] Edge cases and error states are addressed
 - [ ] No implementation details leaked into requirements
