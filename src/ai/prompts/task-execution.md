@@ -35,9 +35,10 @@ Perform these checks IN ORDER before writing any code:
    discovered, and gotchas encountered. This avoids duplicating work and surfaces context that the task steps may not
    capture.
 3. **Check git state** — Run `git status` to check for uncommitted changes
-4. **Check environment** — Look at the "Check Script" and "Environment Status" sections in your context file. If a check
-   script is configured, the harness ran it at sprint start. If not configured, run the project's verification commands
-   yourself (check CLAUDE.md, .github/copilot-instructions.md, or project config). If ANY check fails, STOP:
+4. **Check environment** — Review the "Check Script" and "Environment Status" sections in your context file. If a check
+   script is configured, the harness already verified the environment — review those results rather than re-running.
+   If no check script is configured AND no environment status is recorded, run the project's verification commands
+   yourself (check CLAUDE.md, .github/copilot-instructions.md, or project config). If ANY check shows failure, STOP:
    ```
    <task-blocked>Pre-existing failure: [details of what failed and the output]</task-blocked>
    ```
@@ -101,7 +102,7 @@ Complete these steps IN ORDER:
 
    - Created src/schemas/date-range.ts with DateRangeSchema (Zod + .openapi())
    - Modified src/controllers/export.ts to accept optional `startDate`/`endDate` query params
-   - Added tests in src/schemas/**tests**/date-range.test.ts
+   - Added tests in `src/schemas/__tests__/date-range.test.ts`
 
    ### Learnings and Context
 

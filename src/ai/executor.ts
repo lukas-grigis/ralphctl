@@ -330,7 +330,7 @@ async function runEvaluationLoop(params: {
       {
         cwd: task.projectPath,
         args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
-        prompt: `The evaluator found issues with your work:\n\n${evalResult.output}\n\nFix these issues, then verify${options.noCommit ? '' : ', commit your fix,'} and signal completion.`,
+        prompt: `The evaluator found issues with your implementation:\n\n${evalResult.output}\n\nReview the critique carefully. Fix each identified issue in the code, then:\n1. Re-run verification commands to confirm the fix\n${options.noCommit ? '' : '2. Commit the fix with a descriptive message\n'}${options.noCommit ? '2' : '3'}. Signal completion with <task-verified> and <task-complete>\n\nIf the critique is about something outside your task scope, fix only what is within scope and signal completion.`,
         resumeSessionId: result.sessionId ?? undefined,
         env: provider.getSpawnEnv(),
       },

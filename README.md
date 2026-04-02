@@ -4,53 +4,74 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat&logo=opensourceinitiative&logoColor=white)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A5_24-5fa04e?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4?style=flat&logo=prettier&logoColor=white)](https://prettier.io/)
-[![ESLint](https://img.shields.io/badge/ESLint-4b32c3?style=flat&logo=eslint&logoColor=white)](https://eslint.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat&logo=git&logoColor=white)](./CONTRIBUTING.md)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-191919?style=flat&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
 [![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
-[![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 ```
-  🍩 ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗     🍩
-     ██╔══██╗██╔══██╗██║     ██╔══██╗██║  ██║██╔════╝╚══██╔══╝██║
-     ██████╔╝███████║██║     ██████╔╝███████║██║        ██║   ██║
-     ██╔══██╗██╔══██║██║     ██╔═══╝ ██╔══██║██║        ██║   ██║
-     ██║  ██║██║  ██║███████╗██║     ██║  ██║╚██████╗   ██║   ███████╗
-     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
+  ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗
+  ██╔══██╗██╔══██╗██║     ██╔══██╗██║  ██║██╔════╝╚══██╔══╝██║
+  ██████╔╝███████║██║     ██████╔╝███████║██║        ██║   ██║
+  ██╔══██╗██╔══██║██║     ██╔═══╝ ██╔══██║██║        ██║   ██║
+  ██║  ██║██║  ██║███████╗██║     ██║  ██║╚██████╗   ██║   ███████╗
+  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
 ```
 
-**Agent harness for long-running AI coding tasks — orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) & [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli) across repositories.**
+**Agent harness for long-running AI coding tasks —
+orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) & [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
+across repositories.**
 
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
 > **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes
-> before 1.0. Read the [blog post](https://lukasgrigis.dev/blog/building-ralphctl) for the backstory.
-
-RalphCTL decomposes work into dependency-ordered tasks, executes them through AI coding agents, and runs a
-[generator-evaluator loop](https://www.anthropic.com/engineering/harness-design-long-running-apps) to catch issues
-before moving on. It manages context across sessions so nothing gets lost — whether you're working on a single ticket
-or coordinating changes across multiple repositories. Ralph Wiggum personality included because why not.
+> before 1.0.
 
 ---
 
-## Install
+## Why ralphctl?
+
+AI coding agents are powerful but lose context on long tasks, need babysitting when things break, and have no way to
+coordinate changes across multiple repositories. RalphCTL decomposes your work into dependency-ordered tasks, runs each
+one through a [generator-evaluator loop](https://www.anthropic.com/engineering/harness-design-long-running-apps) that
+catches issues before moving on, and persists context across sessions so nothing gets lost. You describe what to build —
+ralphctl handles the rest.
+
+---
+
+## How It Works
+
+```
+  You describe what to build           ralphctl handles the rest
+  ─────────────────────────           ─────────────────────────────────
+  ┌──────────┐   ┌──────────┐        ┌────────┐   ┌──────┐   ┌─────────┐
+  │  Create  │──>│   Add    │───────>│ Refine │──>│ Plan │──>│ Execute │
+  │  Sprint  │   │ Tickets  │        │ (WHAT) │   │(HOW) │   │  Loop   │
+  └──────────┘   └──────────┘        └────────┘   └──────┘   └─────────┘
+                                          │            │           │
+                                     AI clarifies  AI generates  AI implements
+                                     requirements  task graph    + AI reviews
+                                     with you      from specs    each task
+```
+
+- **Dependency-ordered execution** — tasks run in the right sequence, one per repo at a time, with parallel execution
+  where possible
+- **Generator-evaluator cycle** — an independent AI reviewer checks each task against its spec; if it fails, the
+  generator gets feedback and iterates
+- **Context persistence** — sprint state, progress history, and task context survive across sessions; interrupted work
+  resumes where it left off
+
+---
+
+## Quick Start
 
 ```bash
 npm install -g ralphctl
 ```
 
-This installs the `ralphctl` command globally.
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) **>= 24.0.0**
-- [Git](https://git-scm.com/)
-- Either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
-  or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated
-
-### 2-Minute Quick Start
+Requires [Node.js](https://nodejs.org/) >= 24, [Git](https://git-scm.com/), and
+either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
+or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated.
 
 ```bash
 # 1. Register a project (points to your repo)
@@ -68,36 +89,65 @@ ralphctl sprint plan
 ralphctl sprint start
 ```
 
-Or just run `ralphctl` with no arguments for an interactive menu that walks you through everything.
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [CLI Overview](#cli-overview)
-- [AI Provider Configuration](#ai-provider-configuration)
-- [Documentation](#documentation)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
+Or run `ralphctl` with no arguments for an interactive menu that walks you through everything.
 
 ---
 
 ## Features
 
-- **Task decomposition** — breaks tickets into dependency-ordered tasks with topological sort
-- **Generator-evaluator loop** — independent AI review after each task; iterates until quality passes or budget exhausted
-- **Multi-repo orchestration** — coordinate changes across multiple repositories in a single run
-- **Parallel execution** — one task per repo at a time, with automatic rate limit backoff and session resume
-- **Two-phase planning** — clarify requirements first (what), then generate tasks (how), with a human approval gate
-- **Context persistence** — state survives across sessions; interrupted work resumes where it left off
-- **Interactive or headless** — pair with your AI agent in a session, or let it run unattended
-- **Menu mode** — run `ralphctl` with no arguments for an interactive menu
+- **Break big tickets into small tasks** — dependency-ordered so they execute in the right sequence
+- **Catch mistakes before they compound** — independent AI review after each task, iterating until quality passes or
+  budget is exhausted
+- **Coordinate across repositories** — one sprint can span multiple repos with automatic dependency tracking
+- **Run tasks in parallel** — one per repo, with rate-limit backoff and automatic session resume
+- **Separate the what from the how** — AI clarifies requirements first, then generates implementation tasks, with human
+  approval gates
+- **Pick up where you left off** — full state persistence across sessions; interrupted work resumes automatically
+- **Pair or let it run** — work alongside your AI agent interactively, or let it execute unattended
+- **Zero-memorization start** — run `ralphctl` with no args for a guided menu
 
 ---
 
-## CLI Overview
+## Configuration
+
+RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends.
+
+```bash
+ralphctl config set provider claude      # Use Claude Code
+ralphctl config set provider copilot     # Use GitHub Copilot
+```
+
+Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and authenticated.
+
+<details>
+<summary>Provider differences</summary>
+
+| Feature                     | Claude Code                          | GitHub Copilot                                                       |
+| --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Status                      | GA                                   | Public preview                                                       |
+| Headless execution          | `-p --output-format json`            | `-p --output-format json --autopilot --no-ask-user`                  |
+| Session IDs                 | In JSON output (`session_id`)        | In JSON output (`session_id`), `--share` file as fallback            |
+| Session resume (`--resume`) | Full support                         | Full support                                                         |
+| Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
+| Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
+| Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
+
+</details>
+
+---
+
+## Data Directory
+
+All data lives in `~/.ralphctl/` by default. Override with:
+
+```bash
+export RALPHCTL_ROOT="/path/to/custom/data-dir"
+```
+
+---
+
+<details>
+<summary><strong>CLI Command Reference</strong></summary>
 
 ### Getting Started
 
@@ -135,7 +185,7 @@ Or just run `ralphctl` with no arguments for an interactive menu that walks you 
 | ------------------------ | --------------------------------- |
 | `ralphctl sprint start`  | Execute tasks with AI             |
 | `ralphctl sprint health` | Diagnose blockers and stale tasks |
-| `ralphctl dashboard`     | Sprint overview with progress bar |
+| `ralphctl status`        | Sprint overview with progress bar |
 | `ralphctl task list`     | List tasks in the current sprint  |
 | `ralphctl task next`     | Show the next unblocked task      |
 | `ralphctl sprint close`  | Close an active sprint            |
@@ -143,54 +193,22 @@ Or just run `ralphctl` with no arguments for an interactive menu that walks you 
 
 Run `ralphctl <command> --help` for details on any command.
 
----
-
-## AI Provider Configuration
-
-RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends. Both use the same prompt templates and
-workflow.
-
-```bash
-ralphctl config set provider claude      # Use Claude Code
-ralphctl config set provider copilot     # Use GitHub Copilot
-```
-
-Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and authenticated.
-
-### Provider Differences
-
-| Feature                     | Claude Code                          | GitHub Copilot                                                       |
-| --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
-| Status                      | GA                                   | Public preview                                                       |
-| Headless execution          | `-p --output-format json`            | `-p --output-format json --autopilot --no-ask-user`                  |
-| Session IDs                 | In JSON output (`session_id`)        | In JSON output (`session_id`), `--share` file as fallback            |
-| Session resume (`--resume`) | Full support                         | Full support                                                         |
-| Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
-| Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
-| Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
+</details>
 
 ---
 
 ## Documentation
 
-| Document                                                    | Description                                    |
-| ----------------------------------------------------------- | ---------------------------------------------- |
-| [REQUIREMENTS.md](./.claude/docs/REQUIREMENTS.md)           | Acceptance criteria and feature requirements   |
-| [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md)           | Data models, file storage, and error reference |
-| [CLAUDE.md](./CLAUDE.md)                                    | Developer guide and Claude Code project config |
-| [CONTRIBUTING.md](./CONTRIBUTING.md)                        | How to contribute                              |
-| [CHANGELOG.md](./CHANGELOG.md)                              | Version history                                |
-| [Blog post](https://lukasgrigis.dev/blog/building-ralphctl) | Background and motivation                      |
+| Resource                                       | Description                                |
+| ---------------------------------------------- | ------------------------------------------ |
+| [Architecture](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, error reference |
+| [Requirements](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature checklist  |
+| [Contributing](./CONTRIBUTING.md)              | Dev setup, code style, PR process          |
+| [Changelog](./CHANGELOG.md)                    | Version history                            |
 
----
-
-## Data Directory
-
-RalphCTL stores all data in `~/.ralphctl/` by default. Override with `RALPHCTL_ROOT`:
-
-```bash
-export RALPHCTL_ROOT="/path/to/custom/data-dir"
-```
+**Blog posts:** [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (
+backstory) | [From task CLI to agent harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator
+deep-dive)
 
 ---
 

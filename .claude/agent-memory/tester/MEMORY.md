@@ -18,8 +18,7 @@ src/ai/permissions.test.ts  # isToolAllowed (pure): exact name, Bash(*), prefix:
                             #   commit and script warnings simultaneously
 src/ai/prompts/index.test.ts # buildInteractivePrompt, buildAutoPrompt, buildTaskExecutionPrompt (noCommit),
                              #   buildTicketRefinePrompt (with/without issueContext), buildIdeatePrompt,
-                             #   buildIdeateAutoPrompt — all check no unreplaced tokens (except known
-                             #   {{PROGRESS_FILE}} second-occurrence bug in task-execution.md)
+                             #   buildIdeateAutoPrompt — all check no unreplaced tokens (all builders use replaceAll)
 src/ai/executor.test.ts     # pickTasksToLaunch: empty tasks, in-flight filtering, path dedup
                             #   (first-encountered wins, not lowest order), concurrency limit,
                             #   slot math (limit - inFlight), all-same-path, zero limit
@@ -272,10 +271,9 @@ await command('target'); // reaches the "not approved" error
 
   Then import the module under test AFTER the `vi.mock()` call (dynamic import after mock registration).
 
-- **Template builder .replace() vs .replaceAll()**: `buildTaskExecutionPrompt` uses `.replace()` for
-  `{{PROGRESS_FILE}}` so the second occurrence in the template remains unreplaced. Tests should not assert
-  `findUnreplacedTokens(result) === []` for that builder — instead test that the first occurrence is replaced
-  and document the known behavior. `{{CONTEXT_FILE}}` correctly uses `.replaceAll()`.
+- **Template builder token replacement**: All prompt builders including `buildTaskExecutionPrompt` use
+  `.replaceAll()` for all tokens (`{{PROGRESS_FILE}}`, `{{CONTEXT_FILE}}`, etc.). Tests should assert
+  `not.toContain('{{TOKEN}}')` to verify all occurrences are replaced.
 
 - **Optional boolean fields**: `ExecutionResult.verified` is `boolean | undefined` — when not set it is
   `undefined`, not `false`. Use `.toBeFalsy()` or `.not.toBe(true)` rather than `.toBe(false)`.

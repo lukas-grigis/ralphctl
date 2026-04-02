@@ -58,6 +58,12 @@ Explore the selected repositories and produce implementation tasks:
 3. **Create tasks** — Following the Planning Common Context guidelines below
 4. **Validate** — Ensure tasks are non-overlapping, properly ordered, and completable
 
+### Blocker Handling
+
+If you cannot produce a valid plan, signal the issue instead of outputting incomplete JSON:
+
+- `<planning-blocked>reason</planning-blocked>`
+
 ## Idea to Implement
 
 **Title:** {{IDEA_TITLE}}

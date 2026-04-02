@@ -111,13 +111,10 @@ describe('buildTaskExecutionPrompt', () => {
     expect(result.length).toBeGreaterThan(0);
   });
 
-  // NOTE: The task-execution template uses {{PROGRESS_FILE}} twice but the builder
-  // calls .replace() (not .replaceAll()), so the second occurrence remains unreplaced.
-  // These tests document the current behavior. The {{CONTEXT_FILE}} token is correctly
-  // handled with .replaceAll().
-  it('replaces the first {{PROGRESS_FILE}} occurrence with the provided path', () => {
+  it('replaces all {{PROGRESS_FILE}} tokens', () => {
     const result = buildTaskExecutionPrompt(progressFile, false, contextFile);
     expect(result).toContain(progressFile);
+    expect(result).not.toContain('{{PROGRESS_FILE}}');
   });
 
   it('replaces all {{CONTEXT_FILE}} tokens (uses replaceAll)', () => {
