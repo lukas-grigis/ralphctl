@@ -8,9 +8,6 @@
 [![Claude Code](https://img.shields.io/badge/Claude_Code-191919?style=flat&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
 [![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 
-<details>
-<summary><strong>ralphctl</strong></summary>
-
 ```
   ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗
   ██╔══██╗██╔══██╗██║     ██╔══██╗██║  ██║██╔════╝╚══██╔══╝██║
@@ -19,8 +16,6 @@
   ██║  ██║██║  ██║███████╗██║     ██║  ██║╚██████╗   ██║   ███████╗
   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
 ```
-
-</details>
 
 **Agent harness for long-running AI coding tasks —
 orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) & [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
@@ -190,7 +185,7 @@ export RALPHCTL_ROOT="/path/to/custom/data-dir"
 | ------------------------ | --------------------------------- |
 | `ralphctl sprint start`  | Execute tasks with AI             |
 | `ralphctl sprint health` | Diagnose blockers and stale tasks |
-| `ralphctl dashboard`     | Sprint overview with progress bar |
+| `ralphctl status`        | Sprint overview with progress bar |
 | `ralphctl task list`     | List tasks in the current sprint  |
 | `ralphctl task next`     | Show the next unblocked task      |
 | `ralphctl sprint close`  | Close an active sprint            |
