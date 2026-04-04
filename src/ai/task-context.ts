@@ -89,6 +89,18 @@ export function formatTask(ctx: TaskContext): string {
     });
   }
 
+  // ═══ VERIFICATION CRITERIA ═══
+  if (ctx.task.verificationCriteria.length > 0) {
+    lines.push('');
+    lines.push('## Verification Criteria');
+    lines.push('');
+    lines.push('The task is done when all of the following are true:');
+    lines.push('');
+    ctx.task.verificationCriteria.forEach((criterion) => {
+      lines.push(`- ${criterion}`);
+    });
+  }
+
   return lines.join('\n');
 }
 

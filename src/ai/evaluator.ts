@@ -27,29 +27,75 @@ export function getEvaluatorModel(generatorModel: string | null, provider: Provi
 // Evaluation Result Parsing
 // ============================================================================
 
+/** Evaluation dimensions scored by the evaluator. */
+export type EvaluationDimension = 'correctness' | 'completeness' | 'safety' | 'consistency';
+
+/** Per-dimension score parsed from evaluator output. */
+export interface DimensionScore {
+  dimension: EvaluationDimension;
+  passed: boolean;
+  finding: string;
+}
+
 export interface EvaluationResult {
   passed: boolean;
   output: string;
+  /** Per-dimension scores when structured assessment is present. */
+  dimensions: DimensionScore[];
+}
+
+const DIMENSION_NAMES: EvaluationDimension[] = ['correctness', 'completeness', 'safety', 'consistency'];
+
+/** Pre-compiled regexes for dimension score parsing — avoids re-creation per call. */
+const DIMENSION_PATTERNS: Record<EvaluationDimension, RegExp> = {
+  correctness: /\*\*correctness\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
+  completeness: /\*\*completeness\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
+  safety: /\*\*safety\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
+  consistency: /\*\*consistency\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
+};
+
+/**
+ * Parse structured dimension scores from evaluator output.
+ * Matches lines like: **Correctness**: PASS — one-line finding
+ */
+export function parseDimensionScores(output: string): DimensionScore[] {
+  const scores: DimensionScore[] = [];
+
+  for (const dim of DIMENSION_NAMES) {
+    const match = DIMENSION_PATTERNS[dim].exec(output);
+    if (match?.[1] && match[2]) {
+      scores.push({
+        dimension: dim,
+        passed: match[1].toUpperCase() === 'PASS',
+        finding: match[2].trim(),
+      });
+    }
+  }
+
+  return scores;
 }
 
 /**
- * Parse evaluator AI output for evaluation signals.
- * Checks for <evaluation-passed> or <evaluation-failed>...</evaluation-failed>
+ * Parse evaluator AI output for evaluation signals and dimension scores.
+ * Checks for <evaluation-passed> or <evaluation-failed>...</evaluation-failed>.
+ * Also extracts structured dimension scores when present.
  */
 export function parseEvaluationResult(output: string): EvaluationResult {
+  const dimensions = parseDimensionScores(output);
+
   // Check for passed signal
   if (output.includes('<evaluation-passed>')) {
-    return { passed: true, output };
+    return { passed: true, output, dimensions };
   }
 
   // Check for failed signal with critique
   const failedMatch = /<evaluation-failed>([\s\S]*?)<\/evaluation-failed>/.exec(output);
   if (failedMatch) {
-    return { passed: false, output: failedMatch[1]?.trim() ?? output };
+    return { passed: false, output: failedMatch[1]?.trim() ?? output, dimensions };
   }
 
   // No signal found — treat as failure
-  return { passed: false, output };
+  return { passed: false, output, dimensions };
 }
 
 // ============================================================================
@@ -59,24 +105,26 @@ export function parseEvaluationResult(output: string): EvaluationResult {
 /**
  * Build context for evaluator prompt.
  * Includes task spec and project path — evaluator investigates autonomously.
+ * Check script is framed as a mandatory computational verification step.
  */
 export function buildEvaluatorContext(task: Task, checkScript: string | null): EvaluatorPromptContext {
   const checkScriptSection = checkScript
-    ? `## Check Script
+    ? `## Check Script (Computational Gate)
 
-You can run the following check script to verify the changes:
+Run this check script as the **first step** of your review — it is the same gate the harness uses post-task:
 
 \`\`\`
 ${checkScript}
 \`\`\`
 
-Run it to gain additional insight into whether the implementation is correct.`
+If this script fails, the implementation fails regardless of code quality. Record the full output.`
     : null;
 
   return {
     taskName: task.name,
     taskDescription: task.description ?? '',
     taskSteps: task.steps,
+    verificationCriteria: task.verificationCriteria,
     projectPath: task.projectPath,
     checkScriptSection,
   };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getEvaluatorModel, parseEvaluationResult } from './evaluator.ts';
+import { buildEvaluatorContext, getEvaluatorModel, parseDimensionScores, parseEvaluationResult } from './evaluator.ts';
 import type { ProviderAdapter } from '@src/providers/types.ts';
+import type { Task } from '@src/schemas/index.ts';
 
 // ============================================================================
 // Minimal provider stubs
@@ -31,6 +32,55 @@ const copilotProvider: ProviderAdapter = {
 // ============================================================================
 // parseEvaluationResult
 // ============================================================================
+
+describe('parseDimensionScores', () => {
+  it('parses all four dimensions from well-formed output', () => {
+    const output = [
+      '## Assessment',
+      '',
+      '**Correctness**: PASS — All criteria verified',
+      '**Completeness**: PASS — All steps implemented',
+      '**Safety**: PASS — No vulnerabilities found',
+      '**Consistency**: FAIL — Uses snake_case instead of camelCase',
+    ].join('\n');
+
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(4);
+    expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: true, finding: 'All criteria verified' });
+    expect(scores[3]).toMatchObject({
+      dimension: 'consistency',
+      passed: false,
+      finding: 'Uses snake_case instead of camelCase',
+    });
+  });
+
+  it('returns empty array when no dimension lines are present', () => {
+    const scores = parseDimensionScores('Some random output with no dimensions');
+    expect(scores).toEqual([]);
+  });
+
+  it('handles partial dimension output (only some dimensions present)', () => {
+    const output = '**Correctness**: PASS — Looks good\n**Safety**: FAIL — SQL injection at line 42';
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(2);
+    expect(scores[0]).toMatchObject({ dimension: 'correctness' });
+    expect(scores[1]).toMatchObject({ dimension: 'safety' });
+  });
+
+  it('is case-insensitive for PASS/FAIL', () => {
+    const output = '**Correctness**: pass — ok\n**Safety**: Fail — issue';
+    const scores = parseDimensionScores(output);
+    expect(scores[0]).toMatchObject({ passed: true });
+    expect(scores[1]).toMatchObject({ passed: false });
+  });
+
+  it('handles hyphen instead of em-dash as separator', () => {
+    const output = '**Correctness**: PASS - All good';
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({ finding: 'All good' });
+  });
+});
 
 describe('parseEvaluationResult', () => {
   it('returns passed=true for <evaluation-passed> signal', () => {
@@ -93,6 +143,88 @@ describe('parseEvaluationResult', () => {
     const output = 'I reviewed the code.\n<evaluation-passed>\nLooks good overall.';
     const result = parseEvaluationResult(output);
     expect(result.passed).toBe(true);
+  });
+
+  it('includes dimension scores when present in output', () => {
+    const output = [
+      '## Assessment',
+      '**Correctness**: PASS — All good',
+      '**Completeness**: PASS — Done',
+      '**Safety**: PASS — Secure',
+      '**Consistency**: PASS — Follows patterns',
+      '<evaluation-passed>',
+    ].join('\n');
+
+    const result = parseEvaluationResult(output);
+    expect(result.passed).toBe(true);
+    expect(result.dimensions).toHaveLength(4);
+    expect(result.dimensions.every((d) => d.passed)).toBe(true);
+  });
+
+  it('includes dimension scores in failed evaluation', () => {
+    const output = [
+      '**Correctness**: FAIL — Off-by-one in loop',
+      '**Completeness**: PASS — All steps done',
+      '**Safety**: PASS — No issues',
+      '**Consistency**: PASS — Follows patterns',
+      '<evaluation-failed>Off-by-one error at line 42</evaluation-failed>',
+    ].join('\n');
+
+    const result = parseEvaluationResult(output);
+    expect(result.passed).toBe(false);
+    expect(result.dimensions).toHaveLength(4);
+    expect(result.dimensions[0]).toMatchObject({ passed: false });
+  });
+
+  it('returns empty dimensions array when no dimension lines present', () => {
+    const output = '<evaluation-passed>';
+    const result = parseEvaluationResult(output);
+    expect(result.dimensions).toEqual([]);
+  });
+});
+
+// ============================================================================
+// buildEvaluatorContext
+// ============================================================================
+
+describe('buildEvaluatorContext', () => {
+  const baseTask: Task = {
+    id: 'task-1',
+    name: 'Add user auth',
+    description: 'Implement authentication',
+    steps: ['Create auth service', 'Add tests'],
+    verificationCriteria: [],
+    status: 'done',
+    order: 1,
+    blockedBy: [],
+    projectPath: '/home/user/project',
+    verified: false,
+    evaluated: false,
+  };
+
+  it('includes verificationCriteria when non-empty', () => {
+    const task: Task = {
+      ...baseTask,
+      verificationCriteria: ['TypeScript compiles', 'Tests pass'],
+    };
+    const ctx = buildEvaluatorContext(task, null);
+    expect(ctx.verificationCriteria).toEqual(['TypeScript compiles', 'Tests pass']);
+  });
+
+  it('returns empty verificationCriteria when task has none', () => {
+    const ctx = buildEvaluatorContext(baseTask, null);
+    expect(ctx.verificationCriteria).toEqual([]);
+  });
+
+  it('includes check script section with computational gate framing when provided', () => {
+    const ctx = buildEvaluatorContext(baseTask, 'pnpm test');
+    expect(ctx.checkScriptSection).toContain('pnpm test');
+    expect(ctx.checkScriptSection).toContain('Computational Gate');
+  });
+
+  it('sets checkScriptSection to null when no script', () => {
+    const ctx = buildEvaluatorContext(baseTask, null);
+    expect(ctx.checkScriptSection).toBeNull();
   });
 });
 
