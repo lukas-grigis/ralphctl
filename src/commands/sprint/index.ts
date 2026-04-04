@@ -12,6 +12,7 @@ import { sprintRefineCommand } from '@src/commands/sprint/refine.ts';
 import { sprintIdeateCommand } from '@src/commands/sprint/ideate.ts';
 import { sprintRequirementsCommand } from '@src/commands/sprint/requirements.ts';
 import { sprintHealthCommand } from '@src/commands/sprint/health.ts';
+import { sprintInsightsCommand } from '@src/commands/sprint/insights.ts';
 import { sprintDeleteCommand } from '@src/commands/sprint/delete.ts';
 
 export function registerSprintCommands(program: Command): void {
@@ -155,6 +156,17 @@ Examples:
     });
 
   sprint
+    .command('insights [id]')
+    .description('Analyze evaluation results and suggest improvements')
+    .option('--export', 'Export insights to .ralph/insights/<sprint-id>.md')
+    .action(async (id?: string, opts?: { export?: boolean }) => {
+      const args: string[] = [];
+      if (id) args.push(id);
+      if (opts?.export) args.push('--export');
+      await sprintInsightsCommand(args);
+    });
+
+  sprint
     .command('start [id]')
     .description('Run automated implementation loop')
     .option('-s, --session', 'Interactive AI session (collaborate with your AI provider)')
@@ -170,6 +182,7 @@ Examples:
     .option('--branch-name <name>', 'Use a custom branch name for sprint execution')
     .option('--max-budget-usd <amount>', 'Max USD budget per AI task (Claude only)')
     .option('--fallback-model <model>', 'Fallback model when primary is overloaded (Claude only)')
+    .option('--max-turns <number>', 'Max agentic turns per task (Claude only, default: 200)')
     .addHelpText(
       'after',
       `
@@ -209,6 +222,7 @@ Branch Management:
           branchName?: string;
           maxBudgetUsd?: string;
           fallbackModel?: string;
+          maxTurns?: string;
         }
       ) => {
         const args: string[] = [];
@@ -226,6 +240,7 @@ Branch Management:
         if (opts?.branchName) args.push('--branch-name', opts.branchName);
         if (opts?.maxBudgetUsd) args.push('--max-budget-usd', opts.maxBudgetUsd);
         if (opts?.fallbackModel) args.push('--fallback-model', opts.fallbackModel);
+        if (opts?.maxTurns) args.push('--max-turns', opts.maxTurns);
         await sprintStartCommand(args);
       }
     );
