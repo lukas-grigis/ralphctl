@@ -98,6 +98,27 @@ describe('TaskSchema', () => {
     if (result.success) expect(result.data.evaluationOutput).toBe('Looks good');
   });
 
+  it('accepts verificationCriteria as array of strings', () => {
+    const task = {
+      ...validTask,
+      verificationCriteria: ['TypeScript compiles', 'Tests pass'],
+    };
+    const result = TaskSchema.safeParse(task);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.verificationCriteria).toEqual(['TypeScript compiles', 'Tests pass']);
+    }
+  });
+
+  it('defaults verificationCriteria to empty array', () => {
+    const task = { id: 'abc', name: 'Test', status: 'todo', order: 1, projectPath: '/p' };
+    const result = TaskSchema.safeParse(task);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.verificationCriteria).toEqual([]);
+    }
+  });
+
   it('backward compat: old task JSON without evaluated/evaluationOutput parses successfully', () => {
     const oldTask = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p' };
     const result = TaskSchema.safeParse(oldTask);
@@ -416,6 +437,22 @@ describe('ImportTasksSchema', () => {
     const tasks = [{ name: 'Task 1', projectPath: '' }];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(false);
+  });
+
+  it('accepts tasks with optional verificationCriteria', () => {
+    const tasks = [
+      {
+        name: 'Task with criteria',
+        projectPath: '/home/user/project',
+        verificationCriteria: ['Compiles', 'Tests pass'],
+      },
+      {
+        name: 'Task without criteria',
+        projectPath: '/home/user/project',
+      },
+    ];
+    const result = ImportTasksSchema.safeParse(tasks);
+    expect(result.success).toBe(true);
   });
 
   it('accepts tasks with all optional fields', () => {

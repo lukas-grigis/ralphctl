@@ -202,6 +202,7 @@ async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promis
       name: taskInput.name,
       description: taskInput.description,
       steps: taskInput.steps ?? [],
+      verificationCriteria: taskInput.verificationCriteria ?? [],
       status: 'todo',
       order: newTasks.length + 1,
       ticketId: taskInput.ticketId,

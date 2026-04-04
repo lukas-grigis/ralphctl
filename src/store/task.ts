@@ -34,6 +34,7 @@ export interface AddTaskInput {
   name: string;
   description?: string;
   steps?: string[];
+  verificationCriteria?: string[];
   ticketId?: string;
   blockedBy?: string[];
   projectPath: string;
@@ -58,6 +59,7 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
       name: input.name,
       description: input.description,
       steps: input.steps ?? [],
+      verificationCriteria: input.verificationCriteria ?? [],
       status: 'todo',
       order: maxOrder + 1,
       ticketId: input.ticketId,
@@ -414,6 +416,7 @@ export function validateImportTasks(
       name: t.name,
       description: undefined,
       steps: [],
+      verificationCriteria: [],
       status: 'todo' as const,
       order: existingTasks.length + i + 1,
       ticketId: undefined,
