@@ -9,12 +9,13 @@ requirements and a dependency-ordered set of implementation tasks in a single se
 
 Focus: Clarify WHAT needs to be built (implementation-agnostic)
 
-**Hard Constraints:**
+<constraints>
 
-- Do NOT explore the codebase yet
-- Do NOT reference specific files or implementation details
-- Do NOT select affected repositories (user already selected them)
-- Focus exclusively on requirements, acceptance criteria, and scope
+- Focus exclusively on requirements, acceptance criteria, and scope — codebase exploration happens in Phase 2
+- Frame requirements as observable behavior, not implementation details — this keeps Phase 2 flexible
+- Repositories are already selected; repository selection is not part of this phase
+
+</constraints>
 
 **Steps:**
 
@@ -77,6 +78,14 @@ Focus: Determine HOW to implement the approved requirements
 
 **After requirements are approved, proceed to implementation planning.**
 
+<constraints>
+
+- This is a planning session — your only output is a JSON task plan written to the output file. Use tools for reading
+  and analysis only (search, read, explore). Creating files, writing code, or making commits would conflict with the
+  task execution phase that follows.
+
+</constraints>
+
 **Steps:**
 
 1. **Explore the codebase** — Read the repository instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`,
@@ -84,17 +93,15 @@ Focus: Determine HOW to implement the approved requirements
 2. **Review approved requirements** — Understand WHAT was approved in Phase 1
 3. **Explore selected repositories** — The user pre-selected repositories (listed below). Deep-dive to understand
    patterns, conventions, and existing code
-4. **Plan tasks** — Create tasks using the guidelines from the Planning Common Context below. Use tools:
-   - **Explore agent** — Broad codebase understanding
-   - **Grep/glob** — Find specific patterns, existing implementations
-   - **File reading** — Understand implementation details
+4. **Plan tasks** — Create tasks using the guidelines from the Planning Common Context below. Use available tools to
+   search, explore, and read the codebase.
 5. **Ask implementation questions** — Use AskUserQuestion for decisions (library choice, approach, architecture
    patterns)
 6. **Present task breakdown** — SHOW BEFORE WRITE. Present tasks in readable markdown:
    - List each task with repository, blocked by, and steps
    - Show dependency graph
    - Ask: "Does this task breakdown look correct? Any changes needed?"
-7. **Wait for confirmation** — ONLY AFTER USER CONFIRMS write to output file
+7. **Wait for confirmation** — write the JSON to the output file after the user confirms
 
 ## Idea to Refine and Plan
 
@@ -112,7 +119,8 @@ The user pre-selected these repositories for exploration:
 
 {{REPOSITORIES}}
 
-**Do NOT** propose changing the repository selection. These are the paths you will explore in Phase 2.
+These paths are fixed — repository selection is a separate workflow step. If a critical repository seems missing,
+mention it as an observation.
 
 ## Planning Common Context
 
@@ -120,7 +128,9 @@ The user pre-selected these repositories for exploration:
 
 ## Output Format
 
-When BOTH phases are approved by the user, write to: {{OUTPUT_FILE}}
+When BOTH phases are approved by the user, write the JSON to: {{OUTPUT_FILE}}
+
+Write only this single output file — no code, no implementation. The harness feeds this plan to task executors.
 
 Use this exact JSON Schema:
 
@@ -145,6 +155,12 @@ Use this exact JSON Schema:
         "Add date range filtering to ExportRepository.findRecords() in src/repositories/export.ts",
         "Write tests in src/controllers/__tests__/export.test.ts for: no dates, valid range, invalid range, start > end",
         "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+      ],
+      "verificationCriteria": [
+        "TypeScript compiles with no errors",
+        "All existing tests pass plus new tests for date range filtering",
+        "GET /api/export?startDate=invalid returns 400 with validation error",
+        "GET /api/export?startDate=2024-01-01&endDate=2024-12-31 returns only matching records"
       ],
       "blockedBy": []
     }

@@ -8,6 +8,7 @@ function createTask(id: string, blockedBy: string[] = [], overrides?: Partial<Ta
     name: `Task ${id}`,
     description: undefined,
     steps: [],
+    verificationCriteria: [],
     status: 'todo',
     order: 1,
     ticketId: undefined,

@@ -206,9 +206,9 @@ Run `ralphctl <command> --help` for details on any command.
 | [Contributing](./CONTRIBUTING.md)              | Dev setup, code style, PR process          |
 | [Changelog](./CHANGELOG.md)                    | Version history                            |
 
-**Blog posts:** [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (
-backstory) | [From task CLI to agent harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator
-deep-dive)
+**Blog posts:** [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (backstory) | [From task CLI to agent harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator deep-dive)
+
+**Further reading:** [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html) — Martin Fowler (April 2026) | [Harness Design for Long-Running Application Development](https://www.anthropic.com/engineering/harness-design-long-running-apps) — Anthropic Engineering
 
 ---
 

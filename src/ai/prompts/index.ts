@@ -102,6 +102,7 @@ export interface EvaluatorPromptContext {
   taskName: string;
   taskDescription: string;
   taskSteps: string[];
+  verificationCriteria: string[];
   projectPath: string;
   checkScriptSection: string | null;
 }
@@ -114,12 +115,18 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
   const stepsSection =
     ctx.taskSteps.length > 0 ? `\n**Implementation Steps:**\n${ctx.taskSteps.map((s) => `- ${s}`).join('\n')}` : '';
 
+  const criteriaSection =
+    ctx.verificationCriteria.length > 0
+      ? `\n**Verification Criteria:**\n${ctx.verificationCriteria.map((c) => `- ${c}`).join('\n')}`
+      : '';
+
   const checkSection = ctx.checkScriptSection ? `\n\n${ctx.checkScriptSection}` : '';
 
   return template
     .replaceAll('{{TASK_NAME}}', ctx.taskName)
     .replace('{{TASK_DESCRIPTION_SECTION}}', descriptionSection)
     .replace('{{TASK_STEPS_SECTION}}', stepsSection)
+    .replace('{{VERIFICATION_CRITERIA_SECTION}}', criteriaSection)
     .replace('{{PROJECT_PATH}}', ctx.projectPath)
     .replace('{{CHECK_SCRIPT_SECTION}}', checkSection);
 }

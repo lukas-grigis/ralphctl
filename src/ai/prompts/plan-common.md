@@ -1,7 +1,6 @@
 ## Project Resources (instruction files and `.claude/` directory)
 
-Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration
-and
+Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration and
 leverage them throughout planning:
 
 - **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory
@@ -17,30 +16,67 @@ authoritative for that codebase.
 
 ## What Makes a Great Task
 
-A great task can be picked up cold, implemented independently, and verified as done. Before finalizing any task, ask:
-**"How will I know this task is done?"** — if the answer is vague, the task needs work.
+A great task can be picked up cold by an AI agent, implemented independently, and verified as done — by a _different_ AI
+agent (the evaluator). The litmus test: "Could an independent reviewer verify this task is done using only the
+verification criteria and the codebase?" If not, the task needs work.
 
-Every task must have:
+<task-qualities>
 
-- **Clear scope** — Which files/modules change, and what the outcome looks like
-- **Verifiable result** — Can be checked with tests, type checks, or other project commands
-- **Independence** — Can be implemented without waiting on other tasks (unless explicitly declared via `blockedBy`)
+- **Clear scope** — which files/modules change, and what the outcome looks like
+- **Verifiable result** — can be checked with tests, type checks, or other project commands
+- **Independence** — can be implemented without waiting on other tasks (unless explicitly declared via `blockedBy`)
+- **Pattern reference** — steps reference existing similar code the agent should follow (feedforward guidance)
+
+</task-qualities>
 
 ### Task Sizing
 
 Completable in a single AI session: 1-3 primary files (up to 5-7 total with tests), ~50-200 lines of meaningful
 changes, one logical change per task. Split if too large, merge if too small.
 
-**TOO GRANULAR (avoid):**
+Too granular (three tasks that should be one):
 
 - "Create date formatting utility"
 - "Refactor experience module to use date utility"
 - "Refactor certifications module to use date utility"
 
-**CORRECT SIZE (prefer):**
+Right size (one task covering the full change):
 
 - "Centralize date formatting across all sections" — creates utility AND updates all usages
 - "Improve style robustness in interactive components" — handles multiple related files
+
+### Verification Criteria (The Evaluator Contract)
+
+Every task must include a `verificationCriteria` array — these are the **done contract** between the generator (task
+executor) and the evaluator (independent reviewer). The evaluator grades each criterion as pass/fail across four
+dimensions: correctness, completeness, safety, and consistency. If ANY criterion fails, the task fails evaluation and
+the generator receives specific feedback to fix.
+
+Write criteria that are:
+
+- **Computationally verifiable** where possible — prefer "TypeScript compiles with no errors" over "code is well-typed"
+- **Observable** — the evaluator must be able to check it by running commands or reading code
+- **Unambiguous** — two reviewers would agree on pass/fail
+- **Outcome-oriented** — describe WHAT is true when done, not HOW to get there
+
+> **Good criteria (verifiable, unambiguous):**
+>
+> - "TypeScript compiles with no errors"
+> - "All existing tests pass plus new tests for the added feature"
+> - "GET /api/users returns 200 with paginated user list"
+> - "GET /api/users?page=-1 returns 400 with validation error"
+> - "Component renders without console errors in browser"
+> - "Playwright e2e: login flow completes without errors" _(UI tasks with Playwright configured)_
+
+> **Bad criteria (vague, not independently verifiable):**
+>
+> - "Code is clean and well-structured"
+> - "Error handling is appropriate"
+> - "Performance is acceptable"
+
+Aim for 2-4 criteria per task. Include at least one criterion that is computationally checkable (test pass, type check,
+lint clean). For **UI/frontend tasks**, if the project has Playwright configured, add a browser-verifiable criterion —
+the evaluator will attempt visual verification using Playwright or browser tools when the project supports it.
 
 ### Rules
 
@@ -49,12 +85,12 @@ changes, one logical change per task. Split if too large, merge if too small.
 3. **Target 5-15 tasks** per scope, not 20-30 micro-tasks
 4. **No artificial splits** — If tasks only make sense in sequence, merge them
 
-### Anti-patterns
+### Anti-Patterns
 
-- Separate tasks for "create utility" and "integrate utility"
-- One task per file modification
-- Tasks that are "blocked by" the previous task for trivial reasons
-- Micro-refactoring tasks (add directive, remove import, etc.)
+- Separate tasks for "create utility" and "integrate utility" — always merge create+use
+- One task per file modification — group by logical change, not by file
+- Tasks that are "blocked by" the previous task for trivial reasons — false chains kill parallelism
+- Micro-refactoring tasks (add directive, remove import, etc.) — fold into the task that needs them
 
 ## Non-Overlapping File Ownership
 
@@ -123,11 +159,14 @@ Every task must include explicit, actionable steps — the implementation checkl
 
 1. **Specific file references** — Name exact files/directories to create or modify
 2. **Concrete actions** — "Add function X to file Y", not "implement the feature"
-3. **Verification included** — Last step(s) should include project-specific verification commands from the repository
+3. **Pattern references** — When possible, point to existing code the agent should follow: "Follow the pattern in
+   `src/controllers/users.ts` for error handling and response format." This is feedforward guidance — it steers the
+   agent toward correct behavior before it starts.
+4. **Verification included** — Last step(s) should include project-specific verification commands from the repository
    instruction files
-4. **No ambiguity** — Another developer should be able to follow steps without guessing
+5. **No ambiguity** — Another developer should be able to follow steps without guessing
 
-**BAD (vague):**
+Bad — vague steps that force the agent to guess:
 
 ```json
 {
@@ -136,19 +175,25 @@ Every task must include explicit, actionable steps — the implementation checkl
 }
 ```
 
-**GOOD (precise):**
+Good — precise steps with file paths and pattern references:
 
 ```json
 {
   "name": "Add user authentication",
   "projectPath": "/Users/dev/my-app",
   "steps": [
-    "Create auth service in src/services/auth.ts with login(), logout(), getCurrentUser()",
-    "Add AuthContext provider in src/contexts/AuthContext.tsx wrapping the app",
+    "Create auth service in src/services/auth.ts with login(), logout(), getCurrentUser() — follow the pattern in src/services/user.ts for error handling and return types",
+    "Add AuthContext provider in src/contexts/AuthContext.tsx wrapping the app — follow existing ThemeContext pattern",
     "Create useAuth hook in src/hooks/useAuth.ts exposing auth state and actions",
     "Add ProtectedRoute wrapper component in src/components/ProtectedRoute.tsx",
-    "Write unit tests in src/services/__tests__/auth.test.ts",
+    "Write unit tests in src/services/__tests__/auth.test.ts — follow test patterns in src/services/__tests__/user.test.ts",
     "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+  ],
+  "verificationCriteria": [
+    "TypeScript compiles with no errors",
+    "All existing tests pass plus new auth tests",
+    "ProtectedRoute redirects unauthenticated users to /login",
+    "useAuth hook exposes isAuthenticated, user, login, and logout"
   ]
 }
 ```

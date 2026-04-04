@@ -78,6 +78,8 @@ pnpm typecheck && pnpm lint && pnpm test
   `--allow-all-tools` (see Provider Differences below)
 - Don't add runtime auto-detection of check scripts — detection logic in `src/utils/detect-scripts.ts` is for
   suggestions during `project add` only
+- Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
+- Don't add fields to Zod schemas without updating `/schemas/*.json` — Data models in `src/schemas/index.ts` have JSON schema mirrors in `/schemas/` that must stay in sync (AI agents validate against these)
 
 ## Workflow
 
@@ -240,8 +242,46 @@ The harness parses these XML signals from AI agent output:
 `sprint start` runs tasks in parallel by default (one per unique `projectPath`):
 
 - Session/step mode forces sequential (`--concurrency 1` equivalent)
-- `RateLimitCoordinator` pauses new launches on rate limits; running tasks continue
-- Rate-limited tasks auto-resume via `--resume <session_id>`
+- **Rate limiting:** `RateLimitCoordinator` pauses new task launches globally when any task hits a rate limit; running tasks continue uninterrupted
+- Rate-limited tasks auto-resume via `--resume <session_id>` (full session context preserved)
+- Errors with rate-limit headers (429, 429-style responses) trigger coordinator pause automatically
+
+## Environment Variables
+
+Customize ralphctl behavior with these environment variables:
+
+| Variable                    | Default        | Range          | Purpose                                                                       |
+| --------------------------- | -------------- | -------------- | ----------------------------------------------------------------------------- |
+| `RALPHCTL_ROOT`             | `~/.ralphctl/` | Any valid path | Override data directory (e.g., for testing or multi-workspace setup)          |
+| `RALPHCTL_SETUP_TIMEOUT_MS` | 300000 (5 min) | > 0            | Timeout for check scripts; overridable per-repo via `Repository.checkTimeout` |
+| `RALPHCTL_LOCK_TIMEOUT_MS`  | 30000          | 1–3600000      | Stale lock file threshold for concurrent access detection                     |
+
+**Note:** In tests, set `RALPHCTL_ROOT` BEFORE importing store modules (e.g., in setup file before `describe` blocks).
+
+## Build & Distribution
+
+**Prompt templates are distributed with the CLI.** The build script copies `.md` files from `src/ai/prompts/` to `dist/prompts/`:
+
+```bash
+pnpm build  # Runs: tsup && mkdir -p dist/prompts && cp src/ai/prompts/*.md dist/prompts/
+```
+
+Template loading is dual-mode:
+
+- **Dev:** Reads from `src/ai/prompts/*.md`
+- **Bundled (npm):** Reads from `dist/prompts/*.md`
+
+**Gotcha:** If `.md` files are missing in `dist`, templates silently fail with empty placeholder values (no file-not-found error). CI verifies dist works by testing `node dist/cli.mjs --version` from arbitrary cwd.
+
+## Releasing
+
+Releases are automated via GitHub Actions on git tags matching `v[0-9]+.[0-9]+.[0-9]+`:
+
+1. Tag must match `package.json` version (e.g., tag `v0.2.2` requires `"version": "0.2.2"` in package.json)
+2. **Changelog:** Add a `## [X.Y.Z]` section to `CHANGELOG.md` or release notes will fall back to git log
+3. **NPM publish:** Uses provenance attestation (`--provenance`)
+4. **GitHub release:** Auto-generated with changelog section + comparison link to previous tag
+5. **Pre-release detection:** Tags containing `-` (e.g., `v1.0.0-beta`) are marked as prerelease
 
 ## Compaction Rules
 

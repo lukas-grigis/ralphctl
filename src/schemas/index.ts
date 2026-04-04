@@ -56,6 +56,7 @@ export const TaskSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   steps: z.array(z.string()).default([]),
+  verificationCriteria: z.array(z.string()).default([]),
   status: TaskStatusSchema.default('todo'),
   order: z.number().int().positive(),
   ticketId: z.string().optional(), // References Ticket.id (internal)
@@ -78,6 +79,7 @@ export const ImportTaskSchema = z.object({
   name: z.string().min(1), // Required
   description: z.string().optional(),
   steps: z.array(z.string()).optional(),
+  verificationCriteria: z.array(z.string()).optional(),
   ticketId: z.string().optional(),
   blockedBy: z.array(z.string()).optional(),
   projectPath: z.string().min(1), // Required - execution directory

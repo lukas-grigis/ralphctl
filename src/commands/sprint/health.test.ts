@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TestEnvironment } from '@src/test-utils/setup.ts';
-import { createTestEnv } from '@src/test-utils/setup.ts';
+import { captureOutput, createTestEnv } from '@src/test-utils/setup.ts';
 
 let testEnv: TestEnvironment;
 
@@ -37,21 +37,9 @@ describe('sprint health checks', () => {
     // For unit-level verification, we test the function output indirectly
     const { sprintHealthCommand } = await import('./health.ts');
 
-    // Capture console.log output
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    };
-
-    try {
-      await sprintHealthCommand();
-    } finally {
-      console.log = originalLog;
-    }
+    const output = await captureOutput(() => sprintHealthCommand());
 
     // The health output should mention the orphaned ticket
-    const output = logs.join('\n');
     expect(output).toContain('Orphaned Ticket');
     expect(output).toContain('Tickets Without Tasks');
   });
@@ -68,19 +56,8 @@ describe('sprint health checks', () => {
 
     const { sprintHealthCommand } = await import('./health.ts');
 
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    };
+    const output = await captureOutput(() => sprintHealthCommand());
 
-    try {
-      await sprintHealthCommand();
-    } finally {
-      console.log = originalLog;
-    }
-
-    const output = logs.join('\n');
     expect(output).toContain('Pending Requirements');
     expect(output).toContain('Pending Ticket');
   });
@@ -107,19 +84,8 @@ describe('sprint health checks', () => {
 
     const { sprintHealthCommand } = await import('./health.ts');
 
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    };
+    const output = await captureOutput(() => sprintHealthCommand());
 
-    try {
-      await sprintHealthCommand();
-    } finally {
-      console.log = originalLog;
-    }
-
-    const output = logs.join('\n');
     expect(output).toContain('Duplicate Task Orders');
     expect(output).toContain('Order 1');
   });
