@@ -63,7 +63,15 @@ export function getProgressFilePath(sprintId: string): string {
   return join(getSprintDir(sprintId), 'progress.md');
 }
 
+/** Validate a segment (ticketId, etc.) does not contain path traversal. */
+function assertSafeSegment(segment: string, label: string): void {
+  if (!segment || segment.includes('/') || segment.includes('\\') || segment.includes('..') || segment.includes('\0')) {
+    throw new Error(`Path traversal detected in ${label}: ${segment}`);
+  }
+}
+
 export function getRefinementDir(sprintId: string, ticketId: string): string {
+  assertSafeSegment(ticketId, 'ticket ID');
   return join(getSprintDir(sprintId), 'refinement', ticketId);
 }
 
@@ -72,6 +80,7 @@ export function getPlanningDir(sprintId: string): string {
 }
 
 export function getIdeateDir(sprintId: string, ticketId: string): string {
+  assertSafeSegment(ticketId, 'ticket ID');
   return join(getSprintDir(sprintId), 'ideation', ticketId);
 }
 
