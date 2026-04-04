@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TestEnvironment } from '@src/test-utils/setup.ts';
-import { createTestEnv } from '@src/test-utils/setup.ts';
+import { captureOutput, createTestEnv } from '@src/test-utils/setup.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -19,21 +19,6 @@ afterEach(async () => {
   await testEnv.cleanup();
   vi.restoreAllMocks();
 });
-
-/** Capture console.log output during a callback */
-async function captureOutput(fn: () => Promise<void>): Promise<string> {
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    logs.push(args.map(String).join(' '));
-  };
-  try {
-    await fn();
-  } finally {
-    console.log = originalLog;
-  }
-  return logs.join('\n');
-}
 
 // ============================================================================
 // Unit tests — assert on CheckResult objects directly

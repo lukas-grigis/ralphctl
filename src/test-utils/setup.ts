@@ -54,6 +54,24 @@ export async function createTestEnv(options?: { projectName?: string }): Promise
 }
 
 /**
+ * Capture console.log output during an async callback.
+ * Returns the joined output as a single string.
+ */
+export async function captureOutput(fn: () => Promise<void>): Promise<string> {
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(' '));
+  };
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+  }
+  return logs.join('\n');
+}
+
+/**
  * Create multiple project directories for multi-repo tests.
  */
 export async function createMultiProjectEnv(
