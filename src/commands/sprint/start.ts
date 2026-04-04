@@ -88,6 +88,16 @@ function parseArgs(args: string[]): { sprintId?: string; options: RunnerOptions 
         throw new Error('Invalid model name — must be 1-100 alphanumeric characters, dots, hyphens, or underscores');
       }
       options.fallbackModel = modelStr;
+    } else if (arg === '--max-turns') {
+      const turnsStr = args[++i];
+      if (!turnsStr) {
+        throw new Error('--max-turns requires a number');
+      }
+      const turns = parseInt(turnsStr, 10);
+      if (isNaN(turns) || turns <= 0) {
+        throw new Error('--max-turns must be a positive integer');
+      }
+      options.maxTurns = turns;
     } else if (arg === '--no-evaluate') {
       options.noEvaluate = true;
     } else if (!arg?.startsWith('-')) {

@@ -77,6 +77,8 @@ export interface ExecutorOptions {
   fallbackModel?: string;
   /** Skip evaluation for this run (override global config) */
   noEvaluate?: boolean;
+  /** Max agentic turns per task (--max-turns, Claude only). Prevents runaway loops. */
+  maxTurns?: number;
 }
 
 /** Reason why execution stopped */
@@ -114,7 +116,10 @@ interface TaskExecutionResult extends ExecutionResult {
   model: string | null;
 }
 
-/** Build provider-specific CLI args from executor options (budget, fallback model). */
+/** Default max agentic turns per task — safety net against infinite loops in headless mode. */
+const DEFAULT_MAX_TURNS = 200;
+
+/** Build provider-specific CLI args from executor options (budget, fallback model, max turns). */
 function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter): string[] {
   if (provider.name !== 'claude') {
     // These flags are Claude-only — warn if the user passed them with another provider
@@ -133,6 +138,8 @@ function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter):
   if (options.fallbackModel) {
     args.push('--fallback-model', options.fallbackModel);
   }
+  // Prevent runaway loops in headless mode — always set a turn limit
+  args.push('--max-turns', String(options.maxTurns ?? DEFAULT_MAX_TURNS));
   return args;
 }
 
@@ -320,6 +327,11 @@ async function runEvaluationLoop(params: {
   const sprintDir = getSprintDir(sprintId);
   let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider);
 
+  // Track the latest session ID and model across iterations — the generator may
+  // produce new session IDs on each fix attempt, and we need the latest for resume.
+  let currentSessionId = result.sessionId;
+  let currentModel = result.model;
+
   for (let i = 0; i < evalIterations && !evalResult.passed; i++) {
     console.log(warning(`Evaluation failed for ${task.name} (iteration ${String(i + 1)}/${String(evalIterations)})`));
     console.log(muted(evalResult.output.slice(0, 500)));
@@ -331,7 +343,7 @@ async function runEvaluationLoop(params: {
         cwd: task.projectPath,
         args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
         prompt: `The evaluator found issues with your implementation:\n\n${evalResult.output}\n\nReview the critique carefully. Fix each identified issue in the code, then:\n1. Re-run verification commands to confirm the fix\n${options.noCommit ? '' : '2. Commit the fix with a descriptive message\n'}${options.noCommit ? '2' : '3'}. Signal completion with <task-verified> and <task-complete>\n\nIf the critique is about something outside your task scope, fix only what is within scope and signal completion.`,
-        resumeSessionId: result.sessionId ?? undefined,
+        resumeSessionId: currentSessionId ?? undefined,
         env: provider.getSpawnEnv(),
       },
       {
@@ -347,6 +359,10 @@ async function runEvaluationLoop(params: {
       provider
     );
     resumeSpinner?.succeed(`Fix attempt completed: ${task.name}`);
+
+    // Capture latest session ID and model for subsequent iterations
+    if (resumeResult.sessionId) currentSessionId = resumeResult.sessionId;
+    if (resumeResult.model) currentModel = resumeResult.model;
 
     const fixResult = parseExecutionResult(resumeResult.stdout);
     if (!fixResult.success) {
@@ -364,8 +380,8 @@ async function runEvaluationLoop(params: {
       }
     }
 
-    // Re-evaluate
-    evalResult = await runEvaluation(task, resumeResult.model ?? result.model, evalCheckScript, sprintId, provider);
+    // Re-evaluate using latest model from the fix attempt
+    evalResult = await runEvaluation(task, currentModel, evalCheckScript, sprintId, provider);
   }
 
   // Store evaluation result (truncated to prevent tasks.json bloat)
