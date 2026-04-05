@@ -54,6 +54,16 @@ function getEnum(schema: JsonSchema, ...path: string[]): unknown[] {
   return current as unknown[];
 }
 
+function expectStringArrayProperty(props: JsonSchema, name: string, options?: { defaultEmpty?: boolean }): void {
+  const prop = props[name] as JsonSchema | undefined;
+  expect(prop).toBeDefined();
+  expect(prop?.['type']).toBe('array');
+  expect((prop?.['items'] as JsonSchema | undefined)?.['type']).toBe('string');
+  if (options?.defaultEmpty) {
+    expect(prop?.['default']).toEqual([]);
+  }
+}
+
 // ─── TaskStatus enum ─────────────────────────────────────────────────────────
 
 describe('tasks.schema.json ↔ TaskSchema', () => {
@@ -71,6 +81,12 @@ describe('tasks.schema.json ↔ TaskSchema', () => {
     // These are the fields Zod treats as required (no .optional(), no .default())
     const zodRequired = ['id', 'name', 'status', 'order', 'projectPath'].sort();
     expect(jsonRequired).toEqual(zodRequired);
+  });
+
+  it('optional/defaulted array properties stay in sync', () => {
+    expectStringArrayProperty(props, 'steps', { defaultEmpty: true });
+    expectStringArrayProperty(props, 'verificationCriteria', { defaultEmpty: true });
+    expectStringArrayProperty(props, 'blockedBy', { defaultEmpty: true });
   });
 
   it('Zod schema accepts a valid task object', () => {
@@ -184,11 +200,18 @@ describe('projects.schema.json ↔ ProjectSchema', () => {
 describe('task-import.schema.json ↔ ImportTaskSchema', () => {
   const jsonSchema = loadJsonSchema('task-import.schema.json');
   const itemSchema = getItemSchema(jsonSchema);
+  const props = getProperties(itemSchema);
 
   it('required fields match', () => {
     const jsonRequired = getRequired(itemSchema).sort();
     const zodRequired = ['name', 'projectPath'].sort();
     expect(jsonRequired).toEqual(zodRequired);
+  });
+
+  it('optional array properties stay in sync', () => {
+    expectStringArrayProperty(props, 'steps');
+    expectStringArrayProperty(props, 'verificationCriteria');
+    expectStringArrayProperty(props, 'blockedBy');
   });
 
   it('Zod schema accepts a valid import task', () => {

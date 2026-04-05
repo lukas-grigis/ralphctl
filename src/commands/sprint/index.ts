@@ -158,7 +158,7 @@ Examples:
   sprint
     .command('insights [id]')
     .description('Analyze evaluation results and suggest improvements')
-    .option('--export', 'Export insights to .ralph/insights/<sprint-id>.md')
+    .option('--export', 'Export insights to $RALPHCTL_ROOT/insights/<sprint-id>.md')
     .action(async (id?: string, opts?: { export?: boolean }) => {
       const args: string[] = [];
       if (id) args.push(id);
