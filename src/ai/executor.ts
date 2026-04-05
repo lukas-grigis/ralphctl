@@ -129,6 +129,9 @@ function buildProviderArgs(options: ExecutorOptions, provider: ProviderAdapter):
     if (options.fallbackModel) {
       console.log(warning(`--fallback-model is only supported with the Claude provider — ignored`));
     }
+    if (options.maxTurns != null) {
+      console.log(warning(`--max-turns is only supported with the Claude provider — ignored`));
+    }
     return [];
   }
   const args: string[] = [];

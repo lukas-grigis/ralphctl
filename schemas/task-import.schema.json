@@ -24,6 +24,13 @@
           "type": "string"
         }
       },
+      "verificationCriteria": {
+        "type": "array",
+        "description": "Definition-of-done checks used to evaluate task completion",
+        "items": {
+          "type": "string"
+        }
+      },
       "ticketId": {
         "type": "string",
         "description": "Reference to parent ticket ID (e.g., TICKET-001)"
