@@ -1,6 +1,6 @@
 {
   "name": "ralphctl",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Agent harness for long-running AI coding tasks — orchestrates Claude Code & GitHub Copilot across repositories",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
