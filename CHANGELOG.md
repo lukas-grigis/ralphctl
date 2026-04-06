@@ -5,6 +5,40 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-04-06
+
+### Added
+
+- **Verification criteria** — new `verificationCriteria` field on Task schema, surfaced in task context and evaluator
+  prompt as the grading contract; JSON schemas (`tasks.schema.json`, `task-import.schema.json`) updated with sync tests
+  (#57)
+- **Evaluator dimension scoring** — structured PASS/FAIL parsing per dimension (correctness, completeness, safety,
+  consistency) with per-dimension findings (#57)
+- **Sprint insights** — new `sprint insights` command to analyze evaluation results and surface patterns across tasks
+  (#57)
+
+### Changed
+
+- **Executor hardening** — `--max-turns` safety net (default 200), session ID tracking across evaluation iterations,
+  correct model propagation on fix attempts (#57)
+- **Prompt quality** — all 7 prompt templates rewritten per Anthropic's current best practices: toned down urgency
+  language, added "why" explanations, XML structural tags, harness context (#57)
+- **Documentation** — CLAUDE.md gains environment variables, build/distribution, and release sections; README adds
+  reference links to Anthropic harness design articles
+- Deduplicated console capture into shared `captureOutput` test helper
+
+### Fixed
+
+- Path traversal protection on ticket ID segments (#57)
+
+### Dependencies
+
+- Bumped `@types/node` from 25.5.0 to 25.5.2
+- Bumped `@vitest/coverage-v8` from 4.1.1 to 4.1.2
+- Bumped `eslint` from 10.1.0 to 10.2.0
+- Bumped `typescript-eslint` from 8.57.2 to 8.58.0
+- Bumped `vitest` from 4.1.1 to 4.1.2
+
 ## [0.2.2] - 2026-04-02
 
 ### Changed
