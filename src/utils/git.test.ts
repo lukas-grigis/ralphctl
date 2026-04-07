@@ -9,6 +9,7 @@ import {
   generateBranchName,
   getCurrentBranch,
   getDefaultBranch,
+  getHeadSha,
   hasUncommittedChanges,
   isValidBranchName,
   verifyCurrentBranch,
@@ -131,6 +132,50 @@ describe('git operations with temp repo', () => {
 
     it('returns false when on different branch', () => {
       expect(verifyCurrentBranch(tempDir, 'nonexistent-branch')).toBe(false);
+    });
+  });
+
+  describe('getHeadSha', () => {
+    it('returns the SHA of HEAD for a repo with at least one commit', () => {
+      const sha = getHeadSha(tempDir);
+      expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    });
+
+    it('returns the same SHA across calls until a new commit lands', () => {
+      const before = getHeadSha(tempDir);
+      const after = getHeadSha(tempDir);
+      expect(after).toBe(before);
+    });
+
+    it('returns a different SHA after a new commit', () => {
+      const before = getHeadSha(tempDir);
+      writeFileSync(join(tempDir, 'second.md'), '# second');
+      execSync('git add . && git commit -m "second"', { cwd: tempDir, stdio: 'pipe' });
+      const after = getHeadSha(tempDir);
+      expect(after).not.toBe(before);
+      expect(after).toMatch(/^[0-9a-f]{40}$/);
+    });
+  });
+
+  describe('getHeadSha — edge cases', () => {
+    it('returns null for an empty directory (not a git repo)', () => {
+      const empty = mkdtempSync(join(tmpdir(), 'ralphctl-not-a-repo-'));
+      try {
+        expect(getHeadSha(empty)).toBeNull();
+      } finally {
+        rmSync(empty, { recursive: true, force: true });
+      }
+    });
+
+    it('returns null for an initialized but commit-less repo', () => {
+      const empty = mkdtempSync(join(tmpdir(), 'ralphctl-empty-repo-'));
+      try {
+        execSync('git init', { cwd: empty, stdio: 'pipe' });
+        // No commits yet — git rev-parse HEAD exits non-zero
+        expect(getHeadSha(empty)).toBeNull();
+      } finally {
+        rmSync(empty, { recursive: true, force: true });
+      }
     });
   });
 

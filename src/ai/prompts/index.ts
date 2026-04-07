@@ -105,6 +105,12 @@ export interface EvaluatorPromptContext {
   verificationCriteria: string[];
   projectPath: string;
   checkScriptSection: string | null;
+  /**
+   * Pre-rendered "Project Tooling" section listing available subagents,
+   * skills, MCP servers, and instruction files. Empty string when nothing
+   * was detected — the template handles empty placeholders cleanly.
+   */
+  projectToolingSection: string;
 }
 
 export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
@@ -128,5 +134,26 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
     .replace('{{TASK_STEPS_SECTION}}', stepsSection)
     .replace('{{VERIFICATION_CRITERIA_SECTION}}', criteriaSection)
     .replace('{{PROJECT_PATH}}', ctx.projectPath)
-    .replace('{{CHECK_SCRIPT_SECTION}}', checkSection);
+    .replace('{{CHECK_SCRIPT_SECTION}}', checkSection)
+    .replace('{{PROJECT_TOOLING_SECTION}}', ctx.projectToolingSection);
+}
+
+export interface EvaluationResumePromptContext {
+  /** Full evaluator critique to feed back to the generator. */
+  critique: string;
+  /** When true, the generator must commit before signaling completion. */
+  needsCommit: boolean;
+}
+
+/**
+ * Build the prompt that resumes the generator after a failed evaluation.
+ * Lives in `task-evaluation-resume.md` so it can be reviewed alongside the
+ * other prompt templates instead of being a string literal in executor.ts.
+ */
+export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext): string {
+  const template = loadTemplate('task-evaluation-resume');
+  const commitInstruction = ctx.needsCommit
+    ? '\n   - **Then commit the fix** with a descriptive message before signaling completion.'
+    : '';
+  return template.replace('{{CRITIQUE}}', ctx.critique).replace('{{COMMIT_INSTRUCTION}}', commitInstruction);
 }

@@ -1,6 +1,6 @@
 import { getTasksFilePath } from '@src/utils/paths.ts';
 import { readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
-import { type Task, type Tasks, TasksSchema, type TaskStatus } from '@src/schemas/index.ts';
+import { type EvaluationStatus, type Task, type Tasks, TasksSchema, type TaskStatus } from '@src/schemas/index.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
@@ -129,6 +129,8 @@ export interface UpdateTaskInput {
   verificationOutput?: string;
   evaluated?: boolean;
   evaluationOutput?: string;
+  evaluationStatus?: EvaluationStatus;
+  evaluationFile?: string;
 }
 
 export async function updateTask(taskId: string, updates: UpdateTaskInput, sprintId?: string): Promise<Task> {
@@ -159,6 +161,12 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
     }
     if (updates.evaluationOutput !== undefined) {
       task.evaluationOutput = updates.evaluationOutput;
+    }
+    if (updates.evaluationStatus !== undefined) {
+      task.evaluationStatus = updates.evaluationStatus;
+    }
+    if (updates.evaluationFile !== undefined) {
+      task.evaluationFile = updates.evaluationFile;
     }
 
     await saveTasks(tasks, id);

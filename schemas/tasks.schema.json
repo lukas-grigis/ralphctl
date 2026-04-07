@@ -82,7 +82,16 @@
       },
       "evaluationOutput": {
         "type": "string",
-        "description": "Output from the evaluation run (truncated to 2000 chars)"
+        "description": "Output from the evaluation run (truncated to 2000 chars; full critique in evaluationFile)"
+      },
+      "evaluationStatus": {
+        "type": "string",
+        "enum": ["passed", "failed", "malformed"],
+        "description": "Evaluation outcome discriminator. 'malformed' = evaluator output had no parseable signal."
+      },
+      "evaluationFile": {
+        "type": "string",
+        "description": "Sidecar file path containing the full untruncated critique"
       }
     }
   }

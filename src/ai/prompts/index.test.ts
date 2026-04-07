@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAutoPrompt,
+  buildEvaluationResumePrompt,
+  buildEvaluatorPrompt,
   buildIdeateAutoPrompt,
   buildIdeatePrompt,
   buildInteractivePrompt,
@@ -333,6 +335,67 @@ describe('buildIdeateAutoPrompt', () => {
   it('does not include OUTPUT_FILE (auto mode outputs directly)', () => {
     const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
     expect(result).not.toContain('{{OUTPUT_FILE}}');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildEvaluatorPrompt
+// ---------------------------------------------------------------------------
+
+describe('buildEvaluatorPrompt', () => {
+  const baseCtx = {
+    taskName: 'Add date filter',
+    taskDescription: 'Filter export endpoint by date',
+    taskSteps: ['Add Zod schema', 'Wire controller'],
+    verificationCriteria: ['Returns 400 for invalid', 'Returns filtered results for valid'],
+    projectPath: '/tmp/proj',
+    checkScriptSection: null,
+    projectToolingSection: '',
+  };
+
+  it('leaves no unreplaced {{...}} tokens with empty optional sections', () => {
+    const result = buildEvaluatorPrompt(baseCtx);
+    expect(findUnreplacedTokens(result)).toEqual([]);
+  });
+
+  it('renders verification criteria as a bullet list', () => {
+    const result = buildEvaluatorPrompt(baseCtx);
+    expect(result).toContain('Returns 400 for invalid');
+    expect(result).toContain('Returns filtered results for valid');
+  });
+
+  it('inlines the project tooling section when provided', () => {
+    const tooling = '## Project Tooling\n\n- agent: reviewer';
+    const result = buildEvaluatorPrompt({ ...baseCtx, projectToolingSection: tooling });
+    expect(result).toContain('## Project Tooling');
+    expect(result).toContain('agent: reviewer');
+  });
+
+  it('inlines the check script section when provided', () => {
+    const result = buildEvaluatorPrompt({ ...baseCtx, checkScriptSection: '## Check Script\n\nRun pnpm test' });
+    expect(result).toContain('Run pnpm test');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildEvaluationResumePrompt
+// ---------------------------------------------------------------------------
+
+describe('buildEvaluationResumePrompt', () => {
+  it('embeds the critique into the template', () => {
+    const result = buildEvaluationResumePrompt({ critique: 'Bug at src/foo.ts:42', needsCommit: false });
+    expect(result).toContain('Bug at src/foo.ts:42');
+    expect(findUnreplacedTokens(result)).toEqual([]);
+  });
+
+  it('includes a commit instruction when needsCommit is true', () => {
+    const result = buildEvaluationResumePrompt({ critique: 'x', needsCommit: true });
+    expect(result).toContain('commit the fix');
+  });
+
+  it('omits the commit instruction when needsCommit is false', () => {
+    const result = buildEvaluationResumePrompt({ critique: 'x', needsCommit: false });
+    expect(result).not.toContain('commit the fix');
   });
 });
 

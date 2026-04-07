@@ -1,9 +1,21 @@
 import { getActiveProvider } from '@src/providers/index.ts';
 import type { ProviderAdapter } from '@src/providers/types.ts';
-import type { Task } from '@src/schemas/index.ts';
+import type { EvaluationStatus, Task } from '@src/schemas/index.ts';
 import { spawnWithRetry } from '@src/ai/session.ts';
 import { buildEvaluatorPrompt, type EvaluatorPromptContext } from '@src/ai/prompts/index.ts';
 import { getSprintDir } from '@src/utils/paths.ts';
+import { detectProjectTooling, renderProjectToolingSection } from '@src/ai/project-tooling.ts';
+import type { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
+
+/**
+ * Max agentic turns for the evaluator. Lower than the executor's 200 because
+ * the evaluator's job is review, not implementation — runaway evaluator
+ * sessions are pure cost with no upside.
+ */
+const EVALUATOR_MAX_TURNS = 100;
+
+// Re-export so existing callers that imported from evaluator.ts keep working.
+export type { EvaluationStatus };
 
 // ============================================================================
 // Model Ladder
@@ -37,8 +49,18 @@ export interface DimensionScore {
   finding: string;
 }
 
+/**
+ * Discriminator semantics for `EvaluationStatus`:
+ * - `passed`   — `<evaluation-passed>` signal present.
+ * - `failed`   — `<evaluation-failed>` signal present, OR partial dimensions parsed but no signal.
+ * - `malformed`— neither signal AND no dimension lines parsed (unusable evaluator output).
+ *
+ * The type itself lives in `src/schemas/index.ts` so the Zod schema is the
+ * single source of truth for the enum members.
+ */
 export interface EvaluationResult {
   passed: boolean;
+  status: EvaluationStatus;
   output: string;
   /** Per-dimension scores when structured assessment is present. */
   dimensions: DimensionScore[];
@@ -79,23 +101,33 @@ export function parseDimensionScores(output: string): DimensionScore[] {
  * Parse evaluator AI output for evaluation signals and dimension scores.
  * Checks for <evaluation-passed> or <evaluation-failed>...</evaluation-failed>.
  * Also extracts structured dimension scores when present.
+ *
+ * Returns `status: 'malformed'` only when BOTH signals are missing AND no
+ * dimension lines parsed — that's the case where the evaluator output is
+ * effectively unusable. A failed dimension assessment without a signal is
+ * still treated as `failed` (the assessment carries enough signal on its own).
  */
 export function parseEvaluationResult(output: string): EvaluationResult {
   const dimensions = parseDimensionScores(output);
 
   // Check for passed signal
   if (output.includes('<evaluation-passed>')) {
-    return { passed: true, output, dimensions };
+    return { passed: true, status: 'passed', output, dimensions };
   }
 
   // Check for failed signal with critique
   const failedMatch = /<evaluation-failed>([\s\S]*?)<\/evaluation-failed>/.exec(output);
   if (failedMatch) {
-    return { passed: false, output: failedMatch[1]?.trim() ?? output, dimensions };
+    return { passed: false, status: 'failed', output: failedMatch[1]?.trim() ?? output, dimensions };
   }
 
-  // No signal found — treat as failure
-  return { passed: false, output, dimensions };
+  // No signal — but if dimensions parsed, we still have actionable data → 'failed'
+  if (dimensions.length > 0) {
+    return { passed: false, status: 'failed', output, dimensions };
+  }
+
+  // Neither signal nor dimensions: evaluator output is unusable
+  return { passed: false, status: 'malformed', output, dimensions };
 }
 
 // ============================================================================
@@ -106,6 +138,12 @@ export function parseEvaluationResult(output: string): EvaluationResult {
  * Build context for evaluator prompt.
  * Includes task spec and project path — evaluator investigates autonomously.
  * Check script is framed as a mandatory computational verification step.
+ *
+ * Detects project-installed tooling (subagents, skills, MCP servers,
+ * instruction files) and renders a "Project Tooling" section telling the
+ * evaluator to use them. Per the harness-design article, evaluators that
+ * interact with the system via available tools catch issues that static
+ * diff review misses — but only if they're explicitly told what's available.
  */
 export function buildEvaluatorContext(task: Task, checkScript: string | null): EvaluatorPromptContext {
   const checkScriptSection = checkScript
@@ -120,6 +158,9 @@ ${checkScript}
 If this script fails, the implementation fails regardless of code quality. Record the full output.`
     : null;
 
+  const tooling = detectProjectTooling(task.projectPath);
+  const projectToolingSection = renderProjectToolingSection(tooling);
+
   return {
     taskName: task.name,
     taskDescription: task.description ?? '',
@@ -127,12 +168,24 @@ If this script fails, the implementation fails regardless of code quality. Recor
     verificationCriteria: task.verificationCriteria,
     projectPath: task.projectPath,
     checkScriptSection,
+    projectToolingSection,
   };
 }
 
 // ============================================================================
 // Evaluator Invocation
 // ============================================================================
+
+export interface RunEvaluationOptions {
+  /**
+   * Optional coordinator to participate in. When the parallel executor pauses
+   * for a global rate limit, the evaluator must wait too — otherwise it can
+   * spawn into a 429 wall and fail spuriously.
+   */
+  coordinator?: RateLimitCoordinator;
+  /** Max rate-limit retries forwarded to spawnWithRetry. */
+  maxRetries?: number;
+}
 
 /**
  * Run evaluation on a completed task.
@@ -144,7 +197,8 @@ export async function runEvaluation(
   generatorModel: string | null,
   checkScript: string | null,
   sprintId: string,
-  provider?: ProviderAdapter
+  provider?: ProviderAdapter,
+  options?: RunEvaluationOptions
 ): Promise<EvaluationResult> {
   const p = provider ?? (await getActiveProvider());
   const evaluatorModel = getEvaluatorModel(generatorModel, p);
@@ -153,18 +207,31 @@ export async function runEvaluation(
   const ctx = buildEvaluatorContext(task, checkScript);
   const prompt = buildEvaluatorPrompt(ctx);
 
-  // Build provider args (include evaluator model for Claude)
+  // Build provider args. Claude-only flags: model + max-turns.
   const providerArgs: string[] = ['--add-dir', sprintDir];
-  if (evaluatorModel && p.name === 'claude') {
-    providerArgs.push('--model', evaluatorModel);
+  if (p.name === 'claude') {
+    if (evaluatorModel) {
+      providerArgs.push('--model', evaluatorModel);
+    }
+    // Cap evaluator turns — autonomous evaluators can spiral on noisy diffs
+    providerArgs.push('--max-turns', String(EVALUATOR_MAX_TURNS));
   }
 
-  const result = await spawnWithRetry({
-    cwd: task.projectPath,
-    args: providerArgs,
-    prompt,
-    env: p.getSpawnEnv(),
-  });
+  // Wait if a coordinator is paused (parallel executor only)
+  await options?.coordinator?.waitIfPaused();
+
+  // spawnWithRetry already defaults maxRetries to DEFAULT_MAX_RETRIES when
+  // undefined — no need for a conditional guard here.
+  const result = await spawnWithRetry(
+    {
+      cwd: task.projectPath,
+      args: providerArgs,
+      prompt,
+      env: p.getSpawnEnv(),
+    },
+    { maxRetries: options?.maxRetries },
+    p
+  );
 
   return parseEvaluationResult(result.stdout);
 }
