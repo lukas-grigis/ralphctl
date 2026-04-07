@@ -42,6 +42,17 @@ describe('detectProjectTooling', () => {
     expect(tooling.agents).toEqual(['auditor', 'reviewer']); // sorted, .md stripped, .txt ignored
   });
 
+  it('filters out implementer/planner — they should never be delegated to from the evaluator', async () => {
+    const agentsDir = join(projectDir, '.claude', 'agents');
+    await mkdir(agentsDir, { recursive: true });
+    await writeFile(join(agentsDir, 'implementer.md'), '');
+    await writeFile(join(agentsDir, 'planner.md'), '');
+    await writeFile(join(agentsDir, 'reviewer.md'), '');
+
+    const tooling = detectProjectTooling(projectDir);
+    expect(tooling.agents).toEqual(['reviewer']);
+  });
+
   it('detects skills as subdirectories of .claude/skills/', async () => {
     const skillsDir = join(projectDir, '.claude', 'skills');
     await mkdir(join(skillsDir, 'code-review'), { recursive: true });

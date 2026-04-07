@@ -1,6 +1,7 @@
 import { appendToFile } from '@src/utils/storage.ts';
 import { getEvaluationFilePath } from '@src/utils/paths.ts';
 import { unwrapOrThrow } from '@src/utils/result-helpers.ts';
+import type { EvaluationStatus } from '@src/schemas/index.ts';
 
 /**
  * Append an evaluation entry to the sidecar file for a task.
@@ -17,7 +18,7 @@ export async function writeEvaluation(
   sprintId: string,
   taskId: string,
   iteration: number,
-  status: 'passed' | 'failed' | 'malformed',
+  status: EvaluationStatus,
   body: string
 ): Promise<string> {
   const filePath = getEvaluationFilePath(sprintId, taskId);

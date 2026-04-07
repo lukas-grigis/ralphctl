@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -49,23 +49,36 @@ function safeListDir(path: string, predicate: (name: string) => boolean): string
   }
 }
 
-function safeIsDir(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
+/**
+ * Agents that should never be delegated to FROM the evaluator.
+ * - `implementer` IS the generator — delegating evaluation to it defeats the
+ *   independent-review purpose of the gen-eval split.
+ * - `planner` writes specs, not reviews — wrong tool for the job.
+ *
+ * Filtered out at detection time so they never appear in the rendered prompt.
+ * Models routinely ignore negative instructions in long contexts; the cleaner
+ * fix is to never list them at all.
+ */
+const EVALUATOR_DENYLISTED_AGENTS = new Set(['implementer', 'planner']);
 
 function detectAgents(projectPath: string): string[] {
   const agentsDir = join(projectPath, '.claude', 'agents');
-  return safeListDir(agentsDir, (name) => name.endsWith('.md')).map((name) => name.replace(/\.md$/, ''));
+  return safeListDir(agentsDir, (name) => name.endsWith('.md'))
+    .map((name) => name.replace(/\.md$/, ''))
+    .filter((name) => !EVALUATOR_DENYLISTED_AGENTS.has(name));
 }
 
 function detectSkills(projectPath: string): string[] {
   const skillsDir = join(projectPath, '.claude', 'skills');
-  if (!existsSync(skillsDir)) return [];
-  return safeListDir(skillsDir, (name) => safeIsDir(join(skillsDir, name)));
+  try {
+    if (!existsSync(skillsDir)) return [];
+    return readdirSync(skillsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 function detectMcpServers(projectPath: string): string[] {
@@ -192,8 +205,6 @@ function describeAgentHint(name: string): string | null {
     auditor: 'use for security-sensitive diffs (auth, input handling, file IO, secrets)',
     reviewer: 'use for general code-quality review of the diff',
     tester: 'use to assess test coverage and quality of new tests',
-    implementer: 'do NOT delegate evaluation to the implementer — it is the generator',
-    planner: 'do NOT delegate evaluation to the planner',
     designer: 'use for UI/UX/theming changes',
   };
   return hints[name] ?? null;

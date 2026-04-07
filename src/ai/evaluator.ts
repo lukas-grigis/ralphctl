@@ -1,6 +1,6 @@
 import { getActiveProvider } from '@src/providers/index.ts';
 import type { ProviderAdapter } from '@src/providers/types.ts';
-import type { Task } from '@src/schemas/index.ts';
+import type { EvaluationStatus, Task } from '@src/schemas/index.ts';
 import { spawnWithRetry } from '@src/ai/session.ts';
 import { buildEvaluatorPrompt, type EvaluatorPromptContext } from '@src/ai/prompts/index.ts';
 import { getSprintDir } from '@src/utils/paths.ts';
@@ -12,7 +12,10 @@ import type { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
  * the evaluator's job is review, not implementation — runaway evaluator
  * sessions are pure cost with no upside.
  */
-export const EVALUATOR_MAX_TURNS = 100;
+const EVALUATOR_MAX_TURNS = 100;
+
+// Re-export so existing callers that imported from evaluator.ts keep working.
+export type { EvaluationStatus };
 
 // ============================================================================
 // Model Ladder
@@ -47,13 +50,14 @@ export interface DimensionScore {
 }
 
 /**
- * Discriminator for evaluator outcomes.
+ * Discriminator semantics for `EvaluationStatus`:
  * - `passed`   — `<evaluation-passed>` signal present.
  * - `failed`   — `<evaluation-failed>` signal present, OR partial dimensions parsed but no signal.
  * - `malformed`— neither signal AND no dimension lines parsed (unusable evaluator output).
+ *
+ * The type itself lives in `src/schemas/index.ts` so the Zod schema is the
+ * single source of truth for the enum members.
  */
-export type EvaluationStatus = 'passed' | 'failed' | 'malformed';
-
 export interface EvaluationResult {
   passed: boolean;
   status: EvaluationStatus;
@@ -216,6 +220,8 @@ export async function runEvaluation(
   // Wait if a coordinator is paused (parallel executor only)
   await options?.coordinator?.waitIfPaused();
 
+  // spawnWithRetry already defaults maxRetries to DEFAULT_MAX_RETRIES when
+  // undefined — no need for a conditional guard here.
   const result = await spawnWithRetry(
     {
       cwd: task.projectPath,
@@ -223,7 +229,7 @@ export async function runEvaluation(
       prompt,
       env: p.getSpawnEnv(),
     },
-    options?.maxRetries != null ? { maxRetries: options.maxRetries } : undefined,
+    { maxRetries: options?.maxRetries },
     p
   );
 

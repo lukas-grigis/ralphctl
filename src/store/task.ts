@@ -1,6 +1,6 @@
 import { getTasksFilePath } from '@src/utils/paths.ts';
 import { readValidatedJson, writeValidatedJson } from '@src/utils/storage.ts';
-import { type Task, type Tasks, TasksSchema, type TaskStatus } from '@src/schemas/index.ts';
+import { type EvaluationStatus, type Task, type Tasks, TasksSchema, type TaskStatus } from '@src/schemas/index.ts';
 import { assertSprintStatus, getSprint, resolveSprintId } from '@src/store/sprint.ts';
 import { generateUuid8 } from '@src/utils/ids.ts';
 import { withFileLock } from '@src/utils/file-lock.ts';
@@ -129,7 +129,7 @@ export interface UpdateTaskInput {
   verificationOutput?: string;
   evaluated?: boolean;
   evaluationOutput?: string;
-  evaluationStatus?: 'passed' | 'failed' | 'malformed';
+  evaluationStatus?: EvaluationStatus;
   evaluationFile?: string;
 }
 

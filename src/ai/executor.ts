@@ -45,7 +45,8 @@ import { runLifecycleHook } from '@src/ai/lifecycle.ts';
 import { getActiveProvider } from '@src/providers/index.ts';
 import { verifySprintBranch } from '@src/ai/runner.ts';
 import { getEvaluationIterations } from '@src/store/config.ts';
-import { runEvaluation } from '@src/ai/evaluator.ts';
+import { type EvaluationResult, runEvaluation } from '@src/ai/evaluator.ts';
+import type { EvaluationStatus } from '@src/schemas/index.ts';
 
 // ============================================================================
 // TYPES
@@ -301,6 +302,48 @@ async function executeTask(
 const MAX_EVAL_OUTPUT = 2000;
 
 /**
+ * Run `runEvaluation` defensively: any thrown error is converted into a
+ * `'malformed'` result and logged. Rate-limit errors additionally pause the
+ * coordinator (parallel mode) so other generator tasks don't spawn into the
+ * same wall.
+ *
+ * The evaluator must never crash the sprint — per CLAUDE.md, evaluation never
+ * permanently blocks. This wrapper enforces that contract.
+ */
+async function runEvaluationSafely(
+  task: Task,
+  generatorModel: string | null,
+  checkScript: string | null,
+  sprintId: string,
+  provider: ProviderAdapter,
+  options: ExecutorOptions,
+  coordinator: RateLimitCoordinator | undefined
+): Promise<EvaluationResult> {
+  const evalR = await wrapAsync(
+    () =>
+      runEvaluation(task, generatorModel, checkScript, sprintId, provider, {
+        coordinator,
+        maxRetries: options.maxRetries,
+      }),
+    ensureError
+  );
+  if (evalR.ok) return evalR.value;
+
+  const err = evalR.error;
+  if (err instanceof SpawnError && err.rateLimited && coordinator) {
+    // Pause the global coordinator so parallel generator tasks back off too.
+    coordinator.pause(err.retryAfterMs ?? 60_000);
+  }
+  console.log(warning(`Evaluator spawn failed for ${task.name}: ${err.message} — marking malformed`));
+  return {
+    passed: false,
+    status: 'malformed',
+    output: `Evaluator spawn failed: ${err.message}`,
+    dimensions: [],
+  };
+}
+
+/**
  * Run the evaluation loop for a completed task.
  * Shared between sequential and parallel executors to avoid duplication.
  *
@@ -342,27 +385,34 @@ async function runEvaluationLoop(params: {
 
   const evalCheckScript = getEffectiveCheckScript(project, task.projectPath);
   const sprintDir = getSprintDir(sprintId);
-  const evalRunOptions = { coordinator, maxRetries: options.maxRetries };
 
-  let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider, evalRunOptions);
+  let evalResult = await runEvaluationSafely(
+    task,
+    result.model,
+    evalCheckScript,
+    sprintId,
+    provider,
+    options,
+    coordinator
+  );
 
-  // Persist iteration 0 (initial evaluation) to the sidecar before any fix attempts.
-  // The sidecar accumulates one entry per iteration so the user can inspect the trail.
-  let evaluationFile: string | null = null;
-  try {
-    evaluationFile = await writeEvaluation(sprintId, task.id, 1, evalResult.status, evalResult.output);
-  } catch (err) {
-    // Sidecar persistence failures must not block the eval loop — log and continue.
-    console.log(warning(`Could not persist evaluation sidecar for ${task.name}: ${ensureError(err).message}`));
-  }
+  // Persist the initial evaluation to the sidecar. For 'malformed' results we
+  // write a one-liner stub instead of the random text the evaluator emitted —
+  // future readers should not see garbage in the critique trail.
+  // Note: writes happen BEFORE the bail check below so the trail always has
+  // an iteration-1 entry, even on disk-write failure of subsequent iterations.
+  let evaluationFile: string | null = await tryWriteEvaluationEntry(sprintId, task, 1, evalResult);
 
   // Track the latest session ID and model across iterations — the generator may
   // produce new session IDs on each fix attempt, and we need the latest for resume.
   let currentSessionId = result.sessionId;
   let currentModel = result.model;
 
-  for (let i = 0; i < evalIterations && !evalResult.passed; i++) {
-    console.log(warning(`Evaluation failed for ${task.name} (iteration ${String(i + 1)}/${String(evalIterations)})`));
+  // Loop guard: bail before the first fix attempt if the result is malformed.
+  // Feeding garbage to the generator as a "critique" wastes a token-expensive
+  // spawn and risks confusing it into spurious changes.
+  for (let i = 0; i < evalIterations && !evalResult.passed && evalResult.status !== 'malformed'; i++) {
+    console.log(warning(`Evaluation failed for ${task.name} — fix attempt ${String(i + 1)}/${String(evalIterations)}`));
     console.log(muted(evalResult.output.slice(0, 500)));
 
     // Capture HEAD before resume so we can detect "generator did nothing" no-ops
@@ -403,7 +453,9 @@ async function runEvaluationLoop(params: {
 
     const fixResult = parseExecutionResult(resumeResult.stdout);
     if (!fixResult.success) {
-      console.log(warning(`Generator could not fix issues after feedback: ${task.name}`));
+      const reason = `Generator could not fix issues after feedback (no <task-complete> signal)`;
+      console.log(warning(`${reason}: ${task.name}`));
+      evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
       break;
     }
 
@@ -416,7 +468,9 @@ async function runEvaluationLoop(params: {
     const dirtyR = Result.try(() => hasUncommittedChanges(task.projectPath));
     const dirty = dirtyR.ok ? dirtyR.value : false;
     if (headBefore !== null && headAfter === headBefore && !dirty) {
-      console.log(warning(`Generator did not produce a fix (HEAD unchanged, no uncommitted changes): ${task.name}`));
+      const reason = 'Generator no-op (HEAD unchanged, no uncommitted changes)';
+      console.log(warning(`${reason}: ${task.name}`));
+      evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
       break;
     }
 
@@ -425,20 +479,26 @@ async function runEvaluationLoop(params: {
     if (recheckScript) {
       const recheckResult = runLifecycleHook(task.projectPath, recheckScript, 'taskComplete', checkTimeout);
       if (!recheckResult.passed) {
+        const reason = `Post-task check failed after generator fix: ${recheckResult.output.slice(0, 200)}`;
         console.log(warning(`Post-task check failed after generator fix: ${task.name}`));
+        evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
         break;
       }
     }
 
     // Re-evaluate using latest model from the fix attempt
-    evalResult = await runEvaluation(task, currentModel, evalCheckScript, sprintId, provider, evalRunOptions);
+    evalResult = await runEvaluationSafely(
+      task,
+      currentModel,
+      evalCheckScript,
+      sprintId,
+      provider,
+      options,
+      coordinator
+    );
 
     // Append the new iteration to the sidecar
-    try {
-      evaluationFile = await writeEvaluation(sprintId, task.id, i + 2, evalResult.status, evalResult.output);
-    } catch (err) {
-      console.log(warning(`Could not persist evaluation sidecar for ${task.name}: ${ensureError(err).message}`));
-    }
+    evaluationFile = await tryWriteEvaluationEntry(sprintId, task, i + 2, evalResult);
   }
 
   // Store evaluation result (truncated to prevent tasks.json bloat)
@@ -457,11 +517,48 @@ async function runEvaluationLoop(params: {
     console.log(warning(`Evaluator output was malformed for ${task.name} (no signal, no dimensions) — marking done`));
   } else if (!evalResult.passed) {
     console.log(
-      warning(`Evaluation did not pass after ${String(evalIterations)} iteration(s) — marking done: ${task.name}`)
+      warning(`Evaluation did not pass after ${String(evalIterations)} fix attempt(s) — marking done: ${task.name}`)
     );
   } else {
     console.log(success(`Evaluation passed: ${task.name}`));
   }
+}
+
+/** Append a real iteration entry to the sidecar; for malformed, write a stub instead of garbage. */
+async function tryWriteEvaluationEntry(
+  sprintId: string,
+  task: Task,
+  iteration: number,
+  evalResult: EvaluationResult
+): Promise<string | null> {
+  const body =
+    evalResult.status === 'malformed'
+      ? '_(evaluator output had no parseable signal — see executor stdout)_'
+      : evalResult.output;
+  return tryWriteEvaluationRaw(sprintId, task, iteration, evalResult.status, body);
+}
+
+/** Append a one-line bail stub so the sidecar trail is self-explanatory. */
+async function tryWriteEvaluationStub(
+  sprintId: string,
+  task: Task,
+  iteration: number,
+  reason: string
+): Promise<string | null> {
+  return tryWriteEvaluationRaw(sprintId, task, iteration, 'failed', `_(no re-evaluation: ${reason})_`);
+}
+
+async function tryWriteEvaluationRaw(
+  sprintId: string,
+  task: Task,
+  iteration: number,
+  status: EvaluationStatus,
+  body: string
+): Promise<string | null> {
+  const writeR = await wrapAsync(() => writeEvaluation(sprintId, task.id, iteration, status, body), ensureError);
+  if (writeR.ok) return writeR.value;
+  console.log(warning(`Could not persist evaluation sidecar for ${task.name}: ${writeR.error.message}`));
+  return null;
 }
 
 // ============================================================================
