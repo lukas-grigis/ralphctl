@@ -181,6 +181,28 @@ describe('parseEvaluationResult', () => {
     const result = parseEvaluationResult(output);
     expect(result.dimensions).toEqual([]);
   });
+
+  it('returns status=passed for the passed signal', () => {
+    expect(parseEvaluationResult('<evaluation-passed>').status).toBe('passed');
+  });
+
+  it('returns status=failed for the failed signal', () => {
+    expect(parseEvaluationResult('<evaluation-failed>x</evaluation-failed>').status).toBe('failed');
+  });
+
+  it('returns status=failed when no signal but dimensions parsed', () => {
+    const output = '**Correctness**: FAIL — bug at line 1';
+    const result = parseEvaluationResult(output);
+    expect(result.status).toBe('failed');
+    expect(result.passed).toBe(false);
+  });
+
+  it('returns status=malformed when neither signal nor dimensions found', () => {
+    const result = parseEvaluationResult('Random output with no structure');
+    expect(result.status).toBe('malformed');
+    expect(result.passed).toBe(false);
+    expect(result.dimensions).toEqual([]);
+  });
 });
 
 // ============================================================================
@@ -225,6 +247,12 @@ describe('buildEvaluatorContext', () => {
   it('sets checkScriptSection to null when no script', () => {
     const ctx = buildEvaluatorContext(baseTask, null);
     expect(ctx.checkScriptSection).toBeNull();
+  });
+
+  it('sets projectToolingSection to empty string when projectPath has no tooling', () => {
+    // baseTask.projectPath points at /home/user/project — almost certainly empty in test
+    const ctx = buildEvaluatorContext(baseTask, null);
+    expect(ctx.projectToolingSection).toBe('');
   });
 });
 
