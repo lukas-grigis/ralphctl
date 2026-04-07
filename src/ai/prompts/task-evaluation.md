@@ -22,6 +22,8 @@ You are working in this project directory:
 {{PROJECT_PATH}}
 ```
 
+{{PROJECT_TOOLING_SECTION}}
+
 ### Phase 1: Computational Verification (run before reasoning)
 
 Run deterministic checks first — these are cheap, fast, and authoritative.
