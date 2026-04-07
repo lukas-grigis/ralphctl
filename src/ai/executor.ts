@@ -302,6 +302,22 @@ async function executeTask(
 const MAX_EVAL_OUTPUT = 2000;
 
 /**
+ * Sentinel prefix applied to the `output` field of a synthetic
+ * `EvaluationResult` produced when the evaluator SPAWN crashed (as opposed
+ * to the evaluator actually running but emitting unparseable text).
+ *
+ * Two observably-different failure modes both end up with `status: 'malformed'`
+ * today (one discriminator would be cleaner — see the Pass 2 review note —
+ * but that's wider surgery than it's worth for a low-frequency edge case).
+ * The prefix lets us distinguish them when rendering to the sidecar / logs.
+ */
+const EVAL_SPAWN_FAILURE_PREFIX = 'Evaluator spawn failed:';
+
+function isEvalSpawnFailure(output: string): boolean {
+  return output.startsWith(EVAL_SPAWN_FAILURE_PREFIX);
+}
+
+/**
  * Run `runEvaluation` defensively: any thrown error is converted into a
  * `'malformed'` result and logged. Rate-limit errors additionally pause the
  * coordinator (parallel mode) so other generator tasks don't spawn into the
@@ -338,7 +354,7 @@ async function runEvaluationSafely(
   return {
     passed: false,
     status: 'malformed',
-    output: `Evaluator spawn failed: ${err.message}`,
+    output: `${EVAL_SPAWN_FAILURE_PREFIX} ${err.message}`,
     dimensions: [],
   };
 }
@@ -455,7 +471,10 @@ async function runEvaluationLoop(params: {
     if (!fixResult.success) {
       const reason = `Generator could not fix issues after feedback (no <task-complete> signal)`;
       console.log(warning(`${reason}: ${task.name}`));
-      evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+      // Only overwrite if the stub write succeeded — otherwise keep the prior
+      // (non-null) path from iteration 1 so tasks.json still points somewhere.
+      const stubPath = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+      if (stubPath) evaluationFile = stubPath;
       break;
     }
 
@@ -470,7 +489,8 @@ async function runEvaluationLoop(params: {
     if (headBefore !== null && headAfter === headBefore && !dirty) {
       const reason = 'Generator no-op (HEAD unchanged, no uncommitted changes)';
       console.log(warning(`${reason}: ${task.name}`));
-      evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+      const stubPath = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+      if (stubPath) evaluationFile = stubPath;
       break;
     }
 
@@ -481,7 +501,8 @@ async function runEvaluationLoop(params: {
       if (!recheckResult.passed) {
         const reason = `Post-task check failed after generator fix: ${recheckResult.output.slice(0, 200)}`;
         console.log(warning(`Post-task check failed after generator fix: ${task.name}`));
-        evaluationFile = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+        const stubPath = await tryWriteEvaluationStub(sprintId, task, i + 2, reason);
+        if (stubPath) evaluationFile = stubPath;
         break;
       }
     }
@@ -497,8 +518,10 @@ async function runEvaluationLoop(params: {
       coordinator
     );
 
-    // Append the new iteration to the sidecar
-    evaluationFile = await tryWriteEvaluationEntry(sprintId, task, i + 2, evalResult);
+    // Append the new iteration to the sidecar. Only overwrite on success so
+    // a disk-write failure here doesn't clobber iteration 1's valid path.
+    const entryPath = await tryWriteEvaluationEntry(sprintId, task, i + 2, evalResult);
+    if (entryPath) evaluationFile = entryPath;
   }
 
   // Store evaluation result (truncated to prevent tasks.json bloat)
@@ -514,7 +537,8 @@ async function runEvaluationLoop(params: {
   );
 
   if (evalResult.status === 'malformed') {
-    console.log(warning(`Evaluator output was malformed for ${task.name} (no signal, no dimensions) — marking done`));
+    const cause = isEvalSpawnFailure(evalResult.output) ? evalResult.output : 'no signal, no dimensions';
+    console.log(warning(`Evaluator output was malformed for ${task.name} (${cause}) — marking done`));
   } else if (!evalResult.passed) {
     console.log(
       warning(`Evaluation did not pass after ${String(evalIterations)} fix attempt(s) — marking done: ${task.name}`)
@@ -524,17 +548,26 @@ async function runEvaluationLoop(params: {
   }
 }
 
-/** Append a real iteration entry to the sidecar; for malformed, write a stub instead of garbage. */
+/**
+ * Append a real iteration entry to the sidecar. For malformed parser-rejection,
+ * write a stub instead of the garbage text the evaluator emitted. For malformed
+ * spawn-failure, preserve the actual error message — it's usually a
+ * network/quota/auth problem worth knowing about post-mortem.
+ */
 async function tryWriteEvaluationEntry(
   sprintId: string,
   task: Task,
   iteration: number,
   evalResult: EvaluationResult
 ): Promise<string | null> {
-  const body =
-    evalResult.status === 'malformed'
-      ? '_(evaluator output had no parseable signal — see executor stdout)_'
-      : evalResult.output;
+  let body: string;
+  if (evalResult.status === 'malformed') {
+    body = isEvalSpawnFailure(evalResult.output)
+      ? evalResult.output
+      : '_(evaluator output had no parseable signal — see executor stdout)_';
+  } else {
+    body = evalResult.output;
+  }
   return tryWriteEvaluationRaw(sprintId, task, iteration, evalResult.status, body);
 }
 
