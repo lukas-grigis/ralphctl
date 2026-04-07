@@ -55,12 +55,31 @@ pnpm typecheck && pnpm lint && pnpm test
   auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
 - **Evaluator pattern** — Generator-evaluator separation (independent code review after task completion):
   - `evaluationIterations` is global config (in config.json), not per-sprint or per-task
-  - Default fallback is 1 (one evaluation + one iteration attempt if fails); missing config is detected by `doctor` with warning
+  - **Semantics:** `evaluationIterations` is the number of FIX ATTEMPTS after the initial evaluation. Default `1` =
+    1 initial eval + up to 1 fix-and-reeval round = at most 2 evaluator spawns. `0` disables evaluation entirely.
+    Missing config is detected by `doctor` with a warning.
   - Evaluator uses model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku for Claude); Copilot evaluator uses same model (no control)
   - Evaluator is autonomous (full tool access, investigates diffs and context itself) — not a static diff review
+  - Evaluator runs with `--max-turns 100` (lower than executor's 200) — review work doesn't need a runaway budget
+  - Evaluator participates in the parallel-mode `RateLimitCoordinator` — won't spawn into 429s during global pauses
+  - Evaluator prompt includes a "Project Tooling" section listing available subagents (`.claude/agents/*.md`),
+    skills (`.claude/skills/`), MCP servers (`.mcp.json`), and instruction files. Evaluator is told to delegate to
+    `auditor`/`reviewer` subagents and use Playwright/etc MCPs when relevant. Detection lives in
+    `src/ai/project-tooling.ts`.
+  - **Verification and evaluation must adapt to the project's actual stack and tooling** — when no `checkScript` is
+    configured, the evaluator derives commands from `CLAUDE.md`/`AGENTS.md`/`package.json`. UI tasks should use a
+    Playwright MCP if one is installed. Security-sensitive diffs should be delegated to an `auditor` subagent if
+    one exists.
+  - Full critique is persisted to a sidecar file at `<sprintDir>/evaluations/<taskId>.md` (one entry per iteration,
+    appended). `tasks.json` keeps a 2000-char preview in `evaluationOutput`, the file path in `evaluationFile`, and
+    a status discriminator in `evaluationStatus` (`'passed' | 'failed' | 'malformed'`).
+  - `evaluationStatus = 'malformed'` means the evaluator output had no signal AND no parseable dimension lines —
+    distinct from a real failure so callers can tell unusable evaluator output apart from a real critique.
   - `--no-evaluate` CLI flag overrides global config for single run; in session/interactive mode, evaluation is disabled (model handles all feedback)
   - Evaluator never permanently blocks — task always completes; failure after all iterations logs warning but marks done
-  - Iteration loop: AI task → check gate → evaluation → if failed/iterations remain, resume generator with critique, re-check, re-evaluate → done
+  - Iteration loop: AI task → check gate → evaluation → persist sidecar → if failed AND fix attempts remain, resume
+    generator with critique → "did anything change?" guard (HEAD + dirty check) → re-check → re-evaluate → persist
+    next iteration → done
 - **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at
   command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
 

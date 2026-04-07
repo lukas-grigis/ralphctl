@@ -78,7 +78,14 @@ export async function setEditor(editor: string): Promise<void> {
 
 /**
  * Get the configured evaluation iteration count.
- * Returns the default (1) when the field is missing from config (safe fallback for upgrades).
+ *
+ * Semantics: this is the number of FIX ATTEMPTS after the initial evaluation,
+ * NOT the total number of evaluator spawns. Default `1` means: 1 initial
+ * evaluation + up to 1 fix-and-reeval round → at most 2 evaluator spawns.
+ * `0` disables evaluation entirely.
+ *
+ * Returns the default (1) when the field is missing from config (safe fallback
+ * for upgrades).
  */
 export async function getEvaluationIterations(): Promise<number> {
   const config = await getConfig();
@@ -86,7 +93,9 @@ export async function getEvaluationIterations(): Promise<number> {
 }
 
 /**
- * Set the evaluation iteration count (0 = disabled).
+ * Set the evaluation iteration count.
+ * Semantics: number of fix attempts after the initial evaluation.
+ * `0` disables evaluation entirely.
  */
 export async function setEvaluationIterations(iterations: number): Promise<void> {
   const config = await getConfig();
