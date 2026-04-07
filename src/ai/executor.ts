@@ -1,6 +1,9 @@
 import { confirm } from '@inquirer/prompts';
 import { readFile, unlink } from 'node:fs/promises';
+import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/utils/result-helpers.ts';
+import { getHeadSha, hasUncommittedChanges } from '@src/utils/git.ts';
+import { writeEvaluation } from '@src/store/evaluation.ts';
 import { highlight, info, muted, success, warning } from '@src/theme/index.ts';
 import { ProcessManager } from '@src/ai/process-manager.ts';
 import {
@@ -14,7 +17,7 @@ import {
 } from '@src/store/task.ts';
 import { getProgress, logProgress, summarizeProgressForContext } from '@src/store/progress.ts';
 import { getProgressFilePath, getSprintDir } from '@src/utils/paths.ts';
-import { buildTaskExecutionPrompt } from '@src/ai/prompts/index.ts';
+import { buildEvaluationResumePrompt, buildTaskExecutionPrompt } from '@src/ai/prompts/index.ts';
 import type { Project, Task } from '@src/schemas/index.ts';
 import { createSpinner, formatTaskStatus } from '@src/theme/ui.ts';
 import { type ExecutionResult, parseExecutionResult } from '@src/ai/parser.ts';
@@ -292,7 +295,9 @@ async function executeTask(
 // SHARED EVALUATION LOOP
 // ============================================================================
 
-/** Max characters to persist in evaluationOutput (prevents tasks.json bloat). */
+/** Max characters to persist in tasks.json `evaluationOutput` (prevents bloat).
+ *  The FULL critique always lives in the sidecar file at
+ *  `<sprintDir>/evaluations/<taskId>.md` — `evaluationOutput` is just a preview. */
 const MAX_EVAL_OUTPUT = 2000;
 
 /**
@@ -301,7 +306,13 @@ const MAX_EVAL_OUTPUT = 2000;
  *
  * Spawns an independent evaluator session, and if evaluation fails, resumes the
  * generator with critique, re-runs the check gate, and re-evaluates — up to
- * `evalIterations` times. Stores the evaluation result regardless of outcome.
+ * `evalIterations` fix attempts. Stores the evaluation result regardless of
+ * outcome.
+ *
+ * NOTE on iteration semantics: `evalIterations` is the number of FIX ATTEMPTS
+ * after the initial evaluation. So `evalIterations = 1` means: 1 initial eval +
+ * up to 1 fix-and-reeval round = at most 2 evaluator spawns total. This is
+ * intentional — see CLAUDE.md "Evaluator Pattern" section.
  */
 async function runEvaluationLoop(params: {
   task: Task;
@@ -313,6 +324,8 @@ async function runEvaluationLoop(params: {
   evalIterations: number;
   checkTimeout?: number;
   useSpinner?: boolean;
+  /** Optional coordinator so the evaluator participates in global rate-limit pauses. */
+  coordinator?: RateLimitCoordinator;
 }): Promise<void> {
   const {
     task,
@@ -324,11 +337,24 @@ async function runEvaluationLoop(params: {
     evalIterations,
     checkTimeout,
     useSpinner = false,
+    coordinator,
   } = params;
 
   const evalCheckScript = getEffectiveCheckScript(project, task.projectPath);
   const sprintDir = getSprintDir(sprintId);
-  let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider);
+  const evalRunOptions = { coordinator, maxRetries: options.maxRetries };
+
+  let evalResult = await runEvaluation(task, result.model, evalCheckScript, sprintId, provider, evalRunOptions);
+
+  // Persist iteration 0 (initial evaluation) to the sidecar before any fix attempts.
+  // The sidecar accumulates one entry per iteration so the user can inspect the trail.
+  let evaluationFile: string | null = null;
+  try {
+    evaluationFile = await writeEvaluation(sprintId, task.id, 1, evalResult.status, evalResult.output);
+  } catch (err) {
+    // Sidecar persistence failures must not block the eval loop — log and continue.
+    console.log(warning(`Could not persist evaluation sidecar for ${task.name}: ${ensureError(err).message}`));
+  }
 
   // Track the latest session ID and model across iterations — the generator may
   // produce new session IDs on each fix attempt, and we need the latest for resume.
@@ -339,13 +365,21 @@ async function runEvaluationLoop(params: {
     console.log(warning(`Evaluation failed for ${task.name} (iteration ${String(i + 1)}/${String(evalIterations)})`));
     console.log(muted(evalResult.output.slice(0, 500)));
 
-    // Resume generator with critique
+    // Capture HEAD before resume so we can detect "generator did nothing" no-ops
+    const headBefore = getHeadSha(task.projectPath);
+
+    // Resume generator with critique (template lives in task-evaluation-resume.md)
+    const resumePrompt = buildEvaluationResumePrompt({
+      critique: evalResult.output,
+      needsCommit: !options.noCommit,
+    });
+
     const resumeSpinner = useSpinner ? createSpinner(`Fixing evaluation issues: ${task.name}`).start() : null;
     const resumeResult = await spawnWithRetry(
       {
         cwd: task.projectPath,
         args: ['--add-dir', sprintDir, ...buildProviderArgs(options, provider)],
-        prompt: `The evaluator found issues with your implementation:\n\n${evalResult.output}\n\nReview the critique carefully. Fix each identified issue in the code, then:\n1. Re-run verification commands to confirm the fix\n${options.noCommit ? '' : '2. Commit the fix with a descriptive message\n'}${options.noCommit ? '2' : '3'}. Signal completion with <task-verified> and <task-complete>\n\nIf the critique is about something outside your task scope, fix only what is within scope and signal completion.`,
+        prompt: resumePrompt,
         resumeSessionId: currentSessionId ?? undefined,
         env: provider.getSpawnEnv(),
       },
@@ -373,7 +407,20 @@ async function runEvaluationLoop(params: {
       break;
     }
 
-    // Re-run check script
+    // "Did anything actually change?" guard. If HEAD is the same and the
+    // working tree is clean, the generator no-opped — running another full
+    // evaluator spawn would just produce the same critique. Bail early.
+    const headAfter = getHeadSha(task.projectPath);
+    // hasUncommittedChanges throws when not a git repo — treat that as "clean"
+    // (we can't detect a no-op without git, so we can't bail safely either).
+    const dirtyR = Result.try(() => hasUncommittedChanges(task.projectPath));
+    const dirty = dirtyR.ok ? dirtyR.value : false;
+    if (headBefore !== null && headAfter === headBefore && !dirty) {
+      console.log(warning(`Generator did not produce a fix (HEAD unchanged, no uncommitted changes): ${task.name}`));
+      break;
+    }
+
+    // Re-run check script (now correctly threading checkTimeout in both modes)
     const recheckScript = getEffectiveCheckScript(project, task.projectPath);
     if (recheckScript) {
       const recheckResult = runLifecycleHook(task.projectPath, recheckScript, 'taskComplete', checkTimeout);
@@ -384,7 +431,14 @@ async function runEvaluationLoop(params: {
     }
 
     // Re-evaluate using latest model from the fix attempt
-    evalResult = await runEvaluation(task, currentModel, evalCheckScript, sprintId, provider);
+    evalResult = await runEvaluation(task, currentModel, evalCheckScript, sprintId, provider, evalRunOptions);
+
+    // Append the new iteration to the sidecar
+    try {
+      evaluationFile = await writeEvaluation(sprintId, task.id, i + 2, evalResult.status, evalResult.output);
+    } catch (err) {
+      console.log(warning(`Could not persist evaluation sidecar for ${task.name}: ${ensureError(err).message}`));
+    }
   }
 
   // Store evaluation result (truncated to prevent tasks.json bloat)
@@ -392,12 +446,16 @@ async function runEvaluationLoop(params: {
     task.id,
     {
       evaluated: true,
+      evaluationStatus: evalResult.status,
       evaluationOutput: evalResult.output.slice(0, MAX_EVAL_OUTPUT),
+      ...(evaluationFile ? { evaluationFile } : {}),
     },
     sprintId
   );
 
-  if (!evalResult.passed) {
+  if (evalResult.status === 'malformed') {
+    console.log(warning(`Evaluator output was malformed for ${task.name} (no signal, no dimensions) — marking done`));
+  } else if (!evalResult.passed) {
     console.log(
       warning(`Evaluation did not pass after ${String(evalIterations)} iteration(s) — marking done: ${task.name}`)
     );
@@ -595,9 +653,10 @@ export async function executeTaskLoop(
 
     // Post-task check hook — run checkScript as a gate before marking done
     const checkScript = getEffectiveCheckScript(project, task.projectPath);
+    const sequentialRepo = project?.repositories.find((r) => r.path === task.projectPath);
     if (checkScript) {
       console.log(muted(`Running post-task check: ${checkScript}`));
-      const hookResult = runLifecycleHook(task.projectPath, checkScript, 'taskComplete');
+      const hookResult = runLifecycleHook(task.projectPath, checkScript, 'taskComplete', sequentialRepo?.checkTimeout);
       if (!hookResult.passed) {
         console.log(warning(`\nPost-task check failed for: ${task.name}`));
         console.log(muted('Task remains in_progress. Execution paused.'));
@@ -615,7 +674,8 @@ export async function executeTaskLoop(
       console.log(success('Post-task check: passed'));
     }
 
-    // Evaluation loop (if enabled)
+    // Evaluation loop (if enabled). Sequential mode has no rate-limit
+    // coordinator — there's only one in-flight task at a time.
     if (evalIterations > 0 && !options.noEvaluate && !options.session) {
       await runEvaluationLoop({
         task,
@@ -625,6 +685,7 @@ export async function executeTaskLoop(
         provider,
         options,
         evalIterations,
+        checkTimeout: sequentialRepo?.checkTimeout,
         useSpinner: true,
       });
     }
@@ -1055,7 +1116,8 @@ export async function executeTaskLoopParallel(
           console.log(success(`Post-task check passed: ${settled.task.name}`));
         }
 
-        // Evaluation loop (if enabled)
+        // Evaluation loop (if enabled). Pass the rate-limit coordinator so the
+        // evaluator participates in global pauses instead of spawning into 429s.
         if (evalIterations > 0 && !options.noEvaluate && !options.session) {
           const taskRepo = taskProject?.repositories.find((r) => r.path === settled.task.projectPath);
           await runEvaluationLoop({
@@ -1067,6 +1129,7 @@ export async function executeTaskLoopParallel(
             options,
             evalIterations,
             checkTimeout: taskRepo?.checkTimeout,
+            coordinator,
           });
         }
 

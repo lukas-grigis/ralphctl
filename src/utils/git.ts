@@ -139,6 +139,25 @@ export function getDefaultBranch(cwd: string): string {
 }
 
 /**
+ * Get the SHA of HEAD for the given repo. Returns null if the repo is empty
+ * or not a git repository — never throws.
+ */
+export function getHeadSha(cwd: string): string | null {
+  try {
+    assertSafeCwd(cwd);
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (result.status !== 0) return null;
+    return result.stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if the working directory has uncommitted changes (staged or unstaged).
  */
 export function hasUncommittedChanges(cwd: string): boolean {
