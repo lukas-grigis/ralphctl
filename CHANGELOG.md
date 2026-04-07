@@ -5,6 +5,46 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-04-07
+
+### Added
+
+- **Sidecar critique persistence** — Full untruncated evaluator critique persisted to
+  `<sprintDir>/evaluations/<taskId>.md`, one entry per iteration. `tasks.json` keeps a 2000-char preview in
+  `evaluationOutput`, the file path in `evaluationFile`, and a status discriminator in `evaluationStatus`
+  (`'passed' | 'failed' | 'malformed'`). Bail cases (no `<task-complete>`, generator no-op, recheck failure) append
+  self-explanatory stub entries so the trail is readable without cross-referencing executor stdout (#60)
+- **Project tooling detection** — Evaluator prompt now surfaces installed `.claude/agents/*.md`, `.claude/skills/`,
+  `.mcp.json` servers, and instruction files (`CLAUDE.md` / `AGENTS.md` / `.github/copilot-instructions.md`) with
+  prescriptive delegation hints (`auditor` for security-sensitive diffs, `reviewer` for code quality, Playwright MCP
+  for UI tasks). `implementer` and `planner` are denylisted at detection time so the evaluator never delegates back
+  to its own generator side (#60)
+- **Malformed evaluator status** — New `'malformed'` discriminator distinguishes "evaluator output had no parseable
+  signal" from a real failure. The fix loop now bails before feeding garbage to the generator as a "critique" (#60)
+
+### Changed
+
+- **Evaluator participates in parallel rate-limit coordinator** — Waits during global pauses and triggers them on its
+  own 429s, so generator tasks back off when the evaluator hits the wall first instead of stampeding into the same
+  wall (#60)
+- **Evaluator capped at 100 turns** — Lower than executor's 200; review work doesn't need a runaway budget (#60)
+- **Evaluator spawn failures no longer crash the sprint** — `runEvaluation` calls are wrapped in a safe helper that
+  converts errors to malformed results, matching the "evaluator never permanently blocks" contract documented in
+  CLAUDE.md (#60)
+- **`evaluationIterations` semantics clarified** — Now documented as "number of fix attempts after the initial
+  evaluation". Default `1` = 1 initial eval + up to 1 fix-and-reeval round = at most 2 evaluator spawns. `0` disables
+  evaluation entirely (#60)
+- **Resume prompt extracted to template file** — Inline 7-line generator-resume prompt moved from `executor.ts` to
+  `src/ai/prompts/task-evaluation-resume.md` so it can be reviewed alongside the other prompt templates (#60)
+
+### Fixed
+
+- **Sequential post-task check ignored per-repo `checkTimeout`** — Now correctly threaded into both `runLifecycleHook`
+  and the evaluation loop's recheck. Parallel mode was already correct; only the sequential path was affected (#60)
+- **No-op generator fix attempts now break the loop** — After a generator resume, the executor compares HEAD SHA and
+  working-tree state; if neither changed, it bails instead of burning another evaluator spawn on the same critique
+  (#60)
+
 ## [0.2.3] - 2026-04-06
 
 ### Added
