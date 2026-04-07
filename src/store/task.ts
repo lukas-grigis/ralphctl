@@ -129,6 +129,8 @@ export interface UpdateTaskInput {
   verificationOutput?: string;
   evaluated?: boolean;
   evaluationOutput?: string;
+  evaluationStatus?: 'passed' | 'failed' | 'malformed';
+  evaluationFile?: string;
 }
 
 export async function updateTask(taskId: string, updates: UpdateTaskInput, sprintId?: string): Promise<Task> {
@@ -159,6 +161,12 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
     }
     if (updates.evaluationOutput !== undefined) {
       task.evaluationOutput = updates.evaluationOutput;
+    }
+    if (updates.evaluationStatus !== undefined) {
+      task.evaluationStatus = updates.evaluationStatus;
+    }
+    if (updates.evaluationFile !== undefined) {
+      task.evaluationFile = updates.evaluationFile;
     }
 
     await saveTasks(tasks, id);

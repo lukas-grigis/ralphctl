@@ -63,6 +63,15 @@ export function getProgressFilePath(sprintId: string): string {
   return join(getSprintDir(sprintId), 'progress.md');
 }
 
+export function getEvaluationsDir(sprintId: string): string {
+  return join(getSprintDir(sprintId), 'evaluations');
+}
+
+export function getEvaluationFilePath(sprintId: string, taskId: string): string {
+  assertSafeSegment(taskId, 'task ID');
+  return join(getEvaluationsDir(sprintId), `${taskId}.md`);
+}
+
 /** Validate a segment (ticketId, etc.) does not contain path traversal. */
 function assertSafeSegment(segment: string, label: string): void {
   if (!segment || segment.includes('/') || segment.includes('\\') || segment.includes('..') || segment.includes('\0')) {

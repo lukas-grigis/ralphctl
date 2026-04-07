@@ -89,6 +89,17 @@ describe('tasks.schema.json ↔ TaskSchema', () => {
     expectStringArrayProperty(props, 'blockedBy', { defaultEmpty: true });
   });
 
+  it('evaluationStatus enum is mirrored in JSON schema', () => {
+    const jsonEnum = getEnum(props, 'evaluationStatus', 'enum');
+    expect(jsonEnum).toEqual(['passed', 'failed', 'malformed']);
+  });
+
+  it('evaluationFile is declared in JSON schema', () => {
+    const prop = props['evaluationFile'] as JsonSchema | undefined;
+    expect(prop).toBeDefined();
+    expect(prop?.['type']).toBe('string');
+  });
+
   it('Zod schema accepts a valid task object', () => {
     const valid = {
       id: 'abc12345',
