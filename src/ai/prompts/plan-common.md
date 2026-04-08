@@ -78,7 +78,7 @@ Aim for 2-4 criteria per task. Include at least one criterion that is computatio
 lint clean). For **UI/frontend tasks**, if the project has Playwright configured, add a browser-verifiable criterion —
 the evaluator will attempt visual verification using Playwright or browser tools when the project supports it.
 
-### Rules
+### Guidelines
 
 1. **Outcome-oriented** — Each task delivers a testable result
 2. **Merge create+use** — Never separate "create X" from "use X" — that is one task
@@ -108,7 +108,7 @@ the evaluator will attempt visual verification using Playwright or browser tools
 
 Tasks execute in dependency order — foundations before dependents.
 
-### Rules
+### Guidelines
 
 1. **Foundation first** — Shared utilities, types, schemas before anything that uses them
 2. **Declare all dependencies** — Use `blockedBy` to enforce order. Do not rely on array position alone.

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   buildAutoPrompt,
@@ -10,6 +13,8 @@ import {
   buildTicketRefinePrompt,
 } from './index.ts';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -17,6 +22,20 @@ import {
 /** Returns all unreplaced {{PLACEHOLDER}} tokens found in text. */
 function findUnreplacedTokens(text: string): string[] {
   return [...text.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
+}
+
+/** Marker phrases unique to each shared partial — used to assert inlining. */
+const PARTIAL_MARKERS = {
+  harnessContext: /automatically compacted/,
+  validation: /Pre-Output Validation/,
+  signalsTask: '<task-verified>',
+  signalsPlanning: '<planning-blocked>',
+  signalsEvaluation: '<evaluation-passed>',
+} as const;
+
+/** Loads a raw template from disk for placeholder-coverage tests. */
+function loadRawTemplate(name: string): string {
+  return readFileSync(join(__dirname, `${name}.md`), 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -418,4 +437,206 @@ describe('prompt builders produce distinct output for distinct inputs', () => {
     const headless = buildIdeateAutoPrompt('title', 'desc', 'proj', '/repo', schema);
     expect(interactive).not.toBe(headless);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Shared partial inlining — verifies harness-context, signals-*, validation
+// are actually injected into the prompts that should reference them.
+// ---------------------------------------------------------------------------
+
+describe('shared partial inlining', () => {
+  describe('harness-context partial', () => {
+    it('is inlined into task-execution', () => {
+      const result = buildTaskExecutionPrompt('/tmp/p.md', false, 'ctx.md');
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into task-evaluation', () => {
+      const result = buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+      });
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into task-evaluation-resume', () => {
+      const result = buildEvaluationResumePrompt({ critique: 'x', needsCommit: false });
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into plan-auto', () => {
+      const result = buildAutoPrompt('ctx', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into plan-interactive', () => {
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into ideate', () => {
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is inlined into ideate-auto', () => {
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+
+    it('is NOT inlined into ticket-refine (refinement is bounded by criteria, not tokens)', () => {
+      const result = buildTicketRefinePrompt('## Ticket\n\nTitle: x', '/out.json', '{}');
+      expect(result).not.toMatch(PARTIAL_MARKERS.harnessContext);
+    });
+  });
+
+  describe('signals partials (role-scoped)', () => {
+    it('signals-task is inlined into task-execution', () => {
+      const result = buildTaskExecutionPrompt('/tmp/p.md', false, 'ctx.md');
+      expect(result).toContain(PARTIAL_MARKERS.signalsTask);
+    });
+
+    it('signals-task is inlined into task-evaluation-resume', () => {
+      const result = buildEvaluationResumePrompt({ critique: 'x', needsCommit: false });
+      expect(result).toContain(PARTIAL_MARKERS.signalsTask);
+    });
+
+    it('signals-planning is inlined into plan-auto', () => {
+      const result = buildAutoPrompt('ctx', '{}');
+      expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
+    });
+
+    it('signals-planning is inlined into plan-interactive', () => {
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
+    });
+
+    it('signals-planning is inlined into ideate', () => {
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
+    });
+
+    it('signals-planning is inlined into ideate-auto', () => {
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
+    });
+
+    it('signals-evaluation is inlined into task-evaluation', () => {
+      const result = buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+      });
+      expect(result).toContain(PARTIAL_MARKERS.signalsEvaluation);
+    });
+
+    it('ticket-refine emits no signals (refinement does not produce signal output)', () => {
+      const result = buildTicketRefinePrompt('## Ticket\n\nTitle: x', '/out.json', '{}');
+      expect(result).not.toContain(PARTIAL_MARKERS.signalsTask);
+      expect(result).not.toContain(PARTIAL_MARKERS.signalsPlanning);
+      expect(result).not.toContain(PARTIAL_MARKERS.signalsEvaluation);
+    });
+  });
+
+  describe('validation-checklist partial (planner-role only)', () => {
+    it('is inlined into plan-auto', () => {
+      const result = buildAutoPrompt('ctx', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is inlined into plan-interactive', () => {
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is inlined into ideate', () => {
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is inlined into ideate-auto', () => {
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      expect(result).toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is NOT inlined into task-execution (execution is not a planning role)', () => {
+      const result = buildTaskExecutionPrompt('/tmp/p.md', false, 'ctx.md');
+      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is NOT inlined into ticket-refine', () => {
+      const result = buildTicketRefinePrompt('## Ticket\n\nTitle: x', '/out.json', '{}');
+      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+    });
+
+    it('is NOT inlined into task-evaluation', () => {
+      const result = buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+      });
+      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Generic prompt audits — leakage and ralphctl-specific content
+// ---------------------------------------------------------------------------
+
+describe('prompt template generic-content audits', () => {
+  // Templates loaded from disk so the audit reflects actual file content,
+  // not what a builder happens to substitute.
+  const TEMPLATE_NAMES = [
+    'plan-auto',
+    'plan-interactive',
+    'plan-common',
+    'ideate',
+    'ideate-auto',
+    'ticket-refine',
+    'task-execution',
+    'task-evaluation',
+    'task-evaluation-resume',
+    'harness-context',
+    'signals-task',
+    'signals-planning',
+    'signals-evaluation',
+    'validation-checklist',
+  ] as const;
+
+  for (const name of TEMPLATE_NAMES) {
+    describe(`${name}.md`, () => {
+      const raw = loadRawTemplate(name);
+
+      it('does not reference ralphctl by name', () => {
+        // Prompts run in DOWNSTREAM projects — they must stay generic.
+        expect(raw.toLowerCase()).not.toContain('ralphctl');
+      });
+
+      it('does not hardcode harness-specific subagent names', () => {
+        // Subagent names come from runtime detection of the target project's
+        // .claude/agents/ directory, not from prompt content. Hardcoding any
+        // name would mislead planners working against projects without it.
+        // We check for backtick-quoted occurrences to avoid false positives
+        // from generic English usage of "reviewer" / "tester" / etc. in prose.
+        const hardcoded = ['`auditor`', '`reviewer`', '`tester`', '`designer`', '`implementer`', '`planner`'];
+        for (const needle of hardcoded) {
+          expect(raw).not.toContain(needle);
+        }
+      });
+    });
+  }
 });

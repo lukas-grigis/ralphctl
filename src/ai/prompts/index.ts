@@ -18,32 +18,73 @@ function loadTemplate(name: string): string {
   return readFileSync(join(promptDir, `${name}.md`), 'utf-8');
 }
 
-function buildPlanPrompt(template: string, context: string, schema: string): string {
-  const common = loadTemplate('plan-common');
-  return template.replace('{{COMMON}}', common).replace('{{CONTEXT}}', context).replace('{{SCHEMA}}', schema);
+/**
+ * Loads a partial template and normalizes trailing whitespace so consumers
+ * can safely concatenate or substitute without leaving double blank lines.
+ */
+function loadPartial(name: string): string {
+  return loadTemplate(name).replace(/\s+$/, '');
+}
+
+/**
+ * Substitutes every {{KEY}} placeholder in `template` with values from
+ * `substitutions`. Throws if any {{...}} token remains after substitution —
+ * this guarantees every placeholder is explicitly handled by the caller.
+ */
+function composePrompt(template: string, substitutions: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(substitutions)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  const remaining = result.match(/\{\{[A-Z_]+\}\}/g);
+  if (remaining) {
+    throw new Error(`composePrompt: unreplaced placeholders: ${[...new Set(remaining)].join(', ')}`);
+  }
+  return result;
 }
 
 export function buildInteractivePrompt(context: string, outputFile: string, schema: string): string {
   const template = loadTemplate('plan-interactive');
-  return buildPlanPrompt(template, context, schema).replace('{{OUTPUT_FILE}}', outputFile);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: loadPartial('plan-common'),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+    CONTEXT: context,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+  });
 }
 
 export function buildAutoPrompt(context: string, schema: string): string {
   const template = loadTemplate('plan-auto');
-  return buildPlanPrompt(template, context, schema);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: loadPartial('plan-common'),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+    CONTEXT: context,
+    SCHEMA: schema,
+  });
 }
 
 export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string {
   const template = loadTemplate('task-execution');
+  // COMMIT_STEP renders as a sub-bullet under Phase 3 step 2 (verification). Keeping it
+  // as a nested list item avoids the list-gap anti-pattern: when noCommit is true, the
+  // substitution is the empty string and the surrounding numbered list stays intact.
   const commitStep = noCommit
     ? ''
-    : '\n> **Before continuing:** Create a git commit with a descriptive message for the changes made.\n';
+    : '\n   - **Before continuing:** Create a git commit with a descriptive message for the changes made.';
   const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.\n';
-  return template
-    .replaceAll('{{PROGRESS_FILE}}', progressFilePath)
-    .replaceAll('{{COMMIT_STEP}}', commitStep)
-    .replaceAll('{{COMMIT_CONSTRAINT}}', commitConstraint)
-    .replaceAll('{{CONTEXT_FILE}}', contextFileName);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-task'),
+    PROGRESS_FILE: progressFilePath,
+    COMMIT_STEP: commitStep,
+    COMMIT_CONSTRAINT: commitConstraint,
+    CONTEXT_FILE: contextFileName,
+  });
 }
 
 export function buildTicketRefinePrompt(
@@ -53,11 +94,12 @@ export function buildTicketRefinePrompt(
   issueContext = ''
 ): string {
   const template = loadTemplate('ticket-refine');
-  return template
-    .replace('{{TICKET}}', ticketContent)
-    .replace('{{OUTPUT_FILE}}', outputFile)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{ISSUE_CONTEXT}}', issueContext);
+  return composePrompt(template, {
+    TICKET: ticketContent,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+    ISSUE_CONTEXT: issueContext,
+  });
 }
 
 export function buildIdeatePrompt(
@@ -69,15 +111,18 @@ export function buildIdeatePrompt(
   schema: string
 ): string {
   const template = loadTemplate('ideate');
-  const common = loadTemplate('plan-common');
-  return template
-    .replace('{{IDEA_TITLE}}', ideaTitle)
-    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
-    .replace('{{PROJECT_NAME}}', projectName)
-    .replace('{{REPOSITORIES}}', repositories)
-    .replace('{{OUTPUT_FILE}}', outputFile)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{COMMON}}', common);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: loadPartial('plan-common'),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+    IDEA_TITLE: ideaTitle,
+    IDEA_DESCRIPTION: ideaDescription,
+    PROJECT_NAME: projectName,
+    REPOSITORIES: repositories,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+  });
 }
 
 export function buildIdeateAutoPrompt(
@@ -88,14 +133,17 @@ export function buildIdeateAutoPrompt(
   schema: string
 ): string {
   const template = loadTemplate('ideate-auto');
-  const common = loadTemplate('plan-common');
-  return template
-    .replace('{{IDEA_TITLE}}', ideaTitle)
-    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
-    .replace('{{PROJECT_NAME}}', projectName)
-    .replace('{{REPOSITORIES}}', repositories)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{COMMON}}', common);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: loadPartial('plan-common'),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+    IDEA_TITLE: ideaTitle,
+    IDEA_DESCRIPTION: ideaDescription,
+    PROJECT_NAME: projectName,
+    REPOSITORIES: repositories,
+    SCHEMA: schema,
+  });
 }
 
 export interface EvaluatorPromptContext {
@@ -128,14 +176,17 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
 
   const checkSection = ctx.checkScriptSection ? `\n\n${ctx.checkScriptSection}` : '';
 
-  return template
-    .replaceAll('{{TASK_NAME}}', ctx.taskName)
-    .replace('{{TASK_DESCRIPTION_SECTION}}', descriptionSection)
-    .replace('{{TASK_STEPS_SECTION}}', stepsSection)
-    .replace('{{VERIFICATION_CRITERIA_SECTION}}', criteriaSection)
-    .replace('{{PROJECT_PATH}}', ctx.projectPath)
-    .replace('{{CHECK_SCRIPT_SECTION}}', checkSection)
-    .replace('{{PROJECT_TOOLING_SECTION}}', ctx.projectToolingSection);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-evaluation'),
+    TASK_NAME: ctx.taskName,
+    TASK_DESCRIPTION_SECTION: descriptionSection,
+    TASK_STEPS_SECTION: stepsSection,
+    VERIFICATION_CRITERIA_SECTION: criteriaSection,
+    PROJECT_PATH: ctx.projectPath,
+    CHECK_SCRIPT_SECTION: checkSection,
+    PROJECT_TOOLING_SECTION: ctx.projectToolingSection,
+  });
 }
 
 export interface EvaluationResumePromptContext {
@@ -155,5 +206,10 @@ export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext):
   const commitInstruction = ctx.needsCommit
     ? '\n   - **Then commit the fix** with a descriptive message before signaling completion.'
     : '';
-  return template.replace('{{CRITIQUE}}', ctx.critique).replace('{{COMMIT_INSTRUCTION}}', commitInstruction);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-task'),
+    CRITIQUE: ctx.critique,
+    COMMIT_INSTRUCTION: commitInstruction,
+  });
 }
