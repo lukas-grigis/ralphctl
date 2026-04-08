@@ -116,6 +116,46 @@ export function detectProjectTooling(projectPath: string): ProjectTooling {
 }
 
 /**
+ * Detect tooling across multiple project paths and return the union — used by
+ * the planner, which spans multiple repositories selected for a sprint. Each
+ * field contains the deduplicated, sorted union across all paths; boolean
+ * flags OR across paths (true if ANY path has the file).
+ *
+ * Empty input returns the empty tooling object.
+ */
+export function detectProjectToolingAcrossPaths(projectPaths: string[]): ProjectTooling {
+  if (projectPaths.length === 0) {
+    return EMPTY_TOOLING;
+  }
+
+  const agents = new Set<string>();
+  const skills = new Set<string>();
+  const mcpServers = new Set<string>();
+  let hasClaudeMd = false;
+  let hasAgentsMd = false;
+  let hasCopilotInstructions = false;
+
+  for (const path of projectPaths) {
+    const tooling = detectProjectTooling(path);
+    for (const agent of tooling.agents) agents.add(agent);
+    for (const skill of tooling.skills) skills.add(skill);
+    for (const server of tooling.mcpServers) mcpServers.add(server);
+    hasClaudeMd = hasClaudeMd || tooling.hasClaudeMd;
+    hasAgentsMd = hasAgentsMd || tooling.hasAgentsMd;
+    hasCopilotInstructions = hasCopilotInstructions || tooling.hasCopilotInstructions;
+  }
+
+  return {
+    agents: [...agents].sort(),
+    skills: [...skills].sort(),
+    mcpServers: [...mcpServers].sort(),
+    hasClaudeMd,
+    hasAgentsMd,
+    hasCopilotInstructions,
+  };
+}
+
+/**
  * Render a markdown section instructing the evaluator how to use the detected
  * tooling. Returns an empty string when no tooling is found, so the evaluator
  * prompt template can render `{{PROJECT_TOOLING_SECTION}}` unconditionally.

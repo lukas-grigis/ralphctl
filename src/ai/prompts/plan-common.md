@@ -205,3 +205,19 @@ commands.
 
 Start with an action verb (Add, Create, Update, Fix, Refactor, Remove, Migrate). Include the feature/concept, not files.
 Keep under 60 characters. Avoid vague verbs (Improve, Enhance, Handle).
+
+## Delegation to Available Tooling
+
+The "Project Tooling" section below (when present) lists subagents, skills, and MCP servers detected in the target
+repositories. Use these in your task planning:
+
+- **Surface tool delegation in task steps.** When a step's nature matches an available tool's specialization, write
+  the step so the executor knows to delegate. For example, if the tooling section lists a subagent specialized in
+  security review, security-sensitive task steps should explicitly recommend invoking it via the Task tool. Generic
+  pseudo-step: _"Delegate the final review of authentication changes to the `<name>` subagent via the Task tool."_
+- **Pull verification criteria from available tools.** UI tasks should add browser-verifiable criteria when a
+  Playwright or similar MCP is listed. Database tasks should reference DB-inspection MCPs when present.
+- **Do not invent tools.** Only reference tools that actually appear in the Project Tooling section. If the section is
+  empty or absent, omit delegation recommendations entirely — do not fabricate subagent names.
+
+{{PROJECT_TOOLING}}

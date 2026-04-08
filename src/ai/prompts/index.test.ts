@@ -48,34 +48,41 @@ describe('buildInteractivePrompt', () => {
   const schema = '{"type":"array","items":{}}';
 
   it('produces non-empty output', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(result.length).toBeGreaterThan(0);
   });
 
   it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the context in the output', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(result).toContain('Ticket: Add login');
   });
 
   it('includes the output file path', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(result).toContain(outputFile);
   });
 
   it('includes the JSON schema', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(result).toContain(schema);
   });
 
   it('inlines the plan-common template content', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema);
+    const result = buildInteractivePrompt(context, outputFile, schema, '');
     // plan-common contains sections about "What Makes a Great Task" or "Dependency Graph"
     expect(result).toMatch(/What Makes a Great Task|Dependency Graph/i);
+  });
+
+  it('inlines the project tooling section when provided', () => {
+    const tooling = '## Project Tooling\n\n- agent: my-reviewer-agent';
+    const result = buildInteractivePrompt(context, outputFile, schema, tooling);
+    expect(result).toContain('## Project Tooling');
+    expect(result).toContain('my-reviewer-agent');
   });
 });
 
@@ -88,34 +95,41 @@ describe('buildAutoPrompt', () => {
   const schema = '{"type":"array"}';
 
   it('produces non-empty output', () => {
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(result.length).toBeGreaterThan(0);
   });
 
   it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the context in the output', () => {
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(result).toContain('Ticket: Migrate database');
   });
 
   it('includes the JSON schema', () => {
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(result).toContain(schema);
   });
 
   it('inlines plan-common content', () => {
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(result).toMatch(/What Makes a Great Task|Dependency Graph/i);
   });
 
   it('does not include OUTPUT_FILE (auto mode writes directly)', () => {
     // Auto mode outputs JSON directly — there is no output file placeholder
-    const result = buildAutoPrompt(context, schema);
+    const result = buildAutoPrompt(context, schema, '');
     expect(result).not.toContain('{{OUTPUT_FILE}}');
+  });
+
+  it('inlines the project tooling section when provided', () => {
+    const tooling = '## Project Tooling\n\n- agent: my-reviewer-agent';
+    const result = buildAutoPrompt(context, schema, tooling);
+    expect(result).toContain('## Project Tooling');
+    expect(result).toContain('my-reviewer-agent');
   });
 });
 
@@ -255,48 +269,63 @@ describe('buildIdeatePrompt', () => {
   const schema = '{"type":"object"}';
 
   it('produces non-empty output', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result.length).toBeGreaterThan(0);
   });
 
   it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the idea title', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(ideaTitle);
   });
 
   it('includes the idea description', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(ideaDescription);
   });
 
   it('includes the project name', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(projectName);
   });
 
   it('includes the repositories', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(repositories);
   });
 
   it('includes the output file path', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(outputFile);
   });
 
   it('includes the JSON schema', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toContain(schema);
   });
 
   it('inlines plan-common content', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema);
+    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result).toMatch(/What Makes a Great Task|Dependency Graph/i);
+  });
+
+  it('inlines the project tooling section when provided', () => {
+    const tooling = '## Project Tooling\n\n- agent: my-reviewer-agent';
+    const result = buildIdeatePrompt(
+      ideaTitle,
+      ideaDescription,
+      projectName,
+      repositories,
+      outputFile,
+      schema,
+      tooling
+    );
+    expect(result).toContain('## Project Tooling');
+    expect(result).toContain('my-reviewer-agent');
   });
 });
 
@@ -312,48 +341,55 @@ describe('buildIdeateAutoPrompt', () => {
   const schema = '{"type":"object","properties":{"tasks":{"type":"array"}}}';
 
   it('produces non-empty output', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result.length).toBeGreaterThan(0);
   });
 
   it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the idea title', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(ideaTitle);
   });
 
   it('includes the idea description', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(ideaDescription);
   });
 
   it('includes the project name', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(projectName);
   });
 
   it('includes the repositories', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(repositories);
   });
 
   it('includes the JSON schema', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(schema);
   });
 
   it('inlines plan-common content', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toMatch(/What Makes a Great Task|Dependency Graph/i);
   });
 
   it('does not include OUTPUT_FILE (auto mode outputs directly)', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema);
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).not.toContain('{{OUTPUT_FILE}}');
+  });
+
+  it('inlines the project tooling section when provided', () => {
+    const tooling = '## Project Tooling\n\n- agent: my-reviewer-agent';
+    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, tooling);
+    expect(result).toContain('## Project Tooling');
+    expect(result).toContain('my-reviewer-agent');
   });
 });
 
@@ -426,15 +462,15 @@ describe('prompt builders produce distinct output for distinct inputs', () => {
   it('buildInteractivePrompt and buildAutoPrompt produce different text', () => {
     const ctx = 'context';
     const schema = '{}';
-    const interactive = buildInteractivePrompt(ctx, '/output.json', schema);
-    const auto = buildAutoPrompt(ctx, schema);
+    const interactive = buildInteractivePrompt(ctx, '/output.json', schema, '');
+    const auto = buildAutoPrompt(ctx, schema, '');
     expect(interactive).not.toBe(auto);
   });
 
   it('buildIdeatePrompt and buildIdeateAutoPrompt produce different text', () => {
     const schema = '{}';
-    const interactive = buildIdeatePrompt('title', 'desc', 'proj', '/repo', '/out.json', schema);
-    const headless = buildIdeateAutoPrompt('title', 'desc', 'proj', '/repo', schema);
+    const interactive = buildIdeatePrompt('title', 'desc', 'proj', '/repo', '/out.json', schema, '');
+    const headless = buildIdeateAutoPrompt('title', 'desc', 'proj', '/repo', schema, '');
     expect(interactive).not.toBe(headless);
   });
 });
@@ -470,22 +506,22 @@ describe('shared partial inlining', () => {
     });
 
     it('is inlined into plan-auto', () => {
-      const result = buildAutoPrompt('ctx', '{}');
+      const result = buildAutoPrompt('ctx', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into plan-interactive', () => {
-      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into ideate', () => {
-      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into ideate-auto', () => {
-      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
     });
 
@@ -507,22 +543,22 @@ describe('shared partial inlining', () => {
     });
 
     it('signals-planning is inlined into plan-auto', () => {
-      const result = buildAutoPrompt('ctx', '{}');
+      const result = buildAutoPrompt('ctx', '{}', '');
       expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
     });
 
     it('signals-planning is inlined into plan-interactive', () => {
-      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
       expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
     });
 
     it('signals-planning is inlined into ideate', () => {
-      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
       expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
     });
 
     it('signals-planning is inlined into ideate-auto', () => {
-      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
       expect(result).toContain(PARTIAL_MARKERS.signalsPlanning);
     });
 
@@ -549,22 +585,22 @@ describe('shared partial inlining', () => {
 
   describe('validation-checklist partial (planner-role only)', () => {
     it('is inlined into plan-auto', () => {
-      const result = buildAutoPrompt('ctx', '{}');
+      const result = buildAutoPrompt('ctx', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into plan-interactive', () => {
-      const result = buildInteractivePrompt('ctx', '/out.json', '{}');
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into ideate', () => {
-      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}');
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into ideate-auto', () => {
-      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}');
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
       expect(result).toMatch(PARTIAL_MARKERS.validation);
     });
 

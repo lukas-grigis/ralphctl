@@ -43,11 +43,27 @@ function composePrompt(template: string, substitutions: Record<string, string>):
   return result;
 }
 
-export function buildInteractivePrompt(context: string, outputFile: string, schema: string): string {
+/**
+ * Compose the `plan-common` partial with the project tooling section
+ * pre-substituted. Planner builders do this as a first pass so the outer
+ * `composePrompt` call can plug the result into `{{COMMON}}` as opaque text.
+ */
+function buildPlanCommon(projectToolingSection: string): string {
+  return composePrompt(loadPartial('plan-common'), {
+    PROJECT_TOOLING: projectToolingSection,
+  });
+}
+
+export function buildInteractivePrompt(
+  context: string,
+  outputFile: string,
+  schema: string,
+  projectToolingSection: string
+): string {
   const template = loadTemplate('plan-interactive');
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: loadPartial('plan-common'),
+    COMMON: buildPlanCommon(projectToolingSection),
     VALIDATION: loadPartial('validation-checklist'),
     SIGNALS: loadPartial('signals-planning'),
     CONTEXT: context,
@@ -56,11 +72,11 @@ export function buildInteractivePrompt(context: string, outputFile: string, sche
   });
 }
 
-export function buildAutoPrompt(context: string, schema: string): string {
+export function buildAutoPrompt(context: string, schema: string, projectToolingSection: string): string {
   const template = loadTemplate('plan-auto');
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: loadPartial('plan-common'),
+    COMMON: buildPlanCommon(projectToolingSection),
     VALIDATION: loadPartial('validation-checklist'),
     SIGNALS: loadPartial('signals-planning'),
     CONTEXT: context,
@@ -108,12 +124,13 @@ export function buildIdeatePrompt(
   projectName: string,
   repositories: string,
   outputFile: string,
-  schema: string
+  schema: string,
+  projectToolingSection: string
 ): string {
   const template = loadTemplate('ideate');
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: loadPartial('plan-common'),
+    COMMON: buildPlanCommon(projectToolingSection),
     VALIDATION: loadPartial('validation-checklist'),
     SIGNALS: loadPartial('signals-planning'),
     IDEA_TITLE: ideaTitle,
@@ -130,12 +147,13 @@ export function buildIdeateAutoPrompt(
   ideaDescription: string,
   projectName: string,
   repositories: string,
-  schema: string
+  schema: string,
+  projectToolingSection: string
 ): string {
   const template = loadTemplate('ideate-auto');
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: loadPartial('plan-common'),
+    COMMON: buildPlanCommon(projectToolingSection),
     VALIDATION: loadPartial('validation-checklist'),
     SIGNALS: loadPartial('signals-planning'),
     IDEA_TITLE: ideaTitle,
