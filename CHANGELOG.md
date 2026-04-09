@@ -5,6 +5,35 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-04-09
+
+### Changed
+
+- **Prompt templates consolidated into shared partials** — `harness-context`, `signals-task|planning|evaluation`,
+  `validation-checklist`, and `plan-common` live as standalone `.md` files and are composed into each template at
+  build time. Eliminates literal duplication across all 7 prompt templates; adding new shared content is now a
+  one-line change (#61)
+- **Strict `composePrompt()` contract** — Builder throws synchronously on any unreplaced `{{TOKEN}}` instead of
+  silently rendering empty placeholders. Closes the silent-failure class called out in `CLAUDE.md` about missing
+  substitutions (#61)
+- **Target-project tooling threaded into planner and ideate prompts** — `sprint plan` and `sprint ideate` now surface
+  the downstream project's `.claude/agents/*.md`, `.claude/skills/`, `.mcp.json` servers, and instruction files with
+  prescriptive delegation hints in generated task steps. Previously only the evaluator prompt (0.2.4) saw this.
+  `implementer` and `planner` remain denylisted at detection time so the evaluator never delegates back to its own
+  generator side (#61)
+- **Prompt audit tests** — New per-template assertions enforce "prompts run in downstream projects — never hardcode
+  ralphctl's own name or subagents" as test-as-documentation. Fails at CI time if a future template drifts (#61)
+
+### Documentation
+
+- **README refresh** — Surface branch-per-sprint workflow (`--branch`, `sprint close --create-pr`), the
+  `sprint insights` command, and `evaluationIterations` tuning with the `--no-evaluate` single-run escape hatch —
+  all shipped since the 0.2.2 README redesign but were never documented (#61)
+- **ARCHITECTURE.md sync** — Drop phantom `Ticket.externalId` and `DuplicateTicketError`; add `Repository.checkTimeout`,
+  `Task.verificationCriteria`, `Task.evaluationStatus`, `Task.evaluationFile`, the `evaluations/` sidecar directory,
+  and the top-level `insights/` directory. Error-class table now reflects what's actually exported from
+  `src/errors.ts` (#61)
+
 ## [0.2.4] - 2026-04-07
 
 ### Added
