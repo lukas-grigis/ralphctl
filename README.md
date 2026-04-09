@@ -99,6 +99,8 @@ Or run `ralphctl` with no arguments for an interactive menu that walks you throu
 - **Catch mistakes before they compound** — independent AI review after each task, iterating until quality passes or
   budget is exhausted
 - **Coordinate across repositories** — one sprint can span multiple repos with automatic dependency tracking
+- **Branch per sprint** — optional shared branch across every affected repo, with `sprint close --create-pr` to open
+  pull requests when you're done
 - **Run tasks in parallel** — one per repo, with rate-limit backoff and automatic session resume
 - **Separate the what from the how** — AI clarifies requirements first, then generates implementation tasks, with human
   approval gates
@@ -118,6 +120,15 @@ ralphctl config set provider copilot     # Use GitHub Copilot
 ```
 
 Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and authenticated.
+
+Tune the generator-evaluator loop:
+
+```bash
+ralphctl config set evaluationIterations 2   # Up to 2 fix attempts per task (default: 1)
+ralphctl config set evaluationIterations 0   # Disable evaluation entirely
+```
+
+`sprint start --no-evaluate` skips evaluation for a single run without touching the global setting.
 
 <details>
 <summary>Provider differences</summary>
@@ -181,15 +192,16 @@ export RALPHCTL_ROOT="/path/to/custom/data-dir"
 
 ### Execution & Monitoring
 
-| Command                  | Description                       |
-| ------------------------ | --------------------------------- |
-| `ralphctl sprint start`  | Execute tasks with AI             |
-| `ralphctl sprint health` | Diagnose blockers and stale tasks |
-| `ralphctl status`        | Sprint overview with progress bar |
-| `ralphctl task list`     | List tasks in the current sprint  |
-| `ralphctl task next`     | Show the next unblocked task      |
-| `ralphctl sprint close`  | Close an active sprint            |
-| `ralphctl sprint delete` | Delete a sprint permanently       |
+| Command                    | Description                                            |
+| -------------------------- | ------------------------------------------------------ |
+| `ralphctl sprint start`    | Execute tasks with AI (`--branch` for a sprint branch) |
+| `ralphctl sprint health`   | Diagnose blockers and stale tasks                      |
+| `ralphctl sprint insights` | Analyze evaluator results across tasks                 |
+| `ralphctl status`          | Sprint overview with progress bar                      |
+| `ralphctl task list`       | List tasks in the current sprint                       |
+| `ralphctl task next`       | Show the next unblocked task                           |
+| `ralphctl sprint close`    | Close an active sprint (`--create-pr` for PRs)         |
+| `ralphctl sprint delete`   | Delete a sprint permanently                            |
 
 Run `ralphctl <command> --help` for details on any command.
 
