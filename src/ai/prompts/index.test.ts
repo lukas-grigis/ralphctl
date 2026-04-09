@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   buildAutoPrompt,
@@ -11,32 +8,21 @@ import {
   buildInteractivePrompt,
   buildTaskExecutionPrompt,
   buildTicketRefinePrompt,
+  loadPartial,
 } from './index.ts';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns all unreplaced {{PLACEHOLDER}} tokens found in text. */
-function findUnreplacedTokens(text: string): string[] {
-  return [...text.matchAll(/\{\{[A-Z_]+\}\}/g)].map((m) => m[0]);
-}
-
-/** Marker phrases unique to each shared partial — used to assert inlining. */
+/** Marker substrings unique to each shared partial — used to assert inlining. */
 const PARTIAL_MARKERS = {
-  harnessContext: /automatically compacted/,
-  validation: /Pre-Output Validation/,
+  harnessContext: 'automatically compacted',
+  validation: 'Pre-Output Validation',
   signalsTask: '<task-verified>',
   signalsPlanning: '<planning-blocked>',
   signalsEvaluation: '<evaluation-passed>',
 } as const;
-
-/** Loads a raw template from disk for placeholder-coverage tests. */
-function loadRawTemplate(name: string): string {
-  return readFileSync(join(__dirname, `${name}.md`), 'utf-8');
-}
 
 // ---------------------------------------------------------------------------
 // buildInteractivePrompt
@@ -50,11 +36,6 @@ describe('buildInteractivePrompt', () => {
   it('produces non-empty output', () => {
     const result = buildInteractivePrompt(context, outputFile, schema, '');
     expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildInteractivePrompt(context, outputFile, schema, '');
-    expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the context in the output', () => {
@@ -97,11 +78,6 @@ describe('buildAutoPrompt', () => {
   it('produces non-empty output', () => {
     const result = buildAutoPrompt(context, schema, '');
     expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildAutoPrompt(context, schema, '');
-    expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the context in the output', () => {
@@ -217,16 +193,6 @@ describe('buildTicketRefinePrompt', () => {
     expect(result.length).toBeGreaterThan(0);
   });
 
-  it('leaves no unreplaced {{...}} tokens when all args provided', () => {
-    const result = buildTicketRefinePrompt(ticket, outputFile, schema, 'Issue context here');
-    expect(findUnreplacedTokens(result)).toEqual([]);
-  });
-
-  it('leaves no unreplaced tokens when issueContext is omitted (defaults to empty string)', () => {
-    const result = buildTicketRefinePrompt(ticket, outputFile, schema);
-    expect(findUnreplacedTokens(result)).toEqual([]);
-  });
-
   it('includes the ticket content', () => {
     const result = buildTicketRefinePrompt(ticket, outputFile, schema);
     expect(result).toContain('Add export feature');
@@ -271,11 +237,6 @@ describe('buildIdeatePrompt', () => {
   it('produces non-empty output', () => {
     const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
     expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositories, outputFile, schema, '');
-    expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes the idea title', () => {
@@ -345,11 +306,6 @@ describe('buildIdeateAutoPrompt', () => {
     expect(result.length).toBeGreaterThan(0);
   });
 
-  it('leaves no unreplaced {{...}} tokens', () => {
-    const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
-    expect(findUnreplacedTokens(result)).toEqual([]);
-  });
-
   it('includes the idea title', () => {
     const result = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositories, schema, '');
     expect(result).toContain(ideaTitle);
@@ -408,11 +364,6 @@ describe('buildEvaluatorPrompt', () => {
     projectToolingSection: '',
   };
 
-  it('leaves no unreplaced {{...}} tokens with empty optional sections', () => {
-    const result = buildEvaluatorPrompt(baseCtx);
-    expect(findUnreplacedTokens(result)).toEqual([]);
-  });
-
   it('renders verification criteria as a bullet list', () => {
     const result = buildEvaluatorPrompt(baseCtx);
     expect(result).toContain('Returns 400 for invalid');
@@ -440,7 +391,6 @@ describe('buildEvaluationResumePrompt', () => {
   it('embeds the critique into the template', () => {
     const result = buildEvaluationResumePrompt({ critique: 'Bug at src/foo.ts:42', needsCommit: false });
     expect(result).toContain('Bug at src/foo.ts:42');
-    expect(findUnreplacedTokens(result)).toEqual([]);
   });
 
   it('includes a commit instruction when needsCommit is true', () => {
@@ -484,7 +434,7 @@ describe('shared partial inlining', () => {
   describe('harness-context partial', () => {
     it('is inlined into task-execution', () => {
       const result = buildTaskExecutionPrompt('/tmp/p.md', false, 'ctx.md');
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into task-evaluation', () => {
@@ -497,37 +447,37 @@ describe('shared partial inlining', () => {
         checkScriptSection: null,
         projectToolingSection: '',
       });
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into task-evaluation-resume', () => {
       const result = buildEvaluationResumePrompt({ critique: 'x', needsCommit: false });
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into plan-auto', () => {
       const result = buildAutoPrompt('ctx', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into plan-interactive', () => {
       const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into ideate', () => {
       const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is inlined into ideate-auto', () => {
       const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
 
     it('is NOT inlined into ticket-refine (refinement is bounded by criteria, not tokens)', () => {
       const result = buildTicketRefinePrompt('## Ticket\n\nTitle: x', '/out.json', '{}');
-      expect(result).not.toMatch(PARTIAL_MARKERS.harnessContext);
+      expect(result).not.toContain(PARTIAL_MARKERS.harnessContext);
     });
   });
 
@@ -586,32 +536,32 @@ describe('shared partial inlining', () => {
   describe('validation-checklist partial (planner-role only)', () => {
     it('is inlined into plan-auto', () => {
       const result = buildAutoPrompt('ctx', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.validation);
+      expect(result).toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into plan-interactive', () => {
       const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.validation);
+      expect(result).toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into ideate', () => {
       const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.validation);
+      expect(result).toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is inlined into ideate-auto', () => {
       const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
-      expect(result).toMatch(PARTIAL_MARKERS.validation);
+      expect(result).toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is NOT inlined into task-execution (execution is not a planning role)', () => {
       const result = buildTaskExecutionPrompt('/tmp/p.md', false, 'ctx.md');
-      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+      expect(result).not.toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is NOT inlined into ticket-refine', () => {
       const result = buildTicketRefinePrompt('## Ticket\n\nTitle: x', '/out.json', '{}');
-      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+      expect(result).not.toContain(PARTIAL_MARKERS.validation);
     });
 
     it('is NOT inlined into task-evaluation', () => {
@@ -624,7 +574,7 @@ describe('shared partial inlining', () => {
         checkScriptSection: null,
         projectToolingSection: '',
       });
-      expect(result).not.toMatch(PARTIAL_MARKERS.validation);
+      expect(result).not.toContain(PARTIAL_MARKERS.validation);
     });
   });
 });
@@ -655,7 +605,7 @@ describe('prompt template generic-content audits', () => {
 
   for (const name of TEMPLATE_NAMES) {
     describe(`${name}.md`, () => {
-      const raw = loadRawTemplate(name);
+      const raw = loadPartial(name);
 
       it('does not reference ralphctl by name', () => {
         // Prompts run in DOWNSTREAM projects — they must stay generic.

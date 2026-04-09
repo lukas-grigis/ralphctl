@@ -26,7 +26,7 @@ import { getProject, listProjects } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getIdeateDir } from '@src/utils/paths.ts';
 import { buildIdeateAutoPrompt, buildIdeatePrompt } from '@src/ai/prompts/index.ts';
-import { detectProjectToolingAcrossPaths, renderProjectToolingSection } from '@src/ai/project-tooling.ts';
+import { buildProjectToolingSection } from '@src/ai/project-tooling.ts';
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
@@ -323,7 +323,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   await mkdir(ideateDir, { recursive: true });
 
   // Detect tooling across the repos the user selected for this idea.
-  const projectToolingSection = renderProjectToolingSection(detectProjectToolingAcrossPaths(selectedPaths));
+  const projectToolingSection = buildProjectToolingSection(selectedPaths);
 
   if (options.auto) {
     // Headless mode - AI generates autonomously

@@ -19,24 +19,25 @@ function loadTemplate(name: string): string {
 }
 
 /**
- * Loads a partial template and normalizes trailing whitespace so consumers
- * can safely concatenate or substitute without leaving double blank lines.
+ * Trailing whitespace is trimmed so consumers can concatenate partials
+ * without leaving double blank lines at the seams.
  */
-function loadPartial(name: string): string {
+export function loadPartial(name: string): string {
   return loadTemplate(name).replace(/\s+$/, '');
 }
 
+const UNREPLACED_TOKEN_RE = /\{\{[A-Z_]+\}\}/g;
+
 /**
- * Substitutes every {{KEY}} placeholder in `template` with values from
- * `substitutions`. Throws if any {{...}} token remains after substitution —
- * this guarantees every placeholder is explicitly handled by the caller.
+ * The strict throw is the contract: any missing substitution is a bug in the
+ * caller's map, not a runtime degradation we want to tolerate silently.
  */
 function composePrompt(template: string, substitutions: Record<string, string>): string {
   let result = template;
   for (const [key, value] of Object.entries(substitutions)) {
     result = result.replaceAll(`{{${key}}}`, value);
   }
-  const remaining = result.match(/\{\{[A-Z_]+\}\}/g);
+  const remaining = result.match(UNREPLACED_TOKEN_RE);
   if (remaining) {
     throw new Error(`composePrompt: unreplaced placeholders: ${[...new Set(remaining)].join(', ')}`);
   }
@@ -44,14 +45,33 @@ function composePrompt(template: string, substitutions: Record<string, string>):
 }
 
 /**
- * Compose the `plan-common` partial with the project tooling section
- * pre-substituted. Planner builders do this as a first pass so the outer
- * `composePrompt` call can plug the result into `{{COMMON}}` as opaque text.
+ * Planner builders substitute `{{PROJECT_TOOLING}}` inside `plan-common`
+ * first so the outer `composePrompt` can plug the result into `{{COMMON}}`
+ * as opaque text.
  */
 function buildPlanCommon(projectToolingSection: string): string {
   return composePrompt(loadPartial('plan-common'), {
     PROJECT_TOOLING: projectToolingSection,
   });
+}
+
+/**
+ * Substitutions shared by all planner-role builders (plan-auto,
+ * plan-interactive, ideate, ideate-auto). Keeping them in one place means
+ * adding a new planner partial is a one-line change.
+ */
+function buildPlannerBase(projectToolingSection: string): {
+  HARNESS_CONTEXT: string;
+  COMMON: string;
+  VALIDATION: string;
+  SIGNALS: string;
+} {
+  return {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: buildPlanCommon(projectToolingSection),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+  };
 }
 
 export function buildInteractivePrompt(
@@ -60,12 +80,8 @@ export function buildInteractivePrompt(
   schema: string,
   projectToolingSection: string
 ): string {
-  const template = loadTemplate('plan-interactive');
-  return composePrompt(template, {
-    HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: buildPlanCommon(projectToolingSection),
-    VALIDATION: loadPartial('validation-checklist'),
-    SIGNALS: loadPartial('signals-planning'),
+  return composePrompt(loadTemplate('plan-interactive'), {
+    ...buildPlannerBase(projectToolingSection),
     CONTEXT: context,
     OUTPUT_FILE: outputFile,
     SCHEMA: schema,
@@ -73,12 +89,8 @@ export function buildInteractivePrompt(
 }
 
 export function buildAutoPrompt(context: string, schema: string, projectToolingSection: string): string {
-  const template = loadTemplate('plan-auto');
-  return composePrompt(template, {
-    HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: buildPlanCommon(projectToolingSection),
-    VALIDATION: loadPartial('validation-checklist'),
-    SIGNALS: loadPartial('signals-planning'),
+  return composePrompt(loadTemplate('plan-auto'), {
+    ...buildPlannerBase(projectToolingSection),
     CONTEXT: context,
     SCHEMA: schema,
   });
@@ -127,12 +139,8 @@ export function buildIdeatePrompt(
   schema: string,
   projectToolingSection: string
 ): string {
-  const template = loadTemplate('ideate');
-  return composePrompt(template, {
-    HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: buildPlanCommon(projectToolingSection),
-    VALIDATION: loadPartial('validation-checklist'),
-    SIGNALS: loadPartial('signals-planning'),
+  return composePrompt(loadTemplate('ideate'), {
+    ...buildPlannerBase(projectToolingSection),
     IDEA_TITLE: ideaTitle,
     IDEA_DESCRIPTION: ideaDescription,
     PROJECT_NAME: projectName,
@@ -150,12 +158,8 @@ export function buildIdeateAutoPrompt(
   schema: string,
   projectToolingSection: string
 ): string {
-  const template = loadTemplate('ideate-auto');
-  return composePrompt(template, {
-    HARNESS_CONTEXT: loadPartial('harness-context'),
-    COMMON: buildPlanCommon(projectToolingSection),
-    VALIDATION: loadPartial('validation-checklist'),
-    SIGNALS: loadPartial('signals-planning'),
+  return composePrompt(loadTemplate('ideate-auto'), {
+    ...buildPlannerBase(projectToolingSection),
     IDEA_TITLE: ideaTitle,
     IDEA_DESCRIPTION: ideaDescription,
     PROJECT_NAME: projectName,
@@ -203,7 +207,7 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
     VERIFICATION_CRITERIA_SECTION: criteriaSection,
     PROJECT_PATH: ctx.projectPath,
     CHECK_SCRIPT_SECTION: checkSection,
-    PROJECT_TOOLING_SECTION: ctx.projectToolingSection,
+    PROJECT_TOOLING: ctx.projectToolingSection,
   });
 }
 
@@ -214,11 +218,6 @@ export interface EvaluationResumePromptContext {
   needsCommit: boolean;
 }
 
-/**
- * Build the prompt that resumes the generator after a failed evaluation.
- * Lives in `task-evaluation-resume.md` so it can be reviewed alongside the
- * other prompt templates instead of being a string literal in executor.ts.
- */
 export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext): string {
   const template = loadTemplate('task-evaluation-resume');
   const commitInstruction = ctx.needsCommit

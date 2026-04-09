@@ -31,7 +31,7 @@ import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getPlanningDir } from '@src/utils/paths.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/ai/prompts/index.ts';
-import { detectProjectToolingAcrossPaths, renderProjectToolingSection } from '@src/ai/project-tooling.ts';
+import { buildProjectToolingSection } from '@src/ai/project-tooling.ts';
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
@@ -379,7 +379,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   // Detect tooling across ALL selected repos — planner spans multiple paths,
   // so we union what's available and feed it into the prompt. Empty when
   // none of the selected repos have any subagents/skills/MCP servers.
-  const projectToolingSection = renderProjectToolingSection(detectProjectToolingAcrossPaths(selectedPaths));
+  const projectToolingSection = buildProjectToolingSection(selectedPaths);
 
   if (options.auto) {
     // Headless mode - AI generates and we import

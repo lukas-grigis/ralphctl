@@ -156,12 +156,25 @@ export function detectProjectToolingAcrossPaths(projectPaths: string[]): Project
 }
 
 /**
- * Render a markdown section instructing the evaluator how to use the detected
- * tooling. Returns an empty string when no tooling is found, so the evaluator
- * prompt template can render `{{PROJECT_TOOLING_SECTION}}` unconditionally.
+ * Build a rendered project tooling section from one or more project paths.
+ * Accepts a single path (evaluator — one task, one repo) or an array (planner —
+ * sprint may span multiple repos, union is taken).
  *
- * The section is purposefully *prescriptive* — it tells the evaluator WHEN to
- * use each piece of tooling, not just that it exists. Per the article, vague
+ * Returns an empty string when no tooling is detected, so consuming templates
+ * can render the placeholder unconditionally.
+ */
+export function buildProjectToolingSection(paths: string | readonly string[]): string {
+  const tooling = typeof paths === 'string' ? detectProjectTooling(paths) : detectProjectToolingAcrossPaths([...paths]);
+  return renderProjectToolingSection(tooling);
+}
+
+/**
+ * Render a markdown section instructing the agent how to use the detected
+ * tooling. Returns an empty string when no tooling is found, so consumers can
+ * substitute the result into a template placeholder unconditionally.
+ *
+ * The section is purposefully *prescriptive* — it tells the agent WHEN to use
+ * each piece of tooling, not just that it exists. Per the article, vague
  * "you may use these tools" instructions are routinely ignored by models.
  */
 export function renderProjectToolingSection(tooling: ProjectTooling): string {
