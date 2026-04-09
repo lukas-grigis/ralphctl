@@ -19,8 +19,12 @@ function loadTemplate(name: string): string {
 }
 
 /**
- * Trailing whitespace is trimmed so consumers can concatenate partials
- * without leaving double blank lines at the seams.
+ * Loads a raw prompt partial from disk, trimming trailing whitespace so consumers
+ * can concatenate partials without leaving double blank lines at the seams.
+ *
+ * @internal Exported only so prompt-audit tests (index.test.ts) can enumerate raw
+ * template files. Not intended for production callers — use the `build*Prompt`
+ * functions instead, which compose partials through `composePrompt`.
  */
 export function loadPartial(name: string): string {
   return loadTemplate(name).replace(/\s+$/, '');

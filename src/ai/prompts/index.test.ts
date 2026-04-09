@@ -12,6 +12,17 @@ import {
 } from './index.ts';
 
 // ---------------------------------------------------------------------------
+// Invariant — unreplaced {{TOKEN}} placeholders
+// ---------------------------------------------------------------------------
+// composePrompt() (src/ai/prompts/index.ts) throws synchronously when any
+// {{…}} placeholder remains after substitution. Every builder test below that
+// calls a build*() function therefore doubles as an assertion of complete key
+// coverage: a missing substitution surfaces as a thrown Error, not as silent
+// empty output. Do NOT re-add per-builder "no unreplaced tokens" assertions —
+// they would be redundant with the composePrompt contract.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
