@@ -26,6 +26,7 @@ import { getProject, listProjects } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getIdeateDir } from '@src/utils/paths.ts';
 import { buildIdeateAutoPrompt, buildIdeatePrompt } from '@src/ai/prompts/index.ts';
+import { buildProjectToolingSection } from '@src/ai/project-tooling.ts';
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { IdeateOutputSchema, type Repository } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
@@ -321,9 +322,19 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   const ideateDir = getIdeateDir(id, ticket.id);
   await mkdir(ideateDir, { recursive: true });
 
+  // Detect tooling across the repos the user selected for this idea.
+  const projectToolingSection = buildProjectToolingSection(selectedPaths);
+
   if (options.auto) {
     // Headless mode - AI generates autonomously
-    const prompt = buildIdeateAutoPrompt(ideaTitle, ideaDescription, projectName, repositoriesText, schema);
+    const prompt = buildIdeateAutoPrompt(
+      ideaTitle,
+      ideaDescription,
+      projectName,
+      repositoriesText,
+      schema,
+      projectToolingSection
+    );
     const spinner = createSpinner(`${providerName} is refining idea and planning tasks...`);
     spinner.start();
 
@@ -423,7 +434,15 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   } else {
     // Interactive mode - user iterates with AI
     const outputFile = join(ideateDir, 'output.json');
-    const prompt = buildIdeatePrompt(ideaTitle, ideaDescription, projectName, repositoriesText, outputFile, schema);
+    const prompt = buildIdeatePrompt(
+      ideaTitle,
+      ideaDescription,
+      projectName,
+      repositoriesText,
+      outputFile,
+      schema,
+      projectToolingSection
+    );
 
     showInfo(`Starting interactive ${providerName} session...`);
     console.log(muted(`  Exploring: ${selectedPaths.join(', ')}`));

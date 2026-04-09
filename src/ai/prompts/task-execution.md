@@ -6,13 +6,11 @@ completion. Do not expand scope beyond what the declared steps specify.
 Implement the task described in {{CONTEXT_FILE}}. The task directive and implementation steps are at the top of that
 file.
 
-<harness-context>
-Your context window will be automatically compacted as it approaches its limit, allowing you to continue working
-indefinitely. Do not stop tasks early or rush completion due to token budget concerns. The harness manages session
-lifecycle — focus on doing the work correctly.
-</harness-context>
+{{HARNESS_CONTEXT}}
 
-<rules>
+When finished, emit a signal from the `<signals>` block below.
+
+<constraints>
 
 - **One task only** — complete this task, then stop. The harness manages task sequencing; continuing to the next task
   would conflict with parallel execution.
@@ -29,7 +27,7 @@ lifecycle — focus on doing the work correctly.
 - **Leave task definitions unchanged** — the task name, description, steps, and other task files are immutable.
   {{COMMIT_CONSTRAINT}}
 
-</rules>
+</constraints>
 
 ## Phase 1: Reconnaissance (feedforward — understand before acting)
 
@@ -77,9 +75,9 @@ Proceed to Phase 2 once all reconnaissance steps pass.
    - If a step is unclear, attempt reasonable interpretation before marking blocked
    - If steps seem incomplete relative to ticket requirements, signal `<task-blocked>` rather than improvising —
      the planner may have intentionally scoped them this way to avoid conflicts
-3. **Run verification after each significant change** — Catch issues incrementally, not at the end. Run the check script
-   or relevant test commands after each meaningful code change. This is cheaper than debugging a pile of errors at the
-   end.
+3. **Smoke-test as you go** — Run relevant test or typecheck commands after each meaningful code change to catch issues
+   early. This is incremental sanity-checking, not the final gate. **The authoritative gate is Phase 3 step 2 below:
+   the full check script runs there and must pass.**
 
 ## Phase 3: Completion
 
@@ -88,8 +86,7 @@ Complete these steps IN ORDER:
 1. **Confirm all steps done** — Every task step has been completed
 2. **Run ALL verification commands** — Execute every verification command (see Check Script section in the context file
    or project instructions). Fix any failures before proceeding. The harness runs the check script as a post-task
-   gate — your task is not marked done unless it passes.
-   {{COMMIT_STEP}}
+   gate — your task is not marked done unless it passes.{{COMMIT_STEP}}
 3. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
 
    ```markdown
@@ -175,10 +172,4 @@ Signal `<task-blocked>Missing dependency: [what and which task]</task-blocked>`.
 Follow project patterns over steps if they conflict. If steps seem incomplete relative to requirements:
 `<task-blocked>Steps incomplete: [what appears missing]</task-blocked>`.
 
-<signals>
-
-- `<task-verified>output</task-verified>` — Records verification results (required before completion)
-- `<task-complete>` — Marks task as done (ONLY after verified)
-- `<task-blocked>reason</task-blocked>` — Marks task as blocked (cannot proceed)
-
-</signals>
+{{SIGNALS}}

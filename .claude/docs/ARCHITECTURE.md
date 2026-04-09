@@ -21,6 +21,7 @@ interface Repository {
   name: string; // Auto-derived from basename(path)
   path: string; // Absolute path (validated as existing directory)
   checkScript?: string; // e.g., "pnpm install && pnpm typecheck && pnpm lint && pnpm test"
+  checkTimeout?: number; // Per-repo timeout in ms (overrides RALPHCTL_SETUP_TIMEOUT_MS)
 }
 ```
 
@@ -45,14 +46,13 @@ interface Sprint {
 ```typescript
 interface Ticket {
   id: string; // UUID8 (auto-generated)
-  externalId?: string; // JIRA-123, GH-456
   title: string;
   description?: string;
-  link?: string;
+  link?: string; // Validated as URL
   projectName: string; // References Project.name
+  affectedRepositories?: string[]; // Absolute paths, set by sprint plan
   requirementStatus: 'pending' | 'approved';
   requirements?: string; // Set by sprint refine
-  affectedRepositories?: string[]; // Absolute paths, set by sprint plan
 }
 ```
 
@@ -64,6 +64,7 @@ interface Task {
   name: string;
   description?: string;
   steps: string[];
+  verificationCriteria: string[]; // Grading contract surfaced to the evaluator
   status: 'todo' | 'in_progress' | 'done';
   order: number; // 1-indexed
   ticketId?: string;
@@ -72,7 +73,9 @@ interface Task {
   verified: boolean; // Default: false
   verificationOutput?: string;
   evaluated: boolean; // Default: false — whether evaluator ran
-  evaluationOutput?: string; // Evaluator critique/output (truncated to 2000 chars)
+  evaluationOutput?: string; // Preview (truncated to 2000 chars); full critique lives in evaluationFile
+  evaluationStatus?: 'passed' | 'failed' | 'malformed'; // 'malformed' = no parseable signal (distinct from failure)
+  evaluationFile?: string; // Sidecar path: <sprintDir>/evaluations/<taskId>.md
 }
 ```
 
@@ -93,12 +96,16 @@ interface Config {
 ~/.ralphctl/                          # Default (override with RALPHCTL_ROOT)
 ├── config.json
 ├── projects.json
+├── insights/                         # sprint insights --export target
+│   └── <sprint-id>.md
 └── sprints/
     └── <sprint-id>/
         ├── sprint.json               # Sprint + tickets
         ├── tasks.json
         ├── progress.md               # Append-only log
         ├── requirements.md           # Exported via `sprint requirements`
+        ├── evaluations/              # Full untruncated evaluator critiques (one file per task)
+        │   └── <task-id>.md
         ├── ideation/<ticket-id>/
         │   ├── ideate-context.md
         │   └── output.json
@@ -112,21 +119,28 @@ interface Config {
 
 ## Error Classes
 
-| Class                  | Module  | Cause                        |
-| ---------------------- | ------- | ---------------------------- |
-| `ProjectNotFoundError` | project | Invalid project name         |
-| `ProjectExistsError`   | project | Name already exists          |
-| `SprintNotFoundError`  | sprint  | Invalid sprint ID            |
-| `SprintStatusError`    | sprint  | Invalid status for operation |
-| `NoCurrentSprintError` | sprint  | No current sprint set        |
-| `TicketNotFoundError`  | ticket  | Invalid ticket ID            |
-| `DuplicateTicketError` | ticket  | External ID already exists   |
-| `TaskNotFoundError`    | task    | Invalid task ID              |
-| `TaskStatusError`      | task    | Invalid status operation     |
-| `DependencyCycleError` | task    | Cycle in dependencies        |
-| `ValidationError`      | storage | Zod validation failed        |
-| `FileNotFoundError`    | storage | File missing                 |
-| `SpawnError`           | session | AI process spawn failure     |
+All domain errors extend `DomainError` (from `src/errors.ts`) and carry a machine-readable `code` plus optional `cause`.
+
+| Class                  | Group       | Cause                                                                  |
+| ---------------------- | ----------- | ---------------------------------------------------------------------- |
+| `ProjectNotFoundError` | not-found   | Invalid project name                                                   |
+| `ProjectExistsError`   | lifecycle   | Project name already exists                                            |
+| `SprintNotFoundError`  | not-found   | Invalid sprint ID                                                      |
+| `SprintStatusError`    | lifecycle   | Invalid status for operation                                           |
+| `NoCurrentSprintError` | lifecycle   | No current sprint set                                                  |
+| `TicketNotFoundError`  | not-found   | Invalid ticket ID                                                      |
+| `TaskNotFoundError`    | not-found   | Invalid task ID                                                        |
+| `TaskStatusError`      | lifecycle   | Invalid task status operation                                          |
+| `DependencyCycleError` | task        | Cycle detected in task `blockedBy` graph                               |
+| `NotFoundError`        | not-found   | Generic not-found (repositories, config keys, etc.)                    |
+| `ValidationError`      | storage     | Zod validation failed (carries `path`)                                 |
+| `ParseError`           | storage     | JSON / output parser rejection                                         |
+| `StorageError`         | storage     | Read/write failure in the store layer                                  |
+| `IOError`              | storage     | Low-level filesystem error                                             |
+| `LockError`            | storage     | File-lock contention or stale lock (carries `lockPath`)                |
+| `ProviderError`        | ai-provider | Provider misconfiguration (missing binary, bad settings)               |
+| `SpawnError`           | ai-provider | AI process spawn failure (carries `stderr`, `exitCode`, `rateLimited`) |
+| `IssueFetchError`      | external    | Failed to fetch an external issue (GitHub, JIRA)                       |
 
 ## Exit Codes
 

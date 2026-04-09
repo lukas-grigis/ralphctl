@@ -4,7 +4,7 @@ import type { EvaluationStatus, Task } from '@src/schemas/index.ts';
 import { spawnWithRetry } from '@src/ai/session.ts';
 import { buildEvaluatorPrompt, type EvaluatorPromptContext } from '@src/ai/prompts/index.ts';
 import { getSprintDir } from '@src/utils/paths.ts';
-import { detectProjectTooling, renderProjectToolingSection } from '@src/ai/project-tooling.ts';
+import { buildProjectToolingSection } from '@src/ai/project-tooling.ts';
 import type { RateLimitCoordinator } from '@src/ai/rate-limiter.ts';
 
 /**
@@ -158,8 +158,7 @@ ${checkScript}
 If this script fails, the implementation fails regardless of code quality. Record the full output.`
     : null;
 
-  const tooling = detectProjectTooling(task.projectPath);
-  const projectToolingSection = renderProjectToolingSection(tooling);
+  const projectToolingSection = buildProjectToolingSection(task.projectPath);
 
   return {
     taskName: task.name,

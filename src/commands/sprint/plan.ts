@@ -31,6 +31,7 @@ import { getProject } from '@src/store/project.ts';
 import { fileExists } from '@src/utils/storage.ts';
 import { getPlanningDir } from '@src/utils/paths.ts';
 import { buildAutoPrompt, buildInteractivePrompt } from '@src/ai/prompts/index.ts';
+import { buildProjectToolingSection } from '@src/ai/project-tooling.ts';
 import { spawnHeadless, spawnInteractive } from '@src/ai/session.ts';
 import { type ImportTask, type Repository, type Ticket } from '@src/schemas/index.ts';
 import { selectProjectPaths } from '@src/interactive/selectors.ts';
@@ -375,9 +376,14 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   // Build ticket ID set for validating ticketId references during import
   const ticketIds = new Set(sprint.tickets.map((t) => t.id));
 
+  // Detect tooling across ALL selected repos — planner spans multiple paths,
+  // so we union what's available and feed it into the prompt. Empty when
+  // none of the selected repos have any subagents/skills/MCP servers.
+  const projectToolingSection = buildProjectToolingSection(selectedPaths);
+
   if (options.auto) {
     // Headless mode - AI generates and we import
-    const prompt = buildAutoPrompt(context, schema);
+    const prompt = buildAutoPrompt(context, schema, projectToolingSection);
     const spinner = createSpinner(`${providerName} is planning tasks...`);
     spinner.start();
 
@@ -446,7 +452,7 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   } else {
     // Interactive mode - user iterates with AI
     const outputFile = join(planDir, 'tasks.json');
-    const prompt = buildInteractivePrompt(context, outputFile, schema);
+    const prompt = buildInteractivePrompt(context, outputFile, schema, projectToolingSection);
 
     showInfo(`Starting interactive ${providerName} session...`);
     console.log(

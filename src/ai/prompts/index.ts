@@ -18,32 +18,105 @@ function loadTemplate(name: string): string {
   return readFileSync(join(promptDir, `${name}.md`), 'utf-8');
 }
 
-function buildPlanPrompt(template: string, context: string, schema: string): string {
-  const common = loadTemplate('plan-common');
-  return template.replace('{{COMMON}}', common).replace('{{CONTEXT}}', context).replace('{{SCHEMA}}', schema);
+/**
+ * Loads a raw prompt partial from disk, trimming trailing whitespace so consumers
+ * can concatenate partials without leaving double blank lines at the seams.
+ *
+ * @internal Exported only so prompt-audit tests (index.test.ts) can enumerate raw
+ * template files. Not intended for production callers — use the `build*Prompt`
+ * functions instead, which compose partials through `composePrompt`.
+ */
+export function loadPartial(name: string): string {
+  return loadTemplate(name).replace(/\s+$/, '');
 }
 
-export function buildInteractivePrompt(context: string, outputFile: string, schema: string): string {
-  const template = loadTemplate('plan-interactive');
-  return buildPlanPrompt(template, context, schema).replace('{{OUTPUT_FILE}}', outputFile);
+const UNREPLACED_TOKEN_RE = /\{\{[A-Z_]+\}\}/g;
+
+/**
+ * The strict throw is the contract: any missing substitution is a bug in the
+ * caller's map, not a runtime degradation we want to tolerate silently.
+ */
+function composePrompt(template: string, substitutions: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(substitutions)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  const remaining = result.match(UNREPLACED_TOKEN_RE);
+  if (remaining) {
+    throw new Error(`composePrompt: unreplaced placeholders: ${[...new Set(remaining)].join(', ')}`);
+  }
+  return result;
 }
 
-export function buildAutoPrompt(context: string, schema: string): string {
-  const template = loadTemplate('plan-auto');
-  return buildPlanPrompt(template, context, schema);
+/**
+ * Planner builders substitute `{{PROJECT_TOOLING}}` inside `plan-common`
+ * first so the outer `composePrompt` can plug the result into `{{COMMON}}`
+ * as opaque text.
+ */
+function buildPlanCommon(projectToolingSection: string): string {
+  return composePrompt(loadPartial('plan-common'), {
+    PROJECT_TOOLING: projectToolingSection,
+  });
+}
+
+/**
+ * Substitutions shared by all planner-role builders (plan-auto,
+ * plan-interactive, ideate, ideate-auto). Keeping them in one place means
+ * adding a new planner partial is a one-line change.
+ */
+function buildPlannerBase(projectToolingSection: string): {
+  HARNESS_CONTEXT: string;
+  COMMON: string;
+  VALIDATION: string;
+  SIGNALS: string;
+} {
+  return {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    COMMON: buildPlanCommon(projectToolingSection),
+    VALIDATION: loadPartial('validation-checklist'),
+    SIGNALS: loadPartial('signals-planning'),
+  };
+}
+
+export function buildInteractivePrompt(
+  context: string,
+  outputFile: string,
+  schema: string,
+  projectToolingSection: string
+): string {
+  return composePrompt(loadTemplate('plan-interactive'), {
+    ...buildPlannerBase(projectToolingSection),
+    CONTEXT: context,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+  });
+}
+
+export function buildAutoPrompt(context: string, schema: string, projectToolingSection: string): string {
+  return composePrompt(loadTemplate('plan-auto'), {
+    ...buildPlannerBase(projectToolingSection),
+    CONTEXT: context,
+    SCHEMA: schema,
+  });
 }
 
 export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string {
   const template = loadTemplate('task-execution');
+  // COMMIT_STEP renders as a sub-bullet under Phase 3 step 2 (verification). Keeping it
+  // as a nested list item avoids the list-gap anti-pattern: when noCommit is true, the
+  // substitution is the empty string and the surrounding numbered list stays intact.
   const commitStep = noCommit
     ? ''
-    : '\n> **Before continuing:** Create a git commit with a descriptive message for the changes made.\n';
+    : '\n   - **Before continuing:** Create a git commit with a descriptive message for the changes made.';
   const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.\n';
-  return template
-    .replaceAll('{{PROGRESS_FILE}}', progressFilePath)
-    .replaceAll('{{COMMIT_STEP}}', commitStep)
-    .replaceAll('{{COMMIT_CONSTRAINT}}', commitConstraint)
-    .replaceAll('{{CONTEXT_FILE}}', contextFileName);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-task'),
+    PROGRESS_FILE: progressFilePath,
+    COMMIT_STEP: commitStep,
+    COMMIT_CONSTRAINT: commitConstraint,
+    CONTEXT_FILE: contextFileName,
+  });
 }
 
 export function buildTicketRefinePrompt(
@@ -53,11 +126,12 @@ export function buildTicketRefinePrompt(
   issueContext = ''
 ): string {
   const template = loadTemplate('ticket-refine');
-  return template
-    .replace('{{TICKET}}', ticketContent)
-    .replace('{{OUTPUT_FILE}}', outputFile)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{ISSUE_CONTEXT}}', issueContext);
+  return composePrompt(template, {
+    TICKET: ticketContent,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+    ISSUE_CONTEXT: issueContext,
+  });
 }
 
 export function buildIdeatePrompt(
@@ -66,18 +140,18 @@ export function buildIdeatePrompt(
   projectName: string,
   repositories: string,
   outputFile: string,
-  schema: string
+  schema: string,
+  projectToolingSection: string
 ): string {
-  const template = loadTemplate('ideate');
-  const common = loadTemplate('plan-common');
-  return template
-    .replace('{{IDEA_TITLE}}', ideaTitle)
-    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
-    .replace('{{PROJECT_NAME}}', projectName)
-    .replace('{{REPOSITORIES}}', repositories)
-    .replace('{{OUTPUT_FILE}}', outputFile)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{COMMON}}', common);
+  return composePrompt(loadTemplate('ideate'), {
+    ...buildPlannerBase(projectToolingSection),
+    IDEA_TITLE: ideaTitle,
+    IDEA_DESCRIPTION: ideaDescription,
+    PROJECT_NAME: projectName,
+    REPOSITORIES: repositories,
+    OUTPUT_FILE: outputFile,
+    SCHEMA: schema,
+  });
 }
 
 export function buildIdeateAutoPrompt(
@@ -85,17 +159,17 @@ export function buildIdeateAutoPrompt(
   ideaDescription: string,
   projectName: string,
   repositories: string,
-  schema: string
+  schema: string,
+  projectToolingSection: string
 ): string {
-  const template = loadTemplate('ideate-auto');
-  const common = loadTemplate('plan-common');
-  return template
-    .replace('{{IDEA_TITLE}}', ideaTitle)
-    .replace('{{IDEA_DESCRIPTION}}', ideaDescription)
-    .replace('{{PROJECT_NAME}}', projectName)
-    .replace('{{REPOSITORIES}}', repositories)
-    .replace('{{SCHEMA}}', schema)
-    .replace('{{COMMON}}', common);
+  return composePrompt(loadTemplate('ideate-auto'), {
+    ...buildPlannerBase(projectToolingSection),
+    IDEA_TITLE: ideaTitle,
+    IDEA_DESCRIPTION: ideaDescription,
+    PROJECT_NAME: projectName,
+    REPOSITORIES: repositories,
+    SCHEMA: schema,
+  });
 }
 
 export interface EvaluatorPromptContext {
@@ -128,14 +202,17 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
 
   const checkSection = ctx.checkScriptSection ? `\n\n${ctx.checkScriptSection}` : '';
 
-  return template
-    .replaceAll('{{TASK_NAME}}', ctx.taskName)
-    .replace('{{TASK_DESCRIPTION_SECTION}}', descriptionSection)
-    .replace('{{TASK_STEPS_SECTION}}', stepsSection)
-    .replace('{{VERIFICATION_CRITERIA_SECTION}}', criteriaSection)
-    .replace('{{PROJECT_PATH}}', ctx.projectPath)
-    .replace('{{CHECK_SCRIPT_SECTION}}', checkSection)
-    .replace('{{PROJECT_TOOLING_SECTION}}', ctx.projectToolingSection);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-evaluation'),
+    TASK_NAME: ctx.taskName,
+    TASK_DESCRIPTION_SECTION: descriptionSection,
+    TASK_STEPS_SECTION: stepsSection,
+    VERIFICATION_CRITERIA_SECTION: criteriaSection,
+    PROJECT_PATH: ctx.projectPath,
+    CHECK_SCRIPT_SECTION: checkSection,
+    PROJECT_TOOLING: ctx.projectToolingSection,
+  });
 }
 
 export interface EvaluationResumePromptContext {
@@ -145,15 +222,15 @@ export interface EvaluationResumePromptContext {
   needsCommit: boolean;
 }
 
-/**
- * Build the prompt that resumes the generator after a failed evaluation.
- * Lives in `task-evaluation-resume.md` so it can be reviewed alongside the
- * other prompt templates instead of being a string literal in executor.ts.
- */
 export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext): string {
   const template = loadTemplate('task-evaluation-resume');
   const commitInstruction = ctx.needsCommit
     ? '\n   - **Then commit the fix** with a descriptive message before signaling completion.'
     : '';
-  return template.replace('{{CRITIQUE}}', ctx.critique).replace('{{COMMIT_INSTRUCTION}}', commitInstruction);
+  return composePrompt(template, {
+    HARNESS_CONTEXT: loadPartial('harness-context'),
+    SIGNALS: loadPartial('signals-task'),
+    CRITIQUE: ctx.critique,
+    COMMIT_INSTRUCTION: commitInstruction,
+  });
 }
