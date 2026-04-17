@@ -13,7 +13,11 @@ import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 
-type State = { kind: 'loading' } | { kind: 'empty' } | { kind: 'ready'; projects: Project[] } | { kind: 'error'; message: string };
+type State =
+  | { kind: 'loading' }
+  | { kind: 'empty' }
+  | { kind: 'ready'; projects: Project[] }
+  | { kind: 'error'; message: string };
 
 const COLUMNS: readonly ListColumn<Project>[] = [
   { header: 'Name', cell: (p) => p.name, width: 16 },

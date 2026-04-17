@@ -56,20 +56,14 @@ export function SelectPrompt({ options, onSubmit, onCancel }: SelectPromptProps)
         {options.choices.map((choice, i) => {
           const isFocused = i === focusedIdx;
           const disabled = isDisabled(choice);
-          const color = disabled
-            ? inkColors.muted
-            : isFocused
-              ? inkColors.highlight
-              : undefined;
+          const color = disabled ? inkColors.muted : isFocused ? inkColors.highlight : undefined;
           const prefix = isFocused ? glyphs.actionCursor : ' ';
           return (
             <Box key={`${String(i)}-${choice.label}`}>
               <Text color={color} bold={isFocused}>
                 {`${prefix} ${choice.label}`}
               </Text>
-              {typeof choice.disabled === 'string' ? (
-                <Text dimColor>{`  (${choice.disabled})`}</Text>
-              ) : null}
+              {typeof choice.disabled === 'string' ? <Text dimColor>{`  (${choice.disabled})`}</Text> : null}
             </Box>
           );
         })}
@@ -97,11 +91,7 @@ function findInitialIdx(options: SelectOptions<unknown>): number {
  * Move the focus by `delta` (-1 or +1), skipping disabled rows. Wraps to the
  * opposite end when it falls off, so navigation is always responsive.
  */
-function stepFocus(
-  choices: SelectOptions<unknown>['choices'],
-  from: number,
-  delta: -1 | 1
-): number {
+function stepFocus(choices: SelectOptions<unknown>['choices'], from: number, delta: -1 | 1): number {
   const len = choices.length;
   if (len === 0) return from;
   let next = from;

@@ -115,11 +115,6 @@ function renderBody(phase: Phase): React.JSX.Element {
         { action: 'Create a sprint', description: 'once a project exists' },
       ];
   return (
-    <ResultCard
-      kind="success"
-      title="You're set up"
-      fields={[['AI provider', providerLabel]]}
-      nextSteps={nextSteps}
-    />
+    <ResultCard kind="success" title="You're set up" fields={[['AI provider', providerLabel]]} nextSteps={nextSteps} />
   );
 }

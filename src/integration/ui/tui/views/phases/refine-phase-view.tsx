@@ -157,15 +157,15 @@ export function RefinePhaseView({ sprintId }: Props): React.JSX.Element {
             {glyphs.actionCursor} Press Enter to refine pending requirements
           </Text>
         ) : (
-          <Text dimColor>
-            {reasonUnavailable(sprint)}
-          </Text>
+          <Text dimColor>{reasonUnavailable(sprint)}</Text>
         )}
       </Box>
 
       {state.error ? (
         <Box marginTop={spacing.section}>
-          <Text color={inkColors.error}>{glyphs.cross} {state.error}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {state.error}
+          </Text>
         </Box>
       ) : null}
 

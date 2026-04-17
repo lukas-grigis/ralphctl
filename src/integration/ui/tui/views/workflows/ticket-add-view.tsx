@@ -150,7 +150,7 @@ function renderBody(phase: Phase): React.JSX.Element {
         <ResultCard
           kind="warning"
           title="Sprint's project could not be resolved"
-          lines={["The sprint references a project that no longer exists."]}
+          lines={['The sprint references a project that no longer exists.']}
         />
       );
     case 'error':

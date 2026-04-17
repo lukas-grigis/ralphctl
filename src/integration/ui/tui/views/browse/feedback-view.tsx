@@ -93,7 +93,11 @@ export function extractFeedback(progress: string): readonly FeedbackEntry[] {
     if (!match?.[1]) continue;
     const tsMatch = /^##\s+(.+)$/m.exec(entry);
     const timestamp = tsMatch?.[1]?.trim() ?? 'unknown';
-    const preview = match[1].split('\n').find((l) => l.trim().length > 0)?.trim() ?? '';
+    const preview =
+      match[1]
+        .split('\n')
+        .find((l) => l.trim().length > 0)
+        ?.trim() ?? '';
     out.push({ timestamp, preview });
   }
   return out;

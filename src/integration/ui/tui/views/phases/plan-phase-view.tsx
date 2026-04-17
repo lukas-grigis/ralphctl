@@ -165,7 +165,9 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
 
       {state.error ? (
         <Box marginTop={spacing.section}>
-          <Text color={inkColors.error}>{glyphs.cross} {state.error}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {state.error}
+          </Text>
         </Box>
       ) : null}
 

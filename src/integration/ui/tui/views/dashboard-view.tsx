@@ -130,8 +130,7 @@ function PanelHeader({ label }: { label: string }): React.JSX.Element {
   return (
     <Text dimColor>
       {glyphs.sectionRule}
-      {glyphs.sectionRule} {label}{' '}
-      {glyphs.sectionRule.repeat(30 - label.length)}
+      {glyphs.sectionRule} {label} {glyphs.sectionRule.repeat(30 - label.length)}
     </Text>
   );
 }

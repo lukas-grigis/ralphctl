@@ -186,7 +186,14 @@ describe('HomeView — pipeline map', () => {
   it('surfaces "Add Ticket" as the next step when a draft sprint has no tickets', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-      projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
       sprint: sprint({ tickets: [] }),
       tasks: [],
     });
@@ -200,7 +207,14 @@ describe('HomeView — pipeline map', () => {
   it('marks the Refine phase done on a draft sprint with all tickets approved', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-      projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
       sprint: sprint({
         tickets: [
           {
@@ -225,7 +239,14 @@ describe('HomeView — pipeline map', () => {
   it('shows "all tasks done" and "Close Sprint" on an active sprint with everything complete', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: 'claude', editor: null },
-      projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
       sprint: sprint({
         status: 'active',
         activatedAt: '2026-04-15T01:00:00Z',
@@ -249,7 +270,14 @@ describe('HomeView — pipeline map', () => {
   it('marks every phase done on a closed sprint and offers a new-sprint quick action', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: 'claude', editor: null },
-      projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
       sprint: sprint({
         status: 'closed',
         closedAt: '2026-04-15T02:00:00Z',
@@ -273,7 +301,14 @@ describe('HomeView — pipeline map', () => {
   it('dispatches the next-step action when Enter is pressed', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-      projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
       sprint: sprint({
         tickets: [
           {
@@ -324,9 +359,16 @@ describe('HomeView — pipeline map', () => {
     it('pushes the refine-phase view when Enter hits the Refine row', async () => {
       setState({
         config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-        projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+        projects: [
+          {
+            name: 'p',
+            displayName: 'P',
+            id: 'prj00001',
+            repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+          },
+        ],
         sprint: sprint({
-          tickets: [{ id: 'a', title: 'T',  requirementStatus: 'pending' }],
+          tickets: [{ id: 'a', title: 'T', requirementStatus: 'pending' }],
         }),
         tasks: [],
       });
@@ -347,9 +389,16 @@ describe('HomeView — pipeline map', () => {
     it('pushes the plan-phase view when Enter hits the Plan row', async () => {
       setState({
         config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-        projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+        projects: [
+          {
+            name: 'p',
+            displayName: 'P',
+            id: 'prj00001',
+            repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+          },
+        ],
         sprint: sprint({
-          tickets: [{ id: 'a', title: 'T',  requirementStatus: 'approved' }],
+          tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
         }),
         tasks: [],
       });
@@ -373,11 +422,18 @@ describe('HomeView — pipeline map', () => {
     it('pushes the close-phase view when Enter hits the Close row', async () => {
       setState({
         config: { currentSprint: 'sprint-1', aiProvider: 'claude', editor: null },
-        projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+        projects: [
+          {
+            name: 'p',
+            displayName: 'P',
+            id: 'prj00001',
+            repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+          },
+        ],
         sprint: sprint({
           status: 'active',
           activatedAt: '2026-04-15T01:00:00Z',
-          tickets: [{ id: 'a', title: 'T',  requirementStatus: 'approved' }],
+          tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
         }),
         tasks: [task({ id: 't1', status: 'done', ticketId: 'a' })],
       });
@@ -402,11 +458,18 @@ describe('HomeView — pipeline map', () => {
     it('pushes the execute destination for the Execute phase on an active sprint', async () => {
       setState({
         config: { currentSprint: 'sprint-1', aiProvider: 'claude', editor: null },
-        projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+        projects: [
+          {
+            name: 'p',
+            displayName: 'P',
+            id: 'prj00001',
+            repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+          },
+        ],
         sprint: sprint({
           status: 'active',
           activatedAt: '2026-04-15T01:00:00Z',
-          tickets: [{ id: 'a', title: 'T',  requirementStatus: 'approved' }],
+          tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
         }),
         tasks: [
           task({ id: 't1', status: 'done', ticketId: 'a' }),
@@ -433,9 +496,16 @@ describe('HomeView — pipeline map', () => {
     it('does not push a drill-in for the Execute phase when it is pending (no tasks)', async () => {
       setState({
         config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
-        projects: [{ name: 'p', displayName: 'P', id: 'prj00001', repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }] }],
+        projects: [
+          {
+            name: 'p',
+            displayName: 'P',
+            id: 'prj00001',
+            repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+          },
+        ],
         sprint: sprint({
-          tickets: [{ id: 'a', title: 'T',  requirementStatus: 'approved' }],
+          tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
         }),
         tasks: [], // Execute phase is 'pending' — drill-in no-ops
       });

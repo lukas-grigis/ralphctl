@@ -17,11 +17,7 @@ export function RateLimitBanner({ pausedSince, delayMs }: Props): React.JSX.Elem
   if (!pausedSince) return null;
   const seconds = Math.max(0, Math.round(delayMs / 1000));
   return (
-    <Box
-      borderStyle="round"
-      borderColor={inkColors.warning}
-      paddingX={spacing.gutter}
-    >
+    <Box borderStyle="round" borderColor={inkColors.warning} paddingX={spacing.gutter}>
       <Text color={inkColors.warning} bold>
         {glyphs.warningGlyph} Rate limit hit
       </Text>

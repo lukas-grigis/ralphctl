@@ -25,10 +25,7 @@ interface Props {
   readonly taskId?: string;
 }
 
-type State =
-  | { kind: 'loading' }
-  | { kind: 'ready'; task: Task; content: string }
-  | { kind: 'error'; message: string };
+type State = { kind: 'loading' } | { kind: 'ready'; task: Task; content: string } | { kind: 'error'; message: string };
 
 const TITLE = 'Evaluation' as const;
 const HINTS = [] as const;

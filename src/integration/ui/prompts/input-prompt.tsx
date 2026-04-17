@@ -44,10 +44,7 @@ export function InputPrompt({ options, onSubmit, onCancel }: InputPromptProps): 
       </Box>
       {error !== null && (
         <Box>
-          <Text color="red">
-            {' '}
-            ✗ {error}
-          </Text>
+          <Text color="red"> ✗ {error}</Text>
         </Box>
       )}
     </Box>

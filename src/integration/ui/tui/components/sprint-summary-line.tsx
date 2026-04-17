@@ -47,7 +47,7 @@ export function SprintSummaryLine({ data }: Props): React.JSX.Element | null {
       <Text color={inkColors.highlight} bold>
         {sprint.name}
       </Text>
-      <Text>{' '}</Text>
+      <Text> </Text>
       <Text color={statusColor(sprint.status)}>[{sprint.status}]</Text>
       <Text dimColor>
         {`  ${glyphs.inlineDot}  `}

@@ -30,12 +30,7 @@ describe('TaskGrid', () => {
   it('renders one row per task with the task name', () => {
     const tasks = [task({ id: 'a', name: 'Alpha' }), task({ id: 'b', name: 'Bravo' })];
     const { lastFrame } = render(
-      <TaskGrid
-        tasks={tasks}
-        runningTaskIds={new Set()}
-        blockedTaskIds={new Set()}
-        activityByTask={new Map()}
-      />
+      <TaskGrid tasks={tasks} runningTaskIds={new Set()} blockedTaskIds={new Set()} activityByTask={new Map()} />
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Alpha');
@@ -45,12 +40,7 @@ describe('TaskGrid', () => {
   it('marks done tasks with a check', () => {
     const tasks = [task({ id: 'a', name: 'Alpha', status: 'done' })];
     const { lastFrame } = render(
-      <TaskGrid
-        tasks={tasks}
-        runningTaskIds={new Set()}
-        blockedTaskIds={new Set()}
-        activityByTask={new Map()}
-      />
+      <TaskGrid tasks={tasks} runningTaskIds={new Set()} blockedTaskIds={new Set()} activityByTask={new Map()} />
     );
     expect(lastFrame() ?? '').toContain('✓');
   });
@@ -58,12 +48,7 @@ describe('TaskGrid', () => {
   it('marks running tasks with an arrow', () => {
     const tasks = [task({ id: 'a', name: 'Alpha' })];
     const { lastFrame } = render(
-      <TaskGrid
-        tasks={tasks}
-        runningTaskIds={new Set(['a'])}
-        blockedTaskIds={new Set()}
-        activityByTask={new Map()}
-      />
+      <TaskGrid tasks={tasks} runningTaskIds={new Set(['a'])} blockedTaskIds={new Set()} activityByTask={new Map()} />
     );
     expect(lastFrame() ?? '').toContain('▸');
   });
@@ -83,12 +68,7 @@ describe('TaskGrid', () => {
 
   it('renders an empty-state message when there are no tasks', () => {
     const { lastFrame } = render(
-      <TaskGrid
-        tasks={[]}
-        runningTaskIds={new Set()}
-        blockedTaskIds={new Set()}
-        activityByTask={new Map()}
-      />
+      <TaskGrid tasks={[]} runningTaskIds={new Set()} blockedTaskIds={new Set()} activityByTask={new Map()} />
     );
     expect(lastFrame() ?? '').toContain('No tasks');
   });

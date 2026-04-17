@@ -57,8 +57,7 @@ export function CheckboxPrompt({ options, onSubmit, onCancel }: CheckboxPromptPr
     <Box flexDirection="column">
       <Box>
         <Text>
-          {emoji.donut} {options.message}{' '}
-          <Text dimColor>(space toggles, enter submits)</Text>
+          {emoji.donut} {options.message} <Text dimColor>(space toggles, enter submits)</Text>
         </Text>
       </Box>
       <Box marginLeft={2} flexDirection="column">
@@ -73,9 +72,7 @@ export function CheckboxPrompt({ options, onSubmit, onCancel }: CheckboxPromptPr
               <Text color={color} bold={isFocused}>
                 {`${cursor} ${mark} ${choice.label}`}
               </Text>
-              {typeof choice.disabled === 'string' ? (
-                <Text dimColor>{`  (${choice.disabled})`}</Text>
-              ) : null}
+              {typeof choice.disabled === 'string' ? <Text dimColor>{`  (${choice.disabled})`}</Text> : null}
             </Box>
           );
         })}
@@ -98,11 +95,7 @@ function seedCheckedSet(options: CheckboxOptions<unknown>): Set<number> {
   return set;
 }
 
-function stepFocus(
-  choices: CheckboxOptions<unknown>['choices'],
-  from: number,
-  delta: -1 | 1
-): number {
+function stepFocus(choices: CheckboxOptions<unknown>['choices'], from: number, delta: -1 | 1): number {
   const len = choices.length;
   if (len === 0) return from;
   let next = from;

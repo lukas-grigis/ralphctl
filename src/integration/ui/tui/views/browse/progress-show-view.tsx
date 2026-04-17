@@ -68,7 +68,9 @@ function renderContent(content: string): React.JSX.Element {
   return (
     <Box flexDirection="column">
       {lines.length > MAX_TAIL ? (
-        <Text dimColor>Showing last {String(MAX_TAIL)} lines ({String(lines.length)} total)</Text>
+        <Text dimColor>
+          Showing last {String(MAX_TAIL)} lines ({String(lines.length)} total)
+        </Text>
       ) : null}
       {tail.map((line, i) => (
         <Text key={i} dimColor={line.trim().length === 0}>

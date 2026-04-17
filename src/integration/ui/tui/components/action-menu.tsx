@@ -75,9 +75,7 @@ function indexOfEnabled(rows: Row[], from: number, direction: 1 | -1): number {
 
 function findInitialCursor(rows: Row[], defaultValue: string | undefined): number {
   if (defaultValue !== undefined) {
-    const hit = rows.findIndex(
-      (r) => r.kind === 'option' && !r.disabled && r.value === defaultValue
-    );
+    const hit = rows.findIndex((r) => r.kind === 'option' && !r.disabled && r.value === defaultValue);
     if (hit >= 0) return hit;
   }
   const first = rows.findIndex((r) => r.kind === 'option' && !r.disabled);

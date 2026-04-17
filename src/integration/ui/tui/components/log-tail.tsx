@@ -106,11 +106,7 @@ export function LogTail({ events, limit = 8 }: Props): React.JSX.Element {
   return (
     <Box flexDirection="column">
       <Text dimColor>── Log ─────────────────────────────</Text>
-      {tail.length === 0 ? (
-        <Text dimColor>(no activity yet)</Text>
-      ) : (
-        tail.map((event, i) => renderLine(event, i))
-      )}
+      {tail.length === 0 ? <Text dimColor>(no activity yet)</Text> : tail.map((event, i) => renderLine(event, i))}
     </Box>
   );
 }

@@ -230,7 +230,9 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
 
       {state.error ? (
         <Box marginTop={spacing.section}>
-          <Text color={inkColors.error}>{glyphs.cross} {state.error}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {state.error}
+          </Text>
         </Box>
       ) : null}
 
@@ -240,7 +242,8 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
             {glyphs.check} Execution finished
           </Text>
           <Text dimColor>
-            {state.summary.completed} completed {glyphs.inlineDot} {state.summary.remaining} remaining {glyphs.inlineDot} {state.summary.blocked} blocked
+            {state.summary.completed} completed {glyphs.inlineDot} {state.summary.remaining} remaining{' '}
+            {glyphs.inlineDot} {state.summary.blocked} blocked
             {'  ('}
             {state.summary.stopReason}
             {')'}
