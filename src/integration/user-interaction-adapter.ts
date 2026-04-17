@@ -10,8 +10,8 @@ import type { Repository } from '@src/domain/models.ts';
  * of decoration.
  */
 export class InteractiveUserAdapter implements UserInteractionPort {
-  async confirm(message: string, defaultValue?: boolean): Promise<boolean> {
-    return getPrompt().confirm({ message, default: defaultValue });
+  async confirm(message: string, defaultValue?: boolean, details?: string): Promise<boolean> {
+    return getPrompt().confirm({ message, default: defaultValue, details });
   }
 
   async selectPaths(
@@ -69,7 +69,8 @@ export class InteractiveUserAdapter implements UserInteractionPort {
  * Auto/headless adapter that returns defaults without user interaction.
  */
 export class AutoUserAdapter implements UserInteractionPort {
-  confirm(_message: string, defaultValue?: boolean): Promise<boolean> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  confirm(_message: string, defaultValue?: boolean, _details?: string): Promise<boolean> {
     return Promise.resolve(defaultValue ?? true);
   }
 
