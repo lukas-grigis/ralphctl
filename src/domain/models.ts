@@ -158,3 +158,15 @@ export const ConfigSchema = z.object({
   evaluationIterations: z.number().int().min(0).optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;
+
+// JSON-schema strings for the AI. Generated on demand from the Zod source of
+// truth — no hand-maintained mirror files to drift. Consumed by the refine
+// and plan prompts so the AI's output is constrained to what our parsers
+// accept.
+export function getRequirementsOutputJsonSchema(): string {
+  return JSON.stringify(z.toJSONSchema(RefinedRequirementsSchema), null, 2);
+}
+
+export function getTaskImportJsonSchema(): string {
+  return JSON.stringify(z.toJSONSchema(ImportTasksSchema), null, 2);
+}

@@ -21,7 +21,8 @@ import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src
 import { formatTicketDisplay } from '@src/integration/persistence/ticket.ts';
 import { buildTicketRefinePrompt } from '@src/integration/ai/prompts/loader.ts';
 import { fileExists } from '@src/integration/persistence/storage.ts';
-import { getRefinementDir, getSchemaPath } from '@src/integration/persistence/paths.ts';
+import { getRefinementDir } from '@src/integration/persistence/paths.ts';
+import { getRequirementsOutputJsonSchema } from '@src/domain/models.ts';
 import { fetchIssueFromUrl, formatIssueContext } from '@src/integration/external/issue-fetch.ts';
 import { type RefinedRequirement } from '@src/domain/models.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
@@ -105,9 +106,8 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   }
   log.newline();
 
-  // Load schema
-  const schemaPath = getSchemaPath('requirements-output.schema.json');
-  const schema = await readFile(schemaPath, 'utf-8');
+  // JSON schema generated from Zod — no hand-maintained mirror file.
+  const schema = getRequirementsOutputJsonSchema();
 
   const providerName = providerDisplayName(await resolveProvider());
 

@@ -26,6 +26,7 @@ import { createContext, useContext } from 'react';
  */
 export type ViewId =
   | 'home'
+  | 'onboarding'
   | 'settings'
   | 'execute'
   | 'dashboard'
@@ -35,6 +36,7 @@ export type ViewId =
   // Sprint workflow destinations (M2).
   | 'sprint-create'
   | 'sprint-delete'
+  | 'sprint-reactivate'
   | 'sprint-set-current'
   | 'sprint-requirements-export'
   | 'sprint-context-export'
@@ -70,7 +72,11 @@ export type ViewId =
   | 'progress-log'
   | 'progress-show'
   // Ideate pipeline wrapper (M8).
-  | 'ideate';
+  | 'ideate'
+  // Per-sprint evaluator / feedback surfaces.
+  | 'evaluations'
+  | 'evaluation-show'
+  | 'feedback';
 
 /**
  * One frame on the navigation stack. Optional `props` are passed through to

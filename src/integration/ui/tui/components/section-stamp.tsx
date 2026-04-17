@@ -15,31 +15,17 @@ import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 export interface SectionStampProps {
   readonly title: string;
-  /** Visible width for the trailing rule. Defaults to a sensible 72 cols. */
-  readonly width?: number;
   /** Override the accent color; defaults to brand primary. */
   readonly color?: string;
 }
 
-const DEFAULT_WIDTH = 72;
-const MIN_RULE = 3;
-
-export function SectionStamp({ title, width = DEFAULT_WIDTH, color = inkColors.primary }: SectionStampProps): React.JSX.Element {
-  const upper = title.toUpperCase();
-  // +3 accounts for badge glyph, space before title, space after title.
-  const consumed = 3 + upper.length;
-  const ruleLen = Math.max(MIN_RULE, width - consumed);
-  const rule = glyphs.sectionRule.repeat(ruleLen);
-
+export function SectionStamp({ title, color = inkColors.primary }: SectionStampProps): React.JSX.Element {
   return (
     <Box>
       <Text color={color} bold>
         {glyphs.badge}
       </Text>
-      <Text color={color} bold>{` ${upper} `}</Text>
-      <Text color={color} dimColor>
-        {rule}
-      </Text>
+      <Text color={color} bold>{` ${title.toUpperCase()}`}</Text>
     </Box>
   );
 }

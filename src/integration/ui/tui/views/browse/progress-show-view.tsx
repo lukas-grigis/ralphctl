@@ -22,7 +22,11 @@ const MAX_TAIL = 80;
 const TITLE = 'Progress Log' as const;
 const HINTS = [] as const;
 
-export function ProgressShowView(): React.JSX.Element {
+interface Props {
+  readonly sprintId?: string;
+}
+
+export function ProgressShowView({ sprintId }: Props = {}): React.JSX.Element {
   const [state, setState] = useState<State>({ kind: 'loading' });
   useViewHints(HINTS);
 
@@ -30,7 +34,7 @@ export function ProgressShowView(): React.JSX.Element {
     const ctl = { cancelled: false };
     void (async () => {
       try {
-        const content = await getProgress();
+        const content = await getProgress(sprintId);
         if (ctl.cancelled) return;
         if (!content.trim()) setState({ kind: 'empty' });
         else setState({ kind: 'ready', content });
@@ -41,7 +45,7 @@ export function ProgressShowView(): React.JSX.Element {
     return () => {
       ctl.cancelled = true;
     };
-  }, []);
+  }, [sprintId]);
 
   return (
     <ViewShell title={TITLE}>

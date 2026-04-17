@@ -41,20 +41,22 @@ import { allRequirementsApproved, getPendingRequirements } from '@src/integratio
 import { type Tasks, TasksSchema } from '@src/domain/models.ts';
 import { getTasksFilePath } from '@src/integration/persistence/paths.ts';
 import { readValidatedJson } from '@src/integration/persistence/storage.ts';
-import { Banner } from '@src/integration/ui/tui/components/banner.tsx';
 import { SprintSummaryLine } from '@src/integration/ui/tui/components/sprint-summary-line.tsx';
 import { ActionMenu } from '@src/integration/ui/tui/components/action-menu.tsx';
 import { PipelineMap } from '@src/integration/ui/tui/components/pipeline-map.tsx';
+import { SectionStamp } from '@src/integration/ui/tui/components/section-stamp.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter, type ViewId } from './router-context.ts';
 import { commandMap } from './command-map.ts';
 
+// `b browse` lives in the global footer (view-router.tsx) so the browse
+// affordance sits next to the other global shortcuts (settings / dashboard /
+// doctor / quit). View-local hints only advertise selection mechanics.
 const HOME_HINTS_MAIN = [
   { key: '↑/↓', action: 'move' },
   { key: 'Enter', action: 'select' },
-  { key: 'b', action: 'browse' },
 ] as const;
 
 const HOME_HINTS_SUB = [
@@ -217,25 +219,52 @@ async function loadHomeState(): Promise<ReplState> {
 /** Internal HomeView modes — not router destinations. */
 type Mode = 'main' | { kind: 'sub'; menu: SubMenu; group: string } | 'busy';
 
+// Preserve the last submenu group across HomeView remounts (the router
+// remounts views on push/pop). Without this, navigating away from a drill-in
+// like Browse → Tickets and pressing Esc would land on Home's pipeline map
+// instead of the Browse submenu the user came from.
+let lastSubGroup: string | null = null;
+
+/** Test-only: clear the persisted submenu so fixture runs start from main. */
+export function __resetHomeModeMemory(): void {
+  lastSubGroup = null;
+}
+
 export function HomeView(): React.JSX.Element {
   const router = useRouter();
   const [state, setState] = useState<ReplState | null>(null);
-  const [mode, setMode] = useState<Mode>('main');
+  const [mode, setModeInternal] = useState<Mode>('main');
   const [error, setError] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState('');
   const [refreshCounter, setRefreshCounter] = useState(0);
+
+  // Keep `lastSubGroup` in sync with mode so returning from a drill-in via
+  // Esc lands the user back in the submenu they came from.
+  const setMode = useCallback((next: Mode | ((prev: Mode) => Mode)): void => {
+    setModeInternal((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      lastSubGroup = typeof resolved === 'object' ? resolved.group : null;
+      return resolved;
+    });
+  }, []);
 
   const refresh = useCallback((): void => {
     setRefreshCounter((n) => n + 1);
   }, []);
 
-  // Reload context whenever refreshCounter bumps.
+  // Reload context whenever refreshCounter bumps. After the first load,
+  // restore the submenu the user was in if they drilled in and came back.
   useEffect(() => {
     const cancel = { current: false };
     const load = async (): Promise<void> => {
       try {
         const next = await loadHomeState();
-        if (!cancel.current) setState(next);
+        if (cancel.current) return;
+        setState(next);
+        if (lastSubGroup !== null) {
+          const menu = buildSubMenu(lastSubGroup, next.ctx);
+          if (menu) setModeInternal({ kind: 'sub', menu, group: lastSubGroup });
+        }
       } catch (err) {
         if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
       }
@@ -250,16 +279,21 @@ export function HomeView(): React.JSX.Element {
     async (group: string, subCommand: string): Promise<void> => {
       // Sprint lifecycle quick-actions (refine/plan/start/close) route through
       // the same phase views used for drill-in. Without this, they'd shell out
-      // to the plain-CLI command and garble the alt-screen frame.
-      if (group === 'sprint' && state !== null && state.ctx.currentSprintId !== null) {
-        const phaseId = PHASE_VIEWS.sprint[subCommand];
-        if (phaseId !== undefined) {
-          const entry = resolveDrillInTarget(phaseId, state.ctx.currentSprintId, state.snapshot);
-          if (entry !== null) {
-            router.push(entry);
-            return;
-          }
+      // to the plain-CLI command and garble the alt-screen frame with printHeader
+      // output landing above the fixed banner.
+      const phaseId = group === 'sprint' ? PHASE_VIEWS.sprint[subCommand] : undefined;
+      if (phaseId !== undefined) {
+        if (state?.ctx.currentSprintId == null) {
+          setError('No current sprint set.');
+          return;
         }
+        const entry = resolveDrillInTarget(phaseId, state.ctx.currentSprintId, state.snapshot);
+        if (entry === null) {
+          setError(`Cannot open ${subCommand} phase right now.`);
+          return;
+        }
+        router.push(entry);
+        return;
       }
       // Prefer native Ink views — takes precedence over the plain-CLI shell-out
       // so workflow commands render inside the alt-screen buffer.
@@ -295,7 +329,7 @@ export function HomeView(): React.JSX.Element {
         refresh();
       }
     },
-    [refresh, router]
+    [refresh, router, state]
   );
 
   // Hotkeys owned by Home itself. Global router hotkeys (h/s/d/q/esc) run in
@@ -395,7 +429,6 @@ export function HomeView(): React.JSX.Element {
 
   return (
     <ViewShell bare>
-      <Banner />
       <Box paddingLeft={spacing.indent} flexDirection="column">
         {state.dashboardData ? (
           <Box marginTop={spacing.section}>
@@ -474,10 +507,10 @@ function SubMenuBlock({
 }): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text bold>{menu.title}</Text>
+      <SectionStamp title={menu.title} />
+      <Box marginTop={spacing.section}>
+        <ActionMenu items={menu.items as readonly MenuItem[]} onSelect={onSelect} onCancel={onCancel} />
       </Box>
-      <ActionMenu items={menu.items as readonly MenuItem[]} onSelect={onSelect} onCancel={onCancel} />
     </Box>
   );
 }

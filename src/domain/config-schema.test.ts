@@ -6,9 +6,8 @@ describe('ConfigSchemaDefinition', () => {
     const keys = Object.keys(ConfigSchemaDefinition);
     expect(keys).toContain('currentSprint');
     expect(keys).toContain('aiProvider');
-    expect(keys).toContain('editor');
     expect(keys).toContain('evaluationIterations');
-    expect(keys).toHaveLength(4);
+    expect(keys).toHaveLength(3);
   });
 
   it('each entry has the required fields', () => {
@@ -116,44 +115,6 @@ describe('aiProvider entry', () => {
   });
 });
 
-describe('editor entry', () => {
-  const entry = ConfigSchemaDefinition.editor;
-
-  it('has type string', () => {
-    expect(entry.type).toBe('string');
-  });
-
-  it('has default null', () => {
-    expect(entry.default).toBeNull();
-  });
-
-  it('has scope user', () => {
-    expect(entry.scope).toBe('user');
-  });
-
-  describe('validation', () => {
-    it('accepts null', () => {
-      expect(entry.validation(null)).toBe(true);
-    });
-
-    it('accepts a non-empty string', () => {
-      expect(entry.validation('vim')).toBe(true);
-    });
-
-    it('accepts an editor with flags', () => {
-      expect(entry.validation('code --wait')).toBe(true);
-    });
-
-    it('rejects empty string', () => {
-      expect(entry.validation('')).toBe(false);
-    });
-
-    it('rejects a number', () => {
-      expect(entry.validation(0)).toBe(false);
-    });
-  });
-});
-
 describe('evaluationIterations entry', () => {
   const entry = ConfigSchemaDefinition.evaluationIterations;
 
@@ -227,9 +188,9 @@ describe('getSchemaEntry', () => {
 });
 
 describe('getAllSchemaEntries', () => {
-  it('returns an array of 4 entries', () => {
+  it('returns an array of 3 entries', () => {
     const entries = getAllSchemaEntries();
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(3);
   });
 
   it('returns entries with the expected keys', () => {
@@ -237,7 +198,6 @@ describe('getAllSchemaEntries', () => {
     const keys = entries.map((e) => e.key);
     expect(keys).toContain('currentSprint');
     expect(keys).toContain('aiProvider');
-    expect(keys).toContain('editor');
     expect(keys).toContain('evaluationIterations');
   });
 
@@ -259,10 +219,6 @@ describe('getDefaultValue', () => {
 
   it('returns null for aiProvider', () => {
     expect(getDefaultValue('aiProvider')).toBeNull();
-  });
-
-  it('returns null for editor', () => {
-    expect(getDefaultValue('editor')).toBeNull();
   });
 
   it('returns 1 for evaluationIterations', () => {

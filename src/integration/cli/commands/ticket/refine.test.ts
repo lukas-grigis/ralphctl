@@ -10,7 +10,7 @@ import { exitWithCode } from '@src/application/exit-codes.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { buildTicketRefinePrompt } from '@src/integration/ai/prompts/loader.ts';
 import { createSpinner, showError, showWarning } from '@src/integration/ui/theme/ui.ts';
-import { getRefinementDir, getSchemaPath } from '@src/integration/persistence/paths.ts';
+import { getRefinementDir } from '@src/integration/persistence/paths.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 
 // --- Module mocks (must be at top level) ---
@@ -52,7 +52,6 @@ vi.mock('@src/integration/external/issue-fetch.ts', () => ({
 
 vi.mock('@src/integration/persistence/paths.ts', () => ({
   getRefinementDir: vi.fn().mockReturnValue('/tmp/refine-dir'),
-  getSchemaPath: vi.fn().mockReturnValue('/tmp/schema.json'),
 }));
 
 vi.mock('@src/application/exit-codes.ts', () => ({
@@ -197,7 +196,6 @@ describe('ticketRefineCommand', () => {
     vi.mocked(formatTicketForPrompt).mockReturnValue('## Ticket content\n');
     vi.mocked(buildTicketRefinePrompt).mockReturnValue('prompt text');
     vi.mocked(getRefinementDir).mockReturnValue('/tmp/refine-dir');
-    vi.mocked(getSchemaPath).mockReturnValue('/tmp/schema.json');
     vi.mocked(resolveProvider).mockResolvedValue('claude');
     vi.mocked(providerDisplayName).mockReturnValue('Claude');
 

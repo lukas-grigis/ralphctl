@@ -8,21 +8,31 @@
  * embedded gradient codes.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { banner, gradients, getRandomQuote } from '@src/integration/ui/theme/theme.ts';
-import { spacing } from '@src/integration/ui/theme/tokens.ts';
+import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 export function Banner(): React.JSX.Element {
-  const colored = gradients.donut.multiline(banner.art);
-  const quote = getRandomQuote();
+  // Memoize once per mount: the gradient is pure but non-trivial, and the
+  // quote is random — without this it would reshuffle on every parent render.
+  const colored = useMemo(() => gradients.donut.multiline(banner.art), []);
+  const quote = useMemo(() => getRandomQuote(), []);
 
   return (
-    <Box flexDirection="column">
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={inkColors.primary}
+      borderDimColor
+      paddingX={spacing.indent}
+      paddingY={spacing.section}
+      marginBottom={spacing.section}
+    >
       <Box alignItems="center" justifyContent="center">
         <Text>{colored}</Text>
       </Box>
-      <Box marginTop={spacing.section} paddingLeft={spacing.indent}>
+      <Box marginTop={spacing.section} alignItems="center" justifyContent="center">
         <Text dimColor italic>
           🍩 &quot;{quote}&quot;
         </Text>

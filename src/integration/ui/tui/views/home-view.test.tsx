@@ -86,7 +86,7 @@ const routerStub: RouterApi = {
   reset: routerMocks.reset,
 };
 
-import { HomeView } from './home-view.tsx';
+import { HomeView, __resetHomeModeMemory } from './home-view.tsx';
 
 function withRouter(node: React.ReactElement): React.ReactElement {
   return <RouterProvider value={routerStub}>{node}</RouterProvider>;
@@ -149,6 +149,9 @@ function setState(opts: {
 // --- tests ------------------------------------------------------------------
 
 describe('HomeView — pipeline map', () => {
+  beforeEach(() => {
+    __resetHomeModeMemory();
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -288,7 +291,10 @@ describe('HomeView — pipeline map', () => {
     stdin.write('\r'); // Enter
     await flush();
 
-    expect(refineHandler).toHaveBeenCalledTimes(1);
+    // Sprint lifecycle quick-actions push the matching phase view through the
+    // router instead of shelling out to the plain-CLI command.
+    expect(routerMocks.push).toHaveBeenCalledWith({ id: 'refine-phase', props: { sprintId: 'sprint-1' } });
+    expect(refineHandler).not.toHaveBeenCalled();
   });
 
   it('`b` opens the browse submenu', async () => {
@@ -300,12 +306,14 @@ describe('HomeView — pipeline map', () => {
     await flush();
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('Browse & Setup');
+    // SectionStamp uppercases the title.
+    expect(frame).toContain('BROWSE');
     expect(frame).toContain('Sprints');
     expect(frame).toContain('Tickets');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Projects');
-    expect(frame).toContain('Doctor');
+    // Doctor is now a global `?` hotkey, no longer in the browse menu.
+    expect(frame).not.toContain('Doctor');
   });
 
   describe('phase drill-in', () => {

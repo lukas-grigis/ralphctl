@@ -148,7 +148,13 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
         if (key.return) router.pop();
         return;
       }
-      if (phase.kind !== 'ready' || actions.length === 0) return;
+      if (phase.kind !== 'ready') return;
+      if (actions.length === 0) {
+        // Terminal state (already-closed sprint has nothing to confirm).
+        // Enter pops back instead of silently doing nothing.
+        if (key.return) router.pop();
+        return;
+      }
       if (key.upArrow) {
         setCursor((c) => (c === 0 ? actions.length - 1 : c - 1));
         return;
@@ -169,7 +175,7 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
   const activeHints =
     phaseKind === 'running' || phaseKind === 'loading'
       ? HINTS_WORKING
-      : phaseKind === 'done' || phaseKind === 'error'
+      : phaseKind === 'done' || phaseKind === 'error' || actions.length === 0
         ? HINTS_TERMINAL
         : HINTS_READY;
   useViewHints(activeHints);

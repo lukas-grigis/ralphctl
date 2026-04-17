@@ -1,4 +1,9 @@
-import type { RefinedRequirement, Sprint, Ticket } from '@src/domain/models.ts';
+import {
+  getRequirementsOutputJsonSchema,
+  type RefinedRequirement,
+  type Sprint,
+  type Ticket,
+} from '@src/domain/models.ts';
 import { DomainError, ParseError, SprintStatusError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { RefineOptions } from '@src/domain/context.ts';
@@ -70,9 +75,9 @@ export class RefineTicketRequirementsUseCase {
         return Result.ok({ approved: 0, skipped: 0, total: 0, allApproved });
       }
 
-      // Load schema once
-      const schemaPath = this.fs.getSchemaPath('requirements-output.schema.json');
-      const schema = await this.fs.readFile(schemaPath);
+      // JSON schema generated from the Zod source of truth — no hand-maintained
+      // mirror file to drift.
+      const schema = getRequirementsOutputJsonSchema();
 
       let approved = 0;
       let skipped = 0;

@@ -92,7 +92,7 @@ describe('DeleteSprintView', () => {
     selectMock.mockResolvedValue('sprint-1');
     getSprintMock.mockResolvedValue(sprint());
     listTasksMock.mockResolvedValue([]);
-    confirmMock.mockResolvedValue(true);
+    confirmMock.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
     getCurrentSprintMock.mockResolvedValue('sprint-1');
     deleteSprintMock.mockResolvedValue(sprint());
     setCurrentSprintMock.mockResolvedValue(undefined);
@@ -101,6 +101,7 @@ describe('DeleteSprintView', () => {
     await flush();
     await flush();
 
+    expect(confirmMock).toHaveBeenCalledTimes(2);
     expect(deleteSprintMock).toHaveBeenCalledWith('sprint-1');
     expect(setCurrentSprintMock).toHaveBeenCalledWith(null);
     expect(lastFrame() ?? '').toContain('Sprint deleted');
@@ -110,7 +111,7 @@ describe('DeleteSprintView', () => {
   it('skips the selector when sprintId prop is provided', async () => {
     getSprintMock.mockResolvedValue(sprint());
     listTasksMock.mockResolvedValue([]);
-    confirmMock.mockResolvedValue(true);
+    confirmMock.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
     getCurrentSprintMock.mockResolvedValue(null);
     deleteSprintMock.mockResolvedValue(sprint());
 

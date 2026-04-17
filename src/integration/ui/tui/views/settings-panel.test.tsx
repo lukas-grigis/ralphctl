@@ -51,7 +51,6 @@ describe('SettingsPanel', () => {
     getConfigMock.mockResolvedValueOnce({
       currentSprint: null,
       aiProvider: 'claude',
-      editor: null,
       evaluationIterations: 2,
     });
 
@@ -59,21 +58,20 @@ describe('SettingsPanel', () => {
     await flush();
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('Settings');
-    expect(frame).toContain('currentSprint');
-    expect(frame).toContain('aiProvider');
-    expect(frame).toContain('editor');
-    expect(frame).toContain('evaluationIterations');
+    // Panel renders human-friendly labels; SectionStamp above (rendered by
+    // SettingsView) owns the "SETTINGS" heading.
+    expect(frame).toContain('Current Sprint');
+    expect(frame).toContain('AI Provider');
+    expect(frame).toContain('Evaluation Iterations');
     expect(frame).toContain('claude');
     expect(frame).toContain('2');
   });
 
   it('marks values that match the schema default', async () => {
-    // evaluationIterations default is 1; editor default is null
+    // evaluationIterations default is 1
     getConfigMock.mockResolvedValueOnce({
       currentSprint: null,
       aiProvider: null,
-      editor: null,
       evaluationIterations: 1,
     });
 

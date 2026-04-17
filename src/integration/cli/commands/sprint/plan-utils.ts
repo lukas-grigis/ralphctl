@@ -1,19 +1,18 @@
-import { readFile } from 'node:fs/promises';
 import { renderTable } from '@src/integration/ui/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/integration/persistence/task.ts';
-import { getSchemaPath, getTasksFilePath } from '@src/integration/persistence/paths.ts';
+import { getTasksFilePath } from '@src/integration/persistence/paths.ts';
 import { withFileLock } from '@src/integration/persistence/file-lock.ts';
 import { ensureError, unwrapOrThrow, wrapAsync } from '@src/integration/utils/result-helpers.ts';
-import { type ImportTask, ImportTasksSchema, type Task } from '@src/domain/models.ts';
+import { getTaskImportJsonSchema, type ImportTask, ImportTasksSchema, type Task } from '@src/domain/models.ts';
 import { extractJsonArray } from '@src/integration/utils/json-extract.ts';
 import { generateUuid8 } from '@src/domain/ids.ts';
 
 /**
- * Load the task import JSON schema from file.
+ * JSON schema for the task-import output, generated on demand from Zod.
+ * No hand-maintained mirror file — the Zod schema is the only source of truth.
  */
-export async function getTaskImportSchema(): Promise<string> {
-  const schemaPath = getSchemaPath('task-import.schema.json');
-  return readFile(schemaPath, 'utf-8');
+export function getTaskImportSchema(): Promise<string> {
+  return Promise.resolve(getTaskImportJsonSchema());
 }
 
 /**

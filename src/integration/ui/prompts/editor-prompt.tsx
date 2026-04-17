@@ -192,7 +192,7 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
   const lineCount = lines.length;
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.muted} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.muted} paddingX={1} width="100%">
       <Box>
         <Text color={inkColors.primary} bold>
           {glyphs.badge}

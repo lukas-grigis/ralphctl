@@ -5,7 +5,6 @@ import {
   getRefinementDir,
   getPlanningDir,
   getSprintDir,
-  getSchemaPath,
   getProgressFilePath,
 } from '@src/integration/persistence/paths.ts';
 
@@ -59,9 +58,5 @@ export class NodeFilesystemAdapter implements FilesystemPort {
 
   getProjectContextFilePath(projectPath: string, sprintId: string, taskId: string): string {
     return join(projectPath, `.ralphctl-sprint-${sprintId}-task-${taskId}-context.md`);
-  }
-
-  getSchemaPath(name: string): string {
-    return getSchemaPath(name);
   }
 }

@@ -3,7 +3,9 @@ import { buildBrowseMenu, buildSubMenu, isSeparator, type MenuContext, type Menu
 
 /** Helper to extract actionable choices (not separators) from menu items */
 function choices(items: MenuItem[]) {
-  return items.filter((i): i is { name: string; value: string } => !isSeparator(i) && 'value' in i);
+  return items.filter(
+    (i): i is { name: string; value: string; disabled?: string | false } => !isSeparator(i) && 'value' in i
+  );
 }
 
 /** Minimal menu context with sensible defaults */
@@ -35,23 +37,32 @@ describe('buildSubMenu — config', () => {
 
 describe('buildBrowseMenu', () => {
   it('exposes every secondary entry point reachable from Home', () => {
-    const menu = buildBrowseMenu();
+    const menu = buildBrowseMenu(baseCtx());
     const vals = choices(menu.items).map((c) => c.value);
     expect(vals).toEqual([
-      'group:sprint',
-      'group:ticket',
-      'group:task',
-      'group:project',
+      'action:ticket:list',
+      'action:task:list',
       'action:progress:show',
-      'action:doctor:run',
+      'action:sprint:list',
+      'action:project:list',
       'back',
     ]);
+  });
+
+  it('disables current-sprint entries when there is no current sprint', () => {
+    const menu = buildBrowseMenu(baseCtx());
+    const byValue = Object.fromEntries(choices(menu.items).map((c) => [c.value, c]));
+    expect(byValue['action:ticket:list']?.disabled).toBeTruthy();
+    expect(byValue['action:task:list']?.disabled).toBeTruthy();
+    expect(byValue['action:progress:show']?.disabled).toBeTruthy();
+    expect(byValue['action:sprint:list']?.disabled).toBeFalsy();
+    expect(byValue['action:project:list']?.disabled).toBeFalsy();
   });
 
   it('is reachable via buildSubMenu("browse")', () => {
     const menu = buildSubMenu('browse', baseCtx());
     expect(menu).not.toBeNull();
-    expect(menu?.title).toBe('Browse & Setup');
+    expect(menu?.title).toBe('Browse');
   });
 });
 

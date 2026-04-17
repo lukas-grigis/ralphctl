@@ -15,22 +15,20 @@ describe('getConfigSchema', () => {
     const schema = getConfigSchema();
     expect(schema).toHaveProperty('currentSprint');
     expect(schema).toHaveProperty('aiProvider');
-    expect(schema).toHaveProperty('editor');
     expect(schema).toHaveProperty('evaluationIterations');
   });
 });
 
 describe('getAllConfigSchemaEntries', () => {
-  it('returns an array of 4 entries', () => {
+  it('returns an array of 3 entries', () => {
     const entries = getAllConfigSchemaEntries();
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(3);
   });
 
   it('includes entries for all config keys', () => {
     const keys = getAllConfigSchemaEntries().map((e) => e.key);
     expect(keys).toContain('currentSprint');
     expect(keys).toContain('aiProvider');
-    expect(keys).toContain('editor');
     expect(keys).toContain('evaluationIterations');
   });
 });
@@ -44,10 +42,6 @@ describe('getConfigDefaultValue', () => {
     expect(getConfigDefaultValue('aiProvider')).toBeNull();
   });
 
-  it('returns null for editor', () => {
-    expect(getConfigDefaultValue('editor')).toBeNull();
-  });
-
   it('returns 1 for evaluationIterations', () => {
     expect(getConfigDefaultValue('evaluationIterations')).toBe(1);
   });
@@ -55,7 +49,7 @@ describe('getConfigDefaultValue', () => {
 
 describe('getConfigKeyDescription', () => {
   it('returns a non-empty description for each key', () => {
-    const keys = ['currentSprint', 'aiProvider', 'editor', 'evaluationIterations'] as const;
+    const keys = ['currentSprint', 'aiProvider', 'evaluationIterations'] as const;
     for (const key of keys) {
       const desc = getConfigKeyDescription(key);
       expect(typeof desc).toBe('string');
@@ -76,10 +70,6 @@ describe('getConfigKeyScope', () => {
 
   it('returns global for aiProvider', () => {
     expect(getConfigKeyScope('aiProvider')).toBe('global');
-  });
-
-  it('returns user for editor', () => {
-    expect(getConfigKeyScope('editor')).toBe('user');
   });
 
   it('returns sprint for evaluationIterations', () => {
@@ -150,24 +140,6 @@ describe('validateConfigValue', () => {
         expect(result.error.message).toContain('claude');
         expect(result.error.message).toContain('copilot');
       }
-    });
-  });
-
-  describe('editor', () => {
-    it('accepts null', () => {
-      const result = validateConfigValue('editor', null);
-      expect(result.ok).toBe(true);
-    });
-
-    it('accepts a non-empty string', () => {
-      const result = validateConfigValue('editor', 'vim');
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe('vim');
-    });
-
-    it('rejects an empty string', () => {
-      const result = validateConfigValue('editor', '');
-      expect(result.ok).toBe(false);
     });
   });
 
@@ -318,20 +290,6 @@ describe('parseConfigValue', () => {
     it('returns error for negative value "-1"', () => {
       const result = parseConfigValue('evaluationIterations', '-1');
       expect(result.ok).toBe(false);
-    });
-  });
-
-  describe('string type (editor)', () => {
-    it('parses "vim" correctly', () => {
-      const result = parseConfigValue('editor', 'vim');
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe('vim');
-    });
-
-    it('parses "null" as null', () => {
-      const result = parseConfigValue('editor', 'null');
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBeNull();
     });
   });
 });

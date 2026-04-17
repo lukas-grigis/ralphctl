@@ -50,11 +50,15 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
   const [config, setConfig] = useState<ConfigRecord | null>(null);
   const [cursor, setCursor] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useViewHints(SETTINGS_HINTS);
 
-  // Load the initial config once.
+  // Reload config from disk on mount, and whenever reloadNonce bumps after
+  // a successful save. Keeping this as the single source of display truth
+  // avoids any stale-state edge case after an edit round-trip.
   useEffect(() => {
     const cancel = { current: false };
     const load = async (): Promise<void> => {
@@ -69,7 +73,7 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
     return () => {
       cancel.current = true;
     };
-  }, []);
+  }, [reloadNonce]);
 
   const saveValue = useCallback(
     async (entry: ConfigSchemaEntry, value: unknown): Promise<void> => {
@@ -79,11 +83,28 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
         return;
       }
       setError(null);
-      const next: ConfigRecord = { ...(config ?? {}), [entry.key]: validated.value };
-      setConfig(next);
-      await getSharedDeps().persistence.saveConfig(next as unknown as Config);
+      setNotice(null);
+      try {
+        const persistence = getSharedDeps().persistence;
+        const current = (await persistence.getConfig()) as unknown as ConfigRecord;
+        const next: ConfigRecord = { ...current, [entry.key]: validated.value };
+        await persistence.saveConfig(next as unknown as Config);
+        const fresh = (await persistence.getConfig()) as unknown as ConfigRecord;
+        const landed = fresh[entry.key];
+        setConfig(fresh);
+        setReloadNonce((n) => n + 1);
+        setNotice(
+          valuesEqual(landed, validated.value)
+            ? `Saved ${entry.label}: ${formatValue(landed)}`
+            : `Saved, but disk reports ${entry.label} = ${formatValue(landed)} (expected ${formatValue(validated.value)})`
+        );
+      } catch (err) {
+        setError(
+          `Failed to save ${entry.label}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
     },
-    [config]
+    []
   );
 
   const startEdit = useCallback(async (): Promise<void> => {
@@ -92,7 +113,21 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
     setEditing(true);
     setError(null);
     try {
-      if (entry.type === 'enum' && entry.enum) {
+      if (entry.key === 'currentSprint') {
+        // Dynamic enum: every sprint on disk is a valid choice. Keeps the
+        // operator from having to type a long YYYYMMDD-HHmmss-slug ID.
+        const sprints = await getSharedDeps().persistence.listSprints();
+        const choices: { label: string; value: unknown }[] = [
+          { label: '(clear)', value: null },
+          ...sprints.map((s) => ({ label: `${s.name} · ${s.id} [${s.status}]`, value: s.id })),
+        ];
+        const picked = await getPrompt().select<unknown>({
+          message: 'Set current sprint',
+          choices,
+          default: config?.[entry.key],
+        });
+        await saveValue(entry, picked);
+      } else if (entry.type === 'enum' && entry.enum) {
         const choices = entry.enum.map((v) => ({ label: String(v), value: v as unknown }));
         // Always offer an explicit "null" sentinel when the schema allows it
         // (default is null → clearable).
@@ -100,7 +135,7 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
           choices.unshift({ label: '(clear)', value: null });
         }
         const picked = await getPrompt().select<unknown>({
-          message: `Set ${entry.key}`,
+          message: `Set ${entry.label}`,
           choices,
           default: config?.[entry.key],
         });
@@ -158,12 +193,6 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={inkColors.primary} paddingX={spacing.cardPadX} paddingY={0}>
-      <Box>
-        <Text bold color={inkColors.primary}>
-          Settings
-        </Text>
-      </Box>
-
       {config === null ? (
         <Text dimColor>Loading…</Text>
       ) : (
@@ -171,32 +200,42 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
           const value = config[entry.key];
           const isDefault = valuesEqual(value, entry.default);
           const isCursor = i === cursor;
+          const typeLabel =
+            entry.type === 'enum' && entry.enum ? `enum: ${entry.enum.join(' | ')}` : entry.type;
           return (
             <Box flexDirection="column" key={entry.key} marginTop={spacing.section}>
               <Box>
-                <Text color={isCursor ? inkColors.highlight : undefined} bold={isCursor}>
+                <Text color={isCursor ? inkColors.highlight : inkColors.primary} bold>
                   {isCursor ? `${glyphs.actionCursor} ` : '  '}
-                  {entry.key}
+                  {entry.label}
                 </Text>
-                <Text dimColor>{`  (${entry.type})`}</Text>
-              </Box>
-              <Box paddingLeft={spacing.indent}>
-                <Text>{formatValue(value)}</Text>
-                {isDefault ? (
-                  <Text dimColor>{`  ${glyphs.inlineDot} default`}</Text>
-                ) : null}
+                <Text dimColor>{`  (${typeLabel})`}</Text>
               </Box>
               <Box paddingLeft={spacing.indent}>
                 <Text dimColor>{entry.description}</Text>
+              </Box>
+              <Box paddingLeft={spacing.indent}>
+                <Text>{formatValue(value)}</Text>
+                {isDefault ? <Text dimColor>{`  ${glyphs.inlineDot} default`}</Text> : null}
               </Box>
             </Box>
           );
         })
       )}
 
+      {notice ? (
+        <Box marginTop={spacing.section}>
+          <Text color={inkColors.success}>
+            {glyphs.check} {notice}
+          </Text>
+        </Box>
+      ) : null}
+
       {error ? (
         <Box marginTop={spacing.section}>
-          <Text color={inkColors.error}>{glyphs.cross} {error}</Text>
+          <Text color={inkColors.error}>
+            {glyphs.cross} {error}
+          </Text>
         </Box>
       ) : null}
     </Box>

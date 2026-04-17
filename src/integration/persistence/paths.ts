@@ -1,26 +1,8 @@
-import { fileURLToPath } from 'node:url';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { lstat, realpath, stat } from 'node:fs/promises';
 import { Result } from 'typescript-result';
 import { IOError } from '@src/domain/errors.ts';
-
-// Repo/package root: walk up from __dirname to find package.json.
-// Works in both dev (src/utils/) and dist (dist/) contexts.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function getRepoRoot(): string {
-  let dir = __dirname;
-  while (dir !== dirname(dir)) {
-    if (existsSync(join(dir, 'package.json'))) {
-      return dir;
-    }
-    dir = dirname(dir);
-  }
-  return join(__dirname, '..', '..');
-}
 
 // Data directory: RALPHCTL_ROOT env var (if set) or ~/.ralphctl/
 export function getDataDir(): string {
@@ -91,10 +73,6 @@ export function getPlanningDir(sprintId: string): string {
 export function getIdeateDir(sprintId: string, ticketId: string): string {
   assertSafeSegment(ticketId, 'ticket ID');
   return join(getSprintDir(sprintId), 'ideation', ticketId);
-}
-
-export function getSchemaPath(schemaName: string): string {
-  return join(getRepoRoot(), 'schemas', schemaName);
 }
 
 /**

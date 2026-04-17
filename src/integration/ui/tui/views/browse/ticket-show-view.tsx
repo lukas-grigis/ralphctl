@@ -3,9 +3,11 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import type { Ticket } from '@src/domain/models.ts';
 import { getTicket } from '@src/integration/persistence/ticket.ts';
+import { getCurrentSprint } from '@src/integration/persistence/config.ts';
+import { getSprint } from '@src/integration/persistence/sprint.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
@@ -13,19 +15,24 @@ import { FieldList } from '@src/integration/ui/tui/components/field-list.tsx';
 import { StatusChip } from '@src/integration/ui/tui/components/status-chip.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 
 interface Props {
   readonly ticketId?: string;
 }
 
-type State = { kind: 'loading' } | { kind: 'ready'; ticket: Ticket } | { kind: 'error'; message: string };
+type State =
+  | { kind: 'loading' }
+  | { kind: 'ready'; ticket: Ticket; editable: boolean }
+  | { kind: 'error'; message: string };
 
 const TITLE = 'Ticket Details' as const;
-const HINTS = [] as const;
+const HINTS_READ_ONLY = [] as const;
+const HINTS_EDITABLE = [{ key: 'e', action: 'edit' }] as const;
 
 export function TicketShowView({ ticketId }: Props): React.JSX.Element {
+  const router = useRouter();
   const [state, setState] = useState<State>({ kind: 'loading' });
-  useViewHints(HINTS);
 
   useEffect(() => {
     const ctl = { cancelled: false };
@@ -35,8 +42,17 @@ export function TicketShowView({ ticketId }: Props): React.JSX.Element {
         return;
       }
       try {
-        const ticket = await getTicket(ticketId);
-        if (!ctl.cancelled) setState({ kind: 'ready', ticket });
+        const [ticket, currentId] = await Promise.all([getTicket(ticketId), getCurrentSprint()]);
+        let editable = false;
+        if (currentId) {
+          try {
+            const sprint = await getSprint(currentId);
+            editable = sprint.status === 'draft' && sprint.tickets.some((t) => t.id === ticketId);
+          } catch {
+            editable = false;
+          }
+        }
+        if (!ctl.cancelled) setState({ kind: 'ready', ticket, editable });
       } catch (err) {
         if (!ctl.cancelled) setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
       }
@@ -45,6 +61,14 @@ export function TicketShowView({ ticketId }: Props): React.JSX.Element {
       ctl.cancelled = true;
     };
   }, [ticketId]);
+
+  useInput((input) => {
+    if (input === 'e' && state.kind === 'ready' && state.editable && ticketId) {
+      router.push({ id: 'ticket-edit', props: { ticketId } });
+    }
+  });
+
+  useViewHints(state.kind === 'ready' && state.editable ? HINTS_EDITABLE : HINTS_READ_ONLY);
 
   return <ViewShell title={TITLE}>{renderBody(state)}</ViewShell>;
 }

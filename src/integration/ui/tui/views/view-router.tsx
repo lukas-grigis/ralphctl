@@ -22,8 +22,10 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Box, useApp, useInput } from 'ink';
+import { Banner } from '@src/integration/ui/tui/components/banner.tsx';
 import { StatusBar } from '@src/integration/ui/tui/components/status-bar.tsx';
 import { KeyboardHints } from '@src/integration/ui/tui/components/keyboard-hints.tsx';
+import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { PromptHost } from '@src/integration/ui/prompts/prompt-host.tsx';
 import { useCurrentPrompt } from '@src/integration/ui/prompts/hooks.ts';
 import { ViewHintsProvider } from '@src/integration/ui/tui/views/view-hints-context.tsx';
@@ -67,6 +69,12 @@ import { DoctorView } from './browse/doctor-view.tsx';
 import { ProgressShowView } from './browse/progress-show-view.tsx';
 import { ProgressLogView } from './workflows/progress-log-view.tsx';
 import { IdeateView } from './workflows/ideate-view.tsx';
+import { OnboardingView } from './onboarding-view.tsx';
+import { ReactivateSprintView } from './workflows/reactivate-sprint-view.tsx';
+import { EvaluationsView } from './browse/evaluations-view.tsx';
+import { EvaluationShowView } from './browse/evaluation-show-view.tsx';
+import { FeedbackView } from './browse/feedback-view.tsx';
+import { VersionHint } from '@src/integration/ui/tui/components/version-hint.tsx';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -154,7 +162,10 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
   },
   'ticket-edit': {
     label: 'Edit Ticket',
-    render: () => <TicketEditView />,
+    render: (props) => {
+      const ticketId = typeof props['ticketId'] === 'string' ? props['ticketId'] : undefined;
+      return <TicketEditView ticketId={ticketId} />;
+    },
   },
   'ticket-remove': {
     label: 'Remove Ticket',
@@ -209,8 +220,44 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
   },
   doctor: { label: 'Doctor', render: () => <DoctorView /> },
   'progress-log': { label: 'Log Progress', render: () => <ProgressLogView /> },
-  'progress-show': { label: 'Progress', render: () => <ProgressShowView /> },
+  'progress-show': {
+    label: 'Progress',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <ProgressShowView sprintId={sprintId} />;
+    },
+  },
   ideate: { label: 'Ideate', render: () => <IdeateView /> },
+  onboarding: { label: 'Welcome', render: () => <OnboardingView /> },
+  'sprint-reactivate': {
+    label: 'Reactivate Sprint',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <ReactivateSprintView sprintId={sprintId} />;
+    },
+  },
+  evaluations: {
+    label: 'Evaluations',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <EvaluationsView sprintId={sprintId} />;
+    },
+  },
+  'evaluation-show': {
+    label: 'Evaluation',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : '';
+      const taskId = typeof props['taskId'] === 'string' ? props['taskId'] : '';
+      return <EvaluationShowView sprintId={sprintId} taskId={taskId} />;
+    },
+  },
+  feedback: {
+    label: 'Feedback',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <FeedbackView sprintId={sprintId} />;
+    },
+  },
 };
 
 interface Props {
@@ -301,6 +348,10 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
         push({ id: 'dashboard' });
         return;
       }
+      if (input === '?' && current.id !== 'doctor') {
+        push({ id: 'doctor' });
+        return;
+      }
       if (input === 'q' && stackRef.current.length === 1 && current.id === 'home') {
         app.exit();
       }
@@ -315,13 +366,22 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     <RouterProvider value={api}>
       <ViewHintsProvider key={current.id}>
         <Box flexDirection="column">
+          <Banner />
           {meta.render(props)}
           <PromptHost />
           <Box marginTop={1}>
             <KeyboardHints />
           </Box>
-          <Box marginTop={1}>
+          <Box
+            marginTop={1}
+            borderStyle="round"
+            borderColor={inkColors.primary}
+            borderDimColor
+            paddingX={spacing.indent}
+            justifyContent="space-between"
+          >
             <StatusBar breadcrumb={stack.map((e) => views[e.id].label)} hints={buildHints(current.id, stack.length)} />
+            <VersionHint />
           </Box>
         </Box>
       </ViewHintsProvider>
@@ -362,7 +422,11 @@ function buildHints(currentId: ViewId, depth: number): readonly { key: string; a
   if (currentId !== 'dashboard') {
     hints.push({ key: 'd', action: 'dashboard' });
   }
+  if (currentId !== 'doctor') {
+    hints.push({ key: '?', action: 'doctor' });
+  }
   if (currentId === 'home' && depth === 1) {
+    hints.push({ key: 'b', action: 'browse' });
     hints.push({ key: 'q', action: 'quit' });
   }
   return hints;

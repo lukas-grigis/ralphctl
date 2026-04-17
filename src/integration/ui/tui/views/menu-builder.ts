@@ -30,10 +30,14 @@ function isSeparator(item: MenuItem): item is MenuSeparator {
   return 'separator' in item;
 }
 
-/** Create a titled separator: ── LABEL ──────────── */
+/** Create a titled separator: dim label, rendered on its own line. */
 function titled(label: string): MenuSeparator {
-  const lineLen = Math.max(2, SEPARATOR_WIDTH - label.length - 4); // 4 = "── " + " "
-  return { separator: colors.muted(`\n── ${label} ${'─'.repeat(lineLen)}`) };
+  return { separator: colors.muted(label) };
+}
+
+/** Blank line used to put breathing room between section titles. */
+function blank(): MenuSeparator {
+  return { separator: '' };
 }
 
 /** Plain line separator: ────────────────────────── */
@@ -87,21 +91,40 @@ export interface MenuContext {
  *
  * Home's submenu dispatcher recognises both prefixes.
  */
-export function buildBrowseMenu(): SubMenu {
+export function buildBrowseMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
-  items.push(titled('BROWSE'));
-  items.push({ name: 'Sprints', value: 'group:sprint', description: 'List, show, manage sprints' });
-  items.push({ name: 'Tickets', value: 'group:ticket', description: 'List, show, edit tickets' });
-  items.push({ name: 'Tasks', value: 'group:task', description: 'List, show, manage tasks' });
-  items.push({ name: 'Projects', value: 'group:project', description: 'Manage projects & repositories' });
-  items.push({ name: 'Progress', value: 'action:progress:show', description: 'View progress log' });
-  items.push(titled('SETUP'));
-  // Configuration lives behind the global `s` hotkey (StatusBar) — don't
-  // duplicate it here as a menu entry.
-  items.push({ name: 'Doctor', value: 'action:doctor:run', description: 'Check environment health' });
+  const hasCurrent = ctx.currentSprintId !== null;
+  const currentHeader = ctx.currentSprintName ? `Current Sprint · ${ctx.currentSprintName}` : 'Current Sprint';
+
+  items.push(titled(currentHeader));
+  items.push({
+    name: 'Tickets',
+    value: 'action:ticket:list',
+    description: 'Tickets on the current sprint',
+    disabled: hasCurrent ? false : 'no current sprint',
+  });
+  items.push({
+    name: 'Tasks',
+    value: 'action:task:list',
+    description: 'Tasks on the current sprint',
+    disabled: hasCurrent ? false : 'no current sprint',
+  });
+  items.push({
+    name: 'Progress',
+    value: 'action:progress:show',
+    description: 'Progress log for the current sprint',
+    disabled: hasCurrent ? false : 'no current sprint',
+  });
+
+  items.push(blank());
+  items.push(titled('Across Sprints'));
+  items.push({ name: 'Sprints', value: 'action:sprint:list', description: 'List all sprints' });
+  items.push({ name: 'Projects', value: 'action:project:list', description: 'List all projects' });
+
+  // Settings (`s`) and Doctor (`?`) live behind global hotkeys — don't duplicate here.
   items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to Home' });
-  return { title: 'Browse & Setup', items };
+  return { title: 'Browse', items };
 }
 
 /**
@@ -115,10 +138,11 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
 
   items.push(titled('NEW'));
   items.push({ name: 'Create', value: 'create', description: 'Create a new sprint' });
+  items.push(blank());
   items.push(titled('BROWSE'));
   items.push({ name: 'List', value: 'list', description: 'List all sprints' });
-  items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
   items.push({ name: 'Set Current', value: 'current', description: 'Set current sprint' });
+  items.push(blank());
   items.push(titled('EXPORT'));
   items.push({
     name: 'Requirements',
@@ -127,6 +151,7 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   });
   items.push({ name: 'Context', value: 'context', description: 'Output full sprint context' });
   items.push({ name: 'Progress', value: 'progress show', description: 'View progress log' });
+  items.push(blank());
   items.push(titled('MANAGE'));
   items.push({ name: 'Log Progress', value: 'progress log', description: 'Add progress entry' });
   items.push({ name: 'Delete', value: 'delete', description: 'Delete a sprint permanently' });
@@ -153,7 +178,6 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
   });
   items.push({ name: 'Edit', value: 'edit', description: 'Edit a ticket' });
   items.push({ name: 'List', value: 'list', description: 'List all tickets' });
-  items.push({ name: 'Show', value: 'show', description: 'Show ticket details' });
 
   // Re-refine — requires draft sprint with approved tickets
   const approvedCount = ctx.ticketCount - ctx.pendingRequirements;
@@ -186,8 +210,8 @@ function buildTaskSubMenu(ctx: MenuContext): SubMenu {
 
   items.push(titled('VIEW'));
   items.push({ name: 'List', value: 'list', description: 'List all tasks' });
-  items.push({ name: 'Show', value: 'show', description: 'Show task details' });
   items.push({ name: 'Next', value: 'next', description: 'Get next task' });
+  items.push(blank());
   items.push(titled('MANAGE'));
   items.push({ name: 'Add', value: 'add', description: 'Add a new task' });
   items.push({ name: 'Import', value: 'import', description: 'Import from JSON' });
@@ -210,7 +234,7 @@ function buildProjectSubMenu(): SubMenu {
   items.push({ name: 'Add', value: 'add', description: 'Add a new project' });
   items.push({ name: 'Edit', value: 'edit', description: 'Rename display name / edit description' });
   items.push({ name: 'List', value: 'list', description: 'List all projects' });
-  items.push({ name: 'Show', value: 'show', description: 'Show project details' });
+  items.push(blank());
   items.push(titled('REPOSITORIES'));
   items.push({
     name: 'Add Repository',
@@ -241,7 +265,7 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
     case 'project':
       return buildProjectSubMenu();
     case 'browse':
-      return buildBrowseMenu();
+      return buildBrowseMenu(ctx);
     default:
       return null;
   }
