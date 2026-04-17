@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-17
+
 ### Housekeeping
 
 - Pruned dead code across the theme, prompts, runtime, and factories layers: deleted unused formatters
