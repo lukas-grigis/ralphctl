@@ -60,8 +60,11 @@ export class InteractiveUserAdapter implements UserInteractionPort {
   }
 
   async getFeedback(message: string): Promise<string | null> {
-    const response = await getPrompt().input({ message });
-    return response.trim().length > 0 ? response.trim() : null;
+    // Multi-line markdown feedback — Ctrl+D submits, Esc cancels.
+    const response = await getPrompt().editor({ message, kind: 'markdown' });
+    if (response == null) return null;
+    const trimmed = response.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 }
 
