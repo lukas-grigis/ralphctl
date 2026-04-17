@@ -13,10 +13,7 @@ import { inkColors } from '@src/integration/ui/theme/tokens.ts';
 import { ListView, type ListColumn } from '@src/integration/ui/tui/components/list-view.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
-import {
-  chipKindForSprintStatus,
-  type StatusKind,
-} from '@src/integration/ui/tui/components/status-chip.tsx';
+import { chipKindForSprintStatus, type StatusKind } from '@src/integration/ui/tui/components/status-chip.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
@@ -35,11 +32,7 @@ interface ReadyState {
   readonly taskCountsById: ReadonlyMap<string, TaskCounts>;
 }
 
-type State =
-  | { kind: 'loading' }
-  | { kind: 'empty' }
-  | ReadyState
-  | { kind: 'error'; message: string };
+type State = { kind: 'loading' } | { kind: 'empty' } | ReadyState | { kind: 'error'; message: string };
 
 // A StatusChip inside a ListView cell would break the padding math — the cell
 // function must return a plain string — so we render the chip label in-band
@@ -198,11 +191,7 @@ export function SprintListView(): React.JSX.Element {
       ) : state.kind === 'error' ? (
         <ResultCard kind="error" title="Could not load sprints" lines={[state.message]} />
       ) : filtered.length === 0 ? (
-        <ResultCard
-          kind="info"
-          title={`No sprints with status '${filter}'`}
-          lines={['Press f to cycle the filter.']}
-        />
+        <ResultCard kind="info" title={`No sprints with status '${filter}'`} lines={['Press f to cycle the filter.']} />
       ) : (
         <ListView<Sprint>
           rows={filtered}

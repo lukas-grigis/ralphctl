@@ -49,9 +49,7 @@ describe('PhaseRunTrace', () => {
   });
 
   it('formats minute-scale durations as m:ss', () => {
-    const records: StepExecutionRecord[] = [
-      { stepName: 'run-plan', status: 'success', durationMs: 125_000 },
-    ];
+    const records: StepExecutionRecord[] = [{ stepName: 'run-plan', status: 'success', durationMs: 125_000 }];
     const { lastFrame } = render(<PhaseRunTrace records={records} />);
     expect(lastFrame() ?? '').toContain('2m05s');
   });

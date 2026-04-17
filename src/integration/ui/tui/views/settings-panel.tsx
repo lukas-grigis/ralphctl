@@ -75,37 +75,32 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
     };
   }, [reloadNonce]);
 
-  const saveValue = useCallback(
-    async (entry: ConfigSchemaEntry, value: unknown): Promise<void> => {
-      const validated = validateConfigValue(entry.key, value);
-      if (!validated.ok) {
-        setError(validated.error.message);
-        return;
-      }
-      setError(null);
-      setNotice(null);
-      try {
-        const persistence = getSharedDeps().persistence;
-        const current = (await persistence.getConfig()) as unknown as ConfigRecord;
-        const next: ConfigRecord = { ...current, [entry.key]: validated.value };
-        await persistence.saveConfig(next as unknown as Config);
-        const fresh = (await persistence.getConfig()) as unknown as ConfigRecord;
-        const landed = fresh[entry.key];
-        setConfig(fresh);
-        setReloadNonce((n) => n + 1);
-        setNotice(
-          valuesEqual(landed, validated.value)
-            ? `Saved ${entry.label}: ${formatValue(landed)}`
-            : `Saved, but disk reports ${entry.label} = ${formatValue(landed)} (expected ${formatValue(validated.value)})`
-        );
-      } catch (err) {
-        setError(
-          `Failed to save ${entry.label}: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-    },
-    []
-  );
+  const saveValue = useCallback(async (entry: ConfigSchemaEntry, value: unknown): Promise<void> => {
+    const validated = validateConfigValue(entry.key, value);
+    if (!validated.ok) {
+      setError(validated.error.message);
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    try {
+      const persistence = getSharedDeps().persistence;
+      const current = (await persistence.getConfig()) as unknown as ConfigRecord;
+      const next: ConfigRecord = { ...current, [entry.key]: validated.value };
+      await persistence.saveConfig(next as unknown as Config);
+      const fresh = (await persistence.getConfig()) as unknown as ConfigRecord;
+      const landed = fresh[entry.key];
+      setConfig(fresh);
+      setReloadNonce((n) => n + 1);
+      setNotice(
+        valuesEqual(landed, validated.value)
+          ? `Saved ${entry.label}: ${formatValue(landed)}`
+          : `Saved, but disk reports ${entry.label} = ${formatValue(landed)} (expected ${formatValue(validated.value)})`
+      );
+    } catch (err) {
+      setError(`Failed to save ${entry.label}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
 
   const startEdit = useCallback(async (): Promise<void> => {
     const entry = entries[cursor];
@@ -192,7 +187,13 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.primary} paddingX={spacing.cardPadX} paddingY={0}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={inkColors.primary}
+      paddingX={spacing.cardPadX}
+      paddingY={0}
+    >
       {config === null ? (
         <Text dimColor>Loading…</Text>
       ) : (
@@ -200,8 +201,7 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
           const value = config[entry.key];
           const isDefault = valuesEqual(value, entry.default);
           const isCursor = i === cursor;
-          const typeLabel =
-            entry.type === 'enum' && entry.enum ? `enum: ${entry.enum.join(' | ')}` : entry.type;
+          const typeLabel = entry.type === 'enum' && entry.enum ? `enum: ${entry.enum.join(' | ')}` : entry.type;
           return (
             <Box flexDirection="column" key={entry.key} marginTop={spacing.section}>
               <Box>

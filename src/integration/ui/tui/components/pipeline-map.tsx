@@ -132,9 +132,7 @@ export function PipelineMap({ snapshot, onAction, onDrillIn, disabled = false }:
                 {p.title.padEnd(9)}
               </Text>
               <Text dimColor>{`  ${p.detail}`}</Text>
-              {selected ? (
-                <Text color={inkColors.info} dimColor>{`  ${glyphs.inlineDot} Enter to open`}</Text>
-              ) : null}
+              {selected ? <Text color={inkColors.info} dimColor>{`  ${glyphs.inlineDot} Enter to open`}</Text> : null}
             </Box>
             {!row.isLast ? (
               <Box>

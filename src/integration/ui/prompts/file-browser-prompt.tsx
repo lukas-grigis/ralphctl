@@ -124,20 +124,13 @@ export function FileBrowserPrompt({ options, onSubmit, onCancel }: FileBrowserPr
               {isSelected ? '› ' : '  '}
               {icon}
               {name}
-              {repo && (
-                <Text dimColor>
-                  {' '}
-                  (git repo)
-                </Text>
-              )}
+              {repo && <Text dimColor> (git repo)</Text>}
             </Text>
           );
         })}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>
-          ↑/↓ move · Enter descend · Backspace up · h home · . select · Esc cancel
-        </Text>
+        <Text dimColor>↑/↓ move · Enter descend · Backspace up · h home · . select · Esc cancel</Text>
       </Box>
     </Box>
   );

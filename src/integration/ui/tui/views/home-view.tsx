@@ -415,8 +415,7 @@ export function HomeView(): React.JSX.Element {
   // view-local hints — global hotkeys still work. Stable refs: the hint
   // arrays are module-level constants so `useViewHints`'s effect doesn't
   // re-publish on every render.
-  const activeHints =
-    mode === 'main' ? HOME_HINTS_MAIN : typeof mode === 'object' ? HOME_HINTS_SUB : HOME_HINTS_NONE;
+  const activeHints = mode === 'main' ? HOME_HINTS_MAIN : typeof mode === 'object' ? HOME_HINTS_SUB : HOME_HINTS_NONE;
   useViewHints(activeHints);
 
   if (state === null) {
@@ -471,11 +470,7 @@ export function HomeView(): React.JSX.Element {
  *   detail view to show, so we no-op and let the user use the quick
  *   action (which runs the prepare flow) instead.
  */
-function resolveDrillInTarget(
-  phaseId: PhaseId,
-  sprintId: string,
-  snapshot: PipelineSnapshot
-): ViewEntry | null {
+function resolveDrillInTarget(phaseId: PhaseId, sprintId: string, snapshot: PipelineSnapshot): ViewEntry | null {
   switch (phaseId) {
     case 'refine':
       return { id: 'refine-phase', props: { sprintId } };

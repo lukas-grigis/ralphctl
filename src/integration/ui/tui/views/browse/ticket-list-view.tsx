@@ -120,11 +120,7 @@ export function TicketListView({ sprintId }: Props): React.JSX.Element {
       {state.kind === 'loading' ? (
         <Spinner label="Loading tickets…" />
       ) : state.kind === 'empty' ? (
-        <ResultCard
-          kind="info"
-          title="No tickets in this sprint"
-          lines={['Press `a` to add a ticket.']}
-        />
+        <ResultCard kind="info" title="No tickets in this sprint" lines={['Press `a` to add a ticket.']} />
       ) : state.kind === 'error' ? (
         <ResultCard kind="error" title="Could not load tickets" lines={[state.message]} />
       ) : (

@@ -155,9 +155,7 @@ describe('DashboardView', () => {
       aiProvider: null,
     };
     loadDashboardDataMock.mockResolvedValue(data);
-    getProgressMock.mockResolvedValue(
-      '## 2026-04-15T10:00:00Z — Task Alpha\n\nDid some work on the thing.\n\n---\n\n'
-    );
+    getProgressMock.mockResolvedValue('## 2026-04-15T10:00:00Z — Task Alpha\n\nDid some work on the thing.\n\n---\n\n');
 
     const { lastFrame } = render(<DashboardView />);
     await flush();

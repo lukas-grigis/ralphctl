@@ -262,9 +262,7 @@ describe('ViewRouter', () => {
 
     it('does not reset to home on `h` while a prompt is pending', async () => {
       currentPromptMock.mockImplementation(() => fakePrompt);
-      const { lastFrame, stdin } = render(
-        <ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />
-      );
+      const { lastFrame, stdin } = render(<ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />);
       await flush();
 
       stdin.write('h');
@@ -276,9 +274,7 @@ describe('ViewRouter', () => {
 
     it('does not pop on Esc while a prompt is pending', async () => {
       currentPromptMock.mockImplementation(() => fakePrompt);
-      const { lastFrame, stdin } = render(
-        <ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />
-      );
+      const { lastFrame, stdin } = render(<ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />);
       await flush();
 
       stdin.write('\u001b');

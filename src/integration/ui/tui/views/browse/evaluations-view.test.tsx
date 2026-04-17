@@ -56,7 +56,9 @@ describe('EvaluationsView', () => {
 
   it('shows empty state when no task has evaluation output', async () => {
     resolveSprintIdMock.mockResolvedValue('s1');
-    listTasksMock.mockResolvedValue([task({ evaluationStatus: undefined, evaluationOutput: undefined, evaluated: false })]);
+    listTasksMock.mockResolvedValue([
+      task({ evaluationStatus: undefined, evaluationOutput: undefined, evaluated: false }),
+    ]);
 
     const { lastFrame } = render(withRouter(<EvaluationsView sprintId="s1" />));
     await flush();

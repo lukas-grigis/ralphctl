@@ -183,9 +183,7 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
   if (state.sprint === null) {
     return (
       <ViewShell title="Close Phase">
-        <Text dimColor>
-          {state.phase.kind === 'error' ? state.phase.message : 'Loading sprint…'}
-        </Text>
+        <Text dimColor>{state.phase.kind === 'error' ? state.phase.message : 'Loading sprint…'}</Text>
       </ViewShell>
     );
   }
@@ -274,12 +272,7 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
   );
 }
 
-function renderActions(
-  phase: Phase,
-  actions: readonly ActionId[],
-  cursor: number,
-  sprint: Sprint
-): React.JSX.Element {
+function renderActions(phase: Phase, actions: readonly ActionId[], cursor: number, sprint: Sprint): React.JSX.Element {
   if (sprint.status !== 'active') {
     return (
       <Box paddingLeft={spacing.indent}>
