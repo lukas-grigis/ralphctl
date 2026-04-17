@@ -221,3 +221,21 @@ export class StepError extends DomainError {
     this.stepName = stepName;
   }
 }
+
+/**
+ * Raised by the per-task `branch-preflight` step when a repo is not on the
+ * expected sprint branch. Distinct from `StorageError` so the executor's
+ * retry policy can pattern-match by type rather than by message substring
+ * and requeue the task up to `MAX_BRANCH_RETRIES` times before failing.
+ */
+export class BranchPreflightError extends DomainError {
+  readonly code = 'BRANCH_PREFLIGHT_ERROR';
+  readonly projectPath: string;
+  readonly expectedBranch: string;
+
+  constructor(projectPath: string, expectedBranch: string, cause?: Error) {
+    super(`Branch verification failed: expected '${expectedBranch}' in ${projectPath}`, cause);
+    this.projectPath = projectPath;
+    this.expectedBranch = expectedBranch;
+  }
+}

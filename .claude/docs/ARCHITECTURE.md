@@ -61,11 +61,53 @@ Non-repository ports — external services, UI, and parsers.
 - `ExecuteTasksUseCase` — sequential + parallel executor, feedback loop, generator-evaluator
 - `EvaluateTaskUseCase` — autonomous post-task code review
 
-All return `Result<T, DomainError>` from `typescript-result`. Throw-free at use-case boundaries.
+All return `Result<T, DomainError>` from `typescript-result`. Throw-free at use-case boundaries. Use cases are
+invoked by pipelines (below), never directly by CLI commands — an ESLint fence in `eslint.config.js` enforces this.
 
 ### Pipelines (`src/business/pipelines/`)
 
-Steps (composable, pre/post hooks, typed context) — see `refine-plan.ts` for the reference pipeline.
+Every user-triggered workflow — refine, plan, ideate, evaluate, execute — is a composable pipeline. Each pipeline
+is a named `PipelineDefinition` of sequential steps. Steps are small functions returning
+`DomainResult<Partial<TCtx>>`, composed via the framework in `src/business/pipeline/`:
+
+- `step(name, execute, hooks?)` — single named step with optional `pre`/`post` hooks
+- `pipeline(name, steps[])` — group steps into a named definition
+- `nested(name, innerPipeline)` — wrap a pipeline as a single step (composite pattern; Execute uses this to
+  embed the evaluator pipeline per-task)
+- `parallelMap(name, itemsFn, buildInnerPipeline, options?)` — fan out N inner pipelines concurrently, sharing
+  a `RateLimitCoordinator` + `SignalBus` lifecycle
+- `insertBefore` / `insertAfter` / `replace` — pure builders for extending pipelines without rewriting the array
+- `renameStep(name, inner)` — wrap a shared step with a pipeline-specific name for cleaner step traces
+
+Shared steps in `src/business/pipelines/steps/` are reused across pipelines: `load-sprint`,
+`assert-sprint-status`, `load-tasks`, `reorder-dependencies`, `resolve-config` (live read — REQ-12),
+`run-check-scripts` (sprint-start + post-task modes), `branch-preflight`.
+
+Happy-path step orders (what `executePipeline` emits in `stepResults`):
+
+| Pipeline                                                            | Steps                                                                                                                                                                      |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Refine                                                              | `load-sprint → assert-draft → refine-tickets → export-requirements`                                                                                                        |
+| Plan                                                                | `load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies`                                                                                       |
+| Ideate                                                              | `load-sprint → assert-draft → assert-project-provided → run-ideation → reorder-dependencies`                                                                               |
+| Evaluate                                                            | `load-sprint → load-task → check-already-evaluated → run-evaluator-loop`                                                                                                   |
+| Execute (outer)                                                     | `load-sprint → check-preconditions → resolve-branch → auto-activate → assert-active → prepare-tasks → ensure-branches → run-check-scripts → execute-tasks → feedback-loop` |
+| Execute (per-task, nested inside `execute-tasks` via `forEachTask`) | `branch-preflight → mark-in-progress → execute-task → store-verification → post-task-check → evaluate-task → mark-done`                                                    |
+
+The Execute pipeline's `execute-tasks` step composes `forEachTask` with the per-task pipeline
+(`src/business/pipelines/execute/per-task-pipeline.ts`). The scheduler owns concurrency, mutex-keys
+(`projectPath`), rate-limit pause/resume, branch-preflight requeue (up to `MAX_BRANCH_RETRIES`), and
+post-task-check repo skipping. The per-task pipeline owns the task lifecycle end-to-end; the evaluator
+runs as a nested pipeline inside `evaluate-task`. `ExecuteTasksUseCase` retains only the task body
+(`executeOneTask`), the check gate (`runPostTaskCheck`), the feedback loop (`runFeedbackLoopOnly`), and
+the live evaluation-config read (`getEvaluationConfig`) — every other orchestrator concern lives in the
+pipeline layer.
+
+Integration tests under `src/business/pipelines/*.test.ts` assert `stepResults.map(r => r.stepName)` to lock
+each pipeline's step order — a future commit cannot silently bypass the pipeline without breaking these tests.
+The scheduler-specific integration (`src/business/pipelines/execute/executor-integration.test.ts`) covers
+rate-limit pause/resume, branch retry exhaustion, post-task-check repo blocking, step-mode prompts,
+fail-fast drain, and in-progress task resumption.
 
 ### Composition root
 
@@ -75,7 +117,9 @@ Steps (composable, pre/post hooks, typed context) — see `refine-plan.ts` for t
   accepts overrides so the Ink mount path can swap in `InkSink` + `InMemorySignalBus`.
 - `getSharedDeps()` / `setSharedDeps(deps)` / `getPrompt()` (`src/application/bootstrap.ts`) — cached accessor,
   swap hook, and a convenience helper commands use to reach the `PromptPort`.
-- Factory functions (`src/application/factories.ts`) construct each use case with the right adapter graph per call.
+- `src/application/factories.ts` — `createXxxPipeline(shared, ...)` factories that build per-invocation pipeline
+  definitions. CLI commands and TUI views consume these; they must not import use cases directly
+  (enforced by the ESLint architectural fence).
 
 ## Data Models
 
@@ -301,6 +345,7 @@ All domain errors extend `DomainError` (from `src/domain/errors.ts`) and carry a
 | `ProviderError`        | ai-provider | Provider misconfiguration (missing binary, bad settings)               |
 | `SpawnError`           | ai-provider | AI process spawn failure (carries `stderr`, `exitCode`, `rateLimited`) |
 | `IssueFetchError`      | external    | Failed to fetch an external issue (GitHub, JIRA)                       |
+| `BranchPreflightError` | execution   | Repo not on expected sprint branch — scheduler requeues up to 3 times  |
 
 ## Exit Codes
 
@@ -311,3 +356,22 @@ All domain errors extend `DomainError` (from `src/domain/errors.ts`) and carry a
 | 2    | `EXIT_NO_TASKS`    | No tasks available            |
 | 3    | `EXIT_ALL_BLOCKED` | All remaining tasks blocked   |
 | 130  | `EXIT_INTERRUPTED` | SIGINT received               |
+
+## Future Work
+
+- **Plateau detection in the evaluator iteration loop.** Anthropic's harness-design guidance notes that a
+  generator/evaluator loop can converge on a local optimum where every iteration produces the same critique
+  verbatim. A future change can detect this ("did the evaluator emit the exact same dimensions + score as
+  last round?") and short-circuit the remaining iterations, logging a warning. The hook lives naturally
+  inside `createEvaluatorPipeline`'s `run-evaluator-loop` step.
+- **Explicit sprint-contract step.** Anthropic's pattern has generator and evaluator negotiate
+  `verificationCriteria` + evaluation dimensions before work begins, so both sides agree on the grading
+  contract. Today the contract lives implicitly in `task.verificationCriteria` (surfaced to both sides via
+  the prompt templates). A formal `negotiate-contract` step — inserted before `execute-task` in the
+  per-task pipeline — would let us calibrate with few-shot examples and version the contract per task.
+  Useful once we have a corpus of evaluator-calibration data to learn from.
+- **Generalise `forEachTask` to `forEachItem`.** The primitive is deliberately task-shaped (mutex key,
+  `projectPath`, schedulerStats naming) because the executor is the only consumer today. If a second use
+  site appears — e.g. a per-ticket pipeline, or a cross-repo batch import — the primitive can be renamed
+  and the `Task`-ish vocabulary swapped for a generic `Item`. Cheap to do; do it lazily when the second
+  consumer exists rather than speculating now.

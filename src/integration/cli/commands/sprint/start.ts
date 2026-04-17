@@ -12,7 +12,8 @@ import {
   terminalBell,
 } from '@src/integration/ui/theme/ui.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
-import { createExecuteUseCase } from '@src/application/factories.ts';
+import { createExecuteSprintPipeline } from '@src/application/factories.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 
 /**
@@ -133,8 +134,8 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const useCase = createExecuteUseCase(shared);
-  const result = await useCase.execute(id, options);
+  const pipeline = createExecuteSprintPipeline(shared, options);
+  const result = await executePipeline(pipeline, { sprintId: id });
 
   if (!result.ok) {
     showError(result.error.message);
@@ -143,7 +144,15 @@ export async function sprintStartCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const summary = result.value;
+  const summary = result.value.context.executionSummary;
+  if (!summary) {
+    // Pipeline completed but no summary was written — should be unreachable
+    // (prepare-tasks / execute-tasks / check-preconditions all write one).
+    showError('Execution completed without a summary. This is a bug.');
+    log.newline();
+    exitWithCode(EXIT_ERROR);
+    return;
+  }
 
   // Print summary
   printHeader('Summary');

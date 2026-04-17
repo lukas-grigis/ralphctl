@@ -5,20 +5,25 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Clean Architecture & Composable Pipelines
 
-- [ ] Dependencies point inward only: domain < business < integration < application. Inner layers never import outer
-- [ ] Use cases depend on ports (interfaces in `src/business/ports/`), never on concrete adapter classes
-- [ ] Each workflow stage (refine, plan, ideate, execute) is a self-contained step module with a uniform interface
-- [ ] Steps compose into pipelines that chain automatically, passing context between stages
-- [ ] A single step can run standalone via CLI with default context, without requiring a pipeline
-- [ ] Pipeline failures stop execution and propagate with the failing step name + error context
-- [ ] Each step supports `pre` and `post` hooks as typed async functions registered in the pipeline definition
-- [ ] Pre-hook runs before a step's core logic and can modify the context passed to it
-- [ ] Post-hook runs with both the original context and the step result
-- [ ] Hook errors abort the step and surface with the hook's identity in the error message
-- [ ] Hooks are testable in isolation
-- [ ] A single `StepContext` type flows through the pipeline, accumulating state
-- [ ] All use case functions return `Result<T, E>` from `typescript-result` — no throws at the use-case boundary
-- [ ] Domain errors carry a machine-readable `code` and optional `cause` (see `DomainError` subclasses)
+- [x] Dependencies point inward only: domain < business < integration < application. Inner layers never import outer
+- [x] Use cases depend on ports (interfaces in `src/business/ports/` and `src/domain/repositories/`), never on concrete adapter classes
+- [x] Every user-triggered workflow (refine, plan, ideate, evaluate, execute) is a composable pipeline in `src/business/pipelines/`
+- [x] Pipelines compose named steps via `pipeline(name, steps[])` from `src/business/pipeline/helpers.ts`
+- [x] Shared steps in `src/business/pipelines/steps/` are reused across pipelines (load-sprint, assert-sprint-status, run-check-scripts, branch-preflight, etc.)
+- [x] Pipeline failures stop execution and propagate with the failing step name via `StepError` (e.g., `Step 'assert-draft' failed: ...`)
+- [x] Each step supports `pre` and `post` hooks as typed async functions registered in the step definition
+- [x] Pre-hook runs before a step's core logic and can modify the context passed to it
+- [x] Post-hook runs with both the original context and the step result
+- [x] Hook errors abort the step and surface with the hook's identity in the error message
+- [x] Hooks are testable in isolation
+- [x] A single `StepContext` type flows through the pipeline, accumulating state; pipelines extend it with workflow-specific fields
+- [x] `nested()` wraps a pipeline as a single step — the composite pattern used by Execute to embed the evaluator pipeline per-task
+- [x] `parallelMap()` fans out N inner pipelines concurrently with shared `RateLimitCoordinator` + `SignalBus` lifecycle (framework primitive, adopted by Execute's inner loop in a follow-up phase)
+- [x] `insertBefore(pipeline, targetName, newStep)` / `insertAfter(...)` / `replace(...)` pure builders allow extending pipelines without rewriting the step array
+- [x] CLI commands and TUI views invoke pipeline factories (`createXxxPipeline`), never use cases directly — enforced by an ESLint `no-restricted-imports` fence
+- [x] Integration tests under `src/business/pipelines/*.test.ts` assert `stepResults.map(r => r.stepName)` to lock each pipeline's step order
+- [x] All use case functions return `Result<T, E>` from `typescript-result` — no throws at the use-case boundary
+- [x] Domain errors carry a machine-readable `code` and optional `cause` (see `DomainError` subclasses)
 
 ## Structured Harness Signals
 

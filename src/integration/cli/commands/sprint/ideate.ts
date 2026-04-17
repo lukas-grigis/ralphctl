@@ -16,7 +16,8 @@ import { listTasks } from '@src/integration/persistence/task.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
-import { createIdeateUseCase } from '@src/application/factories.ts';
+import { createIdeatePipeline } from '@src/application/factories.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { renderParsedTasksTable } from './plan-utils.ts';
 
 interface IdeateOptions {
@@ -128,11 +129,14 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
   const providerName = providerDisplayName(await resolveProvider());
   console.log(field('Provider', providerName));
 
-  // Execute use case
+  // Execute the ideate pipeline (load-sprint → assert-draft →
+  // assert-project-provided → run-ideation → reorder-dependencies). The
+  // idea payload is closed over — the CLI collected it via prompts above,
+  // so the pipeline factory takes it as a constructor parameter rather
+  // than threading it through context.
   const shared = getSharedDeps();
-  const useCase = createIdeateUseCase(shared, options.auto);
-  const result = await useCase.execute(
-    id,
+  const pipeline = createIdeatePipeline(
+    shared,
     { title: ideaTitle, description: ideaDescription },
     {
       auto: options.auto,
@@ -140,6 +144,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
       project: projectName,
     }
   );
+  const result = await executePipeline(pipeline, { sprintId: id });
 
   if (!result.ok) {
     showError(result.error.message);
@@ -147,7 +152,12 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const summary = result.value;
+  const summary = result.value.context.ideaSummary;
+  if (!summary) {
+    showError('Ideation completed without producing a summary.');
+    log.newline();
+    return;
+  }
 
   console.log(field('Ticket ID', summary.ticketId));
 
