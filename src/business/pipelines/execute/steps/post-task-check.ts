@@ -1,8 +1,8 @@
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { ParseError } from '@src/domain/errors.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 

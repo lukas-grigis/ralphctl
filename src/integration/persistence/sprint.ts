@@ -16,7 +16,7 @@ import {
 } from '@src/integration/persistence/storage.ts';
 import { type Sprint, SprintSchema, type SprintStatus, type Tasks, TasksSchema } from '@src/domain/models.ts';
 import { getCurrentSprint } from '@src/integration/persistence/config.ts';
-import { generateSprintId } from '@src/integration/utils/ids.ts';
+import { generateSprintId } from '@src/domain/ids.ts';
 import { logBaselines } from '@src/integration/persistence/progress.ts';
 import { NoCurrentSprintError, SprintNotFoundError, SprintStatusError } from '@src/domain/errors.ts';
 

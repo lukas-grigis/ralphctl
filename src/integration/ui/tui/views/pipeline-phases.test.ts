@@ -253,7 +253,9 @@ describe('computePipelineSnapshot', () => {
       );
       expect(snap.phases[3]?.status).toBe('done');
       expect(snap.currentPhaseId).toBeNull();
-      expect(snap.nextStep).toBeNull();
+      // Closed sprint offers a quick-action to create the next sprint so the
+      // user has a clear forward path instead of stalling.
+      expect(snap.nextStep).toEqual({ group: 'sprint', sub: 'create', label: 'Start a new sprint' });
     });
 
     it('is pending on an active sprint with work remaining', () => {
@@ -289,7 +291,7 @@ describe('computePipelineSnapshot', () => {
       expect(snap.nextStep?.sub).toBe('plan');
     });
 
-    it('is null when every phase is done (closed sprint)', () => {
+    it('points to "create sprint" when every phase is done (closed sprint)', () => {
       const snap = computePipelineSnapshot(
         baseCtx({
           currentSprintId: 'sprint-1',
@@ -302,7 +304,7 @@ describe('computePipelineSnapshot', () => {
         })
       );
       expect(snap.currentPhaseId).toBeNull();
-      expect(snap.nextStep).toBeNull();
+      expect(snap.nextStep).toEqual({ group: 'sprint', sub: 'create', label: 'Start a new sprint' });
     });
   });
 });

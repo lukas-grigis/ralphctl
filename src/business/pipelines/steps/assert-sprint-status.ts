@@ -1,10 +1,10 @@
 import type { StepContext } from '@src/domain/context.ts';
 import type { Sprint, SprintStatus } from '@src/domain/models.ts';
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { SprintStatusError, StepError } from '@src/domain/errors.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 
 /**
  * Assert that `ctx.sprint.status` is one of the expected values.

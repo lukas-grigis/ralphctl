@@ -1,0 +1,59 @@
+@startuml
+' Plan pipeline — ralphctl sprint plan
+' Definition: src/business/pipelines/plan.ts
+' Step shape: load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies
+title ralphctl — Plan pipeline
+
+autonumber
+
+actor User
+participant Harness as "Harness\n(pipeline runner)"
+participant AI as "AI\n(Claude / Copilot)"
+participant Code as "Code\n(target repo)"
+database sprint.json
+database tasks.json
+
+User -> Harness : ralphctl sprint plan
+activate Harness
+
+note over Harness: createPlanPipeline(deps, options)
+
+Harness -> sprint.json : read sprint + tickets
+note right: step: load-sprint
+
+Harness -> Harness : verify sprint.status == 'draft'
+note right: step: assert-draft
+
+Harness -> Harness : verify every ticket.requirementStatus == 'approved'
+note right: step: assert-all-approved\n(ParseError if any pending)
+
+note over Harness: step: run-plan
+Harness -> tasks.json : getTasks (re-plan detection)
+
+alt existing tasks && !auto
+    Harness -> User : confirm re-plan (will replace tasks)?
+    User --> Harness : confirm
+end
+
+Harness -> User : select affected repositories
+User --> Harness : selected repos
+Harness -> sprint.json : persist ticket.affectedRepositories
+
+Harness -> AI : spawn session\n(plan prompt + schema + project tooling)
+activate AI
+AI -> Code : explore repos (read-only)
+AI --> Harness : tasks.json\n(includes floor + extraDimensions)
+deactivate AI
+
+Harness -> Harness : validate tasks (Zod + import rules)
+Harness -> tasks.json : importTasks\n(atomic replace on re-plan)
+
+alt imported > 0
+    note right of Harness: step: reorder-dependencies
+    Harness -> tasks.json : reorderByDependencies
+end
+
+Harness --> User : PlanSummary\n(imported / totalGenerated / isReplan)
+deactivate Harness
+
+@enduml

@@ -1,5 +1,5 @@
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
-import { editorInput } from '@src/integration/prompts/editor-input.ts';
+import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 import {
   field,
   icons,
@@ -17,7 +17,7 @@ import { listProjects } from '@src/integration/persistence/project.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
 import { createIdeatePipeline } from '@src/application/factories.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { renderParsedTasksTable } from './plan-utils.ts';
 
 interface IdeateOptions {

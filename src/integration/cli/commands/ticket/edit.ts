@@ -9,9 +9,9 @@ import {
   updateTicket,
 } from '@src/integration/persistence/ticket.ts';
 import { SprintStatusError } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
-import { editorInput } from '@src/integration/prompts/editor-input.ts';
+import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 
 export interface TicketEditOptions {
   title?: string;

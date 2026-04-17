@@ -16,7 +16,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { isSeparator, type MenuItem } from '@src/integration/ui/tui/views/menu-builder.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   items: readonly MenuItem[];
@@ -128,7 +128,7 @@ export function ActionMenu({ items, defaultValue, onSelect, onCancel }: Props): 
           );
         }
         const selected = i === cursor;
-        const pointer = selected ? '› ' : '  ';
+        const pointer = selected ? `${glyphs.selectMarker} ` : '  ';
         const reason = row.disabledReason ? `  (${row.disabledReason})` : '';
         if (row.disabled) {
           return (
@@ -146,10 +146,10 @@ export function ActionMenu({ items, defaultValue, onSelect, onCancel }: Props): 
           </Text>
         );
       })}
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <Text dimColor>
-          {activeDescription ? `${activeDescription}  ·  ` : ''}
-          ↑/↓ move · Enter select · Esc cancel
+          {activeDescription ? `${activeDescription}  ${glyphs.inlineDot}  ` : ''}
+          ↑/↓ move {glyphs.inlineDot} Enter select {glyphs.inlineDot} Esc cancel
         </Text>
       </Box>
     </Box>

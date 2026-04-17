@@ -5,7 +5,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Task } from '@src/domain/models.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   tasks: readonly Task[];
@@ -28,8 +28,8 @@ export function SprintSummary({ tasks, width = 30 }: Props): React.JSX.Element {
       <Text dimColor>
         {'  '}
         {String(done)}/{String(total)} ({String(pct)}%)
-        {'  ·  '}
-        {String(active)} active · {String(todo)} todo
+        {`  ${glyphs.inlineDot}  `}
+        {String(active)} active {glyphs.inlineDot} {String(todo)} todo
       </Text>
     </Box>
   );

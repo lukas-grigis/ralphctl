@@ -11,7 +11,7 @@ import { getDataDir, getSprintFilePath, validateProjectPath } from '@src/integra
 import { fileExists, readValidatedJson } from '@src/integration/persistence/storage.ts';
 import { colors, getQuoteForContext } from '@src/integration/ui/theme/theme.ts';
 import { icons, log, printHeader } from '@src/integration/ui/theme/ui.ts';
-import { EXIT_ERROR } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR } from '@src/application/exit-codes.ts';
 import { isGlabAvailable } from '@src/integration/external/git.ts';
 
 const REQUIRED_NODE_MAJOR = 24;

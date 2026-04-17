@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import type { Sprint, Task, Config, Ticket } from '@src/domain/models.ts';
-import { StepError, SprintNotFoundError, StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import { describe, expect, it } from 'vitest';
+import type { Config, Sprint, Task, Ticket } from '@src/domain/models.ts';
+import { SprintNotFoundError, StepError, StorageError } from '@src/domain/errors.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
@@ -13,8 +13,8 @@ import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
-import { createExecuteSprintPipeline, type ExecuteDeps, type ExecuteContext } from './execute.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
+import { createExecuteSprintPipeline, type ExecuteContext, type ExecuteDeps } from './execute.ts';
 
 // ---------------------------------------------------------------------------
 // Stub factories

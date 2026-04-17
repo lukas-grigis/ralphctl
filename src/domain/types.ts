@@ -1,5 +1,5 @@
-import { Result } from 'typescript-result';
 import type { AsyncResult } from 'typescript-result';
+import { Result } from 'typescript-result';
 
 import type { DomainError } from './errors.ts';
 

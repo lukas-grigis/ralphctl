@@ -3,62 +3,90 @@
  *
  * Shows a completion summary (done/total tasks, branch, duration), and
  * offers "Close Sprint" (plus an optional "Close + Create PRs" when the
- * sprint has a branch set) as actions. Dispatches through the existing
- * `commandMap.sprint.close` / `'close --create-pr'` entries so the PR
- * creation flow in `sprint/close.ts` is reused verbatim.
+ * sprint has a branch set) as actions.
  *
- * Static for this commit — no streaming layer is added (close doesn't spawn
- * an AI session).
+ * Native Ink flow: hits `closeSprint()` directly and — for the PR variant —
+ * drives the `git push` / `gh pr create` calls itself so no raw `console.log`
+ * from the old CLI command reaches the alt-screen buffer.
  */
 
+import { spawnSync } from 'node:child_process';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Sprint, Tasks } from '@src/domain/models.ts';
-import { getSharedDeps } from '@src/application/bootstrap.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { getSharedDeps, getPrompt } from '@src/application/bootstrap.ts';
+import { PromptCancelledError } from '@src/business/ports/prompt.ts';
+import { closeSprint, getSprint } from '@src/integration/persistence/sprint.ts';
+import { areAllTasksDone, listTasks } from '@src/integration/persistence/task.ts';
+import { branchExists, getDefaultBranch, isGhAvailable } from '@src/integration/external/git.ts';
+import { assertSafeCwd } from '@src/integration/persistence/paths.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
-import { commandMap } from '@src/integration/ui/tui/views/command-map.ts';
+import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
+import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+
+const HINTS_READY = [
+  { key: '↑/↓', action: 'select' },
+  { key: 'Enter', action: 'confirm' },
+  { key: 'Esc', action: 'back' },
+] as const;
+const HINTS_TERMINAL = [{ key: 'Enter', action: 'home' }] as const;
+const HINTS_WORKING = [] as const;
 
 interface Props {
   readonly sprintId: string;
 }
 
+type ActionId = 'close' | 'close-with-pr';
+
+interface PrResult {
+  readonly projectPath: string;
+  readonly status: 'created' | 'skipped' | 'failed';
+  readonly message: string;
+}
+
+type Phase =
+  | { kind: 'loading' }
+  | { kind: 'ready' }
+  | { kind: 'running'; label: string }
+  | { kind: 'done'; sprint: Sprint; prResults: readonly PrResult[] }
+  | { kind: 'error'; message: string };
+
 interface State {
   sprint: Sprint | null;
   tasks: Tasks;
-  running: boolean;
-  error: string | null;
+  phase: Phase;
 }
 
-type ActionId = 'close' | 'close-with-pr';
-
-function initialState(): State {
-  return { sprint: null, tasks: [], running: false, error: null };
+function initial(): State {
+  return { sprint: null, tasks: [], phase: { kind: 'loading' } };
 }
 
 export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
-  const shared = getSharedDeps();
   const router = useRouter();
-  const [state, setState] = useState<State>(initialState);
+  const [state, setState] = useState<State>(initial);
   const [cursor, setCursor] = useState(0);
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const [sprint, tasks] = await Promise.all([
-        shared.persistence.getSprint(sprintId),
-        shared.persistence.getTasks(sprintId),
+        getSharedDeps().persistence.getSprint(sprintId),
+        getSharedDeps().persistence.getTasks(sprintId),
       ]);
-      setState((s) => ({ ...s, sprint, tasks, error: null }));
+      setState((s) => ({ ...s, sprint, tasks, phase: { kind: 'ready' } }));
     } catch (err) {
-      setState((s) => ({ ...s, error: err instanceof Error ? err.message : String(err) }));
+      setState((s) => ({
+        ...s,
+        phase: { kind: 'error', message: err instanceof Error ? err.message : String(err) },
+      }));
     }
-  }, [shared, sprintId]);
+  }, [sprintId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Available actions depend on the sprint's branch + status.
   const actions = useMemo<ActionId[]>(() => {
     const sprint = state.sprint;
     if (sprint?.status !== 'active') return [];
@@ -67,35 +95,59 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
     return base;
   }, [state.sprint]);
 
-  const runAction = useCallback(
-    async (id: ActionId): Promise<void> => {
-      const key = id === 'close-with-pr' ? 'close --create-pr' : 'close';
-      const handler = commandMap['sprint']?.[key];
-      if (!handler) {
-        setState((s) => ({ ...s, error: `Unknown action: sprint ${key}` }));
-        return;
-      }
-      setState((s) => ({ ...s, running: true, error: null }));
+  const closeFlow = useCallback(
+    async (createPrs: boolean): Promise<void> => {
+      if (state.sprint === null) return;
       try {
-        await handler();
-        // On success the sprint is closed — bounce home so the pipeline map
-        // reflects the new state.
-        router.reset({ id: 'home' });
-      } catch (err) {
-        if (err instanceof Error && err.name !== 'PromptCancelledError') {
-          setState((s) => ({ ...s, error: err.message }));
+        const allDone = await areAllTasksDone(sprintId);
+        if (!allDone) {
+          const tasks = await listTasks(sprintId);
+          const remaining = tasks.filter((t) => t.status !== 'done').length;
+          const proceed = await getPrompt().confirm({
+            message: `${String(remaining)} task(s) not done — close sprint anyway?`,
+            default: false,
+          });
+          if (!proceed) {
+            setState((s) => ({ ...s, phase: { kind: 'ready' } }));
+            return;
+          }
         }
-      } finally {
-        setState((s) => ({ ...s, running: false }));
-        await load();
+
+        setState((s) => ({ ...s, phase: { kind: 'running', label: 'Closing sprint…' } }));
+
+        const sprintBefore = await getSprint(sprintId);
+        const closed = await closeSprint(sprintId);
+        let prResults: readonly PrResult[] = [];
+
+        if (createPrs && sprintBefore.branch) {
+          setState((s) => ({ ...s, phase: { kind: 'running', label: 'Creating PRs…' } }));
+          prResults = await createPullRequests(sprintId, sprintBefore.branch, closed.name);
+        }
+
+        setState((s) => ({ ...s, sprint: closed, phase: { kind: 'done', sprint: closed, prResults } }));
+      } catch (err) {
+        if (err instanceof PromptCancelledError) {
+          setState((s) => ({ ...s, phase: { kind: 'ready' } }));
+          return;
+        }
+        setState((s) => ({
+          ...s,
+          phase: { kind: 'error', message: err instanceof Error ? err.message : String(err) },
+        }));
       }
     },
-    [router, load]
+    [sprintId, state.sprint]
   );
 
   useInput(
     (_input, key) => {
-      if (state.running || actions.length === 0) return;
+      const { phase } = state;
+      if (phase.kind === 'done' || phase.kind === 'error') {
+        // Enter returns home. Esc is handled globally by the router.
+        if (key.return) router.pop();
+        return;
+      }
+      if (phase.kind !== 'ready' || actions.length === 0) return;
       if (key.upArrow) {
         setCursor((c) => (c === 0 ? actions.length - 1 : c - 1));
         return;
@@ -106,29 +158,40 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
       }
       if (key.return) {
         const selected = actions[cursor];
-        if (selected) void runAction(selected);
+        if (selected) void closeFlow(selected === 'close-with-pr');
       }
     },
-    { isActive: !state.running }
+    { isActive: state.phase.kind !== 'running' && state.phase.kind !== 'loading' }
   );
+
+  const phaseKind = state.phase.kind;
+  const activeHints =
+    phaseKind === 'running' || phaseKind === 'loading'
+      ? HINTS_WORKING
+      : phaseKind === 'done' || phaseKind === 'error'
+        ? HINTS_TERMINAL
+        : HINTS_READY;
+  useViewHints(activeHints);
 
   if (state.sprint === null) {
     return (
-      <Box flexDirection="column">
-        <Text dimColor>{state.error ?? 'Loading sprint…'}</Text>
-      </Box>
+      <ViewShell title="Close Phase">
+        <Text dimColor>
+          {state.phase.kind === 'error' ? state.phase.message : 'Loading sprint…'}
+        </Text>
+      </ViewShell>
     );
   }
 
   const sprint = state.sprint;
-  const tasks = state.tasks;
+  const { phase, tasks } = state;
   const done = tasks.filter((t) => t.status === 'done').length;
   const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
   const todo = tasks.filter((t) => t.status === 'todo').length;
   const total = tasks.length;
 
   return (
-    <Box flexDirection="column">
+    <ViewShell title="Close Phase">
       <Box>
         <Text bold color={inkColors.primary}>
           Close — {sprint.name}
@@ -136,66 +199,200 @@ export function ClosePhaseView({ sprintId }: Props): React.JSX.Element {
         <Text dimColor>{`  (${sprint.status})`}</Text>
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={spacing.section} flexDirection="column">
         <Text bold dimColor>
           Completion summary
         </Text>
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text color={inkColors.success}>{`${String(done)} done`}</Text>
-          <Text dimColor>{'  ·  '}</Text>
+          <Text dimColor>{`  ${glyphs.inlineDot}  `}</Text>
           <Text color={inkColors.warning}>{`${String(inProgress)} in progress`}</Text>
-          <Text dimColor>{'  ·  '}</Text>
+          <Text dimColor>{`  ${glyphs.inlineDot}  `}</Text>
           <Text dimColor>{`${String(todo)} todo`}</Text>
-          <Text dimColor>{`  ·  ${String(total)} total`}</Text>
+          <Text dimColor>{`  ${glyphs.inlineDot}  ${String(total)} total`}</Text>
         </Box>
-        <Box paddingLeft={2}>
-          <Text dimColor>
-            Branch: {sprint.branch ?? '(none — no PRs will be offered)'}
-          </Text>
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor>Branch: {sprint.branch ?? '(none — no PRs will be offered)'}</Text>
         </Box>
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={spacing.section} flexDirection="column">
         <Text bold dimColor>
           Actions
         </Text>
-        {sprint.status !== 'active' ? (
-          <Box paddingLeft={2}>
-            <Text dimColor>{`This sprint is ${sprint.status}. Nothing to close.`}</Text>
-          </Box>
-        ) : (
-          actions.map((id, i) => {
-            const selected = i === cursor;
-            const label = id === 'close-with-pr' ? 'Close Sprint + Create PRs' : 'Close Sprint';
-            return (
-              <Box key={id} paddingLeft={2}>
-                <Text color={selected ? inkColors.highlight : undefined} bold={selected}>
-                  {selected ? '▶ ' : '  '}
-                  {label}
-                </Text>
-              </Box>
-            );
-          })
-        )}
+        {renderActions(phase, actions, cursor, sprint)}
       </Box>
 
-      {state.running ? (
-        <Box marginTop={1}>
+      {phase.kind === 'running' ? (
+        <Box marginTop={spacing.section}>
           <Text color={inkColors.warning} bold>
-            ⋯ Closing sprint…
+            ⋯ {phase.label}
           </Text>
         </Box>
       ) : null}
 
-      {state.error ? (
-        <Box marginTop={1}>
-          <Text color={inkColors.error}>✗ {state.error}</Text>
+      {phase.kind === 'done' ? (
+        <Box marginTop={spacing.section} flexDirection="column">
+          <ResultCard
+            kind="success"
+            title="Sprint closed"
+            fields={[
+              ['ID', phase.sprint.id],
+              ['Name', phase.sprint.name],
+            ]}
+          />
+          {phase.prResults.length > 0 ? (
+            <Box marginTop={spacing.section} flexDirection="column">
+              <Text bold dimColor>
+                PR results
+              </Text>
+              {phase.prResults.map((r) => (
+                <Box key={r.projectPath} paddingLeft={spacing.indent}>
+                  <Text color={prColor(r.status)}>{prGlyph(r.status)}</Text>
+                  <Text dimColor>{` ${r.projectPath}  `}</Text>
+                  <Text>{r.message}</Text>
+                </Box>
+              ))}
+            </Box>
+          ) : null}
         </Box>
       ) : null}
 
-      <Box marginTop={1}>
-        <Text dimColor>↑/↓ select action · Enter confirm · Esc back</Text>
+      {phase.kind === 'error' ? (
+        <Box marginTop={spacing.section}>
+          <ResultCard kind="error" title="Close failed" lines={[phase.message]} />
+        </Box>
+      ) : null}
+    </ViewShell>
+  );
+}
+
+function renderActions(
+  phase: Phase,
+  actions: readonly ActionId[],
+  cursor: number,
+  sprint: Sprint
+): React.JSX.Element {
+  if (sprint.status !== 'active') {
+    return (
+      <Box paddingLeft={spacing.indent}>
+        <Text dimColor>{`This sprint is ${sprint.status}. Nothing to close.`}</Text>
       </Box>
+    );
+  }
+  if (phase.kind === 'done' || phase.kind === 'error') {
+    return (
+      <Box paddingLeft={spacing.indent}>
+        <Text dimColor>(completed)</Text>
+      </Box>
+    );
+  }
+  return (
+    <Box flexDirection="column">
+      {actions.map((id, i) => {
+        const selected = i === cursor;
+        const label = id === 'close-with-pr' ? 'Close Sprint + Create PRs' : 'Close Sprint';
+        return (
+          <Box key={id} paddingLeft={spacing.indent}>
+            <Text color={selected ? inkColors.highlight : undefined} bold={selected}>
+              {selected ? `${glyphs.actionCursor} ` : '  '}
+              {label}
+            </Text>
+          </Box>
+        );
+      })}
     </Box>
   );
+}
+
+function prColor(status: PrResult['status']): string {
+  if (status === 'created') return inkColors.success;
+  if (status === 'failed') return inkColors.error;
+  return inkColors.muted;
+}
+
+function prGlyph(status: PrResult['status']): string {
+  if (status === 'created') return glyphs.check;
+  if (status === 'failed') return glyphs.cross;
+  return glyphs.inlineDot;
+}
+
+async function createPullRequests(
+  sprintId: string,
+  branchName: string,
+  sprintName: string
+): Promise<readonly PrResult[]> {
+  if (!isGhAvailable()) {
+    return [
+      {
+        projectPath: '(global)',
+        status: 'skipped',
+        message: `gh not found. Manual: gh pr create --head ${branchName} --title "Sprint: ${sprintName}"`,
+      },
+    ];
+  }
+
+  const tasks = await listTasks(sprintId);
+  const uniquePaths = [...new Set(tasks.map((t) => t.projectPath))];
+  const results: PrResult[] = [];
+
+  for (const projectPath of uniquePaths) {
+    try {
+      assertSafeCwd(projectPath);
+    } catch (err) {
+      results.push({
+        projectPath,
+        status: 'failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+    if (!branchExists(projectPath, branchName)) {
+      results.push({ projectPath, status: 'skipped', message: `Branch '${branchName}' not found.` });
+      continue;
+    }
+    const baseBranch = getDefaultBranch(projectPath);
+    const title = `Sprint: ${sprintName}`;
+
+    const pushResult = spawnSync('git', ['push', '-u', 'origin', branchName], {
+      cwd: projectPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (pushResult.status !== 0) {
+      results.push({
+        projectPath,
+        status: 'failed',
+        message: `git push failed: ${pushResult.stderr.trim()}`,
+      });
+      continue;
+    }
+
+    const ghResult = spawnSync(
+      'gh',
+      [
+        'pr',
+        'create',
+        '--base',
+        baseBranch,
+        '--head',
+        branchName,
+        '--title',
+        title,
+        '--body',
+        `Sprint: ${sprintName}\nID: ${sprintId}`,
+      ],
+      { cwd: projectPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    if (ghResult.status === 0) {
+      results.push({ projectPath, status: 'created', message: ghResult.stdout.trim() });
+    } else {
+      results.push({
+        projectPath,
+        status: 'failed',
+        message: `gh pr create failed: ${ghResult.stderr.trim()}`,
+      });
+    }
+  }
+  return results;
 }

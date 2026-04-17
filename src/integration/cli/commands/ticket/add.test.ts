@@ -22,7 +22,7 @@ vi.mock('@src/application/bootstrap.ts', () => ({
   getPrompt: vi.fn(() => promptMock),
 }));
 
-vi.mock('@src/integration/prompts/editor-input.ts', () => ({
+vi.mock('@src/integration/ui/prompts/editor-input.ts', () => ({
   editorInput: vi.fn().mockResolvedValue(''),
 }));
 

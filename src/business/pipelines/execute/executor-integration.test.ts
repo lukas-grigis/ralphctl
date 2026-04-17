@@ -17,11 +17,11 @@
  * `onPause` callback before the scheduler's `waitIfPaused` resolves.
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import type { Sprint, Task, Config, Ticket } from '@src/domain/models.ts';
+import { describe, expect, it, vi } from 'vitest';
+import type { Config, Sprint, Task, Ticket } from '@src/domain/models.ts';
 import { SpawnError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort, SessionResult } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
@@ -31,11 +31,11 @@ import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createExecuteSprintPipeline, type ExecuteDeps } from '../execute.ts';
 // Integration test: uses the real coordinator so rate-limit pause/resume
 // semantics are exercised against production code, not a fake.
-import { RateLimitCoordinator } from '@src/integration/ai/rate-limiter.ts';
+import { RateLimitCoordinator } from '@src/integration/ai/session/rate-limiter.ts';
 
 // ---------------------------------------------------------------------------
 // Factories

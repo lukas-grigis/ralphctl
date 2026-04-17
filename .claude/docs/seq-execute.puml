@@ -1,0 +1,163 @@
+@startuml
+' Execute pipeline — ralphctl sprint start
+' Outer: src/business/pipelines/execute.ts
+' Per-task: src/business/pipelines/execute/per-task-pipeline.ts (composed via forEachTask)
+' Evaluate: nested evaluator pipeline inside `evaluate-task` — see seq-evaluate.puml
+title ralphctl — Execute pipeline (outer + per-task)
+
+autonumber
+
+actor User
+participant Harness as "Harness\n(pipeline runner)"
+participant Scheduler as "forEachTask\n(scheduler + RateLimitCoordinator)"
+participant AI as "AI\n(Claude / Copilot)"
+participant Code as "Code\n(target repo)"
+database sprint.json
+database tasks.json
+database "contracts/\n<taskId>.md" as contract
+database progress.md
+
+User -> Harness : ralphctl sprint start
+activate Harness
+
+note over Harness: createExecuteSprintPipeline(deps, options)
+
+== Outer pipeline ==
+
+Harness -> sprint.json : read sprint
+note right: step: load-sprint
+
+Harness -> Harness : warn unrefined / unplanned tickets\n(skipped with --force)
+note right: step: check-preconditions
+
+alt draft && unrefined tickets
+    Harness -> User : start anyway without refining?
+    User --> Harness : confirm / decline
+end
+
+Harness -> User : branch strategy? (keep / auto / custom)
+User --> Harness : branch choice
+note right of Harness: step: resolve-branch
+
+alt sprint.status == 'draft'
+    Harness -> sprint.json : activateSprint
+    note right: step: auto-activate
+end
+
+Harness -> Harness : verify sprint.status == 'active'
+note right: step: assert-active
+
+Harness -> tasks.json : reorderByDependencies + getTasks
+note right: step: prepare-tasks
+
+alt branchName set
+    Harness -> Code : check uncommitted changes per repo
+    Harness -> Code : git checkout -b <branch>
+    Harness -> sprint.json : persist sprint.branch
+    note right: step: ensure-branches
+end
+
+Harness -> Code : run checkScript per repo (baseline)
+Harness -> sprint.json : record checkRanAt
+note right of Harness: step: run-check-scripts\n(sprint-start mode;\nskipped if prior run)
+
+== Per-task scheduler ==
+
+note over Harness, Scheduler: step: execute-tasks\nforEachTask(perTaskPipeline, deps)\nmutex key = projectPath, concurrency 1..10 auto
+
+Harness -> Scheduler : start
+activate Scheduler
+
+loop while tasks remain and not stopped
+    Scheduler -> tasks.json : pullItems\n(in-progress + ready, dependency-ordered)
+
+    group per-task pipeline (concurrent up to limit)
+
+        alt sprint.branch set
+            Scheduler -> Code : verifyBranch(task.projectPath, sprint.branch)
+            note right of Scheduler: step: branch-preflight\n(BranchPreflightError → requeue ≤3)
+        end
+
+        Scheduler -> contract : write <sprintDir>/contracts/<taskId>.md\n(verificationCriteria + resolved checkScript\n+ floor + extraDimensions)
+        note right of Scheduler: step: contract-negotiate\n(single source of truth\nfor generator AND evaluator)
+
+        Scheduler -> tasks.json : updateTaskStatus(in_progress)
+        Scheduler -> Scheduler : emit 'task-started' (SignalBus)
+        note right of Scheduler: step: mark-in-progress
+
+        Scheduler -> AI : spawn Generator\n(task-execution.md + contract.md ref\n+ --resume <sessionId> if retry)
+        activate AI
+        loop streaming output
+            AI -> Code : read / edit / test
+            AI --> Scheduler : harness signals\n(<progress>, <task-verified>,\n<task-complete>, <note>, <task-blocked>)
+            Scheduler -> progress.md : append ProgressSignal / NoteSignal
+            Scheduler -> Scheduler : emit signal (SignalBus)
+        end
+        AI --> Scheduler : session result\n(success / blocked / rate-limited)
+        deactivate AI
+
+        alt rate-limited (SpawnError.rateLimited)
+            note right of Scheduler: retryPolicy → pause-all + requeue\n(emits 'rate-limit-paused')
+        else task not completed
+            note right of Scheduler: retryPolicy → fail\n(drainInFlight if failFast)
+        end
+        note right of Scheduler: step: execute-task
+
+        alt result.verified
+            Scheduler -> tasks.json : verified + verificationOutput
+            note right of Scheduler: step: store-verification
+        end
+
+        Scheduler -> Code : run checkScript (post-task gate)
+        alt check failed
+            note right of Scheduler: retryPolicy → skip-repo\n(repo blocked for further tasks)
+        end
+        note right of Scheduler: step: post-task-check
+
+        note over Scheduler: step: evaluate-task\nnested(createEvaluatePipeline)\nfresh config read (REQ-12)\n→ see seq-evaluate.puml
+
+        Scheduler -> tasks.json : updateTaskStatus(done)
+        Scheduler -> Scheduler : emit 'task-finished'
+        Scheduler -> progress.md : logProgress(task completed)
+        note right of Scheduler: step: mark-done
+
+    end
+
+    alt --step mode
+        Scheduler -> User : continue to next task?
+        User --> Scheduler : continue / stop
+        note right of Scheduler: forEachTask 'between' hook
+    end
+end
+
+Scheduler --> Harness : SchedulerStats\n(stopReason, completed, blocked, …)
+deactivate Scheduler
+
+note over Harness: coordinator disposes\n(emits 'rate-limit-resumed' if paused)
+
+== Feedback loop ==
+
+alt stopReason == 'all_completed' && !session && !noFeedback
+    note over Harness: step: feedback-loop\n(end-of-sprint only)
+    loop up to MAX_FEEDBACK_ITERATIONS
+        Harness -> User : free-form feedback?
+        User --> Harness : text (empty = exit)
+        alt non-empty
+            Harness -> AI : spawn feedback session\n(sprint-feedback.md)
+            activate AI
+            AI -> Code : implement feedback
+            AI --> Harness : result
+            deactivate AI
+            Harness -> Code : re-run checkScripts
+            Harness -> AI : evaluator on affected tasks
+            activate AI
+            AI --> Harness : pass / fail
+            deactivate AI
+        end
+    end
+end
+
+Harness --> User : ExecutionSummary\n(completed / remaining / blocked /\nstopReason / exitCode)
+deactivate Harness
+
+@enduml

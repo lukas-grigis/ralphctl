@@ -20,7 +20,7 @@ import type {
 } from '@src/domain/signals.ts';
 import type { DomainResult } from '@src/domain/types.ts';
 import type { SignalHandlerPort, SignalContext } from '@src/business/ports/signal-handler.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import { wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { logProgress } from '@src/integration/persistence/progress.ts';
 import { writeEvaluation } from '@src/integration/persistence/evaluation.ts';

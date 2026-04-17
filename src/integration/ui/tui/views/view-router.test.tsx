@@ -9,11 +9,11 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { Text } from 'ink';
-import type { PendingPrompt } from '@src/integration/prompts/prompt-queue.ts';
+import type { PendingPrompt } from '@src/integration/ui/prompts/prompt-queue.ts';
 
 const currentPromptMock = vi.fn<() => PendingPrompt | null>(() => null);
 
-vi.mock('@src/integration/prompts/hooks.ts', () => ({
+vi.mock('@src/integration/ui/prompts/hooks.ts', () => ({
   useCurrentPrompt: () => currentPromptMock(),
 }));
 
@@ -175,6 +175,33 @@ describe('ViewRouter', () => {
     await flush();
     expect(lastFrame() ?? '').toContain('DASHBOARD_VIEW');
 
+    stdin.write('\u001b');
+    await flushEscape();
+    expect(lastFrame() ?? '').toContain('HOME_VIEW');
+  });
+
+  it('collapses adjacent duplicate entries in the initial stack', () => {
+    // Regression: breadcrumbs showed "Home › Home › Create Sprint" when the
+    // stack accidentally contained two home frames. The router's initial
+    // seeding should never produce adjacent duplicates.
+    const initialStack: ViewEntry[] = [{ id: 'home' }, { id: 'home' }, { id: 'settings' }];
+    const { lastFrame } = render(<ViewRouter initialStack={initialStack} />);
+    const frame = lastFrame() ?? '';
+    const homeCount = (frame.match(/Home/g) ?? []).length;
+    // Exactly one breadcrumb crumb for Home.
+    expect(homeCount).toBe(1);
+  });
+
+  it('does not grow the stack when pushing the same view id twice', async () => {
+    const initialStack: ViewEntry[] = [{ id: 'home' }];
+    const { lastFrame, stdin } = render(<ViewRouter initialStack={initialStack} />);
+
+    stdin.write('s');
+    await flush();
+    stdin.write('s');
+    await flush();
+
+    // Single Esc should return home — proves the stack only grew by one.
     stdin.write('\u001b');
     await flushEscape();
     expect(lastFrame() ?? '').toContain('HOME_VIEW');

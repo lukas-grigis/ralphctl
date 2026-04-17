@@ -12,12 +12,12 @@
 
 import type { DomainResult } from '@src/domain/types.ts';
 import type {
-  ProgressSignal,
   EvaluationSignal,
+  NoteSignal,
+  ProgressSignal,
+  TaskBlockedSignal,
   TaskCompleteSignal,
   TaskVerifiedSignal,
-  TaskBlockedSignal,
-  NoteSignal,
 } from '@src/domain/signals.ts';
 
 /**

@@ -1,0 +1,62 @@
+@startuml
+' Evaluate pipeline — runs standalone (`sprint evaluate-task`) AND nested
+' inside the Execute per-task pipeline's `evaluate-task` step.
+' Definition: src/business/pipelines/evaluate.ts
+' Step shape: load-sprint → load-task → check-already-evaluated → run-evaluator-loop
+title ralphctl — Evaluate pipeline (generator-evaluator)
+
+autonumber
+
+actor User
+participant Harness as "Harness\n(pipeline runner)"
+participant AI as "AI\n(Claude / Copilot)"
+participant Code as "Code\n(target repo)"
+database sprint.json
+database tasks.json
+database "evaluations/\n<taskId>.md" as evals
+
+User -> Harness : ralphctl sprint evaluate-task <id>\n(or nested from Execute)
+activate Harness
+
+note over Harness: createEvaluatePipeline(deps, options)
+
+Harness -> sprint.json : load sprint
+note right: step: load-sprint
+
+Harness -> tasks.json : load task + verificationCriteria\n+ extraDimensions
+note right: step: load-task
+
+alt task.evaluated && !force
+    note right of Harness: step: check-already-evaluated\n(short-circuit; status='skipped')
+    Harness --> User : EvaluateSummary (skipped)
+end
+
+note over Harness: step: run-evaluator-loop\n(config read LIVE — REQ-12)
+
+loop up to evaluationIterations + 1 rounds\n(Claude model ladder: Opus→Sonnet→Haiku)
+    Harness -> AI : spawn Evaluator session\n(task-evaluation.md\n+ floor + extraDimensions\n+ contract.md ref\n+ sibling model)
+    activate AI
+    AI -> Code : read diff, tests, CLAUDE.md
+    AI --> Harness : <evaluation-passed> |\n<evaluation-failed>critique
+    deactivate AI
+
+    Harness -> evals : append full critique\n(one entry per iteration)
+    Harness -> tasks.json : evaluationOutput (≤2000 chars)\n+ evaluationStatus (passed|failed|malformed)\n+ evaluationFile\n+ evaluated = true
+
+    alt failed && attempts remain
+        Harness -> Harness : diff guard\n(HEAD + dirty check)
+        Harness -> AI : resume Generator\n(task-evaluation-resume.md + critique)
+        activate AI
+        AI -> Code : fix per critique
+        AI --> Harness : updated result
+        deactivate AI
+        Harness -> Code : re-run checkScript
+    else passed or exhausted
+        note right of Harness: loop breaks\n(task never blocked on eval failure)
+    end
+end
+
+Harness --> User : EvaluateSummary\n(passed / failed / malformed / skipped)
+deactivate Harness
+
+@enduml

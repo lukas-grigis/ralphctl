@@ -14,45 +14,40 @@ files — every import points to its source module directly.
 │  src/application/{entrypoint,shared,bootstrap,factories}.ts     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Integration (frameworks & drivers)                             │
-│  src/integration/{persistence,filesystem,ai,external,signals,   │
-│    logging,prompts,ui,cli,config,user-interaction,utils}        │
+│  src/integration/{persistence,ai,external,signals,logging,      │
+│    ui,cli,config,utils} + filesystem-adapter.ts,                │
+│    user-interaction-adapter.ts                                  │
 │  Ink TUI, adapters, CLI commands, file-backed persistence       │
 ├─────────────────────────────────────────────────────────────────┤
 │  Business (use cases + service ports + pipelines)               │
-│  src/business/{usecases,ports,pipeline,pipelines}               │
+│  src/business/{usecases,ports,pipelines}                        │
 │  ExecuteTasksUseCase, RefineTicket..., Plan..., Evaluate...     │
 ├─────────────────────────────────────────────────────────────────┤
-│  Domain (models + repository interfaces, pure, zero deps)       │
+│  Domain (models + signals + IDs, pure, zero deps)               │
 │  src/domain/{models,errors,signals,context,types,               │
-│    config-schema,repositories/}                                 │
+│    config-schema,ids}                                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Repository interfaces (`src/domain/repositories/`)
+### Ports (`src/business/ports/`)
 
-Data-access contracts that business logic depends on. Implementations live in `src/integration/`.
+Every interface business logic depends on lives here — repositories, external services, UI, parsers. One home.
+Implementations live under `src/integration/`.
 
-| Interface         | Responsibility                                       | Implementation                                            |
-| ----------------- | ---------------------------------------------------- | --------------------------------------------------------- |
-| `PersistencePort` | Sprint/task/ticket/config/project storage            | `FilePersistenceAdapter` (`src/integration/persistence/`) |
-| `FilesystemPort`  | Directory/file read-write at the filesystem boundary | `NodeFilesystemAdapter` (`src/integration/filesystem/`)   |
-
-### Service ports (`src/business/ports/`)
-
-Non-repository ports — external services, UI, and parsers.
-
-| Port                  | Responsibility                                                         | Implementations                                        |
-| --------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
-| `AiSessionPort`       | Spawning AI CLI sessions (Claude / Copilot)                            | `ProviderAiSessionAdapter` (`src/integration/ai/`)     |
-| `PromptBuilderPort`   | Compile `.md` prompt templates with context                            | `TextPromptBuilderAdapter` (`src/integration/ai/`)     |
-| `OutputParserPort`    | Parse structured outputs (tasks.json, requirements) from AI            | `DefaultOutputParserAdapter` (`src/integration/ai/`)   |
-| `ExternalPort`        | `git`, `gh`/`glab` integration, branch verification                    | `DefaultExternalAdapter` (`src/integration/external/`) |
-| `SignalParserPort`    | Extract `HarnessSignal[]` from raw AI stdout                           | `SignalParser` (`src/integration/signals/parser.ts`)   |
-| `SignalHandlerPort`   | Durable writes for parsed signals (progress, evaluation, …)            | `FileSystemSignalHandler` (`src/integration/signals/`) |
-| `SignalBusPort`       | Live observer stream (dashboard subscribes)                            | `InMemorySignalBus`, `NoopSignalBus`                   |
-| `LoggerPort`          | Structured logging + UI output (success, warning, spinner, …)          | `PlainTextSink`, `JsonLogger`, `InkSink`               |
-| `PromptPort`          | Interactive prompts (select/confirm/input/checkbox/editor/fileBrowser) | `InkPromptAdapter` (single implementation)             |
-| `UserInteractionPort` | Domain-level interactive flows (selectPaths, getFeedback, …)           | `InteractiveUserAdapter`, `AutoUserAdapter`            |
+| Port                  | Responsibility                                                         | Implementations                                                   |
+| --------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `PersistencePort`     | Sprint/task/ticket/config/project storage                              | `FilePersistenceAdapter` (`src/integration/persistence/`)         |
+| `FilesystemPort`      | Directory/file read-write at the filesystem boundary                   | `NodeFilesystemAdapter` (`src/integration/filesystem-adapter.ts`) |
+| `AiSessionPort`       | Spawning AI CLI sessions (Claude / Copilot)                            | `ProviderAiSessionAdapter` (`src/integration/ai/session/`)        |
+| `PromptBuilderPort`   | Compile `.md` prompt templates with context                            | `TextPromptBuilderAdapter` (`src/integration/ai/prompts/`)        |
+| `OutputParserPort`    | Parse structured outputs (tasks.json, requirements) from AI            | `DefaultOutputParserAdapter` (`src/integration/ai/output/`)       |
+| `ExternalPort`        | `git`, `gh`/`glab` integration, branch verification, lifecycle hooks   | `DefaultExternalAdapter` (`src/integration/external/`)            |
+| `SignalParserPort`    | Extract `HarnessSignal[]` from raw AI stdout                           | `SignalParser` (`src/integration/signals/parser.ts`)              |
+| `SignalHandlerPort`   | Durable writes for parsed signals (progress, evaluation, …)            | `FileSystemSignalHandler` (`src/integration/signals/`)            |
+| `SignalBusPort`       | Live observer stream (dashboard subscribes)                            | `InMemorySignalBus`, `NoopSignalBus`                              |
+| `LoggerPort`          | Structured logging + UI output (success, warning, spinner, …)          | `PlainTextSink`, `JsonLogger`, `InkSink`                          |
+| `PromptPort`          | Interactive prompts (select/confirm/input/checkbox/editor/fileBrowser) | `InkPromptAdapter` (single implementation)                        |
+| `UserInteractionPort` | Domain-level interactive flows (selectPaths, getFeedback, …)           | `InteractiveUserAdapter`, `AutoUserAdapter`                       |
 
 ### Use cases (`src/business/usecases/`)
 
@@ -68,7 +63,7 @@ invoked by pipelines (below), never directly by CLI commands — an ESLint fence
 
 Every user-triggered workflow — refine, plan, ideate, evaluate, execute — is a composable pipeline. Each pipeline
 is a named `PipelineDefinition` of sequential steps. Steps are small functions returning
-`DomainResult<Partial<TCtx>>`, composed via the framework in `src/business/pipeline/`:
+`DomainResult<Partial<TCtx>>`, composed via the framework in `src/business/pipelines/framework/`:
 
 - `step(name, execute, hooks?)` — single named step with optional `pre`/`post` hooks
 - `pipeline(name, steps[])` — group steps into a named definition
@@ -83,16 +78,17 @@ Shared steps in `src/business/pipelines/steps/` are reused across pipelines: `lo
 `assert-sprint-status`, `load-tasks`, `reorder-dependencies`, `resolve-config` (live read — REQ-12),
 `run-check-scripts` (sprint-start + post-task modes), `branch-preflight`.
 
-Happy-path step orders (what `executePipeline` emits in `stepResults`):
+Happy-path step orders (what `executePipeline` emits in `stepResults`). Each row links to a
+per-pipeline sequence diagram.
 
-| Pipeline                                                            | Steps                                                                                                                                                                      |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Refine                                                              | `load-sprint → assert-draft → refine-tickets → export-requirements`                                                                                                        |
-| Plan                                                                | `load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies`                                                                                       |
-| Ideate                                                              | `load-sprint → assert-draft → assert-project-provided → run-ideation → reorder-dependencies`                                                                               |
-| Evaluate                                                            | `load-sprint → load-task → check-already-evaluated → run-evaluator-loop`                                                                                                   |
-| Execute (outer)                                                     | `load-sprint → check-preconditions → resolve-branch → auto-activate → assert-active → prepare-tasks → ensure-branches → run-check-scripts → execute-tasks → feedback-loop` |
-| Execute (per-task, nested inside `execute-tasks` via `forEachTask`) | `branch-preflight → mark-in-progress → execute-task → store-verification → post-task-check → evaluate-task → mark-done`                                                    |
+| Pipeline                                                                                                         | Steps                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Refine](./seq-refine.puml)                                                                                      | `load-sprint → assert-draft → refine-tickets → export-requirements`                                                                                                        |
+| [Plan](./seq-plan.puml)                                                                                          | `load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies`                                                                                       |
+| [Ideate](./seq-ideate.puml)                                                                                      | `load-sprint → assert-draft → assert-project-provided → run-ideation → reorder-dependencies`                                                                               |
+| [Evaluate](./seq-evaluate.puml)                                                                                  | `load-sprint → load-task → check-already-evaluated → run-evaluator-loop`                                                                                                   |
+| [Execute (outer)](./seq-execute.puml)                                                                            | `load-sprint → check-preconditions → resolve-branch → auto-activate → assert-active → prepare-tasks → ensure-branches → run-check-scripts → execute-tasks → feedback-loop` |
+| Execute (per-task, nested inside `execute-tasks` via `forEachTask` — see [seq-execute.puml](./seq-execute.puml)) | `branch-preflight → contract-negotiate → mark-in-progress → execute-task → store-verification → post-task-check → evaluate-task → mark-done`                               |
 
 The Execute pipeline's `execute-tasks` step composes `forEachTask` with the per-task pipeline
 (`src/business/pipelines/execute/per-task-pipeline.ts`). The scheduler owns concurrency, mutex-keys
@@ -123,7 +119,8 @@ fail-fast drain, and in-progress task resumption.
 
 ## Data Models
 
-All types defined in `src/domain/models.ts` (Zod) with JSON schema mirrors in `/schemas/`.
+All types defined in `src/domain/models.ts` (Zod). Zod is the single source of truth; regenerate JSON Schema on
+demand via `zod-to-json-schema` if an external contract is needed.
 
 ### Project
 
@@ -237,40 +234,43 @@ terminal the way vim/htop/less does. Restoration is guaranteed via explicit `exi
 plus `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets in
 `src/integration/ui/tui/runtime/screen.ts`.
 
-Prompt components live _outside_ the TUI tree at `src/integration/prompts/` so plain-text CLI commands that need a
+Prompt components live alongside other UI at `src/integration/ui/prompts/` so plain-text CLI commands that need a
 prompt can auto-mount a minimal `<PromptHost />` without pulling in the dashboard.
 
 ```
-src/integration/ui/tui/
-├── runtime/
-│   ├── mount.tsx        # mountInkApp() — TTY gate, SharedDeps swap, enter/exit alt-screen, render+waitUntilExit
-│   ├── screen.ts        # enterAltScreen()/exitAltScreen() + signal-safe restore
-│   ├── event-bus.ts     # Singleton log event bus (InkSink publisher, <LogTail /> subscriber)
-│   └── hooks.ts         # useLoggerEvents, useSignalEvents, useLiveConfig
-├── components/          # Leaf UI: Banner, SprintSummaryLine, TaskGrid, TaskRow, LogTail, StatusBar,
-│                        # SprintSummary, RateLimitBanner, ActionMenu
-├── views/               # Top-level screens — each is a router destination
-│   ├── app.tsx          # Root — seeds the router stack, mounts <PromptHost /> as sibling
-│   ├── router-context.ts   # ViewId union + RouterApi React context
-│   ├── view-router.tsx  # Navigation stack + global hotkeys (esc/h/s/d/q)
-│   ├── home-view.tsx    # Idle landing (banner + summary line + action menu + submenu)
-│   ├── dashboard-view.tsx  # Full-screen status destination (hero + task grid + blockers + progress tail)
-│   ├── execute-view.tsx # Live sprint-execution dashboard (subscribes to SignalBus + logEventBus)
-│   ├── settings-view.tsx / settings-panel.tsx  # Router wrapper + overlay body; schema-driven rows
-│   ├── menu-builder.ts  # Pure buildMainMenu/buildSubMenu
-│   ├── dashboard-data.ts  # Dashboard data shape + next-action suggestion
-│   └── command-map.ts   # HomeView action → command function dispatch
-└── theme/tokens.ts      # Colorette → Ink <Text color=…> prop names
-
-src/integration/prompts/
-├── prompt-adapter.ts    # InkPromptAdapter — the single PromptPort implementation
-├── prompt-queue.ts      # FIFO queue of PendingPrompt
-├── prompt-host.tsx      # Renders the head prompt using the matching component
-├── auto-mount.tsx       # ensurePromptHost() — spins up a minimal Ink tree when no dashboard is active
-├── hooks.ts             # useCurrentPrompt — subscription for PromptHost
-├── select/confirm/input/checkbox-prompt.tsx
-├── editor-prompt.tsx    # Claude-style multi-line inline editor (no external editor spawn)
-└── file-browser-prompt.tsx
+src/integration/ui/
+├── theme/
+│   ├── theme.ts         # Colors, banner, quotes
+│   ├── ui.ts            # Formatters (renderCard, renderTable, showSuccess, …)
+│   └── tokens.ts        # Colorette → Ink <Text color=…> prop names
+├── prompts/
+│   ├── prompt-adapter.ts    # InkPromptAdapter — the single PromptPort implementation
+│   ├── prompt-queue.ts      # FIFO queue of PendingPrompt
+│   ├── prompt-host.tsx      # Renders the head prompt using the matching component
+│   ├── auto-mount.tsx       # ensurePromptHost() — spins up a minimal Ink tree when no dashboard is active
+│   ├── hooks.ts             # useCurrentPrompt — subscription for PromptHost
+│   ├── select/confirm/input/checkbox-prompt.tsx
+│   ├── editor-prompt.tsx    # Claude-style multi-line inline editor (no external editor spawn)
+│   └── file-browser-prompt.tsx
+└── tui/
+    ├── runtime/
+    │   ├── mount.tsx        # mountInkApp() — TTY gate, SharedDeps swap, enter/exit alt-screen, render+waitUntilExit
+    │   ├── screen.ts        # enterAltScreen()/exitAltScreen() + signal-safe restore
+    │   ├── event-bus.ts     # Singleton log event bus (InkSink publisher, <LogTail /> subscriber)
+    │   └── hooks.ts         # useLoggerEvents, useSignalEvents, useLiveConfig
+    ├── components/          # Leaf UI: Banner, SprintSummaryLine, TaskGrid, TaskRow, LogTail, StatusBar,
+    │                        # SprintSummary, RateLimitBanner, ActionMenu
+    └── views/               # Top-level screens — each is a router destination
+        ├── app.tsx          # Root — seeds the router stack, mounts <PromptHost /> as sibling
+        ├── router-context.ts   # ViewId union + RouterApi React context
+        ├── view-router.tsx  # Navigation stack + global hotkeys (esc/h/s/d/q)
+        ├── home-view.tsx    # Idle landing (banner + summary line + action menu + submenu)
+        ├── dashboard-view.tsx  # Full-screen status destination (hero + task grid + blockers + progress tail)
+        ├── execute-view.tsx # Live sprint-execution dashboard (subscribes to SignalBus + logEventBus)
+        ├── settings-view.tsx / settings-panel.tsx  # Router wrapper + overlay body; schema-driven rows
+        ├── menu-builder.ts  # Pure buildMainMenu/buildSubMenu
+        ├── dashboard-data.ts  # Dashboard data shape + next-action suggestion
+        └── command-map.ts   # HomeView action → command function dispatch
 ```
 
 ### Rendering & prompt flow

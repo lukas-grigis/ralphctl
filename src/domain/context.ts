@@ -1,4 +1,4 @@
-import type { Sprint, Task, Ticket, Project, AiProvider, Config } from './models.ts';
+import type { AiProvider, Config, Project, Sprint, Task, Ticket } from './models.ts';
 
 /** Unified context flowing through pipeline steps */
 export interface StepContext {

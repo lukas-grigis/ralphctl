@@ -11,14 +11,17 @@
 import React from 'react';
 import { useRouter } from './router-context.ts';
 import { SettingsPanel } from './settings-panel.tsx';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 
 export function SettingsView(): React.JSX.Element {
   const router = useRouter();
   return (
-    <SettingsPanel
-      onClose={() => {
-        router.pop();
-      }}
-    />
+    <ViewShell title="Settings">
+      <SettingsPanel
+        onClose={() => {
+          router.pop();
+        }}
+      />
+    </ViewShell>
   );
 }

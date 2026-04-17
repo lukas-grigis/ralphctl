@@ -244,7 +244,7 @@ describe('HomeView — pipeline map', () => {
     expect(frame).toContain('Next: Close Sprint');
   });
 
-  it('marks every phase done on a closed sprint (no next step)', async () => {
+  it('marks every phase done on a closed sprint and offers a new-sprint quick action', async () => {
     setState({
       config: { currentSprint: 'sprint-1', aiProvider: 'claude', editor: null },
       projects: [{ name: 'p', displayName: 'P', repositories: [{ name: 'repo', path: '/tmp/repo' }] }],
@@ -266,7 +266,7 @@ describe('HomeView — pipeline map', () => {
     await flush();
 
     const frame = lastFrame() ?? '';
-    expect(frame).not.toContain('Next:');
+    expect(frame).toContain('Next: Start a new sprint');
   });
 
   it('dispatches the next-step action when Enter is pressed', async () => {

@@ -1,11 +1,11 @@
 import type { StepContext } from '@src/domain/context.ts';
 import type { Config } from '@src/domain/models.ts';
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { DomainError, StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 
 /**
  * Read the global config fresh from persistence into `ctx.config`.

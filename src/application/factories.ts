@@ -28,10 +28,10 @@ import {
   type PerTaskDeps,
 } from '@src/business/pipelines/execute/per-task-pipeline.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
-import { ProviderAiSessionAdapter } from '@src/integration/ai/session-adapter.ts';
-import { TextPromptBuilderAdapter } from '@src/integration/ai/prompt-builder-adapter.ts';
-import { DefaultOutputParserAdapter } from '@src/integration/ai/output-parser-adapter.ts';
-import { AutoUserAdapter, InteractiveUserAdapter } from '@src/integration/user-interaction/user-interaction-adapter.ts';
+import { ProviderAiSessionAdapter } from '@src/integration/ai/session/session-adapter.ts';
+import { TextPromptBuilderAdapter } from '@src/integration/ai/prompts/prompt-builder-adapter.ts';
+import { DefaultOutputParserAdapter } from '@src/integration/ai/output/output-parser-adapter.ts';
+import { AutoUserAdapter, InteractiveUserAdapter } from '@src/integration/user-interaction-adapter.ts';
 import { DefaultExternalAdapter } from '@src/integration/external/external-adapter.ts';
 
 /** Lazy AI workflow dependencies — created fresh per command invocation. */

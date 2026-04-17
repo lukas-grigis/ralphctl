@@ -1,13 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import { muted } from '@src/integration/ui/theme/theme.ts';
-import { log, renderTable } from '@src/integration/ui/theme/ui.ts';
+import { renderTable } from '@src/integration/ui/theme/ui.ts';
 import { addTask, getTasks, saveTasks } from '@src/integration/persistence/task.ts';
 import { getSchemaPath, getTasksFilePath } from '@src/integration/persistence/paths.ts';
 import { withFileLock } from '@src/integration/persistence/file-lock.ts';
 import { ensureError, unwrapOrThrow, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { type ImportTask, ImportTasksSchema, type Task } from '@src/domain/models.ts';
 import { extractJsonArray } from '@src/integration/utils/json-extract.ts';
-import { generateUuid8 } from '@src/integration/utils/ids.ts';
+import { generateUuid8 } from '@src/domain/ids.ts';
 
 /**
  * Load the task import JSON schema from file.
@@ -150,11 +149,9 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
         localToRealId.set(taskInput.id, task.id);
       }
       createdTasks.push({ task: taskInput, realId: task.id });
-      log.itemSuccess(`${task.id}: ${task.name}`);
-    } else {
-      log.itemError(`Failed to add: ${taskInput.name}`);
-      console.log(muted(`    ${addR.error.message}`));
     }
+    // Failures are surfaced via the returned count (caller compares against input length);
+    // no direct stdout writes here — this helper is called from the Ink TUI pipeline path.
   }
 
   // Second pass: update blockedBy with resolved real IDs (under file lock)
@@ -211,8 +208,6 @@ async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promis
       evaluated: false,
       verified: false,
     });
-
-    log.itemSuccess(`${realId}: ${taskInput.name}`);
   }
 
   // Second pass: resolve blockedBy references

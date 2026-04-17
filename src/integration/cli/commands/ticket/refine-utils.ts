@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Result } from 'typescript-result';
 import { formatTicketDisplay } from '@src/integration/persistence/ticket.ts';
-import { spawnInteractive } from '@src/integration/ai/session.ts';
+import { spawnInteractive } from '@src/integration/ai/session/session.ts';
 import { getActiveProvider } from '@src/integration/ai/providers/registry.ts';
 import { extractJsonArray } from '@src/integration/utils/json-extract.ts';
 import { type RefinedRequirement, RefinedRequirementsSchema, type Ticket } from '@src/domain/models.ts';

@@ -1,9 +1,9 @@
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { BranchPreflightError } from '@src/domain/errors.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 
 /**

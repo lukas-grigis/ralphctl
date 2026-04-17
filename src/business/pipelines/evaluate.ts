@@ -1,16 +1,16 @@
 import type { StepContext } from '@src/domain/context.ts';
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { TaskNotFoundError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
-import { step, pipeline } from '@src/business/pipeline/helpers.ts';
+import { pipeline, step } from '@src/business/pipelines/framework/helpers.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { EvaluateTaskUseCase, type EvaluationSummary } from '@src/business/usecases/evaluate.ts';
 

@@ -24,7 +24,53 @@ import { createContext, useContext } from 'react';
  * task grid, log tail, rate-limit banner and live SignalBus subscription
  * that a dedicated execute-phase view would otherwise duplicate.
  */
-export type ViewId = 'home' | 'settings' | 'execute' | 'dashboard' | 'refine-phase' | 'plan-phase' | 'close-phase';
+export type ViewId =
+  | 'home'
+  | 'settings'
+  | 'execute'
+  | 'dashboard'
+  | 'refine-phase'
+  | 'plan-phase'
+  | 'close-phase'
+  // Sprint workflow destinations (M2).
+  | 'sprint-create'
+  | 'sprint-delete'
+  | 'sprint-set-current'
+  | 'sprint-requirements-export'
+  | 'sprint-context-export'
+  // Ticket workflow destinations (M3).
+  | 'ticket-add'
+  | 'ticket-edit'
+  | 'ticket-remove'
+  | 'ticket-refine'
+  // Task workflow destinations (M4).
+  | 'task-add'
+  | 'task-import'
+  | 'task-status'
+  | 'task-reorder'
+  | 'task-remove'
+  | 'task-next'
+  // Project workflow destinations (M5).
+  | 'project-add'
+  | 'project-remove'
+  | 'project-repo-add'
+  | 'project-repo-remove'
+  | 'project-edit'
+  // Browse list + detail destinations (M6).
+  | 'sprint-list'
+  | 'sprint-show'
+  | 'ticket-list'
+  | 'ticket-show'
+  | 'task-list'
+  | 'task-show'
+  | 'project-list'
+  | 'project-show'
+  // Doctor / progress (M7).
+  | 'doctor'
+  | 'progress-log'
+  | 'progress-show'
+  // Ideate pipeline wrapper (M8).
+  | 'ideate';
 
 /**
  * One frame on the navigation stack. Optional `props` are passed through to

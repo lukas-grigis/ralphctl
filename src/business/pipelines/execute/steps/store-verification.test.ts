@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Sprint, Task } from '@src/domain/models.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import { storeVerification } from './store-verification.ts';
 import type { PerTaskContext } from '../per-task-context.ts';

@@ -6,7 +6,7 @@ import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
 import { fileExists } from '@src/integration/persistence/storage.ts';
 import { fetchIssueFromUrl, formatIssueContext } from '@src/integration/external/issue-fetch.ts';
-import { exitWithCode } from '@src/integration/utils/exit-codes.ts';
+import { exitWithCode } from '@src/application/exit-codes.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { buildTicketRefinePrompt } from '@src/integration/ai/prompts/loader.ts';
 import { createSpinner, showError, showWarning } from '@src/integration/ui/theme/ui.ts';
@@ -55,7 +55,7 @@ vi.mock('@src/integration/persistence/paths.ts', () => ({
   getSchemaPath: vi.fn().mockReturnValue('/tmp/schema.json'),
 }));
 
-vi.mock('@src/integration/utils/exit-codes.ts', () => ({
+vi.mock('@src/application/exit-codes.ts', () => ({
   exitWithCode: vi.fn(),
   EXIT_ERROR: 1,
   EXIT_SUCCESS: 0,

@@ -27,9 +27,12 @@ import { Box, Text } from 'ink';
 import { useDashboardData } from '@src/integration/ui/tui/runtime/hooks.ts';
 import { TaskGrid } from '@src/integration/ui/tui/components/task-grid.tsx';
 import { SprintSummary } from '@src/integration/ui/tui/components/sprint-summary.tsx';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
+import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
+import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { getNextAction } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import { getProgress } from '@src/integration/persistence/progress.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import type { DashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import type { Task } from '@src/domain/models.ts';
 
@@ -115,7 +118,7 @@ function Hero({ data }: { data: DashboardData }): React.JSX.Element {
         </Text>
       </Box>
       {taskCount > 0 ? (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <SprintSummary tasks={tasks} />
         </Box>
       ) : null}
@@ -123,16 +126,26 @@ function Hero({ data }: { data: DashboardData }): React.JSX.Element {
   );
 }
 
+function PanelHeader({ label }: { label: string }): React.JSX.Element {
+  return (
+    <Text dimColor>
+      {glyphs.sectionRule}
+      {glyphs.sectionRule} {label}{' '}
+      {glyphs.sectionRule.repeat(30 - label.length)}
+    </Text>
+  );
+}
+
 function BlockersPanel({ blocked }: { blocked: readonly Task[] }): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      <Text dimColor>── Blockers ───────────────────────</Text>
+      <PanelHeader label="Blockers" />
       {blocked.length === 0 ? (
         <Text dimColor>(none)</Text>
       ) : (
         blocked.map((t) => (
           <Box key={t.id}>
-            <Text color={inkColors.error}>✗ </Text>
+            <Text color={inkColors.error}>{glyphs.cross} </Text>
             <Text>{t.name}</Text>
             <Text dimColor>
               {'  '}
@@ -148,12 +161,12 @@ function BlockersPanel({ blocked }: { blocked: readonly Task[] }): React.JSX.Ele
 function ProgressPanel({ entries }: { entries: readonly ProgressEntry[] }): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      <Text dimColor>── Recent Progress ────────────────</Text>
+      <PanelHeader label="Recent Progress" />
       {entries.length === 0 ? (
         <Text dimColor>(no progress entries yet)</Text>
       ) : (
         entries.map((entry, i) => (
-          <Box key={i} flexDirection="column" marginBottom={i < entries.length - 1 ? 1 : 0}>
+          <Box key={i} flexDirection="column" marginBottom={i < entries.length - 1 ? spacing.section : 0}>
             <Text bold dimColor>
               {entry.header}
             </Text>
@@ -183,32 +196,29 @@ export function DashboardView(): React.JSX.Element {
 
   if (loading && !data) {
     return (
-      <Box>
-        <Text dimColor>Loading dashboard…</Text>
-      </Box>
+      <ViewShell title="Dashboard">
+        <Spinner label="Loading dashboard…" />
+      </ViewShell>
     );
   }
 
   if (error) {
     return (
-      <Box>
-        <Text color={inkColors.error}>✗ {error}</Text>
-      </Box>
+      <ViewShell title="Dashboard">
+        <ResultCard kind="error" title="Could not load dashboard" lines={[error]} />
+      </ViewShell>
     );
   }
 
   if (!data) {
     return (
-      <Box flexDirection="column">
-        <Text bold color={inkColors.primary}>
-          Dashboard
-        </Text>
-        <Box marginTop={1}>
-          <Text dimColor>No current sprint. Press </Text>
-          <Text bold>h</Text>
-          <Text dimColor> to return home and create one.</Text>
-        </Box>
-      </Box>
+      <ViewShell title="Dashboard">
+        <ResultCard
+          kind="info"
+          title="No current sprint"
+          nextSteps={[{ action: 'Press h to return home', description: 'Then create or select a sprint.' }]}
+        />
+      </ViewShell>
     );
   }
 
@@ -216,10 +226,10 @@ export function DashboardView(): React.JSX.Element {
   const next = getNextAction(data);
 
   return (
-    <Box flexDirection="column">
+    <ViewShell title="Dashboard">
       <Hero data={data} />
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <TaskGrid
           tasks={data.tasks}
           runningTaskIds={EMPTY_SET}
@@ -228,22 +238,22 @@ export function DashboardView(): React.JSX.Element {
         />
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <BlockersPanel blocked={blocked} />
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <ProgressPanel entries={progress} />
       </Box>
 
       {next ? (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <Text dimColor>Next: </Text>
           <Text color={inkColors.highlight}>{next.label}</Text>
-          <Text dimColor>{` — ${next.description}`}</Text>
+          <Text dimColor>{` ${glyphs.emDash} ${next.description}`}</Text>
         </Box>
       ) : null}
-    </Box>
+    </ViewShell>
   );
 }
 

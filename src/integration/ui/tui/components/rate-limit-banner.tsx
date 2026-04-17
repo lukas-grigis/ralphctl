@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   pausedSince: Date | null;
@@ -20,10 +20,10 @@ export function RateLimitBanner({ pausedSince, delayMs }: Props): React.JSX.Elem
     <Box
       borderStyle="round"
       borderColor={inkColors.warning}
-      paddingX={1}
+      paddingX={spacing.gutter}
     >
       <Text color={inkColors.warning} bold>
-        ⚠ Rate limit hit
+        {glyphs.warningGlyph} Rate limit hit
       </Text>
       <Text dimColor>
         {' — new tasks paused'}

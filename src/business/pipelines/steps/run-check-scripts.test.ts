@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { StepError, StorageError } from '@src/domain/errors.ts';
 import type { Project, Sprint, Task } from '@src/domain/models.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { ExternalPort, CheckScriptResult } from '@src/business/ports/external.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { CheckScriptResult, ExternalPort } from '@src/business/ports/external.ts';
 import type { CheckResult, StepContext } from '@src/domain/context.ts';
 import { runCheckScriptsStep } from './run-check-scripts.ts';
 

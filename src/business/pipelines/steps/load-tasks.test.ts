@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { StorageError } from '@src/domain/errors.ts';
 import type { Task } from '@src/domain/models.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { StepContext } from '@src/domain/context.ts';
 import { loadTasksStep } from './load-tasks.ts';
 

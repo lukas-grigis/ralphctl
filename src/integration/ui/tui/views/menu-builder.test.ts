@@ -28,56 +28,8 @@ function baseCtx(overrides: Partial<MenuContext> = {}): MenuContext {
 }
 
 describe('buildSubMenu — config', () => {
-  const ctx = baseCtx();
-
-  it('returns a config submenu with correct title', () => {
-    const menu = buildSubMenu('config', ctx);
-    expect(menu).not.toBeNull();
-    if (menu !== null) {
-      expect(menu.title).toBe('Configuration');
-    }
-  });
-
-  it('includes Show Settings choice', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toContain('show');
-  });
-
-  it('includes Set AI Provider choice', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toContain('set provider');
-  });
-
-  it('includes Set Editor choice', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toContain('set editor');
-  });
-
-  it('includes Set Evaluation Iterations choice', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toContain('set evaluationIterations');
-  });
-
-  it('includes Back choice', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toContain('back');
-  });
-
-  it('has all config choices in expected order', () => {
-    const menu = buildSubMenu('config', ctx);
-    if (menu === null) throw new Error('menu should not be null');
-    const vals = choices(menu.items).map((c) => c.value);
-    expect(vals).toEqual(['show', 'set provider', 'set editor', 'set evaluationIterations', 'back']);
+  it('is not exposed as a submenu — the global `s` hotkey opens the settings panel directly', () => {
+    expect(buildSubMenu('config', baseCtx())).toBeNull();
   });
 });
 
@@ -91,7 +43,6 @@ describe('buildBrowseMenu', () => {
       'group:task',
       'group:project',
       'action:progress:show',
-      'group:config',
       'action:doctor:run',
       'back',
     ]);

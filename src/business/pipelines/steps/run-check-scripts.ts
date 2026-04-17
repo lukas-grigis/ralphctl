@@ -1,12 +1,12 @@
-import type { StepContext, CheckResult } from '@src/domain/context.ts';
+import type { CheckResult, StepContext } from '@src/domain/context.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { DomainError, StepError, StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { findProjectForPath, resolveCheckScript } from './project-lookup.ts';
 
 export type CheckScriptsMode = 'sprint-start' | 'post-task';

@@ -1,6 +1,6 @@
 import type { ExecutionOptions } from '@src/domain/context.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
@@ -8,8 +8,8 @@ import type { UserInteractionPort } from '@src/business/ports/user-interaction.t
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
-import { pipeline } from '@src/business/pipeline/helpers.ts';
-import type { PipelineDefinition } from '@src/business/pipeline/types.ts';
+import { pipeline } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineDefinition } from '@src/business/pipelines/framework/types.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import type { PerTaskContext } from './per-task-context.ts';
 import { branchPreflight } from './steps/branch-preflight.ts';

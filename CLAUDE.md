@@ -40,11 +40,10 @@ pnpm typecheck && pnpm lint && pnpm test
 - **`affectedRepositories` stores absolute paths** (not names) — set during `sprint plan`, persisted per-ticket
 - **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one AI session per ticket
 - **Planning is per-sprint** — repo selection applies to all tickets, paths saved per-ticket
-- **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/domain/models.ts`
 - **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
 - **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
 - **Check scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`; heuristic
-  detection (`src/integration/utils/detect-scripts.ts`) is used only as editable suggestions during project setup,
+  detection (`src/integration/external/detect-scripts.ts`) is used only as editable suggestions during project setup,
   never as a runtime fallback
 - **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for check scripts
 - **Check tracking** — `sprint.checkRanAt` records per-repo timestamps; re-runs skip already-completed checks;
@@ -90,10 +89,10 @@ pnpm typecheck && pnpm lint && pnpm test
   `.match()` chains.
 - **Clean Architecture layering** — `domain` < `business` < `integration` < `application`. Inner layers never import
   from outer layers. Use cases depend on service ports (`src/business/ports/`); repository interfaces are pure-domain
-  (`src/domain/repositories/`). Concrete adapters live under `src/integration/`.
+  (every port lives in `src/business/ports/`). Concrete adapters live under `src/integration/`.
 - **Pipelines are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, evaluate, execute)
   is a composable `PipelineDefinition` in `src/business/pipelines/`. Each pipeline is a named list of steps composed
-  via `pipeline()` / `step()` from `src/business/pipeline/helpers.ts`, with shared building blocks in
+  via `pipeline()` / `step()` from `src/business/pipelines/framework/helpers.ts`, with shared building blocks in
   `src/business/pipelines/steps/`. CLI commands and TUI views invoke `createXxxPipeline()` factories from
   `src/application/factories.ts` and call `executePipeline(...)` — never `useCase.execute()` directly. An ESLint
   `no-restricted-imports` fence in `eslint.config.js` enforces this boundary (type-only imports allowed). Extend
@@ -113,7 +112,7 @@ pnpm typecheck && pnpm lint && pnpm test
 - **PromptPort is the only interactive-prompt abstraction** — call sites use `getPrompt()` from
   `src/application/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
   dashboard isn't mounted (one-shot commands like `ralphctl project add`), the adapter auto-mounts a minimal Ink tree
-  via `src/integration/prompts/auto-mount.tsx` containing only `<PromptHost />`, drains the prompt queue, and
+  via `src/integration/ui/prompts/auto-mount.tsx` containing only `<PromptHost />`, drains the prompt queue, and
   unmounts. Non-interactive environments throw `PromptCancelledError` — pass values as flags.
 - **LoggerPort is the only logging abstraction** — three sinks: `PlainTextSink` (TTY one-shot CLI), `JsonLogger`
   (non-TTY / piped / CI), `InkSink` (Ink-mounted, publishes to an event bus consumed by the dashboard). Business logic
@@ -136,18 +135,16 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't hardcode provider-specific logic outside `src/integration/ai/providers/` — use the provider abstraction layer
 - Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses
   `--allow-all-tools` (see Provider Differences below)
-- Don't add runtime auto-detection of check scripts — detection logic in `src/integration/utils/detect-scripts.ts` is
+- Don't add runtime auto-detection of check scripts — detection logic in `src/integration/external/detect-scripts.ts` is
   for suggestions during `project add` only
 - Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s
   timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
-- Don't add fields to Zod schemas without updating `/schemas/*.json` — Data models in `src/domain/models.ts` have JSON
-  schema mirrors in `/schemas/` that must stay in sync (AI agents validate against these)
 - Don't add `index.ts` barrel files — every import goes directly to its source module
 - Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
 - Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use
   `createXxxPipeline()` from `src/application/factories.ts` + `executePipeline(...)` instead.
 - Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`forEachTask`/
-  `insertBefore`/`insertAfter`/`replace`/`renameStep` in `src/business/pipeline/`. Use them.
+  `insertBefore`/`insertAfter`/`replace`/`renameStep` in `src/business/pipelines/framework/`. Use them.
 
 ## Workflow
 
@@ -311,7 +308,7 @@ Use Task tool with these `subagent_type` values for specialized work.
 
 Never add raw emoji or inconsistent formatting — use `emoji`/`colors`/`statusEmoji` from
 `@src/integration/ui/theme/theme.ts` and the formatters from `@src/integration/ui/theme/ui.ts`. Ink components pull
-theme tokens via `@src/integration/ui/tui/theme/tokens.ts`.
+theme tokens via `@src/integration/ui/theme/tokens.ts`.
 
 See `.claude/agents/designer.md` for UX guidelines.
 
@@ -319,51 +316,57 @@ See `.claude/agents/designer.md` for UX guidelines.
 
 ```
 src/
-├── domain/                        # Pure — models, errors, signals, repository interfaces
+├── domain/                        # Pure — models, errors, signals, IDs
 │   ├── models.ts                  # Zod schemas (single source of truth for entity types)
-│   ├── errors.ts  signals.ts  context.ts  types.ts  config-schema.ts
-│   └── repositories/              # persistence.ts, filesystem.ts (interfaces only)
+│   └── errors.ts  signals.ts  context.ts  types.ts  config-schema.ts  ids.ts
 │
 ├── business/                      # Use cases + service ports + pipelines
-│   ├── ports/                     # ai-session, prompt-builder, output-parser, user-interaction,
-│   │                              # external, signal-parser, signal-handler, logger, prompt, signal-bus
+│   ├── ports/                     # Every interface business logic depends on:
+│   │                              # persistence, filesystem, ai-session, prompt-builder, output-parser,
+│   │                              # external, signal-parser/handler/bus, logger, prompt,
+│   │                              # user-interaction, rate-limit-coordinator
 │   ├── usecases/                  # refine, plan (+ ideate), execute, evaluate
-│   ├── pipeline/                  # generic step/pipeline plumbing
-│   └── pipelines/                 # refine-plan
+│   └── pipelines/
+│       ├── framework/             # Generic step/pipeline/forEachTask plumbing
+│       ├── steps/                 # Shared steps reused across pipelines
+│       ├── execute/               # Execute-specific: per-task pipeline, contract, steps/
+│       └── refine.ts  plan.ts  ideate.ts  evaluate.ts  execute.ts
 │
 ├── integration/                   # Adapters, UI, 3rd-party glue
 │   ├── persistence/               # File-backed repository + paths/storage/file-lock/requirements-export
-│   ├── filesystem/                # NodeFilesystemAdapter
-│   ├── ai/                        # executor, evaluator, runner, parser, session, lifecycle, permissions,
-│   │   │                          # task-context, process-manager, rate-limiter, project-tooling,
-│   │   │                          # session-adapter, prompt-builder-adapter, output-parser-adapter
+│   ├── filesystem-adapter.ts      # NodeFilesystemAdapter
+│   ├── user-interaction-adapter.ts# InteractiveUserAdapter, AutoUserAdapter
+│   ├── ai/
 │   │   ├── providers/             # claude.ts, copilot.ts, registry.ts, types.ts
-│   │   └── prompts/               # .md templates + loader.ts
-│   ├── external/                  # git, gh/glab, issue-fetch, provider resolution, external-adapter
+│   │   ├── session/               # session, session-adapter, process-manager, rate-limiter
+│   │   ├── output/                # parser, output-parser-adapter
+│   │   ├── prompts/               # .md templates + loader + prompt-builder-adapter
+│   │   └── evaluator.ts  project-tooling.ts  task-context.ts
+│   ├── external/                  # git, gh/glab, issue-fetch, provider resolution, external-adapter,
+│   │                              # lifecycle (check-script hooks), detect-scripts (setup suggestions)
 │   ├── signals/                   # parser, bus, file-system-handler
 │   ├── logging/                   # plain-text-sink, json-logger, ink-sink, factory
-│   ├── prompts/                   # InkPromptAdapter, prompt queue/host/auto-mount, Ink prompt components
-│   │                              # (select, confirm, input, checkbox, editor, file-browser), escapable
 │   ├── ui/
-│   │   ├── tui/
-│   │   │   ├── runtime/           # mount.tsx, screen.ts (alt-screen), event-bus, hooks
-│   │   │   ├── components/        # banner, task-grid, log-tail, rate-limit-banner, status-bar, …
-│   │   │   ├── views/             # app, repl-view, execute-view, settings-panel, menu-builder, …
-│   │   │   └── theme/tokens.ts    # Colorette → Ink color-prop adapter
-│   │   └── theme/                 # theme.ts (colors, banner, quotes), ui.ts (formatters, spinner shim)
+│   │   ├── theme/                 # theme.ts (colors, banner, quotes), ui.ts (formatters), tokens.ts
+│   │   ├── prompts/               # InkPromptAdapter, prompt queue/host/auto-mount, prompt components
+│   │   │                          # (select, confirm, input, checkbox, editor, file-browser), escapable
+│   │   └── tui/
+│   │       ├── runtime/           # mount.tsx, screen.ts (alt-screen), event-bus, hooks
+│   │       ├── components/        # banner, task-grid, log-tail, rate-limit-banner, status-bar, …
+│   │       └── views/             # app, repl-view, execute-view, settings-panel, menu-builder, …
 │   ├── cli/
 │   │   ├── commands/              # project/sprint/ticket/task/progress/dashboard/config/doctor/completion
 │   │   │                          # Each group has a register.ts that wires sub-commands onto a Commander instance
 │   │   └── completion/            # handle.ts, resolver.ts (tabtab integration)
 │   ├── config/schema-provider.ts  # Reads `src/domain/config-schema.ts` for the settings panel
-│   ├── user-interaction/          # InteractiveUserAdapter, AutoUserAdapter
-│   └── utils/                     # detect-scripts, ids, json-extract, multiline, result-helpers, exit-codes
+│   └── utils/                     # Cross-cutting helpers (json-extract, result-helpers)
 │
 └── application/                   # Composition root
     ├── entrypoint.ts              # Commander wiring + main(); decides when to mount Ink vs Commander
     ├── bootstrap.ts               # getSharedDeps/setSharedDeps/getPrompt singleton accessor
     ├── shared.ts                  # createSharedDeps() — builds the default adapter graph
     ├── factories.ts               # Use-case factories (per-invocation adapter graphs for AI flows)
+    ├── exit-codes.ts              # CLI exit code constants
     └── cli-metadata.ts
 ```
 

@@ -12,12 +12,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Sprint, Tasks } from '@src/domain/models.ts';
-import type { StepExecutionRecord } from '@src/business/pipeline/types.ts';
+import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
 import { getSharedDeps } from '@src/application/bootstrap.ts';
 import { createPlanPipeline } from '@src/application/factories.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
+import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { PhaseRunTrace } from './phase-run-trace.tsx';
+
+const HINTS_RUNNABLE = [
+  { key: 'Enter', action: 'plan' },
+  { key: 'Esc', action: 'back' },
+] as const;
+const HINTS_IDLE = [{ key: 'Esc', action: 'back' }] as const;
 
 interface Props {
   readonly sprintId: string;
@@ -82,11 +90,14 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
     { isActive: !state.running }
   );
 
+  const planAvailable = canPlan(state.sprint);
+  useViewHints(planAvailable && !state.running ? HINTS_RUNNABLE : HINTS_IDLE);
+
   if (state.sprint === null) {
     return (
-      <Box flexDirection="column">
+      <ViewShell title="Plan Phase">
         <Text dimColor>{state.error ?? 'Loading sprint…'}</Text>
-      </Box>
+      </ViewShell>
     );
   }
 
@@ -94,11 +105,10 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
   const tasks = state.tasks;
   const plannedTickets = countPlannedTickets(sprint, tasks);
   const tasksByPath = groupTasksByPath(tasks);
-  const planAvailable = canPlan(sprint);
   const actionLabel = tasks.length === 0 ? 'Plan Tasks' : 'Re-Plan Tasks';
 
   return (
-    <Box flexDirection="column">
+    <ViewShell title="Plan Phase">
       <Box>
         <Text bold color={inkColors.primary}>
           Plan — {sprint.name}
@@ -106,28 +116,28 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
         <Text dimColor>{`  (${sprint.status})`}</Text>
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <Text dimColor>
-          {`${String(plannedTickets)}/${String(sprint.tickets.length)} tickets planned  ·  ${String(tasks.length)} task${tasks.length !== 1 ? 's' : ''}`}
+          {`${String(plannedTickets)}/${String(sprint.tickets.length)} tickets planned  ${glyphs.inlineDot}  ${String(tasks.length)} task${tasks.length !== 1 ? 's' : ''}`}
         </Text>
       </Box>
 
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={spacing.section} flexDirection="column">
         <Text bold dimColor>
           Tasks by project
         </Text>
         {tasks.length === 0 ? (
-          <Box paddingLeft={2}>
+          <Box paddingLeft={spacing.indent}>
             <Text dimColor>(no tasks yet)</Text>
           </Box>
         ) : (
           Array.from(tasksByPath.entries()).map(([path, group]) => (
-            <Box key={path} flexDirection="column" paddingLeft={2} marginTop={1}>
+            <Box key={path} flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
               <Text dimColor bold>
                 {path}
               </Text>
               {group.map((t) => (
-                <Box key={t.id} paddingLeft={2}>
+                <Box key={t.id} paddingLeft={spacing.indent}>
                   <Text color={statusColor(t.status)} bold>
                     {statusGlyph(t.status)}
                   </Text>
@@ -139,14 +149,14 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
         )}
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         {state.running ? (
           <Text color={inkColors.warning} bold>
             ⋯ Running plan pipeline…
           </Text>
         ) : planAvailable ? (
           <Text color={inkColors.highlight} bold>
-            ▶ Press Enter to {actionLabel.toLowerCase()}
+            {glyphs.actionCursor} Press Enter to {actionLabel.toLowerCase()}
           </Text>
         ) : (
           <Text dimColor>{reasonUnavailable(sprint)}</Text>
@@ -154,15 +164,15 @@ export function PlanPhaseView({ sprintId }: Props): React.JSX.Element {
       </Box>
 
       {state.error ? (
-        <Box marginTop={1}>
-          <Text color={inkColors.error}>✗ {state.error}</Text>
+        <Box marginTop={spacing.section}>
+          <Text color={inkColors.error}>{glyphs.cross} {state.error}</Text>
         </Box>
       ) : null}
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <PhaseRunTrace records={state.records} title="Last plan run" />
       </Box>
-    </Box>
+    </ViewShell>
   );
 }
 
@@ -195,9 +205,9 @@ function groupTasksByPath(tasks: Tasks): Map<string, Tasks> {
 }
 
 function statusGlyph(status: 'todo' | 'in_progress' | 'done'): string {
-  if (status === 'done') return '✓';
-  if (status === 'in_progress') return '▸';
-  return '·';
+  if (status === 'done') return glyphs.check;
+  if (status === 'in_progress') return glyphs.actionCursor;
+  return glyphs.inlineDot;
 }
 
 function statusColor(status: 'todo' | 'in_progress' | 'done'): string {

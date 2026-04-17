@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
-import type { Sprint, Task, Project } from '@src/domain/models.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
+import type { Project, Sprint, Task } from '@src/domain/models.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 import { contractNegotiate } from './contract-negotiate.ts';
 

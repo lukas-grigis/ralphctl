@@ -9,7 +9,7 @@
  */
 
 import type { Project, Sprint } from '@src/domain/models.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 
 /**
  * Walk the sprint's tickets, return the first project whose repositories

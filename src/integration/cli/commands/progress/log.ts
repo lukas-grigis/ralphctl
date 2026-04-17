@@ -8,7 +8,7 @@ import {
   resolveSprintId,
   SprintStatusError,
 } from '@src/integration/persistence/sprint.ts';
-import { editorInput } from '@src/integration/prompts/editor-input.ts';
+import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 
 export async function progressLogCommand(args: string[]): Promise<void> {
   // FAIL FAST: Check sprint status before collecting any input

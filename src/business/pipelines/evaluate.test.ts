@@ -1,15 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import type { Sprint, Task, Config } from '@src/domain/models.ts';
+import { describe, expect, it } from 'vitest';
+import type { Config, Sprint, Task } from '@src/domain/models.ts';
 import { StepError, TaskNotFoundError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createEvaluatorPipeline, type EvaluateContext, type EvaluateDeps } from './evaluate.ts';
 
 // ---------------------------------------------------------------------------

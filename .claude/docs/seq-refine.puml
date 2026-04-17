@@ -1,0 +1,47 @@
+@startuml
+' Refine pipeline — ralphctl sprint refine
+' Definition: src/business/pipelines/refine.ts
+' Step shape: load-sprint → assert-draft → refine-tickets → export-requirements
+title ralphctl — Refine pipeline
+
+autonumber
+
+actor User
+participant Harness as "Harness\n(pipeline runner)"
+participant AI as "AI\n(Claude / Copilot)"
+database sprint.json
+database requirements.md
+
+User -> Harness : ralphctl sprint refine
+activate Harness
+
+note over Harness: createRefinePipeline(deps, options)
+
+Harness -> sprint.json : read sprint + tickets
+note right: step: load-sprint
+
+Harness -> Harness : verify sprint.status == 'draft'
+note right: step: assert-draft
+
+note over Harness: step: refine-tickets\n(loop per pending ticket)
+loop each ticket where requirementStatus == 'pending'
+    Harness -> AI : spawn session\n(ticket-refine.md + ticket + issue context)
+    activate AI
+    AI -> User : clarifying questions (HITL)
+    User --> AI : answers
+    AI --> Harness : requirements.json
+    deactivate AI
+    Harness -> User : show refined requirements — approve?
+    User --> Harness : approve
+    Harness -> sprint.json : ticket.requirements\n+ requirementStatus = 'approved'
+end
+
+alt all tickets approved
+    note right of Harness: step: export-requirements
+    Harness -> requirements.md : write <sprintDir>/requirements.md
+end
+
+Harness --> User : RefineSummary\n(approved / skipped / total)
+deactivate Harness
+
+@enduml

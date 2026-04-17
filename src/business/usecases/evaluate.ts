@@ -1,15 +1,15 @@
-import type { Task, Sprint, AiProvider, EvaluationStatus } from '@src/domain/models.ts';
+import type { AiProvider, EvaluationStatus, Sprint, Task } from '@src/domain/models.ts';
 import { DomainError, SpawnError, SprintNotFoundError, TaskNotFoundError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { EvaluationOptions } from '@src/domain/context.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { AiSessionPort, SessionResult } from '../ports/ai-session.ts';
 import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
-import type { OutputParserPort, EvaluationParseResult } from '../ports/output-parser.ts';
+import type { EvaluationParseResult, OutputParserPort } from '../ports/output-parser.ts';
 import type { UserInteractionPort } from '../ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '../ports/logger.ts';
 import type { ExternalPort } from '../ports/external.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import { findProjectForPath, resolveCheckScript } from '../pipelines/steps/project-lookup.ts';
 import { dimensionsEqual } from './plateau.ts';
 

@@ -11,6 +11,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { banner, gradients, getRandomQuote } from '@src/integration/ui/theme/theme.ts';
+import { spacing } from '@src/integration/ui/theme/tokens.ts';
 
 export function Banner(): React.JSX.Element {
   const colored = gradients.donut.multiline(banner.art);
@@ -18,8 +19,10 @@ export function Banner(): React.JSX.Element {
 
   return (
     <Box flexDirection="column">
-      <Text>{colored}</Text>
-      <Box marginTop={1} paddingLeft={5}>
+      <Box alignItems="center" justifyContent="center">
+        <Text>{colored}</Text>
+      </Box>
+      <Box marginTop={spacing.section} paddingLeft={spacing.indent}>
         <Text dimColor italic>
           🍩 &quot;{quote}&quot;
         </Text>
