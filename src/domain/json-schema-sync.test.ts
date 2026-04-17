@@ -100,6 +100,15 @@ describe('tasks.schema.json ↔ TaskSchema', () => {
     expect(prop?.['type']).toBe('string');
   });
 
+  it('extraDimensions is mirrored as an optional string array', () => {
+    const prop = props['extraDimensions'] as JsonSchema | undefined;
+    expect(prop).toBeDefined();
+    expect(prop?.['type']).toBe('array');
+    expect((prop?.['items'] as JsonSchema | undefined)?.['type']).toBe('string');
+    // Floor-only is the default — the field is optional, no `default: []`.
+    expect(getRequired(itemSchema)).not.toContain('extraDimensions');
+  });
+
   it('Zod schema accepts a valid task object', () => {
     const valid = {
       id: 'abc12345',
@@ -223,6 +232,7 @@ describe('task-import.schema.json ↔ ImportTaskSchema', () => {
     expectStringArrayProperty(props, 'steps');
     expectStringArrayProperty(props, 'verificationCriteria');
     expectStringArrayProperty(props, 'blockedBy');
+    expectStringArrayProperty(props, 'extraDimensions');
   });
 
   it('Zod schema accepts a valid import task', () => {

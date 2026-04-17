@@ -32,6 +32,10 @@ export class RefineTicketRequirementsUseCase {
 
   async execute(sprintId: string, options?: RefineOptions): Promise<Result<RefineSummary, DomainError>> {
     try {
+      // Resolve provider once so the sync getters (getProviderDisplayName etc.)
+      // are safe to call in spinner labels and confirm prompts below.
+      await this.aiSession.ensureReady();
+
       // 1. Get sprint and assert draft status
       const sprint = await this.persistence.getSprint(sprintId);
 

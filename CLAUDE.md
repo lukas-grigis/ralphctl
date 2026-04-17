@@ -75,6 +75,11 @@ pnpm typecheck && pnpm lint && pnpm test
     a status discriminator in `evaluationStatus` (`'passed' | 'failed' | 'malformed'`).
   - `evaluationStatus = 'malformed'` means the evaluator output had no signal AND no parseable dimension lines —
     distinct from a real failure so callers can tell unusable evaluator output apart from a real critique.
+  - **Dimensions are floor + planner-emitted extras.** The four floor dimensions
+    (`Correctness` / `Completeness` / `Safety` / `Consistency`) apply to every task. Tasks may carry an
+    optional `extraDimensions: string[]` (e.g. `["Performance"]`, `["Accessibility"]`) emitted by the planner
+    for non-default success criteria; the evaluator grades extras on top of the floor. `undefined` means
+    floor-only — don't default to `[]` everywhere; the prompt builder normalises at the boundary.
   - `--no-evaluate` CLI flag overrides global config for single run; in session/interactive mode, evaluation is disabled (model handles all feedback)
   - Evaluator never permanently blocks — task always completes; failure after all iterations logs warning but marks done
   - Iteration loop: AI task → check gate → evaluation → persist sidecar → if failed AND fix attempts remain, resume
@@ -93,8 +98,9 @@ pnpm typecheck && pnpm lint && pnpm test
   `src/application/factories.ts` and call `executePipeline(...)` — never `useCase.execute()` directly. An ESLint
   `no-restricted-imports` fence in `eslint.config.js` enforces this boundary (type-only imports allowed). Extend
   pipelines with `insertBefore` / `insertAfter` / `replace` (pure builders) rather than rewriting the step array.
-  Use `nested(pipeline)` to embed one pipeline as a step of another (composite pattern); use `parallelMap()` to
-  fan out inner pipelines concurrently with shared coordinator + signal-bus lifecycle.
+  Use `nested(pipeline)` to embed one pipeline as a step of another (composite pattern); use `forEachTask()` to
+  fan out an inner pipeline per item with mutex-keyed concurrency, retry policy, and a shared rate-limit
+  coordinator + signal-bus lifecycle.
 - **Integration tests lock step order** — each pipeline has a test under `src/business/pipelines/*.test.ts` that
   asserts `stepResults.map(r => r.stepName)` on the happy path and failure paths. These tests are the architectural
   fence that prevents silent bypass — docs alone aren't enforcement.
@@ -140,8 +146,8 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
 - Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use
   `createXxxPipeline()` from `src/application/factories.ts` + `executePipeline(...)` instead.
-- Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`parallelMap`/
-  `insertBefore`/`insertAfter`/`replace`/`renameStep` in `src/business/pipeline/helpers.ts`. Use them.
+- Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`forEachTask`/
+  `insertBefore`/`insertAfter`/`replace`/`renameStep` in `src/business/pipeline/`. Use them.
 
 ## Workflow
 
@@ -176,9 +182,12 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 
 | Aspect              | Claude Code                                              | GitHub Copilot      |
 | ------------------- | -------------------------------------------------------- | ------------------- |
-| CLI flag            | `--permission-mode acceptEdits`                          | `--allow-all-tools` |
+| CLI flags           | `--permission-mode acceptEdits`, `--effort xhigh`        | `--allow-all-tools` |
 | Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
 | Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
+
+`--effort xhigh` matches Claude Code's own default for plans (Opus 4.7 introduced the `xhigh` level between `high` and
+`max`). Older Claude models accept `--effort` too; the CLI maps the level down to what the selected model supports.
 
 Permission-mode warnings (operator-facing "this tool may need approval" notes) are NOT currently surfaced during
 task execution. The pre-pipeline executor had a `checkTaskPermissions()` pass; rebuilding it against the new

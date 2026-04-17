@@ -8,7 +8,9 @@ import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
 import type { OutputParserPort, EvaluationParseResult } from '../ports/output-parser.ts';
 import type { UserInteractionPort } from '../ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '../ports/logger.ts';
+import type { ExternalPort } from '../ports/external.ts';
 import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import { findProjectForPath, resolveCheckScript } from '../pipelines/steps/project-lookup.ts';
 import { dimensionsEqual } from './plateau.ts';
 
 // ---------------------------------------------------------------------------
@@ -27,10 +29,19 @@ const EVALUATOR_MAX_TURNS = 100;
 
 /**
  * Determine the evaluator model based on the generator's model.
- * Claude: Opus -> Sonnet, Sonnet -> Haiku, Haiku -> Haiku.
+ *
+ * Claude ladder (version-agnostic prefix match — Opus 4.5/4.6/4.7 all
+ * cascade to Sonnet, same for any future Opus or Sonnet point-release):
+ *   Opus   → claude-sonnet-4-6
+ *   Sonnet → claude-haiku-4-5
+ *   Haiku  → claude-haiku-4-5
+ *
  * Other providers: null (no model control).
+ *
+ * Exported so the pure mapping is independently testable; the use case
+ * calls it directly.
  */
-function getEvaluatorModel(generatorModel: string | null, provider: AiProvider): string | null {
+export function getEvaluatorModel(generatorModel: string | null, provider: AiProvider): string | null {
   if (provider !== 'claude' || !generatorModel) return null;
 
   const modelLower = generatorModel.toLowerCase();
@@ -70,7 +81,8 @@ export class EvaluateTaskUseCase {
     private readonly parser: OutputParserPort,
     private readonly ui: UserInteractionPort,
     private readonly logger: LoggerPort,
-    private readonly fs: FilesystemPort
+    private readonly fs: FilesystemPort,
+    private readonly external: ExternalPort
   ) {}
 
   async execute(
@@ -81,6 +93,9 @@ export class EvaluateTaskUseCase {
     const log = this.logger.child({ sprintId, taskId });
 
     try {
+      // Resolve provider once so the sync getters are safe below.
+      await this.aiSession.ensureReady();
+
       // Load task and sprint
       const task = await this.loadTask(sprintId, taskId);
       const sprint = await this.loadSprint(sprintId);
@@ -101,9 +116,24 @@ export class EvaluateTaskUseCase {
       const provider = this.aiSession.getProviderName();
       const generatorModel = options?.fallbackModel ?? null;
 
+      // Pre-compute per-task sections once — both inputs (sprint config, repo
+      // tooling) are stable for the duration of the fix loop, so resolving
+      // them per-iteration would re-read the filesystem and re-walk the
+      // tickets for no gain.
+      const checkScriptSection = await this.resolveCheckScriptSection(sprint, task);
+      const projectToolingSection = this.external.detectProjectTooling([task.projectPath]);
+
       // Run the initial evaluation
       const stopEval = log.time('evaluator-spawn');
-      let evalResult = await this.runSingleEvaluation(task, sprint, generatorModel, provider, options);
+      let evalResult = await this.runSingleEvaluation(
+        task,
+        sprint,
+        generatorModel,
+        provider,
+        checkScriptSection,
+        projectToolingSection,
+        options
+      );
       stopEval();
 
       // Persist the initial evaluation sidecar (iteration 1)
@@ -129,7 +159,15 @@ export class EvaluateTaskUseCase {
         // Re-evaluate
         const previousEvalResult = evalResult;
         const stopReeval = log.time('evaluator-re-spawn');
-        evalResult = await this.runSingleEvaluation(task, sprint, generatorModel, provider, options);
+        evalResult = await this.runSingleEvaluation(
+          task,
+          sprint,
+          generatorModel,
+          provider,
+          checkScriptSection,
+          projectToolingSection,
+          options
+        );
         stopReeval();
 
         totalIterations++;
@@ -210,19 +248,24 @@ export class EvaluateTaskUseCase {
 
   /**
    * Spawn a single evaluator session and parse the result.
+   *
+   * `checkScriptSection` and `projectToolingSection` are passed in
+   * pre-resolved — both are stable across fix-loop iterations, so the
+   * caller computes them once and threads them through.
    */
   private async runSingleEvaluation(
     task: Task,
     sprint: Sprint,
     generatorModel: string | null,
     provider: AiProvider,
+    checkScriptSection: string | null,
+    projectToolingSection: string,
     options?: EvaluationOptions
   ): Promise<EvaluationParseResult> {
     const evaluatorModel = getEvaluatorModel(generatorModel, provider);
     const sprintDir = this.fs.getSprintDir(sprint.id);
 
-    const context = this.buildEvaluationContext(task, options?.contractPath);
-    const prompt = this.promptBuilder.buildTaskEvaluationPrompt(task, sprint, context);
+    const prompt = this.promptBuilder.buildTaskEvaluationPrompt(task, checkScriptSection, projectToolingSection);
 
     const args: string[] = ['--add-dir', sprintDir];
     if (provider === 'claude') {
@@ -255,38 +298,32 @@ export class EvaluateTaskUseCase {
   }
 
   /**
-   * Build context string for the evaluator prompt.
+   * Resolve the repo's `checkScript` and render it as the evaluator's
+   * "Computational Gate" markdown block. Returns `null` when nothing is
+   * configured so the caller can skip the placeholder cleanly.
    *
-   * `contractPath`, when set, is the same file the generator read — both
-   * sides agree on the grading rubric this way.
+   * Uses the same shared `findProjectForPath` + `resolveCheckScript` helpers
+   * that the execute pipeline's `run-check-scripts` step uses — one place
+   * owns project lookup rules.
    */
-  private buildEvaluationContext(task: Task, contractPath?: string): string {
-    const sections: string[] = [];
-
-    sections.push(`## Task: ${task.name}`);
-    if (task.description) {
-      sections.push(task.description);
-    }
-
-    if (task.steps.length > 0) {
-      sections.push('## Steps');
-      sections.push(task.steps.map((s, i) => `${String(i + 1)}. ${s}`).join('\n'));
-    }
-
-    if (task.verificationCriteria.length > 0) {
-      sections.push('## Verification Criteria');
-      sections.push(task.verificationCriteria.map((c) => `- ${c}`).join('\n'));
-    }
-
-    sections.push(`## Project Path\n${task.projectPath}`);
-
-    if (contractPath) {
-      sections.push(
-        `## Sprint Contract\nRead the contract at \`${contractPath}\` — this is the same file the generator worked from.`
-      );
-    }
-
-    return sections.join('\n\n');
+  private async resolveCheckScriptSection(sprint: Sprint, task: Task): Promise<string | null> {
+    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
+    const checkScript = resolveCheckScript(project, task.projectPath);
+    if (!checkScript) return null;
+    // Header is H4 (`####`) because the evaluator template injects this
+    // section under `### Phase 1` — using `##` here would demote the
+    // section out of its parent Phase and confuse the markdown hierarchy.
+    return [
+      '#### Check Script (Computational Gate)',
+      '',
+      'Run this check script as the **first step** of your review — it is the same gate the harness uses post-task:',
+      '',
+      '```',
+      checkScript,
+      '```',
+      '',
+      'If this script fails, the implementation fails regardless of code quality. Record the full output.',
+    ].join('\n');
   }
 
   /**

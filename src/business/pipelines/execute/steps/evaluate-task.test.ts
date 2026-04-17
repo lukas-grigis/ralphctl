@@ -6,6 +6,7 @@ import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
+import type { ExternalPort } from '@src/business/ports/external.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import { evaluateTask } from './evaluate-task.ts';
 
@@ -78,6 +79,14 @@ function makeEmptyStub(): never {
   return {} as never;
 }
 
+/**
+ * Evaluator renders a "Project Tooling" section from `external.detectProjectTooling()`;
+ * tests don't care about the content, just that the method exists.
+ */
+function makeExternalStub(): ExternalPort {
+  return { detectProjectTooling: () => '' } as unknown as ExternalPort;
+}
+
 describe('evaluateTask step', () => {
   it('no-ops when evaluation is disabled (iterations=0)', async () => {
     const useCase = {
@@ -88,11 +97,12 @@ describe('evaluateTask step', () => {
     const result = await evaluateTask({
       persistence: { getConfig: () => Promise.resolve(makeConfig(0)) } as unknown as PersistencePort,
       fs: makeEmptyStub(),
-      aiSession: { spawnWithRetry: spawn } as unknown as AiSessionPort,
+      aiSession: { ensureReady: () => Promise.resolve(), spawnWithRetry: spawn } as unknown as AiSessionPort,
       promptBuilder: makeEmptyStub(),
       parser: makeEmptyStub(),
       ui: makeEmptyStub(),
       logger: makeLogger(),
+      external: makeExternalStub(),
       useCase,
       options: {},
     }).execute({ sprintId: 's1', sprint: makeSprint(), task: makeTask() });
@@ -128,6 +138,7 @@ describe('evaluateTask step', () => {
       persistence: persistence as PersistencePort,
       fs: { getSprintDir: () => '/tmp' } as unknown as FilesystemPort,
       aiSession: {
+        ensureReady: () => Promise.resolve(),
         getProviderName: () => 'claude',
         getSpawnEnv: () => ({}),
         spawnWithRetry,
@@ -138,6 +149,7 @@ describe('evaluateTask step', () => {
       } as unknown as OutputParserPort,
       ui: makeEmptyStub(),
       logger: makeLogger(),
+      external: makeExternalStub(),
       useCase,
       options: {},
     }).execute({
@@ -182,6 +194,7 @@ describe('evaluateTask step', () => {
       parser: makeEmptyStub(),
       ui: makeEmptyStub(),
       logger: makeLogger(),
+      external: makeExternalStub(),
       useCase,
       options: {},
     }).execute({ sprintId: 's1', sprint, task });

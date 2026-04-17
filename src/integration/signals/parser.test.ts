@@ -261,6 +261,53 @@ describe('SignalParser', () => {
 
         expect(signal.dimensions[0]!.finding).toBe('extra spaces');
       });
+
+      it('parses planner-emitted extra dimensions (extras-only output)', () => {
+        // Extras-only critique — no floor dimensions appear. Plateau detection
+        // depends on the failed-dimension set surfacing here.
+        const output = [
+          '**Performance**: FAIL — p99 regressed by 40ms',
+          '<evaluation-failed>Performance budget exceeded.</evaluation-failed>',
+        ].join('\n');
+        const signals = parser.parseSignals(output);
+        const signal = signals[0] as EvaluationSignal;
+
+        expect(signal.status).toBe('failed');
+        expect(signal.dimensions).toHaveLength(1);
+        expect(signal.dimensions[0]).toEqual({
+          dimension: 'performance',
+          passed: false,
+          finding: 'p99 regressed by 40ms',
+        });
+      });
+
+      it('parses mixed floor + extra dimensions in a single output', () => {
+        const output = [
+          '**Correctness**: PASS — all good',
+          '**Performance**: FAIL — slow path on hot loop',
+          '<evaluation-failed>Performance regression detected.</evaluation-failed>',
+        ].join('\n');
+        const signals = parser.parseSignals(output);
+        const signal = signals[0] as EvaluationSignal;
+
+        expect(signal.status).toBe('failed');
+        expect(signal.dimensions).toHaveLength(2);
+        expect(signal.dimensions.map((d) => d.dimension)).toEqual(['correctness', 'performance']);
+      });
+
+      it('captures a stray bold-text dimension line as a dimension (parser is line-shaped)', () => {
+        // Documented behaviour — `**Note**: PASS — text` outside an Assessment
+        // block still matches. The parser is line-shaped; surrounding prose is
+        // the agent's responsibility. This fact is also why the dimension
+        // status falls through to `failed` here (one parsed dimension, no
+        // closed `<evaluation-failed>` signal).
+        const output = '**Note**: PASS — pre-flight check ran cleanly';
+        const signals = parser.parseSignals(output);
+        const evalSignals = signals.filter((s) => s.type === 'evaluation');
+
+        expect(evalSignals).toHaveLength(1);
+        expect(evalSignals[0]!.dimensions[0]).toMatchObject({ dimension: 'note', passed: true });
+      });
     });
 
     it('evaluation-passed takes precedence over evaluation-failed when both present', () => {

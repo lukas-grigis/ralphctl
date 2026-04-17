@@ -24,12 +24,12 @@ import { markDone } from './steps/mark-done.ts';
 /**
  * Adapter graph required by the per-task pipeline.
  *
- * `signalBus` is injected directly rather than pulled from
- * `ctx.__services.signalBus`. The per-task pipeline runs inside
- * `forEachTask`'s worker pool (see `src/business/pipelines/execute.ts`),
- * which also owns the shared rate-limit coordinator; the signal bus is
- * the injected one from `ExecuteDeps` so emissions flow to the same sinks
- * the outer pipeline uses.
+ * `signalBus` is injected directly through `PerTaskDeps` — the per-task
+ * pipeline runs inside `forEachTask`'s worker pool (see
+ * `src/business/pipelines/execute.ts`), which owns the shared rate-limit
+ * coordinator. The signal bus passed here is the same one wired into
+ * `ExecuteDeps`, so emissions flow to the same sinks the outer pipeline
+ * uses.
  */
 export interface PerTaskDeps {
   persistence: PersistencePort;
@@ -103,6 +103,7 @@ export function createPerTaskPipeline(
       parser: deps.parser,
       ui: deps.ui,
       logger: deps.logger,
+      external: deps.external,
       useCase,
       options,
     }),

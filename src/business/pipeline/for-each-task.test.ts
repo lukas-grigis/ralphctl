@@ -826,32 +826,6 @@ describe('forEachTask - services lifecycle', () => {
     await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), makeCtx());
     expect(disposed).toBe(1);
   });
-
-  it('inner pipeline can read injected services via ctx.__services', async () => {
-    const { services } = makeTestServices();
-    let sawBus = false;
-
-    const s = forEachTask<TestItem>({
-      steps: pipeline<StepContext>('inner', [
-        step<StepContext>('read-services', (ctx) => {
-          const sharedBag = (ctx as unknown as { __services?: ParallelSharedServices }).__services;
-          if (sharedBag?.signalBus === services.signalBus) sawBus = true;
-          return Result.ok({});
-        }),
-      ]),
-      strategy: {
-        concurrency: 1,
-        pullItems: () => [{ id: '1', repo: 'a' }],
-        mutexKey: (i) => i.repo,
-        stopWhen: (stats) => stats.completed >= 1,
-      },
-      policies: { retryPolicy: () => ({ action: 'fail', drainInFlight: false }) },
-      createServices: () => services,
-    });
-
-    await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), makeCtx());
-    expect(sawBus).toBe(true);
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import type { Task, Sprint, Project } from '@src/domain/models.ts';
+import type { Task, Sprint } from '@src/domain/models.ts';
 import { SpawnError } from '@src/domain/errors.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
@@ -14,6 +14,7 @@ import type { SignalParserPort } from '../ports/signal-parser.ts';
 import type { SignalHandlerPort, SignalContext } from '../ports/signal-handler.ts';
 import type { SignalBusPort } from '../ports/signal-bus.ts';
 import type { HarnessSignal } from '@src/domain/signals.ts';
+import { findProjectForPath, resolveCheckScript } from '../pipelines/steps/project-lookup.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +97,9 @@ export class ExecuteTasksUseCase {
    * for resumption.
    */
   async executeOneTask(task: Task, sprint: Sprint, options?: ExecutionOptions): Promise<TaskExecutionResult> {
+    // Resolve provider once so sync getters (getSpawnEnv, getProviderDisplayName) are safe below.
+    await this.aiSession.ensureReady();
+
     const taskLog = this.logger.child({ sprintId: sprint.id, taskId: task.id, projectPath: task.projectPath });
     const sprintDir = this.fs.getSprintDir(sprint.id);
 
@@ -108,9 +112,11 @@ export class ExecuteTasksUseCase {
     const contextFileName = basename(contextFilePath);
 
     const fullTaskContext = await this.buildFullTaskContext(task, sprint, options?.contractPath);
+    const projectToolingSection = this.external.detectProjectTooling([task.projectPath]);
     const instructions = this.promptBuilder.buildTaskExecutionPrompt(
       progressFilePath,
       contextFileName,
+      projectToolingSection,
       options?.noCommit
     );
     const contextFileContent = `${fullTaskContext}\n\n---\n\n## Instructions\n\n${instructions}`;
@@ -217,8 +223,8 @@ export class ExecuteTasksUseCase {
    * failed. Called by the per-task pipeline's `postTaskCheck` step.
    */
   async runPostTaskCheck(task: Task, sprint: Sprint): Promise<boolean> {
-    const project = await this.findProjectForPath(sprint, task.projectPath);
-    const checkScript = this.getCheckScript(project, task.projectPath);
+    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
+    const checkScript = resolveCheckScript(project, task.projectPath);
     if (!checkScript) return true;
 
     this.logger.info(`Running post-task check: ${checkScript}`);
@@ -308,8 +314,8 @@ export class ExecuteTasksUseCase {
 
       // Run post-feedback check scripts
       for (const projectPath of projectPaths) {
-        const project = await this.findProjectForPath(sprint, projectPath);
-        const checkScript = this.getCheckScript(project, projectPath);
+        const project = await findProjectForPath(this.persistence, sprint, projectPath);
+        const checkScript = resolveCheckScript(project, projectPath);
         if (checkScript) {
           this.logger.info(`Running checks after feedback: ${checkScript}`);
           const repo = project?.repositories.find((r) => r.path === projectPath);
@@ -329,24 +335,6 @@ export class ExecuteTasksUseCase {
   // -------------------------------------------------------------------------
   // Helpers (private)
   // -------------------------------------------------------------------------
-
-  private async findProjectForPath(sprint: Sprint, projectPath: string): Promise<Project | undefined> {
-    for (const ticket of sprint.tickets) {
-      try {
-        const project = await this.persistence.getProject(ticket.projectName);
-        if (project.repositories.some((r) => r.path === projectPath)) return project;
-      } catch {
-        // skip
-      }
-    }
-    return undefined;
-  }
-
-  private getCheckScript(project: Project | undefined, projectPath: string): string | null {
-    if (!project) return null;
-    const repo = project.repositories.find((r) => r.path === projectPath);
-    return repo?.checkScript ?? null;
-  }
 
   /**
    * Build the full task context markdown for the per-task context file.
@@ -396,8 +384,8 @@ export class ExecuteTasksUseCase {
       );
     }
 
-    const project = await this.findProjectForPath(sprint, task.projectPath);
-    const checkScript = this.getCheckScript(project, task.projectPath);
+    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
+    const checkScript = resolveCheckScript(project, task.projectPath);
     lines.push('');
     lines.push('## Check Script');
     lines.push('');
@@ -420,7 +408,7 @@ export class ExecuteTasksUseCase {
       lines.push('## Sprint Contract');
       lines.push('');
       lines.push(
-        `The grading contract is at \`${contractPath}\`. Both you and the evaluator read this file — it consolidates the task, verification criteria, check script, and the dimensions the evaluator will score you on.`
+        `The grading contract is at \`${contractPath}\` — it consolidates the task, verification criteria, check script, and the dimensions you will be graded on. Read it before implementing.`
       );
     }
 

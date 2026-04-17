@@ -373,6 +373,7 @@ describe('buildEvaluatorPrompt', () => {
     projectPath: '/tmp/proj',
     checkScriptSection: null,
     projectToolingSection: '',
+    extraDimensions: [] as string[],
   };
 
   it('renders verification criteria as a bullet list', () => {
@@ -391,6 +392,44 @@ describe('buildEvaluatorPrompt', () => {
   it('inlines the check script section when provided', () => {
     const result = buildEvaluatorPrompt({ ...baseCtx, checkScriptSection: '## Check Script\n\nRun pnpm test' });
     expect(result).toContain('Run pnpm test');
+  });
+
+  describe('extraDimensions', () => {
+    it('renders only the four floor dimensions when extras is empty', () => {
+      const result = buildEvaluatorPrompt(baseCtx);
+      expect(result).toContain('**Dimension 1 — Correctness**');
+      expect(result).toContain('**Dimension 2 — Completeness**');
+      expect(result).toContain('**Dimension 3 — Safety**');
+      expect(result).toContain('**Dimension 4 — Consistency**');
+      // No fifth dimension when no extras supplied.
+      expect(result).not.toContain('**Dimension 5');
+    });
+
+    it('renders an additional dimension block per extra entry', () => {
+      const result = buildEvaluatorPrompt({ ...baseCtx, extraDimensions: ['Performance'] });
+      expect(result).toContain('**Dimension 5 — Performance**');
+      // The four floor dimensions still come first.
+      expect(result).toContain('**Dimension 4 — Consistency**');
+      // Extra appears in the Pass Bar list and the Assessment templates.
+      expect(result).toContain('- **Performance**');
+      expect(result).toMatch(/\*\*Performance\*\*: PASS — \[one-line finding]/);
+      expect(result).toMatch(/\*\*Performance\*\*: PASS\/FAIL — \[one-line finding]/);
+    });
+
+    it('numbers extras consecutively starting from Dimension 5', () => {
+      const result = buildEvaluatorPrompt({
+        ...baseCtx,
+        extraDimensions: ['Performance', 'Accessibility', 'MigrationSafety'],
+      });
+      expect(result).toContain('**Dimension 5 — Performance**');
+      expect(result).toContain('**Dimension 6 — Accessibility**');
+      expect(result).toContain('**Dimension 7 — MigrationSafety**');
+    });
+
+    it('leaves no unrendered placeholders when extras is empty', () => {
+      const result = buildEvaluatorPrompt(baseCtx);
+      expect(result).not.toMatch(/\{\{EXTRA_DIMENSIONS/);
+    });
   });
 });
 
@@ -457,6 +496,7 @@ describe('shared partial inlining', () => {
         projectPath: '/tmp',
         checkScriptSection: null,
         projectToolingSection: '',
+        extraDimensions: [],
       });
       expect(result).toContain(PARTIAL_MARKERS.harnessContext);
     });
@@ -532,6 +572,7 @@ describe('shared partial inlining', () => {
         projectPath: '/tmp',
         checkScriptSection: null,
         projectToolingSection: '',
+        extraDimensions: [],
       });
       expect(result).toContain(PARTIAL_MARKERS.signalsEvaluation);
     });
@@ -584,6 +625,7 @@ describe('shared partial inlining', () => {
         projectPath: '/tmp',
         checkScriptSection: null,
         projectToolingSection: '',
+        extraDimensions: [],
       });
       expect(result).not.toContain(PARTIAL_MARKERS.validation);
     });

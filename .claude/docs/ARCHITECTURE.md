@@ -74,8 +74,8 @@ is a named `PipelineDefinition` of sequential steps. Steps are small functions r
 - `pipeline(name, steps[])` — group steps into a named definition
 - `nested(name, innerPipeline)` — wrap a pipeline as a single step (composite pattern; Execute uses this to
   embed the evaluator pipeline per-task)
-- `parallelMap(name, itemsFn, buildInnerPipeline, options?)` — fan out N inner pipelines concurrently, sharing
-  a `RateLimitCoordinator` + `SignalBus` lifecycle
+- `forEachTask(opts)` — fan out an inner pipeline per item with mutex-keyed concurrency, retry policy, and
+  a shared `RateLimitCoordinator` + `SignalBus` lifecycle (Execute's per-task scheduler)
 - `insertBefore` / `insertAfter` / `replace` — pure builders for extending pipelines without rewriting the array
 - `renameStep(name, inner)` — wrap a shared step with a pipeline-specific name for cleaner step traces
 
@@ -194,6 +194,7 @@ interface Task {
   evaluationOutput?: string; // Preview (truncated to 2000 chars); full critique lives in evaluationFile
   evaluationStatus?: 'passed' | 'failed' | 'malformed'; // 'malformed' = no parseable signal (distinct from failure)
   evaluationFile?: string; // Sidecar path: <sprintDir>/evaluations/<taskId>.md
+  extraDimensions?: string[]; // Planner-emitted dimensions stacked on top of the floor four (e.g. "Performance")
 }
 ```
 
@@ -372,8 +373,3 @@ All domain errors extend `DomainError` (from `src/domain/errors.ts`) and carry a
 - **Evaluator calibration via few-shot.** Requires a corpus of example critiques that represent the user's
   standards (product content, not a code change). Once collected, inject into the evaluator prompt as
   few-shot examples to tighten the grading rubric.
-- **Planner emits evaluator dimensions per task.** Today all tasks share the four hardcoded dimensions
-  (`Correctness` / `Completeness` / `Safety` / `Consistency`). A task-specific dimension list — emitted by
-  the planner alongside `verificationCriteria` — would let the evaluator grade on dimensions tuned to the
-  task type (e.g. perf-sensitive tasks gain a `Performance` dimension). Cascading schema change; defer
-  until plateau-detection telemetry suggests it's worth the cost.

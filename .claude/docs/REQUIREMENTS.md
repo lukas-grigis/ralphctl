@@ -18,7 +18,6 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [x] Hooks are testable in isolation
 - [x] A single `StepContext` type flows through the pipeline, accumulating state; pipelines extend it with workflow-specific fields
 - [x] `nested()` wraps a pipeline as a single step — the composite pattern used by Execute to embed the evaluator pipeline per-task
-- [x] `parallelMap()` fans out N inner pipelines concurrently with shared `RateLimitCoordinator` + `SignalBus` lifecycle (framework primitive, adopted by Execute's inner loop in a follow-up phase)
 - [x] `insertBefore(pipeline, targetName, newStep)` / `insertAfter(...)` / `replace(...)` pure builders allow extending pipelines without rewriting the step array
 - [x] CLI commands and TUI views invoke pipeline factories (`createXxxPipeline`), never use cases directly — enforced by an ESLint `no-restricted-imports` fence
 - [x] Integration tests under `src/business/pipelines/*.test.ts` assert `stepResults.map(r => r.stepName)` to lock each pipeline's step order
@@ -136,6 +135,10 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [ ] `evaluated` field set to `true` after evaluation runs
 - [ ] `doctor` warns when `evaluationIterations` is not configured
 - [ ] `config set evaluationIterations` and `config show` work correctly
+- [ ] Evaluator grades the four floor dimensions on every task (Correctness / Completeness / Safety / Consistency)
+- [ ] Tasks may carry an optional `extraDimensions: string[]` emitted by the planner for non-default success criteria
+- [ ] Extra dimensions render as additional `**Dimension N — <Name>**` blocks in the evaluator prompt
+- [ ] `extraDimensions: undefined` means floor-only — no extra blocks rendered, no orphan placeholders
 
 ## Branch Management
 

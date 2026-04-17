@@ -313,6 +313,7 @@ function buildDeps(scenario: Scenario = {}): {
   });
 
   const aiSession = {
+    ensureReady: () => Promise.resolve(),
     getProviderDisplayName: () => 'Claude',
     getSpawnEnv: () => ({}),
     spawnWithRetry,
@@ -332,6 +333,7 @@ function buildDeps(scenario: Scenario = {}): {
     getCurrentBranch: () => 'main',
     createAndCheckoutBranch: () => undefined,
     getRecentGitHistory: () => 'no commits yet',
+    detectProjectTooling: () => '',
   } as unknown as ExternalPort;
 
   const ui = {

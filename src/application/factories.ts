@@ -177,7 +177,7 @@ export function createIdeatePipeline(shared: SharedDeps, idea: IdeaInput, option
 
 /** Create an EvaluateTaskUseCase with wired dependencies. */
 export function createEvaluateUseCase(shared: SharedDeps, auto = false): EvaluateTaskUseCase {
-  const { aiSession, promptBuilder, parser, ui } = createAiDeps(auto);
+  const { aiSession, promptBuilder, parser, ui, external } = createAiDeps(auto);
   return new EvaluateTaskUseCase(
     shared.persistence,
     aiSession,
@@ -185,7 +185,8 @@ export function createEvaluateUseCase(shared: SharedDeps, auto = false): Evaluat
     parser,
     ui,
     shared.logger,
-    shared.filesystem
+    shared.filesystem,
+    external
   );
 }
 
@@ -197,11 +198,12 @@ export function createEvaluateUseCase(shared: SharedDeps, auto = false): Evaluat
  * `evaluate-task` step composes this factory's output as a nested inner
  * pipeline so generator and evaluator share the same framework surface.
  *
- * Evaluator doesn't need `external` (no git/gh), so only the AI-session
- * slice of `createAiDeps` is used.
+ * `external` is used for `detectProjectTooling()` — the evaluator prompt's
+ * Project Tooling section lists subagents / skills / MCP servers detected
+ * in the task's `projectPath`.
  */
 export function createEvaluatorPipeline(shared: SharedDeps, options: EvaluateOptions = {}) {
-  const { aiSession, promptBuilder, parser, ui } = createAiDeps(false);
+  const { aiSession, promptBuilder, parser, ui, external } = createAiDeps(false);
   return buildEvaluatorPipeline(
     {
       persistence: shared.persistence,
@@ -211,6 +213,7 @@ export function createEvaluatorPipeline(shared: SharedDeps, options: EvaluateOpt
       parser,
       ui,
       logger: shared.logger,
+      external,
     },
     options
   );

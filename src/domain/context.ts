@@ -99,9 +99,4 @@ export interface ExecutionOptions extends StepOptions {
 /** Options specific to evaluation */
 export interface EvaluationOptions extends StepOptions {
   iterations?: number;
-  /**
-   * Absolute path to the task's sprint contract. Threaded in from the per-task
-   * pipeline so the evaluator reads the same contract file the generator saw.
-   */
-  contractPath?: string;
 }

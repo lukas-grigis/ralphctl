@@ -99,4 +99,14 @@ describe('dimensionsEqual', () => {
     const b = result([{ dimension: 'Correctness', status: 'FAIL', description: 'null dereference in handler' }]);
     expect(dimensionsEqual(a, b)).toBe(true);
   });
+
+  it('detects a plateau on a planner-emitted extra dimension stuck across iterations', () => {
+    // `Performance` is not one of the floor dimensions — it reaches plateau
+    // detection only because the parsers were widened to capture extras.
+    // Without that gap closed, this case would silently pass through and
+    // burn additional fix attempts.
+    const a = result([{ dimension: 'Performance', status: 'FAIL', description: 'p99 regressed by 40ms' }]);
+    const b = result([{ dimension: 'Performance', status: 'FAIL', description: 'p99 still 38ms over target' }]);
+    expect(dimensionsEqual(a, b)).toBe(true);
+  });
 });

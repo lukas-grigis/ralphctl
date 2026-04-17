@@ -1,5 +1,5 @@
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
-import type { Sprint, Task } from '@src/domain/models.ts';
+import type { Task } from '@src/domain/models.ts';
 import {
   buildTicketRefinePrompt,
   buildAutoPrompt,
@@ -54,20 +54,27 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     return buildIdeatePrompt('', '', '', '', outputFile, schema, projectToolingSection ?? '');
   }
 
-  buildTaskExecutionPrompt(progressFilePath: string, contextFileName: string, noCommit = false): string {
-    return buildTaskExecutionPrompt(progressFilePath, noCommit, contextFileName);
+  buildTaskExecutionPrompt(
+    progressFilePath: string,
+    contextFileName: string,
+    projectToolingSection: string,
+    noCommit = false
+  ): string {
+    return buildTaskExecutionPrompt(progressFilePath, noCommit, contextFileName, projectToolingSection);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  buildTaskEvaluationPrompt(task: Task, _sprint: Sprint, _context: string): string {
+  buildTaskEvaluationPrompt(task: Task, checkScriptSection: string | null, projectToolingSection: string): string {
     return buildEvaluatorPrompt({
       taskName: task.name,
       taskDescription: task.description ?? '',
       taskSteps: task.steps,
       verificationCriteria: task.verificationCriteria,
       projectPath: task.projectPath,
-      checkScriptSection: null,
-      projectToolingSection: '',
+      checkScriptSection,
+      projectToolingSection,
+      // `undefined` on Task means "floor only" — normalise to [] here so
+      // callers don't have to spread `extraDimensions: []` everywhere.
+      extraDimensions: task.extraDimensions ?? [],
     });
   }
 

@@ -14,6 +14,11 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
     return this.provider;
   }
 
+  /** Public eager resolver — required before the sync getters can be used safely. */
+  async ensureReady(): Promise<void> {
+    await this.getProvider();
+  }
+
   async spawnInteractive(prompt: string, options: SessionOptions): Promise<void> {
     const provider = await this.getProvider();
     // When the Ink TUI is mounted, step aside so the child (`claude` /

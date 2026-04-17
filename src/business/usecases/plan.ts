@@ -47,6 +47,9 @@ export class PlanSprintTasksUseCase {
     const log = this.logger.child({ sprintId });
 
     try {
+      // Resolve provider once so the sync getters are safe below.
+      await this.aiSession.ensureReady();
+
       // 1. Get sprint, assert draft status
       const sprint = await this.persistence.getSprint(sprintId);
 
@@ -342,6 +345,9 @@ export class IdeateAndPlanUseCase {
     const log = this.logger.child({ sprintId });
 
     try {
+      // Resolve provider once so the sync getters are safe below.
+      await this.aiSession.ensureReady();
+
       // 1. Get sprint, assert draft status
       const sprint = await this.persistence.getSprint(sprintId);
 

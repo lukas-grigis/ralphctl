@@ -16,13 +16,14 @@ import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import { step, pipeline, findSpawnError } from '@src/business/pipeline/helpers.ts';
-import type { PipelineDefinition, PipelineStep } from '@src/business/pipeline/types.ts';
+import type { PipelineStep } from '@src/business/pipeline/types.ts';
 import { forEachTask, type RetryAction, type SchedulerStats } from '@src/business/pipeline/for-each-task.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-sprint-status.ts';
 import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scripts.ts';
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
+import type { PerTaskContext } from '@src/business/pipelines/execute/per-task-context.ts';
 import { ProcessManager } from '@src/integration/ai/process-manager.ts';
 
 const EXIT_SUCCESS = 0;
@@ -580,13 +581,12 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       options
     );
 
-    const scheduler = forEachTask<Task>({
-      // `createPerTaskPipeline` is typed to `PipelineDefinition<PerTaskContext>`
-      // but `forEachTask` requires `PipelineDefinition<StepContext>`. The
-      // stronger context fields (`task`, `sprint`) are injected at runtime by
-      // the scheduler + the outer pipeline; this cast bridges the gap
-      // without relaxing the per-task pipeline's internal typing.
-      steps: perTaskPipeline as unknown as PipelineDefinition,
+    const scheduler = forEachTask<Task, PerTaskContext>({
+      // `forEachTask` is generic over the inner-pipeline context, so the
+      // per-task steps see `task` / `sprint` directly without casts. The
+      // runtime contract: the scheduler injects `task` per-item and the
+      // outer pipeline carries `sprint` forward in its context.
+      steps: perTaskPipeline,
       itemKey: 'task',
       strategy: {
         concurrency: resolvedConcurrency,
@@ -735,7 +735,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
 
     // Drive the scheduler. It returns `schedulerStats` on settle, or an
     // error if the retryPolicy voted `fail`.
-    const schedResult = await scheduler.execute(ctx as StepContext);
+    const schedResult = await scheduler.execute(ctx);
 
     // Build the summary regardless of ok/error — the scheduler's stats are
     // accurate in both cases, and we need a summary in the ExecuteContext
