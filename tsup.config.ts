@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import { resolve } from 'node:path';
 
 export default defineConfig({
-  entry: ['src/cli.ts'],
+  entry: { cli: 'src/application/entrypoint.ts' },
   format: ['esm'],
   target: 'node24',
   outDir: 'dist',
