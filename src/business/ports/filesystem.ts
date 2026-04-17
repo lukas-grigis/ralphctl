@@ -34,7 +34,4 @@ export interface FilesystemPort {
    * the cwd the AI CLI runs in.
    */
   getProjectContextFilePath(projectPath: string, sprintId: string, taskId: string): string;
-
-  /** Get the absolute path to a JSON schema file */
-  getSchemaPath(name: string): string;
 }

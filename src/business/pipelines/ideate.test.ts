@@ -218,7 +218,6 @@ describe('createIdeatePipeline', () => {
     const deps = makeDeps({
       persistence: makeHappyPathPersistence(sprint, project),
       fs: makeFs({
-        getSchemaPath: () => '/tmp/schema.json',
         readFile: () => Promise.resolve('{}'),
         getSprintDir: () => '/tmp/sprint',
         ensureDir: () => Promise.resolve(),

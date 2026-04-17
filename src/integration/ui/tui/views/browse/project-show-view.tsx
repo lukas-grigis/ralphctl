@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import type { Project } from '@src/domain/models.ts';
 import { getProject } from '@src/integration/persistence/project.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
@@ -12,6 +12,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { FieldList } from '@src/integration/ui/tui/components/field-list.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 
 interface Props {
   readonly projectName?: string;
@@ -20,11 +21,32 @@ interface Props {
 type State = { kind: 'loading' } | { kind: 'ready'; project: Project } | { kind: 'error'; message: string };
 
 const TITLE = 'Project Details' as const;
-const HINTS = [] as const;
+const HINTS_READY = [
+  { key: 'e', action: 'edit' },
+  { key: 'a', action: 'add repo' },
+  { key: 'r', action: 'remove repo' },
+] as const;
+const HINTS_EMPTY = [] as const;
 
 export function ProjectShowView({ projectName }: Props): React.JSX.Element {
+  const router = useRouter();
   const [state, setState] = useState<State>({ kind: 'loading' });
-  useViewHints(HINTS);
+  useViewHints(state.kind === 'ready' ? HINTS_READY : HINTS_EMPTY);
+
+  useInput((input) => {
+    if (state.kind !== 'ready') return;
+    if (input === 'e') {
+      router.push({ id: 'project-edit' });
+      return;
+    }
+    if (input === 'a') {
+      router.push({ id: 'project-repo-add' });
+      return;
+    }
+    if (input === 'r') {
+      router.push({ id: 'project-repo-remove' });
+    }
+  });
 
   useEffect(() => {
     const ctl = { cancelled: false };

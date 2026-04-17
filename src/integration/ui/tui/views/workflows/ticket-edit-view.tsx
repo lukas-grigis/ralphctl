@@ -33,9 +33,14 @@ type Phase =
   | { kind: 'done'; ticket: Ticket; field: FieldChoice }
   | { kind: 'error'; message: string };
 
-export function TicketEditView(): React.JSX.Element {
+interface Props {
+  /** Skip the ticket-selection prompt and edit this ticket directly. */
+  readonly ticketId?: string;
+}
+
+export function TicketEditView({ ticketId }: Props = {}): React.JSX.Element {
   const { phase } = useWorkflow<Phase>({
-    initial: { kind: 'running', step: 'select-ticket' },
+    initial: { kind: 'running', step: ticketId ? 'select-field' : 'select-ticket' },
     onError: (message) => ({ kind: 'error', message }),
     run: async ({ setPhase }) => {
       const prompt = getPrompt();
@@ -52,17 +57,23 @@ export function TicketEditView(): React.JSX.Element {
         return;
       }
 
-      setPhase({ kind: 'running', step: 'select-ticket' });
-      const ticketId = await prompt.select<string>({
-        message: 'Select ticket to edit:',
-        choices: tickets.map((t) => ({
-          label: `${t.id} — ${t.title}`,
-          value: t.id,
-          description: t.requirementStatus,
-        })),
-      });
-      const current = tickets.find((t) => t.id === ticketId);
-      if (!current) throw new Error(`Ticket ${ticketId} disappeared`);
+      let resolvedId: string;
+      if (ticketId) {
+        resolvedId = ticketId;
+      } else {
+        setPhase({ kind: 'running', step: 'select-ticket' });
+        resolvedId = await prompt.select<string>({
+          message: 'Select ticket to edit:',
+          choices: tickets.map((t) => ({
+            label: `${t.id} — ${t.title}`,
+            value: t.id,
+            description: t.requirementStatus,
+          })),
+        });
+      }
+      const current = tickets.find((t) => t.id === resolvedId);
+      if (!current) throw new Error(`Ticket ${resolvedId} disappeared`);
+      const ticketIdForUpdate = resolvedId;
 
       setPhase({ kind: 'running', step: 'select-field' });
       const field = await prompt.select<FieldChoice>({
@@ -96,7 +107,7 @@ export function TicketEditView(): React.JSX.Element {
 
       setPhase({ kind: 'running', step: 'saving' });
       const normalized = typeof updatedValue === 'string' ? updatedValue : '';
-      const ticket = await updateTicket(ticketId, { [field]: normalized });
+      const ticket = await updateTicket(ticketIdForUpdate, { [field]: normalized });
       setPhase({ kind: 'done', ticket, field });
     },
   });

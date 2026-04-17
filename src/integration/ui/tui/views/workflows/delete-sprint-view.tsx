@@ -35,6 +35,7 @@ type Phase =
   | { kind: 'running'; step: 'select' | 'confirm' | 'deleting' }
   | { kind: 'done'; name: string; id: string; clearedCurrent: boolean }
   | { kind: 'cancelled' }
+  | { kind: 'active-blocked'; name: string }
   | { kind: 'error'; message: string };
 
 export function DeleteSprintView({ sprintId: initial }: Props): React.JSX.Element {
@@ -62,6 +63,10 @@ export function DeleteSprintView({ sprintId: initial }: Props): React.JSX.Elemen
       }
 
       const sprint = await getSprint(targetId);
+      if (sprint.status === 'active') {
+        setPhase({ kind: 'active-blocked', name: sprint.name });
+        return;
+      }
       const tasks = await listTasks(targetId).catch(() => []);
 
       setPhase({ kind: 'running', step: 'confirm' });
@@ -71,6 +76,17 @@ export function DeleteSprintView({ sprintId: initial }: Props): React.JSX.Elemen
       });
 
       if (!confirmed) {
+        setPhase({ kind: 'cancelled' });
+        return;
+      }
+
+      // Second confirm — destructive, irreversible. One accidental Enter
+      // shouldn't be enough.
+      const reconfirmed = await prompt.confirm({
+        message: `Really delete "${sprint.name}"? All sprint data (tickets, tasks, progress, evaluations) will be removed.`,
+        default: false,
+      });
+      if (!reconfirmed) {
         setPhase({ kind: 'cancelled' });
         return;
       }
@@ -102,6 +118,14 @@ function renderBody(phase: Phase): React.JSX.Element {
       return <Spinner label={runningLabel(phase.step)} />;
     case 'cancelled':
       return <ResultCard kind="info" title="Deletion cancelled" />;
+    case 'active-blocked':
+      return (
+        <ResultCard
+          kind="warning"
+          title="Cannot delete an active sprint"
+          lines={[`"${phase.name}" is active — close it before deleting.`]}
+        />
+      );
     case 'error':
       return <ResultCard kind="error" title="Could not delete sprint" lines={[phase.message]} />;
     case 'done':

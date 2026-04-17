@@ -1,4 +1,11 @@
-import type { ImportTask, Project, Repository, Task, Ticket } from '@src/domain/models.ts';
+import {
+  getTaskImportJsonSchema,
+  type ImportTask,
+  type Project,
+  type Repository,
+  type Task,
+  type Ticket,
+} from '@src/domain/models.ts';
 import { DomainError, ParseError, ProjectNotFoundError, SprintStatusError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { IdeateOptions, PlanOptions } from '@src/domain/context.ts';
@@ -132,8 +139,7 @@ export class PlanSprintTasksUseCase {
 
       // 8. Build sprint context
       const context = await this.buildSprintContext(sprint.name, project, ticketsToProcess, existingTasks, reposById);
-      const schemaPath = this.fs.getSchemaPath('task-import.schema.json');
-      const schema = await this.fs.readFile(schemaPath);
+      const schema = getTaskImportJsonSchema();
       const projectToolingSection = this.external.detectProjectTooling(selectedPaths);
 
       // 9. Create planning directory
@@ -403,8 +409,7 @@ export class IdeateAndPlanUseCase {
       await this.persistence.saveSprint(updatedSprint);
 
       // 5. Load schema and build context
-      const schemaPath = this.fs.getSchemaPath('task-import.schema.json');
-      const schema = await this.fs.readFile(schemaPath);
+      const schema = getTaskImportJsonSchema();
       const repositoriesText = selectedPaths.map((path) => `- ${path}`).join('\n');
       const projectToolingSection = this.external.detectProjectTooling(selectedPaths);
 

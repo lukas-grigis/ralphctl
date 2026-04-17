@@ -31,6 +31,7 @@ export type ConfigScope = 'global' | 'user' | 'sprint';
  */
 export interface ConfigSchemaEntry {
   key: string; // Config key name (must match object key below)
+  label: string; // Human-friendly title for UI surfaces
   type: 'string' | 'integer' | 'number' | 'boolean' | 'enum';
   enum?: string[] | number[] | boolean[]; // For enum type only
   min?: number; // For integer/number types only
@@ -48,6 +49,7 @@ export interface ConfigSchemaEntry {
 export const ConfigSchemaDefinition = {
   currentSprint: {
     key: 'currentSprint',
+    label: 'Current Sprint',
     type: 'string',
     default: null,
     description: 'Currently active sprint ID (set by `sprint start`, cleared on `sprint close`)',
@@ -57,6 +59,7 @@ export const ConfigSchemaDefinition = {
 
   aiProvider: {
     key: 'aiProvider',
+    label: 'AI Provider',
     type: 'enum',
     enum: ['claude', 'copilot'],
     default: null,
@@ -65,18 +68,9 @@ export const ConfigSchemaDefinition = {
     scope: 'global',
   },
 
-  editor: {
-    key: 'editor',
-    type: 'string',
-    default: null,
-    description:
-      'External editor command for multi-line text input (e.g., "code --wait", "vim"). Leave null to use the inline Ink editor.',
-    validation: (val) => val === null || (typeof val === 'string' && val.length > 0),
-    scope: 'user',
-  },
-
   evaluationIterations: {
     key: 'evaluationIterations',
+    label: 'Evaluation Iterations',
     type: 'integer',
     min: 0,
     max: 10,
@@ -96,7 +90,7 @@ export const ConfigSchemaDefinition = {
  * Extract config schema keys as a literal union type.
  * Type-safe: only keys that exist in ConfigSchemaDefinition are valid.
  *
- * Usage: ConfigSchemaKeys = 'currentSprint' | 'aiProvider' | 'editor' | 'evaluationIterations'
+ * Usage: ConfigSchemaKeys = 'currentSprint' | 'aiProvider' | 'evaluationIterations'
  */
 export type ConfigSchemaKeys = keyof typeof ConfigSchemaDefinition;
 

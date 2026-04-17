@@ -19,6 +19,11 @@ const ENTER_ALT_SCREEN = '\x1b[?1049h';
 const LEAVE_ALT_SCREEN = '\x1b[?1049l';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
+// Wipe the whole screen + move cursor home. Needed because Ink's diff
+// renderer only repaints cells with content — empty cells around a centered
+// column keep whatever was in the alt-screen buffer before. Clearing on
+// entry guarantees a blank canvas regardless of what the terminal restored.
+const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 
 let altScreenActive = false;
 let safetyNetsInstalled = false;
@@ -67,6 +72,7 @@ export function enterAltScreen(): void {
   installSafetyNets();
   altScreenActive = true;
   writeRaw(ENTER_ALT_SCREEN);
+  writeRaw(CLEAR_SCREEN);
   writeRaw(HIDE_CURSOR);
 }
 
