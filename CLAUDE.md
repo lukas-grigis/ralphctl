@@ -22,11 +22,7 @@ pnpm dev sprint create
 pnpm dev
 ```
 
-**Verify everything works:**
-
-```bash
-pnpm typecheck && pnpm lint && pnpm test
-```
+Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
 
 ## Requirements
 
@@ -110,7 +106,7 @@ pnpm typecheck && pnpm lint && pnpm test
   alt-screen buffer (vim/htop-style) and restores it on exit via `src/integration/ui/tui/runtime/screen.ts`. Non-TTY /
   CI / piped invocations fall back automatically to Commander + PlainTextSink.
 - **PromptPort is the only interactive-prompt abstraction** — call sites use `getPrompt()` from
-  `src/application/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
+  `src/integration/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
   dashboard isn't mounted (one-shot commands like `ralphctl project add`), the adapter auto-mounts a minimal Ink tree
   via `src/integration/ui/prompts/auto-mount.tsx` containing only `<PromptHost />`, drains the prompt queue, and
   unmounts. Non-interactive environments throw `PromptCancelledError` — pass values as flags.
@@ -140,7 +136,7 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s
   timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
 - Don't add `index.ts` barrel files — every import goes directly to its source module
-- Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
+- Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/integration/bootstrap.ts`
 - Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use
   `createXxxPipeline()` from `src/application/factories.ts` + `executePipeline(...)` instead.
 - Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`forEachTask`/
@@ -256,11 +252,6 @@ pnpm lint              # Lint
 pnpm test              # Run tests
 ```
 
-### Verification
-
-After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
-All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
-
 ### Git Hooks
 
 Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files). If commits are rejected, run:
@@ -324,9 +315,10 @@ See `.claude/agents/designer.md` for UX guidelines.
 
 ```
 src/
-├── domain/                        # Pure — models, errors, signals, IDs
+├── domain/                        # Pure — models, errors, signals, IDs, CLI metadata, exit codes
 │   ├── models.ts                  # Zod schemas (single source of truth for entity types)
 │   └── errors.ts  signals.ts  context.ts  types.ts  config-schema.ts  ids.ts
+│       exit-codes.ts  cli-metadata.ts
 │
 ├── business/                      # Use cases + service ports + pipelines
 │   ├── ports/                     # Every interface business logic depends on:
@@ -342,6 +334,8 @@ src/
 │
 ├── integration/                   # Adapters, UI, 3rd-party glue
 │   ├── persistence/               # File-backed repository + paths/storage/file-lock/requirements-export
+│   ├── bootstrap.ts               # getSharedDeps/setSharedDeps/getPrompt singleton accessor
+│   ├── shared-deps.ts             # SharedDeps interface (consumed by application + integration)
 │   ├── filesystem-adapter.ts      # NodeFilesystemAdapter
 │   ├── user-interaction-adapter.ts# InteractiveUserAdapter, AutoUserAdapter
 │   ├── ai/
@@ -371,11 +365,8 @@ src/
 │
 └── application/                   # Composition root
     ├── entrypoint.ts              # Commander wiring + main(); decides when to mount Ink vs Commander
-    ├── bootstrap.ts               # getSharedDeps/setSharedDeps/getPrompt singleton accessor
     ├── shared.ts                  # createSharedDeps() — builds the default adapter graph
-    ├── factories.ts               # Use-case factories (per-invocation adapter graphs for AI flows)
-    ├── exit-codes.ts              # CLI exit code constants
-    └── cli-metadata.ts
+    └── factories.ts               # Pipeline factories (per-invocation adapter graphs for AI flows)
 ```
 
 ## Task Execution Signals
