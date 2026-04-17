@@ -2,7 +2,17 @@ import { colors } from '@src/integration/ui/theme/theme.ts';
 import type { NextAction } from './dashboard-data.ts';
 
 /**
- * Dynamic context-aware menu system for interactive mode
+ * Submenu builders for Home's secondary entry points.
+ *
+ * Home's primary surface is the pipeline map (see `pipeline-phases.ts`). This
+ * module supplies the submenu shapes that Home reaches via hotkey — `b` opens
+ * the browse menu, which may drill into the sprint/ticket/task/project/config
+ * submenus. Each submenu is a plain data structure; rendering lives in
+ * `components/action-menu.tsx`.
+ *
+ * Top-level workflow actions (Create Sprint, Refine Requirements, Plan, Start,
+ * Close) do not belong here — they're computed by `pipeline-phases.ts` and
+ * fired by the pipeline map. This module handles everything else.
  */
 
 const SEPARATOR_WIDTH = 48;
@@ -67,202 +77,30 @@ export interface MenuContext {
   aiProvider: string | null;
 }
 
-// ============================================================================
-// WORKFLOW ACTIONS — actions that advance sprint state
-// ============================================================================
-
-const WORKFLOW_ACTIONS: Record<string, Set<string>> = {
-  sprint: new Set(['create', 'refine', 'ideate', 'plan', 'start', 'close']),
-  ticket: new Set(['add', 'refine']),
-  task: new Set(['add', 'import']),
-  progress: new Set(['log']),
-};
-
 /**
- * Check if a command is a workflow action that should return to main menu.
+ * Build the browse menu — the single secondary hub reached via `b` from Home.
+ *
+ * Entries fall into two buckets:
+ *   - `group:<name>` — transitions Home into that group's submenu (sprint,
+ *     ticket, task, project, config).
+ *   - `action:<group>:<sub>` — runs a command directly (doctor, progress show).
+ *
+ * Home's submenu dispatcher recognises both prefixes.
  */
-export function isWorkflowAction(group: string, subCommand: string): boolean {
-  return WORKFLOW_ACTIONS[group]?.has(subCommand) ?? false;
-}
-
-/**
- * Build PLAN section actions — sprint planning lifecycle.
- */
-function buildPlanActions(ctx: MenuContext): MenuItem[] {
+export function buildBrowseMenu(): SubMenu {
   const items: MenuItem[] = [];
-  const isDraft = ctx.currentSprintStatus === 'draft';
-  const hasSprint = ctx.currentSprintId !== null;
-
-  // Create Sprint — always available
-  items.push({ name: 'Create Sprint', value: 'action:sprint:create', description: 'Start a new sprint' });
-
-  // Add Ticket — requires draft sprint + projects
-  const addTicketDisabled = !hasSprint
-    ? 'create a sprint first'
-    : !isDraft
-      ? 'need draft sprint'
-      : !ctx.hasProjects
-        ? 'add a project first'
-        : false;
-  items.push({
-    name: 'Add Ticket',
-    value: 'action:ticket:add',
-    description: 'Add work to current sprint',
-    disabled: addTicketDisabled,
-  });
-
-  // Refine Requirements — requires draft sprint + pending tickets
-  let refineDisabled: string | false = false;
-  let refineDesc = 'Clarify ticket requirements';
-  if (!hasSprint) {
-    refineDisabled = 'create a sprint first';
-  } else if (!isDraft) {
-    refineDisabled = 'need draft sprint';
-  } else if (ctx.ticketCount === 0) {
-    refineDisabled = 'add tickets first';
-  } else if (ctx.pendingRequirements === 0) {
-    refineDisabled = 'all tickets refined';
-  } else {
-    refineDesc = `${String(ctx.pendingRequirements)} ticket${ctx.pendingRequirements !== 1 ? 's' : ''} pending`;
-  }
-  items.push({
-    name: 'Refine Requirements',
-    value: 'action:sprint:refine',
-    description: refineDesc,
-    disabled: refineDisabled,
-  });
-
-  // Plan Tasks — requires draft sprint
-  let planDisabled: string | false = false;
-  const planDesc = 'Generate tasks from requirements';
-  if (!hasSprint) {
-    planDisabled = 'create a sprint first';
-  } else if (!isDraft) {
-    planDisabled = 'need draft sprint';
-  } else if (ctx.ticketCount === 0) {
-    planDisabled = 'add tickets first';
-  } else if (!ctx.allRequirementsApproved) {
-    planDisabled = 'refine all tickets first';
-  }
-  items.push({
-    name: ctx.taskCount > 0 ? 'Re-Plan Tasks' : 'Plan Tasks',
-    value: 'action:sprint:plan',
-    description: planDesc,
-    disabled: planDisabled,
-  });
-
-  // Ideate — requires draft + projects
-  const ideateDisabled = !hasSprint
-    ? 'create a sprint first'
-    : !isDraft
-      ? 'need draft sprint'
-      : !ctx.hasProjects
-        ? 'add a project first'
-        : false;
-  items.push({
-    name: 'Ideate',
-    value: 'action:sprint:ideate',
-    description: 'Quick idea to tasks',
-    disabled: ideateDisabled,
-  });
-
-  return items;
-}
-
-/**
- * Build EXECUTE section actions — sprint execution lifecycle.
- */
-function buildExecuteActions(ctx: MenuContext): MenuItem[] {
-  const items: MenuItem[] = [];
-  const isDraft = ctx.currentSprintStatus === 'draft';
-  const isActive = ctx.currentSprintStatus === 'active';
-  const hasSprint = ctx.currentSprintId !== null;
-
-  // Start Sprint — requires draft/active + tasks
-  let startDisabled: string | false = false;
-  if (!hasSprint) {
-    startDisabled = 'create a sprint first';
-  } else if (!isDraft && !isActive) {
-    startDisabled = 'need draft or active sprint';
-  } else if (ctx.taskCount === 0) {
-    startDisabled = 'plan tasks first';
-  }
-  items.push({
-    name: 'Start Sprint',
-    value: 'action:sprint:start',
-    description: 'Begin implementation',
-    disabled: startDisabled,
-  });
-
-  // Health Check — requires a sprint
-  items.push({
-    name: 'Health Check',
-    value: 'action:sprint:health',
-    description: 'Diagnose blockers and stale tasks',
-    disabled: !hasSprint ? 'no sprint' : false,
-  });
-
-  // Close Sprint — requires active sprint
-  items.push({
-    name: 'Close Sprint',
-    value: 'action:sprint:close',
-    description: 'Close the current sprint',
-    disabled: !isActive ? 'need active sprint' : false,
-  });
-
-  return items;
-}
-
-/**
- * Build main menu items based on current application state.
- */
-export function buildMainMenu(ctx: MenuContext): { items: MenuItem[]; defaultValue?: string } {
-  const items: MenuItem[] = [];
-
-  // Next action — first item, default selection
-  let defaultValue: string | undefined;
-  if (ctx.nextAction) {
-    const actionValue = `action:${ctx.nextAction.group}:${ctx.nextAction.subCommand}`;
-    items.push({
-      name: `\u2192 ${ctx.nextAction.label}`,
-      value: actionValue,
-      description: ctx.nextAction.description,
-    });
-    defaultValue = actionValue;
-  }
-
-  // Plan section — sprint planning lifecycle
-  items.push(titled('PLAN'));
-  for (const action of buildPlanActions(ctx)) {
-    items.push(action);
-  }
-
-  // Execute section — sprint execution lifecycle
-  items.push(titled('EXECUTE'));
-  for (const action of buildExecuteActions(ctx)) {
-    items.push(action);
-  }
-
-  // Browse section — entity submenus
   items.push(titled('BROWSE'));
-  items.push({ name: 'Sprints', value: 'sprint', description: 'List, show, switch' });
-  items.push({ name: 'Tickets', value: 'ticket', description: 'List, show, edit' });
-  items.push({ name: 'Tasks', value: 'task', description: 'List, show, manage' });
-
-  // Setup section — one-time configuration
+  items.push({ name: 'Sprints', value: 'group:sprint', description: 'List, show, manage sprints' });
+  items.push({ name: 'Tickets', value: 'group:ticket', description: 'List, show, edit tickets' });
+  items.push({ name: 'Tasks', value: 'group:task', description: 'List, show, manage tasks' });
+  items.push({ name: 'Projects', value: 'group:project', description: 'Manage projects & repositories' });
+  items.push({ name: 'Progress', value: 'action:progress:show', description: 'View progress log' });
   items.push(titled('SETUP'));
-  items.push({ name: 'Projects', value: 'project', description: 'Manage projects & repositories' });
-  items.push({ name: 'Configuration', value: 'config', description: 'AI provider, settings' });
+  items.push({ name: 'Configuration', value: 'group:config', description: 'AI provider, editor, evaluator settings' });
   items.push({ name: 'Doctor', value: 'action:doctor:run', description: 'Check environment health' });
-
-  // Session
-  items.push(titled('SESSION'));
-  if (!ctx.currentSprintId) {
-    items.push({ name: 'Quick Start Wizard', value: 'wizard', description: 'Guided sprint setup' });
-  }
-  items.push({ name: 'Exit', value: 'exit' });
-
-  return { items, defaultValue };
+  items.push(line());
+  items.push({ name: 'Back', value: 'back', description: 'Return to Home' });
+  return { title: 'Browse & Setup', items };
 }
 
 /**
@@ -415,6 +253,8 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
       return buildProjectSubMenu();
     case 'config':
       return buildConfigSubMenu();
+    case 'browse':
+      return buildBrowseMenu();
     default:
       return null;
   }

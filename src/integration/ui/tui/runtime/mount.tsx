@@ -10,7 +10,7 @@
  * run the same logic with the PlainTextSink logger and no interactive
  * prompts (CI mode).
  *
- * The actual React views — `<ReplView />`, `<ExecuteView />` — are
+ * The actual React views — `<HomeView />`, `<ExecuteView />` — are
  * implemented in Step 8. This module just hosts the plumbing.
  */
 
@@ -24,6 +24,7 @@ import { InkPromptAdapter } from '@src/integration/prompts/prompt-adapter.ts';
 import { registerExternalHost } from '@src/integration/prompts/auto-mount.tsx';
 import { App } from '@src/integration/ui/tui/views/app.tsx';
 import { enterAltScreen, exitAltScreen } from './screen.ts';
+import { registerTuiInstance } from './suspend.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 
 export type InkViewName = 'repl' | 'execute';
@@ -68,10 +69,14 @@ export async function mountInkApp(options: MountOptions): Promise<MountResult> {
   const app = render(<App initialView={options.initialView} mountOptions={options} />, {
     exitOnCtrlC: false, // We own Ctrl+C inside the app for prompt cancellation.
   });
+  // Make the render instance reachable from `withSuspendedTui` so interactive
+  // AI sessions can step aside and force a repaint on return.
+  const releaseInstance = registerTuiInstance(app);
 
   try {
     await app.waitUntilExit();
   } finally {
+    releaseInstance();
     releaseHost();
     signalBus.dispose();
     exitAltScreen();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMainMenu, buildSubMenu, isSeparator, type MenuContext, type MenuItem } from './menu-builder.ts';
+import { buildBrowseMenu, buildSubMenu, isSeparator, type MenuContext, type MenuItem } from './menu-builder.ts';
 
 /** Helper to extract actionable choices (not separators) from menu items */
 function choices(items: MenuItem[]) {
@@ -81,12 +81,26 @@ describe('buildSubMenu — config', () => {
   });
 });
 
-describe('buildMainMenu — setup section', () => {
-  it('includes Configuration entry that routes to config submenu', () => {
-    const ctx = baseCtx();
-    const { items } = buildMainMenu(ctx);
-    const vals = choices(items).map((c) => c.value);
-    expect(vals).toContain('config');
+describe('buildBrowseMenu', () => {
+  it('exposes every secondary entry point reachable from Home', () => {
+    const menu = buildBrowseMenu();
+    const vals = choices(menu.items).map((c) => c.value);
+    expect(vals).toEqual([
+      'group:sprint',
+      'group:ticket',
+      'group:task',
+      'group:project',
+      'action:progress:show',
+      'group:config',
+      'action:doctor:run',
+      'back',
+    ]);
+  });
+
+  it('is reachable via buildSubMenu("browse")', () => {
+    const menu = buildSubMenu('browse', baseCtx());
+    expect(menu).not.toBeNull();
+    expect(menu?.title).toBe('Browse & Setup');
   });
 });
 

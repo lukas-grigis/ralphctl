@@ -1,5 +1,5 @@
 /**
- * Command dispatch table used by `ReplView` to run the user's selected action.
+ * Command dispatch table used by `HomeView` to run the user's selected action.
  *
  * Each handler renders any prompts through `getPrompt()` so they surface
  * through the Ink `<PromptHost />`.
@@ -82,6 +82,7 @@ export const commandMap: Record<string, Record<string, CommandHandler>> = {
     requirements: () => sprintRequirementsCommand([]),
     health: () => sprintHealthCommand(),
     close: () => sprintCloseCommand([]),
+    'close --create-pr': () => sprintCloseCommand(['--create-pr']),
     delete: () => sprintDeleteCommand([]),
     'progress show': () => progressShowCommand(),
     'progress log': () => progressLogCommand([]),
