@@ -1,6 +1,6 @@
 ---
 name: tester
-description: 'Test engineering specialist. Use when designing test strategy, writing tests, improving coverage, or debugging test failures. Expert in vitest, testing patterns, and test-driven development.'
+description: "Test engineer for ralphctl. Use when writing new vitest tests, shoring up coverage for a module or pipeline, debugging a flaky / failing test, or designing the test strategy for a new feature. Knows the project's port-based test-double patterns and the pipeline step-order fence tests."
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 color: green
@@ -217,10 +217,15 @@ Don't obsess over:
 ## ralphctl Testing Context
 
 - Test framework: vitest
-- Run tests: `pnpm test`
-- Watch mode: `pnpm test:watch`
-- Coverage: `pnpm test:coverage`
+- Run tests: `pnpm test` (watch: `pnpm test:watch`, coverage: `pnpm test:coverage`)
 - Test location: `src/**/*.test.ts` (colocated with source)
+- Pipelines have **step-order fence tests** at `src/business/pipelines/*.test.ts` asserting
+  `stepResults.map(r => r.stepName)` on happy + failure paths — these lock orchestration order; update them
+  when intentionally changing a pipeline's step list.
+- `RALPHCTL_ROOT` must be set **before** importing persistence modules (e.g. in a vitest setup file, not inside
+  `beforeEach`) — otherwise the file-backed adapter binds to the real `~/.ralphctl/`.
+- `VITEST=1` silences info / warn output in `PlainTextSink` automatically.
+- Prefer test doubles via the port interfaces in `src/business/ports/` over module-level mocking.
 
 ## Memory
 

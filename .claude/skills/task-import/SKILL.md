@@ -1,41 +1,67 @@
 ---
 name: task-import
-description: Task import JSON format, field reference, and validation rules
+description: 'Task import JSON schema for `ralphctl task import <file.json>`. Use when authoring or validating an import file, debugging import validation errors, or wiring a planner/generator that emits tasks for ralphctl. Covers required fields, `blockedBy` local-ID resolution, `repoId`/`ticketId` constraints, and `extraDimensions`.'
+when_to_use: 'When you are generating or hand-writing a JSON file to feed into `ralphctl task import`, or when diagnosing "Invalid task format" / "Dependency validation failed" errors from that command.'
 ---
 
 # Task Import Format
 
-## JSON Format
+Source of truth: `ImportTaskSchema` in `src/domain/models.ts`. The command lives at
+`src/integration/cli/commands/task/import.ts`.
+
+## JSON format
+
+Input is a JSON array of task objects:
 
 ```json
 [
   {
     "id": "1",
-    "name": "Task name",
-    "description": "Optional description",
-    "steps": ["Step 1", "Step 2"],
-    "ticketId": "abc12345"
+    "name": "Add login endpoint",
+    "description": "JWT-based session issue endpoint",
+    "steps": ["Define route", "Issue signed token", "Wire into router"],
+    "verificationCriteria": ["200 on valid creds", "401 on bad creds"],
+    "repoId": "a1b2c3d4",
+    "ticketId": "ttk77xyz",
+    "extraDimensions": ["Security"]
   },
   {
     "id": "2",
-    "name": "Second task",
+    "name": "Add logout endpoint",
+    "repoId": "a1b2c3d4",
     "blockedBy": ["1"]
   }
 ]
 ```
 
-## Field Reference
+## Field reference
 
-- `id`: Local ID for referencing in blockedBy (converted to real ID on import)
-- `name`: Task name (required)
-- `description`: Optional description
-- `steps`: Optional array of step strings
-- `blockedBy`: Reference earlier tasks by their `id` field (must reference earlier tasks)
-- `ticketId`: Optional reference to a ticket's internal ID (task inherits projectPath from ticket's project)
+| Field                  | Type     | Required | Notes                                                                                                                                   |
+| ---------------------- | -------- | :------: | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                 | string   |   yes    | Non-empty task name                                                                                                                     |
+| `repoId`               | string   |   yes    | Must match a repository on the sprint's project. Drives `projectPath` for execution.                                                    |
+| `id`                   | string   |    no    | Local ID used only to wire `blockedBy` within this file. Rewritten to the real task UUID8 on import.                                    |
+| `description`          | string   |    no    |                                                                                                                                         |
+| `steps`                | string[] |    no    | Free-form step list the executor agent sees                                                                                             |
+| `verificationCriteria` | string[] |    no    | Grading contract surfaced to the evaluator                                                                                              |
+| `ticketId`             | string   |    no    | Must reference an existing ticket in the current sprint                                                                                 |
+| `blockedBy`            | string[] |    no    | Each entry is a **local `id`** of an earlier task in the same file — not a real task UUID                                               |
+| `extraDimensions`      | string[] |    no    | Non-default evaluator dimensions stacked on top of the floor four (Correctness/Completeness/Safety/Consistency), e.g. `["Performance"]` |
 
-## Validation Rules
+## Validation rules (enforced by the importer)
 
-- `id` fields are local to the import file and get converted to real IDs
-- `blockedBy` references must point to tasks defined earlier in the array
-- `ticketId` must reference an existing ticket in the current sprint
-- Tasks with `ticketId` inherit `projectPath` from the ticket's project
+- `repoId` is required on every task. Sprints are scoped to one project; the repo must belong to that project.
+- `blockedBy` may only reference `id`s of tasks defined **earlier in the array**. Forward references fail validation.
+- `ticketId`, if provided, must exist on the current sprint's ticket list.
+- Local `id`s are rewritten to real task UUIDs during import; the mapping is resolved in a second pass under a file lock.
+- The sprint must be in `draft` or `active` status — `closed` sprints reject imports.
+- Empty arrays are rejected with "No tasks to import".
+
+## Running
+
+```bash
+ralphctl task import ./tasks.json
+```
+
+On failure the command prints field-level Zod issues (`path.to.field: message`). Re-run after fixing and the importer
+is idempotent — no partial state is persisted when validation fails before the first-pass `addTask`.

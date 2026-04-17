@@ -1,9 +1,10 @@
 ---
 name: reviewer
-description: 'Code review specialist. Use after implementation to review code quality, catch bugs, suggest improvements, and ensure consistency with project standards. Read-only analysis with ability to run checks.'
+description: 'Code reviewer for ralphctl. Use AFTER implementation — to review a diff / PR / branch for correctness, bugs, architectural-layering violations (domain < business < integration < application), TypeScript nuance (generics, narrowing, Result vs throws), and consistency with project conventions. Read-only; runs `typecheck` / `lint` / `test`, reports findings, does not patch.'
 tools: Read, Grep, Glob, Bash
-model: haiku
+model: sonnet
 color: yellow
+memory: project
 ---
 
 # Code Reviewer

@@ -282,6 +282,12 @@ Claude session starts)
 
 ## Custom Agents
 
+> `.claude/` assets (agents + skills) are for **developing ralphctl**, not for extending its runtime. They help
+> Claude Code assist a contributor working on ralphctl's own TypeScript. They are not shipped to npm and have no
+> effect on ralphctl's behaviour when it orchestrates AI sessions for downstream projects. Concrete contrast:
+> `@agent-implementer` helps write ralphctl source code; there is no corresponding `/new-sprint` skill because
+> creating a sprint is a ralphctl CLI action (`ralphctl sprint create`), not a Claude Code skill.
+
 `.claude/agents/` contains specialized agent definitions for the Task tool:
 
 - `designer.md` — UI/UX design and theming (use for frontend/UI work)

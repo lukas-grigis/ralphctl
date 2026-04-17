@@ -1,9 +1,10 @@
 ---
 name: planner
-description: 'Implementation planning specialist. Use when breaking down a feature or change into implementation steps, analyzing what files need modification, or structuring development work. Best for planning BEFORE coding begins.'
+description: 'Implementation planner for ralphctl. Use BEFORE coding begins — when breaking a feature / bug / refactor into scoped, dependency-ordered tasks, identifying affected files, or sanity-checking an approach against the existing architecture. Returns a plan; never writes code.'
 tools: Read, Grep, Glob
 model: sonnet
 color: purple
+memory: project
 ---
 
 # Implementation Planner
@@ -125,13 +126,19 @@ When creating a task breakdown:
 
 ## ralphctl Codebase Context
 
-When planning work on ralphctl:
+When planning work on ralphctl, respect the Clean Architecture layering in `CLAUDE.md` and
+`.claude/docs/ARCHITECTURE.md`:
 
-- Commands live in `src/commands/` organized by entity (sprint, task, ticket, project)
-- Services in `src/services/` handle business logic
-- Data models in `src/models/` with JSON schemas in `/schemas`
-- Theme/UI code in `src/theme/`
-- Tests colocated as `*.test.ts` files
+- **Domain** (`src/domain/`) — Zod models, errors, signals, IDs. Pure, zero deps.
+- **Business** (`src/business/`) — use cases, ports (`src/business/ports/`), and pipelines (`src/business/pipelines/`).
+- **Integration** (`src/integration/`) — adapters, CLI commands (`src/integration/cli/commands/` grouped by entity),
+  persistence, AI providers, Ink TUI.
+- **Application** (`src/application/`) — composition root: `entrypoint.ts`, `shared.ts`, `bootstrap.ts`,
+  `factories.ts`.
+- Tests are colocated as `*.test.ts`.
+- Every user-triggered workflow is a composable pipeline — CLI commands invoke `createXxxPipeline()` factories,
+  never use cases directly (enforced by an ESLint `no-restricted-imports` fence).
+- No barrel `index.ts` files — imports point at the source module directly.
 
 ## What I Don't Do
 
