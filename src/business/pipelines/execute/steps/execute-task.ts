@@ -4,6 +4,7 @@ import { ParseError } from '@src/domain/errors.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import { step } from '@src/business/pipeline/helpers.ts';
 import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 
@@ -17,14 +18,36 @@ import type { PerTaskContext } from '../per-task-context.ts';
  * `SpawnError` (including rate-limit) thrown inside the use case
  * propagates — the pipeline framework wraps it as `StepError`, and the
  * retry policy unwraps the cause chain.
+ *
+ * Session resume: when `taskSessionIds` contains an entry for the current
+ * task (populated by the scheduler on rate-limit capture), the step injects
+ * `resumeSessionId` into the options bag so the provider relaunches the AI
+ * session with `--resume` / `--resume=<id>` continuity.
  */
 export function executeTask(deps: {
   useCase: ExecuteTasksUseCase;
   options: ExecutionOptions;
+  /**
+   * Shared map of task-id → captured session-id, populated by the
+   * scheduler's rate-limit retry policy (see `execute-tasks` step in
+   * `src/business/pipelines/execute.ts`). Optional — when absent or empty
+   * for a task, behavior is unchanged (fresh session).
+   */
+  taskSessionIds?: Map<string, string>;
+  logger?: LoggerPort;
 }): PipelineStep<PerTaskContext> {
   return step<PerTaskContext>('execute-task', async (ctx): Promise<DomainResult<Partial<PerTaskContext>>> => {
     const { task, sprint } = ctx;
-    const result = await deps.useCase.executeOneTask(task, sprint, deps.options);
+    const resumeSessionId = deps.taskSessionIds?.get(task.id);
+    if (resumeSessionId) {
+      deps.logger?.info(`Resuming previous session: ${resumeSessionId.slice(0, 8)}...`);
+    }
+
+    const result = await deps.useCase.executeOneTask(task, sprint, {
+      ...deps.options,
+      ...(resumeSessionId ? { resumeSessionId } : {}),
+      ...(ctx.contractPath ? { contractPath: ctx.contractPath } : {}),
+    });
 
     if (!result.success) {
       return Result.error(new ParseError(`Task not completed: ${result.blocked ?? 'Unknown reason'}`));

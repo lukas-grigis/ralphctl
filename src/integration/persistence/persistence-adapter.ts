@@ -26,7 +26,7 @@ import {
 import { getTicket } from '@src/integration/persistence/ticket.ts';
 import { getProject, listProjects } from '@src/integration/persistence/project.ts';
 import { getConfig, saveConfig } from '@src/integration/persistence/config.ts';
-import { logProgress, getProgress } from '@src/integration/persistence/progress.ts';
+import { logProgress, getProgress, summarizeProgressForContext } from '@src/integration/persistence/progress.ts';
 import { writeEvaluation } from '@src/integration/persistence/evaluation.ts';
 import { importTasks } from '@src/integration/cli/commands/sprint/plan-utils.ts';
 import type { TaskStatus } from '@src/domain/models.ts';
@@ -122,6 +122,11 @@ export class FilePersistenceAdapter implements PersistencePort {
 
   async getProgress(sprintId: string): Promise<string> {
     return getProgress(sprintId);
+  }
+
+  async getProgressSummary(sprintId: string, projectPath: string, maxEntries?: number): Promise<string> {
+    const raw = await getProgress(sprintId).catch(() => '');
+    return summarizeProgressForContext(raw, projectPath, maxEntries);
   }
 
   // Evaluation

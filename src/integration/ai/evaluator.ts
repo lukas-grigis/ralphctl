@@ -55,12 +55,15 @@ export interface DimensionScore {
  * - `failed`   — `<evaluation-failed>` signal present, OR partial dimensions parsed but no signal.
  * - `malformed`— neither signal AND no dimension lines parsed (unusable evaluator output).
  *
- * The type itself lives in `src/schemas/index.ts` so the Zod schema is the
- * single source of truth for the enum members.
+ * Note: `'plateau'` is NOT a parser outcome — it's loop-derived by the
+ * `EvaluateTaskUseCase` when the same failures recur across iterations. The
+ * parser status is deliberately narrower than the persisted `EvaluationStatus`.
  */
+export type ParsedEvaluationStatus = Exclude<EvaluationStatus, 'plateau'>;
+
 export interface EvaluationResult {
   passed: boolean;
-  status: EvaluationStatus;
+  status: ParsedEvaluationStatus;
   output: string;
   /** Per-dimension scores when structured assessment is present. */
   dimensions: DimensionScore[];

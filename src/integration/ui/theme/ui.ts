@@ -192,9 +192,9 @@ export function terminalBell(): void {
 
 /**
  * Minimal non-animating spinner — prints `• start`, `+ success`, `x fail`.
- * Used by plain-text command paths (ai/executor, ticket/add, task/import,
- * project/add, ticket/refine). Inside the Ink TUI, prefer `LoggerPort.spinner()`
- * which the `InkSink` renders as a live component.
+ * Used by plain-text command paths (ticket/add, task/import, project/add,
+ * ticket/refine). Inside the Ink TUI, prefer `LoggerPort.spinner()` which
+ * the `InkSink` renders as a live component.
  */
 interface SpinnerShim {
   text: string;

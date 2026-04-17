@@ -12,6 +12,7 @@ import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { createExecuteSprintPipeline, type ExecuteDeps, type ExecuteContext } from './execute.ts';
 
@@ -197,6 +198,18 @@ function makeSignalBus(overrides: Partial<SignalBusPort> = {}): SignalBusPort {
   return { ...stub, ...overrides };
 }
 
+function makeCoordinator(): RateLimitCoordinatorPort {
+  // Stub: these tests don't exercise rate-limit semantics. The executor
+  // integration test uses the real coordinator.
+  return {
+    isPaused: false,
+    remainingMs: 0,
+    pause: () => void 0,
+    waitIfPaused: () => Promise.resolve(),
+    dispose: () => void 0,
+  };
+}
+
 function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
   return {
     persistence: makePersistence(),
@@ -210,6 +223,7 @@ function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
     signalParser: makeSignalParser(),
     signalHandler: makeSignalHandler(),
     signalBus: makeSignalBus(),
+    createRateLimitCoordinator: makeCoordinator,
     ...overrides,
   };
 }

@@ -164,6 +164,10 @@ function setup(scenario: Scenario = {}): {
     getTasks: () => Promise.resolve([task]),
     saveTasks: () => Promise.resolve(),
     writeEvaluation: () => Promise.resolve(),
+    // contract-negotiate looks up the project for the task path; in tests
+    // we don't care about the resolution — the step falls back to "no
+    // check script configured" cleanly when the lookup throws.
+    getProject: () => Promise.reject(new Error('not configured in test')),
   } as unknown as PersistencePort;
 
   const aiSession = {
@@ -188,7 +192,11 @@ function setup(scenario: Scenario = {}): {
 
   const deps: PerTaskDeps = {
     persistence,
-    fs: { getSprintDir: () => '/tmp' } as unknown as FilesystemPort,
+    fs: {
+      getSprintDir: () => '/tmp',
+      ensureDir: () => Promise.resolve(),
+      writeFile: () => Promise.resolve(),
+    } as unknown as FilesystemPort,
     aiSession,
     promptBuilder,
     parser,
@@ -227,7 +235,7 @@ function makeCtx(deps: PerTaskDeps, task: Task, sprint: Sprint): PerTaskContext 
 // ---------------------------------------------------------------------------
 
 describe('createPerTaskPipeline', () => {
-  it('happy path: runs all 7 steps in order', async () => {
+  it('happy path: runs all 8 steps in order', async () => {
     const task = makeTask();
     const sprint = makeSprint();
     const { deps, useCase, events, calls } = setup({ task, sprint });
@@ -241,6 +249,7 @@ describe('createPerTaskPipeline', () => {
     const stepNames = result.value.stepResults.map((r) => r.stepName);
     expect(stepNames).toEqual([
       'branch-preflight',
+      'contract-negotiate',
       'mark-in-progress',
       'execute-task',
       'store-verification',

@@ -95,6 +95,14 @@ export interface PersistencePort {
   /** Read the full progress log for a sprint */
   getProgress(sprintId: string): Promise<string>;
 
+  /**
+   * Read the progress log, filter it to entries matching `projectPath`, and
+   * return a compressed summary of the last `maxEntries` entries (default 3)
+   * suitable for embedding in a task-context file. Returns `''` when there
+   * is no project-matching progress yet.
+   */
+  getProgressSummary(sprintId: string, projectPath: string, maxEntries?: number): Promise<string>;
+
   // Evaluation
 
   /** Write an evaluation sidecar entry for a task */

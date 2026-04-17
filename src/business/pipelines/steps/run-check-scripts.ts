@@ -1,5 +1,5 @@
 import type { StepContext, CheckResult } from '@src/domain/context.ts';
-import type { Project, Sprint, Task } from '@src/domain/models.ts';
+import type { Sprint, Task } from '@src/domain/models.ts';
 import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
 import { DomainError, StepError, StorageError } from '@src/domain/errors.ts';
@@ -7,6 +7,7 @@ import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
 import { step } from '@src/business/pipeline/helpers.ts';
 import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { findProjectForPath, resolveCheckScript } from './project-lookup.ts';
 
 export type CheckScriptsMode = 'sprint-start' | 'post-task';
 
@@ -40,7 +41,7 @@ export interface RunCheckScriptsOptions {
  * `ExecuteTasksUseCase.runPostTaskCheck` — if the check script is missing
  * for a path it's silently skipped (not recorded as a result). If the project
  * can't be resolved for a path it's also silently skipped (matches today's
- * `findProjectForPath` returning undefined + `getCheckScript` returning null).
+ * `findProjectForPath` returning undefined + `resolveCheckScript` returning null).
  */
 export function runCheckScriptsStep<
   TCtx extends StepContext & { sprint?: Sprint; tasks?: Task[]; checkResults?: Record<string, CheckResult> },
@@ -70,7 +71,7 @@ export function runCheckScriptsStep<
           if (previousRun && !options?.refreshCheck) continue;
 
           const project = await findProjectForPath(persistence, sprint, projectPath);
-          const checkScript = getCheckScript(project, projectPath);
+          const checkScript = resolveCheckScript(project, projectPath);
           if (!checkScript) continue;
 
           const repo = project?.repositories.find((r) => r.path === projectPath);
@@ -107,7 +108,7 @@ export function runCheckScriptsStep<
         }
 
         const project = await findProjectForPath(persistence, sprint, target);
-        const checkScript = getCheckScript(project, target);
+        const checkScript = resolveCheckScript(project, target);
         if (!checkScript) {
           // No check configured — treat as success, record nothing to match
           // today's behaviour (post-task gate returns `true`).
@@ -146,33 +147,10 @@ export function runCheckScriptsStep<
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers (replicate `ExecuteTasksUseCase.findProjectForPath` and
-// `.getCheckScript`)
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 function collectProjectPaths(tasks: Task[]): string[] {
   const remaining = tasks.filter((t) => t.status !== 'done');
   return [...new Set(remaining.map((t) => t.projectPath))];
-}
-
-async function findProjectForPath(
-  persistence: PersistencePort,
-  sprint: Sprint,
-  projectPath: string
-): Promise<Project | undefined> {
-  for (const ticket of sprint.tickets) {
-    try {
-      const project = await persistence.getProject(ticket.projectName);
-      if (project.repositories.some((r) => r.path === projectPath)) return project;
-    } catch {
-      // skip — project lookup failures match today's silent-fallthrough behaviour
-    }
-  }
-  return undefined;
-}
-
-function getCheckScript(project: Project | undefined, projectPath: string): string | null {
-  if (!project) return null;
-  const repo = project.repositories.find((r) => r.path === projectPath);
-  return repo?.checkScript ?? null;
 }

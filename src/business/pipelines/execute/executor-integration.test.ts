@@ -33,6 +33,9 @@ import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { createExecuteSprintPipeline, type ExecuteDeps } from '../execute.ts';
+// Integration test: uses the real coordinator so rate-limit pause/resume
+// semantics are exercised against production code, not a fake.
+import { RateLimitCoordinator } from '@src/integration/ai/rate-limiter.ts';
 
 // ---------------------------------------------------------------------------
 // Factories
@@ -153,7 +156,19 @@ function makeParser(): OutputParserPort {
 }
 
 function makeFs(): FilesystemPort {
-  return { getSprintDir: () => '/tmp/sprint' } as unknown as FilesystemPort;
+  // contract-negotiate writes the per-task contract via ensureDir/writeFile;
+  // executeOneTask writes/cleans a per-task context file in the project dir.
+  // The integration test doesn't care about file content — only that I/O
+  // paths are present and non-throwing.
+  return {
+    getSprintDir: () => '/tmp/sprint',
+    getProgressFilePath: () => '/tmp/sprint/progress.md',
+    getProjectContextFilePath: (projectPath: string, sprintId: string, taskId: string) =>
+      `${projectPath}/.ralphctl-sprint-${sprintId}-task-${taskId}-context.md`,
+    ensureDir: () => Promise.resolve(),
+    writeFile: () => Promise.resolve(),
+    deleteFile: () => Promise.resolve(),
+  } as unknown as FilesystemPort;
 }
 
 /**
@@ -217,6 +232,8 @@ function makePersistence(init: { sprint: Sprint; tasks: Task[]; config?: Config 
         ],
       }),
     logProgress: () => Promise.resolve(),
+    getProgress: () => Promise.resolve(''),
+    getProgressSummary: () => Promise.resolve(''),
   } as unknown as PersistencePort;
 
   return {
@@ -314,6 +331,7 @@ function buildDeps(scenario: Scenario = {}): {
     isValidBranchName: () => true,
     getCurrentBranch: () => 'main',
     createAndCheckoutBranch: () => undefined,
+    getRecentGitHistory: () => 'no commits yet',
   } as unknown as ExternalPort;
 
   const ui = {
@@ -334,6 +352,7 @@ function buildDeps(scenario: Scenario = {}): {
     signalParser: makeSignalParser(),
     signalHandler: makeSignalHandler(),
     signalBus: makeBus(events),
+    createRateLimitCoordinator: () => new RateLimitCoordinator(),
   };
 
   // Parser needs to produce a `task-complete` signal so `executeOneTask`
@@ -424,7 +443,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
         model: 'claude-sonnet',
       } as SessionResult);
     });
-    const { deps, events, logs } = buildDeps({ tasks: [task], spawnImpl });
+    const { deps, events, logs, spawnWithRetry } = buildDeps({ tasks: [task], spawnImpl });
 
     const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
     const result = await executePipeline(pipeline, { sprintId: 's1' });
@@ -440,6 +459,14 @@ describe('executeTasksStep via forEachTask — integration', () => {
     expect(result.value.context.executionSummary?.stopReason).toBe('all_completed');
     // Session-id capture log parity.
     expect(logs.infos.some((l) => l.includes('Session saved for resume: resume-s'))).toBe(true);
+    // The resume log line fires once, on the second launch.
+    expect(logs.infos.some((l) => l.includes('Resuming previous session: resume-s'))).toBe(true);
+    // The second spawn actually receives `resumeSessionId` — the harness
+    // threads the captured ID back through the adapter so the provider
+    // builds `--resume <id>`. Previously the map was logging-only.
+    const spawnCalls = spawnWithRetry.mock.calls as [unknown, { resumeSessionId?: string }][];
+    expect(spawnCalls[0]?.[1]?.resumeSessionId).toBeUndefined();
+    expect(spawnCalls[1]?.[1]?.resumeSessionId).toBe('resume-session-abc');
   });
 
   it('branch mismatch: requeues up to 3 times then fails with task_blocked', async () => {

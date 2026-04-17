@@ -14,8 +14,11 @@ export type RequirementStatus = z.infer<typeof RequirementStatusSchema>;
 
 // Evaluation status for tasks. Distinct from `evaluated` (a boolean "did the
 // evaluator run") so callers can tell a real failure from a malformed evaluator
-// output (no signal AND no parseable dimension lines).
-export const EvaluationStatusSchema = z.enum(['passed', 'failed', 'malformed']);
+// output (no signal AND no parseable dimension lines) or a loop that short-
+// circuited because the critique didn't change across iterations ("plateau" —
+// the evaluator keeps flagging the same set of failed dimensions; feeding more
+// fix attempts to the generator is wasteful, so we stop and mark the task done).
+export const EvaluationStatusSchema = z.enum(['passed', 'failed', 'malformed', 'plateau']);
 export type EvaluationStatus = z.infer<typeof EvaluationStatusSchema>;
 
 // Repository schema (a single repository within a project)
@@ -72,7 +75,7 @@ export const TaskSchema = z.object({
   verificationOutput: z.string().optional(), // Output from verification run
   evaluated: z.boolean().default(false), // Whether evaluation passed
   evaluationOutput: z.string().optional(), // Truncated output from evaluation run (full critique lives in evaluationFile)
-  evaluationStatus: EvaluationStatusSchema.optional(), // Discriminator: 'passed' | 'failed' | 'malformed'
+  evaluationStatus: EvaluationStatusSchema.optional(), // Discriminator: 'passed' | 'failed' | 'malformed' | 'plateau'
   evaluationFile: z.string().optional(), // Sidecar file path containing the full untruncated critique
 });
 export type Task = z.infer<typeof TaskSchema>;
