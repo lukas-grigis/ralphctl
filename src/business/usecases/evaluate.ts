@@ -1,4 +1,4 @@
-import type { Task, Sprint, AiProvider } from '@src/domain/models.ts';
+import type { Task, Sprint, AiProvider, EvaluationStatus } from '@src/domain/models.ts';
 import { DomainError, SpawnError, SprintNotFoundError, TaskNotFoundError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { EvaluationOptions } from '@src/domain/context.ts';
@@ -9,6 +9,7 @@ import type { OutputParserPort, EvaluationParseResult } from '../ports/output-pa
 import type { UserInteractionPort } from '../ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '../ports/logger.ts';
 import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import { dimensionsEqual } from './plateau.ts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,7 +53,7 @@ function isPassed(result: EvaluationParseResult): boolean {
 
 export interface EvaluationSummary {
   taskId: string;
-  status: 'passed' | 'failed' | 'malformed' | 'skipped';
+  status: 'passed' | 'failed' | 'malformed' | 'skipped' | 'plateau';
   iterations: number;
   dimensions?: { dimension: string; status: string; description: string }[];
 }
@@ -109,6 +110,7 @@ export class EvaluateTaskUseCase {
       await this.persistEvaluation(sprintId, taskId, 1, evalResult);
 
       let totalIterations = 1;
+      let plateaued = false;
 
       // Fix loop: up to maxIterations fix attempts after the initial evaluation.
       // Bail if passed or malformed (feeding garbage to the generator is wasteful).
@@ -125,23 +127,44 @@ export class EvaluateTaskUseCase {
         }
 
         // Re-evaluate
+        const previousEvalResult = evalResult;
         const stopReeval = log.time('evaluator-re-spawn');
         evalResult = await this.runSingleEvaluation(task, sprint, generatorModel, provider, options);
         stopReeval();
 
         totalIterations++;
+
+        // Plateau detection: if the evaluator keeps flagging the same set of
+        // failed dimensions, further fix attempts are wasteful. Persist the
+        // sidecar with `'plateau'` so the record is distinguishable from a
+        // normal failure, then break.
+        if (
+          !isPassed(evalResult) &&
+          evalResult.status !== 'malformed' &&
+          dimensionsEqual(previousEvalResult, evalResult)
+        ) {
+          plateaued = true;
+          await this.persistEvaluation(sprintId, taskId, i + 2, evalResult, 'plateau');
+          break;
+        }
+
         await this.persistEvaluation(sprintId, taskId, i + 2, evalResult);
       }
 
+      // Plateau coerces the persisted task status — the critique is genuine,
+      // but we want downstream readers (tasks.json, UI) to see this as a
+      // distinct outcome from a plain failure.
+      const finalStatus: EvaluationStatus = plateaued ? 'plateau' : evalResult.status;
+
       // Persist evaluation fields on the task
-      await this.updateTaskEvaluation(sprintId, taskId, evalResult);
+      await this.updateTaskEvaluation(sprintId, taskId, evalResult, finalStatus);
 
       // Report final status
-      this.reportResult(task.name, evalResult, maxIterations);
+      this.reportResult(task.name, evalResult, maxIterations, plateaued);
 
       return Result.ok({
         taskId,
-        status: evalResult.status,
+        status: finalStatus,
         iterations: totalIterations,
         dimensions: evalResult.dimensions.map((d) => ({
           dimension: d.dimension,
@@ -198,7 +221,7 @@ export class EvaluateTaskUseCase {
     const evaluatorModel = getEvaluatorModel(generatorModel, provider);
     const sprintDir = this.fs.getSprintDir(sprint.id);
 
-    const context = this.buildEvaluationContext(task);
+    const context = this.buildEvaluationContext(task, options?.contractPath);
     const prompt = this.promptBuilder.buildTaskEvaluationPrompt(task, sprint, context);
 
     const args: string[] = ['--add-dir', sprintDir];
@@ -233,8 +256,11 @@ export class EvaluateTaskUseCase {
 
   /**
    * Build context string for the evaluator prompt.
+   *
+   * `contractPath`, when set, is the same file the generator read — both
+   * sides agree on the grading rubric this way.
    */
-  private buildEvaluationContext(task: Task): string {
+  private buildEvaluationContext(task: Task, contractPath?: string): string {
     const sections: string[] = [];
 
     sections.push(`## Task: ${task.name}`);
@@ -253,6 +279,12 @@ export class EvaluateTaskUseCase {
     }
 
     sections.push(`## Project Path\n${task.projectPath}`);
+
+    if (contractPath) {
+      sections.push(
+        `## Sprint Contract\nRead the contract at \`${contractPath}\` — this is the same file the generator worked from.`
+      );
+    }
 
     return sections.join('\n\n');
   }
@@ -298,18 +330,25 @@ export class EvaluateTaskUseCase {
 
   /**
    * Persist a real evaluation entry to the sidecar file.
+   *
+   * `statusOverride` exists for plateau: the parsed result is still a real
+   * `'failed'` critique (so `body` stays the raw output), but the status
+   * column in the sidecar header records `'plateau'` so readers can tell a
+   * loop-derived bail from a one-shot failure.
    */
   private async persistEvaluation(
     sprintId: string,
     taskId: string,
     iteration: number,
-    evalResult: EvaluationParseResult
+    evalResult: EvaluationParseResult,
+    statusOverride?: EvaluationStatus
   ): Promise<void> {
     const body =
       evalResult.status === 'malformed' ? '_(evaluator output had no parseable signal)_' : evalResult.rawOutput;
+    const status: EvaluationStatus = statusOverride ?? evalResult.status;
 
     try {
-      await this.persistence.writeEvaluation(sprintId, taskId, iteration, evalResult.status, body);
+      await this.persistence.writeEvaluation(sprintId, taskId, iteration, status, body);
     } catch {
       this.logger.warning(`Could not persist evaluation sidecar for task ${taskId}`);
     }
@@ -333,19 +372,26 @@ export class EvaluateTaskUseCase {
 
   /**
    * Update the task record with evaluation fields.
+   *
+   * `statusOverride` is set when plateau detection fires: the critique body
+   * is still saved (truncated) for traceability, but the discriminator in
+   * `tasks.json` records `'plateau'` so consumers can distinguish it from
+   * a plain `'failed'` run.
    */
   private async updateTaskEvaluation(
     sprintId: string,
     taskId: string,
-    evalResult: EvaluationParseResult
+    evalResult: EvaluationParseResult,
+    statusOverride?: EvaluationStatus
   ): Promise<void> {
+    const status: EvaluationStatus = statusOverride ?? evalResult.status;
     const tasks = await this.persistence.getTasks(sprintId);
     const updatedTasks = tasks.map((t) =>
       t.id === taskId
         ? {
             ...t,
             evaluated: true,
-            evaluationStatus: evalResult.status,
+            evaluationStatus: status,
             evaluationOutput: evalResult.rawOutput.slice(0, MAX_EVAL_OUTPUT),
           }
         : t
@@ -356,8 +402,17 @@ export class EvaluateTaskUseCase {
   /**
    * Report the evaluation outcome to the user.
    */
-  private reportResult(taskName: string, evalResult: EvaluationParseResult, maxIterations: number): void {
-    if (evalResult.status === 'malformed') {
+  private reportResult(
+    taskName: string,
+    evalResult: EvaluationParseResult,
+    maxIterations: number,
+    plateaued: boolean
+  ): void {
+    if (plateaued) {
+      this.logger.warning(
+        `Evaluation plateaued on the same failures — further fix attempts were skipped. Marking done: ${taskName}`
+      );
+    } else if (evalResult.status === 'malformed') {
       this.logger.warning(`Evaluator output was malformed for ${taskName} — marking done`);
     } else if (!isPassed(evalResult)) {
       this.logger.warning(

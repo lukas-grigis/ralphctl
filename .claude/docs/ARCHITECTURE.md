@@ -364,19 +364,16 @@ All domain errors extend `DomainError` (from `src/domain/errors.ts`) and carry a
 
 ## Future Work
 
-- **Plateau detection in the evaluator iteration loop.** Anthropic's harness-design guidance notes that a
-  generator/evaluator loop can converge on a local optimum where every iteration produces the same critique
-  verbatim. A future change can detect this ("did the evaluator emit the exact same dimensions + score as
-  last round?") and short-circuit the remaining iterations, logging a warning. The hook lives naturally
-  inside `createEvaluatorPipeline`'s `run-evaluator-loop` step.
-- **Explicit sprint-contract step.** Anthropic's pattern has generator and evaluator negotiate
-  `verificationCriteria` + evaluation dimensions before work begins, so both sides agree on the grading
-  contract. Today the contract lives implicitly in `task.verificationCriteria` (surfaced to both sides via
-  the prompt templates). A formal `negotiate-contract` step — inserted before `execute-task` in the
-  per-task pipeline — would let us calibrate with few-shot examples and version the contract per task.
-  Useful once we have a corpus of evaluator-calibration data to learn from.
 - **Generalise `forEachTask` to `forEachItem`.** The primitive is deliberately task-shaped (mutex key,
   `projectPath`, schedulerStats naming) because the executor is the only consumer today. If a second use
   site appears — e.g. a per-ticket pipeline, or a cross-repo batch import — the primitive can be renamed
   and the `Task`-ish vocabulary swapped for a generic `Item`. Cheap to do; do it lazily when the second
   consumer exists rather than speculating now.
+- **Evaluator calibration via few-shot.** Requires a corpus of example critiques that represent the user's
+  standards (product content, not a code change). Once collected, inject into the evaluator prompt as
+  few-shot examples to tighten the grading rubric.
+- **Planner emits evaluator dimensions per task.** Today all tasks share the four hardcoded dimensions
+  (`Correctness` / `Completeness` / `Safety` / `Consistency`). A task-specific dimension list — emitted by
+  the planner alongside `verificationCriteria` — would let the evaluator grade on dimensions tuned to the
+  task type (e.g. perf-sensitive tasks gain a `Performance` dimension). Cascading schema change; defer
+  until plateau-detection telemetry suggests it's worth the cost.

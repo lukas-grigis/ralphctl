@@ -245,6 +245,7 @@ export function createExecuteSprintPipeline(shared: SharedDeps, options: Execute
       signalParser: shared.signalParser,
       signalHandler: shared.signalHandler,
       signalBus: shared.signalBus,
+      createRateLimitCoordinator: shared.createRateLimitCoordinator,
     },
     options
   );

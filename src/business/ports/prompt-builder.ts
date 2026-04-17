@@ -27,8 +27,22 @@ export interface PromptBuilderPort {
     projectToolingSection?: string
   ): string;
 
-  /** Build prompt for task execution */
-  buildTaskExecutionPrompt(task: Task, sprint: Sprint, context: string): string;
+  /**
+   * Build the task-execution instructions prompt.
+   *
+   * The returned string is the "## Instructions" block written INTO the
+   * per-task context file. The agent is then told (via the spawn prompt)
+   * to read the context file and follow the instructions.
+   *
+   * @param progressFilePath — absolute path to `<sprintDir>/progress.md`;
+   *   substituted into `{{PROGRESS_FILE}}` in the template so the agent
+   *   reads/writes the real file.
+   * @param contextFileName — basename of the per-task context file in the
+   *   project directory; substituted into `{{CONTEXT_FILE}}`.
+   * @param noCommit — when true, the template emits no "commit" step/
+   *   constraint. Default false.
+   */
+  buildTaskExecutionPrompt(progressFilePath: string, contextFileName: string, noCommit?: boolean): string;
 
   /** Build prompt for task evaluation */
   buildTaskEvaluationPrompt(task: Task, sprint: Sprint, context: string): string;

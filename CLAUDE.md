@@ -180,8 +180,9 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 | Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
 | Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
 
-`checkTaskPermissions()` in `src/integration/ai/task-context.ts` always performs Claude-style file checks (benign for
-Copilot — settings files won't exist). Thread `provider` through if extending permission logic.
+Permission-mode warnings (operator-facing "this tool may need approval" notes) are NOT currently surfaced during
+task execution. The pre-pipeline executor had a `checkTaskPermissions()` pass; rebuilding it against the new
+pipeline shape is follow-up work if the lack of warnings becomes a pain point.
 
 ### Workflow Paths
 

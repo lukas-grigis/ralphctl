@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ParseError } from '@src/domain/errors.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
+import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { ExecuteTasksUseCase, TaskExecutionResult } from '@src/business/usecases/execute.ts';
 import { executeTask } from './execute-task.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
@@ -57,6 +58,63 @@ describe('executeTask step', () => {
     if (!stepResult.ok) return;
     expect(stepResult.value.executionResult).toEqual(result);
     expect(stepResult.value.generatorModel).toBe('claude-sonnet');
+  });
+
+  it('forwards resumeSessionId from taskSessionIds map into executeOneTask options', async () => {
+    const captured: { options?: ExecutionOptions }[] = [];
+    const useCase = {
+      executeOneTask: vi.fn((_task: Task, _sprint: Sprint, options?: ExecutionOptions) => {
+        captured.push({ options });
+        return Promise.resolve({
+          taskId: 't1',
+          success: true,
+          output: 'ok',
+          verified: true,
+        } satisfies TaskExecutionResult);
+      }),
+    } as unknown as ExecuteTasksUseCase;
+
+    const taskSessionIds = new Map<string, string>([['t1', 'resume-abc-123']]);
+    const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask() };
+
+    const stepResult = await executeTask({
+      useCase,
+      options: { maxRetries: 5 },
+      taskSessionIds,
+    }).execute(ctx);
+
+    expect(stepResult.ok).toBe(true);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.options?.resumeSessionId).toBe('resume-abc-123');
+    // Existing options are preserved, not replaced.
+    expect(captured[0]?.options?.maxRetries).toBe(5);
+  });
+
+  it('omits resumeSessionId when the taskSessionIds map has no entry for the task', async () => {
+    const captured: { options?: ExecutionOptions }[] = [];
+    const useCase = {
+      executeOneTask: vi.fn((_task: Task, _sprint: Sprint, options?: ExecutionOptions) => {
+        captured.push({ options });
+        return Promise.resolve({
+          taskId: 't1',
+          success: true,
+          output: 'ok',
+          verified: true,
+        } satisfies TaskExecutionResult);
+      }),
+    } as unknown as ExecuteTasksUseCase;
+
+    const taskSessionIds = new Map<string, string>(); // empty
+    const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask() };
+
+    const stepResult = await executeTask({
+      useCase,
+      options: {},
+      taskSessionIds,
+    }).execute(ctx);
+
+    expect(stepResult.ok).toBe(true);
+    expect(captured[0]?.options?.resumeSessionId).toBeUndefined();
   });
 
   it('returns ParseError when executeOneTask reports success: false', async () => {

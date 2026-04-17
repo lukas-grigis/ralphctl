@@ -1,7 +1,13 @@
-import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { mkdir, readFile, writeFile, access, unlink } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
-import { getRefinementDir, getPlanningDir, getSprintDir, getSchemaPath } from '@src/integration/persistence/paths.ts';
+import {
+  getRefinementDir,
+  getPlanningDir,
+  getSprintDir,
+  getSchemaPath,
+  getProgressFilePath,
+} from '@src/integration/persistence/paths.ts';
 
 export class NodeFilesystemAdapter implements FilesystemPort {
   async ensureDir(path: string): Promise<void> {
@@ -16,6 +22,14 @@ export class NodeFilesystemAdapter implements FilesystemPort {
     // Ensure parent directory exists
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, 'utf-8');
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    try {
+      await unlink(path);
+    } catch {
+      // Missing file is not an error — callers use this as best-effort cleanup.
+    }
   }
 
   async fileExists(path: string): Promise<boolean> {
@@ -37,6 +51,14 @@ export class NodeFilesystemAdapter implements FilesystemPort {
 
   getSprintDir(sprintId: string): string {
     return getSprintDir(sprintId);
+  }
+
+  getProgressFilePath(sprintId: string): string {
+    return getProgressFilePath(sprintId);
+  }
+
+  getProjectContextFilePath(projectPath: string, sprintId: string, taskId: string): string {
+    return join(projectPath, `.ralphctl-sprint-${sprintId}-task-${taskId}-context.md`);
   }
 
   getSchemaPath(name: string): string {

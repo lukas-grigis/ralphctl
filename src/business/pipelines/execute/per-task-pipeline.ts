@@ -13,6 +13,7 @@ import type { PipelineDefinition } from '@src/business/pipeline/types.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import type { PerTaskContext } from './per-task-context.ts';
 import { branchPreflight } from './steps/branch-preflight.ts';
+import { contractNegotiate } from './steps/contract-negotiate.ts';
 import { markInProgress } from './steps/mark-in-progress.ts';
 import { executeTask } from './steps/execute-task.ts';
 import { storeVerification } from './steps/store-verification.ts';
@@ -40,6 +41,15 @@ export interface PerTaskDeps {
   logger: LoggerPort;
   external: ExternalPort;
   signalBus: SignalBusPort;
+  /**
+   * Shared session-id tracker — passed down to the `execute-task` step so a
+   * rate-limit-captured session ID can be threaded into the next spawn as
+   * `--resume <id>`. Lifecycle is owned by the outer `execute-tasks` step:
+   * it populates the map in the retry policy and clears entries on settle.
+   * Optional — when omitted, the step always launches fresh (matches the
+   * unit-test default where resume is not exercised).
+   */
+  taskSessionIds?: Map<string, string>;
 }
 
 /**
@@ -47,12 +57,18 @@ export interface PerTaskDeps {
  *
  * Step order (happy path):
  *   1. branch-preflight     — verify sprint branch (no auto-recovery)
- *   2. mark-in-progress     — persist status + emit `task-started`
- *   3. execute-task         — delegate to `useCase.executeOneTask`
- *   4. store-verification   — persist verified flag if set
- *   5. post-task-check      — run the post-task check gate
- *   6. evaluate-task        — nested evaluator pipeline (REQ-12 live config)
- *   7. mark-done            — persist status + emit `task-finished` + log
+ *   2. contract-negotiate   — write `<sprintDir>/contracts/<taskId>.md`
+ *                             (generator + evaluator grading contract)
+ *   3. mark-in-progress     — persist status + emit `task-started`
+ *   4. execute-task         — delegate to `useCase.executeOneTask`
+ *   5. store-verification   — persist verified flag if set
+ *   6. post-task-check      — run the post-task check gate
+ *   7. evaluate-task        — nested evaluator pipeline (REQ-12 live config)
+ *   8. mark-done            — persist status + emit `task-finished` + log
+ *
+ * `contract-negotiate` sits after branch-preflight (no point writing the
+ * contract if the task will be requeued) and before `mark-in-progress`
+ * (the contract must exist at the moment we commit to the task).
  *
  * Failure semantics (each step short-circuits the pipeline via
  * `Result.error` — `executePipeline` stops and the scheduler's
@@ -74,8 +90,9 @@ export function createPerTaskPipeline(
 ): PipelineDefinition<PerTaskContext> {
   return pipeline<PerTaskContext>('per-task', [
     branchPreflight({ external: deps.external }),
+    contractNegotiate({ persistence: deps.persistence, fs: deps.fs }),
     markInProgress({ persistence: deps.persistence, signalBus: deps.signalBus }),
-    executeTask({ useCase, options }),
+    executeTask({ useCase, options, taskSessionIds: deps.taskSessionIds, logger: deps.logger }),
     storeVerification({ persistence: deps.persistence, logger: deps.logger }),
     postTaskCheck({ useCase }),
     evaluateTask({

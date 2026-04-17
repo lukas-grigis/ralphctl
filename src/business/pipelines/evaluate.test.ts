@@ -352,6 +352,82 @@ describe('createEvaluatorPipeline', () => {
     expect(summary?.iterations).toBe(1);
   });
 
+  it('plateau: short-circuits when the evaluator flags the same failed dimensions twice', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ evaluated: false });
+
+    // Each evaluator spawn returns the same failed dimensions (just reworded).
+    // Fix attempt signals completion so the loop advances to re-evaluation.
+    const spawnOutputs = [
+      '<evaluation-failed>missing null check in handler</evaluation-failed>',
+      '<task-complete/>', // resume generator
+      '<evaluation-failed>null dereference in handler</evaluation-failed>',
+    ];
+    let spawnCall = 0;
+    const parseCalls: number[] = [];
+    let saveTasksCalledWith: string | undefined;
+    const writeEvalCalls: { iteration: number; status: string }[] = [];
+
+    const deps = makeDeps({
+      persistence: makePersistence({
+        getSprint: () => Promise.resolve(sprint),
+        getTask: () => Promise.resolve(task),
+        getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 3 })),
+        getTasks: () => Promise.resolve([task]),
+        saveTasks: (tasks: import('@src/domain/models.ts').Tasks) => {
+          saveTasksCalledWith = tasks[0]?.evaluationStatus;
+          return Promise.resolve();
+        },
+        writeEvaluation: (_sprintId, _taskId, iteration, status) => {
+          writeEvalCalls.push({ iteration, status });
+          return Promise.resolve();
+        },
+      }),
+      fs: makeFs({
+        getSprintDir: () => '/tmp/sprint',
+      }),
+      aiSession: makeAiSession({
+        getProviderName: () => 'claude',
+        getSpawnEnv: () => ({}),
+        spawnWithRetry: () => {
+          const output = spawnOutputs[spawnCall] ?? '';
+          spawnCall++;
+          return Promise.resolve({ output, sessionId: 'evaluator' });
+        },
+      }),
+      promptBuilder: makePromptBuilder({
+        buildTaskEvaluationPrompt: () => 'evaluator prompt',
+      }),
+      parser: makeParser({
+        parseEvaluation: (output: string) => {
+          parseCalls.push(parseCalls.length + 1);
+          return {
+            status: 'failed',
+            dimensions: [{ dimension: 'Correctness', status: 'FAIL', description: output }],
+            rawOutput: output,
+          };
+        },
+        parseExecutionSignals: () => ({ complete: true, blocked: null, verified: null }),
+      }),
+    });
+
+    const pipeline = createEvaluatorPipeline(deps);
+    const result = await executePipeline(pipeline, makeInitialContext());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const summary = result.value.context.evaluationSummary;
+    expect(summary?.status).toBe('plateau');
+    // Iteration 1 (initial) + iteration 2 (re-eval after fix) = 2 evaluator spawns.
+    expect(summary?.iterations).toBe(2);
+    expect(spawnCall).toBe(3); // 2 eval spawns + 1 fix-attempt spawn
+    // The persisted task status mirrors the plateau.
+    expect(saveTasksCalledWith).toBe('plateau');
+    // Sidecar records plateau on iteration 2 (the repeat detection).
+    expect(writeEvalCalls).toContainEqual({ iteration: 2, status: 'plateau' });
+  });
+
   it('iterations=0 yields skipped summary without evaluator spawn', async () => {
     const sprint = makeSprint();
     const task = makeTask({ evaluated: false });

@@ -8,6 +8,13 @@ export interface SessionOptions {
   maxTurns?: number;
   maxBudgetUsd?: number;
   fallbackModel?: string;
+  /**
+   * Previous AI session ID to resume. When set, the provider is invoked with
+   * its `--resume` equivalent so the agent continues the same conversation
+   * rather than starting fresh. Used by the scheduler after a rate-limit
+   * capture to relaunch with continuity. Default: start a fresh session.
+   */
+  resumeSessionId?: string;
 }
 
 /** Result from a headless AI session */

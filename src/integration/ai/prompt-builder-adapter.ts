@@ -54,10 +54,8 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     return buildIdeatePrompt('', '', '', '', outputFile, schema, projectToolingSection ?? '');
   }
 
-  buildTaskExecutionPrompt(_task: Task, _sprint: Sprint, context: string): string {
-    // The existing function takes (progressFilePath, noCommit, contextFileName).
-    // The port expects the caller to have prepared context; we use it as the context file name.
-    return buildTaskExecutionPrompt(context, false, 'task-context.md');
+  buildTaskExecutionPrompt(progressFilePath: string, contextFileName: string, noCommit = false): string {
+    return buildTaskExecutionPrompt(progressFilePath, noCommit, contextFileName);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -29,4 +29,12 @@ export interface PerTaskContext extends StepContext {
    * Undefined when evaluation is disabled or skipped.
    */
   evaluationStepNames?: string[];
+  /**
+   * Absolute path to the per-task sprint contract — a markdown file at
+   * `<sprintDir>/contracts/<taskId>.md` written by `contract-negotiate`.
+   * Downstream steps (`execute-task`, `evaluate-task`) thread this into
+   * the generator / evaluator prompts so both sides read from the same
+   * source of truth.
+   */
+  contractPath?: string;
 }

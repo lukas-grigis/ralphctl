@@ -5,6 +5,7 @@ import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { PromptPort } from '@src/business/ports/prompt.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import { FilePersistenceAdapter } from '@src/integration/persistence/persistence-adapter.ts';
 import { NodeFilesystemAdapter } from '@src/integration/filesystem/filesystem-adapter.ts';
 import { SignalParser } from '@src/integration/signals/parser.ts';
@@ -12,6 +13,7 @@ import { FileSystemSignalHandler } from '@src/integration/signals/file-system-ha
 import { NoopSignalBus } from '@src/integration/signals/bus.ts';
 import { InkPromptAdapter } from '@src/integration/prompts/prompt-adapter.ts';
 import { createLogger } from '@src/integration/logging/factory.ts';
+import { RateLimitCoordinator } from '@src/integration/ai/rate-limiter.ts';
 
 /** Dependencies shared across all commands, created eagerly at startup. */
 export interface SharedDeps {
@@ -22,6 +24,12 @@ export interface SharedDeps {
   logger: LoggerPort;
   prompt: PromptPort;
   signalBus: SignalBusPort;
+  /**
+   * Factory for the parallel-scheduler rate-limit coordinator. Business
+   * pipelines call this per-execution so the concrete class (which is
+   * integration-layer) never leaks into business imports.
+   */
+  createRateLimitCoordinator: () => RateLimitCoordinatorPort;
 }
 
 /**
@@ -39,5 +47,16 @@ export function createSharedDeps(overrides: Partial<SharedDeps> = {}): SharedDep
   const logger = overrides.logger ?? createLogger();
   const prompt = overrides.prompt ?? new InkPromptAdapter();
   const signalBus = overrides.signalBus ?? new NoopSignalBus();
-  return { persistence, filesystem, signalParser, signalHandler, logger, prompt, signalBus };
+  const createRateLimitCoordinator =
+    overrides.createRateLimitCoordinator ?? ((): RateLimitCoordinatorPort => new RateLimitCoordinator());
+  return {
+    persistence,
+    filesystem,
+    signalParser,
+    signalHandler,
+    logger,
+    prompt,
+    signalBus,
+    createRateLimitCoordinator,
+  };
 }

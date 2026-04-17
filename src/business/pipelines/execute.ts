@@ -23,7 +23,6 @@ import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-spr
 import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scripts.ts';
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
-import { RateLimitCoordinator } from '@src/integration/ai/rate-limiter.ts';
 import { ProcessManager } from '@src/integration/ai/process-manager.ts';
 
 const EXIT_SUCCESS = 0;
@@ -75,6 +74,11 @@ export interface ExecuteDeps {
   signalParser: SignalParserPort;
   signalHandler: SignalHandlerPort;
   signalBus: SignalBusPort;
+  /**
+   * Factory for the parallel scheduler's rate-limit coordinator. Injected
+   * so this layer never imports the integration-layer concrete class.
+   */
+  createRateLimitCoordinator: () => RateLimitCoordinatorPort;
 }
 
 // ---------------------------------------------------------------------------
@@ -521,10 +525,12 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       deps.signalBus
     );
 
-    // Session IDs captured during rate-limit failures (logging only — today's
-    // parallel executor doesn't actually thread `--resume` back on next
-    // launch, and we preserve that behaviour). Tracked per task so the log
-    // message stays accurate.
+    // Session IDs captured during rate-limit failures. The map is shared
+    // with the per-task pipeline's `execute-task` step, which reads the
+    // entry for the current task on each launch and forwards it to
+    // `executeOneTask` as `resumeSessionId` — the provider then injects
+    // `--resume <id>` / `--resume=<id>` so the AI picks up mid-conversation.
+    // Entries are cleared `onSettle` for successful tasks.
     const taskSessionIds = new Map<string, string>();
     // Repos blocked by post-task-check failures or exhausted branch retries.
     const failedRepos = new Set<string>();
@@ -568,6 +574,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         logger: deps.logger,
         external: deps.external,
         signalBus: deps.signalBus,
+        taskSessionIds,
       },
       useCase,
       options
@@ -716,7 +723,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         },
       },
       createServices: () => ({
-        coordinator: new RateLimitCoordinator() as RateLimitCoordinatorPort,
+        coordinator: deps.createRateLimitCoordinator(),
         signalBus: deps.signalBus,
       }),
       disposeServices: (services) => {

@@ -86,8 +86,8 @@
       },
       "evaluationStatus": {
         "type": "string",
-        "enum": ["passed", "failed", "malformed"],
-        "description": "Evaluation outcome discriminator. 'malformed' = evaluator output had no parseable signal."
+        "enum": ["passed", "failed", "malformed", "plateau"],
+        "description": "Evaluation outcome discriminator. 'malformed' = evaluator output had no parseable signal. 'plateau' = evaluator kept flagging the same failed dimensions across iterations, so the fix loop short-circuited."
       },
       "evaluationFile": {
         "type": "string",

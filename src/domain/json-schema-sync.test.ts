@@ -91,7 +91,7 @@ describe('tasks.schema.json ↔ TaskSchema', () => {
 
   it('evaluationStatus enum is mirrored in JSON schema', () => {
     const jsonEnum = getEnum(props, 'evaluationStatus', 'enum');
-    expect(jsonEnum).toEqual(['passed', 'failed', 'malformed']);
+    expect(jsonEnum).toEqual(['passed', 'failed', 'malformed', 'plateau']);
   });
 
   it('evaluationFile is declared in JSON schema', () => {

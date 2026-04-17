@@ -81,9 +81,27 @@ export interface ExecutionOptions extends StepOptions {
   branchName?: string;
   noEvaluate?: boolean;
   noFeedback?: boolean;
+  /**
+   * Per-invocation resume hint: when set, `executeOneTask` passes this as the
+   * provider's `--resume` session ID so a rate-limited task relaunches with
+   * full conversation continuity. Transient — the scheduler injects it per
+   * call via the per-task pipeline step, not stored at sprint or task level.
+   */
+  resumeSessionId?: string;
+  /**
+   * Absolute path to the task's sprint contract (written by `contract-negotiate`).
+   * When set, `executeOneTask` appends a "## Sprint Contract" section to the
+   * task context string pointing the generator at the file.
+   */
+  contractPath?: string;
 }
 
 /** Options specific to evaluation */
 export interface EvaluationOptions extends StepOptions {
   iterations?: number;
+  /**
+   * Absolute path to the task's sprint contract. Threaded in from the per-task
+   * pipeline so the evaluator reads the same contract file the generator saw.
+   */
+  contractPath?: string;
 }

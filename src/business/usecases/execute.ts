@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import type { Task, Sprint, Project } from '@src/domain/models.ts';
 import { SpawnError } from '@src/domain/errors.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
@@ -97,8 +98,28 @@ export class ExecuteTasksUseCase {
   async executeOneTask(task: Task, sprint: Sprint, options?: ExecutionOptions): Promise<TaskExecutionResult> {
     const taskLog = this.logger.child({ sprintId: sprint.id, taskId: task.id, projectPath: task.projectPath });
     const sprintDir = this.fs.getSprintDir(sprint.id);
-    const context = this.buildTaskContext(task);
-    const prompt = this.promptBuilder.buildTaskExecutionPrompt(task, sprint, context);
+
+    // Build the per-task context file that the agent will read. The file
+    // lives in the PROJECT directory (not sprint dir) so the AI CLI's `cwd`
+    // sees it via relative basename — matches the template's `{{CONTEXT_FILE}}`
+    // expectation. Content: rich task context + "## Instructions" prompt.
+    const progressFilePath = this.fs.getProgressFilePath(sprint.id);
+    const contextFilePath = this.fs.getProjectContextFilePath(task.projectPath, sprint.id, task.id);
+    const contextFileName = basename(contextFilePath);
+
+    const fullTaskContext = await this.buildFullTaskContext(task, sprint, options?.contractPath);
+    const instructions = this.promptBuilder.buildTaskExecutionPrompt(
+      progressFilePath,
+      contextFileName,
+      options?.noCommit
+    );
+    const contextFileContent = `${fullTaskContext}\n\n---\n\n## Instructions\n\n${instructions}`;
+    await this.fs.writeFile(contextFilePath, contextFileContent);
+
+    // The prompt passed to the AI CLI is a terse "read the file" directive —
+    // the real prompt + context live inside the file. Matches the old
+    // executor's flow pre-pipeline refactor.
+    const spawnPrompt = `Read ${contextFileName} and follow the instructions`;
 
     const args: string[] = ['--add-dir', sprintDir];
     if (options?.maxTurns != null) args.push('--max-turns', String(options.maxTurns));
@@ -107,7 +128,7 @@ export class ExecuteTasksUseCase {
 
     if (options?.session) {
       try {
-        await this.aiSession.spawnInteractive(prompt, {
+        await this.aiSession.spawnInteractive(spawnPrompt, {
           cwd: task.projectPath,
           args,
           env: this.aiSession.getSpawnEnv(),
@@ -120,6 +141,9 @@ export class ExecuteTasksUseCase {
           output: '',
           blocked: err instanceof Error ? err.message : String(err),
         };
+      } finally {
+        // Best-effort cleanup — don't leave the context file in the repo.
+        await this.fs.deleteFile(contextFilePath);
       }
     }
 
@@ -127,11 +151,12 @@ export class ExecuteTasksUseCase {
     const spinner = taskLog.spinner(`${this.aiSession.getProviderDisplayName()} is working on: ${task.name}`);
 
     try {
-      const result = await this.aiSession.spawnWithRetry(prompt, {
+      const result = await this.aiSession.spawnWithRetry(spawnPrompt, {
         cwd: task.projectPath,
         args,
         env: this.aiSession.getSpawnEnv(),
         maxRetries: options?.maxRetries,
+        resumeSessionId: options?.resumeSessionId,
       });
 
       spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${task.name}`);
@@ -175,6 +200,10 @@ export class ExecuteTasksUseCase {
       }
 
       return { taskId: task.id, success: false, output: '', blocked: err instanceof Error ? err.message : String(err) };
+    } finally {
+      // Best-effort cleanup — don't leave the context file in the repo
+      // regardless of whether the spawn succeeded, failed, or rate-limited.
+      await this.fs.deleteFile(contextFilePath);
     }
   }
 
@@ -319,25 +348,119 @@ export class ExecuteTasksUseCase {
     return repo?.checkScript ?? null;
   }
 
-  private buildTaskContext(task: Task): string {
-    const sections: string[] = [];
+  /**
+   * Build the full task context markdown for the per-task context file.
+   *
+   * Layout follows the primacy/recency pattern — high-attention sections
+   * at the start (task directive, steps, verification, branch, check
+   * script), reference-zone in the middle (prior learnings, ticket reqs,
+   * git history), and the "## Instructions" block (written in by the
+   * caller) at the end.
+   *
+   * This restores the rich context the pre-pipeline executor wrote:
+   * without these sections the agent loses branch awareness, check-script
+   * knowledge, prior progress, ticket scope, and recent commits — all of
+   * which the template and dimensions rely on.
+   */
+  private async buildFullTaskContext(task: Task, sprint: Sprint, contractPath?: string): Promise<string> {
+    const lines: string[] = [];
 
-    sections.push(`## Task: ${task.name}`);
-    if (task.description) sections.push(task.description);
-
+    // ═══ HIGH ATTENTION ZONE (start) ═══
+    lines.push(`## Task: ${task.name}`);
+    if (task.description) {
+      lines.push('');
+      lines.push(task.description);
+    }
     if (task.steps.length > 0) {
-      sections.push('## Steps');
-      sections.push(task.steps.map((s, i) => `${String(i + 1)}. ${s}`).join('\n'));
+      lines.push('');
+      lines.push('## Steps');
+      lines.push('');
+      lines.push(task.steps.map((s, i) => `${String(i + 1)}. ${s}`).join('\n'));
     }
-
     if (task.verificationCriteria.length > 0) {
-      sections.push('## Verification Criteria');
-      sections.push(task.verificationCriteria.map((c) => `- ${c}`).join('\n'));
+      lines.push('');
+      lines.push('## Verification Criteria');
+      lines.push('');
+      lines.push(task.verificationCriteria.map((c) => `- ${c}`).join('\n'));
     }
 
-    sections.push(`## Project Path\n${task.projectPath}`);
+    lines.push('');
+    lines.push(`## Project Path\n${task.projectPath}`);
 
-    return sections.join('\n\n');
+    if (sprint.branch) {
+      lines.push('');
+      lines.push('## Branch');
+      lines.push('');
+      lines.push(
+        `You are working on branch \`${sprint.branch}\`. All commits go to this branch. Do not switch branches.`
+      );
+    }
+
+    const project = await this.findProjectForPath(sprint, task.projectPath);
+    const checkScript = this.getCheckScript(project, task.projectPath);
+    lines.push('');
+    lines.push('## Check Script');
+    lines.push('');
+    if (checkScript) {
+      lines.push('The harness runs this command at sprint start and after every task as a post-task gate:');
+      lines.push('');
+      lines.push('```bash');
+      lines.push(checkScript);
+      lines.push('```');
+      lines.push('');
+      lines.push('Your task is NOT marked done unless this command passes after completion.');
+    } else {
+      lines.push(
+        'No check script is configured. Check CLAUDE.md, .github/copilot-instructions.md, or project config for verification commands.'
+      );
+    }
+
+    if (contractPath) {
+      lines.push('');
+      lines.push('## Sprint Contract');
+      lines.push('');
+      lines.push(
+        `The grading contract is at \`${contractPath}\`. Both you and the evaluator read this file — it consolidates the task, verification criteria, check script, and the dimensions the evaluator will score you on.`
+      );
+    }
+
+    // ═══ REFERENCE ZONE (middle) ═══
+    lines.push('');
+    lines.push('---');
+
+    const progressSummary = await this.persistence.getProgressSummary(sprint.id, task.projectPath).catch(() => '');
+    if (progressSummary) {
+      lines.push('');
+      lines.push('## Prior Task Learnings');
+      lines.push('');
+      lines.push('_Reference — consult when relevant to your implementation._');
+      lines.push('');
+      lines.push(progressSummary);
+    }
+
+    if (task.ticketId) {
+      const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
+      if (ticket?.requirements) {
+        lines.push('');
+        lines.push('## Ticket Requirements');
+        lines.push('');
+        lines.push(
+          '_Reference — describes the full ticket scope. This task implements a specific part. Use to validate your work and understand constraints, but follow the Implementation Steps above. Do not expand scope beyond declared steps._'
+        );
+        lines.push('');
+        lines.push(ticket.requirements);
+      }
+    }
+
+    const gitHistory = this.external.getRecentGitHistory(task.projectPath, 10);
+    lines.push('');
+    lines.push('## Git History (recent commits)');
+    lines.push('');
+    lines.push('```');
+    lines.push(gitHistory);
+    lines.push('```');
+
+    return lines.join('\n');
   }
 
   /**

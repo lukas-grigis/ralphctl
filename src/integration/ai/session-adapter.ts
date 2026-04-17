@@ -43,6 +43,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
         args: options.args,
         env: options.env,
         prompt,
+        resumeSessionId: options.resumeSessionId,
       },
       provider
     );
@@ -62,6 +63,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
         args: options.args,
         env: options.env,
         prompt,
+        resumeSessionId: options.resumeSessionId,
       },
       { maxRetries: options.maxRetries },
       provider

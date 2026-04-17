@@ -28,7 +28,7 @@ import { updateTask, updateTaskStatus } from '@src/integration/persistence/task.
 import type { DomainError } from '@src/domain/errors.ts';
 import { StorageError } from '@src/domain/errors.ts';
 
-const MAX_EVAL_OUTPUT = 2000; // Match executor.ts constant
+const MAX_EVAL_OUTPUT = 2000; // Preview cap stored in tasks.json — full critique lives in the sidecar.
 
 /**
  * Convert thrown error to DomainError for wrapAsync error mapping.
