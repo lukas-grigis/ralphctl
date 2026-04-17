@@ -18,7 +18,6 @@ import type {
   TaskBlockedSignal,
   NoteSignal,
   DimensionScore,
-  EvaluationDimension,
 } from '@src/domain/signals.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 
@@ -35,33 +34,46 @@ const SIGNAL_PATTERNS = {
   task_complete: /<task-complete>/,
   task_blocked: /<task-blocked>([\s\S]*?)<\/task-blocked>/,
   note: /<note>([\s\S]*?)<\/note>/g,
-  // Dimension scoring patterns
-  correctness: /\*\*correctness\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
-  completeness: /\*\*completeness\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
-  safety: /\*\*safety\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
-  consistency: /\*\*consistency\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/i,
 };
 
 /**
+ * Generic dimension regex — captures every `**Name**: PASS|FAIL — finding`
+ * line. Matches the four floor dimensions AND planner-emitted extras
+ * (`Performance`, `Accessibility`, `MigrationSafety`, …). See
+ * `src/integration/ai/evaluator.ts` for the matching definition; both modules
+ * share the same shape so the dashboard signal stream and the persisted
+ * evaluation result agree on what counts as a dimension line.
+ */
+const DIMENSION_LINE = /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/gi;
+
+/**
  * Extract dimension scores from evaluation output.
- * Matches lines like: **Correctness**: PASS — one-line finding
+ *
+ * Matches every well-formed dimension line in the input. Names are lowercased;
+ * duplicates collapse to the first occurrence. The parser is line-shaped — a
+ * stray `**Note**: PASS — text` outside an assessment context will be picked
+ * up too; the surrounding prose is the agent's responsibility.
  */
 function parseDimensionScores(output: string): DimensionScore[] {
-  const dimensions: EvaluationDimension[] = ['correctness', 'completeness', 'safety', 'consistency'];
   const scores: DimensionScore[] = [];
-
-  for (const dim of dimensions) {
-    const pattern = SIGNAL_PATTERNS[dim];
-    const match = pattern.exec(output);
-    if (match?.[1] && match[2]) {
-      scores.push({
-        dimension: dim,
-        passed: match[1].toUpperCase() === 'PASS',
-        finding: match[2].trim(),
-      });
-    }
+  const seen = new Set<string>();
+  // Reset stateful /g regex before each call to keep the function pure.
+  DIMENSION_LINE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = DIMENSION_LINE.exec(output)) !== null) {
+    const rawName = match[1];
+    const verdict = match[2];
+    const finding = match[3];
+    if (!rawName || !verdict || !finding) continue;
+    const name = rawName.toLowerCase();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    scores.push({
+      dimension: name,
+      passed: verdict.toUpperCase() === 'PASS',
+      finding: finding.trim(),
+    });
   }
-
   return scores;
 }
 

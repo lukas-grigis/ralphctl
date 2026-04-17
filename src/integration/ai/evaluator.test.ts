@@ -1,36 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildEvaluatorContext, getEvaluatorModel, parseDimensionScores, parseEvaluationResult } from './evaluator.ts';
-import type { ProviderAdapter } from '@src/integration/ai/providers/types.ts';
-import type { Task } from '@src/domain/models.ts';
+import { parseDimensionScores, parseEvaluationResult } from './evaluator.ts';
 
 // ============================================================================
-// Minimal provider stubs
-// ============================================================================
-
-const claudeProvider: ProviderAdapter = {
-  name: 'claude',
-  displayName: 'Claude',
-  binary: 'claude',
-  baseArgs: [],
-  experimental: false,
-  buildInteractiveArgs: () => [],
-  buildHeadlessArgs: () => [],
-  parseJsonOutput: () => ({ result: '', sessionId: null, model: null }),
-  buildResumeArgs: () => [],
-  detectRateLimit: () => ({ rateLimited: false, retryAfterMs: null }),
-  getSpawnEnv: () => ({}),
-};
-
-const copilotProvider: ProviderAdapter = {
-  ...claudeProvider,
-  name: 'copilot',
-  displayName: 'Copilot',
-  binary: 'copilot',
-  experimental: true,
-};
-
-// ============================================================================
-// parseEvaluationResult
+// parseDimensionScores
 // ============================================================================
 
 describe('parseDimensionScores', () => {
@@ -78,9 +50,66 @@ describe('parseDimensionScores', () => {
     const output = '**Correctness**: PASS - All good';
     const scores = parseDimensionScores(output);
     expect(scores).toHaveLength(1);
-    expect(scores[0]).toMatchObject({ finding: 'All good' });
+    expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: true, finding: 'All good' });
+  });
+
+  it('parses planner-emitted extra dimensions when no floor dimensions are present', () => {
+    // Extras-only output — the four floor names never appear, but plateau
+    // detection still needs the failed-dimension set to reach it.
+    const output = [
+      '**Performance**: FAIL — p99 regressed by 40ms',
+      '**Accessibility**: PASS — landmarks present',
+    ].join('\n');
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(2);
+    expect(scores[0]).toMatchObject({ dimension: 'performance', passed: false, finding: 'p99 regressed by 40ms' });
+    expect(scores[1]).toMatchObject({ dimension: 'accessibility', passed: true, finding: 'landmarks present' });
+  });
+
+  it('parses mixed floor + extra dimensions in a single output', () => {
+    const output = [
+      '**Correctness**: PASS — All assertions pass',
+      '**Completeness**: PASS — All steps implemented',
+      '**Safety**: PASS — No vulnerabilities',
+      '**Consistency**: PASS — Follows conventions',
+      '**Performance**: FAIL — p99 latency above target',
+    ].join('\n');
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(5);
+    expect(scores.map((s) => s.dimension)).toEqual([
+      'correctness',
+      'completeness',
+      'safety',
+      'consistency',
+      'performance',
+    ]);
+    expect(scores[4]).toMatchObject({ dimension: 'performance', passed: false });
+  });
+
+  it('parses a stray bold-text dimension line outside an assessment context', () => {
+    // Documented behaviour — the parser is line-shaped, so a single
+    // `**Note**: PASS — something` will be captured even when not part of an
+    // Assessment block. Surrounding prose is the agent's responsibility.
+    const output = 'Misc commentary…\n**Note**: PASS — pre-flight check ran cleanly';
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({ dimension: 'note', passed: true, finding: 'pre-flight check ran cleanly' });
+  });
+
+  it('de-duplicates by lowercased dimension name (first occurrence wins)', () => {
+    const output = [
+      '**Correctness**: PASS — first finding',
+      '**correctness**: FAIL — duplicate (should be ignored)',
+    ].join('\n');
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: true, finding: 'first finding' });
   });
 });
+
+// ============================================================================
+// parseEvaluationResult
+// ============================================================================
 
 describe('parseEvaluationResult', () => {
   it('returns passed=true for <evaluation-passed> signal', () => {
@@ -202,111 +231,5 @@ describe('parseEvaluationResult', () => {
     expect(result.status).toBe('malformed');
     expect(result.passed).toBe(false);
     expect(result.dimensions).toEqual([]);
-  });
-});
-
-// ============================================================================
-// buildEvaluatorContext
-// ============================================================================
-
-describe('buildEvaluatorContext', () => {
-  const baseTask: Task = {
-    id: 'task-1',
-    name: 'Add user auth',
-    description: 'Implement authentication',
-    steps: ['Create auth service', 'Add tests'],
-    verificationCriteria: [],
-    status: 'done',
-    order: 1,
-    blockedBy: [],
-    projectPath: '/home/user/project',
-    verified: false,
-    evaluated: false,
-  };
-
-  it('includes verificationCriteria when non-empty', () => {
-    const task: Task = {
-      ...baseTask,
-      verificationCriteria: ['TypeScript compiles', 'Tests pass'],
-    };
-    const ctx = buildEvaluatorContext(task, null);
-    expect(ctx.verificationCriteria).toEqual(['TypeScript compiles', 'Tests pass']);
-  });
-
-  it('returns empty verificationCriteria when task has none', () => {
-    const ctx = buildEvaluatorContext(baseTask, null);
-    expect(ctx.verificationCriteria).toEqual([]);
-  });
-
-  it('includes check script section with computational gate framing when provided', () => {
-    const ctx = buildEvaluatorContext(baseTask, 'pnpm test');
-    expect(ctx.checkScriptSection).toContain('pnpm test');
-    expect(ctx.checkScriptSection).toContain('Computational Gate');
-  });
-
-  it('sets checkScriptSection to null when no script', () => {
-    const ctx = buildEvaluatorContext(baseTask, null);
-    expect(ctx.checkScriptSection).toBeNull();
-  });
-
-  it('sets projectToolingSection to empty string when projectPath has no tooling', () => {
-    // baseTask.projectPath points at /home/user/project — almost certainly empty in test
-    const ctx = buildEvaluatorContext(baseTask, null);
-    expect(ctx.projectToolingSection).toBe('');
-  });
-});
-
-// ============================================================================
-// getEvaluatorModel
-// ============================================================================
-
-describe('getEvaluatorModel', () => {
-  describe('Claude provider', () => {
-    it('returns Sonnet for Opus generator model', () => {
-      const model = getEvaluatorModel('claude-opus-4-1', claudeProvider);
-      expect(model).toBe('claude-sonnet-4-6');
-    });
-
-    it('returns Sonnet for model name with OPUS in any case', () => {
-      const model = getEvaluatorModel('CLAUDE-OPUS-SOMETHING', claudeProvider);
-      expect(model).toBe('claude-sonnet-4-6');
-    });
-
-    it('returns Haiku for Sonnet generator model', () => {
-      const model = getEvaluatorModel('claude-sonnet-4-6', claudeProvider);
-      expect(model).toBe('claude-haiku-4-5');
-    });
-
-    it('returns Haiku for Haiku generator model', () => {
-      const model = getEvaluatorModel('claude-haiku-4-5', claudeProvider);
-      expect(model).toBe('claude-haiku-4-5');
-    });
-
-    it('returns Haiku for unknown model names', () => {
-      const model = getEvaluatorModel('some-unknown-model', claudeProvider);
-      expect(model).toBe('claude-haiku-4-5');
-    });
-
-    it('returns null when generator model is null', () => {
-      const model = getEvaluatorModel(null, claudeProvider);
-      expect(model).toBeNull();
-    });
-  });
-
-  describe('Copilot provider', () => {
-    it('returns null regardless of model name', () => {
-      const model = getEvaluatorModel('gpt-4', copilotProvider);
-      expect(model).toBeNull();
-    });
-
-    it('returns null even when model name contains opus', () => {
-      const model = getEvaluatorModel('claude-opus-4-1', copilotProvider);
-      expect(model).toBeNull();
-    });
-
-    it('returns null when generator model is null', () => {
-      const model = getEvaluatorModel(null, copilotProvider);
-      expect(model).toBeNull();
-    });
   });
 });

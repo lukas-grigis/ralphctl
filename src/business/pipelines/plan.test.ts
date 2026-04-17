@@ -129,7 +129,9 @@ function makeFs(overrides: Partial<FilesystemPort> = {}): FilesystemPort {
 }
 
 function makeAiSession(overrides: Partial<AiSessionPort> = {}): AiSessionPort {
-  const stub = {} as AiSessionPort;
+  const stub = {
+    ensureReady: () => Promise.resolve(),
+  } as unknown as AiSessionPort;
   return { ...stub, ...overrides };
 }
 

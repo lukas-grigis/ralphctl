@@ -2,10 +2,8 @@ import type { StepContext } from '@src/domain/context.ts';
 import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
 import { DomainError, SpawnError, StepError } from '@src/domain/errors.ts';
-import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
-import type { HarnessEvent, SignalBusPort, Unsubscribe } from '@src/business/ports/signal-bus.ts';
 import { executePipeline } from './pipeline.ts';
-import type { ParallelSharedServices, ParallelStepResult, PipelineDefinition, PipelineStep } from './types.ts';
+import type { PipelineDefinition, PipelineStep } from './types.ts';
 
 /** Create a named pipeline step with optional hooks */
 export function step<TCtx extends StepContext>(
@@ -51,123 +49,6 @@ export function nested<TCtx extends StepContext>(
     // unify with `DomainResult<Partial<TCtx>>` through the distributive
     // conditional when TCtx is generic.
     return Result.ok(finalCtx) as DomainResult<Partial<TCtx>>;
-  });
-}
-
-/**
- * Fan out N inner pipelines concurrently over a list of items.
- *
- * Each inner pipeline is built per-item with access to a shared
- * `ParallelSharedServices` bag (single `RateLimitCoordinator` +
- * `SignalBusPort`) that lives only for the duration of this step.
- *
- * The outer `TCtx` must include an optional `parallelResults` field — each
- * per-item settlement is appended there so downstream steps can inspect
- * success/error counts, rate-limit occurrences, etc.
- *
- * Concurrency:
- *   - `concurrencyLimit` — at most N inner pipelines run simultaneously.
- *     Default: unbounded.
- *   - `failFast: true` — abort launching further pipelines on the first
- *     non-rate-limit failure. Running pipelines are awaited (never orphaned),
- *     but pending items are skipped (not recorded).
- *   - `failFast: false` (default) — all items run to settlement; failures
- *     are aggregated in the returned `parallelResults` array.
- *
- * Rate-limit errors (`SpawnError.rateLimited === true`) are surfaced via
- * `isRateLimited: true` and never trigger a fail-fast abort — the outer
- * loop is expected to retry after the coordinator's cooldown.
- *
- * Services lifecycle: `createServices` is called once at step start,
- * `disposeServices` is always called in a `finally` block — including on
- * inner failure or throw.
- */
-export function parallelMap<
-  TItem,
-  TCtx extends StepContext & { parallelResults?: ParallelStepResult<unknown, TCtx>[] },
->(
-  name: string,
-  itemsFn: (ctx: TCtx) => TItem[],
-  buildInnerPipeline: (item: TItem, services: ParallelSharedServices) => PipelineDefinition<TCtx>,
-  options?: {
-    concurrencyLimit?: number;
-    failFast?: boolean;
-    createServices?: () => ParallelSharedServices;
-    disposeServices?: (services: ParallelSharedServices) => void;
-  }
-): PipelineStep<TCtx> {
-  return step<TCtx>(name, async (ctx): Promise<DomainResult<Partial<TCtx>>> => {
-    const items = itemsFn(ctx);
-    const failFast = options?.failFast ?? false;
-    const concurrencyLimit = options?.concurrencyLimit ?? Infinity;
-
-    if (items.length === 0) {
-      const empty: Partial<TCtx> = {
-        parallelResults: [] as ParallelStepResult<unknown, TCtx>[],
-      } as Partial<TCtx>;
-      return Result.ok(empty) as DomainResult<Partial<TCtx>>;
-    }
-
-    const services = options?.createServices?.() ?? defaultServices();
-
-    const results: ParallelStepResult<TItem, TCtx>[] = [];
-    let aborted = false;
-
-    try {
-      // Index-preserving concurrency: each worker pulls the next pending
-      // index and runs its item to settlement. This keeps the settlement
-      // order stable relative to the input order's dispatch (not completion).
-      let nextIndex = 0;
-      const settled = new Array<ParallelStepResult<TItem, TCtx> | undefined>(items.length);
-
-      const worker = async (): Promise<void> => {
-        for (;;) {
-          if (aborted) return;
-          const i = nextIndex++;
-          if (i >= items.length) return;
-          const item = items[i] as TItem;
-
-          const settlement = await settleOne(item, buildInnerPipeline, services, ctx);
-          settled[i] = settlement;
-
-          // Real failures (not rate limits) trigger fail-fast abort.
-          if (failFast && settlement.error && !settlement.isRateLimited) {
-            aborted = true;
-            return;
-          }
-        }
-      };
-
-      const workerCount = Math.min(concurrencyLimit, items.length);
-      const workers = Array.from({ length: workerCount }, () => worker());
-      await Promise.all(workers);
-
-      for (const entry of settled) {
-        if (entry !== undefined) results.push(entry);
-      }
-    } finally {
-      if (options?.disposeServices) {
-        options.disposeServices(services);
-      } else {
-        services.coordinator.dispose();
-        services.signalBus.dispose();
-      }
-    }
-
-    // If failFast fired, surface the first non-rate-limit error as the
-    // step result so the outer pipeline stops cleanly. Otherwise the step
-    // succeeds and callers inspect `parallelResults` themselves.
-    if (failFast) {
-      const firstError = results.find((r) => r.error && !r.isRateLimited);
-      if (firstError?.error) {
-        return Result.error(firstError.error);
-      }
-    }
-
-    const output: Partial<TCtx> = {
-      parallelResults: results as ParallelStepResult<unknown, TCtx>[],
-    } as Partial<TCtx>;
-    return Result.ok(output) as DomainResult<Partial<TCtx>>;
   });
 }
 
@@ -239,53 +120,6 @@ function indexOfStep<TCtx extends StepContext>(pipeline_: PipelineDefinition<TCt
   return idx;
 }
 
-async function settleOne<TItem, TCtx extends StepContext>(
-  item: TItem,
-  buildInnerPipeline: (item: TItem, services: ParallelSharedServices) => PipelineDefinition<TCtx>,
-  services: ParallelSharedServices,
-  ctx: TCtx
-): Promise<ParallelStepResult<TItem, TCtx>> {
-  try {
-    const inner = buildInnerPipeline(item, services);
-    const result = await executePipeline(inner, ctx);
-
-    if (!result.ok) {
-      const error = result.error;
-      return {
-        item,
-        context: ctx,
-        stepResults: [],
-        error,
-        isRateLimited: isRateLimitError(error),
-      };
-    }
-
-    const value = result.value;
-    return {
-      item,
-      context: value.context,
-      stepResults: value.stepResults,
-      isRateLimited: false,
-    };
-  } catch (err) {
-    const error =
-      err instanceof DomainError
-        ? err
-        : new StepError(
-            `Unexpected error in parallel item: ${err instanceof Error ? err.message : String(err)}`,
-            'parallelMap',
-            err instanceof Error ? err : undefined
-          );
-    return {
-      item,
-      context: ctx,
-      stepResults: [],
-      error,
-      isRateLimited: isRateLimitError(error),
-    };
-  }
-}
-
 /**
  * Walk a `DomainError`'s cause chain to find the originating `SpawnError` —
  * useful when a step-boundary wrapped the spawn failure in `StepError`.
@@ -298,51 +132,4 @@ export function findSpawnError(err: DomainError): SpawnError | null {
     current = current instanceof DomainError ? current.cause : undefined;
   }
   return null;
-}
-
-function isRateLimitError(err: DomainError): boolean {
-  return findSpawnError(err)?.rateLimited ?? false;
-}
-
-/**
- * Fallback services factory when the caller doesn't provide one. Produces
- * a noop implementation of each port — suitable for tests and any use case
- * that doesn't need live rate-limit coordination or signal emission.
- */
-function defaultServices(): ParallelSharedServices {
-  return {
-    coordinator: new NoopRateLimitCoordinator(),
-    signalBus: new NoopSignalBusForParallel(),
-  };
-}
-
-class NoopRateLimitCoordinator implements RateLimitCoordinatorPort {
-  readonly isPaused = false;
-  readonly remainingMs = 0;
-  pause(_delayMs: number): void {
-    /* noop */
-    void _delayMs;
-  }
-  waitIfPaused(): Promise<void> {
-    return Promise.resolve();
-  }
-  dispose(): void {
-    /* noop */
-  }
-}
-
-class NoopSignalBusForParallel implements SignalBusPort {
-  emit(_event: HarnessEvent): void {
-    /* noop */
-    void _event;
-  }
-  subscribe(_listener: (events: readonly HarnessEvent[]) => void): Unsubscribe {
-    void _listener;
-    return () => {
-      /* noop */
-    };
-  }
-  dispose(): void {
-    /* noop */
-  }
 }

@@ -1,7 +1,8 @@
 # Sprint Feedback — Implement User Feedback
 
-You are implementing feedback from the sprint owner on completed work. The feedback is
-authoritative — implement each requested change precisely, verify, and signal completion.
+You are implementing feedback from the sprint owner on completed work. The feedback is authoritative. Think through
+each requested change before editing — identify exactly which files and behaviours need to change, then apply the
+minimal safe fix, verify, and signal completion.
 
 {{HARNESS_CONTEXT}}
 
@@ -29,9 +30,10 @@ If feedback is unclear or contradictory, signal `<task-blocked>reason</task-bloc
 
 <constraints>
 
-- **Stay within scope** — implement only what the feedback requests; do not expand or refactor
-- **Fix, don't rewrite** — make minimal targeted changes
-- **Treat feedback as authoritative** — if feedback contradicts existing behavior, implement the feedback
+- **Stay within scope** — implement only what the feedback requests; keep edits local to the files the feedback calls
+  out rather than expanding into neighboring code.
+- **Fix, don't rewrite** — make minimal targeted changes.
+- **Treat feedback as authoritative** — when the feedback contradicts existing behaviour, implement the feedback.
 
 </constraints>
 

@@ -14,9 +14,8 @@ import type { PerTaskContext } from '../per-task-context.ts';
  * The persistence update is idempotent — skipped when the task is already
  * in_progress (e.g. resuming after a rate-limit pause or crash).
  *
- * SignalBus is injected via deps for now; commit 3 will swap to reading
- * from `ctx.__services.signalBus` once `forEachTask` wires the per-task
- * pipeline inside its worker-pool.
+ * The signal bus is provided through this step's `deps` closure; the
+ * scheduler keeps it off the per-item context.
  */
 export function markInProgress(deps: {
   persistence: PersistencePort;

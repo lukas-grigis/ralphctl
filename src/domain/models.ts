@@ -77,6 +77,10 @@ export const TaskSchema = z.object({
   evaluationOutput: z.string().optional(), // Truncated output from evaluation run (full critique lives in evaluationFile)
   evaluationStatus: EvaluationStatusSchema.optional(), // Discriminator: 'passed' | 'failed' | 'malformed' | 'plateau'
   evaluationFile: z.string().optional(), // Sidecar file path containing the full untruncated critique
+  // Optional task-specific evaluator dimensions emitted by the planner (e.g. "Performance",
+  // "Accessibility", "MigrationSafety"). Stack on top of the four floor dimensions
+  // (Correctness/Completeness/Safety/Consistency) — `undefined` means "floor only".
+  extraDimensions: z.array(z.string().min(1)).optional(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -94,6 +98,9 @@ export const ImportTaskSchema = z.object({
   ticketId: z.string().optional(),
   blockedBy: z.array(z.string()).optional(),
   projectPath: z.string().min(1), // Required - execution directory
+  // Optional planner-emitted dimensions on top of the four floor dimensions
+  // (Correctness/Completeness/Safety/Consistency). Omit when no extras apply.
+  extraDimensions: z.array(z.string().min(1)).optional(),
 });
 export type ImportTask = z.infer<typeof ImportTaskSchema>;
 

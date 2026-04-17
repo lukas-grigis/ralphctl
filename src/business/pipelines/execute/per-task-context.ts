@@ -10,7 +10,7 @@ import type { TaskExecutionResult } from '@src/business/usecases/execute.ts';
  * state populated by the per-task steps.
  *
  * Field lifecycle:
- *   - `task` — seeded by the caller (or by `forEachTask` in commit 3)
+ *   - `task` — injected by `forEachTask` per-item via the `itemKey` field
  *   - `sprint` — carried through from the outer pipeline
  *   - `executionResult` — written by `execute-task`
  *   - `generatorModel` — written by `execute-task` (derived from

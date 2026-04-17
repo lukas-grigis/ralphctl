@@ -1,18 +1,16 @@
-## Project Resources (instruction files and `.claude/` directory)
+## Project Resources
 
-Each repository may have project-specific instruction files and a `.claude/` directory. Check them during exploration and
-leverage them throughout planning:
+Each repository may ship with project-specific instruction files at its root and a `.claude/` configuration directory.
+Read them during exploration and reference them throughout planning:
 
-- **`CLAUDE.md`** — Project-level rules, conventions, and persistent memory
-- **`.github/copilot-instructions.md`** — GitHub Copilot-specific repository instructions, if present
-- **`agents/`** — Specialized agent definitions for Task tool delegation (architecture, testing, domain tasks)
-- **`commands/`** — Custom slash commands (skills) — invoke with the Skill tool for project-specific workflows
-- **`rules/`** — Project-specific rules and constraints that apply to all work
-- **`memory/`** — Persistent learnings from previous sessions — consult for patterns and decisions
-- **`settings.json` / `settings.local.json`** — Tool permissions, model preferences, hooks
+- **`CLAUDE.md` / `AGENTS.md`** — project-level rules, conventions, and persistent memory
+- **`.github/copilot-instructions.md`** — GitHub Copilot-specific repository instructions, when present
+- **`.mcp.json`** — MCP servers the project ships with (Playwright, database inspection, etc.)
+- **`.claude/agents/`** — subagent definitions for Task-tool delegation
+- **`.claude/skills/`** — custom skills invokable with the Skill tool for project-specific workflows
+- **`.claude/settings.json`** / **`.claude/settings.local.json`** — tool permissions, model preferences, hooks
 
-If repository instruction files exist (`CLAUDE.md`, `.github/copilot-instructions.md`), treat their instructions as
-authoritative for that codebase.
+When repository instruction files exist, treat their instructions as authoritative for that codebase.
 
 ## What Makes a Great Task
 
@@ -49,8 +47,19 @@ Right size (one task covering the full change):
 
 Every task must include a `verificationCriteria` array — these are the **done contract** between the generator (task
 executor) and the evaluator (independent reviewer). The evaluator grades each criterion as pass/fail across four
-dimensions: correctness, completeness, safety, and consistency. If ANY criterion fails, the task fails evaluation and
-the generator receives specific feedback to fix.
+floor dimensions: correctness, completeness, safety, and consistency. If ANY dimension fails, the task fails
+evaluation and the generator receives specific feedback to fix.
+
+#### Optional: Extra Evaluator Dimensions (`extraDimensions`)
+
+The four floor dimensions apply to every task. When a task has a non-default success criterion that the floor
+dimensions do not capture cleanly — e.g. perf-sensitive work, UI/accessibility, schema migration safety,
+security-critical changes — emit `extraDimensions: ["Name"]` on that task. The evaluator will grade those names
+on top of the floor.
+
+Use sparingly — most tasks need no extras. Pick PascalCase names the evaluator can interpret directly (e.g.
+`"Performance"`, `"Accessibility"`, `"MigrationSafety"`, `"BackwardCompatibility"`). Omit the field when
+floor-only is enough.
 
 Write criteria that are:
 
@@ -83,7 +92,7 @@ the evaluator will attempt visual verification using Playwright or browser tools
 1. **Outcome-oriented** — Each task delivers a testable result
 2. **Merge create+use** — Never separate "create X" from "use X" — that is one task
 3. **Target 5-15 tasks** per scope, not 20-30 micro-tasks
-4. **No artificial splits** — If tasks only make sense in sequence, merge them
+4. **Merge serial chains** — If tasks only make sense when run in sequence, fold them into one task
 
 ### Anti-Patterns
 

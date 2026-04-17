@@ -8,6 +8,7 @@ import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
+import type { ExternalPort } from '@src/business/ports/external.ts';
 import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { createEvaluatorPipeline, type EvaluateContext, type EvaluateDeps } from './evaluate.ts';
 
@@ -134,7 +135,9 @@ function makeFs(overrides: Partial<FilesystemPort> = {}): FilesystemPort {
 }
 
 function makeAiSession(overrides: Partial<AiSessionPort> = {}): AiSessionPort {
-  const stub = {} as AiSessionPort;
+  const stub = {
+    ensureReady: () => Promise.resolve(),
+  } as unknown as AiSessionPort;
   return { ...stub, ...overrides };
 }
 
@@ -153,6 +156,13 @@ function makeUi(overrides: Partial<UserInteractionPort> = {}): UserInteractionPo
   return { ...stub, ...overrides };
 }
 
+function makeExternal(overrides: Partial<ExternalPort> = {}): ExternalPort {
+  const stub = {
+    detectProjectTooling: () => '',
+  } as unknown as ExternalPort;
+  return { ...stub, ...overrides };
+}
+
 function makeDeps(overrides: Partial<EvaluateDeps> = {}): EvaluateDeps {
   return {
     persistence: makePersistence(),
@@ -162,6 +172,7 @@ function makeDeps(overrides: Partial<EvaluateDeps> = {}): EvaluateDeps {
     parser: makeParser(),
     ui: makeUi(),
     logger: makeLogger(),
+    external: makeExternal(),
     ...overrides,
   };
 }

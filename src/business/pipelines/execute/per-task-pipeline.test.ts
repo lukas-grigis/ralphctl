@@ -171,6 +171,7 @@ function setup(scenario: Scenario = {}): {
   } as unknown as PersistencePort;
 
   const aiSession = {
+    ensureReady: () => Promise.resolve(),
     getProviderName: () => 'claude',
     getSpawnEnv: () => ({}),
     spawnWithRetry: () =>
@@ -188,7 +189,12 @@ function setup(scenario: Scenario = {}): {
     parseEvaluation: () => ({ status: 'passed', dimensions: [], rawOutput: 'ok' }),
   } as unknown as OutputParserPort;
 
-  const external = { verifyBranch } as unknown as ExternalPort;
+  const external = {
+    verifyBranch,
+    // Evaluator renders a Project Tooling section from detectProjectTooling();
+    // tests don't care about the content, just that it's a string.
+    detectProjectTooling: () => '',
+  } as unknown as ExternalPort;
 
   const deps: PerTaskDeps = {
     persistence,

@@ -30,22 +30,32 @@ describe('claudeAdapter', () => {
       expect(claudeAdapter.baseArgs).toContain('--permission-mode');
       expect(claudeAdapter.baseArgs).toContain('acceptEdits');
     });
+
+    it('baseArgs includes --effort xhigh (Opus 4.7 reasoning-level default)', () => {
+      // Opus 4.7 introduced `xhigh` between `high` and `max`; Claude Code
+      // defaults to `xhigh` for plans, and the harness matches that so
+      // long-running executor/evaluator sessions get enough reasoning
+      // headroom without paying the `max` premium. Older models accept the
+      // flag too — the CLI maps the level down to what the model supports.
+      expect(claudeAdapter.baseArgs).toContain('--effort');
+      expect(claudeAdapter.baseArgs).toContain('xhigh');
+    });
   });
 
   describe('buildInteractiveArgs', () => {
     it('returns args with -- separator before the prompt', () => {
       const args = claudeAdapter.buildInteractiveArgs('test prompt');
-      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--', 'test prompt']);
+      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--', 'test prompt']);
     });
 
     it('includes extra args before the prompt', () => {
       const args = claudeAdapter.buildInteractiveArgs('test prompt', ['--verbose']);
-      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--verbose', '--', 'test prompt']);
+      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--verbose', '--', 'test prompt']);
     });
 
     it('handles empty prompt', () => {
       const args = claudeAdapter.buildInteractiveArgs('');
-      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--', '']);
+      expect(args).toEqual(['--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--', '']);
     });
   });
 

@@ -1,4 +1,4 @@
-import type { Sprint, Task } from '@src/domain/models.ts';
+import type { Task } from '@src/domain/models.ts';
 
 /** Port for building AI prompts for each workflow phase */
 export interface PromptBuilderPort {
@@ -39,13 +39,32 @@ export interface PromptBuilderPort {
    *   reads/writes the real file.
    * @param contextFileName — basename of the per-task context file in the
    *   project directory; substituted into `{{CONTEXT_FILE}}`.
+   * @param projectToolingSection — pre-rendered `## Project Tooling` block
+   *   listing subagents / skills / MCP servers detected in the target
+   *   repo; empty string when nothing was detected (the template handles
+   *   empty substitution cleanly).
    * @param noCommit — when true, the template emits no "commit" step/
    *   constraint. Default false.
    */
-  buildTaskExecutionPrompt(progressFilePath: string, contextFileName: string, noCommit?: boolean): string;
+  buildTaskExecutionPrompt(
+    progressFilePath: string,
+    contextFileName: string,
+    projectToolingSection: string,
+    noCommit?: boolean
+  ): string;
 
-  /** Build prompt for task evaluation */
-  buildTaskEvaluationPrompt(task: Task, sprint: Sprint, context: string): string;
+  /**
+   * Build prompt for task evaluation.
+   *
+   * @param checkScriptSection — pre-rendered `#### Check Script (Computational Gate)`
+   *   markdown block (or `null` when the repo has no `checkScript` configured).
+   *   The H4 level is intentional — the evaluator template injects this under
+   *   `### Phase 1`, so anything shallower would break the hierarchy.
+   * @param projectToolingSection — pre-rendered `## Project Tooling` block
+   *   listing subagents / skills / MCP servers available in the project; empty
+   *   string when nothing was detected.
+   */
+  buildTaskEvaluationPrompt(task: Task, checkScriptSection: string | null, projectToolingSection: string): string;
 
   /** Build prompt for sprint feedback implementation */
   buildFeedbackPrompt(sprintName: string, completedTasks: string, feedback: string, branch: string | null): string;

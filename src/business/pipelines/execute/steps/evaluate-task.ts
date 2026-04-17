@@ -56,13 +56,11 @@ export function evaluateTask(deps: EvaluateTaskDeps): PipelineStep<PerTaskContex
         parser: deps.parser,
         ui: deps.ui,
         logger: deps.logger,
+        external: deps.external,
       },
       {
         iterations: evalCfg.iterations,
         maxTurns: deps.options.maxTurns,
-        // Same contract file the generator saw — both sides agree on the
-        // grading rubric.
-        ...(ctx.contractPath ? { contractPath: ctx.contractPath } : {}),
       }
     );
 

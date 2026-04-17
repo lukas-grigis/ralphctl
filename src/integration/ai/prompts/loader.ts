@@ -100,7 +100,12 @@ export function buildAutoPrompt(context: string, schema: string, projectToolingS
   });
 }
 
-export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boolean, contextFileName: string): string {
+export function buildTaskExecutionPrompt(
+  progressFilePath: string,
+  noCommit: boolean,
+  contextFileName: string,
+  projectToolingSection = ''
+): string {
   const template = loadTemplate('task-execution');
   // COMMIT_STEP renders as a sub-bullet under Phase 3 step 2 (verification). Keeping it
   // as a nested list item avoids the list-gap anti-pattern: when noCommit is true, the
@@ -116,6 +121,7 @@ export function buildTaskExecutionPrompt(progressFilePath: string, noCommit: boo
     COMMIT_STEP: commitStep,
     COMMIT_CONSTRAINT: commitConstraint,
     CONTEXT_FILE: contextFileName,
+    PROJECT_TOOLING: projectToolingSection,
   });
 }
 
@@ -185,6 +191,48 @@ export interface EvaluatorPromptContext {
    * was detected — the template handles empty placeholders cleanly.
    */
   projectToolingSection: string;
+  /**
+   * Optional planner-emitted dimensions stacked on top of the four floor
+   * dimensions (Correctness/Completeness/Safety/Consistency). Empty array
+   * means "floor only" — no extra blocks are rendered.
+   */
+  extraDimensions: string[];
+}
+
+/**
+ * Render the three EXTRA_DIMENSIONS slots from the planner-emitted dimension
+ * names. All three slots are the empty string when no extras are present —
+ * keeping the surrounding markdown structure intact (no orphan headings,
+ * no double blank lines).
+ *
+ * - `section`: full dimension definitions appended after Dimension 4.
+ * - `passBar`: extra bullets appended to the Pass Bar list.
+ * - `assessment`: extra `**Name**: …` lines appended to the Assessment block
+ *   in the output template.
+ */
+function renderExtraDimensions(extras: string[]): {
+  section: string;
+  passBar: string;
+  assessment: string;
+} {
+  if (extras.length === 0) {
+    return { section: '', passBar: '', assessment: '' };
+  }
+
+  const section = extras
+    .map(
+      (name, i) =>
+        `\n**Dimension ${String(5 + i)} — ${name}**\nAdditional task-specific dimension flagged by the planner. Apply judgment to whether the implementation satisfies this dimension given the task's verification criteria and steps.\n`
+    )
+    .join('');
+
+  const passBar = extras.map((name) => `\n- **${name}**: Task-specific dimension flagged by the planner`).join('');
+
+  return {
+    section,
+    passBar,
+    assessment: extras.map((name) => `\n**${name}**: PASS/FAIL — [one-line finding]`).join(''),
+  };
 }
 
 export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
@@ -202,6 +250,11 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
 
   const checkSection = ctx.checkScriptSection ? `\n\n${ctx.checkScriptSection}` : '';
 
+  const extras = renderExtraDimensions(ctx.extraDimensions);
+  // Both Assessment blocks (pass-only and mixed) get the same per-extra lines —
+  // the template only differentiates PASS vs PASS/FAIL on the floor four lines.
+  const extraAssessmentPass = extras.assessment.replace(/PASS\/FAIL/g, 'PASS');
+
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
     SIGNALS: loadPartial('signals-evaluation'),
@@ -212,6 +265,10 @@ export function buildEvaluatorPrompt(ctx: EvaluatorPromptContext): string {
     PROJECT_PATH: ctx.projectPath,
     CHECK_SCRIPT_SECTION: checkSection,
     PROJECT_TOOLING: ctx.projectToolingSection,
+    EXTRA_DIMENSIONS_SECTION: extras.section,
+    EXTRA_DIMENSIONS_PASS_BAR: extras.passBar,
+    EXTRA_DIMENSIONS_ASSESSMENT_PASS: extraAssessmentPass,
+    EXTRA_DIMENSIONS_ASSESSMENT_MIXED: extras.assessment,
   });
 }
 

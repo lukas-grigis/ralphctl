@@ -1,9 +1,9 @@
 /**
  * `forEachTask` — dynamic per-item scheduling primitive.
  *
- * Unlike `parallelMap` (fixed list + fan-out), `forEachTask` pulls items
- * fresh on every scheduling tick, so items appearing mid-run (e.g. tasks
- * whose dependencies just cleared) are picked up automatically.
+ * Items are pulled fresh on every scheduling tick, so items appearing
+ * mid-run (e.g. tasks whose dependencies just cleared) are picked up
+ * automatically — no fixed input list.
  *
  * This primitive encapsulates the worker-pool + rate-limit + mutex-key +
  * retry-policy logic that previously lived inside
@@ -91,9 +91,17 @@ export interface ForEachTaskPolicies<TItem> {
   onSettle?: (item: TItem, result: 'success' | 'failed' | 'skipped') => void;
 }
 
-export interface ForEachTaskOptions<TItem> {
-  /** Sub-pipeline run per-item. Receives the outer ctx plus `[itemKey]: TItem`. */
-  steps: PipelineDefinition;
+export interface ForEachTaskOptions<TItem, TInnerCtx extends StepContext = StepContext> {
+  /**
+   * Sub-pipeline run per-item. Receives the outer ctx plus `[itemKey]: TItem`.
+   *
+   * `TInnerCtx` lets callers declare the per-item context shape — e.g. the
+   * execute pipeline passes `PipelineDefinition<PerTaskContext>` so the
+   * per-task steps see `task` / `sprint` directly without casting. The
+   * runtime contract is that the outer ctx must already carry every field
+   * `TInnerCtx` requires beyond `[itemKey]: TItem`.
+   */
+  steps: PipelineDefinition<TInnerCtx>;
   strategy: ForEachTaskStrategy<TItem>;
   policies: ForEachTaskPolicies<TItem>;
   /** Context key for the injected item. Default: `'task'`. */
@@ -119,12 +127,14 @@ const DEFAULT_MAX_CONCURRENCY = 10;
 const DEFAULT_ITEM_KEY = 'task';
 
 /** The primitive. Returns a `PipelineStep` that runs `opts.steps` for each pulled item. */
-export function forEachTask<TItem>(opts: ForEachTaskOptions<TItem>): PipelineStep {
+export function forEachTask<TItem, TInnerCtx extends StepContext = StepContext>(
+  opts: ForEachTaskOptions<TItem, TInnerCtx>
+): PipelineStep {
   const name = opts.steps.name;
 
   return {
     name: `for-each-task:${name}`,
-    execute: (ctx: ForEachTaskContext) => runScheduler<TItem>(opts, ctx),
+    execute: (ctx: ForEachTaskContext) => runScheduler<TItem, TInnerCtx>(opts, ctx),
   };
 }
 
@@ -149,8 +159,8 @@ interface SettlementEnvelope<TItem> {
   error: DomainError | null;
 }
 
-async function runScheduler<TItem>(
-  opts: ForEachTaskOptions<TItem>,
+async function runScheduler<TItem, TInnerCtx extends StepContext>(
+  opts: ForEachTaskOptions<TItem, TInnerCtx>,
   ctx: StepContext
 ): Promise<DomainResult<Partial<ForEachTaskContext>>> {
   const itemKey = opts.itemKey ?? DEFAULT_ITEM_KEY;
@@ -208,7 +218,7 @@ async function runScheduler<TItem>(
 
       while (state.inFlight.size < concurrencyLimit && launchable.length > 0) {
         const item = launchable.shift() as TItem;
-        launchItem(item, opts, ctx, services, mutexKeyFn, itemKey, state);
+        launchItem<TItem, TInnerCtx>(item, opts, ctx, mutexKeyFn, itemKey, state);
       }
 
       if (state.inFlight.size === 0) break;
@@ -270,11 +280,10 @@ async function runScheduler<TItem>(
 // Launch + settlement
 // ---------------------------------------------------------------------------
 
-function launchItem<TItem>(
+function launchItem<TItem, TInnerCtx extends StepContext>(
   item: TItem,
-  opts: ForEachTaskOptions<TItem>,
+  opts: ForEachTaskOptions<TItem, TInnerCtx>,
   outerCtx: StepContext,
-  services: ParallelSharedServices,
   mutexKeyFn: (item: TItem) => string,
   itemKey: string,
   state: SchedulerState<TItem>
@@ -283,14 +292,16 @@ function launchItem<TItem>(
   state.stats.inFlight = state.inFlight.size + 1;
   opts.policies.onLaunch?.(item);
 
-  // The framework contract is that callers read the injected item via
-  // `ctx[itemKey]` and services via `ctx.__services`. `StepContext` is
-  // deliberately narrow — callers type-assert inside their own steps.
+  // Callers read the injected item via `ctx[itemKey]`. Shared services
+  // (rate-limit coordinator, signal bus) are owned by the scheduler and
+  // injected into per-item steps through their own `deps` closure — they
+  // are not exposed on the context. The runtime contract is that
+  // `outerCtx` already carries every field `TInnerCtx` requires beyond
+  // `[itemKey]: TItem` — the cast bridges the structural gap.
   const innerCtx = {
     ...outerCtx,
     [itemKey]: item,
-    __services: services,
-  } as unknown as StepContext;
+  } as unknown as TInnerCtx;
 
   const promise = runItem(opts.steps, innerCtx).then(
     (settlement): SettlementEnvelope<TItem> => ({ item, error: settlement.error })
@@ -302,7 +313,10 @@ interface ItemSettlement {
   error: DomainError | null;
 }
 
-async function runItem(steps: PipelineDefinition, ctx: StepContext): Promise<ItemSettlement> {
+async function runItem<TInnerCtx extends StepContext>(
+  steps: PipelineDefinition<TInnerCtx>,
+  ctx: TInnerCtx
+): Promise<ItemSettlement> {
   try {
     const result = await executePipeline(steps, ctx);
     if (result.ok) return { error: null };
@@ -358,9 +372,9 @@ function selectLaunchable<TItem>(
   return picked;
 }
 
-async function hasMoreWork<TItem>(
+async function hasMoreWork<TItem, TInnerCtx extends StepContext>(
   ctx: StepContext,
-  opts: ForEachTaskOptions<TItem>,
+  opts: ForEachTaskOptions<TItem, TInnerCtx>,
   state: SchedulerState<TItem>
 ): Promise<boolean> {
   if (state.inFlight.size > 0) return true;

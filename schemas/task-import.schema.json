@@ -50,6 +50,14 @@
         "type": "string",
         "minLength": 1,
         "description": "Absolute path to the repository where this task should execute. Must be one of the project's paths."
+      },
+      "extraDimensions": {
+        "type": "array",
+        "description": "Optional task-specific evaluator dimensions stacked on top of the four floor dimensions (Correctness/Completeness/Safety/Consistency). Use sparingly — only when the task has a non-default success criterion (e.g. 'Performance' for perf-sensitive work, 'Accessibility' for UI, 'MigrationSafety' for schema changes). Omit otherwise.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

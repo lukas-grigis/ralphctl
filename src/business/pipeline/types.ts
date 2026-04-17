@@ -49,28 +49,13 @@ export interface StepExecutionRecord {
 }
 
 /**
- * Shared services bag handed to every inner pipeline built by `parallelMap`.
+ * Shared services bag handed to inner pipelines built by `forEachTask`.
  *
  * A single `RateLimitCoordinator` + `SignalBusPort` pair is shared for the
- * duration of a `parallelMap` step so sibling tasks can coordinate rate-limit
+ * duration of a `forEachTask` step so sibling tasks can coordinate rate-limit
  * pauses and emit observability events into the same stream.
  */
 export interface ParallelSharedServices {
   coordinator: RateLimitCoordinatorPort;
   signalBus: SignalBusPort;
-}
-
-/**
- * Per-item settlement record produced by `parallelMap`.
- *
- * One entry is appended to `parallelResults` for each input item, whether
- * the inner pipeline succeeded or failed. `isRateLimited` distinguishes a
- * recoverable rate-limit failure from a real error so outer loops can retry.
- */
-export interface ParallelStepResult<TItem = unknown, TCtx extends StepContext = StepContext> {
-  item: TItem;
-  context: TCtx;
-  stepResults: StepExecutionRecord[];
-  error?: DomainError;
-  isRateLimited: boolean;
 }

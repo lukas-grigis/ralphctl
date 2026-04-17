@@ -9,6 +9,7 @@ import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
+import type { ExternalPort } from '@src/business/ports/external.ts';
 import { step, pipeline } from '@src/business/pipeline/helpers.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { EvaluateTaskUseCase, type EvaluationSummary } from '@src/business/usecases/evaluate.ts';
@@ -33,7 +34,14 @@ export interface EvaluateOptions {
   maxTurns?: number;
 }
 
-/** Adapters required to build the evaluate pipeline. No `external` — evaluator doesn't need git/gh. */
+/**
+ * Adapters required to build the evaluate pipeline.
+ *
+ * `external` is used for `detectProjectTooling()` (subagents / skills / MCP
+ * servers), rendered into the evaluator prompt. The evaluator doesn't need
+ * git/gh, but the Project Tooling section is the same machinery as the
+ * planner's, so we share the adapter.
+ */
 export interface EvaluateDeps {
   persistence: PersistencePort;
   fs: FilesystemPort;
@@ -42,6 +50,7 @@ export interface EvaluateDeps {
   parser: OutputParserPort;
   ui: UserInteractionPort;
   logger: LoggerPort;
+  external: ExternalPort;
 }
 
 /**
@@ -163,7 +172,8 @@ export function createEvaluatorPipeline(deps: EvaluateDeps, options: EvaluateOpt
     deps.parser,
     deps.ui,
     deps.logger,
-    deps.fs
+    deps.fs,
+    deps.external
   );
 
   return pipeline<EvaluateContext>('evaluate', [

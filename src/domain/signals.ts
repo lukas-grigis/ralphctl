@@ -8,9 +8,15 @@
 
 /**
  * Dimension scores from evaluator output.
- * Parsed from lines like: **Correctness**: PASS — one-line finding
+ *
+ * Parsed from lines like `**Name**: PASS|FAIL — one-line finding`. The dimension
+ * name is any identifier matched by the parser regex — both the four floor
+ * dimensions (`correctness`, `completeness`, `safety`, `consistency`) AND
+ * planner-emitted extras (e.g. `performance`, `accessibility`, `migrationsafety`).
+ * Names are lowercased at the parser boundary so downstream comparisons (e.g.
+ * `failedDimensions()` for plateau detection) stay case-insensitive.
  */
-export type EvaluationDimension = 'correctness' | 'completeness' | 'safety' | 'consistency';
+export type EvaluationDimension = string;
 
 export interface DimensionScore {
   dimension: EvaluationDimension;

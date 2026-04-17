@@ -4,13 +4,20 @@ import type { ParsedOutput, ProviderAdapter, RateLimitInfo } from '@src/integrat
 /**
  * Claude Code CLI adapter.
  *
- * Maps to the `claude` binary with `--permission-mode acceptEdits`.
+ * Maps to the `claude` binary. Default flags:
+ * - `--permission-mode acceptEdits` — harness owns approval; agent runs unattended.
+ * - `--effort xhigh` — Opus 4.7 introduced the `xhigh` effort level (between
+ *   `high` and `max`); Claude Code itself defaults to `xhigh` for plans.
+ *   Matching that default in the harness gives long-running executor and
+ *   evaluator sessions enough reasoning headroom without paying for `max`.
+ *   Older Claude models (Opus 4.5/4.6, Sonnet/Haiku) accept `--effort` too;
+ *   the CLI maps the level down to what the selected model supports.
  */
 export const claudeAdapter: ProviderAdapter = {
   name: 'claude',
   displayName: 'Claude',
   binary: 'claude',
-  baseArgs: ['--permission-mode', 'acceptEdits'],
+  baseArgs: ['--permission-mode', 'acceptEdits', '--effort', 'xhigh'],
 
   experimental: false,
 

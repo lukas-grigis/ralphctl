@@ -92,6 +92,14 @@
       "evaluationFile": {
         "type": "string",
         "description": "Sidecar file path containing the full untruncated critique"
+      },
+      "extraDimensions": {
+        "type": "array",
+        "description": "Optional planner-emitted evaluator dimensions stacked on top of the four floor dimensions (Correctness/Completeness/Safety/Consistency). Omit for floor-only.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

@@ -38,12 +38,20 @@ export interface AiSessionPort {
   /** Resume a session by ID */
   resumeSession(sessionId: string, prompt: string, options: SessionOptions): Promise<SessionResult>;
 
-  /** Get the current provider identifier */
+  /**
+   * Eagerly resolve the active provider so the sync getters below can be
+   * safely called. Call once at the top of any use case that needs the
+   * provider name/display/env before spawning a session (spinner labels,
+   * confirm prompts, etc.). Idempotent — subsequent calls are no-ops.
+   */
+  ensureReady(): Promise<void>;
+
+  /** Get the current provider identifier. Requires a prior async call. */
   getProviderName(): AiProvider;
 
-  /** Get display-friendly provider name */
+  /** Get display-friendly provider name. Requires a prior async call. */
   getProviderDisplayName(): string;
 
-  /** Get spawn environment variables for child processes */
+  /** Get spawn environment variables for child processes. Requires a prior async call. */
   getSpawnEnv(): Record<string, string>;
 }
