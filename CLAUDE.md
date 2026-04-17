@@ -268,7 +268,12 @@ Never add raw emoji or inconsistent formatting — use `emoji`/`colors`/`statusE
 `@src/integration/ui/theme/theme.ts` and the formatters from `@src/integration/ui/theme/ui.ts`. Ink components pull
 theme tokens via `@src/integration/ui/theme/tokens.ts`.
 
-See `.claude/agents/designer.md` for UX guidelines.
+**The Ink TUI has a design system** — see [`.claude/docs/DESIGN-SYSTEM.md`](.claude/docs/DESIGN-SYSTEM.md) before
+adding a view, component, or glyph. It covers the token set (`inkColors` / `glyphs` / `spacing`), component inventory,
+state surfaces (loading / empty / error / success), navigation contract, copy rules, and anti-patterns. Most needs are
+already solved — reuse `ViewShell` + `ResultCard` + `FieldList` + `Spinner` before inventing.
+
+See `.claude/agents/designer.md` for the designer agent's role.
 
 ### Repository layout
 

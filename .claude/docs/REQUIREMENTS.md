@@ -262,6 +262,10 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 The contract every TUI view follows. Goal: the app feels written from one hand — same layout, same keys, same
 language on every screen. Changes to TUI primitives MUST update this section.
 
+> **Full design system:** [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) is the canonical reference — tokens, component
+> inventory, state surfaces, copy rules, anti-patterns, and the "when to extend vs reuse" ladder. This section holds
+> the **testable** version of that system (what a reviewer can check off); read the design system first for the why.
+
 ## Design intent — "Technical Letterpress"
 
 Typography is the workhorse: bold + dim carry hierarchy, color carries semantic state. Ralph personality is
