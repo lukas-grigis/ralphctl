@@ -16,7 +16,7 @@ import {
 import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import type { Repository } from '@src/domain/models.ts';
 
-export interface TaskAddOptions {
+interface TaskAddOptions {
   name?: string;
   description?: string;
   steps?: string[];

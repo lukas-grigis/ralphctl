@@ -282,11 +282,6 @@ export async function removeProject(name: string): Promise<void> {
   if (!writeResult.ok) throw writeResult.error;
 }
 
-export async function getProjectRepos(name: string): Promise<Repository[]> {
-  const project = await getProject(name);
-  return project.repositories;
-}
-
 /**
  * Add a repository to an existing project. Stamps an id if one isn't supplied.
  */

@@ -1,8 +1,7 @@
-import { bold, cyan, dim, gray, green, magenta, red, yellow } from 'colorette';
+import { bold, cyan, gray, green, red, yellow } from 'colorette';
 import gradient from 'gradient-string';
 
-// Re-export colorette functions for direct usage
-export { cyan, green, red, yellow, blue, gray, bold, dim, isColorSupported } from 'colorette';
+export { isColorSupported } from 'colorette';
 
 /**
  * Emoji set shared by Ink prompt components and plain-text output.
@@ -34,23 +33,12 @@ export const colors = {
   muted: gray,
   highlight: yellow,
   accent: bold,
-  subtle: dim,
-  // Ralph-specific
-  primary: yellow,
-  secondary: magenta,
 } as const;
 
 // Semantic color shortcuts
 export const success = (text: string): string => colors.success(text);
 export const error = (text: string): string => colors.error(text);
-export const warning = (text: string): string => colors.warning(text);
-export const info = (text: string): string => colors.info(text);
 export const muted = (text: string): string => colors.muted(text);
-export const highlight = (text: string): string => colors.highlight(text);
-export const accent = (text: string): string => colors.accent(text);
-export const subtle = (text: string): string => colors.subtle(text);
-export const primary = (text: string): string => colors.primary(text);
-export const secondary = (text: string): string => colors.secondary(text);
 
 // ============================================================================
 // GRADIENT RENDERING (powered by gradient-string)

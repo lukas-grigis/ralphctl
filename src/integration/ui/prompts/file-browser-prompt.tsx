@@ -13,7 +13,7 @@ import { Box, Text, useInput } from 'ink';
 import type { FileBrowserOptions } from '@src/business/ports/prompt.ts';
 import { emoji } from '@src/integration/ui/theme/tokens.ts';
 
-export interface FileBrowserPromptProps {
+interface FileBrowserPromptProps {
   options: FileBrowserOptions;
   onSubmit: (path: string) => void;
   onCancel: () => void;

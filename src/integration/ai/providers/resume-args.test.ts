@@ -2,7 +2,7 @@
  * Narrow tests on `buildResumeArgs` for both providers.
  *
  * Rationale: the executor's session-resume wiring threads a captured
- * session ID through `spawnHeadlessRaw`, which then calls
+ * session ID through `spawnHeadless`, which then calls
  * `provider.buildResumeArgs(sessionId)` and appends the result to the CLI
  * argv. These tests pin the CLI-flag shape so a provider change doesn't
  * silently break `--resume`.

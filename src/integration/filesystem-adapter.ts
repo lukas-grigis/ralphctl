@@ -4,6 +4,7 @@ import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import {
   getRefinementDir,
   getPlanningDir,
+  getIdeationDir,
   getSprintDir,
   getProgressFilePath,
 } from '@src/integration/persistence/paths.ts';
@@ -46,6 +47,10 @@ export class NodeFilesystemAdapter implements FilesystemPort {
 
   getPlanningDir(sprintId: string): string {
     return getPlanningDir(sprintId);
+  }
+
+  getIdeationDir(sprintId: string, ticketId: string): string {
+    return getIdeationDir(sprintId, ticketId);
   }
 
   getSprintDir(sprintId: string): string {

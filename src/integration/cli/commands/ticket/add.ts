@@ -22,7 +22,7 @@ import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import { fetchIssueFromUrl, type IssueData } from '@src/integration/external/issue-fetch.ts';
 import type { Ticket } from '@src/domain/models.ts';
 
-export interface TicketAddOptions {
+interface TicketAddOptions {
   title?: string;
   description?: string;
   link?: string;

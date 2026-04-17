@@ -41,11 +41,6 @@ export interface SpawnResult {
   model: string | null;
 }
 
-export interface SpawnInteractiveResult {
-  code: number;
-  error?: string;
-}
-
 // ============================================================================
 // Rate limit detection
 // ============================================================================

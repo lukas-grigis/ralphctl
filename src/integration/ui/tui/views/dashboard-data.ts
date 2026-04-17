@@ -124,50 +124,6 @@ export function getNextAction(data: DashboardData): NextAction | null {
 }
 
 /**
- * Render a compact 2-3 line status header for display above the main menu.
- * Returns an array of lines, or empty array if no data.
- */
-export function renderStatusHeader(data: DashboardData | null): string[] {
-  if (!data) return [];
-
-  const { sprint, tasks, approvedCount, aiProvider } = data;
-  const totalTasks = tasks.length;
-  const ticketCount = sprint.tickets.length;
-
-  const lines: string[] = [];
-
-  // Line 1: sprint name, status, counts, provider
-  const sprintLabel = colors.highlight(sprint.name);
-  const statusBadge = formatSprintStatus(sprint.status);
-  const ticketPart = `${String(ticketCount)} ticket${ticketCount !== 1 ? 's' : ''}`;
-  const taskPart = `${String(totalTasks)} task${totalTasks !== 1 ? 's' : ''}`;
-  const providerPart = aiProvider === 'claude' ? 'Claude' : aiProvider === 'copilot' ? 'Copilot' : null;
-  const providerSuffix = providerPart ? `  |  ${providerPart}` : '';
-  lines.push(
-    `  ${icons.sprint} ${sprintLabel}  ${statusBadge}  ${colors.muted(`|  ${ticketPart}  |  ${taskPart}${providerSuffix}`)}`
-  );
-
-  // Line 2: task progress (active/closed) or refined/planned counts (draft)
-  if ((sprint.status === 'active' || sprint.status === 'closed') && totalTasks > 0) {
-    const doneCount = tasks.filter((t) => t.status === 'done').length;
-    const bar = progressBar(doneCount, totalTasks, { width: 15 });
-    const inProgressCount = tasks.filter((t) => t.status === 'in_progress').length;
-    const todoCount = tasks.filter((t) => t.status === 'todo').length;
-    lines.push(
-      `  ${bar}  ${colors.muted(`${String(doneCount)} done, ${String(inProgressCount)} active, ${String(todoCount)} todo`)}`
-    );
-  } else if (sprint.status === 'draft' && ticketCount > 0) {
-    const refinedColor = approvedCount === ticketCount ? colors.success : colors.warning;
-    const refinedPart = refinedColor(`Refined: ${String(approvedCount)}/${String(ticketCount)}`);
-    const plannedColor = data.plannedTicketCount === ticketCount ? colors.success : colors.muted;
-    const plannedPart = plannedColor(`Planned: ${String(data.plannedTicketCount)}/${String(ticketCount)}`);
-    lines.push(`  ${refinedPart}  ${colors.muted('|')}  ${plannedPart}`);
-  }
-
-  return lines;
-}
-
-/**
  * Render the status dashboard showing current sprint info and task progress.
  * Returns an array of lines to display.
  */

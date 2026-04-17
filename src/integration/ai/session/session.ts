@@ -4,7 +4,6 @@ import { assertSafeCwd } from '@src/integration/persistence/paths.ts';
 import type {
   HeadlessSpawnOptions,
   ProviderAdapter,
-  SpawnAsyncOptions,
   SpawnResult,
   SpawnSyncOptions,
 } from '@src/integration/ai/providers/types.ts';
@@ -50,21 +49,6 @@ export function spawnInteractive(
 }
 
 /**
- * Spawn AI CLI in print mode for headless execution.
- * Captures stdout and returns the text result.
- *
- * Uses --output-format json internally to capture session IDs.
- * The returned string is the extracted `result` field from the JSON output.
- */
-export async function spawnHeadless(
-  options: SpawnAsyncOptions & { prompt?: string },
-  provider?: ProviderAdapter
-): Promise<string> {
-  const result = await spawnHeadlessRaw(options as HeadlessSpawnOptions, provider);
-  return result.stdout;
-}
-
-/**
  * Low-level headless spawn returning structured result.
  *
  * Uses --output-format json to capture session_id for resumability.
@@ -73,10 +57,7 @@ export async function spawnHeadless(
  *
  * Throws SpawnError on non-zero exit (includes rate limit detection + session ID).
  */
-export async function spawnHeadlessRaw(
-  options: HeadlessSpawnOptions,
-  provider?: ProviderAdapter
-): Promise<SpawnResult> {
+export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: ProviderAdapter): Promise<SpawnResult> {
   assertSafeCwd(options.cwd);
   const p = provider ?? (await getActiveProvider());
 
@@ -210,7 +191,7 @@ export async function spawnWithRetry(
       throw new SpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId);
     }
 
-    const r = await wrapAsync(async () => spawnHeadlessRaw({ ...options, resumeSessionId }, p), ensureError);
+    const r = await wrapAsync(async () => spawnHeadless({ ...options, resumeSessionId }, p), ensureError);
 
     if (r.ok) return r.value;
 

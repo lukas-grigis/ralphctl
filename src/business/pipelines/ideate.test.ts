@@ -220,6 +220,7 @@ describe('createIdeatePipeline', () => {
       fs: makeFs({
         readFile: () => Promise.resolve('{}'),
         getSprintDir: () => '/tmp/sprint',
+        getIdeationDir: () => '/tmp/sprint/ideation/ticket',
         ensureDir: () => Promise.resolve(),
       }),
       aiSession: makeAiSession({

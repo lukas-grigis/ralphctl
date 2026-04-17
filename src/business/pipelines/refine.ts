@@ -17,7 +17,7 @@ import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-spr
 import { type RefineSummary, RefineTicketRequirementsUseCase } from '@src/business/usecases/refine.ts';
 
 /** Context accumulated by the refine pipeline. */
-export interface RefineContext extends StepContext {
+interface RefineContext extends StepContext {
   refineSummary?: RefineSummary;
 }
 

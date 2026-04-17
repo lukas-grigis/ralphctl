@@ -186,7 +186,7 @@ function fetchGitLabIssueResult(parsed: ParsedIssueUrl) {
 /**
  * Fetch issue data from GitHub or GitLab using CLI tools — Result-returning version.
  */
-export function fetchIssueResult(parsed: ParsedIssueUrl) {
+function fetchIssueResult(parsed: ParsedIssueUrl) {
   if (parsed.host === 'github') {
     return fetchGitHubIssueResult(parsed);
   }
@@ -199,16 +199,6 @@ export function fetchIssueResult(parsed: ParsedIssueUrl) {
  */
 export function fetchIssue(parsed: ParsedIssueUrl): IssueData {
   return unwrapOrThrow(fetchIssueResult(parsed));
-}
-
-/**
- * Fetch issue data from a URL string — Result-returning version.
- * Returns null if the URL is not a recognized issue URL.
- */
-export function fetchIssueFromUrlResult(url: string) {
-  const parsed = parseIssueUrl(url);
-  if (!parsed) return null;
-  return fetchIssueResult(parsed);
 }
 
 /**

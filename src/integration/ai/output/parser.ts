@@ -1,6 +1,6 @@
 import { SignalParser } from '@src/integration/signals/parser.ts';
 
-export interface ExecutionResult {
+interface ExecutionResult {
   success: boolean;
   output: string;
   blockedReason?: string;

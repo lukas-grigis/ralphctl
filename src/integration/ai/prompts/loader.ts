@@ -178,7 +178,7 @@ export function buildIdeateAutoPrompt(
   });
 }
 
-export interface EvaluatorPromptContext {
+interface EvaluatorPromptContext {
   taskName: string;
   taskDescription: string;
   taskSteps: string[];
@@ -290,7 +290,7 @@ export function buildSprintFeedbackPrompt(
   });
 }
 
-export interface EvaluationResumePromptContext {
+interface EvaluationResumePromptContext {
   /** Full evaluator critique to feed back to the generator. */
   critique: string;
   /** When true, the generator must commit before signaling completion. */

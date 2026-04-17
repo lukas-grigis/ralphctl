@@ -24,7 +24,6 @@ import {
 // ============================================================================
 
 export { emoji };
-export { getRandomQuote } from './theme.ts';
 
 // ============================================================================
 // ICONS (data — used across ~20 commands for inline rendering)
@@ -110,10 +109,6 @@ export function showError(message: string): void {
   console.log('\n' + `${INDENT}${colors.error(icons.error)}  ${colors.error(message)}`);
 }
 
-export function showInfo(message: string): void {
-  console.log(`${INDENT}${colors.info(icons.info)}  ${colors.info(message)}`);
-}
-
 export function showWarning(message: string): void {
   console.log(`${INDENT}${colors.warning(icons.warning)}  ${colors.warning(message)}`);
 }
@@ -142,13 +137,6 @@ export function showRandomQuote(): void {
   console.log(colors.muted(`  "${getRandomQuote()}"`));
 }
 
-export function printSummary(items: [string, string | number][]): void {
-  printSeparator();
-  for (const [label, value] of items) {
-    console.log(`${INDENT}${colors.muted(label)}  ${colors.highlight(String(value))}`);
-  }
-}
-
 export function printCountSummary(label: string, done: number, total: number): void {
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   const color = percent === 100 ? colors.success : percent > 50 ? colors.warning : colors.muted;
@@ -161,7 +149,7 @@ export function printCountSummary(label: string, done: number, total: number): v
 // ============================================================================
 
 /** Pure function — banner art + random quote as a string. */
-export function getBannerText(): string {
+function getBannerText(): string {
   const art = isColorSupported ? gradients.donut.multiline(banner.art) : banner.art;
   const quote = getRandomQuote();
   return `${art}\n  ${colors.muted(`"${quote}"`)}\n`;
@@ -284,10 +272,6 @@ export function badge(text: string, type: 'success' | 'warning' | 'error' | 'mut
   return colors[type](`[${text}]`);
 }
 
-export function formatMuted(text: string): string {
-  return colors.muted(text);
-}
-
 // ============================================================================
 // BOX / CARD / TABLE / COLUMN RENDERERS (pure)
 // ============================================================================
@@ -343,11 +327,11 @@ function stripAnsi(s: string): string {
   return s.replace(ANSI_REGEX, '');
 }
 
-export function sanitizeForDisplay(s: string): string {
+function sanitizeForDisplay(s: string): string {
   return s.replace(ANSI_REGEX, '');
 }
 
-export const MIN_BOX_WIDTH = 20;
+const MIN_BOX_WIDTH = 20;
 const DEFAULT_TERMINAL_WIDTH = 80;
 export const DETAIL_LABEL_WIDTH = 14;
 
@@ -444,7 +428,7 @@ export function renderCard(
   return result.join('\n');
 }
 
-export interface ProgressBarOptions {
+interface ProgressBarOptions {
   width?: number;
   filled?: string;
   empty?: string;
@@ -463,14 +447,14 @@ export function progressBar(done: number, total: number, options: ProgressBarOpt
   return `${bar} ${label}`;
 }
 
-export interface TableColumn {
+interface TableColumn {
   header: string;
   align?: 'left' | 'right';
   color?: ColorFn;
   minWidth?: number;
 }
 
-export interface TableOptions {
+interface TableOptions {
   style?: BoxStyle;
   indent?: number;
   colorFn?: ColorFn;
@@ -516,47 +500,4 @@ export function renderTable(columns: TableColumn[], rows: string[][], options: T
   const bottomLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.teeUp);
   result.push(pad + colorFn(chars.bottomLeft + bottomLine + chars.bottomRight));
   return result.join('\n');
-}
-
-export interface ColumnOptions {
-  gap?: number;
-  minWidth?: number;
-}
-
-export function renderColumns(blocks: string[][], options: ColumnOptions = {}): string {
-  const { gap = 4, minWidth = 20 } = options;
-  const colCount = blocks.length;
-  if (colCount === 0) return '';
-  if (colCount === 1) return (blocks[0] ?? []).join('\n');
-
-  const widths = blocks.map((lines) => Math.max(minWidth, ...lines.map((l) => stripAnsi(l).length)));
-  const maxLines = Math.max(...blocks.map((b) => b.length));
-  const gapStr = ' '.repeat(gap);
-
-  const result: string[] = [];
-  for (let i = 0; i < maxLines; i++) {
-    const parts = blocks.map((block, colIdx) => {
-      const line = block[i] ?? '';
-      const w = widths[colIdx] ?? minWidth;
-      const visibleLen = stripAnsi(line).length;
-      return line + ' '.repeat(Math.max(0, w - visibleLen));
-    });
-    result.push(parts.join(gapStr));
-  }
-  return result.join('\n');
-}
-
-export interface ProgressSummaryLabels {
-  done?: string;
-  remaining?: string;
-  title?: string;
-}
-
-export function renderProgressSummary(done: number, total: number, labels: ProgressSummaryLabels = {}): string {
-  const { done: doneLabel = 'done', remaining: remainingLabel = 'remaining', title } = labels;
-  const remaining = total - done;
-  const bar = progressBar(done, total);
-  const summary = `${colors.success(String(done))} ${colors.muted(doneLabel)}, ${colors.muted(String(remaining))} ${colors.muted(remainingLabel)}`;
-  const prefix = title ? `${colors.highlight(title)}  ` : '';
-  return `${prefix}${bar}  ${summary}`;
 }

@@ -30,7 +30,7 @@ import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './re
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 
-export interface TicketRefineOptions {
+interface TicketRefineOptions {
   interactive?: boolean;
 }
 

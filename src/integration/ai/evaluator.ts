@@ -19,10 +19,10 @@ import type { EvaluationStatus } from '@src/domain/models.ts';
  * Re-exported for backward compatibility with consumers that previously
  * imported the four-name literal union.
  */
-export type EvaluationDimension = string;
+type EvaluationDimension = string;
 
 /** Per-dimension score parsed from evaluator output. */
-export interface DimensionScore {
+interface DimensionScore {
   dimension: EvaluationDimension;
   passed: boolean;
   finding: string;
@@ -38,9 +38,9 @@ export interface DimensionScore {
  * `EvaluateTaskUseCase` when the same failures recur across iterations. The
  * parser status is deliberately narrower than the persisted `EvaluationStatus`.
  */
-export type ParsedEvaluationStatus = Exclude<EvaluationStatus, 'plateau'>;
+type ParsedEvaluationStatus = Exclude<EvaluationStatus, 'plateau'>;
 
-export interface EvaluationResult {
+interface EvaluationResult {
   passed: boolean;
   status: ParsedEvaluationStatus;
   output: string;

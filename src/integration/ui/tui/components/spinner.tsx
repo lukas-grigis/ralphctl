@@ -12,7 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
-export interface SpinnerProps {
+interface SpinnerProps {
   readonly label: string;
   /** Override the frame color; defaults to warning amber. */
   readonly color?: string;

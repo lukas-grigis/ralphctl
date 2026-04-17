@@ -46,7 +46,7 @@ interface Props {
   executionOptions?: ExecutionOptions;
 }
 
-export interface RunState {
+interface RunState {
   sprint: Sprint | null;
   tasks: readonly Task[];
   running: Set<string>;

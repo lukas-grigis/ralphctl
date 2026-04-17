@@ -30,7 +30,7 @@ import { Box, Text, useInput } from 'ink';
 import type { EditorOptions } from '@src/business/ports/prompt.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
-export interface EditorPromptProps {
+interface EditorPromptProps {
   options: EditorOptions;
   onSubmit: (value: string) => void;
   onCancel: () => void;

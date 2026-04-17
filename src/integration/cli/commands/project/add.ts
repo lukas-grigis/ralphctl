@@ -26,7 +26,7 @@ import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import { browseDirectory } from '@src/integration/ui/prompts/file-browser-impl.ts';
 import { detectCheckScriptCandidates, suggestCheckScript } from '@src/integration/external/detect-scripts.ts';
 
-export interface ProjectAddOptions {
+interface ProjectAddOptions {
   name?: string;
   displayName?: string;
   paths?: string[];

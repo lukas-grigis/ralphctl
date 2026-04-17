@@ -36,7 +36,7 @@ export function registerExternalHost(): () => void {
   };
 }
 
-export function canInteract(): boolean {
+function canInteract(): boolean {
   if (process.env['RALPHCTL_NO_TUI']) return false;
   if (process.env['CI']) return false;
   if (process.env['RALPHCTL_JSON']) return false;

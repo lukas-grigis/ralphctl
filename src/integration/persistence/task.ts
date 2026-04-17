@@ -30,7 +30,7 @@ export async function getTask(taskId: string, sprintId?: string): Promise<Task> 
   return task;
 }
 
-export interface AddTaskInput {
+interface AddTaskInput {
   name: string;
   description?: string;
   steps?: string[];
@@ -124,7 +124,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus, sprin
   return lockResult.value;
 }
 
-export interface UpdateTaskInput {
+interface UpdateTaskInput {
   verified?: boolean;
   verificationOutput?: string;
   evaluated?: boolean;
@@ -174,21 +174,6 @@ export async function updateTask(taskId: string, updates: UpdateTaskInput, sprin
   });
   if (!lockResult.ok) throw lockResult.error;
   return lockResult.value;
-}
-
-/**
- * Check if a task is blocked by dependencies.
- * A task is blocked if any of its blockedBy tasks are not done.
- */
-export async function isTaskBlocked(taskId: string, sprintId?: string): Promise<boolean> {
-  const tasks = await getTasks(sprintId);
-  const task = tasks.find((t) => t.id === taskId);
-  if (!task) return false;
-
-  if (task.blockedBy.length === 0) return false;
-
-  const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
-  return !task.blockedBy.every((id) => doneIds.has(id));
 }
 
 export async function getNextTask(sprintId?: string): Promise<Task | null> {

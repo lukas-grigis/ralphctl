@@ -425,9 +425,7 @@ export class IdeateAndPlanUseCase {
         repositoriesText,
       ].join('\n');
 
-      // Create ideation directory
-      const sprintDir = this.fs.getSprintDir(sprintId);
-      const ideateDir = `${sprintDir}/ideation/${ticketId}`;
+      const ideateDir = this.fs.getIdeationDir(sprintId, ticketId);
       await this.fs.ensureDir(ideateDir);
 
       // 6. Run AI session

@@ -15,7 +15,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-export interface Hint {
+interface Hint {
   readonly key: string;
   readonly action: string;
 }

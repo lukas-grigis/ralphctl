@@ -32,16 +32,16 @@ import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
  * view, not enforced at the type level, so each view can pick the phase
  * shape that best fits its flow.
  */
-export interface WorkflowPhase {
+interface WorkflowPhase {
   readonly kind: string;
 }
 
-export interface UseWorkflowResult<TPhase extends WorkflowPhase> {
+interface UseWorkflowResult<TPhase extends WorkflowPhase> {
   readonly phase: TPhase;
   readonly setPhase: (next: TPhase) => void;
 }
 
-export interface UseWorkflowOptions<TPhase extends WorkflowPhase> {
+interface UseWorkflowOptions<TPhase extends WorkflowPhase> {
   /** Initial phase (typically a `running` kind). */
   readonly initial: TPhase;
   /** The async flow that drives the view through prompts / persistence. */

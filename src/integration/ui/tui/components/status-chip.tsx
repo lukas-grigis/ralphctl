@@ -11,7 +11,7 @@ import { inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 export type StatusKind = 'info' | 'success' | 'warning' | 'error' | 'muted';
 
-export interface StatusChipProps {
+interface StatusChipProps {
   readonly label: string;
   readonly kind?: StatusKind;
 }

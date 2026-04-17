@@ -58,7 +58,7 @@ import { configSetCommand, configShowCommand } from '@src/integration/cli/comman
 // Doctor
 import { doctorCommand } from '@src/integration/cli/commands/doctor/doctor.ts';
 
-export type CommandHandler = () => Promise<void>;
+type CommandHandler = () => Promise<void>;
 
 export const commandMap: Record<string, Record<string, CommandHandler>> = {
   project: {

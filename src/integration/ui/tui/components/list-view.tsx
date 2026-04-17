@@ -27,7 +27,7 @@ export interface ListColumn<T> {
   readonly align?: 'left' | 'right';
 }
 
-export interface ListViewProps<T> {
+interface ListViewProps<T> {
   readonly rows: readonly T[];
   readonly columns: readonly ListColumn<T>[];
   readonly onSelect?: (row: T, index: number) => void;

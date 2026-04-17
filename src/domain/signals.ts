@@ -104,15 +104,3 @@ export type HarnessSignal =
   | TaskVerifiedSignal
   | TaskBlockedSignal
   | NoteSignal;
-
-/**
- * Type guard: check if signal is a specific type.
- * Useful for exhaustiveness checking in switch statements.
- * With discriminated unions, TypeScript narrows types based on the `type` field.
- */
-export function assertSignalType<T extends HarnessSignal['type']>(
-  signal: HarnessSignal,
-  expectedType: T
-): signal is Extract<HarnessSignal, { type: T }> {
-  return signal.type === expectedType;
-}

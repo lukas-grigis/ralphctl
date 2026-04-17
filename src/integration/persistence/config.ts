@@ -3,7 +3,7 @@ import { fileExists, readValidatedJson, writeValidatedJson } from '@src/integrat
 import { type AiProvider, type Config, ConfigSchema } from '@src/domain/models.ts';
 import { unwrapOrThrow } from '@src/integration/utils/result-helpers.ts';
 
-export const DEFAULT_EVALUATION_ITERATIONS = 1;
+const DEFAULT_EVALUATION_ITERATIONS = 1;
 
 const DEFAULT_CONFIG: Config = {
   currentSprint: null,

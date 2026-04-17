@@ -7,7 +7,7 @@
  * the occasional pull-quote — not painted across every surface.
  */
 
-export { colors, emoji, gradients, getRandomQuote, getStatusEmoji } from '@src/integration/ui/theme/theme.ts';
+export { emoji } from '@src/integration/ui/theme/theme.ts';
 
 /**
  * Ink `color` prop values. Truecolor hex where ANSI-256 lookalikes would
@@ -27,8 +27,6 @@ export const inkColors = {
   primary: '#E8C547', // mustard — section stamps, accents
   secondary: '#D98880', // muted rose — Ralph personality pull-quotes
 } as const;
-
-export type InkColorName = (typeof inkColors)[keyof typeof inkColors];
 
 /**
  * Curated glyph family — used consistently across views. Keep this set
@@ -80,15 +78,6 @@ export const spacing = {
   indent: 2,
   /** Internal gutter inside card-like boxes. */
   gutter: 1,
-} as const;
-
-/**
- * Focus style — applied via `<Text color={focus.color} bold={focus.bold}>`
- * so selection/focus looks identical everywhere.
- */
-export const focus = {
-  color: inkColors.highlight,
-  bold: true,
 } as const;
 
 /**

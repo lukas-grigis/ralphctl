@@ -1,6 +1,6 @@
 import type { AiSessionPort, SessionOptions, SessionResult } from '@src/business/ports/ai-session.ts';
 import type { AiProvider } from '@src/domain/models.ts';
-import { spawnInteractive, spawnHeadlessRaw, spawnWithRetry } from '@src/integration/ai/session/session.ts';
+import { spawnInteractive, spawnHeadless, spawnWithRetry } from '@src/integration/ai/session/session.ts';
 import { getActiveProvider } from '@src/integration/ai/providers/registry.ts';
 import type { ProviderAdapter } from '@src/integration/ai/providers/types.ts';
 import { withSuspendedTui } from '@src/integration/ui/tui/runtime/suspend.ts';
@@ -42,7 +42,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
 
   async spawnHeadless(prompt: string, options: SessionOptions): Promise<SessionResult> {
     const provider = await this.getProvider();
-    const result = await spawnHeadlessRaw(
+    const result = await spawnHeadless(
       {
         cwd: options.cwd,
         args: options.args,

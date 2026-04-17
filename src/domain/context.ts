@@ -26,20 +26,6 @@ export interface CheckResult {
   ranAt?: string; // ISO8601
 }
 
-/** Unified result envelope for pipeline steps */
-export interface StepOutput<T = unknown> {
-  status: 'success' | 'blocked' | 'skipped';
-  data: T;
-  diagnostics?: StepDiagnostics;
-}
-
-/** Timing and session metadata from a step execution */
-export interface StepDiagnostics {
-  durationMs: number;
-  sessionId?: string;
-  model?: string;
-}
-
 /** Options shared across all pipeline steps */
 export interface StepOptions {
   maxTurns?: number;

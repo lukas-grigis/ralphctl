@@ -12,7 +12,7 @@ import type { HarnessEvent, SignalBusPort, Unsubscribe } from '@src/business/por
 
 const FRAME_MS = 16;
 
-export interface InMemorySignalBusOptions {
+interface InMemorySignalBusOptions {
   /** Override the coalescing window (defaults to 16ms, one animation frame). */
   flushIntervalMs?: number;
 }

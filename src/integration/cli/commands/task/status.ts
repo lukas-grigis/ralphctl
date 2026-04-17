@@ -8,7 +8,7 @@ import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 
 const VALID_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done'];
 
-export interface TaskStatusOptions {
+interface TaskStatusOptions {
   taskId?: string;
   status?: string;
   noInteractive?: boolean;

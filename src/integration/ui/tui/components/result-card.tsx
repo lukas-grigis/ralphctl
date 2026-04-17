@@ -12,14 +12,14 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { FieldList, type FieldEntry } from './field-list.tsx';
 
-export type ResultKind = 'success' | 'error' | 'warning' | 'info';
+type ResultKind = 'success' | 'error' | 'warning' | 'info';
 
-export interface ResultNextStep {
+interface ResultNextStep {
   readonly action: string;
   readonly description?: string;
 }
 
-export interface ResultCardProps {
+interface ResultCardProps {
   readonly kind: ResultKind;
   readonly title: string;
   readonly fields?: readonly FieldEntry[];

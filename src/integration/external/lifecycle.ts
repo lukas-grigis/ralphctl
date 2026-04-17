@@ -4,7 +4,7 @@ import { assertSafeCwd } from '@src/integration/persistence/paths.ts';
 /** Lifecycle events where hooks can fire. Extend this union for new phases. */
 export type LifecycleEvent = 'sprintStart' | 'taskComplete';
 
-export interface HookResult {
+interface HookResult {
   passed: boolean;
   output: string;
 }

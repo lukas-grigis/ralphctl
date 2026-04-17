@@ -32,7 +32,7 @@ import { getAiProvider, getConfig } from '@src/integration/persistence/config.ts
 import type { ViewEntry } from './router-context.ts';
 import { ViewRouter } from './view-router.tsx';
 
-export interface AppProps {
+interface AppProps {
   initialView: InkViewName;
   mountOptions: MountOptions;
 }

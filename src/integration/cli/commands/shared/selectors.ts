@@ -5,7 +5,7 @@ import { formatTicketDisplay, listTickets } from '@src/integration/persistence/t
 import { listTasks } from '@src/integration/persistence/task.ts';
 import { formatSprintStatus, formatTaskStatus } from '@src/integration/ui/theme/ui.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
-import type { Repository, SprintStatus, TaskStatus, Ticket } from '@src/domain/models.ts';
+import type { SprintStatus, TaskStatus, Ticket } from '@src/domain/models.ts';
 import { escapableSelect } from '@src/integration/ui/prompts/escapable.ts';
 
 /**
@@ -46,57 +46,6 @@ export async function selectProject(message = 'Select project:'): Promise<string
       name: p.displayName,
       value: p.name,
       description: p.description,
-    })),
-  });
-}
-
-/**
- * Select a project and then a repository within it.
- * Auto-selects if only one option available at each step.
- * @returns repository path or null if no projects exist
- */
-export async function selectProjectRepository(message = 'Select repository:'): Promise<string | null> {
-  const projects = await listProjects();
-  if (projects.length === 0) {
-    console.log(muted('\nNo projects found.\n'));
-    return null;
-  }
-
-  // Step 1: Select project (auto-select if only one)
-  let projectName: string | null;
-  const firstProject = projects[0];
-  if (projects.length === 1 && firstProject) {
-    projectName = firstProject.name;
-  } else {
-    projectName = await escapableSelect({
-      message: 'Select project:',
-      choices: projects.map((p) => ({
-        name: p.displayName,
-        value: p.name,
-        description: `${String(p.repositories.length)} repo(s)`,
-      })),
-    });
-  }
-
-  if (!projectName) return null;
-
-  const project = projects.find((p) => p.name === projectName);
-  if (!project) {
-    return null;
-  }
-
-  // Step 2: Select repository (auto-select if only one)
-  const firstRepo = project.repositories[0];
-  if (project.repositories.length === 1 && firstRepo) {
-    return firstRepo.path;
-  }
-
-  return escapableSelect({
-    message,
-    choices: project.repositories.map((r) => ({
-      name: r.name,
-      value: r.path,
-      description: r.path,
     })),
   });
 }
@@ -244,32 +193,4 @@ export async function inputPositiveInt(message: string): Promise<number> {
     },
   });
   return parseInt(value, 10);
-}
-
-/**
- * Select project repositories for AI to explore.
- * If preSelected is provided, those paths are checked by default.
- * Otherwise, the first repository per project is pre-selected.
- */
-export async function selectProjectPaths(
-  reposByProject: Map<string, Repository[]>,
-  message = 'Select paths to explore:',
-  preSelected?: string[]
-): Promise<string[]> {
-  const choices: { label: string; value: string }[] = [];
-  const defaults: string[] = [];
-  const preSelectedSet = preSelected ? new Set(preSelected) : null;
-
-  for (const [projectName, repos] of reposByProject) {
-    repos.forEach((repo, i) => {
-      choices.push({
-        label: `[${projectName}] ${repo.name} (${repo.path})`,
-        value: repo.path,
-      });
-      const preselect = preSelectedSet ? preSelectedSet.has(repo.path) : i === 0;
-      if (preselect) defaults.push(repo.path);
-    });
-  }
-
-  return getPrompt().checkbox({ message, choices, defaults });
 }

@@ -45,7 +45,7 @@ export function getProgressFilePath(sprintId: string): string {
   return join(getSprintDir(sprintId), 'progress.md');
 }
 
-export function getEvaluationsDir(sprintId: string): string {
+function getEvaluationsDir(sprintId: string): string {
   return join(getSprintDir(sprintId), 'evaluations');
 }
 
@@ -70,7 +70,7 @@ export function getPlanningDir(sprintId: string): string {
   return join(getSprintDir(sprintId), 'planning');
 }
 
-export function getIdeateDir(sprintId: string, ticketId: string): string {
+export function getIdeationDir(sprintId: string, ticketId: string): string {
   assertSafeSegment(ticketId, 'ticket ID');
   return join(getSprintDir(sprintId), 'ideation', ticketId);
 }

@@ -101,12 +101,6 @@ export type ConfigSchemaKeys = keyof typeof ConfigSchemaDefinition;
 export type ConfigValue = string | number | boolean | null;
 
 /**
- * Config map type — all config keys mapped to their values.
- * Used by integration layer to read/validate/persist full config.
- */
-export type ConfigMap = Record<ConfigSchemaKeys, ConfigValue>;
-
-/**
  * Get a schema entry by key.
  * Type-safe: returns the schema entry if key is valid.
  *

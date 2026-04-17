@@ -19,7 +19,7 @@ async function saveSprintData(sprint: Sprint): Promise<void> {
   if (!result.ok) throw result.error;
 }
 
-export interface AddTicketInput {
+interface AddTicketInput {
   title: string;
   description?: string;
   link?: string;
@@ -50,7 +50,7 @@ export async function addTicket(input: AddTicketInput, sprintId?: string): Promi
   return ticket;
 }
 
-export interface UpdateTicketInput {
+interface UpdateTicketInput {
   title?: string;
   description?: string;
   link?: string;
@@ -116,14 +116,6 @@ export async function getTicket(ticketId: string, sprintId?: string): Promise<Ti
 }
 
 /**
- * Get a ticket by title (for tickets without an external ID).
- */
-export async function getTicketByTitle(title: string, sprintId?: string): Promise<Ticket | undefined> {
-  const sprint = await getSprintData(sprintId);
-  return sprint.tickets.find((t) => t.title === title);
-}
-
-/**
  * Check if all tickets have approved requirements.
  */
 export function allRequirementsApproved(tickets: Ticket[]): boolean {
@@ -142,11 +134,4 @@ export function getPendingRequirements(tickets: Ticket[]): Ticket[] {
  */
 export function formatTicketDisplay(ticket: Ticket): string {
   return `[${ticket.id}] ${ticket.title}`;
-}
-
-/**
- * Format ticket ID for display.
- */
-export function formatTicketId(ticket: Ticket): string {
-  return ticket.id;
 }

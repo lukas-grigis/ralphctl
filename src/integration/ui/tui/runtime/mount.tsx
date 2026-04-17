@@ -37,7 +37,7 @@ export interface MountOptions {
   executionOptions?: ExecutionOptions;
 }
 
-export interface MountResult {
+interface MountResult {
   /** True when the environment can't host Ink — caller should run a fallback. */
   fallback: boolean;
 }

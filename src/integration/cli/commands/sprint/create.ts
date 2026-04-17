@@ -14,7 +14,7 @@ import { createSprint } from '@src/integration/persistence/sprint.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 
-export interface SprintCreateOptions {
+interface SprintCreateOptions {
   name?: string;
   project?: string;
   interactive?: boolean;

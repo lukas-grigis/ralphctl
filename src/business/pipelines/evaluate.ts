@@ -25,7 +25,7 @@ export interface EvaluateContext extends StepContext {
 }
 
 /** Pipeline-level options for the evaluator. */
-export interface EvaluateOptions {
+interface EvaluateOptions {
   /** Max fix attempts after the initial evaluation. Threaded into the use case. */
   iterations?: number;
   /** When false (default), skip re-evaluation if `task.evaluated === true`. */
