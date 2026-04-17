@@ -35,7 +35,7 @@ function task(overrides: Partial<Task>): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/repo',
+    repoId: 'repo0001',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -46,6 +46,7 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'sprint-1',
     name: 'My Sprint',
+    projectId: 'prj00001',
     status: 'active',
     createdAt: '2026-04-15T00:00:00Z',
     activatedAt: '2026-04-15T00:00:00Z',

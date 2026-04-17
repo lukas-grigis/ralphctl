@@ -68,9 +68,8 @@ function renderBody(state: State): React.JSX.Element {
         <FieldList
           fields={[
             ['ID', ticket.id],
-            ['Project', ticket.projectName],
             ['Link', ticket.link ?? glyphs.emDash],
-            ['Repos', ticket.affectedRepositories?.join(', ') ?? glyphs.emDash],
+            ['Affected Repos', ticket.affectedRepoIds?.join(', ') ?? glyphs.emDash],
           ]}
         />
       </Box>

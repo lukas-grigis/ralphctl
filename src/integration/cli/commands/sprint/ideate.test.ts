@@ -27,7 +27,7 @@ describe('ideate: stale sprint overwrite regression', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Ideate Overwrite Test');
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Ideate Overwrite Test' });
     await setCurrentSprint(sprint.id);
 
     // Step 1: Load sprint (stale reference)
@@ -35,7 +35,7 @@ describe('ideate: stale sprint overwrite regression', () => {
     expect(staleSprint.tickets).toHaveLength(0);
 
     // Step 2: addTicket saves its own copy with the new ticket
-    const ticket = await addTicket({ title: 'My Idea', projectName: 'test-project' }, sprint.id);
+    const ticket = await addTicket({ title: 'My Idea' }, sprint.id);
 
     // Verify ticket was persisted
     const afterAdd = await getSprint(sprint.id);
@@ -51,14 +51,14 @@ describe('ideate: stale sprint overwrite regression', () => {
     const freshTicket = freshSprint.tickets.find((t) => t.id === ticket.id);
     expect(freshTicket).toBeDefined();
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- guarded by assertion above
-    freshTicket!.affectedRepositories = [testEnv.projectDir];
+    freshTicket!.affectedRepoIds = [testEnv.repoId];
     await saveSprint(freshSprint);
 
-    // Verify ticket survived with affectedRepositories set
+    // Verify ticket survived with affectedRepoIds set
     const final = await getSprint(sprint.id);
     expect(final.tickets).toHaveLength(1);
     expect(final.tickets[0]?.id).toBe(ticket.id);
-    expect(final.tickets[0]?.affectedRepositories).toEqual([testEnv.projectDir]);
+    expect(final.tickets[0]?.affectedRepoIds).toEqual([testEnv.repoId]);
   });
 
   it('demonstrates the bug: stale saveSprint wipes ticket', async () => {
@@ -69,14 +69,14 @@ describe('ideate: stale sprint overwrite regression', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Bug Demo');
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Bug Demo' });
     await setCurrentSprint(sprint.id);
 
     // Load sprint (this will become stale)
     const staleSprint = await getSprint(sprint.id);
 
     // addTicket saves its own fresh copy
-    await addTicket({ title: 'Doomed Ticket', projectName: 'test-project' }, sprint.id);
+    await addTicket({ title: 'Doomed Ticket' }, sprint.id);
 
     // Saving the stale reference wipes the ticket (the bug)
     await saveSprint(staleSprint);

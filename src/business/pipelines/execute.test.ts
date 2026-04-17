@@ -24,6 +24,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'test-sprint',
     name: 'Test Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: new Date().toISOString(),
     activatedAt: new Date().toISOString(),
@@ -39,7 +40,6 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
     id: 'ticket-1',
     title: 'Test Ticket',
-    projectName: 'test-project',
     requirementStatus: 'approved',
     ...overrides,
   };
@@ -54,7 +54,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/repo',
+    repoId: 'repo-1',
     verified: false,
     evaluated: false,
     ...overrides,

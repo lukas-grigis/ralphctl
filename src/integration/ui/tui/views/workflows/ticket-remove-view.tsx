@@ -55,7 +55,7 @@ export function TicketRemoveView(): React.JSX.Element {
         choices: tickets.map((t) => ({
           label: `${t.id} — ${t.title}`,
           value: t.id,
-          description: t.projectName,
+          description: t.requirementStatus,
         })),
       });
       const target = tickets.find((t) => t.id === ticketId);

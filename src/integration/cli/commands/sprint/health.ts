@@ -6,6 +6,7 @@ import { colors, getQuoteForContext } from '@src/integration/ui/theme/theme.ts';
 import { icons, log, printHeader, progressBar, renderCard, showError } from '@src/integration/ui/theme/ui.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
 import { getCurrentBranch } from '@src/integration/external/git.ts';
+import { resolveRepoPath } from '@src/integration/persistence/project.ts';
 
 // ============================================================================
 // Health Check Types
@@ -119,21 +120,26 @@ function checkPendingRequirementsOnActive(sprint: Sprint): HealthCheck {
   };
 }
 
-function checkBranchConsistency(sprint: Sprint, tasks: Task[]): HealthCheck {
+async function checkBranchConsistency(sprint: Sprint, tasks: Task[]): Promise<HealthCheck> {
   if (!sprint.branch) {
     return { name: 'Branch Consistency', status: 'pass', items: [] };
   }
 
   const remainingTasks = tasks.filter((t) => t.status !== 'done');
-  const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
+  const uniqueRepoIds = [...new Set(remainingTasks.map((t) => t.repoId))];
   const items: string[] = [];
 
-  for (const projectPath of uniquePaths) {
-    const branchR = Result.try(() => getCurrentBranch(projectPath));
+  for (const repoId of uniqueRepoIds) {
+    const path = await resolveRepoPath(repoId).catch(() => null);
+    if (!path) {
+      items.push(`${repoId} — repo path could not be resolved`);
+      continue;
+    }
+    const branchR = Result.try(() => getCurrentBranch(path));
     if (!branchR.ok) {
-      items.push(`${projectPath} — unable to determine branch`);
+      items.push(`${path} — unable to determine branch`);
     } else if (branchR.value !== sprint.branch) {
-      items.push(`${projectPath} — on '${branchR.value}', expected '${sprint.branch}'`);
+      items.push(`${path} — on '${branchR.value}', expected '${sprint.branch}'`);
     }
   }
 
@@ -201,7 +207,7 @@ export async function sprintHealthCommand(): Promise<void> {
     checkTasksWithoutSteps(tasks),
     checkDuplicateOrders(tasks),
     checkPendingRequirementsOnActive(sprint),
-    checkBranchConsistency(sprint, tasks),
+    await checkBranchConsistency(sprint, tasks),
   ];
 
   for (const check of checks) {

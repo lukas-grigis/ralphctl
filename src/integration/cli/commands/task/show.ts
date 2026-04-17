@@ -2,6 +2,7 @@ import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts
 import { colors, muted } from '@src/integration/ui/theme/theme.ts';
 import { getTask, TaskNotFoundError } from '@src/integration/persistence/task.ts';
 import { getTicket } from '@src/integration/persistence/ticket.ts';
+import { getRepoById } from '@src/integration/persistence/project.ts';
 import {
   DETAIL_LABEL_WIDTH,
   formatTaskStatus,
@@ -37,12 +38,16 @@ export async function taskShowCommand(args: string[]): Promise<void> {
   }
   const task = taskR.value;
 
-  // Task info card
+  const repoInfoR = await wrapAsync(() => getRepoById(task.repoId), ensureError);
+  const repoLabel = repoInfoR.ok
+    ? `${repoInfoR.value.repo.name} (${repoInfoR.value.repo.path})`
+    : `${task.repoId} (unresolved)`;
+
   const infoLines: string[] = [
     labelValue('ID', task.id),
     labelValue('Status', formatTaskStatus(task.status)),
     labelValue('Order', String(task.order)),
-    labelValue('Project', task.projectPath),
+    labelValue('Repo', repoLabel),
   ];
 
   if (task.ticketId) {

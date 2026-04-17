@@ -14,7 +14,7 @@ import type { SignalParserPort } from '../ports/signal-parser.ts';
 import type { SignalContext, SignalHandlerPort } from '../ports/signal-handler.ts';
 import type { SignalBusPort } from '../ports/signal-bus.ts';
 import type { HarnessSignal } from '@src/domain/signals.ts';
-import { findProjectForPath, resolveCheckScript } from '../pipelines/steps/project-lookup.ts';
+import { findProjectForRepoId, resolveCheckScriptForRepo } from '../pipelines/steps/project-lookup.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -100,7 +100,9 @@ export class ExecuteTasksUseCase {
     // Resolve provider once so sync getters (getSpawnEnv, getProviderDisplayName) are safe below.
     await this.aiSession.ensureReady();
 
-    const taskLog = this.logger.child({ sprintId: sprint.id, taskId: task.id, projectPath: task.projectPath });
+    const repoPath = await this.persistence.resolveRepoPath(task.repoId);
+
+    const taskLog = this.logger.child({ sprintId: sprint.id, taskId: task.id, projectPath: repoPath });
     const sprintDir = this.fs.getSprintDir(sprint.id);
 
     // Build the per-task context file that the agent will read. The file
@@ -108,11 +110,11 @@ export class ExecuteTasksUseCase {
     // sees it via relative basename — matches the template's `{{CONTEXT_FILE}}`
     // expectation. Content: rich task context + "## Instructions" prompt.
     const progressFilePath = this.fs.getProgressFilePath(sprint.id);
-    const contextFilePath = this.fs.getProjectContextFilePath(task.projectPath, sprint.id, task.id);
+    const contextFilePath = this.fs.getProjectContextFilePath(repoPath, sprint.id, task.id);
     const contextFileName = basename(contextFilePath);
 
-    const fullTaskContext = await this.buildFullTaskContext(task, sprint, options?.contractPath);
-    const projectToolingSection = this.external.detectProjectTooling([task.projectPath]);
+    const fullTaskContext = await this.buildFullTaskContext(task, sprint, repoPath, options?.contractPath);
+    const projectToolingSection = this.external.detectProjectTooling([repoPath]);
     const instructions = this.promptBuilder.buildTaskExecutionPrompt(
       progressFilePath,
       contextFileName,
@@ -135,7 +137,7 @@ export class ExecuteTasksUseCase {
     if (options?.session) {
       try {
         await this.aiSession.spawnInteractive(spawnPrompt, {
-          cwd: task.projectPath,
+          cwd: repoPath,
           args,
           env: this.aiSession.getSpawnEnv(),
         });
@@ -158,7 +160,7 @@ export class ExecuteTasksUseCase {
 
     try {
       const result = await this.aiSession.spawnWithRetry(spawnPrompt, {
-        cwd: task.projectPath,
+        cwd: repoPath,
         args,
         env: this.aiSession.getSpawnEnv(),
         maxRetries: options?.maxRetries,
@@ -168,7 +170,7 @@ export class ExecuteTasksUseCase {
       spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${task.name}`);
 
       // Dispatch all signals (progress, notes, blocked) through handler
-      const ctx: SignalContext = { sprintId: sprint.id, taskId: task.id, projectPath: task.projectPath };
+      const ctx: SignalContext = { sprintId: sprint.id, taskId: task.id, projectPath: repoPath };
       const allSignals = await this.dispatchSignals(result.output, ctx);
 
       // Extract lifecycle signals for flow control
@@ -223,13 +225,14 @@ export class ExecuteTasksUseCase {
    * failed. Called by the per-task pipeline's `postTaskCheck` step.
    */
   async runPostTaskCheck(task: Task, sprint: Sprint): Promise<boolean> {
-    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
-    const checkScript = resolveCheckScript(project, task.projectPath);
-    if (!checkScript) return true;
+    void sprint; // Retained in signature for pipeline symmetry; resolution is by repoId now.
+    const resolved = await findProjectForRepoId(this.persistence, task.repoId);
+    const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+    if (!resolved || !checkScript) return true;
 
     this.logger.info(`Running post-task check: ${checkScript}`);
-    const repo = project?.repositories.find((r) => r.path === task.projectPath);
-    const result = this.external.runCheckScript(task.projectPath, checkScript, 'taskComplete', repo?.checkTimeout);
+    const { repo } = resolved;
+    const result = this.external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
 
     if (result.passed) {
       this.logger.success('Post-task check: passed');
@@ -279,23 +282,33 @@ export class ExecuteTasksUseCase {
       await this.persistence.logProgress(`User feedback: ${feedback}`, { sprintId: sprint.id });
 
       const tasks = await this.persistence.getTasks(sprint.id);
+      // Resolve repoId → path once for all completed and unique tasks.
+      const repoIds = [...new Set(tasks.map((t) => t.repoId))];
+      const repoPathByRepoId = new Map<string, string>();
+      for (const repoId of repoIds) {
+        try {
+          repoPathByRepoId.set(repoId, await this.persistence.resolveRepoPath(repoId));
+        } catch {
+          // Unresolvable repo id — skip; below loops will no-op for it.
+        }
+      }
       const completedSummary = tasks
         .filter((t) => t.status === 'done')
-        .map((t) => `- ${t.name} (${t.projectPath})`)
+        .map((t) => `- ${t.name} (${repoPathByRepoId.get(t.repoId) ?? t.repoId})`)
         .join('\n');
 
-      const projectPaths = [...new Set(tasks.map((t) => t.projectPath))];
-
-      for (const projectPath of projectPaths) {
+      for (const repoId of repoIds) {
+        const repoPath = repoPathByRepoId.get(repoId);
+        if (!repoPath) continue;
         const prompt = this.promptBuilder.buildFeedbackPrompt(sprint.name, completedSummary, feedback, sprint.branch);
 
-        this.logger.info(`Implementing feedback in ${projectPath}...`);
+        this.logger.info(`Implementing feedback in ${repoPath}...`);
         const spinner = this.logger.spinner('AI is implementing feedback...');
 
         try {
           const sprintDir = this.fs.getSprintDir(sprint.id);
           const result = await this.aiSession.spawnWithRetry(prompt, {
-            cwd: projectPath,
+            cwd: repoPath,
             args: ['--add-dir', sprintDir],
             env: this.aiSession.getSpawnEnv(),
             maxTurns: options?.maxTurns,
@@ -313,17 +326,17 @@ export class ExecuteTasksUseCase {
       }
 
       // Run post-feedback check scripts
-      for (const projectPath of projectPaths) {
-        const project = await findProjectForPath(this.persistence, sprint, projectPath);
-        const checkScript = resolveCheckScript(project, projectPath);
-        if (checkScript) {
+      for (const repoId of repoIds) {
+        const resolved = await findProjectForRepoId(this.persistence, repoId);
+        const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+        if (resolved && checkScript) {
+          const { repo } = resolved;
           this.logger.info(`Running checks after feedback: ${checkScript}`);
-          const repo = project?.repositories.find((r) => r.path === projectPath);
-          const result = this.external.runCheckScript(projectPath, checkScript, 'taskComplete', repo?.checkTimeout);
+          const result = this.external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
           if (!result.passed) {
-            this.logger.warning(`Check failed after feedback in ${projectPath}`);
+            this.logger.warning(`Check failed after feedback in ${repo.path}`);
           } else {
-            this.logger.success(`Checks passed: ${projectPath}`);
+            this.logger.success(`Checks passed: ${repo.path}`);
           }
         }
       }
@@ -350,7 +363,12 @@ export class ExecuteTasksUseCase {
    * knowledge, prior progress, ticket scope, and recent commits — all of
    * which the template and dimensions rely on.
    */
-  private async buildFullTaskContext(task: Task, sprint: Sprint, contractPath?: string): Promise<string> {
+  private async buildFullTaskContext(
+    task: Task,
+    sprint: Sprint,
+    repoPath: string,
+    contractPath?: string
+  ): Promise<string> {
     const lines: string[] = [];
 
     // ═══ HIGH ATTENTION ZONE (start) ═══
@@ -373,7 +391,7 @@ export class ExecuteTasksUseCase {
     }
 
     lines.push('');
-    lines.push(`## Project Path\n${task.projectPath}`);
+    lines.push(`## Project Path\n${repoPath}`);
 
     if (sprint.branch) {
       lines.push('');
@@ -384,8 +402,8 @@ export class ExecuteTasksUseCase {
       );
     }
 
-    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
-    const checkScript = resolveCheckScript(project, task.projectPath);
+    const resolved = await findProjectForRepoId(this.persistence, task.repoId);
+    const checkScript = resolveCheckScriptForRepo(resolved?.repo);
     lines.push('');
     lines.push('## Check Script');
     lines.push('');
@@ -416,7 +434,7 @@ export class ExecuteTasksUseCase {
     lines.push('');
     lines.push('---');
 
-    const progressSummary = await this.persistence.getProgressSummary(sprint.id, task.projectPath).catch(() => '');
+    const progressSummary = await this.persistence.getProgressSummary(sprint.id, repoPath).catch(() => '');
     if (progressSummary) {
       lines.push('');
       lines.push('## Prior Task Learnings');
@@ -440,7 +458,7 @@ export class ExecuteTasksUseCase {
       }
     }
 
-    const gitHistory = this.external.getRecentGitHistory(task.projectPath, 10);
+    const gitHistory = this.external.getRecentGitHistory(repoPath, 10);
     lines.push('');
     lines.push('## Git History (recent commits)');
     lines.push('');

@@ -9,6 +9,7 @@ function makeSprint(): Sprint {
   return {
     id: 's1',
     name: 'Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: '',
     activatedAt: null,
@@ -28,7 +29,7 @@ function makeTask(): Task {
     status: 'in_progress',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: false,
     evaluated: false,
   };

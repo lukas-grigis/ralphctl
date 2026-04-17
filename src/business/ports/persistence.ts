@@ -1,4 +1,10 @@
-import type { Config, ImportTask, Project, Sprint, Task, Ticket } from '@src/domain/models.ts';
+import type { Config, ImportTask, Project, Repository, Sprint, Task, Ticket } from '@src/domain/models.ts';
+
+/** Input for `createSprint` — every sprint is scoped to exactly one project. */
+export interface CreateSprintInput {
+  readonly projectId: string;
+  readonly name?: string;
+}
 
 /** Port for all data persistence operations */
 export interface PersistencePort {
@@ -13,8 +19,8 @@ export interface PersistencePort {
   /** List all sprints */
   listSprints(): Promise<Sprint[]>;
 
-  /** Create a new draft sprint with optional name */
-  createSprint(name?: string): Promise<Sprint>;
+  /** Create a new draft sprint scoped to a project */
+  createSprint(input: CreateSprintInput): Promise<Sprint>;
 
   /** Resolve a sprint ID, falling back to the current sprint */
   resolveSprintId(id?: string): Promise<string>;
@@ -76,8 +82,26 @@ export interface PersistencePort {
   /** Get a project by name */
   getProject(name: string): Promise<Project>;
 
+  /** Get a project by id */
+  getProjectById(id: string): Promise<Project>;
+
+  /** Locate a repo by id across every project. Throws if no match. */
+  getRepoById(repoId: string): Promise<{ project: Project; repo: Repository }>;
+
+  /** Absolute filesystem path for a repoId — convenience over `getRepoById`. */
+  resolveRepoPath(repoId: string): Promise<string>;
+
   /** List all projects */
   listProjects(): Promise<Project[]>;
+
+  // Sprint lifecycle helpers
+
+  /**
+   * Resolve repoIds on a sprint's tasks and log git baselines. Caller
+   * supplies the resolver because persistence is id-only — the execute
+   * pipeline owns project-graph resolution.
+   */
+  logSprintBaselines(sprint: Sprint, resolvePath: (repoId: string) => Promise<string | null>): Promise<void>;
 
   // Config
 

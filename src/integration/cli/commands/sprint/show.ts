@@ -3,11 +3,8 @@ import { colors, muted } from '@src/integration/ui/theme/theme.ts';
 import { getSprint, resolveSprintId } from '@src/integration/persistence/sprint.ts';
 import { listTasks } from '@src/integration/persistence/task.ts';
 import { getCurrentSprint } from '@src/integration/persistence/config.ts';
-import {
-  formatTicketDisplay,
-  getPendingRequirements,
-  groupTicketsByProject,
-} from '@src/integration/persistence/ticket.ts';
+import { formatTicketDisplay, getPendingRequirements } from '@src/integration/persistence/ticket.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
 import {
   badge,
   formatSprintStatus,
@@ -40,9 +37,14 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
   const currentSprintId = await getCurrentSprint();
   const isCurrent = sprint.id === currentSprintId;
 
-  // Sprint info card
+  const projectR = await wrapAsync(() => getProjectById(sprint.projectId), ensureError);
+  const projectLabel = projectR.ok
+    ? `${projectR.value.displayName} (${projectR.value.name})`
+    : `${sprint.projectId} (unresolved)`;
+
   const infoLines: string[] = [
     labelValue('ID', sprint.id + (isCurrent ? ' ' + badge('current', 'success') : '')),
+    labelValue('Project', projectLabel),
     labelValue('Status', formatSprintStatus(sprint.status)),
     labelValue('Created', new Date(sprint.createdAt).toLocaleString()),
   ];
@@ -67,17 +69,11 @@ export async function sprintShowCommand(args: string[]): Promise<void> {
     ticketLines.push(muted('No tickets yet'));
     ticketLines.push(muted(`${icons.tip} Add with: ralphctl ticket add`));
   } else {
-    const ticketsByProject = groupTicketsByProject(sprint.tickets);
-    let first = true;
-    for (const [projectName, tickets] of ticketsByProject) {
-      if (!first) ticketLines.push('');
-      first = false;
-      ticketLines.push(`${colors.info(icons.project)} ${colors.info(projectName)}`);
-      for (const ticket of tickets) {
-        const reqBadge =
-          ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'warning');
-        ticketLines.push(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
-      }
+    ticketLines.push(`${colors.info(icons.project)} ${colors.info(projectLabel)}`);
+    for (const ticket of sprint.tickets) {
+      const reqBadge =
+        ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'warning');
+      ticketLines.push(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
     }
   }
 

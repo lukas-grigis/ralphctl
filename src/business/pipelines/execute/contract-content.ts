@@ -29,14 +29,16 @@ export const EVALUATOR_DIMENSIONS = ['Correctness', 'Completeness', 'Safety', 'C
 
 export interface ContractContext {
   task: Task;
-  /** Resolved check script for `task.projectPath`, or null if none is configured. */
+  /** Absolute path to the task's repo — resolved from `task.repoId` by the caller. */
+  repoPath: string;
+  /** Resolved check script for the repo, or null if none is configured. */
   checkScript: string | null;
   /** Evaluator dimension names — defaults to {@link EVALUATOR_DIMENSIONS}. */
   evaluatorDimensions?: readonly string[];
 }
 
 export function buildContractMarkdown(ctx: ContractContext): string {
-  const { task, checkScript } = ctx;
+  const { task, repoPath, checkScript } = ctx;
   const dimensions = ctx.evaluatorDimensions ?? EVALUATOR_DIMENSIONS;
 
   const sections: string[] = [];
@@ -68,13 +70,13 @@ export function buildContractMarkdown(ctx: ContractContext): string {
   if (checkScript) {
     // Compose the fenced block as a single section so the markdown joiner
     // doesn't insert blank lines inside the code fence.
-    sections.push(`Resolved for \`${task.projectPath}\`:\n\n\`\`\`sh\n${checkScript}\n\`\`\``);
+    sections.push(`Resolved for \`${repoPath}\`:\n\n\`\`\`sh\n${checkScript}\n\`\`\``);
     sections.push(
       'This is the deterministic gate. The harness runs it post-task; the evaluator runs it during review.'
     );
   } else {
     sections.push(
-      `_(no check script configured for \`${task.projectPath}\`)_\n\nThe evaluator will derive a verification command from \`CLAUDE.md\`, \`AGENTS.md\`, or \`package.json\`.`
+      `_(no check script configured for \`${repoPath}\`)_\n\nThe evaluator will derive a verification command from \`CLAUDE.md\`, \`AGENTS.md\`, or \`package.json\`.`
     );
   }
 
@@ -83,7 +85,7 @@ export function buildContractMarkdown(ctx: ContractContext): string {
   sections.push(dimensions.map((d) => `- **${d}**`).join('\n'));
 
   sections.push('## Project Path');
-  sections.push(`\`${task.projectPath}\``);
+  sections.push(`\`${repoPath}\``);
 
   return sections.join('\n\n') + '\n';
 }

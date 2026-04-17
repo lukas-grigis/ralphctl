@@ -9,6 +9,10 @@ import { tmpdir } from 'node:os';
 export interface TestEnvironment {
   testDir: string;
   projectDir: string;
+  /** Stable id of the seeded project (so tests can pass `projectId`). */
+  projectId: string;
+  /** Stable id of the seeded project's only repo (so tests can pass `repoId`). */
+  repoId: string;
   env: Record<string, string>;
   cleanup: () => Promise<void>;
 }
@@ -23,18 +27,21 @@ export async function createTestEnv(options?: { projectName?: string }): Promise
   const projectDir = await mkdtemp(join(tmpdir(), `ralphctl-project-${projectName}-`));
   const env = { RALPHCTL_ROOT: testDir };
 
-  // Create data directory structure (RALPHCTL_ROOT points directly to data dir)
+  // Stable ids for tests — snapshot-friendly.
+  const projectId = 'prj00001';
+  const repoId = 'repo0001';
+
   await mkdir(join(testDir, 'sprints'), { recursive: true });
   await writeFile(join(testDir, 'config.json'), JSON.stringify({ currentSprint: null }));
 
-  // Create projects.json with a test project
   await writeFile(
     join(testDir, 'projects.json'),
     JSON.stringify([
       {
+        id: projectId,
         name: projectName,
         displayName: 'Test Project',
-        repositories: [{ name: projectName, path: projectDir }],
+        repositories: [{ id: repoId, name: projectName, path: projectDir }],
       },
     ])
   );
@@ -42,6 +49,8 @@ export async function createTestEnv(options?: { projectName?: string }): Promise
   return {
     testDir,
     projectDir,
+    projectId,
+    repoId,
     env,
     cleanup: async () => {
       // Use allSettled so one failure doesn't prevent other cleanups
@@ -84,6 +93,8 @@ export async function createMultiProjectEnv(
 ): Promise<{
   testDir: string;
   projectDirs: Map<string, string>;
+  /** Map of project name → stable repo id seeded into projects.json. */
+  repoIds: Map<string, string>;
   env: Record<string, string>;
   cleanup: () => Promise<void>;
 }> {
@@ -97,16 +108,20 @@ export async function createMultiProjectEnv(
 
   // Create project directories
   const projectConfigs = [];
+  let idx = 0;
   for (const project of projects) {
     const dir = await mkdtemp(join(tmpdir(), `ralphctl-${project.name}-`));
     projectDirs.set(project.name, dir);
     dirs.push(dir);
+    idx += 1;
     projectConfigs.push({
+      id: `prj0000${String(idx)}`,
       name: project.name,
       displayName: project.displayName,
       description: project.description,
       repositories: [
         {
+          id: `repo000${String(idx)}`,
           name: project.name,
           path: dir,
           checkScript: project.checkScript,
@@ -117,9 +132,16 @@ export async function createMultiProjectEnv(
 
   await writeFile(join(testDir, 'projects.json'), JSON.stringify(projectConfigs));
 
+  // Map repoIds mirroring the deterministic generation above.
+  const repoIds = new Map<string, string>();
+  projects.forEach((p, i) => {
+    repoIds.set(p.name, `repo000${String(i + 1)}`);
+  });
+
   return {
     testDir,
     projectDirs,
+    repoIds,
     env: { RALPHCTL_ROOT: testDir },
     cleanup: async () => {
       // Use allSettled so one failure doesn't prevent other cleanups

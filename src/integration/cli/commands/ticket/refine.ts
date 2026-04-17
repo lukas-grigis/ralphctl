@@ -97,7 +97,6 @@ export async function ticketRefineCommand(ticketId?: string, options: TicketRefi
   printHeader('Re-Refine Ticket', icons.ticket);
   console.log(field('Sprint', sprint.name));
   console.log(field('Ticket', formatTicketDisplay(ticket)));
-  console.log(field('Project', ticket.projectName));
   if (ticket.link) {
     console.log(field('Link', ticket.link));
   }

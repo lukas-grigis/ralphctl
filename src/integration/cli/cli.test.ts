@@ -13,11 +13,15 @@ import { createTestEnv } from '@src/test-utils/setup.ts';
 let testEnv: TestEnvironment;
 let testDir: string;
 let projectDir: string;
+let projectId: string;
+let repoId: string;
 
 beforeEach(async () => {
   testEnv = await createTestEnv();
   testDir = testEnv.testDir;
   projectDir = testEnv.projectDir;
+  projectId = testEnv.projectId;
+  repoId = testEnv.repoId;
   process.env['RALPHCTL_ROOT'] = testDir;
 });
 
@@ -106,13 +110,13 @@ describe('Sprint Service', () => {
     const { addTask, updateTaskStatus } = await import('@src/integration/persistence/task.ts');
 
     // Create
-    const sprint = await createSprint('Test Sprint');
+    const sprint = await createSprint({ projectId, name: 'Test Sprint' });
     expect(sprint.name).toBe('Test Sprint');
     expect(sprint.status).toBe('draft');
 
     // Add ticket and task (in draft sprint)
-    const ticket1 = await addTicket({ title: 'Test', projectName: 'test-project' }, sprint.id);
-    const task = await addTask({ name: 'Task 1', ticketId: ticket1.id, projectPath: projectDir }, sprint.id);
+    const ticket1 = await addTicket({ title: 'Test' }, sprint.id);
+    const task = await addTask({ name: 'Task 1', ticketId: ticket1.id, repoId }, sprint.id);
 
     // Activate
     const activated = await activateSprint(sprint.id);
@@ -136,14 +140,13 @@ describe('Ticket Service', () => {
     const { createSprint } = await import('@src/integration/persistence/sprint.ts');
     const { addTicket, listTickets, removeTicket, getTicket } = await import('@src/integration/persistence/ticket.ts');
 
-    const sprint = await createSprint('Ticket Test');
+    const sprint = await createSprint({ projectId, name: 'Ticket Test' });
 
     // Add
     const ticket = await addTicket(
       {
         title: 'Fix Bug',
         description: 'Details',
-        projectName: 'test-project',
       },
       sprint.id
     );
@@ -172,11 +175,11 @@ describe('Task Service', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { addTask, listTasks, updateTaskStatus, getTask } = await import('@src/integration/persistence/task.ts');
 
-    const sprint = await createSprint('Task Test');
-    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId, name: 'Task Test' });
+    const ticket = await addTicket({ title: 'Ticket' }, sprint.id);
 
     // Add task (in draft sprint)
-    const task = await addTask({ name: 'My Task', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
+    const task = await addTask({ name: 'My Task', ticketId: ticket.id, repoId }, sprint.id);
     expect(task.name).toBe('My Task');
     expect(task.status).toBe('todo');
 
@@ -203,16 +206,13 @@ describe('Task Service', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { addTask, reorderByDependencies, listTasks } = await import('@src/integration/persistence/task.ts');
 
-    const sprint = await createSprint('Deps Test');
-    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId, name: 'Deps Test' });
+    const ticket = await addTicket({ title: 'Ticket' }, sprint.id);
 
     // Create tasks with dependencies: C -> B -> A
-    const taskA = await addTask({ name: 'A', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
-    const taskB = await addTask(
-      { name: 'B', ticketId: ticket.id, projectPath: projectDir, blockedBy: [taskA.id] },
-      sprint.id
-    );
-    await addTask({ name: 'C', ticketId: ticket.id, projectPath: projectDir, blockedBy: [taskB.id] }, sprint.id);
+    const taskA = await addTask({ name: 'A', ticketId: ticket.id, repoId }, sprint.id);
+    const taskB = await addTask({ name: 'B', ticketId: ticket.id, repoId, blockedBy: [taskA.id] }, sprint.id);
+    await addTask({ name: 'C', ticketId: ticket.id, repoId, blockedBy: [taskB.id] }, sprint.id);
 
     await reorderByDependencies(sprint.id);
 
@@ -236,12 +236,12 @@ describe('Error Handling', () => {
     const { createSprint, activateSprint, getSprint } = await import('@src/integration/persistence/sprint.ts');
 
     // Create and activate first sprint
-    const sprint1 = await createSprint('Sprint 1');
+    const sprint1 = await createSprint({ projectId, name: 'Sprint 1' });
     await activateSprint(sprint1.id);
     expect((await getSprint(sprint1.id)).status).toBe('active');
 
     // Create and activate second sprint
-    const sprint2 = await createSprint('Sprint 2');
+    const sprint2 = await createSprint({ projectId, name: 'Sprint 2' });
     await activateSprint(sprint2.id);
 
     // Both sprints should be active (can run in parallel terminals)
@@ -253,7 +253,7 @@ describe('Error Handling', () => {
     const { createSprint } = await import('@src/integration/persistence/sprint.ts');
     const { getTicket, TicketNotFoundError } = await import('@src/integration/persistence/ticket.ts');
 
-    const sprint = await createSprint('Test');
+    const sprint = await createSprint({ projectId, name: 'Test' });
     await expect(getTicket('nonexistent', sprint.id)).rejects.toThrow(TicketNotFoundError);
   });
 
@@ -261,7 +261,7 @@ describe('Error Handling', () => {
     const { createSprint } = await import('@src/integration/persistence/sprint.ts');
     const { getTask, TaskNotFoundError } = await import('@src/integration/persistence/task.ts');
 
-    const sprint = await createSprint('Test');
+    const sprint = await createSprint({ projectId, name: 'Test' });
     await expect(getTask('nonexistent', sprint.id)).rejects.toThrow(TaskNotFoundError);
   });
 });
@@ -272,25 +272,23 @@ describe('Draft Re-Plan', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { addTask } = await import('@src/integration/persistence/task.ts');
 
-    const sprint = await createSprint('Active Test');
-    await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId, name: 'Active Test' });
+    await addTicket({ title: 'Ticket' }, sprint.id);
     await activateSprint(sprint.id);
 
     // Adding tasks to active sprint should always fail (draft-only)
-    await expect(addTask({ name: 'Task', projectPath: projectDir }, sprint.id)).rejects.toThrow(/add tasks/);
+    await expect(addTask({ name: 'Task', repoId }, sprint.id)).rejects.toThrow(/add tasks/);
   });
 
   it('addTicket rejects on active sprint', async () => {
     const { createSprint, activateSprint } = await import('@src/integration/persistence/sprint.ts');
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
 
-    const sprint = await createSprint('Active Ticket Test');
+    const sprint = await createSprint({ projectId, name: 'Active Ticket Test' });
     await activateSprint(sprint.id);
 
     // Adding tickets to active sprint should fail (draft-only)
-    await expect(addTicket({ title: 'New Ticket', projectName: 'test-project' }, sprint.id)).rejects.toThrow(
-      /add tickets/
-    );
+    await expect(addTicket({ title: 'New Ticket' }, sprint.id)).rejects.toThrow(/add tickets/);
   });
 
   it('importTasks with replace: true atomically replaces all tasks', async () => {
@@ -299,12 +297,12 @@ describe('Draft Re-Plan', () => {
     const { addTask, listTasks } = await import('@src/integration/persistence/task.ts');
     const { importTasks } = await import('@src/integration/cli/commands/sprint/plan-utils.ts');
 
-    const sprint = await createSprint('Replace Test');
-    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId, name: 'Replace Test' });
+    const ticket = await addTicket({ title: 'Ticket' }, sprint.id);
 
     // Create initial tasks
-    await addTask({ name: 'Old Task A', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
-    await addTask({ name: 'Old Task B', ticketId: ticket.id, projectPath: projectDir }, sprint.id);
+    await addTask({ name: 'Old Task A', ticketId: ticket.id, repoId }, sprint.id);
+    await addTask({ name: 'Old Task B', ticketId: ticket.id, repoId }, sprint.id);
 
     const before = await listTasks(sprint.id);
     expect(before.length).toBe(2);
@@ -312,15 +310,15 @@ describe('Draft Re-Plan', () => {
     // Import replacement tasks
     const imported = await importTasks(
       [
-        { name: 'New Task 1', projectPath: projectDir, ticketId: ticket.id, id: 'new-1' },
+        { name: 'New Task 1', repoId, ticketId: ticket.id, id: 'new-1' },
         {
           name: 'New Task 2',
-          projectPath: projectDir,
+          repoId,
           ticketId: ticket.id,
           id: 'new-2',
           blockedBy: ['new-1'],
         },
-        { name: 'New Task 3', projectPath: projectDir, ticketId: ticket.id },
+        { name: 'New Task 3', repoId, ticketId: ticket.id },
       ],
       sprint.id,
       { replace: true }

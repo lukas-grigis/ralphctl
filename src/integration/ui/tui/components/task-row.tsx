@@ -42,7 +42,7 @@ export function TaskRow({ task, isRunning = false, isBlocked = false, activity }
           {task.name}
         </Text>
         <Text dimColor>{'   '}</Text>
-        <Text dimColor>{task.projectPath}</Text>
+        <Text dimColor>{task.repoId}</Text>
       </Box>
       {activity ? (
         <Box paddingLeft={spacing.indent}>

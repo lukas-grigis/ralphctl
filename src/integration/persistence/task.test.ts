@@ -13,7 +13,7 @@ function createTask(id: string, blockedBy: string[] = [], overrides?: Partial<Ta
     order: 1,
     ticketId: undefined,
     blockedBy,
-    projectPath: '/tmp/test',
+    repoId: 'repo0001',
     verified: false,
     evaluated: false,
     ...overrides,

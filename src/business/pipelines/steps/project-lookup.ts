@@ -1,40 +1,31 @@
 /**
  * Shared project / check-script resolution for per-task pipeline steps.
  *
- * `run-check-scripts` and `contract-negotiate` both need to walk a sprint's
- * tickets to find the project that owns a given `projectPath`, then pull
- * the repo's optional `checkScript`. Extracted here so the logic lives in
- * one place — changing the resolution rule (e.g. de-duping tickets with
- * the same project) updates both call sites.
+ * Post-repoId migration: tasks carry `repoId` (not `projectPath`). Lookup
+ * is by id — one direct call to `persistence.getRepoById` returns the
+ * owning project + repo. The old path-based helpers are gone; callers
+ * that need an absolute path go through `persistence.resolveRepoPath`.
  */
 
-import type { Project, Sprint } from '@src/domain/models.ts';
+import type { Project, Repository } from '@src/domain/models.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
 
 /**
- * Walk the sprint's tickets, return the first project whose repositories
- * include `projectPath`. Lookup failures are swallowed — matches the
- * silent-fallthrough behaviour the pre-pipeline code had.
+ * Resolve a repoId to its owning project + repo. Returns `undefined` when
+ * no match — matches the silent-fallthrough behaviour the pre-id code had.
  */
-export async function findProjectForPath(
+export async function findProjectForRepoId(
   persistence: PersistencePort,
-  sprint: Sprint,
-  projectPath: string
-): Promise<Project | undefined> {
-  for (const ticket of sprint.tickets) {
-    try {
-      const project = await persistence.getProject(ticket.projectName);
-      if (project.repositories.some((r) => r.path === projectPath)) return project;
-    } catch {
-      // Silent fallthrough — absent projects, wrong names, etc. fall out here.
-    }
+  repoId: string
+): Promise<{ project: Project; repo: Repository } | undefined> {
+  try {
+    return await persistence.getRepoById(repoId);
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
-/** Resolve a project's `checkScript` for a given `projectPath`, or null. */
-export function resolveCheckScript(project: Project | undefined, projectPath: string): string | null {
-  if (!project) return null;
-  const repo = project.repositories.find((r) => r.path === projectPath);
+/** Resolve a repo's `checkScript`, or null when none is configured. */
+export function resolveCheckScriptForRepo(repo: Repository | undefined): string | null {
   return repo?.checkScript ?? null;
 }

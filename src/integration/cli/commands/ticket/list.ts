@@ -1,29 +1,24 @@
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { colors, muted, success } from '@src/integration/ui/theme/theme.ts';
-import { formatTicketDisplay, groupTicketsByProject, listTickets } from '@src/integration/persistence/ticket.ts';
-import { getProject } from '@src/integration/persistence/project.ts';
+import { formatTicketDisplay, listTickets } from '@src/integration/persistence/ticket.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
+import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { RequirementStatusSchema } from '@src/domain/models.ts';
 import { badge, icons, log, printHeader, showEmpty, showError } from '@src/integration/ui/theme/ui.ts';
 
 interface TicketListFilters {
   brief: boolean;
-  projectFilter?: string;
   statusFilter?: string;
 }
 
 function parseListArgs(args: string[]): TicketListFilters {
-  const result: TicketListFilters = {
-    brief: false,
-  };
+  const result: TicketListFilters = { brief: false };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const next = args[i + 1];
     if (arg === '-b' || arg === '--brief') result.brief = true;
-    else if (arg === '--project' && next) {
-      result.projectFilter = next;
-      i++;
-    } else if (arg === '--status' && next) {
+    else if (arg === '--status' && next) {
       result.statusFilter = next;
       i++;
     }
@@ -33,15 +28,13 @@ function parseListArgs(args: string[]): TicketListFilters {
 
 function buildFilterSummary(filters: TicketListFilters): string {
   const parts: string[] = [];
-  if (filters.projectFilter) parts.push(`project=${filters.projectFilter}`);
   if (filters.statusFilter) parts.push(`status=${filters.statusFilter}`);
   return parts.length > 0 ? ` (filtered: ${parts.join(', ')})` : '';
 }
 
 export async function ticketListCommand(args: string[]): Promise<void> {
-  const { brief, projectFilter, statusFilter } = parseListArgs(args);
+  const { brief, statusFilter } = parseListArgs(args);
 
-  // Validate status filter
   if (statusFilter) {
     const result = RequirementStatusSchema.safeParse(statusFilter);
     if (!result.success) {
@@ -53,16 +46,14 @@ export async function ticketListCommand(args: string[]): Promise<void> {
   const tickets = await listTickets();
 
   if (tickets.length === 0) {
-    showEmpty('tickets', 'Add one with: ralphctl ticket add --project <project-name>');
+    showEmpty('tickets', 'Add one with: ralphctl ticket add');
     return;
   }
 
-  // Apply filters
   let filtered = tickets;
-  if (projectFilter) filtered = filtered.filter((t) => t.projectName === projectFilter);
   if (statusFilter) filtered = filtered.filter((t) => t.requirementStatus === statusFilter);
 
-  const filterStr = buildFilterSummary({ brief, projectFilter, statusFilter });
+  const filterStr = buildFilterSummary({ brief, statusFilter });
   const isFiltered = filtered.length !== tickets.length;
 
   if (filtered.length === 0) {
@@ -70,53 +61,44 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // Resolve sprint's project (all tickets in a sprint share it).
+  const sprintR = await wrapAsync(() => getCurrentSprintOrThrow(), ensureError);
+  const projectR = sprintR.ok ? await wrapAsync(() => getProjectById(sprintR.value.projectId), ensureError) : null;
+  const projectLabel = projectR?.ok ? `${projectR.value.displayName} (${projectR.value.name})` : 'unknown';
+
   if (brief) {
-    // Brief mode: one line per ticket (markdown for LLM readability)
     const countLabel = isFiltered ? `${String(filtered.length)} of ${String(tickets.length)}` : String(tickets.length);
     console.log(`\n# Tickets (${countLabel})${filterStr}\n`);
     for (const ticket of filtered) {
       const display = `[${ticket.id}] ${ticket.title}`;
       const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
-      console.log(`- ${display}${reqBadge} (${ticket.projectName})`);
+      console.log(`- ${display}${reqBadge}`);
     }
     console.log('');
     return;
   }
 
-  // Interactive list grouped by project
-  const ticketsByProject = groupTicketsByProject(filtered);
-
   printHeader(`Tickets (${String(filtered.length)})`, icons.ticket);
+  log.raw(`${colors.info(icons.project)} ${colors.info(projectLabel)}`);
 
-  for (const [projectName, projectTickets] of ticketsByProject) {
-    // Project group header
-    log.raw(`${colors.info(icons.project)} ${colors.info(projectName)}`);
-
-    // Show project repos
-    const projectR = await wrapAsync(() => getProject(projectName), ensureError);
-    if (projectR.ok) {
-      for (const repo of projectR.value.repositories) {
-        log.raw(`    ${muted(repo.name)} ${muted('→')} ${muted(repo.path)}`, 1);
-      }
-    } else {
-      log.raw(`    ${muted('(project not found)')}`, 1);
+  if (projectR?.ok) {
+    for (const repo of projectR.value.repositories) {
+      log.raw(`    ${muted(repo.name)} ${muted('→')} ${muted(repo.path)}`, 1);
     }
-    log.newline();
-
-    for (const ticket of projectTickets) {
-      const reqBadge =
-        ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
-      log.raw(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
-      if (ticket.description) {
-        const preview = ticket.description.split('\n')[0] ?? '';
-        const truncated = preview.length > 60 ? preview.slice(0, 57) + '...' : preview;
-        log.raw(`      ${muted(truncated)}`, 1);
-      }
-    }
-    log.newline();
   }
+  log.newline();
 
-  // Summary
+  for (const ticket of filtered) {
+    const reqBadge = ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
+    log.raw(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
+    if (ticket.description) {
+      const preview = ticket.description.split('\n')[0] ?? '';
+      const truncated = preview.length > 60 ? preview.slice(0, 57) + '...' : preview;
+      log.raw(`      ${muted(truncated)}`, 1);
+    }
+  }
+  log.newline();
+
   const approved = filtered.filter((t) => t.requirementStatus === 'approved').length;
   log.dim(
     `Requirements: ${success(`${String(approved)} approved`)} / ${muted(`${String(filtered.length - approved)} pending`)}`

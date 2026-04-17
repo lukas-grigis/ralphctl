@@ -1,7 +1,7 @@
 import { getPrompt } from '@src/application/bootstrap.ts';
 import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
-import { error, muted } from '@src/integration/ui/theme/theme.ts';
+import { error } from '@src/integration/ui/theme/theme.ts';
 import {
   createSpinner,
   emoji,
@@ -10,15 +10,14 @@ import {
   icons,
   log,
   renderCard,
-  showEmpty,
   showError,
   showSuccess,
   showWarning,
 } from '@src/integration/ui/theme/ui.ts';
 import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 import { addTicket } from '@src/integration/persistence/ticket.ts';
-import { listProjects, projectExists } from '@src/integration/persistence/project.ts';
-import { SprintStatusError } from '@src/integration/persistence/sprint.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
+import { getCurrentSprintOrThrow, SprintStatusError } from '@src/integration/persistence/sprint.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import { fetchIssueFromUrl, type IssueData } from '@src/integration/external/issue-fetch.ts';
 import type { Ticket } from '@src/domain/models.ts';
@@ -27,14 +26,9 @@ export interface TicketAddOptions {
   title?: string;
   description?: string;
   link?: string;
-  project?: string;
-  interactive?: boolean; // Set by REPL or CLI (default true unless --no-interactive)
+  interactive?: boolean;
 }
 
-/**
- * Attempt to fetch issue data from a URL. Returns the data if the user confirms,
- * undefined otherwise. Non-fatal — warns on failure and returns undefined.
- */
 function tryFetchIssue(url: string): IssueData | undefined {
   const spinner = createSpinner('Fetching issue data...');
   spinner.start();
@@ -56,7 +50,6 @@ function tryFetchIssue(url: string): IssueData | undefined {
   spinner.succeed('Issue data fetched');
   log.newline();
 
-  // Show summary card
   const bodyPreview = data.body.length > 200 ? data.body.slice(0, 200) + '...' : data.body;
   const cardLines = [`Title: ${data.title}`, '', bodyPreview];
   if (data.comments.length > 0) {
@@ -77,27 +70,18 @@ function validateUrl(url: string): boolean {
   }
 }
 
-/**
- * Non-interactive ticket creation: validates params and creates ticket.
- */
 async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise<void> {
   const errors: string[] = [];
   const trimmedTitle = options.title?.trim();
-  const trimmedProject = options.project?.trim();
 
   if (!trimmedTitle) {
     errors.push('--title is required');
-  }
-  if (!trimmedProject) {
-    errors.push('--project is required');
-  } else if (!(await projectExists(trimmedProject))) {
-    errors.push(`Project '${trimmedProject}' does not exist. Add it first with 'ralphctl project add'.`);
   }
   if (options.link && !validateUrl(options.link)) {
     errors.push('--link must be a valid URL');
   }
 
-  if (errors.length > 0 || !trimmedTitle || !trimmedProject) {
+  if (errors.length > 0 || !trimmedTitle) {
     showError('Validation failed');
     for (const e of errors) {
       log.item(error(e));
@@ -111,37 +95,16 @@ async function addSingleTicketNonInteractive(options: TicketAddOptions): Promise
   const description = trimmedDesc === '' ? undefined : trimmedDesc;
   const trimmedLink = options.link?.trim();
   const link = trimmedLink === '' ? undefined : trimmedLink;
-  const projectName = trimmedProject;
 
-  const addR = await wrapAsync(() => addTicket({ title, description, link, projectName }), ensureError);
+  const addR = await wrapAsync(() => addTicket({ title, description, link }), ensureError);
   if (!addR.ok) {
     handleTicketError(addR.error);
     return;
   }
-  showTicketResult(addR.value);
+  await showTicketResult(addR.value);
 }
 
-/**
- * Interactive ticket creation: prompts for fields and creates ticket.
- * Returns the created ticket on success, or null on failure.
- */
 export async function addSingleTicketInteractive(options: TicketAddOptions): Promise<Ticket | null> {
-  const projects = await listProjects();
-
-  if (projects.length === 0) {
-    showEmpty('projects', 'Add one first with: ralphctl project add');
-    return null;
-  }
-
-  const projectName = await getPrompt().select({
-    message: `${icons.project} Project:`,
-    default: options.project ?? projects[0]?.name,
-    choices: projects.map((p) => ({
-      label: `${icons.project} ${p.name} ${muted(`- ${p.displayName}`)}`,
-      value: p.name,
-    })),
-  });
-
   // Link prompt first — enables issue fetching for pre-fill
   const link: string | undefined = await getPrompt().input({
     message: `${icons.info} Issue link (optional):`,
@@ -155,7 +118,6 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
   const trimmedLink = link.trim();
   const normalizedLink = trimmedLink === '' ? undefined : trimmedLink;
 
-  // Try to fetch issue data if a valid issue URL was provided
   let prefill: IssueData | undefined;
   if (normalizedLink) {
     prefill = tryFetchIssue(normalizedLink);
@@ -177,31 +139,34 @@ export async function addSingleTicketInteractive(options: TicketAddOptions): Pro
   }
   const description = descR.value;
 
-  // Trim and normalize empty strings to undefined
   title = title.trim();
   const trimmedDescription = description.trim();
   const normalizedDescription = trimmedDescription === '' ? undefined : trimmedDescription;
 
   const addR = await wrapAsync(
-    () => addTicket({ title, description: normalizedDescription, link: normalizedLink, projectName }),
+    () => addTicket({ title, description: normalizedDescription, link: normalizedLink }),
     ensureError
   );
   if (!addR.ok) {
     handleTicketError(addR.error);
     return null;
   }
-  showTicketResult(addR.value);
+  await showTicketResult(addR.value);
   return addR.value;
 }
 
-/**
- * Display the result of a successfully added ticket.
- */
-function showTicketResult(ticket: Ticket): void {
+async function showTicketResult(ticket: Ticket): Promise<void> {
+  const sprintR = await wrapAsync(() => getCurrentSprintOrThrow(), ensureError);
+  const projectLabel = sprintR.ok
+    ? await wrapAsync(() => getProjectById(sprintR.value.projectId), ensureError).then((r) =>
+        r.ok ? `${r.value.displayName} (${r.value.name})` : sprintR.value.projectId
+      )
+    : 'unknown';
+
   showSuccess('Ticket added!', [
     ['ID', ticket.id],
     ['Title', ticket.title],
-    ['Project', ticket.projectName],
+    ['Project', projectLabel],
   ]);
 
   if (ticket.description) {
@@ -213,9 +178,6 @@ function showTicketResult(ticket: Ticket): void {
   console.log('');
 }
 
-/**
- * Handle known ticket creation errors with user-friendly messages.
- */
 function handleTicketError(err: unknown): void {
   if (err instanceof SprintStatusError) {
     showError(err.message);
@@ -234,17 +196,13 @@ export async function ticketAddCommand(options: TicketAddOptions = {}): Promise<
 
   // Interactive mode with batch loop
   let count = 0;
-  let lastProjectName: string | undefined = options.project;
-
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control via break
   while (true) {
-    const ticket = await addSingleTicketInteractive({ ...options, project: lastProjectName });
+    const ticket = await addSingleTicketInteractive(options);
     if (ticket) {
       count++;
-      lastProjectName = ticket.projectName;
       log.dim(`${String(count)} ticket(s) added in this session`);
     } else {
-      // No ticket created (no projects, or unrecoverable error) — exit loop
       break;
     }
 

@@ -10,8 +10,8 @@ import { join } from 'node:path';
 import React, { useMemo } from 'react';
 import { getSprint, resolveSprintId } from '@src/integration/persistence/sprint.ts';
 import { listTasks } from '@src/integration/persistence/task.ts';
-import { getProject } from '@src/integration/persistence/project.ts';
-import { formatTicketDisplay, groupTicketsByProject } from '@src/integration/persistence/ticket.ts';
+import { getProjectById, getRepoById } from '@src/integration/persistence/project.ts';
+import { formatTicketDisplay } from '@src/integration/persistence/ticket.ts';
 import { getSprintDir } from '@src/integration/persistence/paths.ts';
 import { ensureDir } from '@src/integration/persistence/storage.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
@@ -105,37 +105,35 @@ async function renderContextMarkdown(sprint: Sprint, tasks: Tasks): Promise<stri
   if (sprint.tickets.length === 0) {
     lines.push('_No tickets defined_');
   } else {
-    const ticketsByProject = groupTicketsByProject(sprint.tickets);
-    for (const [projectName, tickets] of ticketsByProject) {
-      lines.push(`### Project: ${projectName}`);
-      const projectR = await wrapAsync(() => getProject(projectName), ensureError);
-      if (projectR.ok) {
-        const repoPaths = projectR.value.repositories.map((r) => `${r.name} (${r.path})`);
-        lines.push(`Repositories: ${repoPaths.join(', ')}`);
-      } else {
-        lines.push('Repositories: (project not found)');
+    const projectR = await wrapAsync(() => getProjectById(sprint.projectId), ensureError);
+    const project = projectR.ok ? projectR.value : null;
+    lines.push(`### Project: ${project ? `${project.displayName} (${project.name})` : sprint.projectId}`);
+    if (project) {
+      const repoPaths = project.repositories.map((r) => `${r.name} (${r.path})`);
+      lines.push(`Repositories: ${repoPaths.join(', ')}`);
+    } else {
+      lines.push('Repositories: (project not found)');
+    }
+    lines.push('');
+
+    for (const ticket of sprint.tickets) {
+      const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
+      lines.push(`#### ${formatTicketDisplay(ticket)}${reqBadge}`);
+      if (ticket.description) {
+        lines.push('');
+        lines.push(ticket.description);
+      }
+      if (ticket.link) {
+        lines.push('');
+        lines.push(`Link: ${ticket.link}`);
+      }
+      if (ticket.requirements) {
+        lines.push('');
+        lines.push('**Refined Requirements:**');
+        lines.push('');
+        lines.push(ticket.requirements);
       }
       lines.push('');
-
-      for (const ticket of tickets) {
-        const reqBadge = ticket.requirementStatus === 'approved' ? ' [approved]' : ' [pending]';
-        lines.push(`#### ${formatTicketDisplay(ticket)}${reqBadge}`);
-        if (ticket.description) {
-          lines.push('');
-          lines.push(ticket.description);
-        }
-        if (ticket.link) {
-          lines.push('');
-          lines.push(`Link: ${ticket.link}`);
-        }
-        if (ticket.requirements) {
-          lines.push('');
-          lines.push('**Refined Requirements:**');
-          lines.push('');
-          lines.push(ticket.requirements);
-        }
-        lines.push('');
-      }
     }
   }
 
@@ -147,7 +145,9 @@ async function renderContextMarkdown(sprint: Sprint, tasks: Tasks): Promise<stri
     for (const task of tasks) {
       const ticketRef = task.ticketId ? ` [${task.ticketId}]` : '';
       lines.push(`### ${task.id}: ${task.name}${ticketRef}`);
-      lines.push(`Status: ${task.status} | Order: ${String(task.order)} | Project: ${task.projectPath}`);
+      const repoR = await wrapAsync(() => getRepoById(task.repoId), ensureError);
+      const repoLabel = repoR.ok ? `${repoR.value.repo.name} (${repoR.value.repo.path})` : task.repoId;
+      lines.push(`Status: ${task.status} | Order: ${String(task.order)} | Repo: ${repoLabel}`);
       if (task.blockedBy.length > 0) {
         lines.push(`Blocked By: ${task.blockedBy.join(', ')}`);
       }

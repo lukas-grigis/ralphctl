@@ -85,10 +85,10 @@ export function parseTasksJson(output: string): ImportTask[] {
 export function renderParsedTasksTable(parsedTasks: ImportTask[]): string {
   const rows = parsedTasks.map((task, i) => {
     const deps = task.blockedBy?.length ? task.blockedBy.join(', ') : '';
-    return [String(i + 1), task.name, task.projectPath, deps];
+    return [String(i + 1), task.name, task.repoId, deps];
   });
   return renderTable(
-    [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Path' }, { header: 'Blocked By' }],
+    [{ header: '#', align: 'right' as const }, { header: 'Name' }, { header: 'Repo ID' }, { header: 'Blocked By' }],
     rows
   );
 }
@@ -124,8 +124,6 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
 
   for (const taskInput of tasks) {
     const addR = await wrapAsync(async () => {
-      const projectPath = taskInput.projectPath;
-
       // Create task without blockedBy first
       const task = await addTask(
         {
@@ -134,7 +132,7 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
           steps: taskInput.steps ?? [],
           ticketId: taskInput.ticketId,
           blockedBy: [], // Set later
-          projectPath,
+          repoId: taskInput.repoId,
         },
         sprintId
       );
@@ -204,7 +202,7 @@ async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promis
       order: newTasks.length + 1,
       ticketId: taskInput.ticketId,
       blockedBy: [], // Set in second pass
-      projectPath: taskInput.projectPath,
+      repoId: taskInput.repoId,
       evaluated: false,
       verified: false,
     });

@@ -62,6 +62,7 @@ function renderBody(state: State): React.JSX.Element {
       <Box marginTop={spacing.section}>
         <FieldList
           fields={[
+            ['ID', project.id],
             ['Slug', project.name],
             ['Description', project.description ?? glyphs.emDash],
             ['Repos', String(project.repositories.length)],
@@ -73,10 +74,11 @@ function renderBody(state: State): React.JSX.Element {
           Repositories
         </Text>
         {project.repositories.map((r) => (
-          <Box key={r.path} paddingLeft={spacing.indent}>
+          <Box key={r.id} paddingLeft={spacing.indent}>
             <Text dimColor>{glyphs.bulletListItem} </Text>
             <Text>{r.name}</Text>
-            <Text dimColor>{`  ${r.path}`}</Text>
+            <Text dimColor>{`  ${r.path}  `}</Text>
+            <Text dimColor>{`(id: ${r.id})`}</Text>
           </Box>
         ))}
       </Box>

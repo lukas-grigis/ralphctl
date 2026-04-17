@@ -26,6 +26,7 @@ describe('assertSprintStatus', () => {
     return {
       id: '20240101-120000-test',
       name: 'Test Sprint',
+      projectId: 'prj00001',
       status,
       createdAt: new Date().toISOString(),
       activatedAt: null,
@@ -105,28 +106,28 @@ describe('assertSprintStatus', () => {
 
 describe('createSprint', () => {
   it('returns a sprint with status draft', async () => {
-    const sprint = await createSprint('My Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'My Sprint' });
     expect(sprint.status).toBe('draft');
   });
 
   it('uses the provided name', async () => {
-    const sprint = await createSprint('My Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'My Sprint' });
     expect(sprint.name).toBe('My Sprint');
   });
 
   it('generates an ID matching YYYYMMDD-HHmmss-slug format', async () => {
-    const sprint = await createSprint('hello world');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'hello world' });
     expect(sprint.id).toMatch(/^\d{8}-\d{6}-[a-z0-9-]+$/);
   });
 
   it('sets activatedAt and closedAt to null', async () => {
-    const sprint = await createSprint('Test');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Test' });
     expect(sprint.activatedAt).toBeNull();
     expect(sprint.closedAt).toBeNull();
   });
 
   it('creates an auto-generated name when none is provided', async () => {
-    const sprint = await createSprint();
+    const sprint = await createSprint({ projectId: 'prj00001' });
     expect(sprint.name).toBeTruthy();
     expect(sprint.name.length).toBeGreaterThan(0);
   });
@@ -134,18 +135,18 @@ describe('createSprint', () => {
   it('creates sprint files on disk', async () => {
     const { existsSync } = await import('node:fs');
     const { join } = await import('node:path');
-    const sprint = await createSprint('Disk Test');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Disk Test' });
     const sprintFile = join(env.testDir, 'sprints', sprint.id, 'sprint.json');
     expect(existsSync(sprintFile)).toBe(true);
   });
 
   it('initialises checkRanAt as empty object', async () => {
-    const sprint = await createSprint('Clean Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Clean Sprint' });
     expect(sprint.checkRanAt).toEqual({});
   });
 
   it('initialises tickets as empty array', async () => {
-    const sprint = await createSprint('Tickets Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Tickets Sprint' });
     expect(sprint.tickets).toEqual([]);
   });
 });
@@ -156,14 +157,14 @@ describe('createSprint', () => {
 
 describe('activateSprint', () => {
   it('changes status to active and sets activatedAt', async () => {
-    const created = await createSprint('Activate Me');
+    const created = await createSprint({ projectId: 'prj00001', name: 'Activate Me' });
     const activated = await activateSprint(created.id);
     expect(activated.status).toBe('active');
     expect(activated.activatedAt).not.toBeNull();
   });
 
   it('throws SprintStatusError when activating a non-draft sprint', async () => {
-    const sprint = await createSprint('Already Active');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Already Active' });
     await activateSprint(sprint.id); // now active
     await expect(activateSprint(sprint.id)).rejects.toThrow(SprintStatusError);
   });
@@ -175,7 +176,7 @@ describe('activateSprint', () => {
 
 describe('closeSprint', () => {
   it('changes status to closed and sets closedAt', async () => {
-    const sprint = await createSprint('Close Me');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Close Me' });
     await activateSprint(sprint.id);
     const closed = await closeSprint(sprint.id);
     expect(closed.status).toBe('closed');
@@ -183,12 +184,12 @@ describe('closeSprint', () => {
   });
 
   it('clears checkRanAt when closing', async () => {
-    const sprint = await createSprint('Check Ran Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Check Ran Sprint' });
     await activateSprint(sprint.id);
     // Manually write checkRanAt data
     const { getSprint, saveSprint } = await import('./sprint.ts');
     const loaded = await getSprint(sprint.id);
-    loaded.checkRanAt = { '/some/path': new Date().toISOString() };
+    loaded.checkRanAt = { repo0001: new Date().toISOString() };
     await saveSprint(loaded);
 
     const closed = await closeSprint(sprint.id);
@@ -196,12 +197,12 @@ describe('closeSprint', () => {
   });
 
   it('throws SprintStatusError when closing a draft sprint', async () => {
-    const sprint = await createSprint('Draft Cannot Close');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Draft Cannot Close' });
     await expect(closeSprint(sprint.id)).rejects.toThrow(SprintStatusError);
   });
 
   it('throws SprintStatusError when closing an already-closed sprint', async () => {
-    const sprint = await createSprint('Double Close');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Double Close' });
     await activateSprint(sprint.id);
     await closeSprint(sprint.id);
     await expect(closeSprint(sprint.id)).rejects.toThrow(SprintStatusError);
@@ -218,7 +219,7 @@ describe('getCurrentSprintOrThrow', () => {
   });
 
   it('returns the current sprint when one is set', async () => {
-    const sprint = await createSprint('Current Sprint');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Current Sprint' });
     await setCurrentSprint(sprint.id);
     const current = await getCurrentSprintOrThrow();
     expect(current.id).toBe(sprint.id);
@@ -231,7 +232,7 @@ describe('getCurrentSprintOrThrow', () => {
 
 describe('full sprint lifecycle', () => {
   it('create → activate → close succeeds', async () => {
-    const created = await createSprint('Lifecycle Test');
+    const created = await createSprint({ projectId: 'prj00001', name: 'Lifecycle Test' });
     expect(created.status).toBe('draft');
 
     const activated = await activateSprint(created.id);
@@ -242,7 +243,7 @@ describe('full sprint lifecycle', () => {
   });
 
   it('create → close throws (cannot skip activation)', async () => {
-    const sprint = await createSprint('Skip Activation');
+    const sprint = await createSprint({ projectId: 'prj00001', name: 'Skip Activation' });
     await expect(closeSprint(sprint.id)).rejects.toThrow(SprintStatusError);
   });
 });

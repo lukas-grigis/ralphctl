@@ -3,8 +3,7 @@ import { readValidatedJson, writeValidatedJson } from '@src/integration/persiste
 import { type Sprint, SprintSchema, type Ticket } from '@src/domain/models.ts';
 import { assertSprintStatus, resolveSprintId } from '@src/integration/persistence/sprint.ts';
 import { generateUuid8 } from '@src/domain/ids.ts';
-import { projectExists } from '@src/integration/persistence/project.ts';
-import { ProjectNotFoundError, TicketNotFoundError } from '@src/domain/errors.ts';
+import { TicketNotFoundError } from '@src/domain/errors.ts';
 
 export { TicketNotFoundError } from '@src/domain/errors.ts';
 
@@ -24,26 +23,25 @@ export interface AddTicketInput {
   title: string;
   description?: string;
   link?: string;
-  projectName: string;
+  /** Optional repo subset — undefined = every repo in the sprint's project. */
+  affectedRepoIds?: string[];
 }
 
+/**
+ * Add a ticket to the sprint. Project is inherited from `sprint.projectId` —
+ * the caller doesn't pass it. Narrowing to a repo subset is optional.
+ */
 export async function addTicket(input: AddTicketInput, sprintId?: string): Promise<Ticket> {
   const sprint = await getSprintData(sprintId);
 
-  // Check sprint status - must be draft to add tickets
   assertSprintStatus(sprint, ['draft'], 'add tickets');
-
-  // Validate that the project exists
-  if (!(await projectExists(input.projectName))) {
-    throw new ProjectNotFoundError(input.projectName);
-  }
 
   const ticket: Ticket = {
     id: generateUuid8(),
     title: input.title,
     description: input.description,
     link: input.link,
-    projectName: input.projectName,
+    affectedRepoIds: input.affectedRepoIds,
     requirementStatus: 'pending',
   };
 
@@ -123,19 +121,6 @@ export async function getTicket(ticketId: string, sprintId?: string): Promise<Ti
 export async function getTicketByTitle(title: string, sprintId?: string): Promise<Ticket | undefined> {
   const sprint = await getSprintData(sprintId);
   return sprint.tickets.find((t) => t.title === title);
-}
-
-/**
- * Group tickets by their project name.
- */
-export function groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]> {
-  const grouped = new Map<string, Ticket[]>();
-  for (const ticket of tickets) {
-    const existing = grouped.get(ticket.projectName) ?? [];
-    existing.push(ticket);
-    grouped.set(ticket.projectName, existing);
-  }
-  return grouped;
 }
 
 /**

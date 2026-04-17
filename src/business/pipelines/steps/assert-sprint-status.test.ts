@@ -12,6 +12,7 @@ function makeSprint(status: SprintStatus): Sprint {
   return {
     id: 's1',
     name: 'Sprint 1',
+    projectId: 'prj00001',
     status,
     createdAt: new Date().toISOString(),
     activatedAt: null,

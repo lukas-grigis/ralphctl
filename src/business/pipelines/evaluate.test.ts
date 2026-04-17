@@ -20,6 +20,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'test-sprint',
     name: 'Test Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: new Date().toISOString(),
     activatedAt: new Date().toISOString(),
@@ -40,7 +41,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'done',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/repo',
+    repoId: 'repo-1',
     verified: true,
     evaluated: false,
     ...overrides,
@@ -125,6 +126,11 @@ function makeLogger(): LoggerPort {
 }
 
 function makePersistence(overrides: Partial<PersistencePort> = {}): PersistencePort {
+  const stubbed = {
+    resolveRepoPath: () => Promise.resolve('/tmp/repo'),
+    getRepoById: () => Promise.reject(new Error('not configured in test')),
+  } as unknown as PersistencePort;
+  overrides = { ...stubbed, ...overrides };
   const stub = {} as PersistencePort;
   return { ...stub, ...overrides };
 }

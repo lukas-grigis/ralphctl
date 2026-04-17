@@ -21,7 +21,7 @@ const mockWriteFile = vi.mocked(writeFile);
 const mockSpawnInteractive = vi.mocked(spawnInteractive);
 const mockGetActiveProvider = vi.mocked(getActiveProvider);
 
-function createTicket(overrides: Partial<Ticket> & { title: string; projectName: string }): Ticket {
+function createTicket(overrides: Partial<Ticket> & { title: string }): Ticket {
   return {
     id: 'abc12345',
     description: undefined,
@@ -34,21 +34,14 @@ function createTicket(overrides: Partial<Ticket> & { title: string; projectName:
 
 describe('formatTicketForPrompt', () => {
   it('includes ticket ID and title in header', () => {
-    const ticket = createTicket({ id: 'abc12345', title: 'Add login page', projectName: 'app' });
+    const ticket = createTicket({ id: 'abc12345', title: 'Add login page' });
     const result = formatTicketForPrompt(ticket);
     expect(result).toContain('[abc12345] Add login page');
-  });
-
-  it('includes project name', () => {
-    const ticket = createTicket({ title: 'Fix bug', projectName: 'backend-api' });
-    const result = formatTicketForPrompt(ticket);
-    expect(result).toContain('Project: backend-api');
   });
 
   it('includes description when present', () => {
     const ticket = createTicket({
       title: 'Feature',
-      projectName: 'app',
       description: 'This is the description.',
     });
     const result = formatTicketForPrompt(ticket);
@@ -59,7 +52,6 @@ describe('formatTicketForPrompt', () => {
   it('includes link when present', () => {
     const ticket = createTicket({
       title: 'Feature',
-      projectName: 'app',
       link: 'https://github.com/org/repo/issues/42',
     });
     const result = formatTicketForPrompt(ticket);
@@ -67,13 +59,13 @@ describe('formatTicketForPrompt', () => {
   });
 
   it('omits description section when description is not present', () => {
-    const ticket = createTicket({ title: 'Feature', projectName: 'app', description: undefined });
+    const ticket = createTicket({ title: 'Feature', description: undefined });
     const result = formatTicketForPrompt(ticket);
     expect(result).not.toContain('**Description:**');
   });
 
   it('omits link section when link is not present', () => {
-    const ticket = createTicket({ title: 'Feature', projectName: 'app', link: undefined });
+    const ticket = createTicket({ title: 'Feature', link: undefined });
     const result = formatTicketForPrompt(ticket);
     expect(result).not.toContain('**Link:**');
   });
@@ -81,7 +73,6 @@ describe('formatTicketForPrompt', () => {
   it('includes both description and link when both are present', () => {
     const ticket = createTicket({
       title: 'Feature',
-      projectName: 'app',
       description: 'Do the thing.',
       link: 'https://example.com/issue/1',
     });

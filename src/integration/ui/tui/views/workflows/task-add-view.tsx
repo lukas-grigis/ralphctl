@@ -1,16 +1,14 @@
 /**
  * TaskAddView — native Ink flow for `task add`.
  *
- * Flow: pick project path (from registered projects) → name → (optional)
- * description → commit. Bypasses the detailed "steps / verification / ticket /
- * blockedBy" surface of the CLI command — those are planner-generated in
- * practice, and manually-added tasks are typically simple one-offs.
+ * Flow: pick repo (from sprint's project) → name → (optional) description →
+ * commit. Auto-selects the repo if the sprint's project has only one.
  */
 
 import React, { useMemo } from 'react';
-import type { Task } from '@src/domain/models.ts';
+import type { Repository, Task } from '@src/domain/models.ts';
 import { getPrompt } from '@src/application/bootstrap.ts';
-import { listProjects } from '@src/integration/persistence/project.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { addTask } from '@src/integration/persistence/task.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
@@ -28,15 +26,15 @@ const HINTS_DONE = [
 ] as const;
 
 type Phase =
-  | { kind: 'running'; step: 'project-path' | 'name' | 'description' | 'saving' }
-  | { kind: 'no-projects' }
+  | { kind: 'running'; step: 'repo' | 'name' | 'description' | 'saving' }
+  | { kind: 'no-project' }
   | { kind: 'no-draft-sprint' }
-  | { kind: 'done'; task: Task }
+  | { kind: 'done'; task: Task; repo: Repository }
   | { kind: 'error'; message: string };
 
 export function TaskAddView(): React.JSX.Element {
   const { phase } = useWorkflow<Phase>({
-    initial: { kind: 'running', step: 'project-path' },
+    initial: { kind: 'running', step: 'repo' },
     onError: (message) => ({ kind: 'error', message }),
     run: async ({ setPhase }) => {
       const prompt = getPrompt();
@@ -47,24 +45,37 @@ export function TaskAddView(): React.JSX.Element {
         return;
       }
 
-      const projects = await listProjects();
-      const pathsByProject = projects.flatMap((p) =>
-        p.repositories.map((r) => ({ projectName: p.name, repoName: r.name, path: r.path }))
-      );
-      if (pathsByProject.length === 0) {
-        setPhase({ kind: 'no-projects' });
+      let project;
+      try {
+        project = await getProjectById(sprint.projectId);
+      } catch {
+        setPhase({ kind: 'no-project' });
         return;
       }
 
-      setPhase({ kind: 'running', step: 'project-path' });
-      const projectPath = await prompt.select<string>({
-        message: 'Where does this task run?',
-        choices: pathsByProject.map((e) => ({
-          label: `[${e.projectName}] ${e.repoName}`,
-          value: e.path,
-          description: e.path,
-        })),
-      });
+      const repos = project.repositories;
+      if (repos.length === 0) {
+        setPhase({ kind: 'no-project' });
+        return;
+      }
+
+      setPhase({ kind: 'running', step: 'repo' });
+      let repo: Repository;
+      if (repos.length === 1 && repos[0]) {
+        repo = repos[0];
+      } else {
+        const repoId = await prompt.select<string>({
+          message: 'Which repo runs this task?',
+          choices: repos.map((r) => ({
+            label: r.name,
+            value: r.id,
+            description: r.path,
+          })),
+        });
+        const picked = repos.find((r) => r.id === repoId);
+        if (!picked) throw new Error('Repo selection resolved to unknown id');
+        repo = picked;
+      }
 
       setPhase({ kind: 'running', step: 'name' });
       const name = await prompt.input({
@@ -82,9 +93,9 @@ export function TaskAddView(): React.JSX.Element {
       const task = await addTask({
         name: name.trim(),
         description: trimmedDescription.length > 0 ? trimmedDescription : undefined,
-        projectPath,
+        repoId: repo.id,
       });
-      setPhase({ kind: 'done', task });
+      setPhase({ kind: 'done', task, repo });
     },
   });
 
@@ -98,8 +109,8 @@ function renderBody(phase: Phase): React.JSX.Element {
   switch (phase.kind) {
     case 'running':
       return <Spinner label={stepLabel(phase.step)} />;
-    case 'no-projects':
-      return <ResultCard kind="warning" title="Register a project first" />;
+    case 'no-project':
+      return <ResultCard kind="warning" title="Sprint's project is missing or has no repos" />;
     case 'no-draft-sprint':
       return <ResultCard kind="warning" title="Current sprint is not a draft" />;
     case 'error':
@@ -113,7 +124,7 @@ function renderBody(phase: Phase): React.JSX.Element {
             ['ID', phase.task.id],
             ['Name', phase.task.name],
             ['Order', String(phase.task.order)],
-            ['Project Path', phase.task.projectPath],
+            ['Repo', `${phase.repo.name} (${phase.repo.path})`],
           ]}
         />
       );
@@ -121,7 +132,7 @@ function renderBody(phase: Phase): React.JSX.Element {
 }
 
 function stepLabel(step: Extract<Phase, { kind: 'running' }>['step']): string {
-  if (step === 'project-path') return 'Awaiting project path…';
+  if (step === 'repo') return 'Awaiting repo selection…';
   if (step === 'name') return 'Awaiting task name…';
   if (step === 'description') return 'Awaiting description…';
   return 'Saving task…';

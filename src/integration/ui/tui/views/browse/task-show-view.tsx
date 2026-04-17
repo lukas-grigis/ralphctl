@@ -66,7 +66,7 @@ function renderBody(state: State): React.JSX.Element {
           fields={[
             ['ID', task.id],
             ['Order', String(task.order)],
-            ['Project Path', task.projectPath],
+            ['Repo ID', task.repoId],
             ['Ticket', task.ticketId ?? glyphs.emDash],
             ['Blocked By', task.blockedBy.length > 0 ? task.blockedBy.join(', ') : glyphs.emDash],
             ['Verified', task.verified ? 'yes' : 'no'],

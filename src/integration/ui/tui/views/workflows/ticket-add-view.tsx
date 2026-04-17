@@ -1,21 +1,18 @@
 /**
  * TicketAddView — native Ink flow for `ticket add`.
  *
- * Flow: select project → (optional) link → fetch-issue-if-URL → title (prefilled)
+ * Flow: (optional) link → fetch-issue-if-URL → title (prefilled)
  * → (optional) description (multi-line editor, prefilled) → commit → ResultCard.
  *
- * Link comes first so a GitHub/GitLab issue URL can pre-fill title + description
- * via `fetchIssueFromUrl`. Fetch failures are non-fatal — the flow continues
- * with empty prefills.
- *
- * Requires a current draft sprint and at least one project — otherwise
- * aborts with an explanatory ResultCard before any prompt fires.
+ * Project is inherited from `sprint.projectId` — no prompt needed.
+ * Requires a current draft sprint — otherwise aborts with an explanatory
+ * ResultCard before any prompt fires.
  */
 
 import React, { useMemo } from 'react';
-import type { Ticket } from '@src/domain/models.ts';
+import type { Project, Ticket } from '@src/domain/models.ts';
 import { getPrompt } from '@src/application/bootstrap.ts';
-import { listProjects } from '@src/integration/persistence/project.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { addTicket } from '@src/integration/persistence/ticket.ts';
 import { fetchIssueFromUrl, type IssueData } from '@src/integration/external/issue-fetch.ts';
@@ -34,14 +31,13 @@ const HINTS_DONE = [
 ] as const;
 
 type Phase =
-  | { kind: 'running'; step: 'project' | 'link' | 'fetching' | 'title' | 'description' | 'saving' }
-  | { kind: 'no-projects' }
+  | { kind: 'running'; step: 'link' | 'fetching' | 'title' | 'description' | 'saving' }
+  | { kind: 'no-project' }
   | { kind: 'no-draft-sprint' }
-  | { kind: 'done'; ticket: Ticket; prefilled: boolean }
+  | { kind: 'done'; ticket: Ticket; project: Project; prefilled: boolean }
   | { kind: 'error'; message: string };
 
 const STEP_LABEL: Record<Extract<Phase, { kind: 'running' }>['step'], string> = {
-  project: 'Awaiting project selection…',
   link: 'Awaiting issue link…',
   fetching: 'Fetching issue data…',
   title: 'Awaiting ticket title…',
@@ -68,7 +64,7 @@ function tryFetchIssue(url: string): IssueData | null {
 
 export function TicketAddView(): React.JSX.Element {
   const { phase } = useWorkflow<Phase>({
-    initial: { kind: 'running', step: 'project' },
+    initial: { kind: 'running', step: 'link' },
     onError: (message) => ({ kind: 'error', message }),
     run: async ({ setPhase }) => {
       const prompt = getPrompt();
@@ -79,24 +75,14 @@ export function TicketAddView(): React.JSX.Element {
         return;
       }
 
-      const projects = await listProjects();
-      if (projects.length === 0) {
-        setPhase({ kind: 'no-projects' });
+      // Project inherited from sprint — defensively guard against missing.
+      let project: Project;
+      try {
+        project = await getProjectById(sprint.projectId);
+      } catch {
+        setPhase({ kind: 'no-project' });
         return;
       }
-
-      setPhase({ kind: 'running', step: 'project' });
-      const projectName =
-        projects.length === 1 && projects[0]
-          ? projects[0].name
-          : await prompt.select<string>({
-              message: 'Project:',
-              choices: projects.map((p) => ({
-                label: `${p.displayName} (${String(p.repositories.length)} repo${p.repositories.length === 1 ? '' : 's'})`,
-                value: p.name,
-                description: p.description,
-              })),
-            });
 
       setPhase({ kind: 'running', step: 'link' });
       const link = await prompt.input({
@@ -134,10 +120,9 @@ export function TicketAddView(): React.JSX.Element {
         title: title.trim(),
         description: trimmedDescription.length > 0 ? trimmedDescription : undefined,
         link: trimmedLink.length > 0 ? trimmedLink : undefined,
-        projectName,
       });
 
-      setPhase({ kind: 'done', ticket, prefilled: prefill !== null });
+      setPhase({ kind: 'done', ticket, project, prefilled: prefill !== null });
     },
   });
 
@@ -160,12 +145,12 @@ function renderBody(phase: Phase): React.JSX.Element {
           nextSteps={[{ action: 'Create a fresh draft sprint', description: 'Browse → Sprints → Create' }]}
         />
       );
-    case 'no-projects':
+    case 'no-project':
       return (
         <ResultCard
           kind="warning"
-          title="No projects registered"
-          nextSteps={[{ action: 'Register a project first', description: 'Browse → Projects → Add' }]}
+          title="Sprint's project could not be resolved"
+          lines={["The sprint references a project that no longer exists."]}
         />
       );
     case 'error':
@@ -178,7 +163,7 @@ function renderBody(phase: Phase): React.JSX.Element {
           fields={[
             ['ID', phase.ticket.id],
             ['Title', phase.ticket.title],
-            ['Project', phase.ticket.projectName],
+            ['Project', `${phase.project.displayName} (${phase.project.name})`],
             ['Status', `requirement: ${phase.ticket.requirementStatus}`],
           ]}
           nextSteps={[{ action: 'Refine requirements', description: 'Home → Next: Refine Requirements' }]}

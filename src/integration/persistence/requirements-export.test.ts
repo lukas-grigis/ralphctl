@@ -11,6 +11,7 @@ describe('requirements-export', () => {
       const sprint: Sprint = {
         id: '20260101-120000-test',
         name: 'Test Sprint',
+        projectId: 'prj00001',
         status: 'draft',
         createdAt: '2026-01-01T12:00:00Z',
         activatedAt: null,
@@ -36,7 +37,6 @@ describe('requirements-export', () => {
       const ticket: Ticket = {
         id: 'abc123',
         title: 'Test Feature',
-        projectName: 'test-project',
         requirementStatus: 'approved',
         requirements: '## Problem\nSolve the test problem\n\n## Acceptance Criteria\n- Works',
       };
@@ -44,6 +44,7 @@ describe('requirements-export', () => {
       const sprint: Sprint = {
         id: '20260101-120000-test',
         name: 'Test Sprint',
+        projectId: 'prj00001',
         status: 'active',
         createdAt: '2026-01-01T12:00:00Z',
         activatedAt: '2026-01-01T13:00:00Z',
@@ -58,7 +59,7 @@ describe('requirements-export', () => {
 
       const content = await readFile(outputPath, 'utf-8');
       expect(content).toContain('# Sprint Requirements: Test Sprint');
-      expect(content).toContain('## test-project - Test Feature');
+      expect(content).toContain('## Test Feature');
       expect(content).toContain('**Ticket ID:** abc123');
       expect(content).toContain('**Status:** approved');
       expect(content).toContain('### Requirements');
@@ -72,7 +73,6 @@ describe('requirements-export', () => {
       const ticket: Ticket = {
         id: 'abc123',
         title: 'Test Feature',
-        projectName: 'test-project',
         requirementStatus: 'approved',
         requirements: 'Test requirements',
         link: 'https://jira.example.com/JIRA-456',
@@ -81,6 +81,7 @@ describe('requirements-export', () => {
       const sprint: Sprint = {
         id: '20260101-120000-test',
         name: 'Test Sprint',
+        projectId: 'prj00001',
         status: 'active',
         createdAt: '2026-01-01T12:00:00Z',
         activatedAt: '2026-01-01T13:00:00Z',
@@ -104,14 +105,12 @@ describe('requirements-export', () => {
         {
           id: 'abc123',
           title: 'Feature 1',
-          projectName: 'proj-a',
           requirementStatus: 'approved',
           requirements: 'Req 1',
         },
         {
           id: 'def456',
           title: 'Feature 2',
-          projectName: 'proj-b',
           requirementStatus: 'approved',
           requirements: 'Req 2',
         },
@@ -120,6 +119,7 @@ describe('requirements-export', () => {
       const sprint: Sprint = {
         id: '20260101-120000-test',
         name: 'Test Sprint',
+        projectId: 'prj00001',
         status: 'active',
         createdAt: '2026-01-01T12:00:00Z',
         activatedAt: '2026-01-01T13:00:00Z',
@@ -133,8 +133,8 @@ describe('requirements-export', () => {
       await exportRequirementsToMarkdown(sprint, outputPath);
 
       const content = await readFile(outputPath, 'utf-8');
-      expect(content).toContain('## proj-a - Feature 1');
-      expect(content).toContain('## proj-b - Feature 2');
+      expect(content).toContain('## Feature 1');
+      expect(content).toContain('## Feature 2');
       expect(content).toContain('Req 1');
       expect(content).toContain('Req 2');
 
@@ -145,13 +145,13 @@ describe('requirements-export', () => {
       const ticket: Ticket = {
         id: 'abc123',
         title: 'Test Feature',
-        projectName: 'test-project',
         requirementStatus: 'pending',
       };
 
       const sprint: Sprint = {
         id: '20260101-120000-test',
         name: 'Test Sprint',
+        projectId: 'prj00001',
         status: 'draft',
         createdAt: '2026-01-01T12:00:00Z',
         activatedAt: null,

@@ -1,5 +1,5 @@
-import type { PersistencePort } from '@src/business/ports/persistence.ts';
-import type { Sprint, Task, Ticket, Project, Config, ImportTask } from '@src/domain/models.ts';
+import type { CreateSprintInput, PersistencePort } from '@src/business/ports/persistence.ts';
+import type { Sprint, Task, Ticket, Project, Repository, Config, ImportTask } from '@src/domain/models.ts';
 import {
   getSprint,
   saveSprint,
@@ -8,6 +8,7 @@ import {
   resolveSprintId,
   activateSprint,
   closeSprint,
+  logSprintBaselines,
 } from '@src/integration/persistence/sprint.ts';
 import {
   getTasks,
@@ -24,7 +25,13 @@ import {
   areAllTasksDone,
 } from '@src/integration/persistence/task.ts';
 import { getTicket } from '@src/integration/persistence/ticket.ts';
-import { getProject, listProjects } from '@src/integration/persistence/project.ts';
+import {
+  getProject,
+  getProjectById,
+  getRepoById,
+  listProjects,
+  resolveRepoPath,
+} from '@src/integration/persistence/project.ts';
 import { getConfig, saveConfig } from '@src/integration/persistence/config.ts';
 import { logProgress, getProgress, summarizeProgressForContext } from '@src/integration/persistence/progress.ts';
 import { writeEvaluation } from '@src/integration/persistence/evaluation.ts';
@@ -46,8 +53,8 @@ export class FilePersistenceAdapter implements PersistencePort {
     return listSprints();
   }
 
-  async createSprint(name?: string): Promise<Sprint> {
-    return createSprint(name);
+  async createSprint(input: CreateSprintInput): Promise<Sprint> {
+    return createSprint(input);
   }
 
   async resolveSprintId(id?: string): Promise<string> {
@@ -100,8 +107,24 @@ export class FilePersistenceAdapter implements PersistencePort {
     return getProject(name);
   }
 
+  async getProjectById(id: string): Promise<Project> {
+    return getProjectById(id);
+  }
+
+  async getRepoById(repoId: string): Promise<{ project: Project; repo: Repository }> {
+    return getRepoById(repoId);
+  }
+
+  async resolveRepoPath(repoId: string): Promise<string> {
+    return resolveRepoPath(repoId);
+  }
+
   async listProjects(): Promise<Project[]> {
     return listProjects();
+  }
+
+  async logSprintBaselines(sprint: Sprint, resolvePath: (repoId: string) => Promise<string | null>): Promise<void> {
+    return logSprintBaselines(sprint, resolvePath);
   }
 
   // Config

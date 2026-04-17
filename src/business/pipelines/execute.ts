@@ -376,7 +376,15 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
     }
 
     const remainingTasks = tasks.filter((t) => t.status !== 'done');
-    const uniquePaths = [...new Set(remainingTasks.map((t) => t.projectPath))];
+    const uniqueRepoIds = [...new Set(remainingTasks.map((t) => t.repoId))];
+    const uniquePaths: string[] = [];
+    for (const repoId of uniqueRepoIds) {
+      try {
+        uniquePaths.push(await persistence.resolveRepoPath(repoId));
+      } catch {
+        // Unresolvable repoId — skip silently; downstream preflight will fail.
+      }
+    }
     if (uniquePaths.length === 0) {
       const empty: Partial<ExecuteContext> = {};
       return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
@@ -540,10 +548,10 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     let firstBlockedReason: string | null = null;
 
     // Resolve concurrency: session/step modes force sequential; otherwise cap
-    // at the number of unique repo paths or the caller's `--concurrency`.
+    // at the number of unique repo ids or the caller's `--concurrency`.
     const forceSequential = options.session === true || options.step === true;
-    const uniqueRepoPaths = new Set(allTasks.map((t) => t.projectPath));
-    const callerConcurrency = options.concurrency ?? uniqueRepoPaths.size;
+    const uniqueRepoIds = new Set(allTasks.map((t) => t.repoId));
+    const callerConcurrency = options.concurrency ?? uniqueRepoIds.size;
     const resolvedConcurrency = forceSequential ? 1 : Math.min(callerConcurrency, MAX_CONCURRENCY);
     const failFast = options.failFast ?? true;
     const targetCount = options.count ?? Infinity;
@@ -591,7 +599,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       strategy: {
         concurrency: resolvedConcurrency,
         maxConcurrency: MAX_CONCURRENCY,
-        mutexKey: (t) => t.projectPath,
+        mutexKey: (t) => t.repoId,
         pullItems: async () => {
           // Short-circuit if Ctrl+C fired mid-flight — we want the scheduler
           // to wind down cleanly rather than pick up new work.
@@ -637,13 +645,13 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
               `Branch verification failed after ${String(MAX_BRANCH_RETRIES)} attempts: expected '${branchErr.expectedBranch}' in ${branchErr.projectPath}`
             );
             deps.logger.info(`Task ${task.id} not started — wrong branch.`);
-            failedRepos.add(task.projectPath);
-            firstBlockedReason ??= `Repository ${task.projectPath} is not on expected branch '${branchErr.expectedBranch}'`;
+            failedRepos.add(task.repoId);
+            firstBlockedReason ??= `Repository ${branchErr.projectPath} is not on expected branch '${branchErr.expectedBranch}'`;
             if (failFast) {
               deps.logger.info('Fail-fast: waiting for running tasks to finish...');
               return { action: 'fail', drainInFlight: true };
             }
-            return { action: 'skip-repo', key: task.projectPath };
+            return { action: 'skip-repo', key: task.repoId };
           }
 
           // Post-task-check failure — block further work in this repo but let
@@ -651,10 +659,10 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           // executor does the same via `failedPaths`).
           if (isPostTaskCheckFailure(error)) {
             deps.logger.warning(`Post-task check failed for: ${task.name}`);
-            deps.logger.info(`Task ${task.id} remains in_progress. Repo ${task.projectPath} paused.`);
-            failedRepos.add(task.projectPath);
-            firstBlockedReason ??= `Post-task check failed in ${task.projectPath}`;
-            return { action: 'skip-repo', key: task.projectPath };
+            deps.logger.info(`Task ${task.id} remains in_progress. Repo ${task.repoId} paused.`);
+            failedRepos.add(task.repoId);
+            firstBlockedReason ??= `Post-task check failed in ${task.repoId}`;
+            return { action: 'skip-repo', key: task.repoId };
           }
 
           // Task reported `success: false` (not a rate limit / branch issue)
@@ -670,7 +678,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
               deps.logger.info('Fail-fast: waiting for running tasks to finish...');
               return { action: 'fail', drainInFlight: true };
             }
-            return { action: 'skip-repo', key: task.projectPath };
+            return { action: 'skip-repo', key: task.repoId };
           }
 
           // Unexpected failure — spawn error (non-rate-limit), storage error,
@@ -683,7 +691,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
             deps.logger.info('Fail-fast: waiting for running tasks to finish...');
             return { action: 'fail', drainInFlight: true };
           }
-          return { action: 'skip-repo', key: task.projectPath };
+          return { action: 'skip-repo', key: task.repoId };
         },
         between: options.step
           ? async (stats): Promise<'continue' | 'stop'> => {
@@ -712,7 +720,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           const action = resumeId ? 'Resuming' : 'Starting';
           deps.logger.info(`--- ${action} task ${String(task.order)}: ${task.name} ---`);
           deps.logger.info(`ID:      ${task.id}`);
-          deps.logger.info(`Project: ${task.projectPath}`);
+          deps.logger.info(`Project: ${task.repoId}`);
         },
         onSettle: (task, result) => {
           if (result === 'success') {

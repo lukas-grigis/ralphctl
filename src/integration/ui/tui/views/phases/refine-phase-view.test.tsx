@@ -40,6 +40,7 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'sprint-1',
     name: 'Demo Sprint',
+    projectId: 'prj00001',
     status: 'draft',
     createdAt: '2026-04-16T00:00:00Z',
     activatedAt: null,
@@ -67,8 +68,8 @@ describe('RefinePhaseView', () => {
       sprint({
         name: 'Alpha',
         tickets: [
-          { id: 'a', title: 'Pending ticket', projectName: 'p', requirementStatus: 'pending' },
-          { id: 'b', title: 'Approved ticket', projectName: 'p', requirementStatus: 'approved' },
+          { id: 'a', title: 'Pending ticket', requirementStatus: 'pending' },
+          { id: 'b', title: 'Approved ticket', requirementStatus: 'approved' },
         ],
       })
     );
@@ -87,7 +88,7 @@ describe('RefinePhaseView', () => {
   it('offers the refine action when the draft sprint has pending tickets', async () => {
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 'a', title: 'T', projectName: 'p', requirementStatus: 'pending' }],
+        tickets: [{ id: 'a', title: 'T', requirementStatus: 'pending' }],
       })
     );
 
@@ -100,7 +101,7 @@ describe('RefinePhaseView', () => {
   it('explains why the action is unavailable when every ticket is approved', async () => {
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 'a', title: 'T', projectName: 'p', requirementStatus: 'approved' }],
+        tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
       })
     );
 
@@ -115,7 +116,7 @@ describe('RefinePhaseView', () => {
       sprint({
         status: 'active',
         activatedAt: '2026-04-16T01:00:00Z',
-        tickets: [{ id: 'a', title: 'T', projectName: 'p', requirementStatus: 'approved' }],
+        tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
       })
     );
 
@@ -128,7 +129,7 @@ describe('RefinePhaseView', () => {
   it('renders the step trace after a pipeline run completes', async () => {
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 'a', title: 'T', projectName: 'p', requirementStatus: 'pending' }],
+        tickets: [{ id: 'a', title: 'T', requirementStatus: 'pending' }],
       })
     );
     const records: StepExecutionRecord[] = [

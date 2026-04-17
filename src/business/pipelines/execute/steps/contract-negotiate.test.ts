@@ -16,7 +16,7 @@ function task(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -27,11 +27,12 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'sprint-1',
     name: 'Demo',
+    projectId: 'proj-1',
     status: 'draft',
     createdAt: '2026-04-16T00:00:00Z',
     activatedAt: null,
     closedAt: null,
-    tickets: [{ id: 'tk1', title: 'T', projectName: 'p', requirementStatus: 'approved' }],
+    tickets: [{ id: 'tk1', title: 'T', requirementStatus: 'approved' }],
     checkRanAt: {},
     branch: null,
     ...overrides,
@@ -40,9 +41,10 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
 
 function project(overrides: Partial<Project> = {}): Project {
   return {
+    id: 'proj-1',
     name: 'p',
     displayName: 'P',
-    repositories: [{ name: 'repo', path: '/repo', checkScript: 'pnpm test' }],
+    repositories: [{ id: 'repo-1', name: 'repo', path: '/repo', checkScript: 'pnpm test' }],
     ...overrides,
   };
 }
@@ -63,10 +65,18 @@ function makeDeps(persistenceOverrides: Partial<PersistencePort> = {}, fsOverrid
     writeFile: vi.fn(() => Promise.resolve()),
     ...fsOverrides,
   };
+  const defaultProject = project();
+  const defaultRepo = defaultProject.repositories[0];
   const persistenceImpl: Partial<PersistencePort> = {
-    getProject: (name: string) => {
-      if (name === 'p') return Promise.resolve(project());
-      return Promise.reject(new Error('unknown project'));
+    getRepoById: (repoId: string) => {
+      if (repoId === 'repo-1' && defaultRepo) {
+        return Promise.resolve({ project: defaultProject, repo: defaultRepo });
+      }
+      return Promise.reject(new Error('unknown repo'));
+    },
+    resolveRepoPath: (repoId: string) => {
+      if (repoId === 'repo-1') return Promise.resolve('/repo');
+      return Promise.reject(new Error('unknown repo'));
     },
     ...persistenceOverrides,
   };
@@ -100,9 +110,11 @@ describe('contract-negotiate step', () => {
 
   it('renders the no-check-script fallback when the repo has no checkScript', async () => {
     const writeFile = vi.fn<(path: string, content: string) => Promise<void>>(() => Promise.resolve());
+    const noScriptRepo = { id: 'repo-1', name: 'repo', path: '/repo' };
+    const noScriptProject = project({ repositories: [noScriptRepo] });
     const deps = makeDeps(
       {
-        getProject: () => Promise.resolve(project({ repositories: [{ name: 'repo', path: '/repo' }] })),
+        getRepoById: () => Promise.resolve({ project: noScriptProject, repo: noScriptRepo }),
       },
       { writeFile }
     );
@@ -120,7 +132,8 @@ describe('contract-negotiate step', () => {
     const writeFile = vi.fn<(path: string, content: string) => Promise<void>>(() => Promise.resolve());
     const deps = makeDeps(
       {
-        getProject: () => Promise.reject(new Error('not found')),
+        getRepoById: () => Promise.reject(new Error('not found')),
+        resolveRepoPath: () => Promise.resolve('/repo'),
       },
       { writeFile }
     );

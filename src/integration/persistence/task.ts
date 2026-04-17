@@ -37,19 +37,18 @@ export interface AddTaskInput {
   verificationCriteria?: string[];
   ticketId?: string;
   blockedBy?: string[];
-  projectPath: string;
+  repoId: string;
+  extraDimensions?: string[];
 }
 
 export async function addTask(input: AddTaskInput, sprintId?: string): Promise<Task> {
   const id = await resolveSprintId(sprintId);
   const sprint = await getSprint(id);
 
-  // Check sprint status - must be draft to add tasks
   assertSprintStatus(sprint, ['draft'], 'add tasks');
 
   const tasksFilePath = getTasksFilePath(id);
 
-  // Use file lock for atomic read-modify-write
   const lockResult = await withFileLock(tasksFilePath, async () => {
     const tasks = await getTasks(id);
     const maxOrder = tasks.reduce((max, t) => Math.max(max, t.order), 0);
@@ -64,9 +63,10 @@ export async function addTask(input: AddTaskInput, sprintId?: string): Promise<T
       order: maxOrder + 1,
       ticketId: input.ticketId,
       blockedBy: input.blockedBy ?? [],
-      projectPath: input.projectPath,
+      repoId: input.repoId,
       verified: false,
       evaluated: false,
+      extraDimensions: input.extraDimensions,
     };
 
     tasks.push(task);
@@ -432,7 +432,7 @@ export function validateImportTasks(
         // Convert local ID to temp real ID, or keep existing ID
         return localToTempReal.get(depId) ?? depId;
       }),
-      projectPath: '/tmp', // Placeholder for validation only
+      repoId: 'validation-placeholder',
       verified: false,
       evaluated: false,
     })),

@@ -13,7 +13,7 @@ export function registerTicketCommands(program: Command): void {
     'after',
     `
 Examples:
-  $ ralphctl ticket add --project api --title "Fix auth bug"
+  $ ralphctl ticket add --title "Fix auth bug"
   $ ralphctl ticket edit abc123 --title "New title"
   $ ralphctl ticket list -b
   $ ralphctl ticket show abc123
@@ -22,30 +22,19 @@ Examples:
 
   ticket
     .command('add')
-    .description('Add ticket to current sprint')
-    .option('-p, --project <name>', 'Project name')
+    .description('Add ticket to current sprint (project inherited from sprint)')
     .option('-t, --title <title>', 'Ticket title')
     .option('-d, --description <desc>', 'Description')
     .option('--link <url>', 'Link to external issue')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
-    .action(
-      async (opts: {
-        project?: string;
-        title?: string;
-        description?: string;
-        link?: string;
-        interactive?: boolean;
-      }) => {
-        await ticketAddCommand({
-          project: opts.project,
-          title: opts.title,
-          description: opts.description,
-          link: opts.link,
-          // --no-interactive sets interactive=false, otherwise true (prompt for missing)
-          interactive: opts.interactive !== false,
-        });
-      }
-    );
+    .action(async (opts: { title?: string; description?: string; link?: string; interactive?: boolean }) => {
+      await ticketAddCommand({
+        title: opts.title,
+        description: opts.description,
+        link: opts.link,
+        interactive: opts.interactive !== false,
+      });
+    });
 
   ticket
     .command('edit [id]')
@@ -77,12 +66,10 @@ Examples:
     .command('list')
     .description('List tickets')
     .option('-b, --brief', 'Brief one-liner format')
-    .option('--project <name>', 'Filter by project')
     .option('--status <status>', 'Filter by requirement status (pending, approved)')
-    .action(async (opts: { brief?: boolean; project?: string; status?: string }) => {
+    .action(async (opts: { brief?: boolean; status?: string }) => {
       const args: string[] = [];
       if (opts.brief) args.push('-b');
-      if (opts.project) args.push('--project', opts.project);
       if (opts.status) args.push('--status', opts.status);
       await ticketListCommand(args);
     });
