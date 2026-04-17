@@ -14,7 +14,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { DashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   data: DashboardData | null;
@@ -50,14 +50,14 @@ export function SprintSummaryLine({ data }: Props): React.JSX.Element | null {
       <Text>{' '}</Text>
       <Text color={statusColor(sprint.status)}>[{sprint.status}]</Text>
       <Text dimColor>
-        {'  ·  '}
+        {`  ${glyphs.inlineDot}  `}
         {String(ticketCount)} ticket{ticketCount !== 1 ? 's' : ''}
-        {'  ·  '}
+        {`  ${glyphs.inlineDot}  `}
         {String(taskCount)} task{taskCount !== 1 ? 's' : ''}
       </Text>
       {providerLabel ? (
         <Text dimColor>
-          {'  ·  '}
+          {`  ${glyphs.inlineDot}  `}
           Provider: {providerLabel}
         </Text>
       ) : null}

@@ -1,5 +1,5 @@
 import type { StepContext } from '@src/domain/context.ts';
-import type { Task, Sprint } from '@src/domain/models.ts';
+import type { Sprint, Task } from '@src/domain/models.ts';
 import type { TaskExecutionResult } from '@src/business/usecases/execute.ts';
 
 /**

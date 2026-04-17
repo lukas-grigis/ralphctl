@@ -13,7 +13,7 @@ import {
 import { resolveSprintId, getSprint } from '@src/integration/persistence/sprint.ts';
 import { getSharedDeps } from '@src/application/bootstrap.ts';
 import { createRefinePipeline } from '@src/application/factories.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 
 interface RefineOptions {
   project?: string;

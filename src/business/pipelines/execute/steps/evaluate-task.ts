@@ -1,9 +1,9 @@
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import { createEvaluatorPipeline, type EvaluateContext, type EvaluateDeps } from '@src/business/pipelines/evaluate.ts';
 import type { PerTaskContext } from '../per-task-context.ts';

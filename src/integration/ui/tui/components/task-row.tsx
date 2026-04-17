@@ -8,7 +8,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Task, TaskStatus } from '@src/domain/models.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   task: Task;
@@ -25,10 +25,10 @@ interface StatusDisplay {
 }
 
 function displayFor(status: TaskStatus, isRunning: boolean, isBlocked: boolean): StatusDisplay {
-  if (isBlocked) return { icon: '✗', color: inkColors.error };
-  if (status === 'done') return { icon: '✓', color: inkColors.success };
-  if (status === 'in_progress' || isRunning) return { icon: '▸', color: inkColors.warning };
-  return { icon: '·', color: inkColors.muted, dim: true };
+  if (isBlocked) return { icon: glyphs.cross, color: inkColors.error };
+  if (status === 'done') return { icon: glyphs.check, color: inkColors.success };
+  if (status === 'in_progress' || isRunning) return { icon: glyphs.actionCursor, color: inkColors.warning };
+  return { icon: glyphs.bulletListItem, color: inkColors.muted, dim: true };
 }
 
 export function TaskRow({ task, isRunning = false, isBlocked = false, activity }: Props): React.JSX.Element {
@@ -45,9 +45,9 @@ export function TaskRow({ task, isRunning = false, isBlocked = false, activity }
         <Text dimColor>{task.projectPath}</Text>
       </Box>
       {activity ? (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text color={inkColors.info} italic>
-            ↳ {activity}
+            {glyphs.activityArrow} {activity}
           </Text>
         </Box>
       ) : null}

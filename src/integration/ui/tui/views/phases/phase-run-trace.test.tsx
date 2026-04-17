@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
-import type { StepExecutionRecord } from '@src/business/pipeline/types.ts';
+import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
 import { PhaseRunTrace } from './phase-run-trace.tsx';
 import { ParseError } from '@src/domain/errors.ts';
 

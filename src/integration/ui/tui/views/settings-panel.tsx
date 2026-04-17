@@ -21,11 +21,18 @@ import { getAllSchemaEntries } from '@src/domain/config-schema.ts';
 import { validateConfigValue, parseConfigValue } from '@src/integration/config/schema-provider.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
 import type { Config } from '@src/domain/models.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 
 interface Props {
   onClose: () => void;
 }
+
+const SETTINGS_HINTS = [
+  { key: '↑/↓', action: 'navigate' },
+  { key: 'Enter', action: 'edit' },
+  { key: 'Esc', action: 'close' },
+] as const;
 
 type ConfigRecord = Record<string, unknown>;
 
@@ -44,6 +51,8 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
   const [cursor, setCursor] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+
+  useViewHints(SETTINGS_HINTS);
 
   // Load the initial config once.
   useEffect(() => {
@@ -148,14 +157,10 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.primary} paddingX={1} paddingY={0}>
+    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.primary} paddingX={spacing.cardPadX} paddingY={0}>
       <Box>
         <Text bold color={inkColors.primary}>
           Settings
-        </Text>
-        <Text dimColor>
-          {'  '}
-          (↑/↓ navigate, Enter to edit, Esc to close)
         </Text>
       </Box>
 
@@ -167,21 +172,21 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
           const isDefault = valuesEqual(value, entry.default);
           const isCursor = i === cursor;
           return (
-            <Box flexDirection="column" key={entry.key} marginTop={1}>
+            <Box flexDirection="column" key={entry.key} marginTop={spacing.section}>
               <Box>
                 <Text color={isCursor ? inkColors.highlight : undefined} bold={isCursor}>
-                  {isCursor ? '▸ ' : '  '}
+                  {isCursor ? `${glyphs.actionCursor} ` : '  '}
                   {entry.key}
                 </Text>
                 <Text dimColor>{`  (${entry.type})`}</Text>
               </Box>
-              <Box paddingLeft={2}>
+              <Box paddingLeft={spacing.indent}>
                 <Text>{formatValue(value)}</Text>
                 {isDefault ? (
-                  <Text dimColor>{'  · default'}</Text>
+                  <Text dimColor>{`  ${glyphs.inlineDot} default`}</Text>
                 ) : null}
               </Box>
-              <Box paddingLeft={2}>
+              <Box paddingLeft={spacing.indent}>
                 <Text dimColor>{entry.description}</Text>
               </Box>
             </Box>
@@ -190,8 +195,8 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
       )}
 
       {error ? (
-        <Box marginTop={1}>
-          <Text color={inkColors.error}>✗ {error}</Text>
+        <Box marginTop={spacing.section}>
+          <Text color={inkColors.error}>{glyphs.cross} {error}</Text>
         </Box>
       ) : null}
     </Box>

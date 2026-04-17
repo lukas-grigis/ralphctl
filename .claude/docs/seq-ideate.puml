@@ -1,0 +1,49 @@
+@startuml
+' Ideate pipeline — ralphctl sprint ideate
+' Definition: src/business/pipelines/ideate.ts
+' Step shape: load-sprint → assert-draft → assert-project-provided → run-ideation → reorder-dependencies
+' Combines refine + plan for quick ideation flow.
+title ralphctl — Ideate pipeline
+
+autonumber
+
+actor User
+participant Harness as "Harness\n(pipeline runner)"
+participant AI as "AI\n(Claude / Copilot)"
+participant Code as "Code\n(target repo)"
+database sprint.json
+database tasks.json
+
+User -> Harness : ralphctl sprint ideate\n--project <name> "<idea>"
+activate Harness
+
+note over Harness: createIdeatePipeline(deps, idea, options)
+
+Harness -> sprint.json : read sprint
+note right: step: load-sprint
+
+Harness -> Harness : verify sprint.status == 'draft'
+note right: step: assert-draft
+
+Harness -> Harness : verify options.project is set
+note right: step: assert-project-provided
+
+note over Harness: step: run-ideation
+Harness -> AI : spawn session\n(ideate.md + free-form idea + project context)
+activate AI
+AI -> Code : explore repos (read-only)
+AI -> User : ask clarifying questions (optional)
+User --> AI : answers
+AI --> Harness : ticket + tasks.json (one session)\n(bare array allowed — requirements empty)
+deactivate AI
+
+Harness -> sprint.json : persist new ticket\n+ requirementStatus = 'approved'
+Harness -> tasks.json : importTasks\n(auto-assigns ticketId)
+
+note right of Harness: step: reorder-dependencies
+Harness -> tasks.json : reorderByDependencies
+
+Harness --> User : IdeateSummary\n(ticket + tasks imported)
+deactivate Harness
+
+@enduml

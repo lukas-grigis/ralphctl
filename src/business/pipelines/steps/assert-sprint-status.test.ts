@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SprintStatusError, StepError } from '@src/domain/errors.ts';
 import type { Sprint, SprintStatus } from '@src/domain/models.ts';
 import type { StepContext } from '@src/domain/context.ts';

@@ -189,9 +189,16 @@ function computeClose(ctx: MenuContext): Phase {
 export function computePipelineSnapshot(ctx: MenuContext): PipelineSnapshot {
   const phases: readonly Phase[] = [computeRefine(ctx), computePlan(ctx), computeExecute(ctx), computeClose(ctx)];
   const current = phases.find((p) => p.status !== 'done');
+  // When the sprint is closed (every phase `done`), there's no in-flight
+  // action — but the user still needs a clear forward path. Offer creating
+  // a new sprint as the quick-action so Home doesn't stall on a finished run.
+  const postClose: PhaseAction | null =
+    current === undefined && ctx.currentSprintStatus === 'closed'
+      ? { group: 'sprint', sub: 'create', label: 'Start a new sprint' }
+      : null;
   return {
     phases,
     currentPhaseId: current ? current.id : null,
-    nextStep: current?.action ?? null,
+    nextStep: current?.action ?? postClose,
   };
 }

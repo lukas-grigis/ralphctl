@@ -23,7 +23,10 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Box, useApp, useInput } from 'ink';
 import { StatusBar } from '@src/integration/ui/tui/components/status-bar.tsx';
-import { useCurrentPrompt } from '@src/integration/prompts/hooks.ts';
+import { KeyboardHints } from '@src/integration/ui/tui/components/keyboard-hints.tsx';
+import { PromptHost } from '@src/integration/ui/prompts/prompt-host.tsx';
+import { useCurrentPrompt } from '@src/integration/ui/prompts/hooks.ts';
+import { ViewHintsProvider } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { RouterProvider, type RouterApi, type ViewEntry, type ViewId } from './router-context.ts';
 import { HomeView } from './home-view.tsx';
 import { SettingsView } from './settings-view.tsx';
@@ -32,6 +35,38 @@ import { DashboardView } from './dashboard-view.tsx';
 import { RefinePhaseView } from './phases/refine-phase-view.tsx';
 import { PlanPhaseView } from './phases/plan-phase-view.tsx';
 import { ClosePhaseView } from './phases/close-phase-view.tsx';
+import { CreateSprintView } from './workflows/create-sprint-view.tsx';
+import { DeleteSprintView } from './workflows/delete-sprint-view.tsx';
+import { SetCurrentSprintView } from './workflows/set-current-sprint-view.tsx';
+import { RequirementsExportView } from './workflows/requirements-export-view.tsx';
+import { ContextExportView } from './workflows/context-export-view.tsx';
+import { TicketAddView } from './workflows/ticket-add-view.tsx';
+import { TicketEditView } from './workflows/ticket-edit-view.tsx';
+import { TicketRemoveView } from './workflows/ticket-remove-view.tsx';
+import { TicketRefineView } from './workflows/ticket-refine-view.tsx';
+import { TaskAddView } from './workflows/task-add-view.tsx';
+import { TaskImportView } from './workflows/task-import-view.tsx';
+import { TaskStatusView } from './workflows/task-status-view.tsx';
+import { TaskReorderView } from './workflows/task-reorder-view.tsx';
+import { TaskRemoveView } from './workflows/task-remove-view.tsx';
+import { TaskNextView } from './workflows/task-next-view.tsx';
+import { ProjectAddView } from './workflows/project-add-view.tsx';
+import { ProjectRemoveView } from './workflows/project-remove-view.tsx';
+import { ProjectRepoAddView } from './workflows/project-repo-add-view.tsx';
+import { ProjectRepoRemoveView } from './workflows/project-repo-remove-view.tsx';
+import { ProjectEditView } from './workflows/project-edit-view.tsx';
+import { SprintListView } from './browse/sprint-list-view.tsx';
+import { SprintShowView } from './browse/sprint-show-view.tsx';
+import { TicketListView } from './browse/ticket-list-view.tsx';
+import { TicketShowView } from './browse/ticket-show-view.tsx';
+import { TaskListView } from './browse/task-list-view.tsx';
+import { TaskShowView } from './browse/task-show-view.tsx';
+import { ProjectListView } from './browse/project-list-view.tsx';
+import { ProjectShowView } from './browse/project-show-view.tsx';
+import { DoctorView } from './browse/doctor-view.tsx';
+import { ProgressShowView } from './browse/progress-show-view.tsx';
+import { ProgressLogView } from './workflows/progress-log-view.tsx';
+import { IdeateView } from './workflows/ideate-view.tsx';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -84,6 +119,98 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
       return <ClosePhaseView sprintId={sprintId} />;
     },
   },
+  'sprint-create': {
+    label: 'Create Sprint',
+    render: () => <CreateSprintView />,
+  },
+  'sprint-delete': {
+    label: 'Delete Sprint',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <DeleteSprintView sprintId={sprintId} />;
+    },
+  },
+  'sprint-set-current': {
+    label: 'Set Current',
+    render: () => <SetCurrentSprintView />,
+  },
+  'sprint-requirements-export': {
+    label: 'Requirements',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <RequirementsExportView sprintId={sprintId} />;
+    },
+  },
+  'sprint-context-export': {
+    label: 'Context',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <ContextExportView sprintId={sprintId} />;
+    },
+  },
+  'ticket-add': {
+    label: 'Add Ticket',
+    render: () => <TicketAddView />,
+  },
+  'ticket-edit': {
+    label: 'Edit Ticket',
+    render: () => <TicketEditView />,
+  },
+  'ticket-remove': {
+    label: 'Remove Ticket',
+    render: () => <TicketRemoveView />,
+  },
+  'ticket-refine': {
+    label: 'Re-Refine Ticket',
+    render: () => <TicketRefineView />,
+  },
+  'task-add': { label: 'Add Task', render: () => <TaskAddView /> },
+  'task-import': { label: 'Import Tasks', render: () => <TaskImportView /> },
+  'task-status': { label: 'Task Status', render: () => <TaskStatusView /> },
+  'task-reorder': { label: 'Reorder Task', render: () => <TaskReorderView /> },
+  'task-remove': { label: 'Remove Task', render: () => <TaskRemoveView /> },
+  'task-next': { label: 'Next Task', render: () => <TaskNextView /> },
+  'project-add': { label: 'Add Project', render: () => <ProjectAddView /> },
+  'project-remove': { label: 'Remove Project', render: () => <ProjectRemoveView /> },
+  'project-repo-add': { label: 'Add Repository', render: () => <ProjectRepoAddView /> },
+  'project-repo-remove': { label: 'Remove Repository', render: () => <ProjectRepoRemoveView /> },
+  'project-edit': { label: 'Edit Project', render: () => <ProjectEditView /> },
+  'sprint-list': { label: 'Sprints', render: () => <SprintListView /> },
+  'sprint-show': {
+    label: 'Sprint',
+    render: (props) => {
+      const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : undefined;
+      return <SprintShowView sprintId={sprintId} />;
+    },
+  },
+  'ticket-list': { label: 'Tickets', render: () => <TicketListView /> },
+  'ticket-show': {
+    label: 'Ticket',
+    render: (props) => {
+      const ticketId = typeof props['ticketId'] === 'string' ? props['ticketId'] : undefined;
+      return <TicketShowView ticketId={ticketId} />;
+    },
+  },
+  'task-list': { label: 'Tasks', render: () => <TaskListView /> },
+  'task-show': {
+    label: 'Task',
+    render: (props) => {
+      const taskId = typeof props['taskId'] === 'string' ? props['taskId'] : undefined;
+      return <TaskShowView taskId={taskId} />;
+    },
+  },
+  'project-list': { label: 'Projects', render: () => <ProjectListView /> },
+  'project-show': {
+    label: 'Project',
+    render: (props) => {
+      const projectName = typeof props['projectName'] === 'string' ? props['projectName'] : undefined;
+      return <ProjectShowView projectName={projectName} />;
+    },
+  },
+  doctor: { label: 'Doctor', render: () => <DoctorView /> },
+  'progress-log': { label: 'Log Progress', render: () => <ProgressLogView /> },
+  'progress-show': { label: 'Progress', render: () => <ProgressShowView /> },
+  ideate: { label: 'Ideate', render: () => <IdeateView /> },
 };
 
 interface Props {
@@ -97,7 +224,7 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     if (initialStack.length === 0) {
       return [{ id: 'home' }] as const;
     }
-    return initialStack;
+    return collapseAdjacentDuplicates(initialStack);
   });
 
   // Keep a ref in sync so global key handlers can read the current stack
@@ -106,7 +233,16 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
   stackRef.current = stack;
 
   const push = useCallback((entry: ViewEntry): void => {
-    setStack((s) => [...s, entry]);
+    setStack((s) => {
+      // Belt-and-braces: never stack identical adjacent frames. If the target
+      // matches the current top (same id + same props), this is a duplicate
+      // push and would surface as e.g. "Home › Home › …" in the breadcrumb.
+      const top = s[s.length - 1];
+      if (top?.id === entry.id && samePropsBag(top.props, entry.props)) {
+        return s;
+      }
+      return [...s, entry];
+    });
   }, []);
 
   const pop = useCallback((): void => {
@@ -177,14 +313,39 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
 
   return (
     <RouterProvider value={api}>
-      <Box flexDirection="column">
-        {meta.render(props)}
-        <Box marginTop={1}>
-          <StatusBar breadcrumb={stack.map((e) => views[e.id].label)} hints={buildHints(current.id, stack.length)} />
+      <ViewHintsProvider key={current.id}>
+        <Box flexDirection="column">
+          {meta.render(props)}
+          <PromptHost />
+          <Box marginTop={1}>
+            <KeyboardHints />
+          </Box>
+          <Box marginTop={1}>
+            <StatusBar breadcrumb={stack.map((e) => views[e.id].label)} hints={buildHints(current.id, stack.length)} />
+          </Box>
         </Box>
-      </Box>
+      </ViewHintsProvider>
     </RouterProvider>
   );
+}
+
+function samePropsBag(a: ViewEntry['props'], b: ViewEntry['props']): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return a === b;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((k) => Object.is(a[k], b[k]));
+}
+
+function collapseAdjacentDuplicates(stack: readonly ViewEntry[]): readonly ViewEntry[] {
+  const out: ViewEntry[] = [];
+  for (const entry of stack) {
+    const top = out[out.length - 1];
+    if (top?.id === entry.id && samePropsBag(top.props, entry.props)) continue;
+    out.push(entry);
+  }
+  return out;
 }
 
 function buildHints(currentId: ViewId, depth: number): readonly { key: string; action: string }[] {

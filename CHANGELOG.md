@@ -5,6 +5,29 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Source tree restructure — one home per concept.** Collapsed `src/business/pipeline/` (singular) into
+  `src/business/pipelines/framework/` so there's no more pipeline-vs-pipelines confusion. Moved
+  `src/domain/repositories/` into `src/business/ports/` — every interface business logic depends on now lives in
+  one folder. Carved `src/integration/ai/`'s 20-file dump into `session/`, `output/`, `prompts/`, `providers/`
+  with three leaf files. Unified all interactive-prompt UI under `src/integration/ui/prompts/` (was a separate
+  top-level `prompts/`) and merged the split `ui/theme/` + `ui/tui/theme/` directories. Drained
+  `src/integration/utils/` to its logical homes (`ids` → domain, `exit-codes` → application,
+  `detect-scripts` → external). Hoisted one-file directories (`filesystem/`, `user-interaction/`) into flat
+  adapter files. Dead `multiline.ts` deleted. `lifecycle.ts` (shell-exec for checkScripts) moved out of
+  `ai/` and into `external/` where it actually belongs.
+- **Sequence diagrams split per pipeline.** Replaced the 260-line monolith `seq.puml` with
+  `seq-refine.puml`, `seq-plan.puml`, `seq-ideate.puml`, `seq-evaluate.puml`, and `seq-execute.puml` — each
+  1:1 with a pipeline definition under `src/business/pipelines/`. Retired the aspirational `target-seq.puml`
+  (most TODOs shipped; remainder tracked in `ARCHITECTURE.md` "Future Work"). Retired the stale
+  `next-session-plan.md` handoff.
+- **Docs synced to the new shape.** `CLAUDE.md`, `ARCHITECTURE.md`, and `REQUIREMENTS.md` now match the
+  restructured tree. `ARCHITECTURE.md` step-order table links to the per-pipeline diagrams and lists the
+  `contract-negotiate` step it was missing.
+
 ## [0.2.5] - 2026-04-09
 
 ### Changed

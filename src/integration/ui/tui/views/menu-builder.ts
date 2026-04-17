@@ -96,7 +96,8 @@ export function buildBrowseMenu(): SubMenu {
   items.push({ name: 'Projects', value: 'group:project', description: 'Manage projects & repositories' });
   items.push({ name: 'Progress', value: 'action:progress:show', description: 'View progress log' });
   items.push(titled('SETUP'));
-  items.push({ name: 'Configuration', value: 'group:config', description: 'AI provider, editor, evaluator settings' });
+  // Configuration lives behind the global `s` hotkey (StatusBar) — don't
+  // duplicate it here as a menu entry.
   items.push({ name: 'Doctor', value: 'action:doctor:run', description: 'Check environment health' });
   items.push(line());
   items.push({ name: 'Back', value: 'back', description: 'Return to Home' });
@@ -104,11 +105,16 @@ export function buildBrowseMenu(): SubMenu {
 }
 
 /**
- * Build sprint submenu — browse/manage only (workflow actions are in main menu).
+ * Build sprint submenu. The pipeline map surfaces the next *relevant* workflow
+ * action (Create Sprint / Add Ticket / …) on Home, but the user may want to
+ * create an additional sprint while one is already current — so Create lives
+ * here too, unconditionally.
  */
 function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [];
 
+  items.push(titled('NEW'));
+  items.push({ name: 'Create', value: 'create', description: 'Create a new sprint' });
   items.push(titled('BROWSE'));
   items.push({ name: 'List', value: 'list', description: 'List all sprints' });
   items.push({ name: 'Show', value: 'show', description: 'Show sprint details' });
@@ -202,6 +208,7 @@ function buildProjectSubMenu(): SubMenu {
   const items: MenuItem[] = [];
 
   items.push({ name: 'Add', value: 'add', description: 'Add a new project' });
+  items.push({ name: 'Edit', value: 'edit', description: 'Rename display name / edit description' });
   items.push({ name: 'List', value: 'list', description: 'List all projects' });
   items.push({ name: 'Show', value: 'show', description: 'Show project details' });
   items.push(titled('REPOSITORIES'));
@@ -219,27 +226,9 @@ function buildProjectSubMenu(): SubMenu {
 }
 
 /**
- * Build config submenu.
- */
-function buildConfigSubMenu(): SubMenu {
-  const items: MenuItem[] = [];
-
-  items.push({ name: 'Show Settings', value: 'show', description: 'View current configuration' });
-  items.push({ name: 'Set AI Provider', value: 'set provider', description: 'Choose Claude Code or GitHub Copilot' });
-  items.push({ name: 'Set Editor', value: 'set editor', description: 'Editor for refinement sessions' });
-  items.push({
-    name: 'Set Evaluation Iterations',
-    value: 'set evaluationIterations',
-    description: 'Generator-evaluator loop count (0 = disabled)',
-  });
-  items.push(line());
-  items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });
-
-  return { title: 'Configuration', items };
-}
-
-/**
- * Build a submenu by group name with full context.
+ * Build a submenu by group name with full context. Configuration isn't in
+ * here — the global `s` hotkey opens the settings panel directly, so the
+ * submenu path would be a second, duplicate entry point.
  */
 export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
   switch (group) {
@@ -251,8 +240,6 @@ export function buildSubMenu(group: string, ctx: MenuContext): SubMenu | null {
       return buildTaskSubMenu(ctx);
     case 'project':
       return buildProjectSubMenu();
-    case 'config':
-      return buildConfigSubMenu();
     case 'browse':
       return buildBrowseMenu();
     default:

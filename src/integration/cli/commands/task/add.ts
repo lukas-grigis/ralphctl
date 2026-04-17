@@ -3,7 +3,7 @@ import { getPrompt } from '@src/application/bootstrap.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { error, muted } from '@src/integration/ui/theme/theme.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/integration/ui/theme/ui.ts';
-import { editorInput } from '@src/integration/prompts/editor-input.ts';
+import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 import { expandTilde, validateProjectPath } from '@src/integration/persistence/paths.ts';
 import { addTask } from '@src/integration/persistence/task.ts';
 import { formatTicketDisplay, getTicket, listTickets } from '@src/integration/persistence/ticket.ts';
@@ -15,7 +15,7 @@ import {
   resolveSprintId,
   SprintStatusError,
 } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 import { selectProjectRepository } from '@src/integration/cli/commands/shared/selectors.ts';
 
 export interface TaskAddOptions {

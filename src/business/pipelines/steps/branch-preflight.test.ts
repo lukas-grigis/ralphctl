@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { StepError, StorageError } from '@src/domain/errors.ts';
 import type { Sprint } from '@src/domain/models.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
 import type { StepContext } from '@src/domain/context.ts';
-import { branchPreflightStep } from './branch-preflight.ts';
 import type { BranchPreflightContext } from './branch-preflight.ts';
+import { branchPreflightStep } from './branch-preflight.ts';
 
 interface Ctx extends StepContext, BranchPreflightContext {
   sprint?: Sprint;

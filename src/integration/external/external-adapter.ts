@@ -1,7 +1,7 @@
 import type { ExternalPort, ExternalIssue, CheckScriptResult } from '@src/business/ports/external.ts';
 import { fetchIssueFromUrl, formatIssueContext } from '@src/integration/external/issue-fetch.ts';
 import { buildProjectToolingSection } from '@src/integration/ai/project-tooling.ts';
-import { runLifecycleHook, type LifecycleEvent } from '@src/integration/ai/lifecycle.ts';
+import { runLifecycleHook, type LifecycleEvent } from '@src/integration/external/lifecycle.ts';
 import { getRecentGitHistory } from '@src/integration/ai/task-context.ts';
 import {
   hasUncommittedChanges as gitHasUncommittedChanges,

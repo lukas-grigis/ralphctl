@@ -9,7 +9,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { LogEvent, LogEventLevel } from '@src/integration/ui/tui/runtime/event-bus.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   events: readonly LogEvent[];
@@ -75,19 +75,19 @@ function renderLine(event: LogEvent, index: number): React.JSX.Element | null {
     case 'spinner-start':
       return (
         <Text key={index} color={inkColors.info}>
-          ◌ {event.message}
+          {glyphs.phaseDisabled} {event.message}
         </Text>
       );
     case 'spinner-succeed':
       return (
         <Text key={index} color={inkColors.success}>
-          ✓ {event.message}
+          {glyphs.check} {event.message}
         </Text>
       );
     case 'spinner-fail':
       return (
         <Text key={index} color={inkColors.error}>
-          ✗ {event.message}
+          {glyphs.cross} {event.message}
         </Text>
       );
     case 'spinner-stop':

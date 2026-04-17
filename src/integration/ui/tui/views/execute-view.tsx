@@ -24,7 +24,7 @@ import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
 import { createExecuteSprintPipeline } from '@src/application/factories.ts';
-import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { areAllTasksDone } from '@src/integration/persistence/task.ts';
 import { closeSprint } from '@src/integration/persistence/sprint.ts';
 import { useLoggerEvents, useSignalEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
@@ -33,8 +33,13 @@ import { SprintSummary } from '@src/integration/ui/tui/components/sprint-summary
 import { LogTail } from '@src/integration/ui/tui/components/log-tail.tsx';
 import { RateLimitBanner } from '@src/integration/ui/tui/components/rate-limit-banner.tsx';
 import { useRouter } from './router-context.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
+import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
+
+const EXECUTE_HINTS_RUNNING = [] as const;
+const EXECUTE_HINTS_DONE = [{ key: 'Enter', action: 'home' }] as const;
 
 interface Props {
   sprintId: string;
@@ -184,8 +189,10 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
     }
   });
 
+  useViewHints(done ? EXECUTE_HINTS_DONE : EXECUTE_HINTS_RUNNING);
+
   return (
-    <Box flexDirection="column">
+    <ViewShell title="Execute">
       <Box>
         <Text bold color={inkColors.primary}>
           {state.sprint?.name ?? 'Sprint'}
@@ -198,17 +205,17 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
         </Text>
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <SprintSummary tasks={state.tasks} />
       </Box>
 
       {state.rateLimit ? (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <RateLimitBanner pausedSince={state.rateLimit.pausedSince} delayMs={state.rateLimit.delayMs} />
         </Box>
       ) : null}
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <TaskGrid
           tasks={state.tasks}
           runningTaskIds={state.running}
@@ -217,33 +224,33 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
         />
       </Box>
 
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <LogTail events={logEvents} />
       </Box>
 
       {state.error ? (
-        <Box marginTop={1}>
-          <Text color={inkColors.error}>✗ {state.error}</Text>
+        <Box marginTop={spacing.section}>
+          <Text color={inkColors.error}>{glyphs.cross} {state.error}</Text>
         </Box>
       ) : null}
 
       {state.summary && done ? (
-        <Box marginTop={1} flexDirection="column">
+        <Box marginTop={spacing.section} flexDirection="column">
           <Text color={inkColors.success} bold>
-            ✓ Execution finished
+            {glyphs.check} Execution finished
           </Text>
           <Text dimColor>
-            {state.summary.completed} completed · {state.summary.remaining} remaining · {state.summary.blocked} blocked
+            {state.summary.completed} completed {glyphs.inlineDot} {state.summary.remaining} remaining {glyphs.inlineDot} {state.summary.blocked} blocked
             {'  ('}
             {state.summary.stopReason}
             {')'}
           </Text>
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <Text dimColor>Press any key to return home.</Text>
           </Box>
         </Box>
       ) : null}
-    </Box>
+    </ViewShell>
   );
 }
 

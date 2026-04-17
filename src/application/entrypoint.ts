@@ -12,7 +12,7 @@ import { registerDoctorCommands } from '@src/integration/cli/commands/doctor/reg
 import { error } from '@src/integration/ui/theme/theme.ts';
 import { cliMetadata } from '@src/application/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
-import { EXIT_ERROR } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR } from '@src/application/exit-codes.ts';
 
 const program = new Command();
 program

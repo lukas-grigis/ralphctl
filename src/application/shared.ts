@@ -1,5 +1,5 @@
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
@@ -7,13 +7,13 @@ import type { PromptPort } from '@src/business/ports/prompt.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import { FilePersistenceAdapter } from '@src/integration/persistence/persistence-adapter.ts';
-import { NodeFilesystemAdapter } from '@src/integration/filesystem/filesystem-adapter.ts';
+import { NodeFilesystemAdapter } from '@src/integration/filesystem-adapter.ts';
 import { SignalParser } from '@src/integration/signals/parser.ts';
 import { FileSystemSignalHandler } from '@src/integration/signals/file-system-handler.ts';
 import { NoopSignalBus } from '@src/integration/signals/bus.ts';
-import { InkPromptAdapter } from '@src/integration/prompts/prompt-adapter.ts';
+import { InkPromptAdapter } from '@src/integration/ui/prompts/prompt-adapter.ts';
 import { createLogger } from '@src/integration/logging/factory.ts';
-import { RateLimitCoordinator } from '@src/integration/ai/rate-limiter.ts';
+import { RateLimitCoordinator } from '@src/integration/ai/session/rate-limiter.ts';
 
 /** Dependencies shared across all commands, created eagerly at startup. */
 export interface SharedDeps {

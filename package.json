@@ -29,8 +29,7 @@
     "ralphctl": "./dist/cli.mjs"
   },
   "files": [
-    "dist/",
-    "schemas/"
+    "dist/"
   ],
   "publishConfig": {
     "access": "public"

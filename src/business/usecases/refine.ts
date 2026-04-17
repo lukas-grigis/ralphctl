@@ -1,15 +1,15 @@
-import type { Ticket, Sprint, RefinedRequirement } from '@src/domain/models.ts';
-import { DomainError, SprintStatusError, ParseError } from '@src/domain/errors.ts';
+import type { RefinedRequirement, Sprint, Ticket } from '@src/domain/models.ts';
+import { DomainError, ParseError, SprintStatusError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { RefineOptions } from '@src/domain/context.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { AiSessionPort } from '../ports/ai-session.ts';
 import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
 import type { OutputParserPort } from '../ports/output-parser.ts';
 import type { UserInteractionPort } from '../ports/user-interaction.ts';
 import type { LoggerPort } from '../ports/logger.ts';
 import type { ExternalPort } from '../ports/external.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 
 export interface RefineSummary {
   approved: number;
@@ -96,6 +96,42 @@ export class RefineTicketRequirementsUseCase {
       return Result.error(
         err instanceof DomainError ? err : new ParseError(err instanceof Error ? err.message : String(err))
       );
+    }
+  }
+
+  /**
+   * Export the sprint's approved requirements to `requirements.md`.
+   *
+   * Called by the `export-requirements` pipeline step after `execute()`
+   * reports `allApproved`. Kept on the use case (rather than inlined into
+   * the step) so the file-layout / formatting concerns live with the rest
+   * of the refinement workflow. Failures are swallowed with a warning —
+   * the markdown export is a convenience artifact, not a correctness
+   * guarantee.
+   */
+  async exportRequirements(sprint: Sprint): Promise<void> {
+    const sprintDir = this.fs.getSprintDir(sprint.id);
+    const outputPath = `${sprintDir}/requirements.md`;
+
+    const lines: string[] = [];
+    lines.push(`# Requirements: ${sprint.name}`);
+    lines.push('');
+
+    for (const ticket of sprint.tickets) {
+      lines.push(`## [${ticket.id}] ${ticket.title}`);
+      lines.push('');
+      if (ticket.requirements) {
+        lines.push(ticket.requirements);
+        lines.push('');
+      }
+      lines.push('---');
+      lines.push('');
+    }
+
+    try {
+      await this.fs.writeFile(outputPath, lines.join('\n'));
+    } catch {
+      this.logger.warning('Failed to export requirements markdown.');
     }
   }
 
@@ -285,41 +321,5 @@ export class RefineTicketRequirementsUseCase {
     lines.push('');
 
     return lines.join('\n');
-  }
-
-  /**
-   * Export the sprint's approved requirements to `requirements.md`.
-   *
-   * Called by the `export-requirements` pipeline step after `execute()`
-   * reports `allApproved`. Kept on the use case (rather than inlined into
-   * the step) so the file-layout / formatting concerns live with the rest
-   * of the refinement workflow. Failures are swallowed with a warning —
-   * the markdown export is a convenience artifact, not a correctness
-   * guarantee.
-   */
-  async exportRequirements(sprint: Sprint): Promise<void> {
-    const sprintDir = this.fs.getSprintDir(sprint.id);
-    const outputPath = `${sprintDir}/requirements.md`;
-
-    const lines: string[] = [];
-    lines.push(`# Requirements: ${sprint.name}`);
-    lines.push('');
-
-    for (const ticket of sprint.tickets) {
-      lines.push(`## [${ticket.id}] ${ticket.title}`);
-      lines.push('');
-      if (ticket.requirements) {
-        lines.push(ticket.requirements);
-        lines.push('');
-      }
-      lines.push('---');
-      lines.push('');
-    }
-
-    try {
-      await this.fs.writeFile(outputPath, lines.join('\n'));
-    } catch {
-      this.logger.warning('Failed to export requirements markdown.');
-    }
   }
 }

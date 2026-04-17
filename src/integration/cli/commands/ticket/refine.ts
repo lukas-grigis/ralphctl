@@ -27,7 +27,7 @@ import { type RefinedRequirement } from '@src/domain/models.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
 
 export interface TicketRefineOptions {
   interactive?: boolean;

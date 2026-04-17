@@ -2,7 +2,7 @@ import { getSprintFilePath } from '@src/integration/persistence/paths.ts';
 import { readValidatedJson, writeValidatedJson } from '@src/integration/persistence/storage.ts';
 import { type Sprint, SprintSchema, type Ticket } from '@src/domain/models.ts';
 import { assertSprintStatus, resolveSprintId } from '@src/integration/persistence/sprint.ts';
-import { generateUuid8 } from '@src/integration/utils/ids.ts';
+import { generateUuid8 } from '@src/domain/ids.ts';
 import { projectExists } from '@src/integration/persistence/project.ts';
 import { ProjectNotFoundError, TicketNotFoundError } from '@src/domain/errors.ts';
 

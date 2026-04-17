@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeFile } from 'node:fs/promises';
-import { spawnInteractive } from '@src/integration/ai/session.ts';
+import { spawnInteractive } from '@src/integration/ai/session/session.ts';
 import { getActiveProvider } from '@src/integration/ai/providers/registry.ts';
 import type { Ticket } from '@src/domain/models.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
@@ -9,7 +9,7 @@ vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@src/integration/ai/session.ts', () => ({
+vi.mock('@src/integration/ai/session/session.ts', () => ({
   spawnInteractive: vi.fn(),
 }));
 

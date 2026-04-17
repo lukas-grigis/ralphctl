@@ -6,7 +6,7 @@ import { listTasks } from '@src/integration/persistence/task.ts';
 import { formatSprintStatus, formatTaskStatus } from '@src/integration/ui/theme/ui.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
 import type { Repository, SprintStatus, TaskStatus, Ticket } from '@src/domain/models.ts';
-import { escapableSelect } from '@src/integration/prompts/escapable.ts';
+import { escapableSelect } from '@src/integration/ui/prompts/escapable.ts';
 
 /**
  * Select a project from the list.

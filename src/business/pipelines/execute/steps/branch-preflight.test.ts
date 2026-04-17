@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BranchPreflightError } from '@src/domain/errors.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';

@@ -4,9 +4,9 @@
  * these tests exercise only the behaviour the requirement introduced.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ExecuteTasksUseCase } from './execute.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 
 function makePersistenceWithGetConfig(values: { evaluationIterations?: number }[]) {
   const getConfig = vi.fn();

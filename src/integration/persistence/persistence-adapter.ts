@@ -1,4 +1,4 @@
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { Sprint, Task, Ticket, Project, Config, ImportTask } from '@src/domain/models.ts';
 import {
   getSprint,

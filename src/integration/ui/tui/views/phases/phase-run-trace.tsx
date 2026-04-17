@@ -13,8 +13,8 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { StepExecutionRecord } from '@src/business/pipeline/types.ts';
-import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
+import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
+import { inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   readonly records: readonly StepExecutionRecord[];

@@ -8,7 +8,7 @@
  * can't silently break the cascade.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { getEvaluatorModel } from './evaluate.ts';
 
 describe('getEvaluatorModel', () => {

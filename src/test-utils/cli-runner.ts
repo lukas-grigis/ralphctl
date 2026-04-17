@@ -12,7 +12,7 @@ import { registerConfigCommands } from '@src/integration/cli/commands/config/reg
 import { cliMetadata } from '@src/application/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
 import { colors } from '@src/integration/ui/theme/theme.ts';
-import { EXIT_ERROR } from '@src/integration/utils/exit-codes.ts';
+import { EXIT_ERROR } from '@src/application/exit-codes.ts';
 
 export interface CliResult {
   stdout: string;

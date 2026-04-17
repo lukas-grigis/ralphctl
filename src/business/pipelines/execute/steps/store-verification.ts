@@ -1,10 +1,10 @@
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { DomainError, StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 
 /**

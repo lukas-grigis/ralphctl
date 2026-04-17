@@ -1,11 +1,11 @@
 import { join } from 'node:path';
-import { Result } from '@src/domain/types.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import { DomainError, StorageError } from '@src/domain/errors.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
-import { step } from '@src/business/pipeline/helpers.ts';
-import type { PipelineStep } from '@src/business/pipeline/types.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
+import { step } from '@src/business/pipelines/framework/helpers.ts';
+import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 import { buildContractMarkdown } from '../contract-content.ts';
 import { findProjectForPath, resolveCheckScript } from '@src/business/pipelines/steps/project-lookup.ts';

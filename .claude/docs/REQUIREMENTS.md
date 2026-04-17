@@ -6,9 +6,9 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 ## Clean Architecture & Composable Pipelines
 
 - [x] Dependencies point inward only: domain < business < integration < application. Inner layers never import outer
-- [x] Use cases depend on ports (interfaces in `src/business/ports/` and `src/domain/repositories/`), never on concrete adapter classes
+- [x] Use cases depend on ports (all interfaces live in `src/business/ports/`), never on concrete adapter classes
 - [x] Every user-triggered workflow (refine, plan, ideate, evaluate, execute) is a composable pipeline in `src/business/pipelines/`
-- [x] Pipelines compose named steps via `pipeline(name, steps[])` from `src/business/pipeline/helpers.ts`
+- [x] Pipelines compose named steps via `pipeline(name, steps[])` from `src/business/pipelines/framework/helpers.ts`
 - [x] Shared steps in `src/business/pipelines/steps/` are reused across pipelines (load-sprint, assert-sprint-status, run-check-scripts, branch-preflight, etc.)
 - [x] Pipeline failures stop execution and propagate with the failing step name via `StepError` (e.g., `Step 'assert-draft' failed: ...`)
 - [x] Each step supports `pre` and `post` hooks as typed async functions registered in the step definition
@@ -221,8 +221,8 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Prompt Abstraction (PromptPort)
 
-- [ ] All call sites use `getPrompt()` from `src/application/bootstrap.ts` — no direct `@inquirer/prompts` imports outside `src/integration/prompts/inquirer-adapter.ts`
-- [ ] `InquirerPromptAdapter` is the default; `InkPromptAdapter` swapped in by `mountInkApp()`
+- [ ] All call sites use `getPrompt()` from `src/application/bootstrap.ts` — no direct `@inquirer/prompts` imports anywhere
+- [ ] `InkPromptAdapter` is the only implementation; one-shot CLI commands auto-mount a minimal `<PromptHost />` on demand
 - [ ] `select`/`confirm`/`input`/`checkbox` throw `PromptCancelledError` on Ctrl+C/Escape
 - [ ] `editor`/`fileBrowser` return `null` on cancel
 - [ ] Parallel prompts queue serially — only the head prompt renders; others wait in FIFO order (InkPromptAdapter mutex)

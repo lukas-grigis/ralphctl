@@ -3,7 +3,6 @@ import type { ProviderAdapter } from '@src/integration/ai/providers/types.ts';
 import { claudeAdapter } from '@src/integration/ai/providers/claude.ts';
 import { copilotAdapter } from '@src/integration/ai/providers/copilot.ts';
 import { resolveProvider } from '@src/integration/external/provider.ts';
-import { showWarning } from '@src/integration/ui/theme/ui.ts';
 import { ProviderError } from '@src/domain/errors.ts';
 import { wrapAsync } from '@src/integration/utils/result-helpers.ts';
 
@@ -34,17 +33,14 @@ export function getProvider(provider: AiProvider): ProviderAdapter {
  * Resolve the active provider from config (prompting on first use)
  * and return its adapter.
  *
- * Prints a warning once when the resolved provider is marked experimental.
+ * The "experimental" status of a provider is surfaced by `ralphctl doctor` —
+ * we deliberately do not stdout-write here because this function is called
+ * during Ink-mounted pipelines (plan / refine / ideate / execute), and any
+ * direct stdout write would bleed into the alt-screen buffer.
  */
-let experimentalWarningShown = false;
 export async function getActiveProvider(): Promise<ProviderAdapter> {
   const provider = await resolveProvider();
-  const adapter = getProvider(provider);
-  if (adapter.experimental && !experimentalWarningShown) {
-    showWarning(`${adapter.displayName} provider is in public preview — some features may not work as expected.`);
-    experimentalWarningShown = true;
-  }
-  return adapter;
+  return getProvider(provider);
 }
 
 /**

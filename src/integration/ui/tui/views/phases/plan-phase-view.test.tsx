@@ -4,7 +4,7 @@ import { render } from 'ink-testing-library';
 import type { Sprint, Task, Tasks } from '@src/domain/models.ts';
 
 import type { DomainResult } from '@src/domain/types.ts';
-import type { PipelineResult } from '@src/business/pipeline/types.ts';
+import type { PipelineResult } from '@src/business/pipelines/framework/types.ts';
 
 const getSprintMock = vi.fn<(id: string) => Promise<Sprint>>();
 const getTasksMock = vi.fn<(id: string) => Promise<Tasks>>();
@@ -24,7 +24,7 @@ vi.mock('@src/application/factories.ts', () => ({
   createPlanPipeline: () => createPlanPipelineMock(),
 }));
 
-vi.mock('@src/business/pipeline/pipeline.ts', () => ({
+vi.mock('@src/business/pipelines/framework/pipeline.ts', () => ({
   executePipeline: () => executePipelineMock(),
 }));
 

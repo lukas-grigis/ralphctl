@@ -12,6 +12,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
+import { glyphs } from '@src/integration/ui/theme/tokens.ts';
 
 interface Hint {
   key: string;
@@ -31,7 +32,7 @@ export function StatusBar({ hints, breadcrumb }: Props): React.JSX.Element {
         <Box marginRight={2}>
           {breadcrumb.map((label, i) => (
             <React.Fragment key={`${String(i)}-${label}`}>
-              {i > 0 ? <Text dimColor>{' › '}</Text> : null}
+              {i > 0 ? <Text dimColor>{` ${glyphs.selectMarker} `}</Text> : null}
               <Text bold={i === breadcrumb.length - 1} dimColor={i !== breadcrumb.length - 1}>
                 {label}
               </Text>

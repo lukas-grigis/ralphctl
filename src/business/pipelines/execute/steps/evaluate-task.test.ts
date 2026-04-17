@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import type { Sprint, Task, Config } from '@src/domain/models.ts';
-import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
-import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import { describe, expect, it, vi } from 'vitest';
+import type { Config, Sprint, Task } from '@src/domain/models.ts';
+import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';

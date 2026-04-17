@@ -45,8 +45,96 @@ import { Banner } from '@src/integration/ui/tui/components/banner.tsx';
 import { SprintSummaryLine } from '@src/integration/ui/tui/components/sprint-summary-line.tsx';
 import { ActionMenu } from '@src/integration/ui/tui/components/action-menu.tsx';
 import { PipelineMap } from '@src/integration/ui/tui/components/pipeline-map.tsx';
-import { useRouter } from './router-context.ts';
+import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
+import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { useRouter, type ViewId } from './router-context.ts';
 import { commandMap } from './command-map.ts';
+
+const HOME_HINTS_MAIN = [
+  { key: '↑/↓', action: 'move' },
+  { key: 'Enter', action: 'select' },
+  { key: 'b', action: 'browse' },
+] as const;
+
+const HOME_HINTS_SUB = [
+  { key: '↑/↓', action: 'move' },
+  { key: 'Enter', action: 'select' },
+  { key: 'Esc', action: 'back' },
+] as const;
+
+const HOME_HINTS_NONE = [] as const;
+
+/**
+ * Workflow actions that have native Ink views. Takes precedence over
+ * `commandMap` — matching actions `router.push` instead of shelling out to
+ * the plain-CLI command so their output doesn't corrupt the alt-screen.
+ *
+ * Extend this table as milestones migrate more CLI commands to native views.
+ */
+const WORKFLOW_VIEWS: Record<string, Record<string, ViewId>> = {
+  sprint: {
+    create: 'sprint-create',
+    delete: 'sprint-delete',
+    current: 'sprint-set-current',
+    requirements: 'sprint-requirements-export',
+    context: 'sprint-context-export',
+    ideate: 'ideate',
+    'progress log': 'progress-log',
+    'progress show': 'progress-show',
+  },
+  ticket: {
+    add: 'ticket-add',
+    edit: 'ticket-edit',
+    remove: 'ticket-remove',
+    refine: 'ticket-refine',
+  },
+  task: {
+    add: 'task-add',
+    import: 'task-import',
+    status: 'task-status',
+    reorder: 'task-reorder',
+    remove: 'task-remove',
+    next: 'task-next',
+  },
+  project: {
+    add: 'project-add',
+    remove: 'project-remove',
+    'repo add': 'project-repo-add',
+    'repo remove': 'project-repo-remove',
+    edit: 'project-edit',
+  },
+  progress: {
+    log: 'progress-log',
+    show: 'progress-show',
+  },
+  doctor: {
+    run: 'doctor',
+  },
+};
+
+/**
+ * Browse actions (list/show) map to router views by group. These do *not*
+ * need per-action keys the way `WORKFLOW_VIEWS` does, because the submenu's
+ * value is `list` / `show` and we translate it 1:1 to `<group>-list` /
+ * `<group>-show`.
+ */
+const BROWSE_VIEWS: Record<string, Record<'list' | 'show', ViewId>> = {
+  sprint: { list: 'sprint-list', show: 'sprint-show' },
+  ticket: { list: 'ticket-list', show: 'ticket-show' },
+  task: { list: 'task-list', show: 'task-show' },
+  project: { list: 'project-list', show: 'project-show' },
+};
+
+/**
+ * Sprint lifecycle quick-actions map to the same phase views used by drill-in.
+ * Without this mapping, these actions would fall through to `commandMap` and
+ * shell out to the plain-CLI command — which writes to stdout and garbles the
+ * alt-screen buffer. Routing through `PHASE_VIEWS` keeps everything native.
+ */
+const PHASE_VIEWS: Record<'sprint', Record<string, PhaseId>> = {
+  sprint: { refine: 'refine', plan: 'plan', start: 'execute', close: 'close' },
+};
 
 interface ReplState {
   ctx: MenuContext;
@@ -160,6 +248,34 @@ export function HomeView(): React.JSX.Element {
 
   const runHandler = useCallback(
     async (group: string, subCommand: string): Promise<void> => {
+      // Sprint lifecycle quick-actions (refine/plan/start/close) route through
+      // the same phase views used for drill-in. Without this, they'd shell out
+      // to the plain-CLI command and garble the alt-screen frame.
+      if (group === 'sprint' && state !== null && state.ctx.currentSprintId !== null) {
+        const phaseId = PHASE_VIEWS.sprint[subCommand];
+        if (phaseId !== undefined) {
+          const entry = resolveDrillInTarget(phaseId, state.ctx.currentSprintId, state.snapshot);
+          if (entry !== null) {
+            router.push(entry);
+            return;
+          }
+        }
+      }
+      // Prefer native Ink views — takes precedence over the plain-CLI shell-out
+      // so workflow commands render inside the alt-screen buffer.
+      const viewId = WORKFLOW_VIEWS[group]?.[subCommand];
+      if (viewId) {
+        router.push({ id: viewId });
+        return;
+      }
+      // Browse actions follow the `<group>-list` / `<group>-show` convention.
+      if (subCommand === 'list' || subCommand === 'show') {
+        const browseId = BROWSE_VIEWS[group]?.[subCommand];
+        if (browseId) {
+          router.push({ id: browseId });
+          return;
+        }
+      }
       const handler = commandMap[group]?.[subCommand];
       if (!handler) {
         setError(`Unknown command: ${group} ${subCommand}`);
@@ -179,7 +295,7 @@ export function HomeView(): React.JSX.Element {
         refresh();
       }
     },
-    [refresh]
+    [refresh, router]
   );
 
   // Hotkeys owned by Home itself. Global router hotkeys (h/s/d/q/esc) run in
@@ -260,54 +376,56 @@ export function HomeView(): React.JSX.Element {
     [mode, runHandler, state]
   );
 
+  // Declare view-local hotkeys. The `b` hint only applies on the main pipeline
+  // view; once a submenu is open the visible keys change. Busy state has no
+  // view-local hints — global hotkeys still work. Stable refs: the hint
+  // arrays are module-level constants so `useViewHints`'s effect doesn't
+  // re-publish on every render.
+  const activeHints =
+    mode === 'main' ? HOME_HINTS_MAIN : typeof mode === 'object' ? HOME_HINTS_SUB : HOME_HINTS_NONE;
+  useViewHints(activeHints);
+
   if (state === null) {
     return (
-      <Box>
+      <ViewShell bare>
         <Text dimColor>Loading…</Text>
-      </Box>
+      </ViewShell>
     );
   }
 
   return (
-    <Box flexDirection="column">
+    <ViewShell bare>
       <Banner />
-      {state.dashboardData ? (
-        <Box marginTop={1} paddingLeft={2}>
-          <SprintSummaryLine data={state.dashboardData} />
-        </Box>
-      ) : null}
+      <Box paddingLeft={spacing.indent} flexDirection="column">
+        {state.dashboardData ? (
+          <Box marginTop={spacing.section}>
+            <SprintSummaryLine data={state.dashboardData} />
+          </Box>
+        ) : null}
 
-      {error ? (
-        <Box marginTop={1}>
-          <Text color="red">✗ {error}</Text>
-        </Box>
-      ) : null}
+        {error ? (
+          <Box marginTop={spacing.section}>
+            <Text color={inkColors.error}>✗ {error}</Text>
+          </Box>
+        ) : null}
 
-      <Box marginTop={1} flexDirection="column">
-        {mode === 'busy' ? (
-          <Text dimColor>Running {busyLabel}…</Text>
-        ) : mode === 'main' ? (
-          <>
-            <PipelineMap
-              snapshot={state.snapshot}
-              onAction={onPipelineAction}
-              onDrillIn={onPipelineDrillIn}
+        <Box marginTop={spacing.section} flexDirection="column">
+          {mode === 'busy' ? (
+            <Text dimColor>Running {busyLabel}…</Text>
+          ) : mode === 'main' ? (
+            <PipelineMap snapshot={state.snapshot} onAction={onPipelineAction} onDrillIn={onPipelineDrillIn} />
+          ) : (
+            <SubMenuBlock
+              menu={mode.menu}
+              onSelect={onSubSelect}
+              onCancel={() => {
+                setMode('main');
+              }}
             />
-            <Box marginTop={1}>
-              <Text dimColor>↑/↓ move · Enter select · b browse · s settings · d dashboard · q quit</Text>
-            </Box>
-          </>
-        ) : (
-          <SubMenuBlock
-            menu={mode.menu}
-            onSelect={onSubSelect}
-            onCancel={() => {
-              setMode('main');
-            }}
-          />
-        )}
+          )}
+        </Box>
       </Box>
-    </Box>
+    </ViewShell>
   );
 }
 
