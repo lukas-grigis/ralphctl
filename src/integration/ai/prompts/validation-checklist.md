@@ -7,7 +7,7 @@ Before writing the JSON output, verify EVERY item:
 3. **Foundations before dependents** — tasks are ordered so prerequisites come first
 4. **Valid dependencies** — every `blockedBy` reference points to an earlier task with a real code dependency
 5. **Maximized parallelism** — independent tasks run in parallel; use `blockedBy` only when there is a genuine code dependency
-6. **Precise steps** — every task has 3+ specific, actionable steps with file references
+6. **Precise steps** — every task has specific, actionable steps with file references — as many as the scope needs (a small task may have 2 steps, a larger coherent one may have 8+)
 7. **Verification steps** — every task ends with project-appropriate verification commands
 8. **`projectPath` assigned** — every task uses a path from the available repositories
 9. **Verification criteria** — every task has 2-4 `verificationCriteria` that are testable and unambiguous

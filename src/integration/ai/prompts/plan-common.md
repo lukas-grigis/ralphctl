@@ -29,10 +29,28 @@ verification criteria and the codebase?" If not, the task needs work.
 
 ### Task Sizing
 
-Completable in a single AI session: 1-3 primary files (up to 5-7 total with tests), ~50-200 lines of meaningful
-changes, one logical change per task. Split if too large, merge if too small.
+The unit is **one coherent feature or vertical slice** — a change that can be picked up cold, implemented in a single
+session, and verified end-to-end against its criteria. Size is driven by coherence, not line count. Modern agents are
+capable; artificial fragmentation creates serial chains, duplicate context reloads, and merge conflicts that cost far
+more than they save.
 
-Too granular (three tasks that should be one):
+**Do not split when:**
+
+- A utility and its first caller would be separated — create-and-use is always one task
+- A feature and its tests would be separated
+- The same pattern applies across N call sites — it is one refactor, not N tasks
+
+**Do split when:**
+
+- Two chunks can run in parallel (different `projectPath`, or independent files with no shared contract)
+- A clean, verifiable boundary exists partway through (e.g. schema + migration land first, then consumer wiring — the
+  schema is independently testable and unblocks parallel consumers)
+- The change spans multiple repositories — one task per repo, connected via `blockedBy`
+
+**Soft ceiling, not a target:** if a task looks like it will touch more than ~10 files or ~500 lines of meaningful
+change AND a natural split point exists, split it. No natural split point? Keep it whole.
+
+Too granular (one task, not three):
 
 - "Create date formatting utility"
 - "Refactor experience module to use date utility"
@@ -91,7 +109,8 @@ the evaluator will attempt visual verification using Playwright or browser tools
 
 1. **Outcome-oriented** — Each task delivers a testable result
 2. **Merge create+use** — Never separate "create X" from "use X" — that is one task
-3. **Target 5-15 tasks** per scope, not 20-30 micro-tasks
+3. **Let scope drive task count** — do not aim for a specific number. Fewer, larger coherent tasks beat many
+   micro-tasks; split only when parallelism or a clean boundary justifies it
 4. **Merge serial chains** — If tasks only make sense when run in sequence, fold them into one task
 
 ### Anti-Patterns
