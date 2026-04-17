@@ -1,6 +1,6 @@
 import { areAllTasksDone, getRemainingTasks } from '@src/integration/persistence/task.ts';
 import { closeSprint } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, EXIT_NO_TASKS, exitWithCode } from '@src/domain/exit-codes.ts';
 import {
   log,
   printHeader,
@@ -11,7 +11,7 @@ import {
   showWarning,
   terminalBell,
 } from '@src/integration/ui/theme/ui.ts';
-import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
+import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createExecuteSprintPipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';

@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { PromptCancelledError } from '@src/business/ports/prompt.ts';
 
 /**

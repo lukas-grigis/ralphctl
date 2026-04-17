@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { Repository } from '@src/domain/models.ts';
 

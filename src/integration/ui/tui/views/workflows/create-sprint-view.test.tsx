@@ -12,7 +12,7 @@ const createSprintMock = vi.fn<(input: CreateSprintInput) => Promise<Sprint>>();
 const setCurrentSprintMock = vi.fn<(id: string | null) => Promise<void>>();
 const listProjectsMock = vi.fn<() => Promise<Project[]>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     input: (opts: { message: string; default?: string }) => inputMock(opts),
     confirm: (opts: { message: string; default?: boolean }) => confirmMock(opts),

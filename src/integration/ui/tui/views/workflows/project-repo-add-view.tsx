@@ -5,7 +5,7 @@
 import { resolve } from 'node:path';
 import React, { useMemo } from 'react';
 import type { Project } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { addProjectRepo, listProjects } from '@src/integration/persistence/project.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';

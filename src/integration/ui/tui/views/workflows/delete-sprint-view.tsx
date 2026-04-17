@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { deleteSprint, getSprint, listSprints } from '@src/integration/persistence/sprint.ts';
 import { getCurrentSprint, setCurrentSprint } from '@src/integration/persistence/config.ts';
 import { listTasks } from '@src/integration/persistence/task.ts';

@@ -9,7 +9,7 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { cliMetadata } from '@src/application/cli-metadata.ts';
+import { cliMetadata } from '@src/domain/cli-metadata.ts';
 import { getDataDir } from '@src/integration/persistence/paths.ts';
 
 export interface VersionCheck {

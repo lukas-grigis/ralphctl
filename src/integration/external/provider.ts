@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import type { AiProvider } from '@src/domain/models.ts';
 import { getAiProvider, setAiProvider } from '@src/integration/persistence/config.ts';
 import { emoji } from '@src/integration/ui/theme/ui.ts';

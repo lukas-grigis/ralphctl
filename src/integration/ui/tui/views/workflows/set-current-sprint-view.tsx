@@ -3,7 +3,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { listSprints } from '@src/integration/persistence/sprint.ts';
 import { setCurrentSprint } from '@src/integration/persistence/config.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';

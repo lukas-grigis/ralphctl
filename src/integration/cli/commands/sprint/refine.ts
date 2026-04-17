@@ -11,7 +11,7 @@ import {
   showWarning,
 } from '@src/integration/ui/theme/ui.ts';
 import { resolveSprintId, getSprint } from '@src/integration/persistence/sprint.ts';
-import { getSharedDeps } from '@src/application/bootstrap.ts';
+import { getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createRefinePipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 

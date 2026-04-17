@@ -226,6 +226,10 @@ function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
     signalHandler: makeSignalHandler(),
     signalBus: makeSignalBus(),
     createRateLimitCoordinator: makeCoordinator,
+    processLifecycle: {
+      ensureHandlers: () => void 0,
+      isShuttingDown: () => false,
+    },
     ...overrides,
   };
 }

@@ -1,10 +1,3 @@
-import type { PersistencePort } from '@src/business/ports/persistence.ts';
-import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
-import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
-import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
-import type { LoggerPort } from '@src/business/ports/logger.ts';
-import type { PromptPort } from '@src/business/ports/prompt.ts';
-import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import { FilePersistenceAdapter } from '@src/integration/persistence/persistence-adapter.ts';
 import { NodeFilesystemAdapter } from '@src/integration/filesystem-adapter.ts';
@@ -14,23 +7,13 @@ import { NoopSignalBus } from '@src/integration/signals/bus.ts';
 import { InkPromptAdapter } from '@src/integration/ui/prompts/prompt-adapter.ts';
 import { createLogger } from '@src/integration/logging/factory.ts';
 import { RateLimitCoordinator } from '@src/integration/ai/session/rate-limiter.ts';
+import { processLifecycleAdapter } from '@src/integration/ai/session/process-manager.ts';
+import type { SharedDeps } from '@src/integration/shared-deps.ts';
 
-/** Dependencies shared across all commands, created eagerly at startup. */
-export interface SharedDeps {
-  persistence: PersistencePort;
-  filesystem: FilesystemPort;
-  signalParser: SignalParserPort;
-  signalHandler: SignalHandlerPort;
-  logger: LoggerPort;
-  prompt: PromptPort;
-  signalBus: SignalBusPort;
-  /**
-   * Factory for the parallel-scheduler rate-limit coordinator. Business
-   * pipelines call this per-execution so the concrete class (which is
-   * integration-layer) never leaks into business imports.
-   */
-  createRateLimitCoordinator: () => RateLimitCoordinatorPort;
-}
+// Re-export the type so existing callers that import `SharedDeps` from this
+// module keep working. The shape itself lives in `@src/integration/shared-deps.ts`
+// so integration modules can reference it without crossing the layer fence.
+export type { SharedDeps };
 
 /**
  * Create shared dependencies (called once at application startup).
@@ -49,6 +32,7 @@ export function createSharedDeps(overrides: Partial<SharedDeps> = {}): SharedDep
   const signalBus = overrides.signalBus ?? new NoopSignalBus();
   const createRateLimitCoordinator =
     overrides.createRateLimitCoordinator ?? ((): RateLimitCoordinatorPort => new RateLimitCoordinator());
+  const processLifecycle = overrides.processLifecycle ?? processLifecycleAdapter;
   return {
     persistence,
     filesystem,
@@ -58,5 +42,6 @@ export function createSharedDeps(overrides: Partial<SharedDeps> = {}): SharedDep
     prompt,
     signalBus,
     createRateLimitCoordinator,
+    processLifecycle,
   };
 }

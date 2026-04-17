@@ -8,7 +8,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { withSuspendedTui } from '@src/integration/ui/tui/runtime/suspend.ts';
 import { taskImportCommand } from '@src/integration/cli/commands/task/import.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';

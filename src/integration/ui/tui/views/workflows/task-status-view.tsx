@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react';
 import type { Task, TaskStatus } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { listTasks, updateTaskStatus } from '@src/integration/persistence/task.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';

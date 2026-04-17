@@ -1,7 +1,7 @@
 /**
  * ViewShell — the standard frame every TUI view lives inside.
  *
- * Contract (see .claude/docs/UI-SPEC.md):
+ * Contract (see .claude/docs/REQUIREMENTS.md § UI Contract):
  *
  *   <ViewShell>               ← [SectionStamp title + body]
  *   <PromptHost />            ← [inline prompts]         owned by the router

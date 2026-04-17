@@ -16,7 +16,7 @@ const selectMock = vi.fn();
 const confirmMock = vi.fn();
 const inputMock = vi.fn();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     select: selectMock,
     confirm: confirmMock,

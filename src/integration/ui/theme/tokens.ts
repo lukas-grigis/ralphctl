@@ -31,7 +31,7 @@ export const inkColors = {
 /**
  * Curated glyph family — used consistently across views. Keep this set
  * small; adding a new glyph is a design decision, not a convenience.
- * See .claude/docs/UI-SPEC.md § Glyphs for when to use which.
+ * See .claude/docs/REQUIREMENTS.md § Glyphs for when to use which.
  */
 export const glyphs = {
   // Phase / status
@@ -65,7 +65,7 @@ export const glyphs = {
 
 /**
  * Spacing rhythm constants — use these everywhere instead of hardcoded magic
- * numbers so the whole TUI shares one vertical cadence. See UI-SPEC.md.
+ * numbers so the whole TUI shares one vertical cadence. See REQUIREMENTS.md § Layout tokens.
  */
 export const spacing = {
   /** Between top-level sections (blank line). */

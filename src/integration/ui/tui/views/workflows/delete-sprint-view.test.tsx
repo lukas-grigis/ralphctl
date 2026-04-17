@@ -13,7 +13,7 @@ const getCurrentSprintMock = vi.fn<() => Promise<string | null>>();
 const setCurrentSprintMock = vi.fn<(id: string | null) => Promise<void>>();
 const listTasksMock = vi.fn<(id: string) => Promise<Tasks>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     select: (opts: { message: string; choices: { label: string; value: string }[] }) => selectMock(opts),
     confirm: (opts: { message: string; default?: boolean }) => confirmMock(opts),

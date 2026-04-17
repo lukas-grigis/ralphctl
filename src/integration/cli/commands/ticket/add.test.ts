@@ -21,7 +21,7 @@ const addTicketMock = vi.fn();
 const getCurrentSprintOrThrowMock = vi.fn();
 const getProjectByIdMock = vi.fn();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: vi.fn(() => promptMock),
 }));
 

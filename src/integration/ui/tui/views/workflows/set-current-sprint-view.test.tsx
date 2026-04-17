@@ -8,7 +8,7 @@ const selectMock = vi.fn<(opts: { message: string; choices: { label: string; val
 const listSprintsMock = vi.fn<() => Promise<Sprint[]>>();
 const setCurrentSprintMock = vi.fn<(id: string | null) => Promise<void>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     select: (opts: { message: string; choices: { label: string; value: string }[] }) => selectMock(opts),
   }),

@@ -4,7 +4,7 @@ import { formatTaskStatus, log, showError, showNextStep, showSuccess } from '@sr
 import { type TaskStatus, TaskStatusSchema } from '@src/domain/models.ts';
 import { SprintStatusError } from '@src/integration/persistence/sprint.ts';
 import { selectTask, selectTaskStatus } from '@src/integration/cli/commands/shared/selectors.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 
 const VALID_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done'];
 

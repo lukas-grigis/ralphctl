@@ -303,8 +303,10 @@ Use Task tool with these `subagent_type` values for specialized work.
   output.
 - **Plain-text CLI** — one-shot commands (`sprint show`, `config set`, `project add`, etc.) use `PlainTextSink` for
   structured logging plus the pure formatters in `@src/integration/ui/theme/ui.ts` (`renderCard`, `renderTable`,
-  `formatSprintStatus`, `showSuccess`, `printHeader`, etc.) for layout. When a prompt fires, the `InkPromptAdapter`
-  auto-mounts a minimal `<PromptHost />` inline — no Inquirer.
+  `renderBox`, `formatSprintStatus`, `formatTaskStatus`, `showSuccess`, `showError`, `showWarning`, `showTip`,
+  `showEmpty`, `showNextStep(s)`, `printHeader`, `printBanner`, `printCountSummary`, `progressBar`, `field`,
+  `labelValue`, `badge`) for layout. When a prompt fires, the `InkPromptAdapter` auto-mounts a minimal
+  `<PromptHost />` inline — no Inquirer.
 
 Never add raw emoji or inconsistent formatting — use `emoji`/`colors`/`statusEmoji` from
 `@src/integration/ui/theme/theme.ts` and the formatters from `@src/integration/ui/theme/ui.ts`. Ink components pull

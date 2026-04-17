@@ -9,10 +9,17 @@ import { registerTaskCommands } from '@src/integration/cli/commands/task/registe
 import { registerTicketCommands } from '@src/integration/cli/commands/ticket/register.ts';
 import { registerProgressCommands } from '@src/integration/cli/commands/progress/register.ts';
 import { registerConfigCommands } from '@src/integration/cli/commands/config/register.ts';
-import { cliMetadata } from '@src/application/cli-metadata.ts';
+import { cliMetadata } from '@src/domain/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
 import { colors } from '@src/integration/ui/theme/theme.ts';
-import { EXIT_ERROR } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR } from '@src/domain/exit-codes.ts';
+import { setSharedDeps } from '@src/integration/bootstrap.ts';
+import { createSharedDeps } from '@src/application/shared.ts';
+
+// Initialise the shared dependency graph for in-process CLI tests. Mirrors
+// the application entrypoint so commands can reach `getSharedDeps()` without
+// mounting Ink.
+setSharedDeps(createSharedDeps());
 
 export interface CliResult {
   stdout: string;

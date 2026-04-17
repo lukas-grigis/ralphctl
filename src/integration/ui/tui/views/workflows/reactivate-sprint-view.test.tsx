@@ -8,7 +8,7 @@ const confirmMock = vi.fn<(opts: { message: string; default?: boolean }) => Prom
 const getSprintMock = vi.fn<(id: string) => Promise<Sprint>>();
 const saveSprintMock = vi.fn<(s: Sprint) => Promise<void>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     confirm: (opts: { message: string; default?: boolean }) => confirmMock(opts),
   }),

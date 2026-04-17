@@ -58,7 +58,7 @@ pnpm format              # Format all files with Prettier
    ```
 
 2. **Write your code.** Follow the existing patterns — strict TypeScript, no `any` types, use the theme helpers from
-   `src/theme/ui.ts` for CLI output.
+   `src/integration/ui/theme/ui.ts` for CLI output.
 
 3. **Add tests.** If you're adding behavior, add tests. If you're fixing a bug, add a regression test. Tests live next
    to the code they test (`*.test.ts`).
@@ -85,20 +85,17 @@ pnpm format              # Format all files with Prettier
 - **TypeScript** — strict mode, no `any`, `noUncheckedIndexedAccess` enabled
 - **Formatting** — Prettier handles it (runs automatically via pre-commit hook)
 - **Linting** — ESLint with TypeScript rules
-- **UI output** — use helpers from `src/theme/ui.ts` (`showSuccess`, `showError`, `log.*`, etc.) — don't add raw emoji
-  or `console.log`
+- **UI output** — use helpers from `src/integration/ui/theme/ui.ts` (`showSuccess`, `showError`, `log.*`, etc.) — don't
+  add raw emoji or `console.log`
 
 ## Project structure
 
 ```
 src/
-├── commands/        # CLI command implementations
-├── interactive/     # REPL/menu mode
-├── store/           # Data persistence layer
-├── ai/              # Claude CLI integration
-├── theme/           # UI components and styling
-├── schemas/         # Zod validation schemas
-└── utils/           # Pure utilities
+├── domain/          # Pure — models (Zod), errors, signals, IDs
+├── business/        # Use cases, ports, composable pipelines
+├── integration/     # Adapters: persistence, AI providers, CLI, Ink TUI, logging
+└── application/     # Composition root — entrypoint, bootstrap, factories
 ```
 
 See [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) for the full technical reference.

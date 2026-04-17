@@ -12,7 +12,7 @@ const listTasksMock = vi.fn<(id: string) => Promise<Tasks>>();
 const areAllTasksDoneMock = vi.fn<(id: string) => Promise<boolean>>();
 const confirmMock = vi.fn<() => Promise<boolean>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getSharedDeps: () => ({
     persistence: {
       getSprint: (id: string) => getSprintAdapterMock(id),

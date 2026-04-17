@@ -19,7 +19,7 @@ import { Box, Text, useInput } from 'ink';
 import type { ConfigSchemaEntry } from '@src/domain/config-schema.ts';
 import { getAllSchemaEntries } from '@src/domain/config-schema.ts';
 import { validateConfigValue, parseConfigValue } from '@src/integration/config/schema-provider.ts';
-import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
+import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import type { Config } from '@src/domain/models.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';

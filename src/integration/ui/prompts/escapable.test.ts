@@ -9,7 +9,7 @@ const checkboxMock = vi.fn();
 const editorMock = vi.fn();
 const fileBrowserMock = vi.fn();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     select: selectMock,
     confirm: confirmMock,

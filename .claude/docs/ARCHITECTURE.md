@@ -257,7 +257,7 @@ src/integration/ui/
     │   ├── mount.tsx        # mountInkApp() — TTY gate, SharedDeps swap, enter/exit alt-screen, render+waitUntilExit
     │   ├── screen.ts        # enterAltScreen()/exitAltScreen() + signal-safe restore
     │   ├── event-bus.ts     # Singleton log event bus (InkSink publisher, <LogTail /> subscriber)
-    │   └── hooks.ts         # useLoggerEvents, useSignalEvents, useLiveConfig
+    │   └── hooks.ts         # useLoggerEvents, useSignalEvents, useDashboardData
     ├── components/          # Leaf UI: Banner, SprintSummaryLine, TaskGrid, TaskRow, LogTail, StatusBar,
     │                        # SprintSummary, RateLimitBanner, ActionMenu
     └── views/               # Top-level screens — each is a router destination
@@ -331,27 +331,25 @@ no restart (REQ-12).
 
 All domain errors extend `DomainError` (from `src/domain/errors.ts`) and carry a machine-readable `code` plus optional `cause`.
 
-| Class                  | Group       | Cause                                                                  |
-| ---------------------- | ----------- | ---------------------------------------------------------------------- |
-| `ProjectNotFoundError` | not-found   | Invalid project name                                                   |
-| `ProjectExistsError`   | lifecycle   | Project name already exists                                            |
-| `SprintNotFoundError`  | not-found   | Invalid sprint ID                                                      |
-| `SprintStatusError`    | lifecycle   | Invalid status for operation                                           |
-| `NoCurrentSprintError` | lifecycle   | No current sprint set                                                  |
-| `TicketNotFoundError`  | not-found   | Invalid ticket ID                                                      |
-| `TaskNotFoundError`    | not-found   | Invalid task ID                                                        |
-| `TaskStatusError`      | lifecycle   | Invalid task status operation                                          |
-| `DependencyCycleError` | task        | Cycle detected in task `blockedBy` graph                               |
-| `NotFoundError`        | not-found   | Generic not-found (repositories, config keys, etc.)                    |
-| `ValidationError`      | storage     | Zod validation failed (carries `path`)                                 |
-| `ParseError`           | storage     | JSON / output parser rejection                                         |
-| `StorageError`         | storage     | Read/write failure in the persistence layer                            |
-| `IOError`              | storage     | Low-level filesystem error                                             |
-| `LockError`            | storage     | File-lock contention or stale lock (carries `lockPath`)                |
-| `ProviderError`        | ai-provider | Provider misconfiguration (missing binary, bad settings)               |
-| `SpawnError`           | ai-provider | AI process spawn failure (carries `stderr`, `exitCode`, `rateLimited`) |
-| `IssueFetchError`      | external    | Failed to fetch an external issue (GitHub, JIRA)                       |
-| `BranchPreflightError` | execution   | Repo not on expected sprint branch — scheduler requeues up to 3 times  |
+| Class                  | Group       | Cause                                                                   |
+| ---------------------- | ----------- | ----------------------------------------------------------------------- |
+| `ProjectNotFoundError` | not-found   | Invalid project name                                                    |
+| `ProjectExistsError`   | lifecycle   | Project name already exists                                             |
+| `SprintNotFoundError`  | not-found   | Invalid sprint ID                                                       |
+| `SprintStatusError`    | lifecycle   | Invalid status for operation                                            |
+| `NoCurrentSprintError` | lifecycle   | No current sprint set                                                   |
+| `TicketNotFoundError`  | not-found   | Invalid ticket ID                                                       |
+| `TaskNotFoundError`    | not-found   | Invalid task ID                                                         |
+| `DependencyCycleError` | task        | Cycle detected in task `blockedBy` graph                                |
+| `ValidationError`      | storage     | Zod validation failed (carries `path`)                                  |
+| `ParseError`           | storage     | JSON / output parser rejection                                          |
+| `StorageError`         | storage     | Read/write failure in the persistence layer                             |
+| `IOError`              | storage     | Low-level filesystem error                                              |
+| `LockError`            | storage     | File-lock contention or stale lock (carries `lockPath`)                 |
+| `SpawnError`           | ai-provider | AI process spawn failure (carries `stderr`, `exitCode`, `rateLimited`)  |
+| `IssueFetchError`      | external    | Failed to fetch an external issue (GitHub, JIRA)                        |
+| `StepError`            | pipeline    | Pipeline step failed — carries the failing step name and original cause |
+| `BranchPreflightError` | execution   | Repo not on expected sprint branch — scheduler requeues up to 3 times   |
 
 ## Exit Codes
 

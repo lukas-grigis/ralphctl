@@ -15,7 +15,7 @@ import { getSprint, resolveSprintId } from '@src/integration/persistence/sprint.
 import { listTasks } from '@src/integration/persistence/task.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
-import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
+import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createIdeatePipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { renderParsedTasksTable } from './plan-utils.ts';

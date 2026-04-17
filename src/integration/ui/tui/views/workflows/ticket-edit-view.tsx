@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react';
 import type { Ticket } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { listTickets, updateTicket } from '@src/integration/persistence/ticket.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';

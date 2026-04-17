@@ -23,8 +23,8 @@ interface SpinnerProps {
 export function Spinner({ label, color = inkColors.warning, intervalMs = 80 }: SpinnerProps): React.JSX.Element | null {
   const [frame, setFrame] = useState(0);
 
-  // UI-SPEC: while a view is idle waiting on a prompt, the prompt owns the
-  // visual — don't show a spinner alongside it.
+  // UI contract (REQUIREMENTS.md § Spinner labels): while a view is idle
+  // waiting on a prompt, the prompt owns the visual — don't show a spinner.
   const isAwaitingPrompt = label.startsWith('Awaiting');
 
   useEffect(() => {

@@ -5,7 +5,7 @@
  * through the Ink `<PromptHost />`.
  */
 
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getAiProvider, getEditor, getEvaluationIterations } from '@src/integration/persistence/config.ts';
 
 // Project

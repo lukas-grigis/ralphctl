@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
 import { listSprints } from '@src/integration/persistence/sprint.ts';
 import { formatTicketDisplay, listTickets } from '@src/integration/persistence/ticket.ts';
