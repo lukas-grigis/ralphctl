@@ -230,7 +230,7 @@ await command('target'); // reaches the "not approved" error
 
 ## Coverage Status
 
-### Well Covered
+### Well Covered (added 2026-04-13)
 
 - [x] Store logic (tickets, tasks, sprints, progress, config, projects)
 - [x] CLI commands (comprehensive smoke tests in `cli-smoke.test.ts`)
@@ -249,6 +249,8 @@ await command('target'); // reaches the "not approved" error
 - [x] All prompt builders — token replacement, noCommit variations, distinct outputs (src/ai/prompts/index.test.ts)
 - [x] `parseEvaluationResult` + `getEvaluatorModel` — evaluator module (src/ai/evaluator.test.ts)
 - [x] `evaluationIterations` config field — schema, store getter/setter, doctor check
+- [x] `src/domain/config-schema.ts` — ConfigSchemaDefinition structure, per-key validation, defaults, getSchemaEntry/getAllSchemaEntries/getDefaultValue (101 tests across 2 files)
+- [x] `src/integration/config/schema-provider.ts` — validateConfigValue (unknown key, all four keys), parseConfigValue (string/enum/integer coercion, 'null' → null, NaN error), getConfigDefaultValue, getConfigKeyDescription, getConfigKeyScope
 
 ### Coverage Gaps
 

@@ -3,16 +3,16 @@
  * Runs CLI commands without spawning processes.
  */
 import { Command } from 'commander';
-import { registerProjectCommands } from '@src/commands/project/index.ts';
-import { registerSprintCommands } from '@src/commands/sprint/index.ts';
-import { registerTaskCommands } from '@src/commands/task/index.ts';
-import { registerTicketCommands } from '@src/commands/ticket/index.ts';
-import { registerProgressCommands } from '@src/commands/progress/index.ts';
-import { registerConfigCommands } from '@src/commands/config/index.ts';
-import { cliMetadata } from '@src/cli-metadata.ts';
-import { DomainError } from '@src/errors.ts';
-import { showError } from '@src/theme/ui.ts';
-import { EXIT_ERROR } from '@src/utils/exit-codes.ts';
+import { registerProjectCommands } from '@src/integration/cli/commands/project/register.ts';
+import { registerSprintCommands } from '@src/integration/cli/commands/sprint/register.ts';
+import { registerTaskCommands } from '@src/integration/cli/commands/task/register.ts';
+import { registerTicketCommands } from '@src/integration/cli/commands/ticket/register.ts';
+import { registerProgressCommands } from '@src/integration/cli/commands/progress/register.ts';
+import { registerConfigCommands } from '@src/integration/cli/commands/config/register.ts';
+import { cliMetadata } from '@src/application/cli-metadata.ts';
+import { DomainError } from '@src/domain/errors.ts';
+import { colors } from '@src/integration/ui/theme/theme.ts';
+import { EXIT_ERROR } from '@src/integration/utils/exit-codes.ts';
 
 export interface CliResult {
   stdout: string;
@@ -103,8 +103,9 @@ export async function runCli(args: string[], env: Record<string, string>): Promi
     if (err instanceof Error && 'exitCode' in err) {
       code = (err as { exitCode: number }).exitCode;
     } else if (err instanceof DomainError) {
-      // Mirror real CLI behavior: domain errors display via showError() → stdout
-      showError(err.message);
+      // Mirror real CLI behavior: domain errors render to stdout in red.
+      // Prefix matches PlainTextSink's error output so assertions still match.
+      stdout.push(`  ${colors.error('x')} ${err.message}`);
       code = EXIT_ERROR;
     } else if (err instanceof Error) {
       stderr.push(err.message);

@@ -18,7 +18,7 @@ pnpm dev sprint create
 # Or run installed CLI (works from any directory)
 ./bin/ralphctl
 
-# Run without args for interactive menu mode (recommended)
+# Run without args for the Ink-based terminal app (recommended)
 pnpm dev
 ```
 
@@ -40,12 +40,12 @@ pnpm typecheck && pnpm lint && pnpm test
 - **`affectedRepositories` stores absolute paths** (not names) — set during `sprint plan`, persisted per-ticket
 - **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one AI session per ticket
 - **Planning is per-sprint** — repo selection applies to all tickets, paths saved per-ticket
-- **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/schemas/index.ts`
+- **JSON schemas** in `/schemas/` must stay in sync with Zod schemas in `src/domain/models.ts`
 - **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
 - **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
 - **Check scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`; heuristic
-  detection (`src/utils/detect-scripts.ts`) is used only as editable suggestions during project setup, never as a
-  runtime fallback
+  detection (`src/integration/utils/detect-scripts.ts`) is used only as editable suggestions during project setup,
+  never as a runtime fallback
 - **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for check scripts
 - **Check tracking** — `sprint.checkRanAt` records per-repo timestamps; re-runs skip already-completed checks;
   `--refresh-check` forces re-execution; cleared on sprint close
@@ -65,7 +65,7 @@ pnpm typecheck && pnpm lint && pnpm test
   - Evaluator prompt includes a "Project Tooling" section listing available subagents (`.claude/agents/*.md`),
     skills (`.claude/skills/`), MCP servers (`.mcp.json`), and instruction files. Evaluator is told to delegate to
     `auditor`/`reviewer` subagents and use Playwright/etc MCPs when relevant. Detection lives in
-    `src/ai/project-tooling.ts`.
+    `src/integration/ai/project-tooling.ts`.
   - **Verification and evaluation must adapt to the project's actual stack and tooling** — when no `checkScript` is
     configured, the evaluator derives commands from `CLAUDE.md`/`AGENTS.md`/`package.json`. UI tasks should use a
     Playwright MCP if one is installed. Security-sensitive diffs should be delegated to an `auditor` subagent if
@@ -80,8 +80,31 @@ pnpm typecheck && pnpm lint && pnpm test
   - Iteration loop: AI task → check gate → evaluation → persist sidecar → if failed AND fix attempts remain, resume
     generator with critique → "did anything change?" guard (HEAD + dirty check) → re-check → re-evaluate → persist
     next iteration → done
-- **Result boundaries** — Store layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are used at
-  command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over `.match()` chains.
+- **Result boundaries** — Persistence layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are
+  used at command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over
+  `.match()` chains.
+- **Clean Architecture layering** — `domain` < `business` < `integration` < `application`. Inner layers never import
+  from outer layers. Use cases depend on service ports (`src/business/ports/`); repository interfaces are pure-domain
+  (`src/domain/repositories/`). Concrete adapters live under `src/integration/`.
+- **No barrel files** — every import points to the source module directly. Never add an `index.ts` that only
+  re-exports from siblings; tree-shaking and import clarity beat brevity at the call site.
+- **Ink TUI is the default interactive surface** — bare `ralphctl` / `ralphctl interactive` / `ralphctl sprint start`
+  mount the Ink app via `src/integration/ui/tui/runtime/mount.tsx`. The mount path takes over the terminal using the
+  alt-screen buffer (vim/htop-style) and restores it on exit via `src/integration/ui/tui/runtime/screen.ts`. Non-TTY /
+  CI / piped invocations fall back automatically to Commander + PlainTextSink.
+- **PromptPort is the only interactive-prompt abstraction** — call sites use `getPrompt()` from
+  `src/application/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
+  dashboard isn't mounted (one-shot commands like `ralphctl project add`), the adapter auto-mounts a minimal Ink tree
+  via `src/integration/prompts/auto-mount.tsx` containing only `<PromptHost />`, drains the prompt queue, and
+  unmounts. Non-interactive environments throw `PromptCancelledError` — pass values as flags.
+- **LoggerPort is the only logging abstraction** — three sinks: `PlainTextSink` (TTY one-shot CLI), `JsonLogger`
+  (non-TTY / piped / CI), `InkSink` (Ink-mounted, publishes to an event bus consumed by the dashboard). Business logic
+  always goes through the injected logger, never `console.log`.
+- **SignalBusPort is the live observability stream** — `ExecuteTasksUseCase` emits on every parsed signal, rate-limit
+  pause/resume, and task lifecycle event. Dashboard subscribes to render live; filesystem signal handler subscribes to
+  persist. Two sinks, one source — `InMemorySignalBus` micro-batches emissions at ~16ms to avoid render storms.
+- **Live config (no snapshot)** — `ExecuteTasksUseCase.getEvaluationConfig()` reads fresh per task settlement so
+  mid-execution changes via the settings panel (REQ-12) take effect on the next task without restart.
 
 ## Common Mistakes to Avoid
 
@@ -92,13 +115,17 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't break task `blockedBy` dependencies during planning — preserve dependency chains
 - Don't let prompt templates drift from command implementation — verify prompts describe actual workflow (e.g., repo
   selection timing)
-- Don't hardcode provider-specific logic outside `src/providers/` — use the provider abstraction layer
+- Don't hardcode provider-specific logic outside `src/integration/ai/providers/` — use the provider abstraction layer
 - Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses
   `--allow-all-tools` (see Provider Differences below)
-- Don't add runtime auto-detection of check scripts — detection logic in `src/utils/detect-scripts.ts` is for
-  suggestions during `project add` only
-- Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
-- Don't add fields to Zod schemas without updating `/schemas/*.json` — Data models in `src/schemas/index.ts` have JSON schema mirrors in `/schemas/` that must stay in sync (AI agents validate against these)
+- Don't add runtime auto-detection of check scripts — detection logic in `src/integration/utils/detect-scripts.ts` is
+  for suggestions during `project add` only
+- Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s
+  timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
+- Don't add fields to Zod schemas without updating `/schemas/*.json` — Data models in `src/domain/models.ts` have JSON
+  schema mirrors in `/schemas/` that must stay in sync (AI agents validate against these)
+- Don't add `index.ts` barrel files — every import goes directly to its source module
+- Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
 
 ## Workflow
 
@@ -137,8 +164,8 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 | Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
 | Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
 
-`checkTaskPermissions()` in `src/ai/task-context.ts` always performs Claude-style file checks (benign for Copilot —
-settings files won't exist). Thread `provider` through if extending permission logic.
+`checkTaskPermissions()` in `src/integration/ai/task-context.ts` always performs Claude-style file checks (benign for
+Copilot — settings files won't exist). Thread `provider` through if extending permission logic.
 
 ### Workflow Paths
 
@@ -228,7 +255,7 @@ gaps (use blockquotes or bullets)
 prompt files)
 **Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
 Claude session starts)
-**Template builders** - `src/ai/prompts/index.ts` compiles `.md` templates with placeholder replacement
+**Template builders** - `src/integration/ai/prompts/loader.ts` compiles `.md` templates with placeholder replacement
 
 ## Custom Agents
 
@@ -245,16 +272,100 @@ Use Task tool with these `subagent_type` values for specialized work.
 
 ## UI Patterns
 
-Use helpers from `@src/theme/ui.ts` — never add raw emoji or inconsistent formatting.
-See `.claude/agents/designer.md` for complete UX guidelines and helper reference.
+**Two UI surfaces — pick the right one for the command:**
+
+- **Ink TUI** (`src/integration/ui/tui/`) — live dashboard, REPL, settings panel, inline editor. Mounted by bare
+  `ralphctl`, `ralphctl interactive`, and `ralphctl sprint start`. Takes over the terminal via the alt-screen buffer
+  (like vim/htop) and restores on exit. Uses `@inkjs/ui` components + the `LoggerPort` event bus for live-updating
+  output.
+- **Plain-text CLI** — one-shot commands (`sprint show`, `config set`, `project add`, etc.) use `PlainTextSink` for
+  structured logging plus the pure formatters in `@src/integration/ui/theme/ui.ts` (`renderCard`, `renderTable`,
+  `formatSprintStatus`, `showSuccess`, `printHeader`, etc.) for layout. When a prompt fires, the `InkPromptAdapter`
+  auto-mounts a minimal `<PromptHost />` inline — no Inquirer.
+
+Never add raw emoji or inconsistent formatting — use `emoji`/`colors`/`statusEmoji` from
+`@src/integration/ui/theme/theme.ts` and the formatters from `@src/integration/ui/theme/ui.ts`. Ink components pull
+theme tokens via `@src/integration/ui/tui/theme/tokens.ts`.
+
+See `.claude/agents/designer.md` for UX guidelines.
+
+### Repository layout
+
+```
+src/
+├── domain/                        # Pure — models, errors, signals, repository interfaces
+│   ├── models.ts                  # Zod schemas (single source of truth for entity types)
+│   ├── errors.ts  signals.ts  context.ts  types.ts  config-schema.ts
+│   └── repositories/              # persistence.ts, filesystem.ts (interfaces only)
+│
+├── business/                      # Use cases + service ports + pipelines
+│   ├── ports/                     # ai-session, prompt-builder, output-parser, user-interaction,
+│   │                              # external, signal-parser, signal-handler, logger, prompt, signal-bus
+│   ├── usecases/                  # refine, plan (+ ideate), execute, evaluate
+│   ├── pipeline/                  # generic step/pipeline plumbing
+│   └── pipelines/                 # refine-plan
+│
+├── integration/                   # Adapters, UI, 3rd-party glue
+│   ├── persistence/               # File-backed repository + paths/storage/file-lock/requirements-export
+│   ├── filesystem/                # NodeFilesystemAdapter
+│   ├── ai/                        # executor, evaluator, runner, parser, session, lifecycle, permissions,
+│   │   │                          # task-context, process-manager, rate-limiter, project-tooling,
+│   │   │                          # session-adapter, prompt-builder-adapter, output-parser-adapter
+│   │   ├── providers/             # claude.ts, copilot.ts, registry.ts, types.ts
+│   │   └── prompts/               # .md templates + loader.ts
+│   ├── external/                  # git, gh/glab, issue-fetch, provider resolution, external-adapter
+│   ├── signals/                   # parser, bus, file-system-handler
+│   ├── logging/                   # plain-text-sink, json-logger, ink-sink, factory
+│   ├── prompts/                   # InkPromptAdapter, prompt queue/host/auto-mount, Ink prompt components
+│   │                              # (select, confirm, input, checkbox, editor, file-browser), escapable
+│   ├── ui/
+│   │   ├── tui/
+│   │   │   ├── runtime/           # mount.tsx, screen.ts (alt-screen), event-bus, hooks
+│   │   │   ├── components/        # banner, task-grid, log-tail, rate-limit-banner, status-bar, …
+│   │   │   ├── views/             # app, repl-view, execute-view, settings-panel, menu-builder, …
+│   │   │   └── theme/tokens.ts    # Colorette → Ink color-prop adapter
+│   │   └── theme/                 # theme.ts (colors, banner, quotes), ui.ts (formatters, spinner shim)
+│   ├── cli/
+│   │   ├── commands/              # project/sprint/ticket/task/progress/dashboard/config/doctor/completion
+│   │   │                          # Each group has a register.ts that wires sub-commands onto a Commander instance
+│   │   └── completion/            # handle.ts, resolver.ts (tabtab integration)
+│   ├── config/schema-provider.ts  # Reads `src/domain/config-schema.ts` for the settings panel
+│   ├── user-interaction/          # InteractiveUserAdapter, AutoUserAdapter
+│   └── utils/                     # detect-scripts, ids, json-extract, multiline, result-helpers, exit-codes
+│
+└── application/                   # Composition root
+    ├── entrypoint.ts              # Commander wiring + main(); decides when to mount Ink vs Commander
+    ├── bootstrap.ts               # getSharedDeps/setSharedDeps/getPrompt singleton accessor
+    ├── shared.ts                  # createSharedDeps() — builds the default adapter graph
+    ├── factories.ts               # Use-case factories (per-invocation adapter graphs for AI flows)
+    └── cli-metadata.ts
+```
 
 ## Task Execution Signals
 
-The harness parses these XML signals from AI agent output:
+The harness parses a fixed, discriminated-union set of XML signals from AI agent output (exhaustiveness-checked in
+`src/business/usecases/execute.ts` via `_exhaustive: never`). Adding a new signal type requires adding a variant to
+`HarnessSignal` in `src/domain/signals.ts` — the compiler will force you to handle it everywhere.
 
 - `<task-verified>output</task-verified>` — verification passed (required before completion in headless mode)
 - `<task-complete>` — task finished successfully
 - `<task-blocked>reason</task-blocked>` — task cannot proceed
+- `<progress><summary>…</summary><files>…</files></progress>` — appended to `progress.md`
+- `<evaluation-passed>` / `<evaluation-failed>critique</evaluation-failed>` — persisted to the sidecar + `tasks.json`
+- `<note>text</note>` — appended to `progress.md`
+
+All signals flow through two subscribers in parallel: `FileSystemSignalHandler` (durable writes) and `SignalBusPort`
+(live dashboard).
+
+## Feedback Loop
+
+Optional, opt-out, runs only after all tasks complete successfully (`src/business/usecases/execute.ts`):
+
+- Fires when `summary.stopReason === 'all_completed'` AND `!options.session` AND `!options.noFeedback`
+- User types free-form feedback; empty input exits the loop immediately
+- AI implements the feedback, check scripts re-run, evaluator re-runs
+- Hard cap: `MAX_FEEDBACK_ITERATIONS` (safety net against infinite loops)
+- Disable per-run with `--no-feedback`; disabled implicitly in `--session` mode
 
 ## Parallel Execution
 
@@ -269,25 +380,33 @@ The harness parses these XML signals from AI agent output:
 
 Customize ralphctl behavior with these environment variables:
 
-| Variable                    | Default        | Range          | Purpose                                                                       |
-| --------------------------- | -------------- | -------------- | ----------------------------------------------------------------------------- |
-| `RALPHCTL_ROOT`             | `~/.ralphctl/` | Any valid path | Override data directory (e.g., for testing or multi-workspace setup)          |
-| `RALPHCTL_SETUP_TIMEOUT_MS` | 300000 (5 min) | > 0            | Timeout for check scripts; overridable per-repo via `Repository.checkTimeout` |
-| `RALPHCTL_LOCK_TIMEOUT_MS`  | 30000          | 1–3600000      | Stale lock file threshold for concurrent access detection                     |
+| Variable                    | Default        | Range                         | Purpose                                                                       |
+| --------------------------- | -------------- | ----------------------------- | ----------------------------------------------------------------------------- |
+| `RALPHCTL_ROOT`             | `~/.ralphctl/` | Any valid path                | Override data directory (e.g., for testing or multi-workspace setup)          |
+| `RALPHCTL_SETUP_TIMEOUT_MS` | 300000 (5 min) | > 0                           | Timeout for check scripts; overridable per-repo via `Repository.checkTimeout` |
+| `RALPHCTL_LOCK_TIMEOUT_MS`  | 30000          | 1–3600000                     | Stale lock file threshold for concurrent access detection                     |
+| `RALPHCTL_LOG_LEVEL`        | `info`         | `debug`/`info`/`warn`/`error` | Filter structured-log output (PlainTextSink and JsonLogger)                   |
+| `RALPHCTL_NO_TUI`           | unset          | any truthy value              | Force the plain-text CLI fallback even on a TTY (skip Ink mount)              |
+| `RALPHCTL_JSON`             | unset          | any truthy value              | Force the `JsonLogger` sink (one JSON object per line) regardless of TTY      |
+| `NO_COLOR`                  | unset          | any truthy value              | Suppress ANSI colors (honored by `isTTY()` and by `colorette`)                |
+| `CI`                        | unset          | any truthy value              | Auto-detected; disables Ink mount and implicit interactive prompts            |
+| `VISUAL` / `EDITOR`         | unset          | editor command                | Read by the editor resolver; the Ink inline editor is preferred on TTY.       |
 
-**Note:** In tests, set `RALPHCTL_ROOT` BEFORE importing store modules (e.g., in setup file before `describe` blocks).
+**Note:** In tests, set `RALPHCTL_ROOT` BEFORE importing persistence modules (e.g., in setup file before `describe`
+blocks).
 
 ## Build & Distribution
 
-**Prompt templates are distributed with the CLI.** The build script copies `.md` files from `src/ai/prompts/` to `dist/prompts/`:
+**Prompt templates are distributed with the CLI.** The build script copies `.md` files from
+`src/integration/ai/prompts/` to `dist/prompts/`:
 
 ```bash
-pnpm build  # Runs: tsup && mkdir -p dist/prompts && cp src/ai/prompts/*.md dist/prompts/
+pnpm build  # Runs: tsup && mkdir -p dist/prompts && cp src/integration/ai/prompts/*.md dist/prompts/
 ```
 
 Template loading is dual-mode:
 
-- **Dev:** Reads from `src/ai/prompts/*.md`
+- **Dev:** Reads from `src/integration/ai/prompts/*.md`
 - **Bundled (npm):** Reads from `dist/prompts/*.md`
 
 **Gotcha:** If `.md` files are missing in `dist`, templates silently fail with empty placeholder values (no file-not-found error). CI verifies dist works by testing `node dist/cli.mjs --version` from arbitrary cwd.

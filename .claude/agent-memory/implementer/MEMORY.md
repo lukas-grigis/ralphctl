@@ -9,7 +9,10 @@ src/
 ├── schemas/           # Zod schemas and TypeScript types (index.ts)
 ├── theme/             # UI helpers (index.ts = colors/quotes, ui.ts = formatting)
 ├── utils/             # Utilities (paths.ts, storage.ts, ids.ts, file-lock.ts)
-├── interactive/       # Interactive mode (menu.ts, selectors.ts)
+├── tui/               # Ink TUI (views/, components/, runtime/, prompts/, theme/)
+├── integration/       # Adapters (prompts/, logging/, signals/, adapters/)
+├── business/ports/    # Domain port interfaces (LoggerPort, PromptPort, etc.)
+├── application/       # Bootstrap + shared deps wiring
 └── ai/                # Claude integration (session.ts, executor.ts, runner.ts)
 ```
 

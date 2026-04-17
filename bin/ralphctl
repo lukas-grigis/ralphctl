@@ -10,4 +10,4 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 REPO_DIR="$SCRIPT_DIR/.."
 
-exec "$REPO_DIR/node_modules/.bin/tsx" --tsconfig "$REPO_DIR/tsconfig.json" "$REPO_DIR/src/cli.ts" "$@"
+exec "$REPO_DIR/node_modules/.bin/tsx" --tsconfig "$REPO_DIR/tsconfig.json" "$REPO_DIR/src/application/entrypoint.ts" "$@"
