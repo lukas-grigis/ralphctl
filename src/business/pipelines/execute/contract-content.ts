@@ -27,7 +27,7 @@ import type { Task } from '@src/domain/models.ts';
  */
 export const EVALUATOR_DIMENSIONS = ['Correctness', 'Completeness', 'Safety', 'Consistency'] as const;
 
-export interface ContractContext {
+interface ContractContext {
   task: Task;
   /** Absolute path to the task's repo — resolved from `task.repoId` by the caller. */
   repoPath: string;

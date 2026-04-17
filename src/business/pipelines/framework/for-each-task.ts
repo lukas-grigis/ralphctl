@@ -62,7 +62,7 @@ export type RetryAction =
   | { action: 'fail'; drainInFlight: boolean };
 
 /** Strategy for scheduling inner pipelines. */
-export interface ForEachTaskStrategy<TItem> {
+interface ForEachTaskStrategy<TItem> {
   /** 1 = sequential; N = parallel pool; 'auto' = one per unique mutex key (capped). */
   concurrency: number | 'auto';
   /** Hard upper bound on concurrency (default: 10). */
@@ -76,7 +76,7 @@ export interface ForEachTaskStrategy<TItem> {
 }
 
 /** Policy for handling item failures + lifecycle hooks. */
-export interface ForEachTaskPolicies<TItem> {
+interface ForEachTaskPolicies<TItem> {
   /** What to do when an item's pipeline fails with a given error. */
   retryPolicy: (item: TItem, error: DomainError, attempt: number) => RetryAction;
   /** Called between item settlements — e.g. step-mode's "Continue?" prompt. */
@@ -91,7 +91,7 @@ export interface ForEachTaskPolicies<TItem> {
   onSettle?: (item: TItem, result: 'success' | 'failed' | 'skipped') => void;
 }
 
-export interface ForEachTaskOptions<TItem, TInnerCtx extends StepContext = StepContext> {
+interface ForEachTaskOptions<TItem, TInnerCtx extends StepContext = StepContext> {
   /**
    * Sub-pipeline run per-item. Receives the outer ctx plus `[itemKey]: TItem`.
    *

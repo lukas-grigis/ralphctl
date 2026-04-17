@@ -12,7 +12,7 @@ import { FIELD_LABEL_WIDTH } from '@src/integration/ui/theme/tokens.ts';
 
 export type FieldEntry = readonly [label: string, value: string];
 
-export interface FieldListProps {
+interface FieldListProps {
   readonly fields: readonly FieldEntry[];
   /** Override the default label column width (default 12). */
   readonly labelWidth?: number;

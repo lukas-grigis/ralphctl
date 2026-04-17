@@ -15,6 +15,7 @@ import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
+import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
 import { findSpawnError, pipeline, step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { forEachTask, type RetryAction, type SchedulerStats } from '@src/business/pipelines/framework/for-each-task.ts';
@@ -24,7 +25,6 @@ import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scr
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
 import type { PerTaskContext } from '@src/business/pipelines/execute/per-task-context.ts';
-import { ProcessManager } from '@src/integration/ai/session/process-manager.ts';
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
@@ -80,6 +80,8 @@ export interface ExecuteDeps {
    * so this layer never imports the integration-layer concrete class.
    */
   createRateLimitCoordinator: () => RateLimitCoordinatorPort;
+  /** SIGINT/SIGTERM handler installer + shutdown observer. */
+  processLifecycle: ProcessLifecyclePort;
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +520,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
 
     // Install signal handlers eagerly so Ctrl+C works before the first child
     // spawns. Idempotent — safe to call on every pipeline invocation.
-    ProcessManager.getInstance().ensureHandlers();
+    deps.processLifecycle.ensureHandlers();
 
     const useCase = new ExecuteTasksUseCase(
       deps.persistence,
@@ -603,7 +605,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         pullItems: async () => {
           // Short-circuit if Ctrl+C fired mid-flight — we want the scheduler
           // to wind down cleanly rather than pick up new work.
-          if (ProcessManager.getInstance().isShuttingDown()) return [];
+          if (deps.processLifecycle.isShuttingDown()) return [];
           const ready = await deps.persistence.getReadyTasks(sprint.id);
           const current = await deps.persistence.getTasks(sprint.id);
           const inProgress = current.filter((t) => t.status === 'in_progress');

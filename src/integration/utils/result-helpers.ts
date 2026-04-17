@@ -1,9 +1,6 @@
-import type { AsyncResult } from 'typescript-result';
 import { Result } from 'typescript-result';
 import type { ZodError, ZodType } from 'zod';
 import { ValidationError } from '@src/domain/errors.ts';
-
-export type { AsyncResult };
 
 /**
  * Wrap a Zod schema parse into a Result, converting ZodError into ValidationError.

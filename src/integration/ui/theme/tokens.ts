@@ -7,7 +7,7 @@
  * the occasional pull-quote — not painted across every surface.
  */
 
-export { colors, emoji, gradients, getRandomQuote, getStatusEmoji } from '@src/integration/ui/theme/theme.ts';
+export { emoji } from '@src/integration/ui/theme/theme.ts';
 
 /**
  * Ink `color` prop values. Truecolor hex where ANSI-256 lookalikes would
@@ -28,12 +28,10 @@ export const inkColors = {
   secondary: '#D98880', // muted rose — Ralph personality pull-quotes
 } as const;
 
-export type InkColorName = (typeof inkColors)[keyof typeof inkColors];
-
 /**
  * Curated glyph family — used consistently across views. Keep this set
  * small; adding a new glyph is a design decision, not a convenience.
- * See .claude/docs/UI-SPEC.md § Glyphs for when to use which.
+ * See .claude/docs/REQUIREMENTS.md § Glyphs for when to use which.
  */
 export const glyphs = {
   // Phase / status
@@ -67,7 +65,7 @@ export const glyphs = {
 
 /**
  * Spacing rhythm constants — use these everywhere instead of hardcoded magic
- * numbers so the whole TUI shares one vertical cadence. See UI-SPEC.md.
+ * numbers so the whole TUI shares one vertical cadence. See REQUIREMENTS.md § Layout tokens.
  */
 export const spacing = {
   /** Between top-level sections (blank line). */
@@ -80,15 +78,6 @@ export const spacing = {
   indent: 2,
   /** Internal gutter inside card-like boxes. */
   gutter: 1,
-} as const;
-
-/**
- * Focus style — applied via `<Text color={focus.color} bold={focus.bold}>`
- * so selection/focus looks identical everywhere.
- */
-export const focus = {
-  color: inkColors.highlight,
-  bold: true,
 } as const;
 
 /**

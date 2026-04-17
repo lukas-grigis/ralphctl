@@ -11,7 +11,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { listTickets } from '@src/integration/persistence/ticket.ts';
 import { withSuspendedTui } from '@src/integration/ui/tui/runtime/suspend.ts';

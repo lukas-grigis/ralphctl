@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Sprint, Tasks } from '@src/domain/models.ts';
 import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
-import { getSharedDeps } from '@src/application/bootstrap.ts';
+import { getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createPlanPipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';

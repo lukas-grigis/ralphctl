@@ -7,7 +7,6 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Config } from '@src/domain/models.ts';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import { type DashboardData, loadDashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import { logEventBus, type LogEvent } from './event-bus.ts';
@@ -54,37 +53,7 @@ export function useSignalEvents(bus: SignalBusPort, limit = 200): readonly Harne
   return buffer;
 }
 
-/**
- * Polled live config. `intervalMs` controls cadence (defaults to 2s — cheap
- * file read). Returns `null` until the first read completes.
- */
-export function useLiveConfig(getConfig: () => Promise<Config>, intervalMs = 2000): Config | null {
-  const [config, setConfig] = useState<Config | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const tick = async (): Promise<void> => {
-      try {
-        const c = await getConfig();
-        if (!cancelled) setConfig(c);
-      } catch {
-        // Ignore transient read errors — UI keeps the previous value.
-      }
-    };
-
-    void tick();
-    const id = setInterval(() => void tick(), intervalMs);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [getConfig, intervalMs]);
-
-  return config;
-}
-
-export interface UseDashboardData {
+interface UseDashboardData {
   data: DashboardData | null;
   loading: boolean;
   error: string | null;

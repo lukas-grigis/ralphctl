@@ -4,7 +4,7 @@ import { TextInput } from '@inkjs/ui';
 import type { InputOptions } from '@src/business/ports/prompt.ts';
 import { emoji } from '@src/integration/ui/theme/tokens.ts';
 
-export interface InputPromptProps {
+interface InputPromptProps {
   options: InputOptions;
   onSubmit: (value: string) => void;
   onCancel: () => void;

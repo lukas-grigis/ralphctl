@@ -1,6 +1,6 @@
 import { basename, resolve } from 'node:path';
 import { expandTilde } from '@src/integration/persistence/paths.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
 import {

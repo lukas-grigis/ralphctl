@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
 import { getProject, ProjectNotFoundError, removeProject } from '@src/integration/persistence/project.ts';

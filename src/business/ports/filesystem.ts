@@ -21,6 +21,9 @@ export interface FilesystemPort {
   /** Get the planning directory for a sprint */
   getPlanningDir(sprintId: string): string;
 
+  /** Get the ideation directory for a ticket */
+  getIdeationDir(sprintId: string, ticketId: string): string;
+
   /** Get the sprint directory */
   getSprintDir(sprintId: string): string;
 

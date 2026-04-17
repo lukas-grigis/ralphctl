@@ -17,7 +17,7 @@
 import React from 'react';
 import { render } from 'ink';
 import { createSharedDeps } from '@src/application/shared.ts';
-import { setSharedDeps } from '@src/application/bootstrap.ts';
+import { setSharedDeps } from '@src/integration/bootstrap.ts';
 import { InkSink } from '@src/integration/logging/ink-sink.ts';
 import { InMemorySignalBus } from '@src/integration/signals/bus.ts';
 import { InkPromptAdapter } from '@src/integration/ui/prompts/prompt-adapter.ts';
@@ -37,7 +37,7 @@ export interface MountOptions {
   executionOptions?: ExecutionOptions;
 }
 
-export interface MountResult {
+interface MountResult {
   /** True when the environment can't host Ink — caller should run a fallback. */
   fallback: boolean;
 }

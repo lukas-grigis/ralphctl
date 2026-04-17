@@ -41,7 +41,7 @@ export function getAllConfigSchemaEntries() {
  * Get a single schema entry by key.
  * Type-safe: returns entry if key is valid.
  */
-export function getConfigSchemaEntry(key: ConfigSchemaKeys) {
+function getConfigSchemaEntry(key: ConfigSchemaKeys) {
   return getSchemaEntry(key);
 }
 

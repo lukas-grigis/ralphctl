@@ -16,7 +16,7 @@ import { join } from 'node:path';
  * the evaluator spawn path.
  */
 
-export interface ProjectTooling {
+interface ProjectTooling {
   /** Subagent file basenames (without `.md`) found in `.claude/agents/`. */
   agents: string[];
   /** Top-level skill directory names found in `.claude/skills/`. */
@@ -123,7 +123,7 @@ export function detectProjectTooling(projectPath: string): ProjectTooling {
  *
  * Empty input returns the empty tooling object.
  */
-export function detectProjectToolingAcrossPaths(projectPaths: string[]): ProjectTooling {
+function detectProjectToolingAcrossPaths(projectPaths: string[]): ProjectTooling {
   if (projectPaths.length === 0) {
     return EMPTY_TOOLING;
   }

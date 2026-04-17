@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
 import { field, fieldMultiline, icons, showError, showNextStep, showSuccess } from '@src/integration/ui/theme/ui.ts';
@@ -9,11 +9,11 @@ import {
   updateTicket,
 } from '@src/integration/persistence/ticket.ts';
 import { SprintStatusError } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
 import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 
-export interface TicketEditOptions {
+interface TicketEditOptions {
   title?: string;
   description?: string;
   link?: string;

@@ -398,6 +398,10 @@ function buildDeps(scenario: Scenario = {}): {
     signalHandler: makeSignalHandler(),
     signalBus: makeBus(events),
     createRateLimitCoordinator: () => new RateLimitCoordinator(),
+    processLifecycle: {
+      ensureHandlers: () => void 0,
+      isShuttingDown: () => false,
+    },
   };
 
   // Parser needs to produce a `task-complete` signal so `executeOneTask`

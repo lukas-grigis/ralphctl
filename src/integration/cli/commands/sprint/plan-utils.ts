@@ -3,17 +3,9 @@ import { addTask, getTasks, saveTasks } from '@src/integration/persistence/task.
 import { getTasksFilePath } from '@src/integration/persistence/paths.ts';
 import { withFileLock } from '@src/integration/persistence/file-lock.ts';
 import { ensureError, unwrapOrThrow, wrapAsync } from '@src/integration/utils/result-helpers.ts';
-import { getTaskImportJsonSchema, type ImportTask, ImportTasksSchema, type Task } from '@src/domain/models.ts';
+import { type ImportTask, ImportTasksSchema, type Task } from '@src/domain/models.ts';
 import { extractJsonArray } from '@src/integration/utils/json-extract.ts';
 import { generateUuid8 } from '@src/domain/ids.ts';
-
-/**
- * JSON schema for the task-import output, generated on demand from Zod.
- * No hand-maintained mirror file — the Zod schema is the only source of truth.
- */
-export function getTaskImportSchema(): Promise<string> {
-  return Promise.resolve(getTaskImportJsonSchema());
-}
 
 /**
  * Check if AI output contains a planning-blocked signal.

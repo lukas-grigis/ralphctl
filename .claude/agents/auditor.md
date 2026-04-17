@@ -1,9 +1,10 @@
 ---
 name: auditor
-description: 'Security audit specialist. Use to scan for vulnerabilities, review security-sensitive code, check for common security issues (OWASP), and ensure safe handling of user input, files, and secrets.'
+description: 'Security audit specialist for ralphctl. Use proactively on security-sensitive diffs — new auth / permission code, file-path handling, secret or credential plumbing, shell-exec paths, anything accepting external input. Also use when asked to scan a module for injection / traversal / secret-leak issues. Read-only; reports findings, does not patch.'
 tools: Read, Grep, Glob, Bash
 model: sonnet
 color: red
+memory: project
 ---
 
 # Security Auditor

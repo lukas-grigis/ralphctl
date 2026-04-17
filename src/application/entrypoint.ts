@@ -10,9 +10,16 @@ import { registerConfigCommands } from '@src/integration/cli/commands/config/reg
 import { registerCompletionCommands } from '@src/integration/cli/commands/completion/register.ts';
 import { registerDoctorCommands } from '@src/integration/cli/commands/doctor/register.ts';
 import { error } from '@src/integration/ui/theme/theme.ts';
-import { cliMetadata } from '@src/application/cli-metadata.ts';
+import { cliMetadata } from '@src/domain/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
-import { EXIT_ERROR } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR } from '@src/domain/exit-codes.ts';
+import { setSharedDeps } from '@src/integration/bootstrap.ts';
+import { createSharedDeps } from '@src/application/shared.ts';
+
+// Initialise the shared dependency graph before any command can reach for it.
+// Integration modules only hold a type reference to `SharedDeps`; the
+// application layer is the sole owner of construction.
+setSharedDeps(createSharedDeps());
 
 const program = new Command();
 program
@@ -77,7 +84,7 @@ async function main(): Promise<void> {
     const parsed = parseSprintStartArgs(argv.slice(4));
     if (parsed.ok) {
       const { mountInkApp } = await import('@src/integration/ui/tui/runtime/mount.tsx');
-      const { getSharedDeps } = await import('@src/application/bootstrap.ts');
+      const { getSharedDeps } = await import('@src/integration/bootstrap.ts');
       let sprintId: string | undefined;
       try {
         sprintId = await getSharedDeps().persistence.resolveSprintId(parsed.value.sprintId);

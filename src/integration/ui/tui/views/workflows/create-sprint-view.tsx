@@ -8,7 +8,7 @@
 
 import React, { useMemo } from 'react';
 import type { Project, Sprint } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { createSprint } from '@src/integration/persistence/sprint.ts';
 import { setCurrentSprint } from '@src/integration/persistence/config.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';

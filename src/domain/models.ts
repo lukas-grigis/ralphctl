@@ -10,7 +10,6 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 // Requirement status for tickets (pending → approved)
 export const RequirementStatusSchema = z.enum(['pending', 'approved']);
-export type RequirementStatus = z.infer<typeof RequirementStatusSchema>;
 
 // Evaluation status for tasks. Distinct from `evaluated` (a boolean "did the
 // evaluator run") so callers can tell a real failure from a malformed evaluator
@@ -111,7 +110,6 @@ export const ImportTaskSchema = z.object({
 export type ImportTask = z.infer<typeof ImportTaskSchema>;
 
 export const ImportTasksSchema = z.array(ImportTaskSchema);
-export type ImportTasks = z.infer<typeof ImportTasksSchema>;
 
 // Refined requirement schema (for requirements refinement output)
 export const RefinedRequirementSchema = z.object({
@@ -121,14 +119,12 @@ export const RefinedRequirementSchema = z.object({
 export type RefinedRequirement = z.infer<typeof RefinedRequirementSchema>;
 
 export const RefinedRequirementsSchema = z.array(RefinedRequirementSchema);
-export type RefinedRequirements = z.infer<typeof RefinedRequirementsSchema>;
 
 // Ideate output schema (combined requirements + tasks from sprint ideate)
 export const IdeateOutputSchema = z.object({
   requirements: z.string().min(1),
   tasks: ImportTasksSchema,
 });
-export type IdeateOutput = z.infer<typeof IdeateOutputSchema>;
 
 // Sprint schema — scoped to one project.
 // `checkRanAt` is keyed by repoId (was projectPath).

@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { error, muted } from '@src/integration/ui/theme/theme.ts';
 import { emoji, field, icons, log, showError, showNextSteps, showSuccess } from '@src/integration/ui/theme/ui.ts';
@@ -13,10 +13,10 @@ import {
   resolveSprintId,
   SprintStatusError,
 } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import type { Repository } from '@src/domain/models.ts';
 
-export interface TaskAddOptions {
+interface TaskAddOptions {
   name?: string;
   description?: string;
   steps?: string[];

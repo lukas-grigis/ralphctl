@@ -4,9 +4,6 @@ import { Result } from 'typescript-result';
 import type { ZodType } from 'zod';
 import { StorageError, ValidationError } from '@src/domain/errors.ts';
 
-// Re-export domain errors so existing callers that import from storage.ts keep working.
-export { StorageError, ValidationError } from '@src/domain/errors.ts';
-
 export async function ensureDir(dirPath: string): Promise<void> {
   await mkdir(dirPath, { recursive: true });
 }

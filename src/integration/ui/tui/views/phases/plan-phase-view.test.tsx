@@ -11,7 +11,7 @@ const getTasksMock = vi.fn<(id: string) => Promise<Tasks>>();
 const executePipelineMock = vi.fn<() => Promise<DomainResult<PipelineResult>>>();
 const createPlanPipelineMock = vi.fn(() => ({ name: 'plan', steps: [] }));
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getSharedDeps: () => ({
     persistence: {
       getSprint: (id: string) => getSprintMock(id),

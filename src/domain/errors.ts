@@ -1,8 +1,3 @@
-import type { AsyncResult, Result } from 'typescript-result';
-
-// Re-export Result types for convenience
-export type { Result, AsyncResult };
-
 /**
  * Common base class for all domain errors in ralphctl.
  * Every domain error carries a machine-readable code, a human-readable
@@ -17,14 +12,6 @@ export abstract class DomainError extends Error {
     this.name = this.constructor.name;
     this.cause = cause;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Provider / AI session errors
-// ---------------------------------------------------------------------------
-
-export class ProviderError extends DomainError {
-  readonly code = 'PROVIDER_ERROR';
 }
 
 // ---------------------------------------------------------------------------
@@ -103,10 +90,6 @@ export class SpawnError extends DomainError {
 // Not-found errors
 // ---------------------------------------------------------------------------
 
-export class NotFoundError extends DomainError {
-  readonly code = 'NOT_FOUND';
-}
-
 export class SprintNotFoundError extends DomainError {
   readonly code = 'SPRINT_NOT_FOUND';
   readonly sprintId: string;
@@ -161,7 +144,7 @@ export class ProjectExistsError extends DomainError {
 // Status / lifecycle errors
 // ---------------------------------------------------------------------------
 
-export class StatusError extends DomainError {
+class StatusError extends DomainError {
   readonly code: string = 'STATUS_ERROR';
 }
 
@@ -180,10 +163,6 @@ export class NoCurrentSprintError extends StatusError {
   constructor() {
     super('No sprint specified and no current sprint set.');
   }
-}
-
-export class TaskStatusError extends StatusError {
-  override readonly code = 'TASK_STATUS_ERROR';
 }
 
 // ---------------------------------------------------------------------------

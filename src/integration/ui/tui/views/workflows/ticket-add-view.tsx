@@ -11,7 +11,7 @@
 
 import React, { useMemo } from 'react';
 import type { Project, Ticket } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { addTicket } from '@src/integration/persistence/ticket.ts';

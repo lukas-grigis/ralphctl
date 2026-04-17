@@ -22,7 +22,7 @@ import { Box, Text, useInput } from 'ink';
 import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
-import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
+import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createExecuteSprintPipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { areAllTasksDone } from '@src/integration/persistence/task.ts';
@@ -46,7 +46,7 @@ interface Props {
   executionOptions?: ExecutionOptions;
 }
 
-export interface RunState {
+interface RunState {
   sprint: Sprint | null;
   tasks: readonly Task[];
   running: Set<string>;

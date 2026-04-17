@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';

@@ -1,8 +1,8 @@
 import { Result } from 'typescript-result';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { IOError } from '@src/domain/errors.ts';
 
-export interface EditorInputOptions {
+interface EditorInputOptions {
   /** Message/prompt to display */
   message: string;
   /** Default value (pre-populated in the editor) */

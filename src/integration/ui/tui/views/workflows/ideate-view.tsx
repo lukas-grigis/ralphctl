@@ -9,7 +9,7 @@
 
 import React, { useMemo } from 'react';
 import type { IdeationSummary } from '@src/business/usecases/plan.ts';
-import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
+import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import { createIdeatePipeline } from '@src/application/factories.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';

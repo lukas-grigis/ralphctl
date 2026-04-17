@@ -16,7 +16,7 @@
 
 import React, { useMemo } from 'react';
 import type { AiProvider } from '@src/domain/models.ts';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { setAiProvider } from '@src/integration/persistence/config.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';

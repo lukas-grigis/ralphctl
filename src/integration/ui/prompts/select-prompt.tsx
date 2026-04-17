@@ -3,7 +3,7 @@ import { Box, Text, useInput } from 'ink';
 import type { SelectOptions } from '@src/business/ports/prompt.ts';
 import { emoji, glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
-export interface SelectPromptProps {
+interface SelectPromptProps {
   options: SelectOptions<unknown>;
   onSubmit: (value: unknown) => void;
   onCancel: () => void;

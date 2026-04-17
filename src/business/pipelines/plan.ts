@@ -17,7 +17,7 @@ import { reorderDependenciesStep } from '@src/business/pipelines/steps/reorder-d
 import { PlanSprintTasksUseCase, type PlanSummary } from '@src/business/usecases/plan.ts';
 
 /** Context accumulated by the plan pipeline. */
-export interface PlanContext extends StepContext {
+interface PlanContext extends StepContext {
   planSummary?: PlanSummary;
 }
 

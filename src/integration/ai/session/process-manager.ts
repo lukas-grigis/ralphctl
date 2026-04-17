@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
-import { EXIT_INTERRUPTED } from '@src/application/exit-codes.ts';
+import { EXIT_INTERRUPTED } from '@src/domain/exit-codes.ts';
+import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
 import { log } from '@src/integration/ui/theme/ui.ts';
 
 /**
@@ -261,3 +262,15 @@ export class ProcessManager {
     process.on('SIGTERM', this.sigtermHandler);
   }
 }
+
+/**
+ * `ProcessLifecyclePort` adapter backed by the `ProcessManager` singleton.
+ * Business-layer callers (e.g. the execute pipeline) receive this via
+ * `SharedDeps` instead of reaching into the integration layer directly.
+ */
+export const processLifecycleAdapter: ProcessLifecyclePort = {
+  ensureHandlers: () => {
+    ProcessManager.getInstance().ensureHandlers();
+  },
+  isShuttingDown: () => ProcessManager.getInstance().isShuttingDown(),
+};

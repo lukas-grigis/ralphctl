@@ -114,7 +114,7 @@ describe('SpawnError', () => {
 
 describe('session ID validation', () => {
   it('rejects session IDs with shell metacharacters', () => {
-    // spawnHeadlessRaw validates resumeSessionId before using it as --resume arg
+    // spawnHeadless validates resumeSessionId before using it as --resume arg
     // We test the regex directly since spawning requires a real binary
     const SAFE_SESSION_ID = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,127}$/;
     expect(SAFE_SESSION_ID.test('--evil-flag')).toBe(false);

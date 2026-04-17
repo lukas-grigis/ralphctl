@@ -1,4 +1,4 @@
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { error } from '@src/integration/ui/theme/theme.ts';
@@ -18,11 +18,11 @@ import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 import { addTicket } from '@src/integration/persistence/ticket.ts';
 import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow, SprintStatusError } from '@src/integration/persistence/sprint.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import { fetchIssueFromUrl, type IssueData } from '@src/integration/external/issue-fetch.ts';
 import type { Ticket } from '@src/domain/models.ts';
 
-export interface TicketAddOptions {
+interface TicketAddOptions {
   title?: string;
   description?: string;
   link?: string;

@@ -1,6 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import {
@@ -28,9 +28,9 @@ import { type RefinedRequirement } from '@src/domain/models.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 
-export interface TicketRefineOptions {
+interface TicketRefineOptions {
   interactive?: boolean;
 }
 

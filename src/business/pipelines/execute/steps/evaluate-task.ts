@@ -13,7 +13,7 @@ import type { PerTaskContext } from '../per-task-context.ts';
  * plus the parent use case (for the live-config read) and the current
  * `ExecutionOptions`.
  */
-export interface EvaluateTaskDeps extends EvaluateDeps {
+interface EvaluateTaskDeps extends EvaluateDeps {
   useCase: ExecuteTasksUseCase;
   options: ExecutionOptions;
 }

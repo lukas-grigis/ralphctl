@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { error, muted } from '@src/integration/ui/theme/theme.ts';
@@ -22,11 +22,11 @@ import {
   showTip,
   showWarning,
 } from '@src/integration/ui/theme/ui.ts';
-import { EXIT_ERROR, exitWithCode } from '@src/application/exit-codes.ts';
+import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import { browseDirectory } from '@src/integration/ui/prompts/file-browser-impl.ts';
 import { detectCheckScriptCandidates, suggestCheckScript } from '@src/integration/external/detect-scripts.ts';
 
-export interface ProjectAddOptions {
+interface ProjectAddOptions {
   name?: string;
   displayName?: string;
   paths?: string[];

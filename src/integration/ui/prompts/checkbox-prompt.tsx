@@ -3,7 +3,7 @@ import { Box, Text, useInput } from 'ink';
 import type { CheckboxOptions } from '@src/business/ports/prompt.ts';
 import { emoji, glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
-export interface CheckboxPromptProps {
+interface CheckboxPromptProps {
   options: CheckboxOptions<unknown>;
   onSubmit: (value: unknown[]) => void;
   onCancel: () => void;

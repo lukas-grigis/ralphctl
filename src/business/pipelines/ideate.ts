@@ -17,7 +17,7 @@ import { reorderDependenciesStep } from '@src/business/pipelines/steps/reorder-d
 import { IdeateAndPlanUseCase, type IdeationSummary } from '@src/business/usecases/plan.ts';
 
 /** Context accumulated by the ideate pipeline. */
-export interface IdeateContext extends StepContext {
+interface IdeateContext extends StepContext {
   ideaSummary?: IdeationSummary;
   createdTicketId?: string;
 }

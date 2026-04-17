@@ -11,15 +11,15 @@ import { IOError } from '@src/domain/errors.ts';
  * from explicit repo config only.
  */
 
-export type ProjectType = 'node' | 'python' | 'go' | 'rust' | 'java-gradle' | 'java-maven' | 'makefile' | 'other';
+type ProjectType = 'node' | 'python' | 'go' | 'rust' | 'java-gradle' | 'java-maven' | 'makefile' | 'other';
 
-export interface CheckCandidate {
+interface CheckCandidate {
   label: string;
   command: string;
   selected: boolean;
 }
 
-export interface DetectionResult {
+interface DetectionResult {
   type: ProjectType;
   typeLabel: string;
   installCommand: string | null;
@@ -39,23 +39,6 @@ export function detectProjectType(projectPath: string): ProjectType {
   if (existsSync(join(projectPath, 'pom.xml'))) return 'java-maven';
   if (existsSync(join(projectPath, 'Makefile'))) return 'makefile';
   return 'other';
-}
-
-/**
- * Get human-readable label for project type.
- */
-export function getProjectTypeLabel(type: ProjectType): string {
-  const labels: Record<ProjectType, string> = {
-    node: 'Node.js',
-    python: 'Python',
-    go: 'Go',
-    rust: 'Rust',
-    'java-gradle': 'Java (Gradle)',
-    'java-maven': 'Java (Maven)',
-    makefile: 'Makefile',
-    other: 'Unknown',
-  };
-  return labels[type];
 }
 
 // ---------------------------------------------------------------------------

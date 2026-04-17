@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Sprint, Tasks } from '@src/domain/models.ts';
-import { getSharedDeps, getPrompt } from '@src/application/bootstrap.ts';
+import { getSharedDeps, getPrompt } from '@src/integration/bootstrap.ts';
 import { PromptCancelledError } from '@src/business/ports/prompt.ts';
 import { closeSprint, getSprint } from '@src/integration/persistence/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/integration/persistence/task.ts';

@@ -6,7 +6,7 @@ import { assertSprintStatus, getSprint, resolveSprintId, saveSprint } from '@src
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
 import { fileExists } from '@src/integration/persistence/storage.ts';
 import { fetchIssueFromUrl, formatIssueContext } from '@src/integration/external/issue-fetch.ts';
-import { exitWithCode } from '@src/application/exit-codes.ts';
+import { exitWithCode } from '@src/domain/exit-codes.ts';
 import { formatTicketForPrompt, parseRequirementsFile, runAiSession } from './refine-utils.ts';
 import { buildTicketRefinePrompt } from '@src/integration/ai/prompts/loader.ts';
 import { createSpinner, showError, showWarning } from '@src/integration/ui/theme/ui.ts';
@@ -54,7 +54,7 @@ vi.mock('@src/integration/persistence/paths.ts', () => ({
   getRefinementDir: vi.fn().mockReturnValue('/tmp/refine-dir'),
 }));
 
-vi.mock('@src/application/exit-codes.ts', () => ({
+vi.mock('@src/domain/exit-codes.ts', () => ({
   exitWithCode: vi.fn(),
   EXIT_ERROR: 1,
   EXIT_SUCCESS: 0,
@@ -89,7 +89,7 @@ const promptMock: PromptPort = {
   fileBrowser: fileBrowserMock,
 };
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: vi.fn(() => promptMock),
 }));
 
@@ -184,7 +184,7 @@ describe('ticketRefineCommand', () => {
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     // Re-establish prompt port mock after reset
-    const { getPrompt } = await import('@src/application/bootstrap.ts');
+    const { getPrompt } = await import('@src/integration/bootstrap.ts');
     vi.mocked(getPrompt).mockReturnValue(promptMock);
 
     // Re-establish stable defaults after reset

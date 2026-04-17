@@ -4,7 +4,7 @@ import { ConfirmInput } from '@inkjs/ui';
 import type { ConfirmOptions } from '@src/business/ports/prompt.ts';
 import { emoji } from '@src/integration/ui/theme/tokens.ts';
 
-export interface ConfirmPromptProps {
+interface ConfirmPromptProps {
   options: ConfirmOptions;
   onSubmit: (value: boolean) => void;
   onCancel: () => void;

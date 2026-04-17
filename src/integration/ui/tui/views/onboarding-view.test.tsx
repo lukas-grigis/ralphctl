@@ -13,7 +13,7 @@ const confirmMock = vi.fn<(opts: { message: string; default?: boolean }) => Prom
 const selectMock = vi.fn<(opts: { message: string; choices: unknown[] }) => Promise<string>>();
 const setAiProviderMock = vi.fn<(provider: AiProvider) => Promise<void>>();
 
-vi.mock('@src/application/bootstrap.ts', () => ({
+vi.mock('@src/integration/bootstrap.ts', () => ({
   getPrompt: () => ({
     confirm: (opts: { message: string; default?: boolean }) => confirmMock(opts),
     select: (opts: { message: string; choices: unknown[] }) => selectMock(opts),

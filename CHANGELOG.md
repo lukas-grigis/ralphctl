@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Housekeeping
+
+- Pruned dead code across the theme, prompts, runtime, and factories layers: deleted unused formatters
+  (`showInfo`, `printSummary`, `formatMuted`, `renderColumns`, `renderProgressSummary`), theme shortcuts
+  (`warning`/`info`/`highlight`/`accent`/`primary`/`secondary`/`subtle` top-level re-exports and
+  `colors.primary`/`colors.secondary`/`colors.subtle`), the never-wired `useLiveConfig` hook, the
+  `PullQuote` component, the intermediate `editor.ts` wrapper, and the unused use-case + pipeline
+  factory re-exports (`createRefineUseCase`, `createPlanUseCase`, `createIdeateUseCase`,
+  `createEvaluateUseCase`, `createEvaluatorPipeline`, `createPerTaskPipeline`). `factories.ts` now
+  exports only the four pipeline factories CLI and TUI actually call.
+- Renamed `spawnHeadlessRaw` → `spawnHeadless` — the `Raw` suffix was vestigial after its wrapper was
+  deleted.
+- Added `FilesystemPort.getIdeationDir(sprintId, ticketId)` + the matching `paths.ts` helper; fixed a
+  forgotten migration where `plan.ts` hardcoded the ideation directory path.
+- Tightened the export surface — made ~55 prompt/view prop and option types private to their modules.
+- Removed error classes that had no remaining call sites: `NotFoundError`, `TaskStatusError`,
+  `ProviderError`.
+
 ### ⚠ BREAKING
 
 - **Sprints are now scoped to a single project.** Sprint carries a `projectId`; tickets and tasks inherit

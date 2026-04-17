@@ -1,8 +1,6 @@
 # RalphCTL - Agent Harness for AI Coding Tasks
 
-CLI harness that orchestrates long-running AI coding agents (Claude Code + GitHub Copilot) — task decomposition, dependency-ordered execution, generator-evaluator loop, multi-repo support. Ralph Wiggum themed.
-
-@.claude/docs/REQUIREMENTS.md - Acceptance criteria checklists
+@.claude/docs/REQUIREMENTS.md - Acceptance criteria + UI contract
 @.claude/docs/ARCHITECTURE.md - Data models, file storage, error/exit tables
 
 ## Quick Start
@@ -22,11 +20,7 @@ pnpm dev sprint create
 pnpm dev
 ```
 
-**Verify everything works:**
-
-```bash
-pnpm typecheck && pnpm lint && pnpm test
-```
+Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
 
 ## Requirements
 
@@ -52,38 +46,13 @@ pnpm typecheck && pnpm lint && pnpm test
 - **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the choice;
   branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
   auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
-- **Evaluator pattern** — Generator-evaluator separation (independent code review after task completion):
-  - `evaluationIterations` is global config (in config.json), not per-sprint or per-task
-  - **Semantics:** `evaluationIterations` is the number of FIX ATTEMPTS after the initial evaluation. Default `1` =
-    1 initial eval + up to 1 fix-and-reeval round = at most 2 evaluator spawns. `0` disables evaluation entirely.
-    Missing config is detected by `doctor` with a warning.
-  - Evaluator uses model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku for Claude); Copilot evaluator uses same model (no control)
-  - Evaluator is autonomous (full tool access, investigates diffs and context itself) — not a static diff review
-  - Evaluator runs with `--max-turns 100` (lower than executor's 200) — review work doesn't need a runaway budget
-  - Evaluator participates in the parallel-mode `RateLimitCoordinator` — won't spawn into 429s during global pauses
-  - Evaluator prompt includes a "Project Tooling" section listing available subagents (`.claude/agents/*.md`),
-    skills (`.claude/skills/`), MCP servers (`.mcp.json`), and instruction files. Evaluator is told to delegate to
-    `auditor`/`reviewer` subagents and use Playwright/etc MCPs when relevant. Detection lives in
-    `src/integration/ai/project-tooling.ts`.
-  - **Verification and evaluation must adapt to the project's actual stack and tooling** — when no `checkScript` is
-    configured, the evaluator derives commands from `CLAUDE.md`/`AGENTS.md`/`package.json`. UI tasks should use a
-    Playwright MCP if one is installed. Security-sensitive diffs should be delegated to an `auditor` subagent if
-    one exists.
-  - Full critique is persisted to a sidecar file at `<sprintDir>/evaluations/<taskId>.md` (one entry per iteration,
-    appended). `tasks.json` keeps a 2000-char preview in `evaluationOutput`, the file path in `evaluationFile`, and
-    a status discriminator in `evaluationStatus` (`'passed' | 'failed' | 'malformed'`).
-  - `evaluationStatus = 'malformed'` means the evaluator output had no signal AND no parseable dimension lines —
-    distinct from a real failure so callers can tell unusable evaluator output apart from a real critique.
-  - **Dimensions are floor + planner-emitted extras.** The four floor dimensions
-    (`Correctness` / `Completeness` / `Safety` / `Consistency`) apply to every task. Tasks may carry an
-    optional `extraDimensions: string[]` (e.g. `["Performance"]`, `["Accessibility"]`) emitted by the planner
-    for non-default success criteria; the evaluator grades extras on top of the floor. `undefined` means
-    floor-only — don't default to `[]` everywhere; the prompt builder normalises at the boundary.
-  - `--no-evaluate` CLI flag overrides global config for single run; in session/interactive mode, evaluation is disabled (model handles all feedback)
-  - Evaluator never permanently blocks — task always completes; failure after all iterations logs warning but marks done
-  - Iteration loop: AI task → check gate → evaluation → persist sidecar → if failed AND fix attempts remain, resume
-    generator with critique → "did anything change?" guard (HEAD + dirty check) → re-check → re-evaluate → persist
-    next iteration → done
+- **Evaluator pattern** — independent code review after each task (see REQUIREMENTS.md § Evaluator Pattern for full spec):
+  - `evaluationIterations` is global (config.json). Default `1` = 1 initial eval + up to 1 fix-and-reeval. `0` disables.
+  - Claude uses a model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku); Copilot uses the same model (no control).
+  - Evaluator is autonomous (full tool access) and grades four floor dimensions (Correctness / Completeness / Safety /
+    Consistency) plus optional `extraDimensions` emitted per-task by the planner (undefined = floor-only).
+  - Full critique persists to `<sprintDir>/evaluations/<taskId>.md`; `tasks.json` keeps a 2000-char preview + status.
+  - Evaluator **never blocks** — task always completes; `--no-evaluate` skips for one run; session mode disables it.
 - **Result boundaries** — Persistence layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are
   used at command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over
   `.match()` chains.
@@ -91,15 +60,15 @@ pnpm typecheck && pnpm lint && pnpm test
   from outer layers. Use cases depend on service ports (`src/business/ports/`); repository interfaces are pure-domain
   (every port lives in `src/business/ports/`). Concrete adapters live under `src/integration/`.
 - **Pipelines are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, evaluate, execute)
-  is a composable `PipelineDefinition` in `src/business/pipelines/`. Each pipeline is a named list of steps composed
-  via `pipeline()` / `step()` from `src/business/pipelines/framework/helpers.ts`, with shared building blocks in
-  `src/business/pipelines/steps/`. CLI commands and TUI views invoke `createXxxPipeline()` factories from
-  `src/application/factories.ts` and call `executePipeline(...)` — never `useCase.execute()` directly. An ESLint
-  `no-restricted-imports` fence in `eslint.config.js` enforces this boundary (type-only imports allowed). Extend
-  pipelines with `insertBefore` / `insertAfter` / `replace` (pure builders) rather than rewriting the step array.
-  Use `nested(pipeline)` to embed one pipeline as a step of another (composite pattern); use `forEachTask()` to
-  fan out an inner pipeline per item with mutex-keyed concurrency, retry policy, and a shared rate-limit
-  coordinator + signal-bus lifecycle.
+  is a composable `PipelineDefinition` in `src/business/pipelines/`, composed via `pipeline()` / `step()` from
+  `src/business/pipelines/framework/helpers.ts` with shared building blocks in `src/business/pipelines/steps/`. CLI
+  commands and TUI views invoke `createXxxPipeline()` factories from `src/application/factories.ts` and call
+  `executePipeline(...)` — never `useCase.execute()` directly. An ESLint `no-restricted-imports` fence in
+  `eslint.config.js` enforces the boundary (type-only imports allowed).
+- **Pipeline framework primitives** — extend with `insertBefore` / `insertAfter` / `replace` (pure builders) rather
+  than rewriting the step array. Use `nested(pipeline)` to embed one pipeline as a step of another (composite
+  pattern); use `forEachTask()` to fan out an inner pipeline per item with mutex-keyed concurrency, retry policy,
+  and a shared rate-limit coordinator + signal-bus lifecycle.
 - **Integration tests lock step order** — each pipeline has a test under `src/business/pipelines/*.test.ts` that
   asserts `stepResults.map(r => r.stepName)` on the happy path and failure paths. These tests are the architectural
   fence that prevents silent bypass — docs alone aren't enforcement.
@@ -110,7 +79,7 @@ pnpm typecheck && pnpm lint && pnpm test
   alt-screen buffer (vim/htop-style) and restores it on exit via `src/integration/ui/tui/runtime/screen.ts`. Non-TTY /
   CI / piped invocations fall back automatically to Commander + PlainTextSink.
 - **PromptPort is the only interactive-prompt abstraction** — call sites use `getPrompt()` from
-  `src/application/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
+  `src/integration/bootstrap.ts`. `InkPromptAdapter` is the single implementation. When a prompt fires and the full
   dashboard isn't mounted (one-shot commands like `ralphctl project add`), the adapter auto-mounts a minimal Ink tree
   via `src/integration/ui/prompts/auto-mount.tsx` containing only `<PromptHost />`, drains the prompt queue, and
   unmounts. Non-interactive environments throw `PromptCancelledError` — pass values as flags.
@@ -140,7 +109,7 @@ pnpm typecheck && pnpm lint && pnpm test
 - Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s
   timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
 - Don't add `index.ts` barrel files — every import goes directly to its source module
-- Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
+- Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/integration/bootstrap.ts`
 - Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use
   `createXxxPipeline()` from `src/application/factories.ts` + `executePipeline(...)` instead.
 - Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`forEachTask`/
@@ -185,10 +154,6 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 
 `--effort xhigh` matches Claude Code's own default for plans (Opus 4.7 introduced the `xhigh` level between `high` and
 `max`). Older Claude models accept `--effort` too; the CLI maps the level down to what the selected model supports.
-
-Permission-mode warnings (operator-facing "this tool may need approval" notes) are NOT currently surfaced during
-task execution. The pre-pipeline executor had a `checkTaskPermissions()` pass; rebuilding it against the new
-pipeline shape is follow-up work if the lack of warnings becomes a pain point.
 
 ### Workflow Paths
 
@@ -256,11 +221,6 @@ pnpm lint              # Lint
 pnpm test              # Run tests
 ```
 
-### Verification
-
-After implementation, always run: `pnpm typecheck && pnpm lint && pnpm test`
-All checks must pass before committing. Keep CLAUDE.md updated as CLI commands evolve.
-
 ### Git Hooks
 
 Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files). If commits are rejected, run:
@@ -282,16 +242,9 @@ Claude session starts)
 
 ## Custom Agents
 
-`.claude/agents/` contains specialized agent definitions for the Task tool:
-
-- `designer.md` — UI/UX design and theming (use for frontend/UI work)
-- `tester.md` — Test engineering (use for writing/fixing tests)
-- `implementer.md` — TypeScript implementation (use for feature implementation)
-- `planner.md` — Implementation planning (use before coding begins)
-- `reviewer.md` — Code review (use after implementation)
-- `auditor.md` — Security audit (use for security-sensitive code)
-
-Use Task tool with these `subagent_type` values for specialized work.
+Six specialized agents in `.claude/agents/` (auditor, designer, implementer, planner, reviewer, tester) — invoke via
+the Task tool with the matching `subagent_type`. These are contributor-side tooling for working on ralphctl's own
+source; they are not shipped to npm and do not affect ralphctl's runtime behavior.
 
 ## UI Patterns
 
@@ -302,89 +255,32 @@ Use Task tool with these `subagent_type` values for specialized work.
   (like vim/htop) and restores on exit. Uses `@inkjs/ui` components + the `LoggerPort` event bus for live-updating
   output.
 - **Plain-text CLI** — one-shot commands (`sprint show`, `config set`, `project add`, etc.) use `PlainTextSink` for
-  structured logging plus the pure formatters in `@src/integration/ui/theme/ui.ts` (`renderCard`, `renderTable`,
-  `formatSprintStatus`, `showSuccess`, `printHeader`, etc.) for layout. When a prompt fires, the `InkPromptAdapter`
-  auto-mounts a minimal `<PromptHost />` inline — no Inquirer.
+  structured logging plus the pure formatters in `@src/integration/ui/theme/ui.ts` (grep `^export` there for the full
+  roster — card / table / status / success / warning / info / field / progress families). When a prompt fires, the
+  `InkPromptAdapter` auto-mounts a minimal `<PromptHost />` inline — no Inquirer.
 
 Never add raw emoji or inconsistent formatting — use `emoji`/`colors`/`statusEmoji` from
 `@src/integration/ui/theme/theme.ts` and the formatters from `@src/integration/ui/theme/ui.ts`. Ink components pull
 theme tokens via `@src/integration/ui/theme/tokens.ts`.
 
-See `.claude/agents/designer.md` for UX guidelines.
+**The Ink TUI has a design system** — see [`.claude/docs/DESIGN-SYSTEM.md`](.claude/docs/DESIGN-SYSTEM.md) before
+adding a view, component, or glyph. It covers the token set (`inkColors` / `glyphs` / `spacing`), component inventory,
+state surfaces (loading / empty / error / success), navigation contract, copy rules, and anti-patterns. Most needs are
+already solved — reuse `ViewShell` + `ResultCard` + `FieldList` + `Spinner` before inventing.
+
+See `.claude/agents/designer.md` for the designer agent's role.
 
 ### Repository layout
 
-```
-src/
-├── domain/                        # Pure — models, errors, signals, IDs
-│   ├── models.ts                  # Zod schemas (single source of truth for entity types)
-│   └── errors.ts  signals.ts  context.ts  types.ts  config-schema.ts  ids.ts
-│
-├── business/                      # Use cases + service ports + pipelines
-│   ├── ports/                     # Every interface business logic depends on:
-│   │                              # persistence, filesystem, ai-session, prompt-builder, output-parser,
-│   │                              # external, signal-parser/handler/bus, logger, prompt,
-│   │                              # user-interaction, rate-limit-coordinator
-│   ├── usecases/                  # refine, plan (+ ideate), execute, evaluate
-│   └── pipelines/
-│       ├── framework/             # Generic step/pipeline/forEachTask plumbing
-│       ├── steps/                 # Shared steps reused across pipelines
-│       ├── execute/               # Execute-specific: per-task pipeline, contract, steps/
-│       └── refine.ts  plan.ts  ideate.ts  evaluate.ts  execute.ts
-│
-├── integration/                   # Adapters, UI, 3rd-party glue
-│   ├── persistence/               # File-backed repository + paths/storage/file-lock/requirements-export
-│   ├── filesystem-adapter.ts      # NodeFilesystemAdapter
-│   ├── user-interaction-adapter.ts# InteractiveUserAdapter, AutoUserAdapter
-│   ├── ai/
-│   │   ├── providers/             # claude.ts, copilot.ts, registry.ts, types.ts
-│   │   ├── session/               # session, session-adapter, process-manager, rate-limiter
-│   │   ├── output/                # parser, output-parser-adapter
-│   │   ├── prompts/               # .md templates + loader + prompt-builder-adapter
-│   │   └── evaluator.ts  project-tooling.ts  task-context.ts
-│   ├── external/                  # git, gh/glab, issue-fetch, provider resolution, external-adapter,
-│   │                              # lifecycle (check-script hooks), detect-scripts (setup suggestions)
-│   ├── signals/                   # parser, bus, file-system-handler
-│   ├── logging/                   # plain-text-sink, json-logger, ink-sink, factory
-│   ├── ui/
-│   │   ├── theme/                 # theme.ts (colors, banner, quotes), ui.ts (formatters), tokens.ts
-│   │   ├── prompts/               # InkPromptAdapter, prompt queue/host/auto-mount, prompt components
-│   │   │                          # (select, confirm, input, checkbox, editor, file-browser), escapable
-│   │   └── tui/
-│   │       ├── runtime/           # mount.tsx, screen.ts (alt-screen), event-bus, hooks
-│   │       ├── components/        # banner, task-grid, log-tail, rate-limit-banner, status-bar, …
-│   │       └── views/             # app, repl-view, execute-view, settings-panel, menu-builder, …
-│   ├── cli/
-│   │   ├── commands/              # project/sprint/ticket/task/progress/dashboard/config/doctor/completion
-│   │   │                          # Each group has a register.ts that wires sub-commands onto a Commander instance
-│   │   └── completion/            # handle.ts, resolver.ts (tabtab integration)
-│   ├── config/schema-provider.ts  # Reads `src/domain/config-schema.ts` for the settings panel
-│   └── utils/                     # Cross-cutting helpers (json-extract, result-helpers)
-│
-└── application/                   # Composition root
-    ├── entrypoint.ts              # Commander wiring + main(); decides when to mount Ink vs Commander
-    ├── bootstrap.ts               # getSharedDeps/setSharedDeps/getPrompt singleton accessor
-    ├── shared.ts                  # createSharedDeps() — builds the default adapter graph
-    ├── factories.ts               # Use-case factories (per-invocation adapter graphs for AI flows)
-    ├── exit-codes.ts              # CLI exit code constants
-    └── cli-metadata.ts
-```
+See [`ARCHITECTURE.md § Clean Architecture Layers`](.claude/docs/ARCHITECTURE.md) for the annotated `src/` tree and
+the per-port adapter map. Top-level: `domain/` (pure) → `business/` (ports, usecases, pipelines) → `integration/`
+(adapters, UI, CLI) → `application/` (composition root).
 
 ## Task Execution Signals
 
-The harness parses a fixed, discriminated-union set of XML signals from AI agent output (exhaustiveness-checked in
-`src/business/usecases/execute.ts` via `_exhaustive: never`). Adding a new signal type requires adding a variant to
-`HarnessSignal` in `src/domain/signals.ts` — the compiler will force you to handle it everywhere.
-
-- `<task-verified>output</task-verified>` — verification passed (required before completion in headless mode)
-- `<task-complete>` — task finished successfully
-- `<task-blocked>reason</task-blocked>` — task cannot proceed
-- `<progress><summary>…</summary><files>…</files></progress>` — appended to `progress.md`
-- `<evaluation-passed>` / `<evaluation-failed>critique</evaluation-failed>` — persisted to the sidecar + `tasks.json`
-- `<note>text</note>` — appended to `progress.md`
-
-All signals flow through two subscribers in parallel: `FileSystemSignalHandler` (durable writes) and `SignalBusPort`
-(live dashboard).
+See `ARCHITECTURE.md § Harness Signals` and `src/domain/signals.ts`. Adding a variant to the `HarnessSignal` union
+triggers compiler exhaustiveness errors everywhere — let the type system guide the edit. Signals flow to two
+subscribers in parallel: `FileSystemSignalHandler` (durable) + `SignalBusPort` (live dashboard).
 
 ## Feedback Loop
 

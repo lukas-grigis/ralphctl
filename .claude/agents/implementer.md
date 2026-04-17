@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: 'TypeScript implementation specialist. Use when writing code, implementing features, fixing bugs, or refactoring. Handles all coding tasks with modern TypeScript patterns and CLI best practices.'
+description: 'TypeScript implementer for ralphctl. Use for writing features, fixing bugs, refactoring, or adding tests — anywhere a code change is needed. Respects the Clean Architecture layering (domain < business < integration < application), pipeline orchestration, and the port/adapter boundaries. Prefer this agent over inline coding for any non-trivial diff.'
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
 color: blue
@@ -45,15 +45,18 @@ conventions and modern best practices.
 
 **Error Handling:**
 
-- Result types (`{ ok: true, data } | { ok: false, error }`) for expected failures
-- Throw exceptions only for programmer errors
-- Provide actionable error messages with context
+- Use `Result<T, E>` from `typescript-result` at command and interactive boundaries; prefer `.ok` property checks
+  over chained `.match(...)`
+- Persistence-layer functions throw domain errors (`DomainError` subclasses in `src/domain/errors.ts`); wrap at the
+  boundary via `wrapAsync` / `zodParse` from `src/integration/utils/result-helpers.ts`
+- Throw only for programmer errors; provide actionable error messages with context
 
 ## CLI Patterns
 
 **User Experience:**
 
-- Instant feedback with spinners for async operations
+- Instant feedback for async operations — `createSpinner` from `src/integration/ui/theme/ui.ts` on plain-text CLI,
+  `LoggerPort` event-bus emissions in the Ink TUI
 - Meaningful colors (errors red, success green, warnings yellow)
 - Support both interactive and non-interactive modes
 - Meaningful exit codes (0 success, 1 user error, 2 system error)
@@ -67,9 +70,11 @@ conventions and modern best practices.
 **Libraries:**
 
 - `commander` for argument parsing
-- `@inquirer/prompts` for interactive prompts
-- `chalk` for colors, `ora` for spinners
-- `zod` for validation
+- `PromptPort` via `getPrompt()` from `@src/application/bootstrap.ts` for interactive prompts (no direct
+  `@inquirer/prompts` — it's deleted; `InkPromptAdapter` is the only implementation)
+- `colorette` for colors (via `src/integration/ui/theme/theme.ts`)
+- Ink + `@inkjs/ui` for the TUI surface
+- `zod` for validation, `typescript-result` for Result types at command / interactive boundaries
 - `vitest` for testing
 
 ## Testing Philosophy

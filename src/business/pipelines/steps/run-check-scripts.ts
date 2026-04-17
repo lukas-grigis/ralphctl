@@ -9,9 +9,9 @@ import { step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { findProjectForRepoId, resolveCheckScriptForRepo } from './project-lookup.ts';
 
-export type CheckScriptsMode = 'sprint-start' | 'post-task';
+type CheckScriptsMode = 'sprint-start' | 'post-task';
 
-export interface RunCheckScriptsOptions {
+interface RunCheckScriptsOptions {
   /** Force re-running a check even if `sprint.checkRanAt` already has a
    *  timestamp for the repo. Only meaningful in `'sprint-start'` mode. */
   refreshCheck?: boolean;

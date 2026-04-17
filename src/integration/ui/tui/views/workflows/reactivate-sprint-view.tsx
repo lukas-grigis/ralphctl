@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { getPrompt } from '@src/application/bootstrap.ts';
+import { getPrompt } from '@src/integration/bootstrap.ts';
 import { getSprint, saveSprint } from '@src/integration/persistence/sprint.ts';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';

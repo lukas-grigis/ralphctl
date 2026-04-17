@@ -25,10 +25,10 @@ export type LogEvent =
   | { kind: 'spinner-fail'; id: number; message: string; timestamp: Date }
   | { kind: 'spinner-stop'; id: number; timestamp: Date };
 
-export type LogEventListener = (events: readonly LogEvent[]) => void;
-export type Unsubscribe = () => void;
+type LogEventListener = (events: readonly LogEvent[]) => void;
+type Unsubscribe = () => void;
 
-export interface LogEventBus {
+interface LogEventBus {
   emit(event: LogEvent): void;
   subscribe(listener: LogEventListener): Unsubscribe;
   dispose(): void;
@@ -102,8 +102,3 @@ class SingletonLogEventBus implements LogEventBus {
 }
 
 export const logEventBus: LogEventBus = new SingletonLogEventBus();
-
-/** Whether anyone is currently listening. Sinks may decide not to emit if nobody cares. */
-export function hasLogEventSubscribers(): boolean {
-  return (logEventBus as unknown as { listeners: Set<unknown> }).listeners.size > 0;
-}

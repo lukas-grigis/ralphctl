@@ -1,183 +1,104 @@
 ---
 name: claude-integration
-description: Claude CLI session spawning, agent harness design, and task execution patterns
+description: "Low-level Claude CLI spawn mechanics used by ralphctl's AI session layer — `spawnInteractive` / `spawnHeadless` / `spawnWithRetry`, `--output-format json` session ID capture, and `--resume` for rate-limit recovery. Use when modifying `src/integration/ai/session/` or `src/integration/ai/providers/claude.ts`, debugging stdin hangs / slow Claude startups, or wiring a new code path that spawns Claude directly."
+when_to_use: 'When touching the Claude provider adapter or session layer; when diagnosing a rate-limit / resume issue; when a new consumer needs to spawn Claude outside the existing ports. Not needed for higher-level work — the pipelines already wrap all of this.'
 ---
 
-# Claude CLI Integration & Agent Harness
+# Claude CLI Integration
 
-## Claude CLI Invocation from Node.js
+Covers only what is **not** in `CLAUDE.md` or `.claude/docs/ARCHITECTURE.md`. For harness signals, exit codes, parallel
+execution, check scripts, and task dependency ordering — see the root `CLAUDE.md`.
 
-Claude process spawning is centralized in `src/ai/session.ts`:
+Source of truth:
+
+- Session layer: `src/integration/ai/session/session.ts`, `session-adapter.ts`, `rate-limiter.ts`, `process-manager.ts`
+- Provider adapter: `src/integration/ai/providers/claude.ts` (Copilot lives beside it for contrast)
+- Task context builder: `src/business/usecases/execute.ts#buildFullTaskContext`
+- Output parser: `src/integration/ai/output/parser.ts`
+
+## Spawn modes
 
 ```typescript
-import { spawnInteractive, spawnHeadless, spawnWithRetry } from '@src/ai/session.ts';
+import { spawnInteractive, spawnHeadless, spawnWithRetry } from '@src/integration/ai/session/session.ts';
 
-// Interactive session with initial prompt (single spawn, stdio: inherit)
-spawnInteractive('Read .ralphctl-sprint-<id>-task-<id>-context.md and follow the instructions', {
+// 1. Interactive — TTY-takeover, single spawn, stdio: inherit
+spawnInteractive('Read .ralphctl-sprint-<sprintId>-task-<taskId>-context.md and follow instructions', {
   cwd: projectPath,
-  args: ['--add-dir', '/other/path'],
+  args: ['--add-dir', '/other/repo'],
 });
 
-// Headless mode - prompt via stdin, captures output (uses --output-format json internally)
-const output = await spawnHeadless({
-  cwd: projectPath,
-  prompt: 'Your prompt content here',
-});
+// 2. Headless — `-p` with prompt via stdin, captures output
+const out = await spawnHeadless({ cwd: projectPath, prompt: '...' });
 
-// Headless with retry on rate limits + session resume
+// 3. Headless + retry + session resume (rate-limit recovery)
 const result = await spawnWithRetry(
-  {
-    cwd: projectPath,
-    prompt: 'Your prompt',
-    resumeSessionId: 'optional-session-id', // resume from previous session
-  },
-  {
-    maxRetries: 5,
-    onRetry: (attempt, delayMs, err) => {
-      /* log retry */
-    },
-  }
+  { cwd: projectPath, prompt: '...', resumeSessionId: prev?.sessionId },
+  { maxRetries: 5, onRetry: (attempt, delayMs, err) => logger.info(...) }
 );
-// result.stdout = text result, result.sessionId = captured session ID
+// result.stdout, result.sessionId
 ```
 
-**Key patterns:**
+Design rules:
 
-- Interactive: pass prompt as CLI argument, `stdio: 'inherit'` for full interactivity
-- Headless: `-p` (print mode) with prompt via stdin for large content
-- `--permission-mode acceptEdits` enables auto-execution without confirmation
-- `--output-format json` returns structured JSON with `session_id` for resumability
-- `--resume <session_id>` resumes a previous session with full context preserved
+- **Interactive:** prompt as CLI arg, `stdio: 'inherit'` — Claude takes over the terminal.
+- **Headless:** prompt via stdin, `-p` (print) mode, always `--output-format json` so we can capture `session_id`.
+- `--permission-mode acceptEdits` enables auto-execution without confirmation. The Copilot adapter uses
+  `--allow-all-tools` instead — never paper over that difference; route through the provider adapter.
 
-**Task execution flow:**
+## Session resumption (verified)
 
-1. Write `.ralphctl-sprint-<sprintId>-task-<taskId>-context.md` with task info + instructions
-2. **Interactive mode:** Tell Claude to read the file, then continue interactively
-3. **Headless mode:** Read file content, pass via stdin to Claude
-
-## Session Resumption (verified working)
-
-Claude CLI supports resuming sessions in headless mode. This is critical for rate-limit recovery — instead of restarting
-a task from scratch, we resume from where Claude left off.
-
-**How it works:**
+`--resume <session_id>` restores full conversation context. ralphctl uses this for rate-limit recovery — a task
+hitting 429 is requeued with its captured session ID, then resumed from exactly where Claude stopped.
 
 ```bash
-# Phase 1: Initial spawn — capture session_id from JSON output
+# Initial spawn
 claude -p --output-format json --permission-mode acceptEdits < prompt.txt
-# Returns: {"result": "...", "session_id": "49e58e81-a626-4419-b2f5-9f8798f62953", ...}
+# {"result": "...", "session_id": "49e58e81-...", ...}
 
-# Phase 2: Resume after rate limit cooldown — full context preserved
+# Resume later (same session_id is returned)
 echo "Continue where you left off." | claude -p --resume "49e58e81-..." --output-format json --permission-mode acceptEdits
-# Claude picks up exactly where it stopped, same session_id returned
 ```
 
-**Verified compatibility:**
+Implementation contract:
 
-- Works with `-p` (print/headless mode)
-- Works with `--permission-mode acceptEdits`
-- Works with `--add-dir`
-- Works with stdin prompt delivery
-- Session ID is stable across resumes (same ID returned)
-- Full conversation history preserved (Claude remembers everything)
+- `spawnHeadless` parses `session_id` from the JSON envelope.
+- `spawnWithRetry` retains the last known session ID and passes `--resume` on retry.
+- `SpawnError` carries `sessionId` even on failure so callers can persist it before retry.
+- The parallel executor keeps a `Map<taskId, sessionId>` in `taskSessionIds` (see
+  `src/business/pipelines/execute.ts` and `per-task-pipeline.ts`).
+- The `RateLimitCoordinator` pauses **new** task launches globally; in-flight tasks continue until they settle.
 
-**Implementation in ralphctl:**
+## Task context file
 
-- `spawnHeadlessRaw()` uses `--output-format json` and parses `session_id`
-- `spawnWithRetry()` stores session ID on rate-limit error, passes `--resume` on retry
-- `SpawnError` includes `sessionId` field for capture even on failure
-- Parallel executor tracks session IDs per task via `taskSessionIds` map
+`buildFullTaskContext` writes `.ralphctl-sprint-<sprintId>-task-<taskId>-context.md` to the target repo's working
+directory (path built by `NodeFilesystemAdapter.contextFilePath`). Interactive mode points Claude at the file;
+headless mode reads it and pipes content via stdin.
 
-### Known Issues & Fixes
+Contents:
 
-| Issue        | Symptom                                  | Fix                                        |
-| ------------ | ---------------------------------------- | ------------------------------------------ |
-| Stdin hang   | Process stuck at 0 CPU, never progresses | Add `child.stdin.end()` after spawn        |
-| Cache bloat  | Startup takes 1-2min instead of ~5s      | `rm -rf ~/.claude` (or selectively below)  |
-| Plugin bloat | Slow startup, high memory                | `rm -rf ~/.claude/plugins ~/.claude/debug` |
+- Task specification (name, steps, description, `verificationCriteria`)
+- Recent git history (`ExternalPort.getRecentGitHistory` — last 20 commits)
+- Explicit verification command, or a fallback pointing Claude at `CLAUDE.md`
+- Progress history filtered to this project path
+- Branch section (when `sprint.branch` is set) telling the agent which branch to work on
 
-**Cache health check:**
+## Known startup issues
+
+| Symptom                                  | Cause                     | Fix                                                      |
+| ---------------------------------------- | ------------------------- | -------------------------------------------------------- |
+| Process stuck at 0 CPU after spawn       | Stdin not closed          | `child.stdin.end()` immediately after writing the prompt |
+| First spawn takes 1–2 min instead of ~5s | Bloated `~/.claude` cache | `rm -rf ~/.claude/plugins ~/.claude/debug`               |
+
+Quick health checks:
 
 ```bash
-du -sh ~/.claude  # Should be < 10MB for normal operation
+du -sh ~/.claude          # expect < 10 MB
+time claude -p "yolo"     # expect ~5s
 ```
 
-**Quick startup test:**
+## Relationship to ports
 
-```bash
-time claude -p "yolo"  # Should complete in ~5s
-```
-
-## Agent Harness Design
-
-ralphctl orchestrates Claude agents to execute tasks. The harness design is based on patterns
-from [Anthropic's Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents).
-
-> **Note:** This section documents how ralphctl implements the harness (for ralphctl contributors).
-> The actual agent instructions are in `src/ai/prompts/task-execution.md`.
-
-### Key Implementation Details
-
-**Task context** (`buildFullTaskContext` in `claude/executor.ts`):
-
-- Task specification (name, steps, description)
-- Git history (last 20 commits via `getRecentGitHistory`)
-- Verification command (explicit or "read CLAUDE.md")
-- Progress history (filtered by project)
-
-**Completion signals** (parsed by `parseExecutionResult` in `claude/parser.ts`):
-
-- `<task-verified>` - verification output (required before completion)
-- `<task-complete>` - task done
-- `<task-blocked>reason</task-blocked>` - task cannot proceed
-
-**Baseline tracking** (on `sprint start` activation):
-
-- Logs git commit hash for each project path to progress.md
-- Enables diffing what changed during the sprint
-
-### Repository Check Scripts
-
-Each repository within a project can have its own check script:
-
-```
-my-app/
-├── frontend/  → checkScript: "npm install && npm test"
-├── backend/   → checkScript: "pip install -e . && pytest"
-└── shared/    → checkScript: "pnpm install && pnpm typecheck"
-```
-
-Scripts are configured per-repository during `project add` (interactive mode auto-detects based on project type).
-
-**Resolution order for check script:**
-
-1. Explicit `checkScript` on the repository (recommended)
-2. Auto-detection from package.json/pyproject.toml/etc. (convenience fallback)
-3. Agent reads target repository's CLAUDE.md (ultimate fallback)
-
-### Exit Codes
-
-| Code | Meaning                                              |
-| ---- | ---------------------------------------------------- |
-| 0    | Success (all requested operations completed)         |
-| 1    | Error (validation, missing params, execution failed) |
-| 2    | No tasks available                                   |
-| 3    | All remaining tasks blocked by dependencies          |
-
-### Task Dependency System
-
-Tasks support `blockedBy` dependencies. When executing:
-
-1. Tasks marked `in_progress` are resumed first
-2. Only tasks whose dependencies are all `done` can be selected
-3. If all remaining tasks are blocked, execution stops with exit code 3
-
-### Atomic Task Updates
-
-Task file operations use file locking to prevent data corruption from concurrent access. This enables:
-
-- Multiple terminals running different sprints
-- Safe interruption and resumption with Ctrl+C
-
-Lock defaults: 30s stale timeout, 50ms retry delay, 100 max retries (~5s total wait). If you hit `LockAcquisitionError`
-on slow filesystems (e.g., NFS), increase the stale timeout with `RALPHCTL_LOCK_TIMEOUT_MS=60000`.
+Business code never imports `session.ts` directly — it goes through `AiSessionPort` (implemented by
+`ProviderAiSessionAdapter` in `src/integration/ai/session/session-adapter.ts`). When adding a new spawn code path,
+prefer extending the port + adapter; only drop into `spawnHeadless` / `spawnWithRetry` if a genuinely new spawn
+shape is needed.

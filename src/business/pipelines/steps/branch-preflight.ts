@@ -20,7 +20,7 @@ export interface BranchPreflightContext {
   currentTaskProjectPath?: string;
 }
 
-export interface BranchPreflightOptions {
+interface BranchPreflightOptions {
   /**
    * Number of verification attempts before failing. Matches the executor's
    * `MAX_BRANCH_RETRIES = 3` default. Each failed attempt waits

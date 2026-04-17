@@ -13,7 +13,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
-export interface SectionStampProps {
+interface SectionStampProps {
   readonly title: string;
   /** Override the accent color; defaults to brand primary. */
   readonly color?: string;

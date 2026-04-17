@@ -18,13 +18,13 @@ interface HeadlessResult {
 
 const spawnInteractiveMock =
   vi.fn<(prompt: string, options: unknown, provider: unknown) => { code: number; error?: string }>();
-const spawnHeadlessRawMock = vi.fn<(...args: unknown[]) => Promise<HeadlessResult>>();
+const spawnHeadlessMock = vi.fn<(...args: unknown[]) => Promise<HeadlessResult>>();
 const spawnWithRetryMock = vi.fn<(...args: unknown[]) => Promise<HeadlessResult>>();
 
 vi.mock('@src/integration/ai/session/session.ts', () => ({
   spawnInteractive: (prompt: string, options: unknown, provider: unknown): { code: number; error?: string } =>
     spawnInteractiveMock(prompt, options, provider),
-  spawnHeadlessRaw: (...args: unknown[]): Promise<HeadlessResult> => spawnHeadlessRawMock(...args),
+  spawnHeadless: (...args: unknown[]): Promise<HeadlessResult> => spawnHeadlessMock(...args),
   spawnWithRetry: (...args: unknown[]): Promise<HeadlessResult> => spawnWithRetryMock(...args),
 }));
 
@@ -92,13 +92,13 @@ describe('ProviderAiSessionAdapter', () => {
 
   describe('headless methods — no handoff needed', () => {
     it('spawnHeadless does not suspend the TUI', async () => {
-      spawnHeadlessRawMock.mockResolvedValue({ stdout: 'out', sessionId: 's', model: 'm' });
+      spawnHeadlessMock.mockResolvedValue({ stdout: 'out', sessionId: 's', model: 'm' });
       const adapter = new ProviderAiSessionAdapter();
 
       await adapter.spawnHeadless('prompt', { cwd: '/tmp/repo' });
 
       expect(withSuspendedTuiMock).not.toHaveBeenCalled();
-      expect(spawnHeadlessRawMock).toHaveBeenCalledOnce();
+      expect(spawnHeadlessMock).toHaveBeenCalledOnce();
     });
 
     it('spawnWithRetry does not suspend the TUI', async () => {

@@ -103,15 +103,6 @@ export async function createSprint(input: CreateSprintInput): Promise<Sprint> {
   return sprint;
 }
 
-/**
- * Find the sprint with status='active' (if any).
- * Returns null if no sprint is currently active.
- */
-export async function findActiveSprint(): Promise<Sprint | null> {
-  const sprints = await listSprints();
-  return sprints.find((s) => s.status === 'active') ?? null;
-}
-
 export async function getSprint(sprintId: string): Promise<Sprint> {
   const sprintPath = getSprintFilePath(sprintId);
   if (!(await fileExists(sprintPath))) {
@@ -213,14 +204,6 @@ export async function getCurrentSprintOrThrow(): Promise<Sprint> {
     throw new NoCurrentSprintError();
   }
   return getSprint(currentSprintId);
-}
-
-export async function getActiveSprintOrThrow(): Promise<Sprint> {
-  const activeSprint = await findActiveSprint();
-  if (!activeSprint) {
-    throw new NoCurrentSprintError();
-  }
-  return activeSprint;
 }
 
 export async function resolveSprintId(sprintId?: string): Promise<string> {

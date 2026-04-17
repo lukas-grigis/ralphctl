@@ -6,7 +6,7 @@ import { withFileLock } from '@src/integration/persistence/file-lock.ts';
 import { log } from '@src/integration/ui/theme/ui.ts';
 import { StorageError } from '@src/domain/errors.ts';
 
-export interface LogProgressOptions {
+interface LogProgressOptions {
   sprintId?: string;
   projectPath?: string;
 }
@@ -71,7 +71,7 @@ function getGitCommitInfo(projectPath: string): { hash: string; message: string 
   }
 }
 
-export interface LogBaselinesOptions {
+interface LogBaselinesOptions {
   sprintId: string;
   sprintName: string;
   projectPaths: string[];
