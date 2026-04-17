@@ -6,9 +6,10 @@
  * tearing during concurrent renders.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Config } from '@src/domain/models.ts';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import { type DashboardData, loadDashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import { logEventBus, type LogEvent } from './event-bus.ts';
 
 /**
@@ -81,4 +82,52 @@ export function useLiveConfig(getConfig: () => Promise<Config>, intervalMs = 200
   }, [getConfig, intervalMs]);
 
   return config;
+}
+
+export interface UseDashboardData {
+  data: DashboardData | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => void;
+}
+
+/**
+ * Loads dashboard data on mount and exposes a manual `refresh()` trigger.
+ *
+ * Both Home (compact one-line summary) and Dashboard (full destination view)
+ * call this — the loader does its own filesystem reads via `loadDashboardData`,
+ * so concurrent callers don't share state, but they get the same shape and the
+ * same null-when-missing semantics.
+ */
+export function useDashboardData(): UseDashboardData {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [counter, setCounter] = useState(0);
+
+  const refresh = useCallback((): void => {
+    setCounter((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    const cancel = { current: false };
+    setLoading(true);
+    void (async () => {
+      try {
+        const next = await loadDashboardData();
+        if (cancel.current) return;
+        setData(next);
+        setError(null);
+      } catch (err) {
+        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancel.current) setLoading(false);
+      }
+    })();
+    return () => {
+      cancel.current = true;
+    };
+  }, [counter]);
+
+  return { data, loading, error, refresh };
 }

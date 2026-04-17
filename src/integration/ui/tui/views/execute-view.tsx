@@ -5,13 +5,20 @@
  * banner; subscribes to `SignalBusPort` + `logEventBus` and re-renders on
  * every event. Kicks off `ExecuteTasksUseCase` in a mount-time effect.
  *
- * The settings panel is available at any time via `s`. Changes save
- * immediately via the persistence port; the next task picked up from the
- * queue reads fresh config (REQ-12).
+ * Navigation is handled by the surrounding `<ViewRouter />`:
+ *   - `s` opens settings (router pushes settings on top)
+ *   - `Esc` pops back if Execute was pushed; no-op when Execute is the root
+ *   - `h` resets the stack to Home
+ *
+ * When execution finishes, ExecuteView replaces itself with Home so the user
+ * lands on the menu (matching the SPA model — no app exit).
+ *
+ * Settings edits flow through `PersistencePort.saveConfig()` and the next
+ * task picked up from the queue reads fresh config (REQ-12).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import React, { useEffect, useRef, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
@@ -25,8 +32,7 @@ import { TaskGrid } from '@src/integration/ui/tui/components/task-grid.tsx';
 import { SprintSummary } from '@src/integration/ui/tui/components/sprint-summary.tsx';
 import { LogTail } from '@src/integration/ui/tui/components/log-tail.tsx';
 import { RateLimitBanner } from '@src/integration/ui/tui/components/rate-limit-banner.tsx';
-import { StatusBar } from '@src/integration/ui/tui/components/status-bar.tsx';
-import { SettingsPanel } from './settings-panel.tsx';
+import { useRouter } from './router-context.ts';
 import { inkColors } from '@src/integration/ui/tui/theme/tokens.ts';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
 
@@ -60,13 +66,12 @@ export function initialState(): RunState {
 }
 
 export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.Element {
-  const app = useApp();
+  const router = useRouter();
   const shared = getSharedDeps();
   const signalEvents = useSignalEvents(shared.signalBus);
   const logEvents = useLoggerEvents(200);
 
   const [state, setState] = useState(initialState);
-  const [showSettings, setShowSettings] = useState(false);
   const [done, setDone] = useState(false);
   const processedCountRef = useRef(0);
 
@@ -168,48 +173,16 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
     })();
   }, [done, shared, sprintId, state.summary, closePromptRun]);
 
-  const exitHints = useMemo(
-    () =>
-      done
-        ? [
-            { key: 'any key', action: 'exit' },
-            { key: 's', action: 'settings' },
-          ]
-        : [
-            { key: 's', action: 'settings' },
-            { key: 'Ctrl+C', action: 'stop' },
-          ],
-    [done]
-  );
-
-  const onCloseSettings = useCallback(() => {
-    setShowSettings(false);
-  }, []);
-
+  // Once execution finishes, any key (other than the global router hotkeys)
+  // returns to home. Esc / h / s are handled by the router and short-circuit
+  // before this fires.
   useInput((input, key) => {
-    if (showSettings) return;
-    if (input === 's') {
-      setShowSettings(true);
-      return;
-    }
-    if (done) {
-      // Any key exits once execution is complete.
-      if (key.return || input.length > 0 || key.escape) {
-        app.exit();
-      }
+    if (!done) return;
+    if (key.escape || input === 'h' || input === 's' || input === 'q') return;
+    if (key.return || input.length > 0) {
+      router.replace({ id: 'home' });
     }
   });
-
-  if (showSettings) {
-    return (
-      <Box flexDirection="column">
-        <SettingsPanel onClose={onCloseSettings} />
-        <Box marginTop={1}>
-          <Text dimColor>Esc returns to the dashboard.</Text>
-        </Box>
-      </Box>
-    );
-  }
 
   return (
     <Box flexDirection="column">
@@ -265,12 +238,11 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
             {state.summary.stopReason}
             {')'}
           </Text>
+          <Box marginTop={1}>
+            <Text dimColor>Press any key to return home.</Text>
+          </Box>
         </Box>
       ) : null}
-
-      <Box marginTop={1}>
-        <StatusBar hints={exitHints} />
-      </Box>
     </Box>
   );
 }

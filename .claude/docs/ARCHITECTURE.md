@@ -246,16 +246,19 @@ src/integration/ui/tui/
 │   ├── screen.ts        # enterAltScreen()/exitAltScreen() + signal-safe restore
 │   ├── event-bus.ts     # Singleton log event bus (InkSink publisher, <LogTail /> subscriber)
 │   └── hooks.ts         # useLoggerEvents, useSignalEvents, useLiveConfig
-├── components/          # Leaf UI: Banner, DashboardHeader, TaskGrid, TaskRow, LogTail, StatusBar,
+├── components/          # Leaf UI: Banner, SprintSummaryLine, TaskGrid, TaskRow, LogTail, StatusBar,
 │                        # SprintSummary, RateLimitBanner, ActionMenu
-├── views/               # Top-level screens
-│   ├── app.tsx          # Root — dispatches on initialView, mounts <PromptHost /> as sibling
-│   ├── repl-view.tsx    # Idle REPL (banner + header + action menu + submenu)
+├── views/               # Top-level screens — each is a router destination
+│   ├── app.tsx          # Root — seeds the router stack, mounts <PromptHost /> as sibling
+│   ├── router-context.ts   # ViewId union + RouterApi React context
+│   ├── view-router.tsx  # Navigation stack + global hotkeys (esc/h/s/d/q)
+│   ├── home-view.tsx    # Idle landing (banner + summary line + action menu + submenu)
+│   ├── dashboard-view.tsx  # Full-screen status destination (hero + task grid + blockers + progress tail)
 │   ├── execute-view.tsx # Live sprint-execution dashboard (subscribes to SignalBus + logEventBus)
-│   ├── settings-panel.tsx  # Overlay; iterates getAllSchemaEntries(); type-aware prompt dispatch
+│   ├── settings-view.tsx / settings-panel.tsx  # Router wrapper + overlay body; schema-driven rows
 │   ├── menu-builder.ts  # Pure buildMainMenu/buildSubMenu
 │   ├── dashboard-data.ts  # Dashboard data shape + next-action suggestion
-│   └── command-map.ts   # ReplView action → command function dispatch
+│   └── command-map.ts   # HomeView action → command function dispatch
 └── theme/tokens.ts      # Colorette → Ink <Text color=…> prop names
 
 src/integration/prompts/
@@ -274,8 +277,10 @@ src/integration/prompts/
 1. `mountInkApp({ initialView, sprintId?, executionOptions? })` detects TTY, enters alt-screen, swaps
    `SharedDeps.{logger,signalBus,prompt}` to Ink variants via `setSharedDeps`, and calls `registerExternalHost()` so
    the prompt layer knows a host is live.
-2. React renders `<App />` which dispatches to `<ReplView />` or `<ExecuteView />` and always mounts `<PromptHost />`
-   as a sibling.
+2. React renders `<App />` which seeds the navigation stack and hands off to `<ViewRouter />`. The router renders the
+   top frame (`home`, `dashboard`, `settings`, or `execute`), always keeps `<StatusBar />` as the only persistent
+   chrome, and mounts `<PromptHost />` as a sibling of the whole router tree. Global hotkeys: `esc` pops one frame,
+   `h` resets to home, `s` pushes settings, `d` pushes dashboard, `q` exits from home root.
 3. Any code path (command, use case, AI runner) calling `getPrompt().confirm(...)` goes to `InkPromptAdapter`. The
    adapter calls `ensurePromptHost()` before enqueueing:
    - Dashboard mounted → no-op (external host handles it).

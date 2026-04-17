@@ -3,6 +3,7 @@ import type { AiProvider } from '@src/domain/models.ts';
 import { spawnInteractive, spawnHeadlessRaw, spawnWithRetry } from '@src/integration/ai/session.ts';
 import { getActiveProvider } from '@src/integration/ai/providers/registry.ts';
 import type { ProviderAdapter } from '@src/integration/ai/providers/types.ts';
+import { withSuspendedTui } from '@src/integration/ui/tui/runtime/suspend.ts';
 
 export class ProviderAiSessionAdapter implements AiSessionPort {
   private provider: ProviderAdapter | null = null;
@@ -15,19 +16,23 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
 
   async spawnInteractive(prompt: string, options: SessionOptions): Promise<void> {
     const provider = await this.getProvider();
-    const result = spawnInteractive(
-      prompt,
-      {
-        cwd: options.cwd,
-        args: options.args,
-        env: options.env,
-      },
-      provider
-    );
+    // When the Ink TUI is mounted, step aside so the child (`claude` /
+    // `copilot`) owns stdin/stdout cleanly. No-op when no TUI is active.
+    await withSuspendedTui(() => {
+      const result = spawnInteractive(
+        prompt,
+        {
+          cwd: options.cwd,
+          args: options.args,
+          env: options.env,
+        },
+        provider
+      );
 
-    if (result.error) {
-      throw new Error(result.error);
-    }
+      if (result.error) {
+        throw new Error(result.error);
+      }
+    });
   }
 
   async spawnHeadless(prompt: string, options: SessionOptions): Promise<SessionResult> {
