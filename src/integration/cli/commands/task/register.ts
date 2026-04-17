@@ -29,7 +29,7 @@ Examples:
     .option('-d, --description <desc>', 'Description')
     .option('--step <step...>', 'Implementation step (repeatable)')
     .option('--ticket <id>', 'Link to ticket ID')
-    .option('-p, --project <path>', 'Project path')
+    .option('-r, --repo <name-or-id>', "Repository (within the sprint's project)")
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
     .action(
       async (opts: {
@@ -37,7 +37,7 @@ Examples:
         description?: string;
         step?: string[];
         ticket?: string;
-        project?: string;
+        repo?: string;
         interactive?: boolean;
       }) => {
         await taskAddCommand({
@@ -45,8 +45,7 @@ Examples:
           description: opts.description,
           steps: opts.step,
           ticket: opts.ticket,
-          project: opts.project,
-          // --no-interactive sets interactive=false, otherwise true (prompt for missing)
+          repo: opts.repo,
           interactive: opts.interactive !== false,
         });
       }
@@ -64,20 +63,18 @@ Examples:
     .description('List tasks')
     .option('-b, --brief', 'Brief format')
     .option('--status <status>', 'Filter by status (todo, in_progress, done)')
-    .option('--project <name>', 'Filter by project path')
+    .option('--repo <name-or-id>', 'Filter by repo id')
     .option('--ticket <id>', 'Filter by ticket ID')
     .option('--blocked', 'Show only blocked tasks')
-    .action(
-      async (opts: { brief?: boolean; status?: string; project?: string; ticket?: string; blocked?: boolean }) => {
-        const args: string[] = [];
-        if (opts.brief) args.push('-b');
-        if (opts.status) args.push('--status', opts.status);
-        if (opts.project) args.push('--project', opts.project);
-        if (opts.ticket) args.push('--ticket', opts.ticket);
-        if (opts.blocked) args.push('--blocked');
-        await taskListCommand(args);
-      }
-    );
+    .action(async (opts: { brief?: boolean; status?: string; repo?: string; ticket?: string; blocked?: boolean }) => {
+      const args: string[] = [];
+      if (opts.brief) args.push('-b');
+      if (opts.status) args.push('--status', opts.status);
+      if (opts.repo) args.push('--repo', opts.repo);
+      if (opts.ticket) args.push('--ticket', opts.ticket);
+      if (opts.blocked) args.push('--blocked');
+      await taskListCommand(args);
+    });
 
   task
     .command('show [id]')

@@ -122,9 +122,10 @@ describe('check functions', () => {
       join(testEnv.testDir, 'projects.json'),
       JSON.stringify([
         {
+          id: 'prjghost1',
           name: 'ghost-project',
           displayName: 'Ghost Project',
-          repositories: [{ name: 'ghost', path: '/tmp/this-definitely-does-not-exist-ralphctl-test' }],
+          repositories: [{ id: 'repoghost', name: 'ghost', path: '/tmp/this-definitely-does-not-exist-ralphctl-test' }],
         },
       ])
     );
@@ -155,9 +156,10 @@ describe('check functions', () => {
       join(testEnv.testDir, 'projects.json'),
       JSON.stringify([
         {
+          id: 'prjtilde1',
           name: 'tilde-project',
           displayName: 'Tilde Project',
-          repositories: [{ name: 'myrepo', path: '~/myrepo' }],
+          repositories: [{ id: 'repotild1', name: 'myrepo', path: '~/myrepo' }],
         },
       ])
     );
@@ -181,9 +183,10 @@ describe('check functions', () => {
       join(testEnv.testDir, 'projects.json'),
       JSON.stringify([
         {
+          id: 'prjghost2',
           name: 'ghost-tilde',
           displayName: 'Ghost Tilde',
-          repositories: [{ name: 'nope', path: '~/nonexistent-dir' }],
+          repositories: [{ id: 'reponope1', name: 'nope', path: '~/nonexistent-dir' }],
         },
       ])
     );
@@ -207,7 +210,7 @@ describe('check functions', () => {
     const { createSprint } = await import('@src/integration/persistence/sprint.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Doctor Test');
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Doctor Test' });
     await setCurrentSprint(sprint.id);
 
     const { checkCurrentSprint } = await import('./doctor.ts');

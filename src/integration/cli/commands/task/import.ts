@@ -21,7 +21,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   {
     "id": "1",
     "name": "Task name",
-    "projectPath": "/path/to/repo",
+    "repoId": "abc12345",
     "description": "Optional description",
     "steps": ["Step 1", "Step 2"],
     "ticketId": "abc12345",
@@ -29,7 +29,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
   }
 ]`)
     );
-    log.dim('Note: projectPath is required for each task.');
+    log.dim("Note: repoId is required for each task — must match a repo in the sprint's project.");
     log.newline();
     return;
   }
@@ -97,7 +97,7 @@ export async function taskImportCommand(args: string[]): Promise<void> {
           steps: taskInput.steps ?? [],
           ticketId: taskInput.ticketId,
           blockedBy: [], // Set later
-          projectPath: taskInput.projectPath,
+          repoId: taskInput.repoId,
         }),
       ensureError
     );

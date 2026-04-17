@@ -59,7 +59,13 @@ export function assertSprintStatus(
   }
 }
 
-export async function createSprint(name?: string): Promise<Sprint> {
+export interface CreateSprintInput {
+  readonly projectId: string;
+  readonly name?: string;
+}
+
+export async function createSprint(input: CreateSprintInput): Promise<Sprint> {
+  const { projectId, name } = input;
   const id = generateSprintId(name);
   const now = new Date().toISOString();
 
@@ -69,6 +75,7 @@ export async function createSprint(name?: string): Promise<Sprint> {
   const sprint: Sprint = {
     id,
     name: displayName,
+    projectId,
     status: 'draft',
     createdAt: now,
     activatedAt: null,
@@ -146,21 +153,38 @@ export async function activateSprint(sprintId: string): Promise<Sprint> {
   sprint.activatedAt = new Date().toISOString();
   await saveSprint(sprint);
 
-  // Log baseline git state for each unique project path
+  // Log baseline git state for each unique repo touched by the sprint's tasks.
+  // Caller-side resolution (persistence is synchronous about ids; resolving
+  // repoId → path happens in the execute pipeline where the project graph is
+  // already loaded). `logBaselines` is only invoked from there now.
   const tasksResult = await readValidatedJson(getTasksFilePath(sprintId), TasksSchema);
   if (!tasksResult.ok) throw tasksResult.error;
-  const tasks: Tasks = tasksResult.value;
-  const projectPaths = tasks.map((t) => t.projectPath).filter((p): p is string => !!p);
-
-  if (projectPaths.length > 0) {
-    await logBaselines({
-      sprintId,
-      sprintName: sprint.name,
-      projectPaths,
-    });
-  }
+  const _tasks: Tasks = tasksResult.value;
+  void _tasks;
 
   return sprint;
+}
+
+/**
+ * Resolve repoIds for an activated sprint's tasks and log git baselines.
+ * Split from `activateSprint` because persistence shouldn't reach into the
+ * project graph — callers (the execute pipeline) own that concern.
+ */
+export async function logSprintBaselines(
+  sprint: Sprint,
+  resolvePath: (repoId: string) => Promise<string | null>
+): Promise<void> {
+  const tasksResult = await readValidatedJson(getTasksFilePath(sprint.id), TasksSchema);
+  if (!tasksResult.ok) throw tasksResult.error;
+  const repoIds = [...new Set(tasksResult.value.map((t) => t.repoId))];
+  const paths: string[] = [];
+  for (const repoId of repoIds) {
+    const p = await resolvePath(repoId);
+    if (p) paths.push(p);
+  }
+  if (paths.length > 0) {
+    await logBaselines({ sprintId: sprint.id, sprintName: sprint.name, projectPaths: paths });
+  }
 }
 
 export async function closeSprint(sprintId: string): Promise<Sprint> {

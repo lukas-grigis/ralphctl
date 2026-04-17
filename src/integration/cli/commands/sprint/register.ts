@@ -33,11 +33,12 @@ Examples:
     .command('create')
     .description('Create a new sprint')
     .option('--name <name>', 'Sprint name')
+    .option('--project <name>', 'Project to scope this sprint to (name or id)')
     .option('-n, --no-interactive', 'Non-interactive mode (error on missing params)')
-    .action(async (opts: { name?: string; interactive?: boolean }) => {
+    .action(async (opts: { name?: string; project?: string; interactive?: boolean }) => {
       await sprintCreateCommand({
         name: opts.name,
-        // --no-interactive sets interactive=false, otherwise true (prompt for missing)
+        project: opts.project,
         interactive: opts.interactive !== false,
       });
     });

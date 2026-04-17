@@ -7,41 +7,35 @@ import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
 import { step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
-import { findProjectForPath, resolveCheckScript } from './project-lookup.ts';
+import { findProjectForRepoId, resolveCheckScriptForRepo } from './project-lookup.ts';
 
 export type CheckScriptsMode = 'sprint-start' | 'post-task';
 
 export interface RunCheckScriptsOptions {
   /** Force re-running a check even if `sprint.checkRanAt` already has a
-   *  timestamp for the path. Only meaningful in `'sprint-start'` mode. */
+   *  timestamp for the repo. Only meaningful in `'sprint-start'` mode. */
   refreshCheck?: boolean;
-  /** In `'post-task'` mode, the single project path to run the check for.
-   *  Ignored in `'sprint-start'` mode (paths are derived from tasks). */
-  targetPath?: string;
+  /** In `'post-task'` mode, the single repoId to run the check for.
+   *  Ignored in `'sprint-start'` mode (repoIds are derived from tasks). */
+  targetRepoId?: string;
 }
 
 /**
  * Run configured check scripts for the sprint.
  *
  * `mode === 'sprint-start'`:
- *   - Iterates unique `projectPath` values from non-done tasks
- *   - Skips paths already recorded in `sprint.checkRanAt` unless `refreshCheck`
- *   - Records a timestamp + persists sprint after each successful run
+ *   - Iterates unique `repoId` values from non-done tasks
+ *   - Skips repos already recorded in `sprint.checkRanAt` unless `refreshCheck`
+ *   - Records a timestamp (keyed by repoId) + persists sprint after each run
  *   - Aborts with `StorageError` on the first failure
  *
  * `mode === 'post-task'`:
- *   - Runs the check for the single `options.targetPath` (required)
+ *   - Runs the check for the single `options.targetRepoId` (required)
  *   - Does NOT update `sprint.checkRanAt` (post-task is transient)
  *   - Returns failure via `ctx.checkResults` — caller decides flow
  *
  * In both modes, `ctx.checkResults` is populated with a `CheckResult` per
- * path so downstream steps can inspect outputs/timestamps.
- *
- * This replicates the behaviour of `ExecuteTasksUseCase.runCheckScripts` and
- * `ExecuteTasksUseCase.runPostTaskCheck` — if the check script is missing
- * for a path it's silently skipped (not recorded as a result). If the project
- * can't be resolved for a path it's also silently skipped (matches today's
- * `findProjectForPath` returning undefined + `resolveCheckScript` returning null).
+ * repoId so downstream steps can inspect outputs/timestamps.
  */
 export function runCheckScriptsStep<
   TCtx extends StepContext & { sprint?: Sprint; tasks?: Task[]; checkResults?: Record<string, CheckResult> },
@@ -64,35 +58,34 @@ export function runCheckScriptsStep<
 
       if (mode === 'sprint-start') {
         const tasks = ctx.tasks ?? (await persistence.getTasks(sprint.id));
-        const uniquePaths = collectProjectPaths(tasks);
+        const uniqueRepoIds = collectRepoIds(tasks);
 
-        for (const projectPath of uniquePaths) {
-          const previousRun = sprint.checkRanAt[projectPath];
+        for (const repoId of uniqueRepoIds) {
+          const previousRun = sprint.checkRanAt[repoId];
           if (previousRun && !options?.refreshCheck) continue;
 
-          const project = await findProjectForPath(persistence, sprint, projectPath);
-          const checkScript = resolveCheckScript(project, projectPath);
-          if (!checkScript) continue;
+          const resolved = await findProjectForRepoId(persistence, repoId);
+          const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+          if (!resolved || !checkScript) continue;
 
-          const repo = project?.repositories.find((r) => r.path === projectPath);
-          const result = external.runCheckScript(projectPath, checkScript, 'sprintStart', repo?.checkTimeout);
+          const { repo } = resolved;
+          const result = external.runCheckScript(repo.path, checkScript, 'sprintStart', repo.checkTimeout);
 
           if (!result.passed) {
-            // Record the failure so callers can inspect it even after abort.
-            checkResults[projectPath] = {
-              projectPath,
+            checkResults[repoId] = {
+              projectPath: repo.path,
               success: false,
               output: result.output,
             };
-            return Result.error(new StorageError(`Check failed for ${projectPath}: ${checkScript}\n${result.output}`));
+            return Result.error(new StorageError(`Check failed for ${repo.path}: ${checkScript}\n${result.output}`));
           }
 
           const ranAt = new Date().toISOString();
-          sprint.checkRanAt[projectPath] = ranAt;
+          sprint.checkRanAt[repoId] = ranAt;
           await persistence.saveSprint(sprint);
 
-          checkResults[projectPath] = {
-            projectPath,
+          checkResults[repoId] = {
+            projectPath: repo.path,
             success: true,
             output: result.output,
             ranAt,
@@ -100,34 +93,32 @@ export function runCheckScriptsStep<
         }
       } else {
         // post-task mode
-        const target = options?.targetPath;
-        if (!target) {
+        const targetRepoId = options?.targetRepoId;
+        if (!targetRepoId) {
           return Result.error(
-            new StepError('run-check-scripts in post-task mode requires options.targetPath', 'run-check-scripts')
+            new StepError('run-check-scripts in post-task mode requires options.targetRepoId', 'run-check-scripts')
           );
         }
 
-        const project = await findProjectForPath(persistence, sprint, target);
-        const checkScript = resolveCheckScript(project, target);
-        if (!checkScript) {
-          // No check configured — treat as success, record nothing to match
-          // today's behaviour (post-task gate returns `true`).
+        const resolved = await findProjectForRepoId(persistence, targetRepoId);
+        const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+        if (!resolved || !checkScript) {
           const partial: Partial<TCtx> = { checkResults } as Partial<TCtx>;
           return Result.ok(partial) as DomainResult<Partial<TCtx>>;
         }
 
-        const repo = project?.repositories.find((r) => r.path === target);
-        const result = external.runCheckScript(target, checkScript, 'taskComplete', repo?.checkTimeout);
+        const { repo } = resolved;
+        const result = external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
 
-        checkResults[target] = {
-          projectPath: target,
+        checkResults[targetRepoId] = {
+          projectPath: repo.path,
           success: result.passed,
           output: result.output,
         };
 
         if (!result.passed) {
           return Result.error(
-            new StorageError(`Post-task check failed for ${target}: ${checkScript}\n${result.output}`)
+            new StorageError(`Post-task check failed for ${repo.path}: ${checkScript}\n${result.output}`)
           );
         }
       }
@@ -150,7 +141,7 @@ export function runCheckScriptsStep<
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function collectProjectPaths(tasks: Task[]): string[] {
+function collectRepoIds(tasks: Task[]): string[] {
   const remaining = tasks.filter((t) => t.status !== 'done');
-  return [...new Set(remaining.map((t) => t.projectPath))];
+  return [...new Set(remaining.map((t) => t.repoId))];
 }

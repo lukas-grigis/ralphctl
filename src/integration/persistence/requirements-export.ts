@@ -36,7 +36,7 @@ function formatRequirementsMarkdown(sprint: Sprint): string {
 function formatTicketSection(ticket: Ticket): string {
   const lines: string[] = [];
 
-  lines.push(`## ${ticket.projectName} - ${ticket.title}`);
+  lines.push(`## ${ticket.title}`);
   lines.push('');
   lines.push(`**Ticket ID:** ${ticket.id}`);
   lines.push(`**Status:** ${ticket.requirementStatus}`);

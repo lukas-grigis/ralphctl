@@ -22,7 +22,7 @@ describe('TaskSchema', () => {
     order: 1,
     ticketId: 'JIRA-1',
     blockedBy: ['other-id'],
-    projectPath: '/home/user/project',
+    repoId: 'repo0001',
   };
 
   it('accepts valid task', () => {
@@ -36,7 +36,7 @@ describe('TaskSchema', () => {
       name: 'Test',
       status: 'todo',
       order: 1,
-      projectPath: '/tmp',
+      repoId: 'repo0001',
     };
     const result = TaskSchema.safeParse(minimal);
     expect(result.success).toBe(true);
@@ -46,15 +46,15 @@ describe('TaskSchema', () => {
     }
   });
 
-  it('rejects task without projectPath', () => {
-    const noPath = { ...validTask, projectPath: undefined };
-    const result = TaskSchema.safeParse(noPath);
+  it('rejects task without repoId', () => {
+    const noRepo = { ...validTask, repoId: undefined };
+    const result = TaskSchema.safeParse(noRepo);
     expect(result.success).toBe(false);
   });
 
-  it('rejects empty projectPath', () => {
-    const emptyPath = { ...validTask, projectPath: '' };
-    const result = TaskSchema.safeParse(emptyPath);
+  it('rejects empty repoId', () => {
+    const emptyRepo = { ...validTask, repoId: '' };
+    const result = TaskSchema.safeParse(emptyRepo);
     expect(result.success).toBe(false);
   });
 
@@ -71,14 +71,14 @@ describe('TaskSchema', () => {
   });
 
   it('accepts task with evaluated=true', () => {
-    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p', evaluated: true };
+    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, repoId: 'repo0001', evaluated: true };
     const result = TaskSchema.safeParse(task);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.evaluated).toBe(true);
   });
 
   it('defaults evaluated to false', () => {
-    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p' };
+    const task = { id: 'abc', name: 'Test', status: 'done', order: 1, repoId: 'repo0001' };
     const result = TaskSchema.safeParse(task);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.evaluated).toBe(false);
@@ -90,7 +90,7 @@ describe('TaskSchema', () => {
       name: 'Test',
       status: 'done',
       order: 1,
-      projectPath: '/p',
+      repoId: 'repo0001',
       evaluationOutput: 'Looks good',
     };
     const result = TaskSchema.safeParse(task);
@@ -111,7 +111,7 @@ describe('TaskSchema', () => {
   });
 
   it('defaults verificationCriteria to empty array', () => {
-    const task = { id: 'abc', name: 'Test', status: 'todo', order: 1, projectPath: '/p' };
+    const task = { id: 'abc', name: 'Test', status: 'todo', order: 1, repoId: 'repo0001' };
     const result = TaskSchema.safeParse(task);
     expect(result.success).toBe(true);
     if (result.success) {
@@ -120,7 +120,7 @@ describe('TaskSchema', () => {
   });
 
   it('backward compat: old task JSON without evaluated/evaluationOutput parses successfully', () => {
-    const oldTask = { id: 'abc', name: 'Test', status: 'done', order: 1, projectPath: '/p' };
+    const oldTask = { id: 'abc', name: 'Test', status: 'done', order: 1, repoId: 'repo0001' };
     const result = TaskSchema.safeParse(oldTask);
     expect(result.success).toBe(true);
     if (result.success) {
@@ -136,7 +136,6 @@ describe('TicketSchema', () => {
     title: 'Fix bug',
     description: 'Detailed description',
     link: 'https://jira.example.com/JIRA-123',
-    projectName: 'my-app',
     requirementStatus: 'pending',
   };
 
@@ -151,14 +150,14 @@ describe('TicketSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('requires projectName', () => {
-    const noProject = { id: 'abc123', title: 'Test', requirementStatus: 'pending' };
-    const result = TicketSchema.safeParse(noProject);
+  it('requires title', () => {
+    const noTitle = { id: 'abc123', requirementStatus: 'pending' };
+    const result = TicketSchema.safeParse(noTitle);
     expect(result.success).toBe(false);
   });
 
   it('defaults requirementStatus to pending', () => {
-    const noStatus = { id: 'abc123', title: 'Test', projectName: 'my-app' };
+    const noStatus = { id: 'abc123', title: 'Test' };
     const result = TicketSchema.safeParse(noStatus);
     expect(result.success).toBe(true);
     if (result.success) {
@@ -181,20 +180,20 @@ describe('TicketSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts ticket with affectedRepositories', () => {
-    const withRepos = { ...validTicket, affectedRepositories: ['/path/1', '/path/2'] };
+  it('accepts ticket with affectedRepoIds', () => {
+    const withRepos = { ...validTicket, affectedRepoIds: ['repo0001', 'repo0002'] };
     const result = TicketSchema.safeParse(withRepos);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.affectedRepositories).toEqual(['/path/1', '/path/2']);
+      expect(result.data.affectedRepoIds).toEqual(['repo0001', 'repo0002']);
     }
   });
 
-  it('accepts ticket without affectedRepositories', () => {
+  it('accepts ticket without affectedRepoIds', () => {
     const result = TicketSchema.safeParse(validTicket);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.affectedRepositories).toBeUndefined();
+      expect(result.data.affectedRepoIds).toBeUndefined();
     }
   });
 });
@@ -203,6 +202,7 @@ describe('SprintSchema', () => {
   const validSprint = {
     id: '20240115-100000-sprint-1',
     name: 'Sprint 1',
+    projectId: 'prj00001',
     status: 'draft',
     createdAt: '2024-01-15T10:00:00.000Z',
     activatedAt: null,
@@ -216,6 +216,7 @@ describe('SprintSchema', () => {
     const legacySprint = {
       id: '20240115-100000-sprint-1',
       name: 'Sprint 1',
+      projectId: 'prj00001',
       status: 'draft',
       createdAt: '2024-01-15T10:00:00.000Z',
       activatedAt: null,
@@ -277,11 +278,12 @@ describe('SprintSchema', () => {
 
 describe('ProjectSchema', () => {
   const validProject = {
+    id: 'prj00001',
     name: 'my-app',
     displayName: 'My Application',
     repositories: [
-      { name: 'frontend', path: '/home/user/frontend' },
-      { name: 'backend', path: '/home/user/backend' },
+      { id: 'repo0001', name: 'frontend', path: '/home/user/frontend' },
+      { id: 'repo0002', name: 'backend', path: '/home/user/backend' },
     ],
     description: 'A cool app',
   };
@@ -407,34 +409,34 @@ describe('ConfigSchema', () => {
 describe('ImportTasksSchema', () => {
   it('accepts valid import tasks', () => {
     const tasks = [
-      { name: 'Task 1', projectPath: '/home/user/project' },
-      { name: 'Task 2', description: 'Details', steps: ['Step 1', 'Step 2'], projectPath: '/home/user/project' },
-      { id: '1', name: 'Task 3', blockedBy: ['0'], projectPath: '/home/user/project' },
+      { name: 'Task 1', repoId: 'repo0001' },
+      { name: 'Task 2', description: 'Details', steps: ['Step 1', 'Step 2'], repoId: 'repo0001' },
+      { id: '1', name: 'Task 3', blockedBy: ['0'], repoId: 'repo0001' },
     ];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(true);
   });
 
   it('rejects tasks without name field', () => {
-    const tasks = [{ ref: 'abc123', specs: 'Some specs', projectPath: '/home/user/project' }];
+    const tasks = [{ ref: 'abc123', specs: 'Some specs', repoId: 'repo0001' }];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(false);
   });
 
   it('rejects tasks with empty name', () => {
-    const tasks = [{ name: '', projectPath: '/home/user/project' }];
+    const tasks = [{ name: '', repoId: 'repo0001' }];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(false);
   });
 
-  it('rejects tasks without projectPath', () => {
+  it('rejects tasks without repoId', () => {
     const tasks = [{ name: 'Task 1' }];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(false);
   });
 
-  it('rejects tasks with empty projectPath', () => {
-    const tasks = [{ name: 'Task 1', projectPath: '' }];
+  it('rejects tasks with empty repoId', () => {
+    const tasks = [{ name: 'Task 1', repoId: '' }];
     const result = ImportTasksSchema.safeParse(tasks);
     expect(result.success).toBe(false);
   });
@@ -443,12 +445,12 @@ describe('ImportTasksSchema', () => {
     const tasks = [
       {
         name: 'Task with criteria',
-        projectPath: '/home/user/project',
+        repoId: 'repo0001',
         verificationCriteria: ['Compiles', 'Tests pass'],
       },
       {
         name: 'Task without criteria',
-        projectPath: '/home/user/project',
+        repoId: 'repo0001',
       },
     ];
     const result = ImportTasksSchema.safeParse(tasks);
@@ -464,7 +466,7 @@ describe('ImportTasksSchema', () => {
         steps: ['Create config', 'Install deps'],
         ticketId: 'JIRA-123',
         blockedBy: [],
-        projectPath: '/home/user/project',
+        repoId: 'repo0001',
       },
     ];
     const result = ImportTasksSchema.safeParse(tasks);

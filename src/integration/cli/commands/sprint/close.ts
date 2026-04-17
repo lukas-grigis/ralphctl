@@ -11,6 +11,7 @@ import {
   SprintStatusError,
 } from '@src/integration/persistence/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/integration/persistence/task.ts';
+import { resolveRepoPath } from '@src/integration/persistence/project.ts';
 import { selectSprint } from '@src/integration/cli/commands/shared/selectors.ts';
 import {
   formatSprintStatus,
@@ -132,7 +133,13 @@ async function createPullRequests(sprintId: string, branchName: string, sprintNa
   }
 
   const tasks = await listTasks(sprintId);
-  const uniquePaths = [...new Set(tasks.map((t) => t.projectPath))];
+  // Resolve unique repo paths via repoId; skip any repo we can't resolve.
+  const uniqueRepoIds = [...new Set(tasks.map((t) => t.repoId))];
+  const uniquePaths: string[] = [];
+  for (const repoId of uniqueRepoIds) {
+    const p = await resolveRepoPath(repoId).catch(() => null);
+    if (p) uniquePaths.push(p);
+  }
 
   for (const projectPath of uniquePaths) {
     const prR = Result.try(() => {

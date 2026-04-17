@@ -43,9 +43,10 @@ export function markDone(deps: {
     });
 
     try {
+      const repoPath = await deps.persistence.resolveRepoPath(task.repoId).catch(() => null);
       await deps.persistence.logProgress(`Completed task: ${task.id} - ${task.name}`, {
         sprintId: sprint.id,
-        projectPath: task.projectPath,
+        ...(repoPath ? { projectPath: repoPath } : {}),
       });
     } catch (err) {
       // Progress logging is best-effort — don't fail the pipeline here.

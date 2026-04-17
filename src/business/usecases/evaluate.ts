@@ -10,7 +10,7 @@ import type { UserInteractionPort } from '../ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '../ports/logger.ts';
 import type { ExternalPort } from '../ports/external.ts';
 import type { FilesystemPort } from '@src/business/ports/filesystem.ts';
-import { findProjectForPath, resolveCheckScript } from '../pipelines/steps/project-lookup.ts';
+import { findProjectForRepoId, resolveCheckScriptForRepo } from '../pipelines/steps/project-lookup.ts';
 import { dimensionsEqual } from './plateau.ts';
 
 // ---------------------------------------------------------------------------
@@ -116,18 +116,23 @@ export class EvaluateTaskUseCase {
       const provider = this.aiSession.getProviderName();
       const generatorModel = options?.fallbackModel ?? null;
 
+      // Resolve the task's repo path once — threaded through the fix loop
+      // for spawn cwd + prompt rendering.
+      const repoPath = await this.persistence.resolveRepoPath(task.repoId);
+
       // Pre-compute per-task sections once — both inputs (sprint config, repo
       // tooling) are stable for the duration of the fix loop, so resolving
       // them per-iteration would re-read the filesystem and re-walk the
       // tickets for no gain.
-      const checkScriptSection = await this.resolveCheckScriptSection(sprint, task);
-      const projectToolingSection = this.external.detectProjectTooling([task.projectPath]);
+      const checkScriptSection = await this.resolveCheckScriptSection(task);
+      const projectToolingSection = this.external.detectProjectTooling([repoPath]);
 
       // Run the initial evaluation
       const stopEval = log.time('evaluator-spawn');
       let evalResult = await this.runSingleEvaluation(
         task,
         sprint,
+        repoPath,
         generatorModel,
         provider,
         checkScriptSection,
@@ -148,7 +153,13 @@ export class EvaluateTaskUseCase {
         log.warning(`Evaluation failed for ${task.name} — fix attempt ${String(i + 1)}/${String(maxIterations)}`);
 
         // Resume generator with critique
-        const fixSuccess = await this.resumeGeneratorWithCritique(task, sprint, evalResult.rawOutput, options);
+        const fixSuccess = await this.resumeGeneratorWithCritique(
+          task,
+          sprint,
+          repoPath,
+          evalResult.rawOutput,
+          options
+        );
 
         if (!fixSuccess) {
           const reason = 'Generator could not fix issues after feedback';
@@ -162,6 +173,7 @@ export class EvaluateTaskUseCase {
         evalResult = await this.runSingleEvaluation(
           task,
           sprint,
+          repoPath,
           generatorModel,
           provider,
           checkScriptSection,
@@ -256,6 +268,7 @@ export class EvaluateTaskUseCase {
   private async runSingleEvaluation(
     task: Task,
     sprint: Sprint,
+    repoPath: string,
     generatorModel: string | null,
     provider: AiProvider,
     checkScriptSection: string | null,
@@ -265,7 +278,12 @@ export class EvaluateTaskUseCase {
     const evaluatorModel = getEvaluatorModel(generatorModel, provider);
     const sprintDir = this.fs.getSprintDir(sprint.id);
 
-    const prompt = this.promptBuilder.buildTaskEvaluationPrompt(task, checkScriptSection, projectToolingSection);
+    const prompt = this.promptBuilder.buildTaskEvaluationPrompt(
+      task,
+      repoPath,
+      checkScriptSection,
+      projectToolingSection
+    );
 
     const args: string[] = ['--add-dir', sprintDir];
     if (provider === 'claude') {
@@ -278,7 +296,7 @@ export class EvaluateTaskUseCase {
     let result: SessionResult;
     try {
       result = await this.aiSession.spawnWithRetry(prompt, {
-        cwd: task.projectPath,
+        cwd: repoPath,
         args,
         env: this.aiSession.getSpawnEnv(),
       });
@@ -306,9 +324,9 @@ export class EvaluateTaskUseCase {
    * that the execute pipeline's `run-check-scripts` step uses — one place
    * owns project lookup rules.
    */
-  private async resolveCheckScriptSection(sprint: Sprint, task: Task): Promise<string | null> {
-    const project = await findProjectForPath(this.persistence, sprint, task.projectPath);
-    const checkScript = resolveCheckScript(project, task.projectPath);
+  private async resolveCheckScriptSection(task: Task): Promise<string | null> {
+    const resolved = await findProjectForRepoId(this.persistence, task.repoId);
+    const checkScript = resolveCheckScriptForRepo(resolved?.repo);
     if (!checkScript) return null;
     // Header is H4 (`####`) because the evaluator template injects this
     // section under `### Phase 1` — using `##` here would demote the
@@ -333,6 +351,7 @@ export class EvaluateTaskUseCase {
   private async resumeGeneratorWithCritique(
     task: Task,
     sprint: Sprint,
+    repoPath: string,
     critique: string,
     options?: EvaluationOptions
   ): Promise<boolean> {
@@ -349,7 +368,7 @@ export class EvaluateTaskUseCase {
       spinner = this.logger.spinner(`Fixing evaluation issues: ${task.name}`);
 
       const result = await this.aiSession.spawnWithRetry(resumePrompt, {
-        cwd: task.projectPath,
+        cwd: repoPath,
         args: ['--add-dir', sprintDir],
         env: this.aiSession.getSpawnEnv(),
         maxTurns: options?.maxTurns,

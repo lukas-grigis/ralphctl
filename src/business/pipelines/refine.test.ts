@@ -20,6 +20,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'test-sprint',
     name: 'Test Sprint',
+    projectId: 'proj-1',
     status: 'draft',
     createdAt: new Date().toISOString(),
     activatedAt: null,
@@ -191,7 +192,6 @@ describe('createRefinePipeline', () => {
         {
           id: 't1',
           title: 'Done ticket',
-          projectName: 'proj',
           requirementStatus: 'approved',
           requirements: 'Already approved',
         },

@@ -14,6 +14,7 @@ function makeSprint(branch: string | null): Sprint {
   return {
     id: 's1',
     name: 'Sprint 1',
+    projectId: 'prj00001',
     status: 'active',
     createdAt: new Date().toISOString(),
     activatedAt: null,

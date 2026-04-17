@@ -67,6 +67,9 @@ export function IdeateView(): React.JSX.Element {
         message: 'Idea description',
       });
 
+      // TODO(model-migration): ideate pipeline should derive project from
+      // `sprint.projectId` — once the business-layer agent exposes that, drop
+      // this prompt and pass the sprint's project directly.
       setPhase({ kind: 'running', step: 'project' });
       const projectName =
         projects.length === 1 && projects[0]

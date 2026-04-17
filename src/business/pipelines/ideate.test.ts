@@ -20,6 +20,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'test-sprint',
     name: 'Test Sprint',
+    projectId: 'proj-1',
     status: 'draft',
     createdAt: new Date().toISOString(),
     activatedAt: null,
@@ -33,9 +34,10 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
+    id: 'proj-1',
     name: 'proj',
     displayName: 'Project',
-    repositories: [{ name: 'repo', path: '/tmp/repo' }],
+    repositories: [{ id: 'repo-1', name: 'repo', path: '/tmp/repo' }],
     ...overrides,
   };
 }
@@ -177,6 +179,10 @@ function makeHappyPathPersistence(initialSprint: Sprint, project: Project): Pers
       if (name === project.name) return Promise.resolve(project);
       return Promise.reject(new Error(`unknown project: ${name}`));
     },
+    getProjectById: (id: string) => {
+      if (id === project.id) return Promise.resolve(project);
+      return Promise.reject(new Error(`unknown project id: ${id}`));
+    },
     saveSprint: (s: Sprint) => {
       current = s;
       return Promise.resolve();
@@ -204,9 +210,9 @@ describe('createIdeatePipeline', () => {
         description: 'desc',
         steps: ['do it'],
         verificationCriteria: ['it works'],
-        projectPath: '/tmp/repo',
+        repoId: 'repo-1',
         blockedBy: [],
-      } as ImportTask,
+      },
     ];
 
     const deps = makeDeps({
@@ -310,6 +316,7 @@ describe('createIdeatePipeline', () => {
       persistence: makePersistence({
         getSprint: () => Promise.resolve(sprint),
         getProject: () => Promise.reject(new Error('no such project')),
+        getProjectById: () => Promise.reject(new Error('no such project')),
       }),
     });
 

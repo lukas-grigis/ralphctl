@@ -14,7 +14,6 @@ export function formatTicketForPrompt(ticket: Ticket): string {
   const lines: string[] = [];
 
   lines.push(`### ${formatTicketDisplay(ticket)}`);
-  lines.push(`Project: ${ticket.projectName}`);
 
   if (ticket.description) {
     lines.push('');

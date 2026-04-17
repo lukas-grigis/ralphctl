@@ -8,7 +8,7 @@ import { step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import type { PerTaskContext } from '../per-task-context.ts';
 import { buildContractMarkdown } from '../contract-content.ts';
-import { findProjectForPath, resolveCheckScript } from '@src/business/pipelines/steps/project-lookup.ts';
+import { findProjectForRepoId, resolveCheckScriptForRepo } from '@src/business/pipelines/steps/project-lookup.ts';
 
 /**
  * Write the per-task sprint contract and stash its path on the context.
@@ -34,10 +34,11 @@ export function contractNegotiate(deps: {
     const { task, sprint } = ctx;
 
     try {
-      const project = await findProjectForPath(deps.persistence, sprint, task.projectPath);
-      const checkScript = resolveCheckScript(project, task.projectPath);
+      const resolved = await findProjectForRepoId(deps.persistence, task.repoId);
+      const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+      const repoPath = resolved?.repo.path ?? (await deps.persistence.resolveRepoPath(task.repoId));
 
-      const markdown = buildContractMarkdown({ task, checkScript });
+      const markdown = buildContractMarkdown({ task, repoPath, checkScript });
 
       const sprintDir = deps.fs.getSprintDir(sprint.id);
       const contractsDir = join(sprintDir, 'contracts');

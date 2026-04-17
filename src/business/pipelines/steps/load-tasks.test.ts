@@ -18,7 +18,7 @@ function makeTask(id: string): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/project',
+    repoId: 'repo0001',
     verified: false,
     evaluated: false,
   };

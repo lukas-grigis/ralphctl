@@ -12,7 +12,7 @@ function task(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -21,7 +21,7 @@ function task(overrides: Partial<Task> = {}): Task {
 
 describe('buildContractMarkdown', () => {
   it('includes task name, description, steps, and verification criteria', () => {
-    const md = buildContractMarkdown({ task: task(), checkScript: 'pnpm test' });
+    const md = buildContractMarkdown({ task: task(), repoPath: '/repo', checkScript: 'pnpm test' });
 
     expect(md).toContain('Sprint Contract — Add null check');
     expect(md).toContain('Prevent NPE in the request handler.');
@@ -32,14 +32,14 @@ describe('buildContractMarkdown', () => {
   });
 
   it('fences the resolved check script and notes it is the gate', () => {
-    const md = buildContractMarkdown({ task: task(), checkScript: 'pnpm typecheck && pnpm test' });
+    const md = buildContractMarkdown({ task: task(), repoPath: '/repo', checkScript: 'pnpm typecheck && pnpm test' });
 
     expect(md).toContain('```sh\npnpm typecheck && pnpm test\n```');
     expect(md).toContain('deterministic gate');
   });
 
   it('explains the fallback path when no check script is configured', () => {
-    const md = buildContractMarkdown({ task: task(), checkScript: null });
+    const md = buildContractMarkdown({ task: task(), repoPath: '/repo', checkScript: null });
 
     expect(md).toContain('no check script configured');
     expect(md).toContain('CLAUDE.md');
@@ -48,7 +48,7 @@ describe('buildContractMarkdown', () => {
   });
 
   it('lists the four evaluator dimensions by default', () => {
-    const md = buildContractMarkdown({ task: task(), checkScript: null });
+    const md = buildContractMarkdown({ task: task(), repoPath: '/repo', checkScript: null });
 
     for (const dim of EVALUATOR_DIMENSIONS) {
       expect(md).toContain(`- **${dim}**`);
@@ -58,6 +58,7 @@ describe('buildContractMarkdown', () => {
   it('honours custom evaluator dimensions when supplied', () => {
     const md = buildContractMarkdown({
       task: task(),
+      repoPath: '/repo',
       checkScript: null,
       evaluatorDimensions: ['Performance', 'DX'],
     });
@@ -70,6 +71,7 @@ describe('buildContractMarkdown', () => {
   it('handles tasks with no steps', () => {
     const md = buildContractMarkdown({
       task: task({ steps: [] }),
+      repoPath: '/repo',
       checkScript: null,
     });
 
@@ -80,6 +82,7 @@ describe('buildContractMarkdown', () => {
   it('handles tasks with no verification criteria with a placeholder line', () => {
     const md = buildContractMarkdown({
       task: task({ verificationCriteria: [] }),
+      repoPath: '/repo',
       checkScript: 'pnpm test',
     });
 
@@ -90,6 +93,7 @@ describe('buildContractMarkdown', () => {
   it('handles tasks with no description', () => {
     const md = buildContractMarkdown({
       task: task({ description: undefined }),
+      repoPath: '/repo',
       checkScript: null,
     });
 
@@ -100,7 +104,8 @@ describe('buildContractMarkdown', () => {
 
   it('includes the project path', () => {
     const md = buildContractMarkdown({
-      task: task({ projectPath: '/workspace/repo' }),
+      task: task(),
+      repoPath: '/workspace/repo',
       checkScript: null,
     });
     expect(md).toContain('`/workspace/repo`');

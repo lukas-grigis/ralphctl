@@ -34,6 +34,7 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'sprint-1',
     name: 'Demo Sprint',
+    projectId: 'prj00001',
     status: 'draft',
     createdAt: '2026-04-16T00:00:00Z',
     activatedAt: null,
@@ -54,7 +55,7 @@ function task(overrides: Partial<Task>): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/repo',
+    repoId: 'repo0001',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -75,7 +76,7 @@ describe('PlanPhaseView', () => {
   it('shows the empty-tasks state and "Plan Tasks" action when requirements are approved', async () => {
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 'a', title: 'T', projectName: 'p', requirementStatus: 'approved' }],
+        tickets: [{ id: 'a', title: 'T', requirementStatus: 'approved' }],
       })
     );
     getTasksMock.mockResolvedValue([]);
@@ -94,15 +95,15 @@ describe('PlanPhaseView', () => {
     getSprintMock.mockResolvedValue(
       sprint({
         tickets: [
-          { id: 'a', title: 'T1', projectName: 'p', requirementStatus: 'approved' },
-          { id: 'b', title: 'T2', projectName: 'p', requirementStatus: 'approved' },
+          { id: 'a', title: 'T1', requirementStatus: 'approved' },
+          { id: 'b', title: 'T2', requirementStatus: 'approved' },
         ],
       })
     );
     getTasksMock.mockResolvedValue([
-      task({ id: 't1', name: 'Task one', projectPath: '/repo/a', ticketId: 'a' }),
-      task({ id: 't2', name: 'Task two', projectPath: '/repo/a', ticketId: 'a' }),
-      task({ id: 't3', name: 'Task three', projectPath: '/repo/b', ticketId: 'b' }),
+      task({ id: 't1', name: 'Task one', repoId: 'repo-a', ticketId: 'a' }),
+      task({ id: 't2', name: 'Task two', repoId: 'repo-a', ticketId: 'a' }),
+      task({ id: 't3', name: 'Task three', repoId: 'repo-b', ticketId: 'b' }),
     ]);
 
     const { lastFrame } = render(<PlanPhaseView sprintId="sprint-1" />);
@@ -110,8 +111,8 @@ describe('PlanPhaseView', () => {
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('2/2 tickets planned');
-    expect(frame).toContain('/repo/a');
-    expect(frame).toContain('/repo/b');
+    expect(frame).toContain('repo-a');
+    expect(frame).toContain('repo-b');
     expect(frame).toContain('Task one');
     expect(frame).toContain('Task three');
     expect(frame).toContain('Press Enter to re-plan tasks');
@@ -121,8 +122,8 @@ describe('PlanPhaseView', () => {
     getSprintMock.mockResolvedValue(
       sprint({
         tickets: [
-          { id: 'a', title: 'T1', projectName: 'p', requirementStatus: 'pending' },
-          { id: 'b', title: 'T2', projectName: 'p', requirementStatus: 'approved' },
+          { id: 'a', title: 'T1', requirementStatus: 'pending' },
+          { id: 'b', title: 'T2', requirementStatus: 'approved' },
         ],
       })
     );

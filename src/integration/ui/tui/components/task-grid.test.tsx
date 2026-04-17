@@ -19,7 +19,7 @@ function task(overrides: Partial<Task>): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/tmp/repo',
+    repoId: 'repo0001',
     verified: false,
     evaluated: false,
     ...overrides,

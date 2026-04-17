@@ -20,7 +20,6 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
     id: 't1',
     title: 'Test ticket',
-    projectName: 'proj',
     requirementStatus: 'approved',
     requirements: 'Some requirements',
     ...overrides,
@@ -31,6 +30,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'test-sprint',
     name: 'Test Sprint',
+    projectId: 'proj-1',
     status: 'draft',
     createdAt: new Date().toISOString(),
     activatedAt: null,
@@ -44,9 +44,10 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
+    id: 'proj-1',
     name: 'proj',
     displayName: 'Project',
-    repositories: [{ name: 'repo', path: '/tmp/repo' }],
+    repositories: [{ id: 'repo-1', name: 'repo', path: '/tmp/repo' }],
     ...overrides,
   };
 }
@@ -184,6 +185,10 @@ function makeHappyPathPersistence(sprint: Sprint, project: Project): Persistence
       if (name === project.name) return Promise.resolve(project);
       return Promise.reject(new Error(`unknown project: ${name}`));
     },
+    getProjectById: (id: string) => {
+      if (id === project.id) return Promise.resolve(project);
+      return Promise.reject(new Error(`unknown project id: ${id}`));
+    },
     saveSprint: () => Promise.resolve(),
     validateImportTasks: () => [],
     importTasks: (importTasks: ImportTask[]) => Promise.resolve(importTasks.length),
@@ -206,9 +211,9 @@ describe('createPlanPipeline', () => {
         description: 'desc',
         steps: ['do it'],
         verificationCriteria: ['it works'],
-        projectPath: '/tmp/repo',
+        repoId: 'repo-1',
         blockedBy: [],
-      } as ImportTask,
+      },
     ];
 
     const deps = makeDeps({

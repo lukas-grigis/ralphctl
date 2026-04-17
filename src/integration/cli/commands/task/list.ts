@@ -15,7 +15,7 @@ import {
 interface TaskListFilters {
   brief: boolean;
   statusFilter?: string;
-  projectFilter?: string;
+  repoFilter?: string;
   ticketFilter?: string;
   blockedOnly: boolean;
 }
@@ -33,8 +33,8 @@ function parseListArgs(args: string[]): TaskListFilters {
     else if (arg === '--status' && next) {
       result.statusFilter = next;
       i++;
-    } else if (arg === '--project' && next) {
-      result.projectFilter = next;
+    } else if (arg === '--repo' && next) {
+      result.repoFilter = next;
       i++;
     } else if (arg === '--ticket' && next) {
       result.ticketFilter = next;
@@ -47,14 +47,14 @@ function parseListArgs(args: string[]): TaskListFilters {
 function buildFilterSummary(filters: TaskListFilters): string {
   const parts: string[] = [];
   if (filters.statusFilter) parts.push(`status=${filters.statusFilter}`);
-  if (filters.projectFilter) parts.push(`project=${filters.projectFilter}`);
+  if (filters.repoFilter) parts.push(`repo=${filters.repoFilter}`);
   if (filters.ticketFilter) parts.push(`ticket=${filters.ticketFilter}`);
   if (filters.blockedOnly) parts.push('blocked');
   return parts.length > 0 ? ` (filtered: ${parts.join(', ')})` : '';
 }
 
 export async function taskListCommand(args: string[] = []): Promise<void> {
-  const { brief, statusFilter, projectFilter, ticketFilter, blockedOnly } = parseListArgs(args);
+  const { brief, statusFilter, repoFilter, ticketFilter, blockedOnly } = parseListArgs(args);
 
   // Validate status filter
   if (statusFilter) {
@@ -75,11 +75,11 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
   // Apply filters
   let filtered = tasks;
   if (statusFilter) filtered = filtered.filter((t) => t.status === statusFilter);
-  if (projectFilter) filtered = filtered.filter((t) => t.projectPath.includes(projectFilter));
+  if (repoFilter) filtered = filtered.filter((t) => t.repoId === repoFilter || t.repoId.startsWith(repoFilter));
   if (ticketFilter) filtered = filtered.filter((t) => t.ticketId === ticketFilter);
   if (blockedOnly) filtered = filtered.filter((t) => t.blockedBy.length > 0);
 
-  const filterStr = buildFilterSummary({ brief, statusFilter, projectFilter, ticketFilter, blockedOnly });
+  const filterStr = buildFilterSummary({ brief, statusFilter, repoFilter, ticketFilter, blockedOnly });
   const isFiltered = filtered.length !== tasks.length;
 
   if (filtered.length === 0) {
@@ -95,7 +95,7 @@ export async function taskListCommand(args: string[] = []): Promise<void> {
       const ticketRef = task.ticketId ? ` [${task.ticketId}]` : '';
       const blockedRef = task.blockedBy.length > 0 ? ` (blocked by: ${task.blockedBy.join(', ')})` : '';
       console.log(
-        `- ${String(task.order)}. **[${task.status}]** ${task.id}: ${task.name} (${task.projectPath})${ticketRef}${blockedRef}`
+        `- ${String(task.order)}. **[${task.status}]** ${task.id}: ${task.name} (repo:${task.repoId})${ticketRef}${blockedRef}`
       );
     }
     console.log('');

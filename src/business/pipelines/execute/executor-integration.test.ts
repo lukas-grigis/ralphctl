@@ -45,6 +45,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 's1',
     name: 'Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: new Date().toISOString(),
     activatedAt: new Date().toISOString(),
@@ -60,7 +61,6 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
     id: 'ticket-1',
     title: 'T',
-    projectName: 'p',
     requirementStatus: 'approved',
     ...overrides,
   };
@@ -75,7 +75,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo/a',
+    repoId: 'repo-a',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -224,13 +224,53 @@ function makePersistence(init: { sprint: Sprint; tasks: Task[]; config?: Config 
     getConfig: () => Promise.resolve(init.config ?? makeConfig()),
     getProject: () =>
       Promise.resolve({
+        id: 'proj-1',
         name: 'p',
         displayName: 'p',
         repositories: [
-          { name: 'a', path: '/repo/a' },
-          { name: 'b', path: '/repo/b' },
+          { id: 'repo-a', name: 'a', path: '/repo/a' },
+          { id: 'repo-b', name: 'b', path: '/repo/b' },
         ],
       }),
+    getProjectById: () =>
+      Promise.resolve({
+        id: 'proj-1',
+        name: 'p',
+        displayName: 'p',
+        repositories: [
+          { id: 'repo-a', name: 'a', path: '/repo/a' },
+          { id: 'repo-b', name: 'b', path: '/repo/b' },
+        ],
+      }),
+    getRepoById: (repoId: string) => {
+      const byId: Record<string, { path: string; name: string }> = {
+        'repo-a': { path: '/repo/a', name: 'a' },
+        'repo-b': { path: '/repo/b', name: 'b' },
+      };
+      const info = byId[repoId];
+      if (!info) return Promise.reject(new Error(`unknown repo: ${repoId}`));
+      return Promise.resolve({
+        project: {
+          id: 'proj-1',
+          name: 'p',
+          displayName: 'p',
+          repositories: [
+            { id: 'repo-a', name: 'a', path: '/repo/a' },
+            { id: 'repo-b', name: 'b', path: '/repo/b' },
+          ],
+        },
+        repo: { id: repoId, ...info },
+      });
+    },
+    resolveRepoPath: (repoId: string) => {
+      const byId: Record<string, string> = {
+        'repo-a': '/repo/a',
+        'repo-b': '/repo/b',
+      };
+      const p = byId[repoId];
+      if (!p) return Promise.reject(new Error(`unknown repo: ${repoId}`));
+      return Promise.resolve(p);
+    },
     logProgress: () => Promise.resolve(),
     getProgress: () => Promise.resolve(''),
     getProgressSummary: () => Promise.resolve(''),
@@ -271,7 +311,7 @@ function buildDeps(scenario: Scenario = {}): {
     updateTask: ReturnType<typeof vi.fn>;
   };
 } {
-  const sprint = scenario.sprint ?? makeSprint({ tickets: [makeTicket({ affectedRepositories: ['/repo/a'] })] });
+  const sprint = scenario.sprint ?? makeSprint({ tickets: [makeTicket({ affectedRepoIds: ['repo-a'] })] });
   const tasks = scenario.tasks ?? [makeTask()];
   const config = scenario.config ?? makeConfig();
 
@@ -304,7 +344,10 @@ function buildDeps(scenario: Scenario = {}): {
     // Extract task id from prompt — our makePromptBuilder returns a static
     // string, so callers identify tasks via cwd (projectPath) when needed.
     // Simpler: correlate via the stateTasks that are currently in_progress.
-    const inFlight = stateTasks.find((t) => t.status === 'in_progress' && t.projectPath === opts.cwd);
+    // opts.cwd is the resolved repo path. Map back to a task via repoId.
+    const repoIdByPath: Record<string, string> = { '/repo/a': 'repo-a', '/repo/b': 'repo-b' };
+    const repoId = repoIdByPath[opts.cwd];
+    const inFlight = stateTasks.find((t) => t.status === 'in_progress' && t.repoId === repoId);
     const taskId = inFlight?.id ?? 'unknown';
     const count = (callsByTask.get(taskId) ?? 0) + 1;
     callsByTask.set(taskId, count);
@@ -475,7 +518,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
     const task = makeTask();
     const sprint = makeSprint({
       branch: 'feature/x',
-      tickets: [makeTicket({ affectedRepositories: ['/repo/a'] })],
+      tickets: [makeTicket({ affectedRepoIds: ['repo-a'] })],
     });
     // verifyBranch always returns false — the branch never matches.
     const verifyBranch = vi.fn(() => false);
@@ -508,13 +551,27 @@ describe('executeTasksStep via forEachTask — integration', () => {
       tasks: [task],
       runCheckScript: runCheckScript as never,
     });
-    // Patch its persistence the same way.
-    (scenario.deps.persistence as unknown as { getProject: () => Promise<unknown> }).getProject = () =>
-      Promise.resolve({
-        name: 'p',
-        displayName: 'p',
-        repositories: [{ name: 'a', path: '/repo/a', checkScript: 'pnpm lint' }],
-      });
+    // Patch its persistence so the post-task-check gate resolves a repo
+    // with a `checkScript` — otherwise `runPostTaskCheck` short-circuits
+    // (no script configured → passes).
+    const projectWithScript = {
+      id: 'proj-1',
+      name: 'p',
+      displayName: 'p',
+      repositories: [{ id: 'repo-a', name: 'a', path: '/repo/a', checkScript: 'pnpm lint' }],
+    };
+    const repoWithScript = projectWithScript.repositories[0];
+    (
+      scenario.deps.persistence as unknown as {
+        getProject: () => Promise<unknown>;
+        getRepoById: (repoId: string) => Promise<unknown>;
+      }
+    ).getProject = () => Promise.resolve(projectWithScript);
+    (
+      scenario.deps.persistence as unknown as {
+        getRepoById: (repoId: string) => Promise<unknown>;
+      }
+    ).getRepoById = () => Promise.resolve({ project: projectWithScript, repo: repoWithScript });
 
     const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
     const result = await executePipeline(pipeline, { sprintId: 's1' });
@@ -529,14 +586,14 @@ describe('executeTasksStep via forEachTask — integration', () => {
   });
 
   it('step mode: between hook prompts between tasks (and stop aborts remaining work)', async () => {
-    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
-    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+    const taskA = makeTask({ id: 't1', order: 1, repoId: 'repo-a' });
+    const taskB = makeTask({ id: 't2', order: 2, repoId: 'repo-b' });
 
     const confirm = vi.fn(() => Promise.resolve(false)); // user stops after first task
     const { deps, spawnWithRetry } = buildDeps({
       tasks: [taskA, taskB],
       sprint: makeSprint({
-        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+        tickets: [makeTicket({ affectedRepoIds: ['repo-a', 'repo-b'] })],
       }),
       confirm,
     });
@@ -574,8 +631,8 @@ describe('executeTasksStep via forEachTask — integration', () => {
   });
 
   it('--concurrency 1 forces sequential: two tasks on different repos never overlap', async () => {
-    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
-    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+    const taskA = makeTask({ id: 't1', order: 1, repoId: 'repo-a' });
+    const taskB = makeTask({ id: 't2', order: 2, repoId: 'repo-b' });
 
     let maxInFlight = 0;
     let inFlightNow = 0;
@@ -590,7 +647,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
     const { deps } = buildDeps({
       tasks: [taskA, taskB],
       sprint: makeSprint({
-        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+        tickets: [makeTicket({ affectedRepoIds: ['repo-a', 'repo-b'] })],
       }),
       spawnImpl,
     });
@@ -603,8 +660,8 @@ describe('executeTasksStep via forEachTask — integration', () => {
   });
 
   it('fail-fast drains in-flight tasks before failing', async () => {
-    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
-    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+    const taskA = makeTask({ id: 't1', order: 1, repoId: 'repo-a' });
+    const taskB = makeTask({ id: 't2', order: 2, repoId: 'repo-b' });
 
     // Task A fails fast (its spawn resolves with success:false via a
     // `<task-blocked>` signal); task B runs long enough that it's still
@@ -630,7 +687,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
     const { deps } = buildDeps({
       tasks: [taskA, taskB],
       sprint: makeSprint({
-        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+        tickets: [makeTicket({ affectedRepoIds: ['repo-a', 'repo-b'] })],
       }),
       spawnImpl,
     });

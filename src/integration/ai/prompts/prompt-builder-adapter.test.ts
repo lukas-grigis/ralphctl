@@ -71,10 +71,11 @@ describe('TextPromptBuilderAdapter', () => {
       status: 'done',
       order: 1,
       blockedBy: [],
-      projectPath: '/tmp/repo',
+      repoId: 'repo0001',
       verified: true,
       evaluated: false,
     };
+    const repoPath = '/tmp/repo';
     it('renders the check-script section when supplied and never the literal "null"', () => {
       // Regression guard: this method previously hardcoded
       // `checkScriptSection: null` inside the adapter, so the evaluator
@@ -84,7 +85,7 @@ describe('TextPromptBuilderAdapter', () => {
       // string "null" (which would indicate a regression to the old
       // hardcoded path).
       const checkScriptSection = '## Check Script (Computational Gate)\n\nRun `pnpm test` first.';
-      const out = adapter.buildTaskEvaluationPrompt(task, checkScriptSection, '');
+      const out = adapter.buildTaskEvaluationPrompt(task, repoPath, checkScriptSection, '');
       expect(out).toContain('pnpm test');
       expect(out).toContain('Check Script (Computational Gate)');
       expect(out).not.toMatch(/\bnull\b/);
@@ -93,13 +94,13 @@ describe('TextPromptBuilderAdapter', () => {
     it('renders the project tooling section when supplied', () => {
       const projectToolingSection =
         '## Project Tooling (use these — they exist for a reason)\n\nSubagents: auditor, reviewer.';
-      const out = adapter.buildTaskEvaluationPrompt(task, null, projectToolingSection);
+      const out = adapter.buildTaskEvaluationPrompt(task, repoPath, null, projectToolingSection);
       expect(out).toContain('Project Tooling');
       expect(out).toContain('auditor');
     });
 
     it('accepts a null check-script section without leaking the word "null" into the prompt', () => {
-      const out = adapter.buildTaskEvaluationPrompt(task, null, '');
+      const out = adapter.buildTaskEvaluationPrompt(task, repoPath, null, '');
       expect(out).not.toMatch(/\bnull\b/);
     });
 
@@ -109,14 +110,14 @@ describe('TextPromptBuilderAdapter', () => {
       // evaluator, so the regression we want to guard is the adapter
       // dropping the field on the floor.
       const taskWithExtras: Task = { ...task, extraDimensions: ['Performance'] };
-      const out = adapter.buildTaskEvaluationPrompt(taskWithExtras, null, '');
+      const out = adapter.buildTaskEvaluationPrompt(taskWithExtras, repoPath, null, '');
       expect(out).toContain('**Dimension 5 — Performance**');
     });
 
     it('omits extra-dimension blocks when task.extraDimensions is undefined', () => {
       // `undefined` (not `[]`) is the floor-only case — the adapter
       // normalises it to an empty array so the loader renders nothing.
-      const out = adapter.buildTaskEvaluationPrompt(task, null, '');
+      const out = adapter.buildTaskEvaluationPrompt(task, repoPath, null, '');
       expect(out).not.toContain('**Dimension 5');
     });
   });

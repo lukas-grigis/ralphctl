@@ -56,6 +56,11 @@ export interface PromptBuilderPort {
   /**
    * Build prompt for task evaluation.
    *
+   * @param task — the task being evaluated. `task.repoId` is the FK; the
+   *   caller resolves it to an absolute path and passes it as `repoPath`.
+   * @param repoPath — absolute path of the task's repo (resolved from
+   *   `task.repoId` by the caller) — rendered into the evaluator prompt
+   *   as `{{PROJECT_PATH}}`.
    * @param checkScriptSection — pre-rendered `#### Check Script (Computational Gate)`
    *   markdown block (or `null` when the repo has no `checkScript` configured).
    *   The H4 level is intentional — the evaluator template injects this under
@@ -64,7 +69,12 @@ export interface PromptBuilderPort {
    *   listing subagents / skills / MCP servers available in the project; empty
    *   string when nothing was detected.
    */
-  buildTaskEvaluationPrompt(task: Task, checkScriptSection: string | null, projectToolingSection: string): string;
+  buildTaskEvaluationPrompt(
+    task: Task,
+    repoPath: string,
+    checkScriptSection: string | null,
+    projectToolingSection: string
+  ): string;
 
   /** Build prompt for sprint feedback implementation */
   buildFeedbackPrompt(sprintName: string, completedTasks: string, feedback: string, branch: string | null): string;

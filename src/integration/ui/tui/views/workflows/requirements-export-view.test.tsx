@@ -27,6 +27,7 @@ function sprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 'sprint-1',
     name: 'Demo',
+    projectId: 'prj00001',
     status: 'draft',
     createdAt: '2026-04-16T00:00:00Z',
     activatedAt: null,
@@ -77,7 +78,7 @@ describe('RequirementsExportView', () => {
     resolveSprintIdMock.mockResolvedValue('sprint-1');
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 't', title: 'x', projectName: 'p', requirementStatus: 'pending' }],
+        tickets: [{ id: 't', title: 'x', requirementStatus: 'pending' }],
       })
     );
 
@@ -92,7 +93,7 @@ describe('RequirementsExportView', () => {
     resolveSprintIdMock.mockResolvedValue('sprint-1');
     getSprintMock.mockResolvedValue(
       sprint({
-        tickets: [{ id: 't', title: 'x', projectName: 'p', requirementStatus: 'approved' }],
+        tickets: [{ id: 't', title: 'x', requirementStatus: 'approved' }],
       })
     );
     exportMock.mockResolvedValue(undefined);

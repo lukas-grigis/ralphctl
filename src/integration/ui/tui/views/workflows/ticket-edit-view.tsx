@@ -58,7 +58,7 @@ export function TicketEditView(): React.JSX.Element {
         choices: tickets.map((t) => ({
           label: `${t.id} — ${t.title}`,
           value: t.id,
-          description: `${t.projectName} · ${t.requirementStatus}`,
+          description: t.requirementStatus,
         })),
       });
       const current = tickets.find((t) => t.id === ticketId);
@@ -131,7 +131,6 @@ function renderBody(phase: Phase): React.JSX.Element {
           fields={[
             ['ID', phase.ticket.id],
             ['Title', phase.ticket.title],
-            ['Project', phase.ticket.projectName],
           ]}
         />
       );

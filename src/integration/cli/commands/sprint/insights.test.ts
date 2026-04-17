@@ -21,12 +21,12 @@ describe('sprint insights', () => {
     const { addTask, getTasks, saveTasks } = await import('@src/integration/persistence/task.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Insights Test');
-    const ticket = await addTicket({ title: 'Auth Feature', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Insights Test' });
+    const ticket = await addTicket({ title: 'Auth Feature' }, sprint.id);
 
     // Add tasks while sprint is still draft
-    await addTask({ name: 'Add authentication', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
-    await addTask({ name: 'Add user profile', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
+    await addTask({ name: 'Add authentication', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
+    await addTask({ name: 'Add user profile', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
 
     await activateSprint(sprint.id);
     await setCurrentSprint(sprint.id);
@@ -58,11 +58,11 @@ describe('sprint insights', () => {
     const { addTask } = await import('@src/integration/persistence/task.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('No Eval Test');
-    const ticket = await addTicket({ title: 'Some Feature', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'No Eval Test' });
+    const ticket = await addTicket({ title: 'Some Feature' }, sprint.id);
 
     // Add task while sprint is still draft
-    await addTask({ name: 'Unevaluated task', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
+    await addTask({ name: 'Unevaluated task', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
 
     await activateSprint(sprint.id);
     await setCurrentSprint(sprint.id);
@@ -85,9 +85,9 @@ describe('sprint insights', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { addTask, getTasks, saveTasks } = await import('@src/integration/persistence/task.ts');
 
-    const sprint = await createSprint('Specific Sprint');
-    const ticket = await addTicket({ title: 'Feature', projectName: 'test-project' }, sprint.id);
-    await addTask({ name: 'Task with eval', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Specific Sprint' });
+    const ticket = await addTicket({ title: 'Feature' }, sprint.id);
+    await addTask({ name: 'Task with eval', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
 
     const tasks = await getTasks(sprint.id);
     for (const task of tasks) {
@@ -111,11 +111,11 @@ describe('sprint insights', () => {
     const { addTask, getTasks, saveTasks } = await import('@src/integration/persistence/task.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Export Test');
-    const ticket = await addTicket({ title: 'Export Feature', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Export Test' });
+    const ticket = await addTicket({ title: 'Export Feature' }, sprint.id);
 
     // Add task while sprint is still draft
-    await addTask({ name: 'Evaluated task', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
+    await addTask({ name: 'Evaluated task', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
 
     await activateSprint(sprint.id);
     await setCurrentSprint(sprint.id);

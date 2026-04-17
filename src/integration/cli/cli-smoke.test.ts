@@ -33,12 +33,12 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
 
   it('runs full workflow: sprint → ticket → task', async () => {
     // Create sprint (auto-activates when no other active sprint)
-    const createSprint = await cli(['sprint', 'create', '-n', '--name', 'Smoke Test']);
+    const createSprint = await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Smoke Test']);
     expect(createSprint.code).toBe(0);
     expect(createSprint.stdout).toContain('Sprint created!');
 
     // Add ticket
-    const addTicket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'Test Ticket']);
+    const addTicket = await cli(['ticket', 'add', '-n', '--title', 'Test Ticket']);
     expect(addTicket.code).toBe(0);
     expect(addTicket.stdout).toContain('Ticket added');
     const ticketId = extractField(addTicket.stdout, 'ID');
@@ -57,15 +57,15 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
   });
 
   it('creates sprint with generated name when name is empty', async () => {
-    const result = await cli(['sprint', 'create', '-n', '--name', '']);
+    const result = await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', '']);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Sprint created!');
     // The sprint should have a generated uuid8 as the name
   });
 
   it('lists sprints', async () => {
-    await cli(['sprint', 'create', '-n', '--name', 'Sprint A']);
-    await cli(['sprint', 'create', '-n', '--name', 'Sprint B']);
+    await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Sprint A']);
+    await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Sprint B']);
 
     const list = await cli(['sprint', 'list']);
     expect(list.code).toBe(0);
@@ -74,10 +74,10 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
   });
 
   it('updates task status', async () => {
-    const sprint = await cli(['sprint', 'create', '-n', '--name', 'Status Test']);
+    const sprint = await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Status Test']);
     expect(sprint.code).toBe(0);
 
-    const ticket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'Ticket']);
+    const ticket = await cli(['ticket', 'add', '-n', '--title', 'Ticket']);
     expect(ticket.code).toBe(0);
     const stTicketId = extractField(ticket.stdout, 'ID');
     expect(stTicketId).toBeTruthy();
@@ -109,8 +109,8 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
   });
 
   it('removes ticket and task', async () => {
-    await cli(['sprint', 'create', '-n', '--name', 'Remove Test']);
-    const addRmTicket = await cli(['ticket', 'add', '-n', '--project', 'test-project', '--title', 'To Remove']);
+    await cli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Remove Test']);
+    const addRmTicket = await cli(['ticket', 'add', '-n', '--title', 'To Remove']);
     const rmTicketId = extractField(addRmTicket.stdout, 'ID');
     expect(rmTicketId).toBeTruthy();
     if (!rmTicketId) throw new Error('rmTicketId not found');
@@ -160,8 +160,8 @@ describe('CLI Smoke Tests', { timeout: 5000 }, () => {
  */
 describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
   let scenarioDir: string;
-  let frontendDir: string;
-  let backendDir: string;
+  let frontendRepoId: string;
+  let backendRepoId: string;
   let scenarioEnv: Record<string, string>;
   let scenarioCleanup: () => Promise<void>;
 
@@ -192,8 +192,11 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     const frontendPath = multiEnv.projectDirs.get('ecommerce-frontend');
     const backendPath = multiEnv.projectDirs.get('ecommerce-backend');
     if (!frontendPath || !backendPath) throw new Error('Project dirs not created');
-    frontendDir = frontendPath;
-    backendDir = backendPath;
+    // frontendPath/backendPath kept around for readability; actual tasks reference repoIds.
+    void frontendPath;
+    void backendPath;
+    frontendRepoId = multiEnv.repoIds.get('ecommerce-frontend') ?? '';
+    backendRepoId = multiEnv.repoIds.get('ecommerce-backend') ?? '';
     scenarioEnv = multiEnv.env;
     scenarioCleanup = multiEnv.cleanup;
   });
@@ -223,7 +226,15 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     expect(showFrontend.stdout).toContain('React storefront application');
 
     // Create the QA automation sprint
-    const createSprint = await scenarioCli(['sprint', 'create', '-n', '--name', 'QA Test Automation Q1']);
+    const createSprint = await scenarioCli([
+      'sprint',
+      'create',
+      '-n',
+      '--project',
+      'ecommerce-frontend',
+      '--name',
+      'QA Test Automation Q1',
+    ]);
     expect(createSprint.code).toBe(0);
     expect(createSprint.stdout).toContain('Sprint created!');
     expect(createSprint.stdout).toContain('QA Test Automation Q1');
@@ -249,8 +260,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ticket',
       'add',
       '-n',
-      '--project',
-      'ecommerce-frontend',
       '--title',
       'Setup Playwright E2E Tests',
       '--description',
@@ -269,8 +278,6 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
       'ticket',
       'add',
       '-n',
-      '--project',
-      'ecommerce-backend',
       '--title',
       'API Integration Test Suite',
       '--description',
@@ -283,30 +290,14 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     if (!backendTicketId) throw new Error('backendTicketId not found');
 
     // Add a third ticket (frontend) that we will edit later
-    const addComponentTicket = await scenarioCli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'ecommerce-frontend',
-      '--title',
-      'Component Unit Tests',
-    ]);
+    const addComponentTicket = await scenarioCli(['ticket', 'add', '-n', '--title', 'Component Unit Tests']);
     expect(addComponentTicket.code).toBe(0);
     const componentTicketId = extractField(addComponentTicket.stdout, 'ID');
     expect(componentTicketId).toBeTruthy();
     if (!componentTicketId) throw new Error('componentTicketId not found');
 
     // Add a fourth ticket that we will remove later
-    const addRemovableTicket = await scenarioCli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'ecommerce-backend',
-      '--title',
-      'Legacy Test Migration',
-    ]);
+    const addRemovableTicket = await scenarioCli(['ticket', 'add', '-n', '--title', 'Legacy Test Migration']);
     expect(addRemovableTicket.code).toBe(0);
     const removableTicketId = extractField(addRemovableTicket.stdout, 'ID');
     expect(removableTicketId).toBeTruthy();
@@ -520,14 +511,14 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
         {
           id: 'import-1',
           name: 'Setup CI pipeline for tests',
-          projectPath: frontendDir,
+          repoId: frontendRepoId,
           description: 'Configure GitHub Actions to run Playwright tests on PR',
           steps: ['Create .github/workflows/test.yml', 'Add Playwright container setup', 'Configure test reporting'],
         },
         {
           id: 'import-2',
           name: 'Add test coverage reporting',
-          projectPath: backendDir,
+          repoId: backendRepoId,
           description: 'Setup code coverage with c8 and upload to codecov',
           blockedBy: ['import-1'],
         },
@@ -642,7 +633,15 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
     // ═════════════════════════════════════════════════════════════════════════
 
     // Create a second sprint
-    const createSprint2 = await scenarioCli(['sprint', 'create', '-n', '--name', 'Performance Testing Q1']);
+    const createSprint2 = await scenarioCli([
+      'sprint',
+      'create',
+      '-n',
+      '--project',
+      'ecommerce-frontend',
+      '--name',
+      'Performance Testing Q1',
+    ]);
     expect(createSprint2.code).toBe(0);
     expect(createSprint2.stdout).toContain('Performance Testing Q1');
 
@@ -690,15 +689,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
 
     // Try to add ticket to closed sprint (shows error but doesn't exit with error code)
     await scenarioCli(['sprint', 'current', sprint1.id]);
-    const addToClosedSprint = await scenarioCli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'ecommerce-frontend',
-      '--title',
-      'Should Fail',
-    ]);
+    const addToClosedSprint = await scenarioCli(['ticket', 'add', '-n', '--title', 'Should Fail']);
     // SprintStatusError is caught and displayed without exit code
     expect(addToClosedSprint.stdout).toMatch(/closed|cannot|not allowed/i);
 
@@ -735,18 +726,10 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
 
   it('validates ticket edit constraints', async () => {
     // Create a fresh sprint for edit testing
-    await scenarioCli(['sprint', 'create', '-n', '--name', 'Edit Test Sprint']);
+    await scenarioCli(['sprint', 'create', '-n', '--project', 'ecommerce-frontend', '--name', 'Edit Test Sprint']);
 
     // Add a ticket
-    const addEditTicket = await scenarioCli([
-      'ticket',
-      'add',
-      '-n',
-      '--project',
-      'ecommerce-frontend',
-      '--title',
-      'Test Edit',
-    ]);
+    const addEditTicket = await scenarioCli(['ticket', 'add', '-n', '--title', 'Test Edit']);
     const editTicketId = extractField(addEditTicket.stdout, 'ID');
     expect(editTicketId).toBeTruthy();
     if (!editTicketId) throw new Error('editTicketId not found');
@@ -774,7 +757,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
 
   it('handles task import edge cases', async () => {
     // Create sprint for import testing
-    await scenarioCli(['sprint', 'create', '-n', '--name', 'Import Test Sprint']);
+    await scenarioCli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Import Test Sprint']);
 
     // Import with missing file
     const importMissing = await scenarioCli(['task', 'import', '/nonexistent/file.json']);
@@ -801,7 +784,7 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
 
   it('runs sprint health checks', async () => {
     // Create sprint with tasks
-    await scenarioCli(['sprint', 'create', '-n', '--name', 'Health Check Sprint']);
+    await scenarioCli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Health Check Sprint']);
     await scenarioCli([
       'task',
       'add',
@@ -825,8 +808,8 @@ describe('QA Test Automation Sprint Scenario', { timeout: 5000 }, () => {
 
   it('exports sprint requirements', async () => {
     // Create sprint with a ticket
-    await scenarioCli(['sprint', 'create', '-n', '--name', 'Requirements Export Sprint']);
-    await scenarioCli(['ticket', 'add', '-n', '--project', 'ecommerce-frontend', '--title', 'Test Requirement']);
+    await scenarioCli(['sprint', 'create', '-n', '--project', 'test-project', '--name', 'Requirements Export Sprint']);
+    await scenarioCli(['ticket', 'add', '-n', '--title', 'Test Requirement']);
 
     // Try exporting (will show warning since no approved requirements)
     const requirements = await scenarioCli(['sprint', 'requirements']);

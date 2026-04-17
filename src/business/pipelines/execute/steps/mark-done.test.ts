@@ -10,6 +10,7 @@ function makeSprint(): Sprint {
   return {
     id: 's1',
     name: 'Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: '',
     activatedAt: null,
@@ -29,7 +30,7 @@ function makeTask(): Task {
     status: 'in_progress',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: true,
     evaluated: false,
   };
@@ -78,6 +79,7 @@ describe('markDone step', () => {
     const persistence = {
       updateTaskStatus: update,
       logProgress,
+      resolveRepoPath: () => Promise.resolve('/repo'),
     } as unknown as PersistencePort;
 
     const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask() };

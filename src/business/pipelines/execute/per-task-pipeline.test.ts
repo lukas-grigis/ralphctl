@@ -21,6 +21,7 @@ function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
   return {
     id: 's1',
     name: 'Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: '',
     activatedAt: null,
@@ -41,7 +42,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'todo',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: false,
     evaluated: false,
     ...overrides,
@@ -164,10 +165,12 @@ function setup(scenario: Scenario = {}): {
     getTasks: () => Promise.resolve([task]),
     saveTasks: () => Promise.resolve(),
     writeEvaluation: () => Promise.resolve(),
-    // contract-negotiate looks up the project for the task path; in tests
-    // we don't care about the resolution — the step falls back to "no
-    // check script configured" cleanly when the lookup throws.
+    // contract-negotiate / branch-preflight / mark-done look up repo info.
+    // branch-preflight + mark-done need resolveRepoPath; contract-negotiate
+    // falls back to "no check script configured" cleanly when lookup throws.
     getProject: () => Promise.reject(new Error('not configured in test')),
+    getRepoById: () => Promise.reject(new Error('not configured in test')),
+    resolveRepoPath: () => Promise.resolve('/repo'),
   } as unknown as PersistencePort;
 
   const aiSession = {

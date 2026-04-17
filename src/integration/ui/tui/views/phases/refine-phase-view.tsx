@@ -138,7 +138,6 @@ export function RefinePhaseView({ sprintId }: Props): React.JSX.Element {
                 {t.requirementStatus === 'approved' ? glyphs.check : glyphs.phasePending}
               </Text>
               <Text>{` ${t.title}`}</Text>
-              <Text dimColor>{`  (${t.projectName})`}</Text>
             </Box>
           ))
         ) : (

@@ -18,7 +18,6 @@ type State = { kind: 'loading' } | { kind: 'empty' } | { kind: 'ready'; tickets:
 const COLUMNS: readonly ListColumn<Ticket>[] = [
   { header: 'ID', cell: (t) => t.id, width: 10 },
   { header: 'Title', cell: (t) => t.title, flex: true },
-  { header: 'Project', cell: (t) => t.projectName, width: 16 },
   {
     header: 'Requirement',
     cell: (t) => t.requirementStatus,

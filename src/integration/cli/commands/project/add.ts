@@ -5,8 +5,12 @@ import { Result } from 'typescript-result';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { error, muted } from '@src/integration/ui/theme/theme.ts';
 import { expandTilde, validateProjectPath } from '@src/integration/persistence/paths.ts';
-import { createProject, ProjectExistsError } from '@src/integration/persistence/project.ts';
-import type { Project, Repository } from '@src/domain/models.ts';
+import { type CreateProjectInput, createProject, ProjectExistsError } from '@src/integration/persistence/project.ts';
+import type { Repository } from '@src/domain/models.ts';
+
+// `RepoDraft` is a repo with ids deferred to `createProject`; used while we
+// collect inputs interactively. `createProject` stamps ids + names on save.
+type RepoDraft = Omit<Repository, 'id' | 'name'> & { id?: string; name?: string };
 import {
   createSpinner,
   emoji,
@@ -55,7 +59,7 @@ function hasAiInstructions(repoPath: string): boolean {
  * Add check script to a repository interactively.
  * Exported so `project repo add` can reuse the same flow.
  */
-export async function addCheckScriptToRepository(repo: Repository): Promise<Repository> {
+export async function addCheckScriptToRepository(repo: RepoDraft): Promise<RepoDraft> {
   let suggested: string | null = null;
 
   const detectR = Result.try(() => detectCheckScriptCandidates(repo.path));
@@ -79,7 +83,7 @@ export async function addCheckScriptToRepository(repo: Repository): Promise<Repo
 export async function projectAddCommand(options: ProjectAddOptions = {}): Promise<void> {
   let name: string;
   let displayName: string;
-  let repositories: Repository[];
+  let repositories: RepoDraft[];
   let description: string | undefined;
 
   if (options.interactive === false) {
@@ -130,7 +134,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     // In non-interactive mode, apply CLI flags if provided (otherwise no scripts)
     repositories = options.paths.map((p) => {
       const resolved = resolve(expandTilde(p.trim()));
-      const repo: Repository = { name: basename(resolved), path: resolved };
+      const repo: RepoDraft = { name: basename(resolved), path: resolved };
       if (options.checkScript) repo.checkScript = options.checkScript;
       return repo;
     });
@@ -228,7 +232,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
       }
 
       // Add scripts to first repository
-      log.info(`\nConfiguring: ${firstRepo.name}`);
+      log.info(`\nConfiguring: ${firstRepo.name ?? basename(firstRepo.path)}`);
       repositories[0] = await addCheckScriptToRepository(firstRepo);
     }
 
@@ -292,7 +296,7 @@ export async function projectAddCommand(options: ProjectAddOptions = {}): Promis
     description = trimmedDescInteractive === '' ? undefined : trimmedDescInteractive;
   }
 
-  const project: Project = {
+  const project: CreateProjectInput = {
     name,
     displayName,
     repositories,

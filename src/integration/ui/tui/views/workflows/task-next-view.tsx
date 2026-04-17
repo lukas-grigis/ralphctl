@@ -66,7 +66,7 @@ function renderBody(phase: Phase): React.JSX.Element {
             ['Name', phase.task.name],
             ['Order', String(phase.task.order)],
             ['Status', phase.task.status],
-            ['Project Path', phase.task.projectPath],
+            ['Repo ID', phase.task.repoId],
           ]}
         />
       );

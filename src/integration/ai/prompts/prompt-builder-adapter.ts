@@ -63,13 +63,18 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     return buildTaskExecutionPrompt(progressFilePath, noCommit, contextFileName, projectToolingSection);
   }
 
-  buildTaskEvaluationPrompt(task: Task, checkScriptSection: string | null, projectToolingSection: string): string {
+  buildTaskEvaluationPrompt(
+    task: Task,
+    repoPath: string,
+    checkScriptSection: string | null,
+    projectToolingSection: string
+  ): string {
     return buildEvaluatorPrompt({
       taskName: task.name,
       taskDescription: task.description ?? '',
       taskSteps: task.steps,
       verificationCriteria: task.verificationCriteria,
-      projectPath: task.projectPath,
+      projectPath: repoPath,
       checkScriptSection,
       projectToolingSection,
       // `undefined` on Task means "floor only" — normalise to [] here so

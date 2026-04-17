@@ -21,8 +21,8 @@ describe('sprint health checks', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Health Test');
-    const ticket = await addTicket({ title: 'Orphaned Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Health Test' });
+    const ticket = await addTicket({ title: 'Orphaned Ticket' }, sprint.id);
 
     // Approve the ticket's requirements manually
     const loaded = await getSprint(sprint.id);
@@ -50,8 +50,8 @@ describe('sprint health checks', () => {
     const { addTicket } = await import('@src/integration/persistence/ticket.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Pending Test');
-    await addTicket({ title: 'Pending Ticket', projectName: 'test-project' }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Pending Test' });
+    await addTicket({ title: 'Pending Ticket' }, sprint.id);
     await activateSprint(sprint.id);
     await setCurrentSprint(sprint.id);
 
@@ -69,10 +69,10 @@ describe('sprint health checks', () => {
     const { addTask, getTasks, saveTasks } = await import('@src/integration/persistence/task.ts');
     const { setCurrentSprint } = await import('@src/integration/persistence/config.ts');
 
-    const sprint = await createSprint('Dup Order Test');
-    const ticket = await addTicket({ title: 'Ticket', projectName: 'test-project' }, sprint.id);
-    await addTask({ name: 'Task A', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
-    await addTask({ name: 'Task B', ticketId: ticket.id, projectPath: testEnv.projectDir }, sprint.id);
+    const sprint = await createSprint({ projectId: testEnv.projectId, name: 'Dup Order Test' });
+    const ticket = await addTicket({ title: 'Ticket' }, sprint.id);
+    await addTask({ name: 'Task A', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
+    await addTask({ name: 'Task B', ticketId: ticket.id, repoId: testEnv.repoId }, sprint.id);
 
     // Manually set both tasks to order 1 to create a duplicate
     const tasks = await getTasks(sprint.id);

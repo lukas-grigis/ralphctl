@@ -1,7 +1,8 @@
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { muted } from '@src/integration/ui/theme/theme.ts';
 import { getTicket, TicketNotFoundError } from '@src/integration/persistence/ticket.ts';
-import { getProject } from '@src/integration/persistence/project.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
+import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { selectTicket } from '@src/integration/cli/commands/shared/selectors.ts';
 import { badge, icons, labelValue, log, renderCard, showError, showNextStep } from '@src/integration/ui/theme/ui.ts';
 
@@ -29,30 +30,28 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
 
   const reqBadge = ticket.requirementStatus === 'approved' ? badge('approved', 'success') : badge('pending', 'muted');
 
-  // Ticket info card
+  // Resolve project via current sprint (project is inherited).
+  const sprintR = await wrapAsync(() => getCurrentSprintOrThrow(), ensureError);
+  const projectR = sprintR.ok ? await wrapAsync(() => getProjectById(sprintR.value.projectId), ensureError) : null;
+
   const infoLines: string[] = [labelValue('ID', ticket.id)];
-  infoLines.push(labelValue('Project', ticket.projectName));
   infoLines.push(labelValue('Requirements', reqBadge));
 
   if (ticket.link) {
     infoLines.push(labelValue('Link', ticket.link));
   }
 
-  // Repositories
-  const projectR = await wrapAsync(() => getProject(ticket.projectName), ensureError);
-  if (projectR.ok) {
+  if (projectR?.ok) {
     infoLines.push('');
+    infoLines.push(labelValue('Project', `${projectR.value.displayName} (${projectR.value.name})`));
     for (const repo of projectR.value.repositories) {
       infoLines.push(`  ${icons.bullet} ${repo.name} ${muted('→')} ${muted(repo.path)}`);
     }
-  } else {
-    infoLines.push(labelValue('Repositories', muted('(project not found)')));
   }
 
   log.newline();
   console.log(renderCard(`${icons.ticket} ${ticket.title}`, infoLines));
 
-  // Description card (if present)
   if (ticket.description) {
     log.newline();
     const descLines: string[] = [];
@@ -62,12 +61,14 @@ export async function ticketShowCommand(args: string[]): Promise<void> {
     console.log(renderCard(`${icons.edit} Description`, descLines));
   }
 
-  // Affected repositories card (if set from planning)
-  if (ticket.affectedRepositories && ticket.affectedRepositories.length > 0) {
+  // Affected repos (from planning) — resolve ids to names for display.
+  if (ticket.affectedRepoIds && ticket.affectedRepoIds.length > 0 && projectR?.ok) {
     log.newline();
     const affectedLines: string[] = [];
-    for (const repoPath of ticket.affectedRepositories) {
-      affectedLines.push(`${icons.bullet} ${repoPath}`);
+    const byId = new Map(projectR.value.repositories.map((r) => [r.id, r]));
+    for (const repoId of ticket.affectedRepoIds) {
+      const repo = byId.get(repoId);
+      affectedLines.push(`${icons.bullet} ${repo ? `${repo.name} ${muted(`(${repo.path})`)}` : repoId}`);
     }
     console.log(renderCard(`${icons.project} Affected Repositories`, affectedLines));
   }

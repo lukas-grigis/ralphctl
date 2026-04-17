@@ -89,7 +89,7 @@ export function createPerTaskPipeline(
   options: ExecutionOptions = {}
 ): PipelineDefinition<PerTaskContext> {
   return pipeline<PerTaskContext>('per-task', [
-    branchPreflight({ external: deps.external }),
+    branchPreflight({ external: deps.external, persistence: deps.persistence }),
     contractNegotiate({ persistence: deps.persistence, fs: deps.fs }),
     markInProgress({ persistence: deps.persistence, signalBus: deps.signalBus }),
     executeTask({ useCase, options, taskSessionIds: deps.taskSessionIds, logger: deps.logger }),

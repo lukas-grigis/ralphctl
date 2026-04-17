@@ -14,6 +14,7 @@ function makeSprint(): Sprint {
   return {
     id: 's1',
     name: 'Sprint',
+    projectId: 'proj-1',
     status: 'active',
     createdAt: '',
     activatedAt: null,
@@ -33,7 +34,7 @@ function makeTask(): Task {
     status: 'in_progress',
     order: 1,
     blockedBy: [],
-    projectPath: '/repo',
+    repoId: 'repo-1',
     verified: true,
     evaluated: false,
   };
@@ -128,6 +129,8 @@ describe('evaluateTask step', () => {
       getTasks: vi.fn(() => Promise.resolve([task])),
       saveTasks: vi.fn(() => Promise.resolve()),
       writeEvaluation: vi.fn(() => Promise.resolve()),
+      resolveRepoPath: vi.fn(() => Promise.resolve('/repo')),
+      getRepoById: vi.fn(() => Promise.reject(new Error('not configured'))),
     };
 
     const spawnWithRetry = vi.fn(() =>

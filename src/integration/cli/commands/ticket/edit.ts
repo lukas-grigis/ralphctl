@@ -66,8 +66,7 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
 
   if (isInteractive) {
     // Show current ticket info
-    console.log(`\n  Editing: ${formatTicketDisplay(ticket)}`);
-    console.log(muted(`  Project: ${ticket.projectName} (read-only)\n`));
+    console.log(`\n  Editing: ${formatTicketDisplay(ticket)}\n`);
 
     // Prompt for each field with current value as default
     newTitle = await getPrompt().input({
@@ -164,7 +163,6 @@ export async function ticketEditCommand(ticketId?: string, options: TicketEditOp
   showSuccess('Ticket updated!', [
     ['ID', updated.id],
     ['Title', updated.title],
-    ['Project', updated.projectName],
   ]);
 
   if (updated.description) {

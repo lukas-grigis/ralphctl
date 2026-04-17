@@ -197,9 +197,9 @@ function countPlannedTickets(sprint: Sprint, tasks: Tasks): number {
 function groupTasksByPath(tasks: Tasks): Map<string, Tasks> {
   const map = new Map<string, Tasks>();
   for (const task of tasks) {
-    const list = map.get(task.projectPath) ?? [];
+    const list = map.get(task.repoId) ?? [];
     list.push(task);
-    map.set(task.projectPath, list);
+    map.set(task.repoId, list);
   }
   return map;
 }

@@ -18,6 +18,7 @@ import { getSharedDeps, getPrompt } from '@src/application/bootstrap.ts';
 import { PromptCancelledError } from '@src/business/ports/prompt.ts';
 import { closeSprint, getSprint } from '@src/integration/persistence/sprint.ts';
 import { areAllTasksDone, listTasks } from '@src/integration/persistence/task.ts';
+import { resolveRepoPath } from '@src/integration/persistence/project.ts';
 import { branchExists, getDefaultBranch, isGhAvailable } from '@src/integration/external/git.ts';
 import { assertSafeCwd } from '@src/integration/persistence/paths.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
@@ -333,7 +334,12 @@ async function createPullRequests(
   }
 
   const tasks = await listTasks(sprintId);
-  const uniquePaths = [...new Set(tasks.map((t) => t.projectPath))];
+  const uniqueRepoIds = [...new Set(tasks.map((t) => t.repoId))];
+  const uniquePaths: string[] = [];
+  for (const repoId of uniqueRepoIds) {
+    const p = await resolveRepoPath(repoId).catch(() => null);
+    if (p) uniquePaths.push(p);
+  }
   const results: PrResult[] = [];
 
   for (const projectPath of uniquePaths) {

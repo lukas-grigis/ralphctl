@@ -1,4 +1,4 @@
-import type { ImportTask, Repository, Task, Ticket } from '@src/domain/models.ts';
+import type { ImportTask, Project, Repository, Task, Ticket } from '@src/domain/models.ts';
 import { DomainError, ParseError, ProjectNotFoundError, SprintStatusError } from '@src/domain/errors.ts';
 import { Result } from '@src/domain/types.ts';
 import type { IdeateOptions, PlanOptions } from '@src/domain/context.ts';
@@ -87,30 +87,30 @@ export class PlanSprintTasksUseCase {
         }
       }
 
-      // 5. Get repositories from projects
-      const ticketsByProject = groupTicketsByProject(ticketsToProcess);
-      const reposByProject = new Map<string, Repository[]>();
-      const defaultPaths: string[] = [];
-
-      for (const ticket of ticketsToProcess) {
-        if (reposByProject.has(ticket.projectName)) continue;
-        try {
-          const project = await this.persistence.getProject(ticket.projectName);
-          reposByProject.set(ticket.projectName, project.repositories);
-          if (project.repositories[0]) defaultPaths.push(project.repositories[0].path);
-        } catch {
-          // Project not found — skip silently
-        }
+      // 5. Get repositories from the sprint's project (every sprint is scoped
+      // to exactly one project post repoId migration).
+      let project: Project;
+      try {
+        project = await this.persistence.getProjectById(sprint.projectId);
+      } catch {
+        return Result.error(new ProjectNotFoundError(sprint.projectId));
       }
 
+      const reposById = new Map(project.repositories.map((r) => [r.id, r] as const));
+      const reposByPath = new Map(project.repositories.map((r) => [r.path, r] as const));
+      const reposByProject = new Map<string, Repository[]>();
+      reposByProject.set(project.name, project.repositories);
+      const firstRepo = project.repositories[0];
+      const defaultPaths: string[] = firstRepo ? [firstRepo.path] : [];
+
       // 6. Select paths
-      const savedPaths = collectSavedPaths(ticketsToProcess);
+      const savedPaths = collectSavedPaths(ticketsToProcess, reposById);
       const hasSavedSelection = savedPaths.size > 0;
-      const totalRepos = [...reposByProject.values()].reduce((n, repos) => n + repos.length, 0);
+      const totalRepos = project.repositories.length;
 
       let selectedPaths: string[];
       if (options?.allPaths) {
-        selectedPaths = [...reposByProject.values()].flatMap((repos) => repos.map((r) => r.path));
+        selectedPaths = project.repositories.map((r) => r.path);
       } else if (options?.auto) {
         selectedPaths = hasSavedSelection ? [...savedPaths] : defaultPaths;
       } else if (totalRepos === defaultPaths.length) {
@@ -123,20 +123,15 @@ export class PlanSprintTasksUseCase {
         );
       }
 
-      // 7. Persist selected paths to tickets
+      // 7. Persist selected repos to tickets as `affectedRepoIds`
+      const selectedRepoIds = selectedPaths.map((p) => reposByPath.get(p)?.id).filter((id): id is string => !!id);
       for (const ticket of ticketsToProcess) {
-        const projectRepos = reposByProject.get(ticket.projectName);
-        if (projectRepos) {
-          const projectRepoPaths = new Set(projectRepos.map((r) => r.path));
-          ticket.affectedRepositories = selectedPaths.filter((p) => projectRepoPaths.has(p));
-        } else {
-          ticket.affectedRepositories = [];
-        }
+        ticket.affectedRepoIds = selectedRepoIds;
       }
       await this.persistence.saveSprint(sprint);
 
       // 8. Build sprint context
-      const context = await this.buildSprintContext(sprint.name, ticketsByProject, existingTasks);
+      const context = await this.buildSprintContext(sprint.name, project, ticketsToProcess, existingTasks, reposById);
       const schemaPath = this.fs.getSchemaPath('task-import.schema.json');
       const schema = await this.fs.readFile(schemaPath);
       const projectToolingSection = this.external.detectProjectTooling(selectedPaths);
@@ -253,52 +248,47 @@ export class PlanSprintTasksUseCase {
 
   private async buildSprintContext(
     sprintName: string,
-    ticketsByProject: Map<string, Ticket[]>,
-    existingTasks: Task[]
+    project: Project,
+    tickets: Ticket[],
+    existingTasks: Task[],
+    reposById: Map<string, Repository>
   ): Promise<string> {
     const lines: string[] = [];
     lines.push(`# Sprint: ${sprintName}`);
+    await Promise.resolve(); // keep method async — call sites await
 
-    for (const [projectName, tickets] of ticketsByProject) {
-      lines.push('');
-      lines.push(`## Project: ${projectName}`);
-
-      try {
-        const project = await this.persistence.getProject(projectName);
-        lines.push('');
-        lines.push('### Repositories');
-        for (const repo of project.repositories) {
-          lines.push(`- **${repo.name}**: ${repo.path}`);
-          if (repo.checkScript) {
-            lines.push(`  - Check: \`${repo.checkScript}\``);
-          }
-        }
-      } catch {
-        lines.push('Repositories: (project not found)');
+    lines.push('');
+    lines.push(`## Project: ${project.name}`);
+    lines.push('');
+    lines.push('### Repositories');
+    for (const repo of project.repositories) {
+      lines.push(`- **${repo.name}** (id=\`${repo.id}\`): ${repo.path}`);
+      if (repo.checkScript) {
+        lines.push(`  - Check: \`${repo.checkScript}\``);
       }
+    }
 
+    lines.push('');
+    lines.push('### Tickets');
+
+    for (const ticket of tickets) {
       lines.push('');
-      lines.push('### Tickets');
+      lines.push(`#### [${ticket.id}] ${ticket.title}`);
 
-      for (const ticket of tickets) {
+      if (ticket.description) {
         lines.push('');
-        lines.push(`#### [${ticket.id}] ${ticket.title}`);
-
-        if (ticket.description) {
-          lines.push('');
-          lines.push('**Original Description:**');
-          lines.push(ticket.description);
-        }
-        if (ticket.link) {
-          lines.push('');
-          lines.push(`Link: ${ticket.link}`);
-        }
-        if (ticket.requirements) {
-          lines.push('');
-          lines.push('**Refined Requirements:**');
-          lines.push('');
-          lines.push(ticket.requirements);
-        }
+        lines.push('**Original Description:**');
+        lines.push(ticket.description);
+      }
+      if (ticket.link) {
+        lines.push('');
+        lines.push(`Link: ${ticket.link}`);
+      }
+      if (ticket.requirements) {
+        lines.push('');
+        lines.push('**Refined Requirements:**');
+        lines.push('');
+        lines.push(ticket.requirements);
       }
     }
 
@@ -313,7 +303,8 @@ export class PlanSprintTasksUseCase {
       for (const task of existingTasks) {
         const desc = task.description ? ` — ${task.description}` : '';
         const ticket = task.ticketId ? ` ticket:${task.ticketId}` : '';
-        lines.push(`- ${task.id}: ${task.name} [${task.status}] (${task.projectPath})${ticket}${desc}`);
+        const repoPath = reposById.get(task.repoId)?.path ?? task.repoId;
+        lines.push(`- ${task.id}: ${task.name} [${task.status}] (${repoPath})${ticket}${desc}`);
       }
     }
 
@@ -357,18 +348,22 @@ export class IdeateAndPlanUseCase {
         );
       }
 
-      // 2. Resolve project
-      const projectName = options?.project;
-      if (!projectName) {
-        return Result.error(new ParseError('Project name is required for ideation.'));
-      }
-
+      // 2. Resolve project — every sprint is scoped to exactly one project
+      // via `sprint.projectId`. Legacy `options.project` is still accepted,
+      // but only as a cross-check: if it doesn't match the sprint's project
+      // we bail early.
       let project;
       try {
-        project = await this.persistence.getProject(projectName);
+        project = await this.persistence.getProjectById(sprint.projectId);
       } catch {
-        return Result.error(new ProjectNotFoundError(projectName));
+        return Result.error(new ProjectNotFoundError(sprint.projectId));
       }
+      if (options?.project && options.project !== project.name) {
+        return Result.error(
+          new ParseError(`Sprint belongs to project '${project.name}'; --project '${options.project}' does not match.`)
+        );
+      }
+      const projectName = project.name;
 
       // 3. Create ticket
       const ticketId = generateTicketId();
@@ -376,7 +371,6 @@ export class IdeateAndPlanUseCase {
         id: ticketId,
         title: idea.title,
         description: idea.description,
-        projectName,
         requirementStatus: 'pending',
       };
       sprint.tickets.push(ticket);
@@ -386,9 +380,9 @@ export class IdeateAndPlanUseCase {
 
       // 4. Select paths
       let selectedPaths: string[];
-      if (options.allPaths) {
+      if (options?.allPaths) {
         selectedPaths = project.repositories.map((r) => r.path);
-      } else if (options.auto) {
+      } else if (options?.auto) {
         selectedPaths = project.repositories.slice(0, 1).map((r) => r.path);
       } else if (project.repositories.length === 1) {
         selectedPaths = [project.repositories[0]?.path ?? ''];
@@ -398,11 +392,13 @@ export class IdeateAndPlanUseCase {
         selectedPaths = await this.ui.selectPaths(reposByProject, 'Select paths to explore:');
       }
 
-      // Save affected repositories
+      // Save affected repo ids
+      const reposByPath = new Map(project.repositories.map((r) => [r.path, r] as const));
+      const selectedRepoIds = selectedPaths.map((p) => reposByPath.get(p)?.id).filter((id): id is string => !!id);
       const updatedSprint = await this.persistence.getSprint(sprintId);
       const savedTicket = updatedSprint.tickets.find((t) => t.id === ticketId);
       if (savedTicket) {
-        savedTicket.affectedRepositories = selectedPaths;
+        savedTicket.affectedRepoIds = selectedRepoIds;
       }
       await this.persistence.saveSprint(updatedSprint);
 
@@ -434,7 +430,7 @@ export class IdeateAndPlanUseCase {
       let parsedTasks: ImportTask[];
 
       const stopSession = log.time('ai-ideate-session');
-      if (options.auto) {
+      if (options?.auto) {
         const result = await this.runAutoIdeation(context, schema, projectToolingSection, selectedPaths, ideateDir);
         requirements = result.requirements;
         parsedTasks = result.tasks;
@@ -570,22 +566,13 @@ export class IdeateAndPlanUseCase {
 // Helpers (pure functions, no infrastructure imports)
 // ---------------------------------------------------------------------------
 
-function groupTicketsByProject(tickets: Ticket[]): Map<string, Ticket[]> {
-  const grouped = new Map<string, Ticket[]>();
-  for (const ticket of tickets) {
-    const existing = grouped.get(ticket.projectName) ?? [];
-    existing.push(ticket);
-    grouped.set(ticket.projectName, existing);
-  }
-  return grouped;
-}
-
-function collectSavedPaths(tickets: Ticket[]): Set<string> {
+function collectSavedPaths(tickets: Ticket[], reposById: Map<string, Repository>): Set<string> {
   const paths = new Set<string>();
   for (const ticket of tickets) {
-    if (ticket.affectedRepositories) {
-      for (const path of ticket.affectedRepositories) {
-        paths.add(path);
+    if (ticket.affectedRepoIds) {
+      for (const repoId of ticket.affectedRepoIds) {
+        const repo = reposById.get(repoId);
+        if (repo) paths.add(repo.path);
       }
     }
   }

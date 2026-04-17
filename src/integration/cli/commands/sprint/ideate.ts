@@ -177,7 +177,7 @@ export async function sprintIdeateCommand(args: string[]): Promise<void> {
           description: t.description,
           steps: t.steps,
           verificationCriteria: t.verificationCriteria,
-          projectPath: t.projectPath,
+          repoId: t.repoId,
           ticketId: t.ticketId,
           blockedBy: t.blockedBy,
         }))

@@ -130,7 +130,6 @@ function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
   return {
     id: 'ticket-123',
     title: 'My Feature',
-    projectName: 'my-project',
     requirementStatus: 'approved',
     requirements: 'Existing requirements text',
     ...overrides,
@@ -141,6 +140,7 @@ function makeSprint(tickets: Ticket[] = [], overrides: Partial<Sprint> = {}): Sp
   return {
     id: '20240101-120000-test',
     name: 'Test Sprint',
+    projectId: 'prj00001',
     status: 'draft',
     createdAt: '2024-01-01T12:00:00Z',
     activatedAt: null,

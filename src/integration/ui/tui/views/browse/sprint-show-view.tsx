@@ -4,8 +4,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { Sprint, Tasks } from '@src/domain/models.ts';
+import type { Project, Sprint, Tasks } from '@src/domain/models.ts';
 import { getSprint, resolveSprintId } from '@src/integration/persistence/sprint.ts';
+import { getProjectById } from '@src/integration/persistence/project.ts';
 import { listTasks } from '@src/integration/persistence/task.ts';
 import { glyphs, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
@@ -21,7 +22,7 @@ interface Props {
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'ready'; sprint: Sprint; tasks: Tasks }
+  | { kind: 'ready'; sprint: Sprint; tasks: Tasks; project: Project | null }
   | { kind: 'error'; message: string };
 
 const TITLE = 'Sprint Details' as const;
@@ -37,7 +38,8 @@ export function SprintShowView({ sprintId }: Props): React.JSX.Element {
       try {
         const id = await resolveSprintId(sprintId);
         const [sprint, tasks] = await Promise.all([getSprint(id), listTasks(id)]);
-        if (!ctl.cancelled) setState({ kind: 'ready', sprint, tasks });
+        const project = await getProjectById(sprint.projectId).catch(() => null);
+        if (!ctl.cancelled) setState({ kind: 'ready', sprint, tasks, project });
       } catch (err) {
         if (!ctl.cancelled) setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
       }
@@ -54,7 +56,8 @@ function renderBody(state: State): React.JSX.Element {
   if (state.kind === 'loading') return <Spinner label="Loading sprint…" />;
   if (state.kind === 'error') return <ResultCard kind="error" title="Could not load sprint" lines={[state.message]} />;
 
-  const { sprint, tasks } = state;
+  const { sprint, tasks, project } = state;
+  const projectLabel = project ? `${project.displayName} (${project.name})` : sprint.projectId;
   const approved = sprint.tickets.filter((t) => t.requirementStatus === 'approved').length;
   const done = tasks.filter((t) => t.status === 'done').length;
 
@@ -69,6 +72,7 @@ function renderBody(state: State): React.JSX.Element {
         <FieldList
           fields={[
             ['ID', sprint.id],
+            ['Project', projectLabel],
             ['Created', sprint.createdAt],
             ['Activated', sprint.activatedAt ?? glyphs.emDash],
             ['Closed', sprint.closedAt ?? glyphs.emDash],

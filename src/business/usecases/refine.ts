@@ -49,11 +49,20 @@ export class RefineTicketRequirementsUseCase {
         return Result.ok({ approved: 0, skipped: 0, total: 0, allApproved: false });
       }
 
-      // 2. Get pending tickets, optionally filtered by project
+      // 2. Get pending tickets. The sprint is scoped to exactly one project
+      // (sprint.projectId); the `--project` filter is retained as a legacy
+      // knob but is either a match for the sprint's project or a no-op.
       let pendingTickets = sprint.tickets.filter((t) => t.requirementStatus === 'pending');
 
       if (options?.project) {
-        pendingTickets = pendingTickets.filter((t) => t.projectName === options.project);
+        try {
+          const filterProject = await this.persistence.getProject(options.project);
+          if (filterProject.id !== sprint.projectId) {
+            pendingTickets = [];
+          }
+        } catch {
+          pendingTickets = [];
+        }
       }
 
       if (pendingTickets.length === 0) {
@@ -143,13 +152,14 @@ export class RefineTicketRequirementsUseCase {
   ): Promise<'approved' | 'skipped'> {
     // Show ticket info
     this.logger.info(`Ticket: [${ticket.id}] ${ticket.title}`);
-    this.logger.info(`Project: ${ticket.projectName}`);
 
-    // Validate project exists
+    // Validate sprint's project exists
+    let project;
     try {
-      await this.persistence.getProject(ticket.projectName);
+      project = await this.persistence.getProjectById(sprint.projectId);
+      this.logger.info(`Project: ${project.name}`);
     } catch {
-      this.logger.warning(`Project '${ticket.projectName}' not found. Skipping.`);
+      this.logger.warning(`Project (id=${sprint.projectId}) not found. Skipping.`);
       return 'skipped';
     }
 
@@ -307,7 +317,6 @@ export class RefineTicketRequirementsUseCase {
   private formatTicketForPrompt(ticket: Ticket): string {
     const lines: string[] = [];
     lines.push(`### [${ticket.id}] ${ticket.title}`);
-    lines.push(`Project: ${ticket.projectName}`);
 
     if (ticket.description) {
       lines.push('');
