@@ -60,15 +60,15 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   from outer layers. Use cases depend on service ports (`src/business/ports/`); repository interfaces are pure-domain
   (every port lives in `src/business/ports/`). Concrete adapters live under `src/integration/`.
 - **Pipelines are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, evaluate, execute)
-  is a composable `PipelineDefinition` in `src/business/pipelines/`. Each pipeline is a named list of steps composed
-  via `pipeline()` / `step()` from `src/business/pipelines/framework/helpers.ts`, with shared building blocks in
-  `src/business/pipelines/steps/`. CLI commands and TUI views invoke `createXxxPipeline()` factories from
-  `src/application/factories.ts` and call `executePipeline(...)` — never `useCase.execute()` directly. An ESLint
-  `no-restricted-imports` fence in `eslint.config.js` enforces this boundary (type-only imports allowed). Extend
-  pipelines with `insertBefore` / `insertAfter` / `replace` (pure builders) rather than rewriting the step array.
-  Use `nested(pipeline)` to embed one pipeline as a step of another (composite pattern); use `forEachTask()` to
-  fan out an inner pipeline per item with mutex-keyed concurrency, retry policy, and a shared rate-limit
-  coordinator + signal-bus lifecycle.
+  is a composable `PipelineDefinition` in `src/business/pipelines/`, composed via `pipeline()` / `step()` from
+  `src/business/pipelines/framework/helpers.ts` with shared building blocks in `src/business/pipelines/steps/`. CLI
+  commands and TUI views invoke `createXxxPipeline()` factories from `src/application/factories.ts` and call
+  `executePipeline(...)` — never `useCase.execute()` directly. An ESLint `no-restricted-imports` fence in
+  `eslint.config.js` enforces the boundary (type-only imports allowed).
+- **Pipeline framework primitives** — extend with `insertBefore` / `insertAfter` / `replace` (pure builders) rather
+  than rewriting the step array. Use `nested(pipeline)` to embed one pipeline as a step of another (composite
+  pattern); use `forEachTask()` to fan out an inner pipeline per item with mutex-keyed concurrency, retry policy,
+  and a shared rate-limit coordinator + signal-bus lifecycle.
 - **Integration tests lock step order** — each pipeline has a test under `src/business/pipelines/*.test.ts` that
   asserts `stepResults.map(r => r.stepName)` on the happy path and failure paths. These tests are the architectural
   fence that prevents silent bypass — docs alone aren't enforcement.
@@ -242,14 +242,9 @@ Claude session starts)
 
 ## Custom Agents
 
-> `.claude/` assets (agents + skills) are for **developing ralphctl**, not for extending its runtime. They help
-> Claude Code assist a contributor working on ralphctl's own TypeScript. They are not shipped to npm and have no
-> effect on ralphctl's behaviour when it orchestrates AI sessions for downstream projects. Concrete contrast:
-> `@agent-implementer` helps write ralphctl source code; there is no corresponding `/new-sprint` skill because
-> creating a sprint is a ralphctl CLI action (`ralphctl sprint create`), not a Claude Code skill.
-
-Six specialized agents live in `.claude/agents/` (auditor, designer, implementer, planner, reviewer, tester). Each
-frontmatter carries its own trigger description — invoke via the Task tool with the matching `subagent_type`.
+Six specialized agents in `.claude/agents/` (auditor, designer, implementer, planner, reviewer, tester) — invoke via
+the Task tool with the matching `subagent_type`. These are contributor-side tooling for working on ralphctl's own
+source; they are not shipped to npm and do not affect ralphctl's runtime behavior.
 
 ## UI Patterns
 
@@ -277,31 +272,9 @@ See `.claude/agents/designer.md` for the designer agent's role.
 
 ### Repository layout
 
-```
-src/
-├── domain/           # Pure — models, errors, signals, IDs, config-schema, exit-codes, cli-metadata
-├── business/
-│   ├── ports/        # Every interface business logic depends on
-│   ├── usecases/     # refine, plan (+ ideate), execute, evaluate
-│   └── pipelines/    # framework/, steps/, execute/, + refine/plan/ideate/evaluate/execute.ts
-├── integration/      # Adapters, UI, 3rd-party glue
-│   ├── persistence/  # File-backed repo + paths/storage/file-lock/requirements-export
-│   ├── ai/           # providers/, session/, output/, prompts/, evaluator.ts, project-tooling.ts
-│   ├── external/     # git, gh/glab, issue-fetch, provider resolution, lifecycle, detect-scripts
-│   ├── signals/      # parser, bus, file-system-handler
-│   ├── logging/      # plain-text-sink, json-logger, ink-sink, factory
-│   ├── ui/           # theme/, prompts/, tui/ (runtime + components + views)
-│   ├── cli/          # commands/ (per-group register.ts), completion/ (tabtab)
-│   ├── config/       # schema-provider.ts
-│   ├── bootstrap.ts  # getSharedDeps / setSharedDeps / getPrompt singleton accessor
-│   ├── shared-deps.ts
-│   ├── filesystem-adapter.ts
-│   └── user-interaction-adapter.ts
-└── application/      # Composition root
-    ├── entrypoint.ts # Commander wiring + main(); decides when to mount Ink vs Commander
-    ├── shared.ts     # createSharedDeps() — builds the default adapter graph
-    └── factories.ts  # Pipeline factories
-```
+See [`ARCHITECTURE.md § Clean Architecture Layers`](.claude/docs/ARCHITECTURE.md) for the annotated `src/` tree and
+the per-port adapter map. Top-level: `domain/` (pure) → `business/` (ports, usecases, pipelines) → `integration/`
+(adapters, UI, CLI) → `application/` (composition root).
 
 ## Task Execution Signals
 
