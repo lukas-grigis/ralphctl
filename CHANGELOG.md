@@ -7,26 +7,116 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### ⚠ BREAKING
+
+- **Sprints are now scoped to a single project.** Sprint carries a `projectId`; tickets and tasks inherit
+  project context. All cross-entity references use IDs instead of slug names. Old sprints missing
+  `projectId` need a manual migration — there is no compatibility shim in this release. Rationale: the
+  previous slug-based coupling silently broke when project names changed, and cross-project sprints were
+  never a supported workflow in practice.
+
+### Added
+
+- **Composable pipelines.** Every user-triggered workflow (refine, plan, ideate, evaluate, execute) is now
+  a composable `PipelineDefinition` under `src/business/pipelines/`. Framework primitives —
+  `step` / `pipeline` / `nested` / `forEachTask` / `insertBefore` / `insertAfter` / `replace` / `renameStep` —
+  live in `src/business/pipelines/framework/`; shared steps in `src/business/pipelines/steps/`. An ESLint
+  fence blocks CLI / TUI from calling use cases directly.
+- **Ink TUI.** Bare `ralphctl`, `ralphctl interactive`, and `ralphctl sprint start` mount a full-screen Ink
+  application that takes over the terminal (alt-screen buffer, restored on exit). Includes: pipeline map
+  Home, per-phase detail views, live execution dashboard, settings panel (`s`), global doctor hotkey (`?`),
+  browse views for every entity with housekeeping CRUD, first-run onboarding wizard, npm version hint with
+  24h cache, inline multi-line editor (Claude Code-style), sprint-show hub with per-sprint surfaces.
+- **PromptPort + InkPromptAdapter.** One abstraction for every interactive prompt. Auto-mounts a minimal
+  `<PromptHost />` for one-shot CLI commands; non-TTY environments throw `PromptCancelledError`.
+- **LoggerPort with three sinks.** `PlainTextSink` (TTY one-shot CLI), `JsonLogger` (non-TTY / CI —
+  one JSON object per line), `InkSink` (routes through the Ink event bus when mounted).
+- **Structured harness signals.** Fixed discriminated union in `src/domain/signals.ts`
+  (`ProgressSignal` / `EvaluationSignal` / `TaskCompleteSignal` / `TaskVerifiedSignal` / `TaskBlockedSignal` /
+  `NoteSignal`). Adding a signal variant is a compile-time-enforced code change. `InMemorySignalBus`
+  micro-batches emissions at ~16ms so the dashboard re-render stays smooth.
+- **Config schema as single source of truth.** All keys defined in `src/domain/config-schema.ts` with type,
+  default, description, and validation. `doctor`, `config show`, `config set`, and the Ink settings panel
+  are all schema-driven — adding a key is a single edit.
+- **Live config mid-execution (REQ-12).** `ExecuteTasksUseCase.getEvaluationConfig()` reads config fresh on
+  every task settlement. Editing `evaluationIterations` in the settings panel during a run applies to the
+  next task with no restart.
+- **Per-task sprint contracts** written to `<sprintDir>/contracts/<taskId>.md` — a stable grading surface
+  the evaluator references instead of re-deriving expectations from prompts.
+- **Evaluator plateau detection** — short-circuits the eval loop when a critique stops improving between
+  iterations.
+- **Session-id resume across rate-limit pauses** — running task keeps its full context when the provider
+  restarts.
+- **Per-task evaluator dimensions** — four floor dimensions on every task (Correctness / Completeness /
+  Safety / Consistency) plus planner-emitted `extraDimensions` for non-default success criteria
+  (e.g. Performance, Accessibility).
+- **Branch management.** `sprint start` prompts for branch strategy on first run; `--branch` auto-generates
+  `ralphctl/<sprint-id>`; `--branch-name` for custom names; per-repo pre-flight verification;
+  `sprint close --create-pr` opens PRs for sprint branches.
+- **Management hotkeys on list + detail views** for tickets, tasks, sprints, and projects. Task-status
+  hotkey renamed `s` → `t` to free `s` for the global settings panel.
+
 ### Changed
 
+- **Clean Architecture.** Codebase now has four inward-pointing layers: `domain` (pure models,
+  errors, signals) ← `business` (use cases + every port under `src/business/ports/`) ←
+  `integration` (adapters, UI, 3rd-party glue) ← `application` (composition root). Every port has a single
+  adapter under `src/integration/`. Use cases return `Result<T, DomainError>`; no throws at the boundary.
+- **Claude provider defaults to `--effort xhigh`** for Opus 4.7 plans. Lower effort levels are mapped down
+  for older models.
+- **Prompts aligned with Opus 4.7's literal interpretation** — every template (`task-execution`,
+  `task-evaluation`, `task-evaluation-resume`, `plan-auto`, `plan-interactive`, `ideate`, `ideate-auto`,
+  `ticket-refine`, `sprint-feedback`) and the shared partials were rewritten to flip residual negatives
+  and eliminate ambiguity. Check-script and Project Tooling context are now threaded into both the
+  task-execution and evaluator prompts.
+- **Evaluator model ladder** — pinned opus-4-7 → sonnet; documented the full ladder
+  (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku for Claude; Copilot spawns without model override).
+- **Rate-limit coordinator** lives behind the `SharedDeps` factory so executor and evaluator share one
+  coordinator. New task launches pause globally when any task hits a rate limit.
+- **TUI design system.** All views compose through `ViewShell` + `useViewHints` — consistent spacing,
+  borders, and hotkey hints. Hardcoded glyphs / spacing / colors swept out of components in favour of
+  theme tokens.
 - **Source tree restructure — one home per concept.** Collapsed `src/business/pipeline/` (singular) into
-  `src/business/pipelines/framework/` so there's no more pipeline-vs-pipelines confusion. Moved
-  `src/domain/repositories/` into `src/business/ports/` — every interface business logic depends on now lives in
-  one folder. Carved `src/integration/ai/`'s 20-file dump into `session/`, `output/`, `prompts/`, `providers/`
-  with three leaf files. Unified all interactive-prompt UI under `src/integration/ui/prompts/` (was a separate
-  top-level `prompts/`) and merged the split `ui/theme/` + `ui/tui/theme/` directories. Drained
+  `src/business/pipelines/framework/`. Moved `src/domain/repositories/` into `src/business/ports/` so
+  every interface business logic depends on lives in one folder. Carved `src/integration/ai/`'s 20-file
+  dump into `session/`, `output/`, `prompts/`, `providers/`. Unified all interactive-prompt UI under
+  `src/integration/ui/prompts/`. Merged the split `ui/theme/` + `ui/tui/theme/` directories. Drained
   `src/integration/utils/` to its logical homes (`ids` → domain, `exit-codes` → application,
-  `detect-scripts` → external). Hoisted one-file directories (`filesystem/`, `user-interaction/`) into flat
-  adapter files. Dead `multiline.ts` deleted. `lifecycle.ts` (shell-exec for checkScripts) moved out of
-  `ai/` and into `external/` where it actually belongs.
+  `detect-scripts` → external). Hoisted one-file directories into flat adapter files. Deleted dead
+  `multiline.ts`. Moved `lifecycle.ts` (shell-exec for checkScripts) from `ai/` to `external/`.
+- **No barrel files.** Every import points to its source module directly.
+- **Full-screen responsive TUI** — dropped the content-width cap.
+- **Settings panel is the single configuration entry** — redundant `config set` TUI surface removed.
+
+### Fixed
+
+- `SelectPrompt` commits the highlighted row, not the stale default.
+- Router hotkeys disable while a prompt is pending.
+- Arrow keys cycle through every phase in the pipeline map.
+- Spinner no longer leaks through prompts.
+- Plan/ideate plain-text output no longer bleeds into the Ink alt-screen.
+- Close-phase Enter pops back when the sprint is already closed.
+- `useViewHints` infinite render loop broken.
+- Banner pinned to router shell (stops stale-closure refine fallthrough); content column recentered;
+  gradient + quote memoized per mount.
+- `sprint-feedback` prompt rewritten so user feedback actually lands in the AI session.
+- AI provider resolved lazily before sync getters.
+
+### Removed
+
+- Legacy `ai/executor` + runner (unreachable after the pipeline migration).
+- `src/interactive/` (superseded by the Ink TUI); `ora` dependency; every direct `@inquirer/prompts`
+  import (now routed through `PromptPort`).
+- Pre-generated JSON schema mirrors under `schemas/` — regenerate on demand from Zod.
+- Dead `parallelMap` pipeline primitive and the `__services` magic context key.
+
+### Documentation
+
 - **Sequence diagrams split per pipeline.** Replaced the 260-line monolith `seq.puml` with
-  `seq-refine.puml`, `seq-plan.puml`, `seq-ideate.puml`, `seq-evaluate.puml`, and `seq-execute.puml` — each
-  1:1 with a pipeline definition under `src/business/pipelines/`. Retired the aspirational `target-seq.puml`
-  (most TODOs shipped; remainder tracked in `ARCHITECTURE.md` "Future Work"). Retired the stale
-  `next-session-plan.md` handoff.
-- **Docs synced to the new shape.** `CLAUDE.md`, `ARCHITECTURE.md`, and `REQUIREMENTS.md` now match the
-  restructured tree. `ARCHITECTURE.md` step-order table links to the per-pipeline diagrams and lists the
-  `contract-negotiate` step it was missing.
+  `seq-refine.puml`, `seq-plan.puml`, `seq-ideate.puml`, `seq-evaluate.puml`, and `seq-execute.puml` —
+  each 1:1 with a pipeline definition under `src/business/pipelines/`.
+- **CLAUDE.md / ARCHITECTURE.md / REQUIREMENTS.md** rewritten to match the new shape. The step-order
+  table in `ARCHITECTURE.md` links to the per-pipeline diagrams and covers every pipeline step.
 
 ## [0.2.5] - 2026-04-09
 
