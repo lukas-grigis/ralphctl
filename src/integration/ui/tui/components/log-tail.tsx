@@ -10,6 +10,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { LogEvent, LogEventLevel } from '@src/integration/ui/tui/runtime/event-bus.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
+import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 
 interface Props {
   events: readonly LogEvent[];
@@ -36,7 +37,7 @@ function levelColor(level: LogEventLevel): string | undefined {
   }
 }
 
-function renderLine(event: LogEvent, index: number): React.JSX.Element | null {
+function renderLine(event: LogEvent, index: number, isActiveSpinner: boolean): React.JSX.Element | null {
   switch (event.kind) {
     case 'log':
       return (
@@ -73,6 +74,13 @@ function renderLine(event: LogEvent, index: number): React.JSX.Element | null {
     case 'newline':
       return <Text key={index}> </Text>;
     case 'spinner-start':
+      if (isActiveSpinner) {
+        return (
+          <Box key={index}>
+            <Spinner label={event.message} color={inkColors.info} />
+          </Box>
+        );
+      }
       return (
         <Text key={index} color={inkColors.info}>
           {glyphs.phaseDisabled} {event.message}
@@ -103,10 +111,28 @@ function renderLine(event: LogEvent, index: number): React.JSX.Element | null {
 export function LogTail({ events, limit = 8 }: Props): React.JSX.Element {
   const tail = events.slice(-limit);
 
+  // A spinner-start is "active" if no later event with the same id has
+  // resolved it (succeed/fail/stop). Scan the full events array — not just
+  // the tail — so a spinner whose terminator got trimmed still counts as
+  // resolved.
+  const resolvedIds = new Set<number>();
+  for (const ev of events) {
+    if (ev.kind === 'spinner-succeed' || ev.kind === 'spinner-fail' || ev.kind === 'spinner-stop') {
+      resolvedIds.add(ev.id);
+    }
+  }
+
   return (
     <Box flexDirection="column">
       <Text dimColor>── Log ─────────────────────────────</Text>
-      {tail.length === 0 ? <Text dimColor>(no activity yet)</Text> : tail.map((event, i) => renderLine(event, i))}
+      {tail.length === 0 ? (
+        <Text dimColor>(no activity yet)</Text>
+      ) : (
+        tail.map((event, i) => {
+          const active = event.kind === 'spinner-start' && !resolvedIds.has(event.id);
+          return renderLine(event, i, active);
+        })
+      )}
     </Box>
   );
 }
