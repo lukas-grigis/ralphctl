@@ -74,14 +74,13 @@ export class RefineTicketRequirementsUseCase {
         }
       }
 
-      // 4. If all approved, export requirements markdown
+      // 4. Determine whether every ticket is now approved. Exporting the
+      // requirements markdown is the pipeline's job (see
+      // `src/business/pipelines/refine.ts` `export-requirements` step) — this
+      // use case only reports the state.
       const updatedSprint = await this.persistence.getSprint(sprintId);
       const remainingPending = updatedSprint.tickets.filter((t) => t.requirementStatus === 'pending');
       const allApproved = remainingPending.length === 0;
-
-      if (allApproved) {
-        await this.exportRequirements(updatedSprint);
-      }
 
       return Result.ok({
         approved,
@@ -284,7 +283,17 @@ export class RefineTicketRequirementsUseCase {
     return lines.join('\n');
   }
 
-  private async exportRequirements(sprint: Sprint): Promise<void> {
+  /**
+   * Export the sprint's approved requirements to `requirements.md`.
+   *
+   * Called by the `export-requirements` pipeline step after `execute()`
+   * reports `allApproved`. Kept on the use case (rather than inlined into
+   * the step) so the file-layout / formatting concerns live with the rest
+   * of the refinement workflow. Failures are swallowed with a warning —
+   * the markdown export is a convenience artifact, not a correctness
+   * guarantee.
+   */
+  async exportRequirements(sprint: Sprint): Promise<void> {
     const sprintDir = this.fs.getSprintDir(sprint.id);
     const outputPath = `${sprintDir}/requirements.md`;
 

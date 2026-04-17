@@ -23,5 +23,28 @@ export default tseslint.config(
   },
   {
     ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.js', '*.config.ts'],
+  },
+  // Architectural fence: CLI commands and TUI views must go through
+  // pipeline factories, never import use cases directly. Use cases are
+  // an implementation detail of the pipelines; the CLI/UI layer should
+  // treat `src/application/factories.ts` as the public seam.
+  {
+    files: ['src/integration/cli/**/*.ts', 'src/integration/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/business/usecases/*', '@src/business/usecases/*'],
+              message:
+                'CLI commands and TUI views must call pipeline factories, not use cases directly. Import from @src/application/factories.ts instead.',
+              allowTypeImports: true,
+            },
+          ],
+        },
+      ],
+    },
   }
 );

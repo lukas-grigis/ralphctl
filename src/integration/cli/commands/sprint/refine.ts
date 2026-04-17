@@ -12,7 +12,8 @@ import {
 } from '@src/integration/ui/theme/ui.ts';
 import { resolveSprintId, getSprint } from '@src/integration/persistence/sprint.ts';
 import { getSharedDeps } from '@src/application/bootstrap.ts';
-import { createRefineUseCase } from '@src/application/factories.ts';
+import { createRefinePipeline } from '@src/application/factories.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 
 interface RefineOptions {
   project?: string;
@@ -56,10 +57,12 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   console.log(field('ID', sprint.id));
   log.newline();
 
-  // Execute use case
+  // Execute the refine pipeline (load-sprint → assert-draft → refine-tickets
+  // → export-requirements). Pipeline owns orchestration; this command just
+  // renders the result.
   const shared = getSharedDeps();
-  const useCase = createRefineUseCase(shared);
-  const result = await useCase.execute(id, { project: options.project });
+  const pipeline = createRefinePipeline(shared, { project: options.project });
+  const result = await executePipeline(pipeline, { sprintId: id });
 
   if (!result.ok) {
     showError(result.error.message);
@@ -67,7 +70,12 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const summary = result.value;
+  const summary = result.value.context.refineSummary;
+  if (!summary) {
+    showError('Refinement completed without producing a summary.');
+    log.newline();
+    return;
+  }
 
   // Display summary
   printSeparator(60);

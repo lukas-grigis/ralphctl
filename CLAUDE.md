@@ -86,6 +86,18 @@ pnpm typecheck && pnpm lint && pnpm test
 - **Clean Architecture layering** — `domain` < `business` < `integration` < `application`. Inner layers never import
   from outer layers. Use cases depend on service ports (`src/business/ports/`); repository interfaces are pure-domain
   (`src/domain/repositories/`). Concrete adapters live under `src/integration/`.
+- **Pipelines are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, evaluate, execute)
+  is a composable `PipelineDefinition` in `src/business/pipelines/`. Each pipeline is a named list of steps composed
+  via `pipeline()` / `step()` from `src/business/pipeline/helpers.ts`, with shared building blocks in
+  `src/business/pipelines/steps/`. CLI commands and TUI views invoke `createXxxPipeline()` factories from
+  `src/application/factories.ts` and call `executePipeline(...)` — never `useCase.execute()` directly. An ESLint
+  `no-restricted-imports` fence in `eslint.config.js` enforces this boundary (type-only imports allowed). Extend
+  pipelines with `insertBefore` / `insertAfter` / `replace` (pure builders) rather than rewriting the step array.
+  Use `nested(pipeline)` to embed one pipeline as a step of another (composite pattern); use `parallelMap()` to
+  fan out inner pipelines concurrently with shared coordinator + signal-bus lifecycle.
+- **Integration tests lock step order** — each pipeline has a test under `src/business/pipelines/*.test.ts` that
+  asserts `stepResults.map(r => r.stepName)` on the happy path and failure paths. These tests are the architectural
+  fence that prevents silent bypass — docs alone aren't enforcement.
 - **No barrel files** — every import points to the source module directly. Never add an `index.ts` that only
   re-exports from siblings; tree-shaking and import clarity beat brevity at the call site.
 - **Ink TUI is the default interactive surface** — bare `ralphctl` / `ralphctl interactive` / `ralphctl sprint start`
@@ -126,6 +138,10 @@ pnpm typecheck && pnpm lint && pnpm test
   schema mirrors in `/schemas/` that must stay in sync (AI agents validate against these)
 - Don't add `index.ts` barrel files — every import goes directly to its source module
 - Don't import `@inquirer/prompts` — it's deleted. Use `getPrompt()` from `src/application/bootstrap.ts`
+- Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use
+  `createXxxPipeline()` from `src/application/factories.ts` + `executePipeline(...)` instead.
+- Don't invent new pipeline orchestration primitives — the framework has `step`/`pipeline`/`nested`/`parallelMap`/
+  `insertBefore`/`insertAfter`/`replace`/`renameStep` in `src/business/pipeline/helpers.ts`. Use them.
 
 ## Workflow
 

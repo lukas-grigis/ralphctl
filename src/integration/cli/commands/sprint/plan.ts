@@ -15,7 +15,8 @@ import { getSprint, resolveSprintId } from '@src/integration/persistence/sprint.
 import { listTasks } from '@src/integration/persistence/task.ts';
 import { providerDisplayName, resolveProvider } from '@src/integration/external/provider.ts';
 import { getSharedDeps } from '@src/application/bootstrap.ts';
-import { createPlanUseCase } from '@src/application/factories.ts';
+import { createPlanPipeline } from '@src/application/factories.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { renderParsedTasksTable } from './plan-utils.ts';
 
 interface PlanOptions {
@@ -68,10 +69,12 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
   console.log(field('Provider', providerName));
   log.newline();
 
-  // Execute use case
+  // Execute the plan pipeline (load-sprint → assert-draft → assert-all-approved
+  // → run-plan → reorder-dependencies). Pipeline owns orchestration; this
+  // command just renders the result.
   const shared = getSharedDeps();
-  const useCase = createPlanUseCase(shared, options.auto);
-  const result = await useCase.execute(id, { auto: options.auto, allPaths: options.allPaths });
+  const pipeline = createPlanPipeline(shared, { auto: options.auto, allPaths: options.allPaths });
+  const result = await executePipeline(pipeline, { sprintId: id });
 
   if (!result.ok) {
     showError(result.error.message);
@@ -79,7 +82,12 @@ export async function sprintPlanCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const summary = result.value;
+  const summary = result.value.context.planSummary;
+  if (!summary) {
+    showError('Planning completed without producing a summary.');
+    log.newline();
+    return;
+  }
 
   if (summary.importedCount === 0 && summary.totalGenerated === 0) {
     // User cancelled re-plan or no tasks generated

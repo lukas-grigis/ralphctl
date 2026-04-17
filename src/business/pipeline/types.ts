@@ -1,6 +1,8 @@
 import type { StepContext } from '@src/domain/context.ts';
 import type { DomainError } from '@src/domain/errors.ts';
 import type { DomainResult } from '@src/domain/types.ts';
+import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
+import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 
 /** Allow step functions to be sync or async */
 type MaybePromise<T> = T | Promise<T>;
@@ -44,4 +46,31 @@ export interface StepExecutionRecord {
   status: 'success' | 'skipped' | 'failed';
   durationMs: number;
   error?: DomainError;
+}
+
+/**
+ * Shared services bag handed to every inner pipeline built by `parallelMap`.
+ *
+ * A single `RateLimitCoordinator` + `SignalBusPort` pair is shared for the
+ * duration of a `parallelMap` step so sibling tasks can coordinate rate-limit
+ * pauses and emit observability events into the same stream.
+ */
+export interface ParallelSharedServices {
+  coordinator: RateLimitCoordinatorPort;
+  signalBus: SignalBusPort;
+}
+
+/**
+ * Per-item settlement record produced by `parallelMap`.
+ *
+ * One entry is appended to `parallelResults` for each input item, whether
+ * the inner pipeline succeeded or failed. `isRateLimited` distinguishes a
+ * recoverable rate-limit failure from a real error so outer loops can retry.
+ */
+export interface ParallelStepResult<TItem = unknown, TCtx extends StepContext = StepContext> {
+  item: TItem;
+  context: TCtx;
+  stepResults: StepExecutionRecord[];
+  error?: DomainError;
+  isRateLimited: boolean;
 }

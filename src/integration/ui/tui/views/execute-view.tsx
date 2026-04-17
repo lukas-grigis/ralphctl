@@ -16,7 +16,8 @@ import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
 import { getPrompt, getSharedDeps } from '@src/application/bootstrap.ts';
-import { createExecuteUseCase } from '@src/application/factories.ts';
+import { createExecuteSprintPipeline } from '@src/application/factories.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
 import { areAllTasksDone } from '@src/integration/persistence/task.ts';
 import { closeSprint } from '@src/integration/persistence/sprint.ts';
 import { useLoggerEvents, useSignalEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
@@ -97,11 +98,12 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
     const cancel = { current: false };
     const run = async (): Promise<void> => {
       try {
-        const uc = createExecuteUseCase(shared);
-        const result = await uc.execute(sprintId, executionOptions);
+        const pipeline = createExecuteSprintPipeline(shared, executionOptions);
+        const result = await executePipeline(pipeline, { sprintId });
         if (cancel.current) return;
         if (result.ok) {
-          setState((s) => ({ ...s, summary: result.value }));
+          const summary = result.value.context.executionSummary ?? null;
+          setState((s) => ({ ...s, summary }));
         } else {
           setState((s) => ({ ...s, error: result.error.message }));
         }

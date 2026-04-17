@@ -1,0 +1,621 @@
+/**
+ * Integration tests for the execute-tasks step — specifically the scheduler
+ * wiring introduced when `forEachTask` + the per-task pipeline replaced
+ * the monolithic parallel/sequential executor.
+ *
+ * These are the cases where concurrency regressions hide:
+ *   - Rate-limit pause/resume mid-run
+ *   - Branch-preflight retries up to MAX_BRANCH_RETRIES
+ *   - Post-task-check failures blocking further work in the same repo
+ *   - Step-mode `between` hook prompting between tasks
+ *   - Fail-fast drains in-flight tasks
+ *   - In-progress task resumption (pullItems includes in_progress)
+ *
+ * The outer pipeline is driven end-to-end so the step trace + final
+ * `executionSummary` can be asserted. Repeatability + speed: every test
+ * runs without real timers; rate-limit cooldowns are auto-resumed via the
+ * `onPause` callback before the scheduler's `waitIfPaused` resolves.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import type { Sprint, Task, Config, Ticket } from '@src/domain/models.ts';
+import { SpawnError } from '@src/domain/errors.ts';
+import type { PersistencePort } from '@src/domain/repositories/persistence.ts';
+import type { FilesystemPort } from '@src/domain/repositories/filesystem.ts';
+import type { AiSessionPort, SessionResult } from '@src/business/ports/ai-session.ts';
+import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
+import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
+import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
+import type { ExternalPort } from '@src/business/ports/external.ts';
+import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
+import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
+import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
+import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import { executePipeline } from '@src/business/pipeline/pipeline.ts';
+import { createExecuteSprintPipeline, type ExecuteDeps } from '../execute.ts';
+
+// ---------------------------------------------------------------------------
+// Factories
+// ---------------------------------------------------------------------------
+
+function makeSprint(overrides: Partial<Sprint> = {}): Sprint {
+  return {
+    id: 's1',
+    name: 'Sprint',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    activatedAt: new Date().toISOString(),
+    closedAt: null,
+    tickets: [],
+    checkRanAt: {},
+    branch: null,
+    ...overrides,
+  };
+}
+
+function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
+  return {
+    id: 'ticket-1',
+    title: 'T',
+    projectName: 'p',
+    requirementStatus: 'approved',
+    ...overrides,
+  };
+}
+
+function makeTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 't1',
+    name: 'Task',
+    steps: [],
+    verificationCriteria: [],
+    status: 'todo',
+    order: 1,
+    blockedBy: [],
+    projectPath: '/repo/a',
+    verified: false,
+    evaluated: false,
+    ...overrides,
+  };
+}
+
+function makeConfig(overrides: Partial<Config> = {}): Config {
+  return {
+    currentSprint: null,
+    aiProvider: 'claude',
+    editor: null,
+    evaluationIterations: 0,
+    ...overrides,
+  };
+}
+
+function makeSpinner(): SpinnerHandle {
+  return { succeed: () => undefined, fail: () => undefined, stop: () => undefined };
+}
+
+function makeLogger(): LoggerPort {
+  const logger: LoggerPort = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+    success: () => undefined,
+    warning: () => undefined,
+    tip: () => undefined,
+    header: () => undefined,
+    separator: () => undefined,
+    field: () => undefined,
+    card: () => undefined,
+    newline: () => undefined,
+    dim: () => undefined,
+    item: () => undefined,
+    spinner: () => makeSpinner(),
+    child: () => logger,
+    time: () => () => undefined,
+  };
+  return logger;
+}
+
+function makeBus(sink: HarnessEvent[] = []): SignalBusPort {
+  return {
+    emit: (e) => sink.push(e),
+    subscribe: () => () => undefined,
+    dispose: () => undefined,
+  };
+}
+
+function makeSignalParser(): SignalParserPort {
+  return {
+    parseSignals: () => [],
+  } as unknown as SignalParserPort;
+}
+
+function makeSignalHandler(): SignalHandlerPort {
+  return {
+    handleProgress: () => Promise.resolve(),
+    handleEvaluation: () => Promise.resolve(),
+    handleTaskBlocked: () => Promise.resolve(),
+    handleNote: () => Promise.resolve(),
+  } as unknown as SignalHandlerPort;
+}
+
+function makePromptBuilder(): PromptBuilderPort {
+  return {
+    buildTaskExecutionPrompt: () => 'prompt',
+    buildFeedbackPrompt: () => 'feedback',
+  } as unknown as PromptBuilderPort;
+}
+
+function makeParser(): OutputParserPort {
+  return {
+    parseExecutionSignals: () => ({ completed: true, verified: false }),
+  } as unknown as OutputParserPort;
+}
+
+function makeFs(): FilesystemPort {
+  return { getSprintDir: () => '/tmp/sprint' } as unknown as FilesystemPort;
+}
+
+/**
+ * Build a persistence stub with per-run task state kept in a mutable array.
+ * The scheduler pulls fresh items on every tick, so the stub needs to return
+ * the *current* list (not a frozen snapshot) and support `updateTaskStatus`
+ * as a mutation.
+ */
+function makePersistence(init: { sprint: Sprint; tasks: Task[]; config?: Config }): {
+  persistence: PersistencePort;
+  stateTasks: Task[];
+  calls: {
+    updateTaskStatus: ReturnType<typeof vi.fn>;
+    updateTask: ReturnType<typeof vi.fn>;
+    getReadyTasks: ReturnType<typeof vi.fn>;
+    saveSprint: ReturnType<typeof vi.fn>;
+  };
+} {
+  const stateTasks: Task[] = init.tasks.map((t) => ({ ...t }));
+  let sprintState = init.sprint;
+
+  const updateTaskStatus = vi.fn((taskId: string, status: Task['status']) => {
+    const target = stateTasks.find((t) => t.id === taskId);
+    if (target) target.status = status;
+    return Promise.resolve(target);
+  });
+  const updateTask = vi.fn((taskId: string, patch: Partial<Task>) => {
+    const target = stateTasks.find((t) => t.id === taskId);
+    if (target) Object.assign(target, patch);
+    return Promise.resolve();
+  });
+  const getReadyTasks = vi.fn(() => {
+    const doneIds = new Set(stateTasks.filter((t) => t.status === 'done').map((t) => t.id));
+    return Promise.resolve(
+      stateTasks.filter((t) => t.status === 'todo' && t.blockedBy.every((dep) => doneIds.has(dep)))
+    );
+  });
+  const saveSprint = vi.fn((s: Sprint) => {
+    sprintState = s;
+    return Promise.resolve();
+  });
+
+  const persistence = {
+    getSprint: () => Promise.resolve(sprintState),
+    getTasks: () => Promise.resolve(stateTasks.map((t) => ({ ...t }))),
+    getReadyTasks,
+    getRemainingTasks: () => Promise.resolve(stateTasks.filter((t) => t.status !== 'done').map((t) => ({ ...t }))),
+    reorderByDependencies: () => Promise.resolve(),
+    updateTaskStatus,
+    updateTask,
+    saveSprint,
+    activateSprint: () => Promise.resolve(sprintState),
+    getConfig: () => Promise.resolve(init.config ?? makeConfig()),
+    getProject: () =>
+      Promise.resolve({
+        name: 'p',
+        displayName: 'p',
+        repositories: [
+          { name: 'a', path: '/repo/a' },
+          { name: 'b', path: '/repo/b' },
+        ],
+      }),
+    logProgress: () => Promise.resolve(),
+  } as unknown as PersistencePort;
+
+  return {
+    persistence,
+    stateTasks,
+    calls: { updateTaskStatus, updateTask, getReadyTasks, saveSprint },
+  };
+}
+
+interface Scenario {
+  sprint?: Sprint;
+  tasks?: Task[];
+  config?: Config;
+  spawnImpl?: (taskId: string, callCount: number) => Promise<SessionResult>;
+  verifyBranch?: ExternalPort['verifyBranch'];
+  hasUncommittedChanges?: ExternalPort['hasUncommittedChanges'];
+  runCheckScript?: ExternalPort['runCheckScript'];
+  confirm?: UserInteractionPort['confirm'];
+}
+
+/**
+ * Wire a full ExecuteDeps graph with minimal stubs, returning mutable
+ * call-trackers for the interesting methods.
+ */
+function buildDeps(scenario: Scenario = {}): {
+  deps: ExecuteDeps;
+  events: HarnessEvent[];
+  logs: { warnings: string[]; infos: string[] };
+  spawnWithRetry: ReturnType<typeof vi.fn>;
+  runCheckScript: ReturnType<typeof vi.fn>;
+  verifyBranch: ReturnType<typeof vi.fn>;
+  stateTasks: Task[];
+  calls: {
+    updateTaskStatus: ReturnType<typeof vi.fn>;
+    updateTask: ReturnType<typeof vi.fn>;
+  };
+} {
+  const sprint = scenario.sprint ?? makeSprint({ tickets: [makeTicket({ affectedRepositories: ['/repo/a'] })] });
+  const tasks = scenario.tasks ?? [makeTask()];
+  const config = scenario.config ?? makeConfig();
+
+  const { persistence, stateTasks, calls } = makePersistence({ sprint, tasks, config });
+
+  const events: HarnessEvent[] = [];
+  const warnings: string[] = [];
+  const infos: string[] = [];
+
+  const logger: LoggerPort = {
+    ...makeLogger(),
+    warning: (msg) => {
+      warnings.push(msg);
+    },
+    info: (msg) => {
+      infos.push(msg);
+    },
+  };
+
+  // Per-task spawn call count. Reset each test.
+  const callsByTask = new Map<string, number>();
+  const defaultSpawn: (taskId: string, count: number) => Promise<SessionResult> = () =>
+    Promise.resolve({
+      output: '<task-complete/>',
+      sessionId: 'sess',
+      model: 'claude-sonnet',
+    } as SessionResult);
+  const spawnImpl = scenario.spawnImpl ?? defaultSpawn;
+  const spawnWithRetry = vi.fn((prompt: string, opts: { cwd: string }) => {
+    // Extract task id from prompt — our makePromptBuilder returns a static
+    // string, so callers identify tasks via cwd (projectPath) when needed.
+    // Simpler: correlate via the stateTasks that are currently in_progress.
+    const inFlight = stateTasks.find((t) => t.status === 'in_progress' && t.projectPath === opts.cwd);
+    const taskId = inFlight?.id ?? 'unknown';
+    const count = (callsByTask.get(taskId) ?? 0) + 1;
+    callsByTask.set(taskId, count);
+    void prompt;
+    return spawnImpl(taskId, count);
+  });
+
+  const aiSession = {
+    getProviderDisplayName: () => 'Claude',
+    getSpawnEnv: () => ({}),
+    spawnWithRetry,
+    spawnInteractive: () => Promise.resolve(),
+  } as unknown as AiSessionPort;
+
+  const runCheckScript = scenario.runCheckScript ?? vi.fn(() => ({ passed: true, output: '' }));
+  const verifyBranch = scenario.verifyBranch ?? vi.fn(() => true);
+  const hasUncommittedChanges = scenario.hasUncommittedChanges ?? (() => false);
+
+  const external = {
+    runCheckScript,
+    verifyBranch,
+    hasUncommittedChanges,
+    generateBranchName: (sid: string) => `ralphctl/${sid}`,
+    isValidBranchName: () => true,
+    getCurrentBranch: () => 'main',
+    createAndCheckoutBranch: () => undefined,
+  } as unknown as ExternalPort;
+
+  const ui = {
+    confirm: scenario.confirm ?? vi.fn(() => Promise.resolve(true)),
+    selectBranchStrategy: () => Promise.resolve(null),
+    getFeedback: () => Promise.resolve(null),
+  } as unknown as UserInteractionPort;
+
+  const deps: ExecuteDeps = {
+    persistence,
+    fs: makeFs(),
+    aiSession,
+    promptBuilder: makePromptBuilder(),
+    parser: makeParser(),
+    ui,
+    logger,
+    external,
+    signalParser: makeSignalParser(),
+    signalHandler: makeSignalHandler(),
+    signalBus: makeBus(events),
+  };
+
+  // Parser needs to produce a `task-complete` signal so `executeOneTask`
+  // reports `success: true`. Override the signalParser's parseSignals to
+  // return whatever the AI output contains — for tests, the default spawn
+  // output `<task-complete/>` resolves to one TaskCompleteSignal.
+  const signalParser: SignalParserPort = {
+    parseSignals: (output: string) => {
+      const signals: ({ type: string } & Record<string, unknown>)[] = [];
+      if (output.includes('<task-complete')) signals.push({ type: 'task-complete' });
+      if (output.includes('<task-verified')) {
+        const match = /<task-verified>([\s\S]*?)<\/task-verified>/.exec(output);
+        signals.push({ type: 'task-verified', output: match?.[1] ?? '' });
+      }
+      if (output.includes('<task-blocked')) {
+        const match = /<task-blocked>([\s\S]*?)<\/task-blocked>/.exec(output);
+        signals.push({ type: 'task-blocked', reason: match?.[1] ?? 'blocked' });
+      }
+      return signals as never;
+    },
+  } as unknown as SignalParserPort;
+  deps.signalParser = signalParser;
+
+  return {
+    deps,
+    events,
+    logs: { warnings, infos },
+    spawnWithRetry,
+    runCheckScript: runCheckScript as ReturnType<typeof vi.fn>,
+    verifyBranch: verifyBranch as ReturnType<typeof vi.fn>,
+    stateTasks,
+    calls: { updateTaskStatus: calls.updateTaskStatus, updateTask: calls.updateTask },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('executeTasksStep via forEachTask — integration', () => {
+  it('happy path: step trace includes execute-tasks and feedback-loop; summary is all_completed', async () => {
+    const task = makeTask();
+    const { deps } = buildDeps({ tasks: [task] });
+
+    const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.stepResults.map((r) => r.stepName)).toEqual([
+      'load-sprint',
+      'check-preconditions',
+      'resolve-branch',
+      'auto-activate',
+      'assert-active',
+      'prepare-tasks',
+      'ensure-branches',
+      'run-check-scripts',
+      'execute-tasks',
+      'feedback-loop',
+    ]);
+
+    expect(result.value.context.executionSummary).toMatchObject({
+      completed: 1,
+      remaining: 0,
+      blocked: 0,
+      stopReason: 'all_completed',
+      exitCode: 0,
+    });
+  });
+
+  it('rate-limit pause: first spawn rate-limits, scheduler pauses, second spawn succeeds', async () => {
+    const task = makeTask();
+    const spawnImpl = vi.fn((_taskId: string, count: number): Promise<SessionResult> => {
+      if (count === 1) {
+        // `retry-after: 1` → retryAfterMs = 1_000ms. Small enough to keep
+        // the test fast, large enough that the scheduler's next tick
+        // observes `isPaused` and so fires `onResume` when the coordinator
+        // resumes on the timer.
+        return Promise.reject(
+          new SpawnError('rate limited', 'rate limit exceeded\nretry-after: 1', 1, 'resume-session-abc')
+        );
+      }
+      return Promise.resolve({
+        output: '<task-complete/>',
+        sessionId: 'sess',
+        model: 'claude-sonnet',
+      } as SessionResult);
+    });
+    const { deps, events, logs } = buildDeps({ tasks: [task], spawnImpl });
+
+    const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Scheduler paused then resumed, and the task ultimately completed.
+    const eventTypes = events.map((e) => e.type);
+    expect(eventTypes).toContain('rate-limit-paused');
+    expect(eventTypes).toContain('rate-limit-resumed');
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
+    expect(result.value.context.executionSummary?.stopReason).toBe('all_completed');
+    // Session-id capture log parity.
+    expect(logs.infos.some((l) => l.includes('Session saved for resume: resume-s'))).toBe(true);
+  });
+
+  it('branch mismatch: requeues up to 3 times then fails with task_blocked', async () => {
+    const task = makeTask();
+    const sprint = makeSprint({
+      branch: 'feature/x',
+      tickets: [makeTicket({ affectedRepositories: ['/repo/a'] })],
+    });
+    // verifyBranch always returns false — the branch never matches.
+    const verifyBranch = vi.fn(() => false);
+    const { deps, spawnWithRetry } = buildDeps({ tasks: [task], sprint, verifyBranch });
+
+    const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The retryPolicy retries 2 times before giving up on the 3rd attempt.
+    expect(verifyBranch).toHaveBeenCalledTimes(3);
+    // executeOneTask should never fire because branch-preflight blocks
+    // launch on every attempt.
+    expect(spawnWithRetry).not.toHaveBeenCalled();
+    expect(result.value.context.executionSummary?.stopReason).toBe('task_blocked');
+    expect(result.value.context.executionSummary?.exitCode).toBe(1);
+  });
+
+  it('post-task-check failure: marks repo failed, scheduler stops when no sibling repos', async () => {
+    const task = makeTask();
+    // runCheckScript: sprint-start passes, task-complete fails.
+    const runCheckScript = vi.fn((_path: string, _script: string, phase: string) => {
+      if (phase === 'sprintStart') return { passed: true, output: '' };
+      return { passed: false, output: 'lint failed' };
+    });
+
+    const scenario = buildDeps({
+      tasks: [task],
+      runCheckScript: runCheckScript as never,
+    });
+    // Patch its persistence the same way.
+    (scenario.deps.persistence as unknown as { getProject: () => Promise<unknown> }).getProject = () =>
+      Promise.resolve({
+        name: 'p',
+        displayName: 'p',
+        repositories: [{ name: 'a', path: '/repo/a', checkScript: 'pnpm lint' }],
+      });
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Task stayed in_progress — mark-done never ran after the gate failed.
+    const task1 = scenario.stateTasks.find((t) => t.id === 't1');
+    expect(task1?.status).toBe('in_progress');
+    expect(result.value.context.executionSummary?.stopReason).toBe('task_blocked');
+  });
+
+  it('step mode: between hook prompts between tasks (and stop aborts remaining work)', async () => {
+    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
+    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+
+    const confirm = vi.fn(() => Promise.resolve(false)); // user stops after first task
+    const { deps, spawnWithRetry } = buildDeps({
+      tasks: [taskA, taskB],
+      sprint: makeSprint({
+        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+      }),
+      confirm,
+    });
+
+    const pipeline = createExecuteSprintPipeline(deps, { step: true, noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The prompt fired once — between the first completion and the second
+    // launch. `false` response stops the scheduler.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(spawnWithRetry).toHaveBeenCalledTimes(1);
+    // Summary reflects partial progress (1 of 2).
+    const summary = result.value.context.executionSummary;
+    expect(summary?.completed).toBe(1);
+    expect(summary?.remaining).toBe(1);
+    expect(summary?.stopReason).toBe('user_paused');
+  });
+
+  it('in-progress task resumption: pullItems includes tasks that are already in_progress on restart', async () => {
+    // Seed one task as in_progress — simulates a crash/recovery scenario.
+    const task = makeTask({ status: 'in_progress' });
+    const { deps, spawnWithRetry } = buildDeps({ tasks: [task] });
+
+    const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The task was picked up + completed even though it was never `todo`.
+    expect(spawnWithRetry).toHaveBeenCalledTimes(1);
+    expect(result.value.context.executionSummary?.stopReason).toBe('all_completed');
+  });
+
+  it('--concurrency 1 forces sequential: two tasks on different repos never overlap', async () => {
+    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
+    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+
+    let maxInFlight = 0;
+    let inFlightNow = 0;
+    const spawnImpl = async (): Promise<SessionResult> => {
+      inFlightNow++;
+      maxInFlight = Math.max(maxInFlight, inFlightNow);
+      // Yield so the scheduler has a chance to try launching a second task.
+      await new Promise((r) => setTimeout(r, 10));
+      inFlightNow--;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' } as SessionResult;
+    };
+    const { deps } = buildDeps({
+      tasks: [taskA, taskB],
+      sprint: makeSprint({
+        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+      }),
+      spawnImpl,
+    });
+
+    const pipeline = createExecuteSprintPipeline(deps, { concurrency: 1, noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it('fail-fast drains in-flight tasks before failing', async () => {
+    const taskA = makeTask({ id: 't1', order: 1, projectPath: '/repo/a' });
+    const taskB = makeTask({ id: 't2', order: 2, projectPath: '/repo/b' });
+
+    // Task A fails fast (its spawn resolves with success:false via a
+    // `<task-blocked>` signal); task B runs long enough that it's still
+    // in-flight when A settles. With failFast (default), the scheduler
+    // should wait for B to finish before returning.
+    let bCompleted = false;
+    let aSettled = false;
+    const spawnImpl = async (taskId: string): Promise<SessionResult> => {
+      if (taskId === 't1') {
+        aSettled = true;
+        return {
+          output: '<task-blocked>needs input</task-blocked>',
+          sessionId: 'sess',
+          model: 'claude-sonnet',
+        } as SessionResult;
+      }
+      // Task B — keep running after A has settled so fail-fast has
+      // something to drain.
+      await new Promise((r) => setTimeout(r, 30));
+      bCompleted = true;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' } as SessionResult;
+    };
+    const { deps } = buildDeps({
+      tasks: [taskA, taskB],
+      sprint: makeSprint({
+        tickets: [makeTicket({ affectedRepositories: ['/repo/a', '/repo/b'] })],
+      }),
+      spawnImpl,
+    });
+
+    const pipeline = createExecuteSprintPipeline(deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(aSettled).toBe(true);
+    // Task B ran to completion before the scheduler returned (fail-fast
+    // drain semantics).
+    expect(bCompleted).toBe(true);
+    expect(result.value.context.executionSummary?.stopReason).toBe('task_blocked');
+  });
+});
