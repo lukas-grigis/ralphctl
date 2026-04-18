@@ -7,6 +7,44 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-18
+
+### Added
+
+- **Inline requirements preview** in `sprint refine` — the refined requirements are now shown as a bordered
+  quote-rail block above the approval prompt so the user reviews the actual content before approving.
+- **Live execute log** — the bottom log tail in `sprint start` renders the active spinner with live braille
+  frames instead of a static glyph; resolved spinners collapse to a check/cross.
+- **Auto-refreshing dashboard** — Home and Dashboard subscribe to the signal bus and reload data
+  (throttled 500ms) during a running sprint, so task-started / task-finished / per-task signals tick the
+  UI without a manual refresh.
+- **Multi-line feedback editor** — the end-of-sprint feedback loop now uses the Claude-style inline editor
+  (markdown, Ctrl+D submits, Esc cancels) instead of single-line input.
+- **Task-like feedback iterations** — each feedback round now runs as a synthetic `Task` per affected repo:
+  emits `task-started` / `task-finished` to the signal bus, routes parsed progress / note / blocked signals
+  to the durable signal handler, and gates through the same post-task check script used for real tasks.
+  The live dashboard animates feedback work the same way it animates regular tasks.
+- **`truncate()` domain utility** (`src/domain/strings.ts`) — unifies the five hand-rolled clipping sites and
+  fixes the `…` vs `...` inconsistency.
+
+### Changed
+
+- **Task-sizing prompt** — rewrote to emphasize coherence over line count. Explicit "do not split" /
+  "do split" lists, a soft ~10-files / ~500-lines ceiling, and a task-count directive that lets scope drive
+  the number rather than targeting 5–15.
+- **Evaluator-resume prompt** — adds a "pivot when the critique is structural" clause so the resumer can
+  replace a wrong approach instead of repeatedly patching it on related grounds. Default remains minimal fix.
+
+### Fixed
+
+- Suppressed the spurious "Reached maximum feedback iterations" warning that fired on clean empty-feedback
+  exit.
+- Hoisted `getTasks()` + repo-path resolution out of the feedback loop (was N+1 across iterations).
+- Memoized the `resolvedIds` Set in `LogTail` — previously rebuilt from the full events array on every
+  ~16ms render during execution.
+- Shortened the over-long rejected-requirements warning in `sprint refine`.
+- Dropped the fragile content-hash React key in `ConfirmPrompt`'s details block.
+
 ## [0.3.0] - 2026-04-17
 
 ### Housekeeping
