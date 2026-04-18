@@ -24,7 +24,7 @@ export function ConfirmPrompt({ options, onSubmit }: ConfirmPromptProps): React.
           marginBottom={spacing.section}
         >
           {details.split('\n').map((line, idx) => (
-            <Text key={`${String(idx)}-${line.slice(0, 16)}`}>
+            <Text key={idx}>
               {line.length > 0 ? (
                 <>
                   <Text color={inkColors.muted}>{glyphs.quoteRail} </Text>

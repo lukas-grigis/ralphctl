@@ -284,7 +284,7 @@ export class RefineTicketRequirementsUseCase {
     const approve = await this.ui.confirm('Approve these requirements?', true, combined.requirements);
     if (!approve) {
       this.logger.warning(
-        `Requirements rejected for ticket [${ticket.id}]. The AI session is NOT resumed — re-running \`sprint refine\` will start a fresh session and discard this draft. (Resume support is not implemented yet.)`
+        `Requirements rejected for ticket [${ticket.id}]. Re-run \`sprint refine\` to start fresh (resume is not yet supported).`
       );
       return 'skipped';
     }

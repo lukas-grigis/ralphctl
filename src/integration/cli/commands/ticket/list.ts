@@ -5,6 +5,7 @@ import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow } from '@src/integration/persistence/sprint.ts';
 import { RequirementStatusSchema } from '@src/domain/models.ts';
 import { badge, icons, log, printHeader, showEmpty, showError } from '@src/integration/ui/theme/ui.ts';
+import { truncate } from '@src/domain/strings.ts';
 
 interface TicketListFilters {
   brief: boolean;
@@ -93,7 +94,7 @@ export async function ticketListCommand(args: string[]): Promise<void> {
     log.raw(`  ${icons.bullet} ${formatTicketDisplay(ticket)} ${reqBadge}`);
     if (ticket.description) {
       const preview = ticket.description.split('\n')[0] ?? '';
-      const truncated = preview.length > 60 ? preview.slice(0, 57) + '...' : preview;
+      const truncated = truncate(preview, 60);
       log.raw(`      ${muted(truncated)}`, 1);
     }
   }

@@ -4,6 +4,7 @@ import { SpawnError } from '@src/domain/errors.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import { generateUuid8 } from '@src/domain/ids.ts';
+import { truncate } from '@src/domain/strings.ts';
 import type { AiSessionPort } from '../ports/ai-session.ts';
 import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
 import type { OutputParserPort } from '../ports/output-parser.ts';
@@ -286,29 +287,30 @@ export class ExecuteTasksUseCase {
   async runFeedbackLoopOnly(sprint: Sprint, options?: ExecutionOptions): Promise<void> {
     const MAX_FEEDBACK_ITERATIONS = 10;
 
-    for (let iteration = 0; iteration < MAX_FEEDBACK_ITERATIONS; iteration++) {
+    // Tasks + repo paths don't change across iterations — resolve once.
+    const tasks = await this.persistence.getTasks(sprint.id);
+    const repoIds = [...new Set(tasks.map((t) => t.repoId))];
+    const repoPathByRepoId = new Map<string, string>();
+    for (const repoId of repoIds) {
+      try {
+        repoPathByRepoId.set(repoId, await this.persistence.resolveRepoPath(repoId));
+      } catch {
+        // Unresolvable repo id — skip; below loops will no-op for it.
+      }
+    }
+    const completedSummary = tasks
+      .filter((t) => t.status === 'done')
+      .map((t) => `- ${t.name} (${repoPathByRepoId.get(t.repoId) ?? t.repoId})`)
+      .join('\n');
+
+    let iteration = 0;
+    for (; iteration < MAX_FEEDBACK_ITERATIONS; iteration++) {
       const feedback = await this.ui.getFeedback('All tasks complete. Enter feedback for changes (empty to approve):');
 
       // null/empty = user approves
       if (!feedback) return;
 
       await this.persistence.logProgress(`User feedback: ${feedback}`, { sprintId: sprint.id });
-
-      const tasks = await this.persistence.getTasks(sprint.id);
-      // Resolve repoId → path once for all unique tasks.
-      const repoIds = [...new Set(tasks.map((t) => t.repoId))];
-      const repoPathByRepoId = new Map<string, string>();
-      for (const repoId of repoIds) {
-        try {
-          repoPathByRepoId.set(repoId, await this.persistence.resolveRepoPath(repoId));
-        } catch {
-          // Unresolvable repo id — skip; below loops will no-op for it.
-        }
-      }
-      const completedSummary = tasks
-        .filter((t) => t.status === 'done')
-        .map((t) => `- ${t.name} (${repoPathByRepoId.get(t.repoId) ?? t.repoId})`)
-        .join('\n');
 
       for (const repoId of repoIds) {
         const repoPath = repoPathByRepoId.get(repoId);
@@ -381,7 +383,9 @@ export class ExecuteTasksUseCase {
       }
     }
 
-    this.logger.warning(`Reached maximum feedback iterations (${String(MAX_FEEDBACK_ITERATIONS)}). Proceeding.`);
+    if (iteration >= MAX_FEEDBACK_ITERATIONS) {
+      this.logger.warning(`Reached maximum feedback iterations (${String(MAX_FEEDBACK_ITERATIONS)}). Proceeding.`);
+    }
   }
 
   /**
@@ -391,10 +395,9 @@ export class ExecuteTasksUseCase {
    * polluting `tasks.json`.
    */
   private makeFeedbackTask(feedback: string, repoId: string): Task {
-    const truncated = feedback.length > 60 ? `${feedback.slice(0, 60)}…` : feedback;
     return {
       id: `feedback-${generateUuid8()}`,
-      name: `Feedback: ${truncated}`,
+      name: `Feedback: ${truncate(feedback, 60)}`,
       description: feedback,
       steps: [feedback],
       verificationCriteria: ['Project check script passes'],

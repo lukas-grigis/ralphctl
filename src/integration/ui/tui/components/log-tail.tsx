@@ -6,7 +6,7 @@
  * separators are kept compact so the tail stays readable in a small terminal.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { LogEvent, LogEventLevel } from '@src/integration/ui/tui/runtime/event-bus.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
@@ -114,13 +114,16 @@ export function LogTail({ events, limit = 8 }: Props): React.JSX.Element {
   // A spinner-start is "active" if no later event with the same id has
   // resolved it (succeed/fail/stop). Scan the full events array — not just
   // the tail — so a spinner whose terminator got trimmed still counts as
-  // resolved.
-  const resolvedIds = new Set<number>();
-  for (const ev of events) {
-    if (ev.kind === 'spinner-succeed' || ev.kind === 'spinner-fail' || ev.kind === 'spinner-stop') {
-      resolvedIds.add(ev.id);
+  // resolved. Memoized because this runs on every ~16ms signal-bus flush.
+  const resolvedIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const ev of events) {
+      if (ev.kind === 'spinner-succeed' || ev.kind === 'spinner-fail' || ev.kind === 'spinner-stop') {
+        ids.add(ev.id);
+      }
     }
-  }
+    return ids;
+  }, [events]);
 
   return (
     <Box flexDirection="column">
