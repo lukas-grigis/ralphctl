@@ -44,7 +44,7 @@ const MAX_BRANCH_RETRIES = 3;
  *   downstream steps no-op (user declined the "start anyway?" prompt). The
  *   summary is already populated with `stopReason: 'user_paused'`.
  * `tasksEmpty` — set by `prepare-tasks` when the sprint has zero tasks. All
- *   downstream steps (branches, checks, execute, feedback) no-op and the
+ *   downstream steps (branches, checks, execute) no-op and the
  *   summary is populated with `stopReason: 'no_tasks'`.
  * `branchName` — resolved once up-front by `resolve-branch`. Null means
  *   branch management is disabled for this run.

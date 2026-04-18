@@ -8,6 +8,7 @@ import { ensureDir } from '@src/integration/persistence/storage.ts';
 import { colors } from '@src/integration/ui/theme/theme.ts';
 import { icons, log, printHeader, showError } from '@src/integration/ui/theme/ui.ts';
 import type { Sprint, Task } from '@src/domain/models.ts';
+import { truncate } from '@src/domain/strings.ts';
 
 export async function sprintInsightsCommand(args: string[]): Promise<void> {
   const exportFlag = args.includes('--export');
@@ -47,7 +48,7 @@ export async function sprintInsightsCommand(args: string[]): Promise<void> {
     console.log(`  ${colors.accent('Evaluation output:')}`);
     for (const task of withOutput) {
       const output = task.evaluationOutput ?? '';
-      const truncated = output.length > 200 ? output.slice(0, 200) + '...' : output;
+      const truncated = truncate(output, 200);
       console.log(`    ${icons.bullet} ${colors.accent(task.name)}: ${colors.muted(truncated)}`);
     }
     log.newline();

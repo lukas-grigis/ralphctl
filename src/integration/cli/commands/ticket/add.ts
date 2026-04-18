@@ -18,6 +18,7 @@ import { editorInput } from '@src/integration/ui/prompts/editor-input.ts';
 import { addTicket } from '@src/integration/persistence/ticket.ts';
 import { getProjectById } from '@src/integration/persistence/project.ts';
 import { getCurrentSprintOrThrow, SprintStatusError } from '@src/integration/persistence/sprint.ts';
+import { truncate } from '@src/domain/strings.ts';
 import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import { fetchIssueFromUrl, type IssueData } from '@src/integration/external/issue-fetch.ts';
 import type { Ticket } from '@src/domain/models.ts';
@@ -50,7 +51,7 @@ function tryFetchIssue(url: string): IssueData | undefined {
   spinner.succeed('Issue data fetched');
   log.newline();
 
-  const bodyPreview = data.body.length > 200 ? data.body.slice(0, 200) + '...' : data.body;
+  const bodyPreview = truncate(data.body, 200);
   const cardLines = [`Title: ${data.title}`, '', bodyPreview];
   if (data.comments.length > 0) {
     cardLines.push('', `${String(data.comments.length)} comment(s)`);

@@ -2,8 +2,8 @@ import type { Repository } from '@src/domain/models.ts';
 
 /** Port for user interaction during workflows */
 export interface UserInteractionPort {
-  /** Ask user for confirmation */
-  confirm(message: string, defaultValue?: boolean): Promise<boolean>;
+  /** Ask user for confirmation. Optional `details` is a multi-line block rendered above the Y/n line. */
+  confirm(message: string, defaultValue?: boolean, details?: string): Promise<boolean>;
 
   /** Let user select repository paths from grouped options */
   selectPaths(reposByProject: Map<string, Repository[]>, message: string, preselected?: string[]): Promise<string[]>;

@@ -35,6 +35,7 @@ import { getProgress } from '@src/integration/persistence/progress.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import type { DashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import type { Task } from '@src/domain/models.ts';
+import { truncate } from '@src/domain/strings.ts';
 
 const PROGRESS_TAIL_LIMIT = 8;
 
@@ -69,7 +70,7 @@ async function loadRecentProgress(sprintId: string, limit: number): Promise<read
         .replace(/^###\s+.+$/gm, '')
         .replace(/\s+/g, ' ')
         .trim();
-      const preview = body.length > 200 ? body.slice(0, 197) + '…' : body;
+      const preview = truncate(body, 200);
 
       return { header, preview };
     });

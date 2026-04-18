@@ -35,6 +35,8 @@ export interface SelectOptions<T> {
 export interface ConfirmOptions {
   message: string;
   default?: boolean;
+  /** Optional multi-line block rendered above the Y/n line (e.g. a preview the user is approving). */
+  details?: string;
 }
 
 export interface InputOptions {

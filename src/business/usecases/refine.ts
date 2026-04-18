@@ -278,11 +278,14 @@ export class RefineTicketRequirementsUseCase {
     // Combine multiple requirements into one
     const combined = this.combineRequirements(matching);
 
-    // Show and confirm approval
-    this.logger.info(`Refined requirements:\n${combined.requirements}`);
-
-    const approve = await this.ui.confirm('Approve these requirements?', true);
+    // Show the refined requirements inline in the confirm prompt so the user
+    // reviews the actual content before approving (rendered as a bordered
+    // block above the Y/n line by `ConfirmPrompt`).
+    const approve = await this.ui.confirm('Approve these requirements?', true, combined.requirements);
     if (!approve) {
+      this.logger.warning(
+        `Requirements rejected for ticket [${ticket.id}]. Re-run \`sprint refine\` to start fresh (resume is not yet supported).`
+      );
       return 'skipped';
     }
 

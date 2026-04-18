@@ -3,6 +3,8 @@ import type { Sprint, Task } from '@src/domain/models.ts';
 import { SpawnError } from '@src/domain/errors.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
+import { generateUuid8 } from '@src/domain/ids.ts';
+import { truncate } from '@src/domain/strings.ts';
 import type { AiSessionPort } from '../ports/ai-session.ts';
 import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
 import type { OutputParserPort } from '../ports/output-parser.ts';
@@ -267,13 +269,42 @@ export class ExecuteTasksUseCase {
    * `feedback-loop` step after execution completes with all tasks done and
    * the user hasn't opted out via `--no-feedback` / `--session`.
    *
+   * Each iteration reads multi-line markdown feedback via the editor prompt
+   * and, for each affected repo, runs a *synthetic task* — a `Task` built
+   * in-memory (never persisted to `tasks.json`) that reuses the same
+   * building blocks as `executeOneTask`:
+   *
+   *   - `task-started` / `task-finished` emissions to the signal bus keep
+   *     the live dashboard ticking.
+   *   - `dispatchSignals` routes parsed progress / note / blocked signals
+   *     to the durable signal handler so entries land in `progress.md`.
+   *   - `runPostTaskCheck` gates each iteration through the same check
+   *     script used for real tasks.
+   *
    * The hard cap `MAX_FEEDBACK_ITERATIONS` lives inside this method so the
    * calling step stays a thin adapter.
    */
   async runFeedbackLoopOnly(sprint: Sprint, options?: ExecutionOptions): Promise<void> {
     const MAX_FEEDBACK_ITERATIONS = 10;
 
-    for (let iteration = 0; iteration < MAX_FEEDBACK_ITERATIONS; iteration++) {
+    // Tasks + repo paths don't change across iterations — resolve once.
+    const tasks = await this.persistence.getTasks(sprint.id);
+    const repoIds = [...new Set(tasks.map((t) => t.repoId))];
+    const repoPathByRepoId = new Map<string, string>();
+    for (const repoId of repoIds) {
+      try {
+        repoPathByRepoId.set(repoId, await this.persistence.resolveRepoPath(repoId));
+      } catch {
+        // Unresolvable repo id — skip; below loops will no-op for it.
+      }
+    }
+    const completedSummary = tasks
+      .filter((t) => t.status === 'done')
+      .map((t) => `- ${t.name} (${repoPathByRepoId.get(t.repoId) ?? t.repoId})`)
+      .join('\n');
+
+    let iteration = 0;
+    for (; iteration < MAX_FEEDBACK_ITERATIONS; iteration++) {
       const feedback = await this.ui.getFeedback('All tasks complete. Enter feedback for changes (empty to approve):');
 
       // null/empty = user approves
@@ -281,31 +312,29 @@ export class ExecuteTasksUseCase {
 
       await this.persistence.logProgress(`User feedback: ${feedback}`, { sprintId: sprint.id });
 
-      const tasks = await this.persistence.getTasks(sprint.id);
-      // Resolve repoId → path once for all completed and unique tasks.
-      const repoIds = [...new Set(tasks.map((t) => t.repoId))];
-      const repoPathByRepoId = new Map<string, string>();
-      for (const repoId of repoIds) {
-        try {
-          repoPathByRepoId.set(repoId, await this.persistence.resolveRepoPath(repoId));
-        } catch {
-          // Unresolvable repo id — skip; below loops will no-op for it.
-        }
-      }
-      const completedSummary = tasks
-        .filter((t) => t.status === 'done')
-        .map((t) => `- ${t.name} (${repoPathByRepoId.get(t.repoId) ?? t.repoId})`)
-        .join('\n');
-
       for (const repoId of repoIds) {
         const repoPath = repoPathByRepoId.get(repoId);
         if (!repoPath) continue;
-        const prompt = this.promptBuilder.buildFeedbackPrompt(sprint.name, completedSummary, feedback, sprint.branch);
 
-        this.logger.info(`Implementing feedback in ${repoPath}...`);
-        const spinner = this.logger.spinner('AI is implementing feedback...');
+        const syntheticTask = this.makeFeedbackTask(feedback, repoId);
+
+        // Emit task-started so the dashboard animates this iteration.
+        this.signalBus.emit({
+          type: 'task-started',
+          sprintId: sprint.id,
+          taskId: syntheticTask.id,
+          taskName: syntheticTask.name,
+          timestamp: new Date(),
+        });
+
+        let finishStatus: 'done' | 'blocked' | 'failed' = 'done';
+        const prompt = this.promptBuilder.buildFeedbackPrompt(sprint.name, completedSummary, feedback, sprint.branch);
+        const spinner = this.logger.spinner(
+          `${this.aiSession.getProviderDisplayName()} is working on: ${syntheticTask.name}`
+        );
 
         try {
+          await this.aiSession.ensureReady();
           const sprintDir = this.fs.getSprintDir(sprint.id);
           const result = await this.aiSession.spawnWithRetry(prompt, {
             cwd: repoPath,
@@ -313,36 +342,72 @@ export class ExecuteTasksUseCase {
             env: this.aiSession.getSpawnEnv(),
             maxTurns: options?.maxTurns,
           });
-          spinner.succeed('Feedback implementation completed');
+          spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${syntheticTask.name}`);
 
-          const signals = this.parser.parseExecutionSignals(result.output);
-          if (signals.blocked) {
-            this.logger.warning(`Feedback blocked: ${signals.blocked}`);
+          // Route progress / note / blocked signals to the durable handler so
+          // feedback iterations leave an audit trail in progress.md.
+          const ctx: SignalContext = { sprintId: sprint.id, taskId: syntheticTask.id, projectPath: repoPath };
+          const signals = await this.dispatchSignals(result.output, ctx);
+          const blocked = signals.find((s) => s.type === 'task-blocked');
+          if (blocked) {
+            finishStatus = 'blocked';
+            this.logger.warning(`Feedback blocked in ${repoPath}: ${blocked.reason}`);
           }
         } catch (err) {
-          spinner.fail('Feedback implementation failed');
+          spinner.fail(`${this.aiSession.getProviderDisplayName()} failed: ${syntheticTask.name}`);
+          finishStatus = 'failed';
           this.logger.warning(err instanceof Error ? err.message : String(err));
         }
-      }
 
-      // Run post-feedback check scripts
-      for (const repoId of repoIds) {
-        const resolved = await findProjectForRepoId(this.persistence, repoId);
-        const checkScript = resolveCheckScriptForRepo(resolved?.repo);
-        if (resolved && checkScript) {
-          const { repo } = resolved;
-          this.logger.info(`Running checks after feedback: ${checkScript}`);
-          const result = this.external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
-          if (!result.passed) {
-            this.logger.warning(`Check failed after feedback in ${repo.path}`);
-          } else {
-            this.logger.success(`Checks passed: ${repo.path}`);
+        // Post-task check gate. Don't block the loop on failure — warn and move on.
+        try {
+          const passed = await this.runPostTaskCheck(syntheticTask, sprint);
+          if (!passed) {
+            this.logger.warning(`Post-feedback check failed in ${repoPath}`);
+            if (finishStatus === 'done') finishStatus = 'failed';
           }
+        } catch (err) {
+          this.logger.warning(
+            `Post-feedback check error in ${repoPath}: ${err instanceof Error ? err.message : String(err)}`
+          );
+          if (finishStatus === 'done') finishStatus = 'failed';
         }
+
+        this.signalBus.emit({
+          type: 'task-finished',
+          sprintId: sprint.id,
+          taskId: syntheticTask.id,
+          status: finishStatus,
+          timestamp: new Date(),
+        });
       }
     }
 
-    this.logger.warning(`Reached maximum feedback iterations (${String(MAX_FEEDBACK_ITERATIONS)}). Proceeding.`);
+    if (iteration >= MAX_FEEDBACK_ITERATIONS) {
+      this.logger.warning(`Reached maximum feedback iterations (${String(MAX_FEEDBACK_ITERATIONS)}). Proceeding.`);
+    }
+  }
+
+  /**
+   * Build an in-memory `Task` representing a single feedback iteration for a
+   * single repo. Never persisted — used only to drive the shared building
+   * blocks (`runPostTaskCheck`, signal dispatch, bus lifecycle) without
+   * polluting `tasks.json`.
+   */
+  private makeFeedbackTask(feedback: string, repoId: string): Task {
+    return {
+      id: `feedback-${generateUuid8()}`,
+      name: `Feedback: ${truncate(feedback, 60)}`,
+      description: feedback,
+      steps: [feedback],
+      verificationCriteria: ['Project check script passes'],
+      status: 'todo',
+      order: 0,
+      blockedBy: [],
+      repoId,
+      verified: false,
+      evaluated: false,
+    };
   }
 
   // -------------------------------------------------------------------------
