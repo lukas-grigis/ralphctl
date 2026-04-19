@@ -4,6 +4,7 @@ import { TaskNotFoundError } from '@src/domain/errors.ts';
 import { colors } from '@src/integration/ui/theme/theme.ts';
 import { formatTaskStatus, icons, log, printHeader, showError, showNextStep } from '@src/integration/ui/theme/ui.ts';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
+import { selectTask } from '@src/integration/cli/commands/shared/selectors.ts';
 
 interface WhyNode {
   task: Task;
@@ -54,10 +55,12 @@ function renderBlockerLine(node: WhyNode): string {
   return `${indent}${connector} ${marker} ${idPart}  ${node.task.name}  ${status}`;
 }
 
-export async function taskWhyCommand(taskId: string | undefined): Promise<void> {
-  if (!taskId) {
-    showError('Usage: ralphctl task why <task-id>');
-    return;
+export async function taskWhyCommand(taskId?: string): Promise<void> {
+  let id = taskId;
+  if (!id) {
+    const selected = await selectTask('Which task is blocked?');
+    if (!selected) return;
+    id = selected;
   }
 
   const r = await wrapAsync<Tasks, Error>(() => getTasks(), ensureError);
@@ -68,9 +71,9 @@ export async function taskWhyCommand(taskId: string | undefined): Promise<void> 
 
   const tasks = r.value;
   const byId = new Map(tasks.map((t) => [t.id, t]));
-  const root = byId.get(taskId);
+  const root = byId.get(id);
   if (!root) {
-    showError(new TaskNotFoundError(taskId).message);
+    showError(new TaskNotFoundError(id).message);
     return;
   }
 

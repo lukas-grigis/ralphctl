@@ -45,6 +45,7 @@ import { taskListCommand } from '@src/integration/cli/commands/task/list.ts';
 import { taskShowCommand } from '@src/integration/cli/commands/task/show.ts';
 import { taskStatusCommand } from '@src/integration/cli/commands/task/status.ts';
 import { taskNextCommand } from '@src/integration/cli/commands/task/next.ts';
+import { taskWhyCommand } from '@src/integration/cli/commands/task/why.ts';
 import { taskReorderCommand } from '@src/integration/cli/commands/task/reorder.ts';
 import { taskRemoveCommand } from '@src/integration/cli/commands/task/remove.ts';
 
@@ -102,6 +103,7 @@ export const commandMap: Record<string, Record<string, CommandHandler>> = {
     show: () => taskShowCommand([]),
     status: () => taskStatusCommand([]),
     next: () => taskNextCommand(),
+    why: () => taskWhyCommand(),
     reorder: () => taskReorderCommand([]),
     remove: () => taskRemoveCommand([]),
   },

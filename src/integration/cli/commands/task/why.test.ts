@@ -19,11 +19,6 @@ describe('ralphctl task why', { timeout: 5000 }, () => {
     await cleanup();
   });
 
-  it('prints usage when task id is omitted', async () => {
-    const res = await runCli(['task', 'why'], env);
-    expect(res.stderr + res.stdout).toMatch(/Usage: ralphctl task why/);
-  });
-
   it('reports "no blockers" for an independent task', async () => {
     const add = await runCli(['task', 'add', '-n', '--name', 'Solo Task'], env);
     expect(add.code).toBe(0);
