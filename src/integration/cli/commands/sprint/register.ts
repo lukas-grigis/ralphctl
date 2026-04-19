@@ -85,10 +85,12 @@ Examples:
     .command('refine [id]')
     .description('Refine ticket specifications')
     .option('--project <name>', 'Only refine tickets for specific project')
-    .action(async (id?: string, opts?: { project?: string }) => {
+    .option('--auto', 'Run without approval prompts (AI drafts requirements autonomously)')
+    .action(async (id?: string, opts?: { project?: string; auto?: boolean }) => {
       const args: string[] = [];
       if (id) args.push(id);
       if (opts?.project) args.push('--project', opts.project);
+      if (opts?.auto) args.push('--auto');
       await sprintRefineCommand(args);
     });
 
