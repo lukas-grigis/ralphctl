@@ -9,6 +9,7 @@ import { registerTaskCommands } from '@src/integration/cli/commands/task/registe
 import { registerTicketCommands } from '@src/integration/cli/commands/ticket/register.ts';
 import { registerProgressCommands } from '@src/integration/cli/commands/progress/register.ts';
 import { registerConfigCommands } from '@src/integration/cli/commands/config/register.ts';
+import { registerNextCommands } from '@src/integration/cli/commands/next/register.ts';
 import { cliMetadata } from '@src/domain/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
 import { colors } from '@src/integration/ui/theme/theme.ts';
@@ -49,6 +50,7 @@ function createProgram(): Command {
   registerTicketCommands(program);
   registerProgressCommands(program);
   registerConfigCommands(program);
+  registerNextCommands(program);
 
   return program;
 }

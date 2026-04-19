@@ -9,6 +9,7 @@ import { registerDashboardCommands } from '@src/integration/cli/commands/dashboa
 import { registerConfigCommands } from '@src/integration/cli/commands/config/register.ts';
 import { registerCompletionCommands } from '@src/integration/cli/commands/completion/register.ts';
 import { registerDoctorCommands } from '@src/integration/cli/commands/doctor/register.ts';
+import { registerNextCommands } from '@src/integration/cli/commands/next/register.ts';
 import { error } from '@src/integration/ui/theme/theme.ts';
 import { cliMetadata } from '@src/domain/cli-metadata.ts';
 import { DomainError } from '@src/domain/errors.ts';
@@ -49,6 +50,18 @@ registerDashboardCommands(program);
 registerConfigCommands(program);
 registerCompletionCommands(program);
 registerDoctorCommands(program);
+registerNextCommands(program);
+
+/**
+ * Commands that opt out of the ASCII banner so their output is pipe-safe.
+ * `next --porcelain` / `next --json` are used in shell prompts and CI — a
+ * decorative banner would corrupt the single-line / JSON contract.
+ */
+function isQuietCommand(argv: string[]): boolean {
+  const cmd = argv[2];
+  if (cmd === 'next' && (argv.includes('--porcelain') || argv.includes('--json'))) return true;
+  return false;
+}
 
 async function main(): Promise<void> {
   // Shell completion: intercept before any output (banner, interactive mode)
@@ -104,7 +117,7 @@ async function main(): Promise<void> {
     }
   }
 
-  printBanner();
+  if (!isQuietCommand(argv)) printBanner();
   await program.parseAsync(argv);
 }
 

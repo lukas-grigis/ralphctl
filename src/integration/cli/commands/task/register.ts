@@ -7,6 +7,7 @@ import { taskStatusCommand } from '@src/integration/cli/commands/task/status.ts'
 import { taskNextCommand } from '@src/integration/cli/commands/task/next.ts';
 import { taskReorderCommand } from '@src/integration/cli/commands/task/reorder.ts';
 import { taskImportCommand } from '@src/integration/cli/commands/task/import.ts';
+import { taskWhyCommand } from '@src/integration/cli/commands/task/why.ts';
 
 export function registerTaskCommands(program: Command): void {
   const task = program.command('task').description('Manage tasks');
@@ -107,6 +108,13 @@ Examples:
     });
 
   task.command('next').description('Get next task').action(taskNextCommand);
+
+  task
+    .command('why [id]')
+    .description('Explain why a task is blocked (walks the dependency chain)')
+    .action(async (id?: string) => {
+      await taskWhyCommand(id);
+    });
 
   task
     .command('reorder [id] [position]')
