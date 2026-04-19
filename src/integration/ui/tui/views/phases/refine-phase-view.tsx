@@ -62,6 +62,18 @@ export function RefinePhaseView({ sprintId }: Props): React.JSX.Element {
     void loadSprint();
   }, [loadSprint]);
 
+  // Poll the sprint while the pipeline is running so the approved/pending
+  // counters and per-ticket badges update live as each ticket settles.
+  useEffect(() => {
+    if (!state.running) return;
+    const handle = setInterval(() => {
+      void loadSprint();
+    }, 1000);
+    return () => {
+      clearInterval(handle);
+    };
+  }, [state.running, loadSprint]);
+
   const runRefine = useCallback(async (): Promise<void> => {
     setState((s) => ({ ...s, running: true, error: null, records: [] }));
     try {
