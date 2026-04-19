@@ -7,6 +7,33 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-19
+
+### Added
+
+- **`ralphctl next`** + **`ralphctl task why`** — explain the next recommended action and a task's
+  rationale; surfaced via the REPL task submenu.
+- **Auto mode for refine + plan** — `--auto` flag (and matching REPL toggle) on `sprint refine` and
+  `sprint plan` runs the AI loop without HITL approval prompts.
+- **Loop ticket add (TUI)** — Ink `ticket add` view now prompts "Add another?" after each save and
+  reports the running count, matching the plain-text CLI.
+- **Scrollable confirm details** — the requirements approval prompt's bordered details block is now
+  viewport-sized; ↑/↓ scroll one line, PgUp/PgDn paginate, with a `lines N–M of T` indicator.
+- **Live refine overview** — `RefinePhaseView` polls the sprint while the pipeline runs so the
+  approved/pending counters and per-ticket badges update as each ticket settles.
+- **Live execution grid** — `ExecuteView` re-reads persisted tasks on every `task-finished` signal so
+  the progress counter and per-task statuses tick during the run.
+- **Per-step trace** — new `task-step` `HarnessEvent` is emitted around every per-task pipeline step
+  (`branch-preflight`, `contract-negotiate`, `mark-in-progress`, `execute-task`, `store-verification`,
+  `post-task-check`, `evaluate-task`, `mark-done`). The dashboard surfaces a labeled spinner per
+  running task above the Log section ("Running Claude…", "Evaluating…", …) and mirrors the label as
+  the task's row activity.
+
+### Fixed
+
+- Removed the duplicate `Completed: <task>` log line that was emitted by both the scheduler's
+  `onSettle` callback and the `mark-done` step. The pipeline step now owns it.
+
 ## [0.3.1] - 2026-04-18
 
 ### Added
