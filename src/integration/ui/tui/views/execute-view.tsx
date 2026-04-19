@@ -271,6 +271,21 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
   );
 }
 
+const STEP_LABELS: Record<string, string> = {
+  'branch-preflight': 'Verifying branch…',
+  'contract-negotiate': 'Writing contract…',
+  'mark-in-progress': 'Starting…',
+  'execute-task': 'Running Claude…',
+  'store-verification': 'Storing verification…',
+  'post-task-check': 'Running post-task check…',
+  'evaluate-task': 'Evaluating…',
+  'mark-done': 'Finalizing…',
+};
+
+function labelForStep(stepName: string): string {
+  return STEP_LABELS[stepName] ?? stepName;
+}
+
 export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): RunState {
   const running = new Set(state.running);
   const blocked = new Set(state.blocked);
@@ -284,8 +299,14 @@ export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): 
         break;
       case 'task-finished':
         running.delete(event.taskId);
+        activity.delete(event.taskId);
         if (event.status === 'blocked' || event.status === 'failed') {
           blocked.add(event.taskId);
+        }
+        break;
+      case 'task-step':
+        if (event.phase === 'start') {
+          activity.set(event.taskId, labelForStep(event.stepName));
         }
         break;
       case 'rate-limit-paused':

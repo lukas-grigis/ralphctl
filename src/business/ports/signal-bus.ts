@@ -22,7 +22,15 @@ export type HarnessEvent =
   | { type: 'rate-limit-paused'; delayMs: number; timestamp: Date }
   | { type: 'rate-limit-resumed'; timestamp: Date }
   | { type: 'task-started'; sprintId: string; taskId: string; taskName: string; timestamp: Date }
-  | { type: 'task-finished'; sprintId: string; taskId: string; status: 'done' | 'blocked' | 'failed'; timestamp: Date };
+  | { type: 'task-finished'; sprintId: string; taskId: string; status: 'done' | 'blocked' | 'failed'; timestamp: Date }
+  | {
+      type: 'task-step';
+      sprintId: string;
+      taskId: string;
+      stepName: string;
+      phase: 'start' | 'finish';
+      timestamp: Date;
+    };
 
 export type Unsubscribe = () => void;
 

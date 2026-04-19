@@ -267,10 +267,11 @@ describe('createPerTaskPipeline', () => {
       'mark-done',
     ]);
 
-    // signal bus emits task-started (from mark-in-progress) then
-    // task-finished (from mark-done), in order.
-    const types = events.map((e) => e.type);
-    expect(types).toEqual(['task-started', 'task-finished']);
+    // signal bus emits task-started (from mark-in-progress) and task-finished
+    // (from mark-done), interleaved with per-step task-step trace events.
+    // Ignore the step-trace events here; their ordering is covered separately.
+    const lifecycleTypes = events.map((e) => e.type).filter((t) => t !== 'task-step');
+    expect(lifecycleTypes).toEqual(['task-started', 'task-finished']);
 
     expect(calls.executeOneTask).toHaveBeenCalledTimes(1);
     expect(calls.runPostTaskCheck).toHaveBeenCalledTimes(1);
