@@ -137,7 +137,21 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
     const fresh = signalEvents.slice(processedCountRef.current);
     processedCountRef.current = signalEvents.length;
     setState((prev) => reduceEvents(prev, fresh));
-  }, [signalEvents]);
+
+    // A task settled — re-read persisted statuses so the grid + summary
+    // counter reflect the new done/in_progress state (the reducer only
+    // tracks in-memory running/blocked/activity).
+    if (fresh.some((e) => e.type === 'task-finished')) {
+      void (async () => {
+        try {
+          const tasks = await shared.persistence.getTasks(sprintId);
+          setState((s) => ({ ...s, tasks }));
+        } catch {
+          // Leave the grid as-is; next refresh will catch up.
+        }
+      })();
+    }
+  }, [signalEvents, shared, sprintId]);
 
   const [closePromptRun, setClosePromptRun] = useState(false);
 
