@@ -31,10 +31,10 @@ const HINTS_DONE = [
 ] as const;
 
 type Phase =
-  | { kind: 'running'; step: 'link' | 'fetching' | 'title' | 'description' | 'saving' }
+  | { kind: 'running'; step: 'link' | 'fetching' | 'title' | 'description' | 'saving' | 'another' }
   | { kind: 'no-project' }
   | { kind: 'no-draft-sprint' }
-  | { kind: 'done'; ticket: Ticket; project: Project; prefilled: boolean }
+  | { kind: 'done'; ticket: Ticket; project: Project; prefilled: boolean; count: number }
   | { kind: 'error'; message: string };
 
 const STEP_LABEL: Record<Extract<Phase, { kind: 'running' }>['step'], string> = {
@@ -43,6 +43,7 @@ const STEP_LABEL: Record<Extract<Phase, { kind: 'running' }>['step'], string> = 
   title: 'Awaiting ticket title…',
   description: 'Awaiting ticket description…',
   saving: 'Saving ticket…',
+  another: 'Add another ticket?',
 };
 
 function isValidUrl(value: string): boolean {
@@ -84,45 +85,59 @@ export function TicketAddView(): React.JSX.Element {
         return;
       }
 
-      setPhase({ kind: 'running', step: 'link' });
-      const link = await prompt.input({
-        message: 'Issue link (optional):',
-        validate: (v: string) => {
-          const trimmed = v.trim();
-          if (trimmed.length === 0) return true;
-          return isValidUrl(trimmed) ? true : 'Must be a valid URL (or leave blank)';
-        },
-      });
-      const trimmedLink = link.trim();
+      let count = 0;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- loop control via break
+      while (true) {
+        setPhase({ kind: 'running', step: 'link' });
+        const link = await prompt.input({
+          message: 'Issue link (optional):',
+          validate: (v: string) => {
+            const trimmed = v.trim();
+            if (trimmed.length === 0) return true;
+            return isValidUrl(trimmed) ? true : 'Must be a valid URL (or leave blank)';
+          },
+        });
+        const trimmedLink = link.trim();
 
-      let prefill: IssueData | null = null;
-      if (trimmedLink.length > 0) {
-        setPhase({ kind: 'running', step: 'fetching' });
-        prefill = tryFetchIssue(trimmedLink);
+        let prefill: IssueData | null = null;
+        if (trimmedLink.length > 0) {
+          setPhase({ kind: 'running', step: 'fetching' });
+          prefill = tryFetchIssue(trimmedLink);
+        }
+
+        setPhase({ kind: 'running', step: 'title' });
+        const title = await prompt.input({
+          message: 'Title:',
+          default: prefill?.title,
+          validate: (v: string) => (v.trim().length > 0 ? true : 'Title is required'),
+        });
+
+        setPhase({ kind: 'running', step: 'description' });
+        const description = await prompt.editor({
+          message: 'Description (recommended)',
+          default: prefill?.body,
+        });
+
+        setPhase({ kind: 'running', step: 'saving' });
+        const trimmedDescription = description?.trim() ?? '';
+        const ticket = await addTicket({
+          title: title.trim(),
+          description: trimmedDescription.length > 0 ? trimmedDescription : undefined,
+          link: trimmedLink.length > 0 ? trimmedLink : undefined,
+        });
+        count++;
+
+        setPhase({ kind: 'running', step: 'another' });
+        const another = await prompt.confirm({
+          message: `Add another ticket? (${String(count)} added)`,
+          default: true,
+        });
+
+        if (!another) {
+          setPhase({ kind: 'done', ticket, project, prefilled: prefill !== null, count });
+          return;
+        }
       }
-
-      setPhase({ kind: 'running', step: 'title' });
-      const title = await prompt.input({
-        message: 'Title:',
-        default: prefill?.title,
-        validate: (v: string) => (v.trim().length > 0 ? true : 'Title is required'),
-      });
-
-      setPhase({ kind: 'running', step: 'description' });
-      const description = await prompt.editor({
-        message: 'Description (recommended)',
-        default: prefill?.body,
-      });
-
-      setPhase({ kind: 'running', step: 'saving' });
-      const trimmedDescription = description?.trim() ?? '';
-      const ticket = await addTicket({
-        title: title.trim(),
-        description: trimmedDescription.length > 0 ? trimmedDescription : undefined,
-        link: trimmedLink.length > 0 ? trimmedLink : undefined,
-      });
-
-      setPhase({ kind: 'done', ticket, project, prefilled: prefill !== null });
     },
   });
 
@@ -155,19 +170,26 @@ function renderBody(phase: Phase): React.JSX.Element {
       );
     case 'error':
       return <ResultCard kind="error" title="Could not add ticket" lines={[phase.message]} />;
-    case 'done':
+    case 'done': {
+      const title =
+        phase.count > 1
+          ? `${String(phase.count)} tickets added`
+          : phase.prefilled
+            ? 'Ticket added (prefilled from issue)'
+            : 'Ticket added';
       return (
         <ResultCard
           kind="success"
-          title={phase.prefilled ? 'Ticket added (prefilled from issue)' : 'Ticket added'}
+          title={title}
           fields={[
-            ['ID', phase.ticket.id],
-            ['Title', phase.ticket.title],
+            ['Last ID', phase.ticket.id],
+            ['Last title', phase.ticket.title],
             ['Project', `${phase.project.displayName} (${phase.project.name})`],
             ['Status', `requirement: ${phase.ticket.requirementStatus}`],
           ]}
           nextSteps={[{ action: 'Refine requirements', description: 'Home → Next: Refine Requirements' }]}
         />
       );
+    }
   }
 }

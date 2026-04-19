@@ -211,6 +211,7 @@ function buildTaskSubMenu(ctx: MenuContext): SubMenu {
   items.push(titled('VIEW'));
   items.push({ name: 'List', value: 'list', description: 'List all tasks' });
   items.push({ name: 'Next', value: 'next', description: 'Get next task' });
+  items.push({ name: 'Why Blocked?', value: 'why', description: 'Explain why a task is blocked' });
   items.push(blank());
   items.push(titled('MANAGE'));
   items.push({ name: 'Add', value: 'add', description: 'Add a new task' });

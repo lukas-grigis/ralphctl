@@ -9,7 +9,9 @@ import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import { pipeline } from '@src/business/pipelines/framework/helpers.ts';
-import type { PipelineDefinition } from '@src/business/pipelines/framework/types.ts';
+import type { PipelineDefinition, PipelineStep } from '@src/business/pipelines/framework/types.ts';
+import type { DomainResult } from '@src/domain/types.ts';
+import { Result } from '@src/domain/types.ts';
 import type { ExecuteTasksUseCase } from '@src/business/usecases/execute.ts';
 import type { PerTaskContext } from './per-task-context.ts';
 import { branchPreflight } from './steps/branch-preflight.ts';
@@ -88,25 +90,66 @@ export function createPerTaskPipeline(
   useCase: ExecuteTasksUseCase,
   options: ExecutionOptions = {}
 ): PipelineDefinition<PerTaskContext> {
+  const trace = withStepTrace(deps.signalBus);
   return pipeline<PerTaskContext>('per-task', [
-    branchPreflight({ external: deps.external, persistence: deps.persistence }),
-    contractNegotiate({ persistence: deps.persistence, fs: deps.fs }),
-    markInProgress({ persistence: deps.persistence, signalBus: deps.signalBus }),
-    executeTask({ useCase, options, taskSessionIds: deps.taskSessionIds, logger: deps.logger }),
-    storeVerification({ persistence: deps.persistence, logger: deps.logger }),
-    postTaskCheck({ useCase }),
-    evaluateTask({
-      persistence: deps.persistence,
-      fs: deps.fs,
-      aiSession: deps.aiSession,
-      promptBuilder: deps.promptBuilder,
-      parser: deps.parser,
-      ui: deps.ui,
-      logger: deps.logger,
-      external: deps.external,
-      useCase,
-      options,
-    }),
-    markDone({ persistence: deps.persistence, logger: deps.logger, signalBus: deps.signalBus }),
+    trace(branchPreflight({ external: deps.external, persistence: deps.persistence })),
+    trace(contractNegotiate({ persistence: deps.persistence, fs: deps.fs })),
+    trace(markInProgress({ persistence: deps.persistence, signalBus: deps.signalBus })),
+    trace(executeTask({ useCase, options, taskSessionIds: deps.taskSessionIds, logger: deps.logger })),
+    trace(storeVerification({ persistence: deps.persistence, logger: deps.logger })),
+    trace(postTaskCheck({ useCase })),
+    trace(
+      evaluateTask({
+        persistence: deps.persistence,
+        fs: deps.fs,
+        aiSession: deps.aiSession,
+        promptBuilder: deps.promptBuilder,
+        parser: deps.parser,
+        ui: deps.ui,
+        logger: deps.logger,
+        external: deps.external,
+        useCase,
+        options,
+      })
+    ),
+    trace(markDone({ persistence: deps.persistence, logger: deps.logger, signalBus: deps.signalBus })),
   ]);
+}
+
+/**
+ * Wrap a per-task step so it emits `task-step` bus events at start / finish.
+ * The dashboard uses these to render a live "current step" label per running
+ * task. Emission is best-effort and never affects step semantics.
+ */
+function withStepTrace(signalBus: SignalBusPort): (step: PipelineStep<PerTaskContext>) => PipelineStep<PerTaskContext> {
+  return (inner) => ({
+    name: inner.name,
+    execute: inner.execute,
+    hooks: {
+      pre: async (ctx): Promise<DomainResult<PerTaskContext>> => {
+        signalBus.emit({
+          type: 'task-step',
+          sprintId: ctx.sprint.id,
+          taskId: ctx.task.id,
+          stepName: inner.name,
+          phase: 'start',
+          timestamp: new Date(),
+        });
+        const prior = await inner.hooks?.pre?.(ctx);
+        return prior ?? Result.ok(ctx);
+      },
+      post: async (ctx, result): Promise<DomainResult<Partial<PerTaskContext>>> => {
+        const prior = await inner.hooks?.post?.(ctx, result);
+        signalBus.emit({
+          type: 'task-step',
+          sprintId: ctx.sprint.id,
+          taskId: ctx.task.id,
+          stepName: inner.name,
+          phase: 'finish',
+          timestamp: new Date(),
+        });
+        return prior ?? Result.ok({});
+      },
+    },
+  });
 }

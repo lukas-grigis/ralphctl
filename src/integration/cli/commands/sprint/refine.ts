@@ -17,6 +17,7 @@ import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 
 interface RefineOptions {
   project?: string;
+  auto?: boolean;
 }
 
 function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions } {
@@ -30,6 +31,8 @@ function parseArgs(args: string[]): { sprintId?: string; options: RefineOptions 
     if (arg === '--project') {
       options.project = nextArg;
       i++;
+    } else if (arg === '--auto') {
+      options.auto = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }
@@ -61,7 +64,7 @@ export async function sprintRefineCommand(args: string[]): Promise<void> {
   // → export-requirements). Pipeline owns orchestration; this command just
   // renders the result.
   const shared = getSharedDeps();
-  const pipeline = createRefinePipeline(shared, { project: options.project });
+  const pipeline = createRefinePipeline(shared, { project: options.project, auto: options.auto });
   const result = await executePipeline(pipeline, { sprintId: id });
 
   if (!result.ok) {

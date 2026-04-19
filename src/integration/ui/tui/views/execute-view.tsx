@@ -32,6 +32,7 @@ import { TaskGrid } from '@src/integration/ui/tui/components/task-grid.tsx';
 import { SprintSummary } from '@src/integration/ui/tui/components/sprint-summary.tsx';
 import { LogTail } from '@src/integration/ui/tui/components/log-tail.tsx';
 import { RateLimitBanner } from '@src/integration/ui/tui/components/rate-limit-banner.tsx';
+import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { useRouter } from './router-context.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
@@ -52,6 +53,7 @@ interface RunState {
   running: Set<string>;
   blocked: Set<string>;
   activity: Map<string, string>;
+  currentStep: Map<string, string>;
   summary: ExecutionSummary | null;
   error: string | null;
   rateLimit: { pausedSince: Date; delayMs: number } | null;
@@ -64,6 +66,7 @@ export function initialState(): RunState {
     running: new Set(),
     blocked: new Set(),
     activity: new Map(),
+    currentStep: new Map(),
     summary: null,
     error: null,
     rateLimit: null,
@@ -137,7 +140,21 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
     const fresh = signalEvents.slice(processedCountRef.current);
     processedCountRef.current = signalEvents.length;
     setState((prev) => reduceEvents(prev, fresh));
-  }, [signalEvents]);
+
+    // A task settled — re-read persisted statuses so the grid + summary
+    // counter reflect the new done/in_progress state (the reducer only
+    // tracks in-memory running/blocked/activity).
+    if (fresh.some((e) => e.type === 'task-finished')) {
+      void (async () => {
+        try {
+          const tasks = await shared.persistence.getTasks(sprintId);
+          setState((s) => ({ ...s, tasks }));
+        } catch {
+          // Leave the grid as-is; next refresh will catch up.
+        }
+      })();
+    }
+  }, [signalEvents, shared, sprintId]);
 
   const [closePromptRun, setClosePromptRun] = useState(false);
 
@@ -224,6 +241,16 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
         />
       </Box>
 
+      {!done && state.currentStep.size > 0 ? (
+        <Box marginTop={spacing.section} flexDirection="column">
+          {Array.from(state.currentStep.entries()).map(([taskId, label]) => {
+            const task = state.tasks.find((t) => t.id === taskId);
+            const taskName = task?.name ?? taskId.slice(0, 8);
+            return <Spinner key={taskId} label={`${taskName} ${glyphs.emDash} ${label}`} />;
+          })}
+        </Box>
+      ) : null}
+
       <Box marginTop={spacing.section}>
         <LogTail events={logEvents} />
       </Box>
@@ -257,10 +284,26 @@ export function ExecuteView({ sprintId, executionOptions }: Props): React.JSX.El
   );
 }
 
+const STEP_LABELS: Record<string, string> = {
+  'branch-preflight': 'Verifying branch…',
+  'contract-negotiate': 'Writing contract…',
+  'mark-in-progress': 'Starting…',
+  'execute-task': 'Running Claude…',
+  'store-verification': 'Storing verification…',
+  'post-task-check': 'Running post-task check…',
+  'evaluate-task': 'Evaluating…',
+  'mark-done': 'Finalizing…',
+};
+
+function labelForStep(stepName: string): string {
+  return STEP_LABELS[stepName] ?? stepName;
+}
+
 export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): RunState {
   const running = new Set(state.running);
   const blocked = new Set(state.blocked);
   const activity = new Map(state.activity);
+  const currentStep = new Map(state.currentStep);
   let rateLimit = state.rateLimit;
 
   for (const event of events) {
@@ -270,8 +313,22 @@ export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): 
         break;
       case 'task-finished':
         running.delete(event.taskId);
+        activity.delete(event.taskId);
+        currentStep.delete(event.taskId);
         if (event.status === 'blocked' || event.status === 'failed') {
           blocked.add(event.taskId);
+        }
+        break;
+      case 'task-step':
+        if (event.phase === 'start') {
+          activity.set(event.taskId, labelForStep(event.stepName));
+          currentStep.set(event.taskId, labelForStep(event.stepName));
+        } else {
+          // Step finished — only clear if nothing else has taken over the
+          // slot (mark-done clears via task-finished).
+          if (currentStep.get(event.taskId) === labelForStep(event.stepName)) {
+            currentStep.delete(event.taskId);
+          }
         }
         break;
       case 'rate-limit-paused':
@@ -297,5 +354,5 @@ export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): 
     }
   }
 
-  return { ...state, running, blocked, activity, rateLimit };
+  return { ...state, running, blocked, activity, currentStep, rateLimit };
 }

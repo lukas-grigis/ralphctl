@@ -726,9 +726,9 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         },
         onSettle: (task, result) => {
           if (result === 'success') {
-            // Purge session-id tracking — task done.
+            // Purge session-id tracking — task done. The success log line is
+            // owned by the `mark-done` per-task step.
             taskSessionIds.delete(task.id);
-            deps.logger.success(`Completed: ${task.name}`);
           }
         },
       },

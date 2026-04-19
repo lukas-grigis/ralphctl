@@ -45,6 +45,7 @@ import { taskListCommand } from '@src/integration/cli/commands/task/list.ts';
 import { taskShowCommand } from '@src/integration/cli/commands/task/show.ts';
 import { taskStatusCommand } from '@src/integration/cli/commands/task/status.ts';
 import { taskNextCommand } from '@src/integration/cli/commands/task/next.ts';
+import { taskWhyCommand } from '@src/integration/cli/commands/task/why.ts';
 import { taskReorderCommand } from '@src/integration/cli/commands/task/reorder.ts';
 import { taskRemoveCommand } from '@src/integration/cli/commands/task/remove.ts';
 
@@ -75,9 +76,27 @@ export const commandMap: Record<string, Record<string, CommandHandler>> = {
     show: () => sprintShowCommand([]),
     context: () => sprintContextCommand([]),
     current: () => sprintCurrentCommand(['-']),
-    refine: () => sprintRefineCommand([]),
+    refine: async () => {
+      const mode = await getPrompt().select<'interactive' | 'auto'>({
+        message: 'How should refinement run?',
+        choices: [
+          { label: 'Interactive — approve requirements for each ticket', value: 'interactive' },
+          { label: 'Auto — AI drafts requirements without prompts', value: 'auto' },
+        ],
+      });
+      await sprintRefineCommand(mode === 'auto' ? ['--auto'] : []);
+    },
     ideate: () => sprintIdeateCommand([]),
-    plan: () => sprintPlanCommand([]),
+    plan: async () => {
+      const mode = await getPrompt().select<'interactive' | 'auto'>({
+        message: 'How should planning run?',
+        choices: [
+          { label: 'Interactive — pick affected repos manually', value: 'interactive' },
+          { label: 'Auto — AI explores all repos autonomously', value: 'auto' },
+        ],
+      });
+      await sprintPlanCommand(mode === 'auto' ? ['--auto', '--all-paths'] : []);
+    },
     start: () => sprintStartCommand([]),
     requirements: () => sprintRequirementsCommand([]),
     health: () => sprintHealthCommand(),
@@ -102,6 +121,7 @@ export const commandMap: Record<string, Record<string, CommandHandler>> = {
     show: () => taskShowCommand([]),
     status: () => taskStatusCommand([]),
     next: () => taskNextCommand(),
+    why: () => taskWhyCommand(),
     reorder: () => taskReorderCommand([]),
     remove: () => taskRemoveCommand([]),
   },
