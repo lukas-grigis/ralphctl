@@ -8,14 +8,9 @@
 [![Claude Code](https://img.shields.io/badge/Claude_Code-191919?style=flat&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
 [![GitHub Copilot](https://img.shields.io/badge/GitHub_Copilot-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 
-```
-  ██████╗  █████╗ ██╗     ██████╗ ██╗  ██╗ ██████╗████████╗██╗
-  ██╔══██╗██╔══██╗██║     ██╔══██╗██║  ██║██╔════╝╚══██╔══╝██║
-  ██████╔╝███████║██║     ██████╔╝███████║██║        ██║   ██║
-  ██╔══██╗██╔══██║██║     ██╔═══╝ ██╔══██║██║        ██║   ██║
-  ██║  ██║██║  ██║███████╗██║     ██║  ██║╚██████╗   ██║   ███████╗
-  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝   ╚═╝   ╚══════╝
-```
+<p align="center">
+  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner, sprint pipeline, keybinding footer" width="900" />
+</p>
 
 **Agent harness for long-running AI coding tasks —
 orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) & [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
@@ -24,8 +19,8 @@ across repositories.**
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Early access.** RalphCTL is under active development. Things work, but expect rough edges and breaking changes
-> before 1.0.
+> **Active development** — new features and polish ship regularly. Setup is quick, so upgrading is low-friction. See
+> [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -67,11 +62,18 @@ ralphctl handles the rest.
 
 ```bash
 npm install -g ralphctl
+ralphctl
 ```
+
+That's it. Launches the interactive TUI — walks you through project setup, ticket refinement, task planning, and
+execution. No commands to memorize.
 
 Requires [Node.js](https://nodejs.org/) >= 24, [Git](https://git-scm.com/), and
 either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated.
+
+<details>
+<summary>Prefer explicit commands?</summary>
 
 ```bash
 # 1. Register a project (points to your repo)
@@ -89,7 +91,7 @@ ralphctl sprint plan
 ralphctl sprint start
 ```
 
-Or run `ralphctl` with no arguments for an interactive menu that walks you through everything.
+</details>
 
 ---
 
