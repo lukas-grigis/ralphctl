@@ -33,6 +33,16 @@ export interface ExternalPort {
   /** Check if a repo has uncommitted changes */
   hasUncommittedChanges(projectPath: string): boolean;
 
+  /**
+   * Stage all changes and create a commit with the given message.
+   *
+   * Used by the `recover-dirty-tree` fence to commit leftover agent changes
+   * on the harness's behalf when a task settles with an unclean tree. Throws
+   * on commit failure (e.g. missing git identity, pre-commit hook rejection);
+   * callers are expected to treat failures as non-blocking.
+   */
+  autoCommit(projectPath: string, message: string): Promise<void>;
+
   /** Create and/or checkout a branch in a repo */
   createAndCheckoutBranch(projectPath: string, branchName: string): void;
 

@@ -88,7 +88,7 @@ per-pipeline sequence diagram.
 | [Ideate](./seq-ideate.puml)                                                                                      | `load-sprint → assert-draft → assert-project-provided → run-ideation → reorder-dependencies`                                                                               |
 | [Evaluate](./seq-evaluate.puml)                                                                                  | `load-sprint → load-task → check-already-evaluated → run-evaluator-loop`                                                                                                   |
 | [Execute (outer)](./seq-execute.puml)                                                                            | `load-sprint → check-preconditions → resolve-branch → auto-activate → assert-active → prepare-tasks → ensure-branches → run-check-scripts → execute-tasks → feedback-loop` |
-| Execute (per-task, nested inside `execute-tasks` via `forEachTask` — see [seq-execute.puml](./seq-execute.puml)) | `branch-preflight → contract-negotiate → mark-in-progress → execute-task → store-verification → post-task-check → evaluate-task → mark-done`                               |
+| Execute (per-task, nested inside `execute-tasks` via `forEachTask` — see [seq-execute.puml](./seq-execute.puml)) | `branch-preflight → contract-negotiate → mark-in-progress → execute-task → store-verification → post-task-check → evaluate-task → recover-dirty-tree → mark-done`          |
 
 The Execute pipeline's `execute-tasks` step composes `forEachTask` with the per-task pipeline
 (`src/business/pipelines/execute/per-task-pipeline.ts`). The scheduler owns concurrency, mutex-keys

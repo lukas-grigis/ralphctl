@@ -106,6 +106,8 @@ interface FeedbackDeps {
   signalHandler: { handleProgress: ReturnType<typeof vi.fn>; handleNote: ReturnType<typeof vi.fn> };
   logProgress: ReturnType<typeof vi.fn>;
   warnings: string[];
+  hasUncommittedChanges: ReturnType<typeof vi.fn>;
+  autoCommit: ReturnType<typeof vi.fn>;
 }
 
 function makeSprint(): Sprint {
@@ -169,6 +171,8 @@ function buildFeedbackDeps(feedbackResponses: (string | null)[], spawnOutput = '
   const spinner = { succeed: vi.fn(), fail: vi.fn() };
   const logger = {
     info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
     warning: (msg: string) => warnings.push(msg),
     success: vi.fn(),
     spinner: vi.fn(() => spinner),
@@ -176,7 +180,9 @@ function buildFeedbackDeps(feedbackResponses: (string | null)[], spawnOutput = '
     time: vi.fn(() => () => undefined),
   } as unknown as LoggerPort;
 
-  const external = { runCheckScript } as unknown as ExternalPort;
+  const hasUncommittedChanges = vi.fn().mockReturnValue(false);
+  const autoCommit = vi.fn().mockResolvedValue(undefined);
+  const external = { runCheckScript, hasUncommittedChanges, autoCommit } as unknown as ExternalPort;
   const fs = { getSprintDir: () => '/tmp/sprint' } as unknown as FilesystemPort;
 
   // Parse a single <note> into a NoteSignal so dispatchSignals routes to handleNote.
@@ -230,6 +236,8 @@ function buildFeedbackDeps(feedbackResponses: (string | null)[], spawnOutput = '
     signalHandler: { handleProgress, handleNote },
     logProgress,
     warnings,
+    hasUncommittedChanges,
+    autoCommit,
   };
 }
 
@@ -286,6 +294,23 @@ describe('ExecuteTasksUseCase — runFeedbackLoopOnly', () => {
     await deps.uc.runFeedbackLoopOnly(makeSprint());
     const finished = deps.events.find((e) => e.type === 'task-finished');
     expect(finished).toMatchObject({ type: 'task-finished', status: 'failed' });
+  });
+
+  it('auto-commits when feedback AI leaves the working tree dirty', async () => {
+    const deps = buildFeedbackDeps(['clean things up', null]);
+    deps.hasUncommittedChanges.mockReturnValue(true);
+
+    await deps.uc.runFeedbackLoopOnly(makeSprint());
+
+    expect(deps.autoCommit).toHaveBeenCalledTimes(1);
+    expect(deps.autoCommit).toHaveBeenCalledWith(
+      '/repo/a',
+      expect.stringMatching(/^chore\(harness\): auto-commit leftover changes from "Feedback: /)
+    );
+    const noteEvent = deps.events.find(
+      (e) => e.type === 'signal' && e.signal.type === 'note' && e.signal.text.includes('harness auto-commit')
+    );
+    expect(noteEvent).toBeDefined();
   });
 
   it('synthetic task name truncates feedback past 60 chars with ellipsis', async () => {

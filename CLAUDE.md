@@ -291,6 +291,7 @@ Optional, opt-out, runs only after all tasks complete successfully (`src/busines
 - AI implements the feedback, check scripts re-run, evaluator re-runs
 - Hard cap: `MAX_FEEDBACK_ITERATIONS` (safety net against infinite loops)
 - Disable per-run with `--no-feedback`; disabled implicitly in `--session` mode
+- Dirty working tree after a feedback iteration triggers the same harness auto-commit as post-task settlement (see recover-dirty-tree).
 
 ## Parallel Execution
 

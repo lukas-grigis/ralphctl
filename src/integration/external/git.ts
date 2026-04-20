@@ -174,6 +174,31 @@ export function hasUncommittedChanges(cwd: string): boolean {
 }
 
 /**
+ * Stage all changes in the working tree and commit with the given message.
+ * Throws on any git failure (stage or commit), with the git stderr
+ * preserved in the error message.
+ */
+export function autoCommit(cwd: string, message: string): void {
+  assertSafeCwd(cwd);
+  const add = spawnSync('git', ['add', '-A'], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (add.status !== 0) {
+    throw new Error(`Failed to stage changes in ${cwd}: ${add.stderr.trim()}`);
+  }
+  const commit = spawnSync('git', ['commit', '-m', message], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (commit.status !== 0) {
+    throw new Error(`Failed to commit in ${cwd}: ${commit.stderr.trim() || commit.stdout.trim()}`);
+  }
+}
+
+/**
  * Generate a branch name from a sprint ID.
  * Format: `ralphctl/<sprint-id>`
  */

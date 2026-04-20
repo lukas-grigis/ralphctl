@@ -17,6 +17,7 @@ import type { SignalContext, SignalHandlerPort } from '../ports/signal-handler.t
 import type { SignalBusPort } from '../ports/signal-bus.ts';
 import type { HarnessSignal } from '@src/domain/signals.ts';
 import { findProjectForRepoId, resolveCheckScriptForRepo } from '../pipelines/steps/project-lookup.ts';
+import { recoverDirtyTree } from './recover-dirty-tree.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -372,6 +373,15 @@ export class ExecuteTasksUseCase {
           );
           if (finishStatus === 'done') finishStatus = 'failed';
         }
+
+        // Mirror the per-task pipeline's dirty-tree fence: if the feedback AI
+        // left uncommitted changes, auto-commit on its behalf so state never
+        // leaks across the sprint-close boundary. `recoverDirtyTree` is
+        // non-blocking by contract — it swallows its own errors.
+        await recoverDirtyTree(
+          { external: this.external, logger: this.logger, signalBus: this.signalBus },
+          { sprintId: sprint.id, taskId: syntheticTask.id, taskName: syntheticTask.name, repoPath }
+        );
 
         this.signalBus.emit({
           type: 'task-finished',

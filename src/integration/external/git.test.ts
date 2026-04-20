@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  autoCommit,
   branchExists,
   createAndCheckoutBranch,
   generateBranchName,
@@ -193,6 +194,35 @@ describe('git operations with temp repo', () => {
       writeFileSync(join(tempDir, 'README.md'), '# Updated');
       execSync('git add .', { cwd: tempDir, stdio: 'pipe' });
       expect(hasUncommittedChanges(tempDir)).toBe(true);
+    });
+  });
+
+  describe('autoCommit', () => {
+    it('stages and commits untracked files', () => {
+      writeFileSync(join(tempDir, 'new-file.txt'), 'content');
+      expect(hasUncommittedChanges(tempDir)).toBe(true);
+
+      autoCommit(tempDir, 'chore(harness): test auto-commit');
+
+      expect(hasUncommittedChanges(tempDir)).toBe(false);
+      const log = execSync('git log -1 --pretty=%s', { cwd: tempDir, encoding: 'utf-8' }).trim();
+      expect(log).toBe('chore(harness): test auto-commit');
+    });
+
+    it('stages and commits modified tracked files', () => {
+      writeFileSync(join(tempDir, 'README.md'), '# Updated');
+      expect(hasUncommittedChanges(tempDir)).toBe(true);
+
+      autoCommit(tempDir, 'chore(harness): update readme');
+
+      expect(hasUncommittedChanges(tempDir)).toBe(false);
+    });
+
+    it('throws when there is nothing to commit', () => {
+      // Clean tree → `git commit` exits non-zero.
+      expect(() => {
+        autoCommit(tempDir, 'empty');
+      }).toThrow(/Failed to commit/);
     });
   });
 

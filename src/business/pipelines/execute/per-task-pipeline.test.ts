@@ -197,6 +197,10 @@ function setup(scenario: Scenario = {}): {
     // Evaluator renders a Project Tooling section from detectProjectTooling();
     // tests don't care about the content, just that it's a string.
     detectProjectTooling: () => '',
+    // recover-dirty-tree fence: default clean so the happy path skips the
+    // auto-commit branch entirely.
+    hasUncommittedChanges: () => false,
+    autoCommit: () => Promise.resolve(),
   } as unknown as ExternalPort;
 
   const deps: PerTaskDeps = {
@@ -244,7 +248,7 @@ function makeCtx(deps: PerTaskDeps, task: Task, sprint: Sprint): PerTaskContext 
 // ---------------------------------------------------------------------------
 
 describe('createPerTaskPipeline', () => {
-  it('happy path: runs all 8 steps in order', async () => {
+  it('happy path: runs all 9 steps in order', async () => {
     const task = makeTask();
     const sprint = makeSprint();
     const { deps, useCase, events, calls } = setup({ task, sprint });
@@ -264,6 +268,7 @@ describe('createPerTaskPipeline', () => {
       'store-verification',
       'post-task-check',
       'evaluate-task',
+      'recover-dirty-tree',
       'mark-done',
     ]);
 
