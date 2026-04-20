@@ -118,6 +118,8 @@ Focus: Determine HOW to implement the approved requirements
 
 {{VALIDATION}}
 
+<context>
+
 ## Idea to Refine and Plan
 
 **Title:** {{IDEA_TITLE}}
@@ -140,6 +142,8 @@ mention it as an observation.
 ## Planning Common Context
 
 {{COMMON}}
+
+</context>
 
 ## Output Format
 
@@ -169,7 +173,7 @@ Use this exact JSON Schema:
         "Update ExportController.getExport() in src/controllers/export.ts to parse and validate date range params",
         "Add date range filtering to ExportRepository.findRecords() in src/repositories/export.ts",
         "Write tests in src/controllers/__tests__/export.test.ts for: no dates, valid range, invalid range, start > end",
-        "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+        "{{CHECK_GATE_EXAMPLE}}"
       ],
       "verificationCriteria": [
         "TypeScript compiles with no errors",

@@ -15,16 +15,17 @@ When finished, emit a signal from the `<signals>` block below.
 - **Respect task boundaries** — complete exactly the declared steps for this one task, then stop. Other agents may be
   working on neighboring tasks in parallel; skipping steps, improvising, or editing files outside the declared set
   causes merge conflicts with their work.
-- **Prefer fixing the code over the test** — a failing test usually indicates a bug in the implementation. Update a
-  test only when the declared steps intentionally change the behaviour it asserts (e.g. a regression fix, a contract
-  change). Do not remove, skip, or weaken a test to make a failure go away — that masks real bugs. If the right move
-  is genuinely ambiguous, signal `<task-blocked>` so a human can decide.
+- **Prefer fixing the code over the test** — a failing test usually indicates a bug in the implementation. Update
+  tests only when the declared steps intentionally change the asserted behaviour (e.g. a contract change, a regression
+  fix). If the right move is genuinely ambiguous, signal `<task-blocked>` so a human can decide — do not silently
+  weaken a test to make a failure go away.
 - **Verify before completing** — the harness runs a post-task check gate; unverified work will be caught and rejected.
 - **Append progress, never overwrite** — append each progress entry at the end of the progress file. Overwriting
   erases context that downstream tasks depend on.
 - **Leave {{CONTEXT_FILE}} and task definitions alone** — the context file is cleaned up by the harness (committing it
   pollutes the repo); the task name, description, steps, and other task files are immutable.
-  {{COMMIT_CONSTRAINT}}
+
+{{COMMIT_CONSTRAINT}}
 
 </constraints>
 
@@ -93,7 +94,8 @@ Complete these steps IN ORDER:
 1. **Confirm all steps done** — Every task step has been completed
 2. **Run ALL verification commands** — Execute every verification command (see Check Script section in the context file
    or project instructions). Fix any failures before proceeding. The harness runs the check script as a post-task
-   gate — your task is not marked done unless it passes.{{COMMIT_STEP}}
+   gate — your task is not marked done unless it passes.
+   {{COMMIT_STEP}}
 3. **Update progress file** — Append to {{PROGRESS_FILE}} using this format:
 
    ```markdown
@@ -142,17 +144,15 @@ Complete these steps IN ORDER:
    - The WHERE clause builder in src/repositories/base.ts can be extended for future filters
    ```
 
-4. **Output verification results:**
+4. **Output verification results** — use the actual commands the harness ran; the examples below are illustrative:
 
 <!-- prettier-ignore -->
 ```
 <task-verified>
-$ pnpm typecheck
-No type errors
-$ pnpm lint
-No lint errors
-$ pnpm test
-47 tests passed
+$ <check-command-1>
+<output>
+$ <check-command-2>
+<output>
 </task-verified>
 ```
 

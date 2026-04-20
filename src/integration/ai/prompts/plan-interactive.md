@@ -72,7 +72,7 @@ before the plan is finalized.
    **Steps:**
    1. Create src/utils/csvExport.ts with column formatters for date, number, and string types
    2. Add unit tests in src/utils/__tests__/csvExport.test.ts covering empty data, special characters, and large datasets
-   3. Run `pnpm typecheck && pnpm lint && pnpm test` — all pass
+   3. Run the project's check/test/build gate — all pass
    ```
 
 2. **Show the dependency graph** — Make it obvious which tasks run in parallel vs sequentially, and why each dependency
@@ -123,9 +123,13 @@ The sprint contains:
 - **Existing Tasks**: Tasks from a previous planning run (your output replaces all existing tasks)
 - **Projects**: Each ticket belongs to a project which may have multiple repository paths
 
+<context>
+
 {{CONTEXT}}
 
 {{COMMON}}
+
+</context>
 
 ### Repository Assignment
 
@@ -166,7 +170,7 @@ Use this exact JSON Schema:
     "Update ExportController.getExport() in src/controllers/export.ts to parse and validate date range params",
     "Add date range filtering to ExportRepository.findRecords() in src/repositories/export.ts",
     "Write tests in src/controllers/__tests__/export.test.ts for: no dates, valid range, invalid range, start > end",
-    "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+    "{{CHECK_GATE_EXAMPLE}}"
   ],
   "verificationCriteria": [
     "TypeScript compiles with no errors",

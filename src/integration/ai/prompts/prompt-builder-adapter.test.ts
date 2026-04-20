@@ -111,14 +111,14 @@ describe('TextPromptBuilderAdapter', () => {
       // dropping the field on the floor.
       const taskWithExtras: Task = { ...task, extraDimensions: ['Performance'] };
       const out = adapter.buildTaskEvaluationPrompt(taskWithExtras, repoPath, null, '');
-      expect(out).toContain('**Dimension 5 — Performance**');
+      expect(out).toContain('<dimension name="Performance" floor="false">');
     });
 
     it('omits extra-dimension blocks when task.extraDimensions is undefined', () => {
       // `undefined` (not `[]`) is the floor-only case — the adapter
       // normalises it to an empty array so the loader renders nothing.
       const out = adapter.buildTaskEvaluationPrompt(task, repoPath, null, '');
-      expect(out).not.toContain('**Dimension 5');
+      expect(out).not.toContain('floor="false"');
     });
   });
 

@@ -1,3 +1,5 @@
+<validation-checklist>
+
 ## Pre-Output Validation
 
 Before writing the JSON output, verify EVERY item:
@@ -12,3 +14,5 @@ Before writing the JSON output, verify EVERY item:
 8. **`projectPath` assigned** — every task uses a path from the available repositories
 9. **Verification criteria** — every task has 2-4 `verificationCriteria` that are testable and unambiguous
 10. **Raw JSON output** — the output is valid JSON matching the schema exactly; the harness parses the output directly as JSON, so emit it without markdown fences, commentary, or surrounding prose
+
+</validation-checklist>

@@ -49,13 +49,28 @@ function composePrompt(template: string, substitutions: Record<string, string>):
 }
 
 /**
- * Planner builders substitute `{{PROJECT_TOOLING}}` inside `plan-common`
- * first so the outer `composePrompt` can plug the result into `{{COMMON}}`
- * as opaque text.
+ * Neutral, ecosystem-agnostic check-gate example. Pre-expanded inside the
+ * planner partials so generated `steps` / `verificationCriteria` examples do
+ * not leak Node-specific commands (`pnpm test`, `npm run lint`) to prompts
+ * that run in Python / Go / Rust / Java / mixed repos. Downstream projects
+ * supply the real command via `{{PROJECT_TOOLING}}` at runtime.
+ */
+const CHECK_GATE_EXAMPLE =
+  "Run the project's check gate — all pass (omit this step when the project has no check script)";
+
+/**
+ * Planner builders substitute `{{PROJECT_TOOLING}}` and
+ * `{{CHECK_GATE_EXAMPLE}}` inside `plan-common` first so the outer
+ * `composePrompt` can plug the result into `{{COMMON}}` as opaque text.
  */
 function buildPlanCommon(projectToolingSection: string): string {
+  // PLAN_COMMON_EXAMPLES is substituted first so its embedded
+  // `{{CHECK_GATE_EXAMPLE}}` placeholder is caught by the subsequent
+  // iteration of composePrompt — order matters here.
   return composePrompt(loadPartial('plan-common'), {
+    PLAN_COMMON_EXAMPLES: loadPartial('plan-common-examples'),
     PROJECT_TOOLING: projectToolingSection,
+    CHECK_GATE_EXAMPLE,
   });
 }
 
@@ -69,12 +84,14 @@ function buildPlannerBase(projectToolingSection: string): {
   COMMON: string;
   VALIDATION: string;
   SIGNALS: string;
+  CHECK_GATE_EXAMPLE: string;
 } {
   return {
     HARNESS_CONTEXT: loadPartial('harness-context'),
     COMMON: buildPlanCommon(projectToolingSection),
     VALIDATION: loadPartial('validation-checklist'),
     SIGNALS: loadPartial('signals-planning'),
+    CHECK_GATE_EXAMPLE,
   };
 }
 
@@ -106,14 +123,23 @@ export function buildTaskExecutionPrompt(
   contextFileName: string,
   projectToolingSection = ''
 ): string {
-  const template = loadTemplate('task-execution');
-  // COMMIT_STEP renders as a sub-bullet under Phase 3 step 2 (verification). Keeping it
-  // as a nested list item avoids the list-gap anti-pattern: when noCommit is true, the
-  // substitution is the empty string and the surrounding numbered list stays intact.
+  let template = loadTemplate('task-execution');
+  // Prettier reflows markdown and re-indents continuation lines, so the
+  // template's indent around {{COMMIT_STEP}} / {{COMMIT_CONSTRAINT}} isn't
+  // stable. When noCommit is true, collapse the entire placeholder line
+  // (leading whitespace + placeholder + trailing newline) to a single newline
+  // so no indented-empty line survives. When false, keep the placeholder as
+  // a normal substitution — the inserted content is a peer bullet at column 0
+  // (the template surrounds the placeholder with blank lines so the bullet
+  // renders as a sibling of the other constraints, not a sub-bullet).
+  if (noCommit) {
+    template = template.replace(/^[ \t]*\{\{COMMIT_STEP\}\}\n/m, '\n');
+    template = template.replace(/^[ \t]*\{\{COMMIT_CONSTRAINT\}\}\n/m, '');
+  }
   const commitStep = noCommit
     ? ''
-    : '\n   - **Before continuing:** Create a git commit with a descriptive message for the changes made.';
-  const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.\n';
+    : '   - **Before continuing:** Create a git commit with a descriptive message for the changes made.';
+  const commitConstraint = noCommit ? '' : '- **Must commit** — Create a git commit before signaling completion.';
   return composePrompt(template, {
     HARNESS_CONTEXT: loadPartial('harness-context'),
     SIGNALS: loadPartial('signals-task'),
@@ -132,11 +158,15 @@ export function buildTicketRefinePrompt(
   issueContext = ''
 ): string {
   const template = loadTemplate('ticket-refine');
+  // Wrap non-empty issue context in <context>…</context> for canonical XML
+  // framing. Empty input stays empty — no orphan tag pair in the rendered
+  // output when the ticket carries no upstream issue link.
+  const issueContextSection = issueContext ? `<context>\n\n${issueContext}\n\n</context>` : '';
   return composePrompt(template, {
     TICKET: ticketContent,
     OUTPUT_FILE: outputFile,
     SCHEMA: schema,
-    ISSUE_CONTEXT: issueContext,
+    ISSUE_CONTEXT: issueContextSection,
   });
 }
 
@@ -221,8 +251,8 @@ function renderExtraDimensions(extras: string[]): {
 
   const section = extras
     .map(
-      (name, i) =>
-        `\n**Dimension ${String(5 + i)} — ${name}**\nAdditional task-specific dimension flagged by the planner. Apply judgment to whether the implementation satisfies this dimension given the task's verification criteria and steps.\n`
+      (name) =>
+        `\n<dimension name="${name}" floor="false">\nAdditional task-specific dimension flagged by the planner. Apply judgment to whether the implementation satisfies this dimension given the task's verification criteria and steps.\n</dimension>\n`
     )
     .join('');
 
