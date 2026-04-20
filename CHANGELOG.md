@@ -7,6 +7,19 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-20
+
+### Fixed
+
+- **Dirty-tree leaks after task settlement** — tasks and end-of-sprint feedback iterations could
+  leave uncommitted changes in the repo if the generator skipped its commit step. Two-layer fix:
+  - `sprint-feedback` prompt now mandates a commit before completion; `task-evaluation` prompt
+    declares a read-only posture and requires a clean tree in Phase 1.
+  - New `recover-dirty-tree` pipeline step (between `evaluate-task` and `mark-done`) and matching
+    hook in the feedback loop. If the tree is still dirty at settlement, the harness warns, emits
+    a `Note` signal to `progress.md`, and auto-commits via a new `ExternalPort.autoCommit`.
+    Non-blocking — `mark-done` always runs, even if the auto-commit itself fails.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
