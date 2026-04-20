@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-20
+
+### Changed
+
+- **Prompt templates audited for downstream generality (#75)** — all 15 templates under
+  `src/integration/ai/prompts/*.md` now follow a canonical XML vocabulary (`<context>`,
+  `<requirements>`, `<constraints>`, `<examples>`, `<dimension>`, `<task-specification>`) per
+  Anthropic's prompt-engineering guidance. Per-file audit report at `.claude/docs/PROMPT-AUDIT.md`.
+- **De-Node-ified example JSON** — `{{CHECK_GATE_EXAMPLE}}` placeholder replaces hardcoded
+  `pnpm`/`npm` strings so prompts render cleanly in Python / Go / Rust / Java downstream projects.
+  Default now reads "omit this step when the project has no check script" so planners don't push
+  a check-gate criterion on projects without one.
+- **`plan-common.md` trimmed 263 → 197 lines** — illustrative good/bad JSON + dependency-graph
+  examples extracted into a new `plan-common-examples.md` partial wrapped in `<examples>` to signal
+  non-normativity. Savings compound across four inlined planner prompts.
+
+### Added
+
+- **`<thinking>` scratchpad in headless planners** — `plan-auto` and `ideate-auto` now direct the
+  planner to reason in `<thinking>…</thinking>` before emitting JSON. Evidence-backed CoT lift;
+  the JSON extractor already skips pre-bracket content, so no parser work needed.
+- **CI-locked anti-patterns in `loader.test.ts`** — no `ralphctl` string in any template, no
+  hardcoded subagent names, no literal package-manager commands outside the placeholder seam.
+  TUI-parity fixture asserts byte-identical output across callers.
+
 ## [0.4.1] - 2026-04-20
 
 ### Fixed
