@@ -239,6 +239,19 @@ prompt files)
 **Workflow sync** - Prompt templates must match actual command flow (e.g., repo selection happens in command before
 Claude session starts)
 **Template builders** - `src/integration/ai/prompts/loader.ts` compiles `.md` templates with placeholder replacement
+**Canonical XML vocabulary** — structural inputs sit inside known tags (`<harness-context>`, `<task-specification>`,
+`<context>`, `<requirements>`, `<constraints>`, `<examples>`, `<dimension>`, `<signals>`). Full table in
+[.claude/docs/PROMPT-AUDIT.md](.claude/docs/PROMPT-AUDIT.md) — extend both the doc and the loader audit tests when
+adding a new tag.
+**No hardcoded package-manager commands** — prompts must not embed `pnpm`/`npm`/`pip`/`cargo`/`go test` outside the
+`{{PROJECT_TOOLING}}` or `{{CHECK_GATE_EXAMPLE}}` placeholders. Downstream ecosystems differ; the placeholders are the
+seam.
+**Conditional placeholders must not sit inside numbered lists** — when the substitution is empty the list must still
+read cleanly. Emit conditional content as a standalone bullet or paragraph, not as trailing prose in a numbered step.
+**Downstream `.claude/` is optional context** — many downstream repos have no `.claude/` directory. Reference it as
+"when present" rather than prescriptively; skip silently when absent.
+**Absolute rules name their exception** — `never`/`always` phrasing is fragile when legitimate exceptions exist. Name
+the exception inline (e.g. "Merge create+use — except when a stable contract makes them independently testable").
 
 ## Custom Agents
 
