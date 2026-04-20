@@ -1,16 +1,21 @@
 ## Project Resources
 
-Each repository may ship with project-specific instruction files at its root and a `.claude/` configuration directory.
-Read them during exploration and reference them throughout planning:
+During exploration, check for project instruction files if present. Treat whichever files exist as authoritative for
+that codebase; skip silently when absent.
 
-- **`CLAUDE.md` / `AGENTS.md`** — project-level rules, conventions, and persistent memory
-- **`.github/copilot-instructions.md`** — GitHub Copilot-specific repository instructions, when present
+**Instruction files (any ecosystem):**
+
+- **`CLAUDE.md` / `AGENTS.md`** — when present: project-level rules, conventions, and persistent memory
+- **`.github/copilot-instructions.md`** — when present: GitHub Copilot-specific repository instructions
+- **`README.md`** and manifest files (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, …) — setup,
+  scripts, and dependencies
+
+**Claude-specific configuration (only when the repo has a `.claude/` directory):**
+
 - **`.mcp.json`** — MCP servers the project ships with (Playwright, database inspection, etc.)
 - **`.claude/agents/`** — subagent definitions for Task-tool delegation
 - **`.claude/skills/`** — custom skills invokable with the Skill tool for project-specific workflows
 - **`.claude/settings.json`** / **`.claude/settings.local.json`** — tool permissions, model preferences, hooks
-
-When repository instruction files exist, treat their instructions as authoritative for that codebase.
 
 ## What Makes a Great Task
 
@@ -63,6 +68,8 @@ Right size (one task covering the full change):
 
 ### Verification Criteria (The Evaluator Contract)
 
+_See the `<examples>` block at the end of this page for good/bad pairs._
+
 Every task must include a `verificationCriteria` array — these are the **done contract** between the generator (task
 executor) and the evaluator (independent reviewer). The evaluator grades each criterion as pass/fail across four
 floor dimensions: correctness, completeness, safety, and consistency. If ANY dimension fails, the task fails
@@ -86,21 +93,6 @@ Write criteria that are:
 - **Unambiguous** — two reviewers would agree on pass/fail
 - **Outcome-oriented** — describe WHAT is true when done, not HOW to get there
 
-> **Good criteria (verifiable, unambiguous):**
->
-> - "TypeScript compiles with no errors"
-> - "All existing tests pass plus new tests for the added feature"
-> - "GET /api/users returns 200 with paginated user list"
-> - "GET /api/users?page=-1 returns 400 with validation error"
-> - "Component renders without console errors in browser"
-> - "Playwright e2e: login flow completes without errors" _(UI tasks with Playwright configured)_
-
-> **Bad criteria (vague, not independently verifiable):**
->
-> - "Code is clean and well-structured"
-> - "Error handling is appropriate"
-> - "Performance is acceptable"
-
 Aim for 2-4 criteria per task. Include at least one criterion that is computationally checkable (test pass, type check,
 lint clean). For **UI/frontend tasks**, if the project has Playwright configured, add a browser-verifiable criterion —
 the evaluator will attempt visual verification using Playwright or browser tools when the project supports it.
@@ -108,7 +100,8 @@ the evaluator will attempt visual verification using Playwright or browser tools
 ### Guidelines
 
 1. **Outcome-oriented** — Each task delivers a testable result
-2. **Merge create+use** — Never separate "create X" from "use X" — that is one task
+2. **Merge create+use** — Keep "create X" and "use X" in one task — except when a stable contract makes them
+   independently testable (e.g. schema + migration lands first, consumer wiring lands after)
 3. **Let scope drive task count** — do not aim for a specific number. Fewer, larger coherent tasks beat many
    micro-tasks; split only when parallelism or a clean boundary justifies it
 4. **Merge serial chains** — If tasks only make sense when run in sequence, fold them into one task
@@ -134,6 +127,8 @@ the evaluator will attempt visual verification using Playwright or browser tools
 
 ## Dependency Graph
 
+_See the `<examples>` block at the end of this page for good/bad pairs._
+
 Tasks execute in dependency order — foundations before dependents.
 
 ### Guidelines
@@ -142,29 +137,6 @@ Tasks execute in dependency order — foundations before dependents.
 2. **Declare all dependencies** — Use `blockedBy` to enforce order. Do not rely on array position alone.
 3. **Maximize parallelism** — Only add `blockedBy` when there is a real code dependency
 4. **Validate the DAG** — No cycles; earlier tasks cannot depend on later ones
-
-### Good Dependency Graph
-
-```
-Task 1: Add shared validation utilities       (no deps)
-Task 2: Implement user registration form       (blockedBy: [1])
-Task 3: Implement user profile editor          (blockedBy: [1])
-Task 4: Add form submission analytics          (blockedBy: [2, 3])
-```
-
-Tasks 2 and 3 run in parallel (both depend only on 1). Task 4 waits for both.
-
-### Bad Dependency Graph
-
-```
-Task 1: Add validation utilities               (no deps)
-Task 2: Implement registration form            (blockedBy: [1])
-Task 3: Implement profile editor               (blockedBy: [2])  <-- WRONG
-Task 4: Add submission analytics               (blockedBy: [3])  <-- WRONG
-```
-
-Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that prevents parallel
-execution.
 
 **Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code produced by the blocker?" If
 not, remove the dependency.
@@ -177,9 +149,13 @@ Each task must specify which repository it executes in via `projectPath`:
 2. **Split by repo** — If a ticket affects multiple repos, create separate tasks per repo with dependencies
 3. **Use exact paths** — `projectPath` must be one of the absolute paths from the project's Repositories section
 
-Never create a task that modifies files in multiple repos — split it.
+Split cross-repo work into one task per repo with `blockedBy` — except when atomicity is genuinely required (a
+single commit must land in both repos to avoid broken state), in which case flag the task and surface the need for
+human coordination.
 
 ## Precise Step Declarations
+
+_See the `<examples>` block at the end of this page for good/bad pairs._
 
 Every task must include explicit, actionable steps — the implementation checklist.
 
@@ -194,38 +170,6 @@ Every task must include explicit, actionable steps — the implementation checkl
    instruction files
 5. **No ambiguity** — Another developer should be able to follow steps without guessing
 
-Bad — vague steps that force the agent to guess:
-
-```json
-{
-  "name": "Add user authentication",
-  "steps": ["Implement auth", "Add tests", "Update docs"]
-}
-```
-
-Good — precise steps with file paths and pattern references:
-
-```json
-{
-  "name": "Add user authentication",
-  "projectPath": "/Users/dev/my-app",
-  "steps": [
-    "Create auth service in src/services/auth.ts with login(), logout(), getCurrentUser() — follow the pattern in src/services/user.ts for error handling and return types",
-    "Add AuthContext provider in src/contexts/AuthContext.tsx wrapping the app — follow existing ThemeContext pattern",
-    "Create useAuth hook in src/hooks/useAuth.ts exposing auth state and actions",
-    "Add ProtectedRoute wrapper component in src/components/ProtectedRoute.tsx",
-    "Write unit tests in src/services/__tests__/auth.test.ts — follow test patterns in src/services/__tests__/user.test.ts",
-    "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
-  ],
-  "verificationCriteria": [
-    "TypeScript compiles with no errors",
-    "All existing tests pass plus new auth tests",
-    "ProtectedRoute redirects unauthenticated users to /login",
-    "useAuth hook exposes isAuthenticated, user, login, and logout"
-  ]
-}
-```
-
 Use actual file paths discovered during exploration. Reference the repository instruction files for verification
 commands.
 
@@ -233,6 +177,10 @@ commands.
 
 Start with an action verb (Add, Create, Update, Fix, Refactor, Remove, Migrate). Include the feature/concept, not files.
 Keep under 60 characters. Avoid vague verbs (Improve, Enhance, Handle).
+
+See `<examples>` below for concrete good/bad pairs.
+
+{{PLAN_COMMON_EXAMPLES}}
 
 ## Delegation to Available Tooling
 
