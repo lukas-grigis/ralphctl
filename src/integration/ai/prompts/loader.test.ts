@@ -33,6 +33,7 @@ const PARTIAL_MARKERS = {
   signalsTask: '<task-verified>',
   signalsPlanning: '<planning-blocked>',
   signalsEvaluation: '<evaluation-passed>',
+  planCommonExamples: 'Good Dependency Graph',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -165,6 +166,23 @@ describe('buildTaskExecutionPrompt', () => {
     it('includes commit constraint text', () => {
       const result = buildTaskExecutionPrompt(progressFile, false, contextFile);
       expect(result).toContain('Must commit');
+    });
+
+    it('renders Must commit as a peer constraint bullet at column 0, not a nested sub-bullet', () => {
+      // Regression guard for a Prettier-reflow bug: when {{COMMIT_CONSTRAINT}}
+      // sat indented under the preceding bullet's continuation, the rendered
+      // "- **Must commit**" read as a sub-bullet of "Leave CONTEXT_FILE alone".
+      // The placeholder must live at column 0 so the bullet is a sibling.
+      const result = buildTaskExecutionPrompt(progressFile, false, contextFile);
+      // Column-0 match (no leading whitespace) — the authoritative assertion.
+      expect(result).toMatch(/^- \*\*Must commit\*\*/m);
+      // And the indented form must not appear anywhere.
+      expect(result).not.toMatch(/^[ \t]+- \*\*Must commit\*\*/m);
+    });
+
+    it('places the closing </constraints> tag at column 0 (not indented under a bullet)', () => {
+      const result = buildTaskExecutionPrompt(progressFile, false, contextFile);
+      expect(result).toMatch(/^<\/constraints>/m);
     });
   });
 
@@ -397,33 +415,33 @@ describe('buildEvaluatorPrompt', () => {
   describe('extraDimensions', () => {
     it('renders only the four floor dimensions when extras is empty', () => {
       const result = buildEvaluatorPrompt(baseCtx);
-      expect(result).toContain('**Dimension 1 — Correctness**');
-      expect(result).toContain('**Dimension 2 — Completeness**');
-      expect(result).toContain('**Dimension 3 — Safety**');
-      expect(result).toContain('**Dimension 4 — Consistency**');
-      // No fifth dimension when no extras supplied.
-      expect(result).not.toContain('**Dimension 5');
+      expect(result).toContain('<dimension name="Correctness" floor="true">');
+      expect(result).toContain('<dimension name="Completeness" floor="true">');
+      expect(result).toContain('<dimension name="Safety" floor="true">');
+      expect(result).toContain('<dimension name="Consistency" floor="true">');
+      // No floor="false" (planner-emitted) dimension when no extras supplied.
+      expect(result).not.toContain('floor="false"');
     });
 
     it('renders an additional dimension block per extra entry', () => {
       const result = buildEvaluatorPrompt({ ...baseCtx, extraDimensions: ['Performance'] });
-      expect(result).toContain('**Dimension 5 — Performance**');
+      expect(result).toContain('<dimension name="Performance" floor="false">');
       // The four floor dimensions still come first.
-      expect(result).toContain('**Dimension 4 — Consistency**');
+      expect(result).toContain('<dimension name="Consistency" floor="true">');
       // Extra appears in the Pass Bar list and the Assessment templates.
       expect(result).toContain('- **Performance**');
       expect(result).toMatch(/\*\*Performance\*\*: PASS — \[one-line finding]/);
       expect(result).toMatch(/\*\*Performance\*\*: PASS\/FAIL — \[one-line finding]/);
     });
 
-    it('numbers extras consecutively starting from Dimension 5', () => {
+    it('emits one dimension tag per extra entry', () => {
       const result = buildEvaluatorPrompt({
         ...baseCtx,
         extraDimensions: ['Performance', 'Accessibility', 'MigrationSafety'],
       });
-      expect(result).toContain('**Dimension 5 — Performance**');
-      expect(result).toContain('**Dimension 6 — Accessibility**');
-      expect(result).toContain('**Dimension 7 — MigrationSafety**');
+      expect(result).toContain('<dimension name="Performance" floor="false">');
+      expect(result).toContain('<dimension name="Accessibility" floor="false">');
+      expect(result).toContain('<dimension name="MigrationSafety" floor="false">');
     });
 
     it('leaves no unrendered placeholders when extras is empty', () => {
@@ -630,6 +648,97 @@ describe('shared partial inlining', () => {
       expect(result).not.toContain(PARTIAL_MARKERS.validation);
     });
   });
+
+  describe('plan-common-examples partial (planner-role only)', () => {
+    it('is inlined into plan-auto', () => {
+      const result = buildAutoPrompt('ctx', '{}', '');
+      expect(result).toContain(PARTIAL_MARKERS.planCommonExamples);
+    });
+
+    it('is inlined into plan-interactive', () => {
+      const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
+      expect(result).toContain(PARTIAL_MARKERS.planCommonExamples);
+    });
+
+    it('is inlined into ideate', () => {
+      const result = buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{}', '');
+      expect(result).toContain(PARTIAL_MARKERS.planCommonExamples);
+    });
+
+    it('is inlined into ideate-auto', () => {
+      const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
+      expect(result).toContain(PARTIAL_MARKERS.planCommonExamples);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TUI parity — prompts are surface-agnostic by construction
+// ---------------------------------------------------------------------------
+// loader.ts has no branching on whether the caller is the Ink TUI or the
+// plain-text CLI. A given input produces byte-identical output regardless of
+// surface. These assertions document that invariant and guard against a
+// future "just inject some Ink / ANSI for the dashboard" temptation. See
+// PROMPT-AUDIT.md § Verification Log for the full parity argument.
+// ---------------------------------------------------------------------------
+
+describe('prompt rendering is surface-agnostic (TUI parity)', () => {
+  // eslint-disable-next-line no-control-regex -- detecting the CSI prefix IS the point here
+  const ANSI_ESCAPE_RE = /\u001b\[/; // CSI sequence — ANSI colour / cursor control
+  const INK_COMPONENT_RE = /<(Box|Text|Spinner|Banner|SectionStamp)\b/;
+
+  it('buildAutoPrompt is deterministic across repeated calls with identical inputs', () => {
+    const a = buildAutoPrompt('ctx', '{"test":true}', '');
+    const b = buildAutoPrompt('ctx', '{"test":true}', '');
+    expect(a).toBe(b);
+  });
+
+  it('rendered prompts contain no ANSI escape sequences', () => {
+    const rendered: Record<string, string> = {
+      planAuto: buildAutoPrompt('## Sprint\n\nT', '{}', ''),
+      planInteractive: buildInteractivePrompt('## Sprint\n\nT', '/o', '{}', ''),
+      ideate: buildIdeatePrompt('t', 'd', 'p', '/r', '/o', '{}', ''),
+      ideateAuto: buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', ''),
+      taskExecution: buildTaskExecutionPrompt('/p.md', false, 'ctx.md'),
+      taskEvaluation: buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+        extraDimensions: [],
+      }),
+      ticketRefine: buildTicketRefinePrompt('## T\n\nx', '/o', '{}'),
+      evaluationResume: buildEvaluationResumePrompt({ critique: 'x', needsCommit: false }),
+    };
+    for (const [name, out] of Object.entries(rendered)) {
+      expect(out, `${name} must contain no ANSI escape sequences`).not.toMatch(ANSI_ESCAPE_RE);
+      expect(out, `${name} must contain no Ink component tags`).not.toMatch(INK_COMPONENT_RE);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chain-of-Thought — <thinking> scratchpad scope
+// ---------------------------------------------------------------------------
+
+describe('headless planner <thinking> scratchpad', () => {
+  it('plan-auto instructs the planner to reason in a <thinking> block', () => {
+    const result = buildAutoPrompt('ctx', '{}', '');
+    expect(result).toContain('<thinking>');
+  });
+
+  it('ideate-auto instructs the planner to reason in a <thinking> block', () => {
+    const result = buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{}', '');
+    expect(result).toContain('<thinking>');
+  });
+
+  it('interactive plan does NOT include a <thinking> directive (reasoning happens live with the user)', () => {
+    const result = buildInteractivePrompt('ctx', '/out.json', '{}', '');
+    expect(result).not.toContain('<thinking>');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -643,6 +752,7 @@ describe('prompt template generic-content audits', () => {
     'plan-auto',
     'plan-interactive',
     'plan-common',
+    'plan-common-examples',
     'ideate',
     'ideate-auto',
     'ticket-refine',
@@ -654,6 +764,7 @@ describe('prompt template generic-content audits', () => {
     'signals-planning',
     'signals-evaluation',
     'validation-checklist',
+    'sprint-feedback',
   ] as const;
 
   for (const name of TEMPLATE_NAMES) {
@@ -678,4 +789,123 @@ describe('prompt template generic-content audits', () => {
       });
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Ecosystem-generic: no hardcoded package-manager commands in rendered
+  // prompts. All tool-specific content must flow through {{PROJECT_TOOLING}}
+  // or {{CHECK_GATE_EXAMPLE}} at runtime — the templates themselves must not
+  // embed `pnpm`, `npm`, `pip`, `cargo`, or `go test`. Legitimate prose uses
+  // of "npm" / "go" inside URLs or explanations are avoided by checking for
+  // command-shaped tokens (trailing space or end-of-line).
+  // -------------------------------------------------------------------------
+  it('no planner / execution / evaluator rendered prompt embeds a package-manager command', () => {
+    const rendered: Record<string, string> = {
+      planAuto: buildAutoPrompt('## Sprint Context\n\nTicket: x', '{"type":"array"}', ''),
+      planInteractive: buildInteractivePrompt('## Sprint Context\n\nTicket: x', '/out.json', '{"type":"array"}', ''),
+      ideate: buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{"type":"object"}', ''),
+      ideateAuto: buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{"type":"object"}', ''),
+      taskExecution: buildTaskExecutionPrompt('/tmp/progress.md', false, 'ctx.md'),
+      taskEvaluation: buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+        extraDimensions: [],
+      }),
+    };
+    // Command-shaped tokens: the literal followed by a space (an argument)
+    // or at end of a line. Avoids false positives from prose like "the
+    // go.mod file" or "an npm package".
+    const forbidden = [
+      /\bpnpm\s/,
+      /\bnpm\s+(run|test|install|ci|exec|publish)\b/,
+      /\bnpx\s/,
+      /\bpip\s+install\b/,
+      /\bcargo\s+(build|test|run)\b/,
+      /\bgo\s+test\b/,
+    ];
+    for (const [name, out] of Object.entries(rendered)) {
+      for (const rx of forbidden) {
+        expect(out, `${name} must not embed ${rx.source}`).not.toMatch(rx);
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Structural: every planner-role rendered prompt uses at least one of the
+  // canonical XML tags to wrap its top-level inputs. The vocabulary is fixed
+  // in PROMPT-AUDIT.md and CLAUDE.md; a new tag requires updating both docs
+  // AND expanding this allowlist.
+  // -------------------------------------------------------------------------
+  it('planner-role rendered prompts wrap top-level inputs inside a known XML tag', () => {
+    const plannerRendered: Record<string, string> = {
+      planAuto: buildAutoPrompt('## Sprint Context\n\nTicket: x', '{"type":"array"}', ''),
+      planInteractive: buildInteractivePrompt('## Sprint Context\n\nTicket: x', '/out.json', '{"type":"array"}', ''),
+      ideate: buildIdeatePrompt('t', 'd', 'p', '/r', '/out.json', '{"type":"object"}', ''),
+      ideateAuto: buildIdeateAutoPrompt('t', 'd', 'p', '/r', '{"type":"object"}', ''),
+      taskEvaluation: buildEvaluatorPrompt({
+        taskName: 't',
+        taskDescription: '',
+        taskSteps: [],
+        verificationCriteria: [],
+        projectPath: '/tmp',
+        checkScriptSection: null,
+        projectToolingSection: '',
+        extraDimensions: [],
+      }),
+    };
+    const knownTagRe =
+      /<(task-specification|context|requirements|constraints|examples|dimension|signals|validation-checklist|harness-context)\b/;
+    for (const [name, out] of Object.entries(plannerRendered)) {
+      expect(out, `${name} must wrap inputs in a known XML tag`).toMatch(knownTagRe);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Placeholder hygiene: conditional placeholders must expand cleanly when
+  // empty. Concretely:
+  //   - buildTaskExecutionPrompt(noCommit=true) → no orphan numbering (no
+  //     `1.\n\n3.` skip), no triple-newline runs, no trailing-space bullets.
+  //   - buildEvaluatorPrompt(extraDimensions=[]) → same guarantees around
+  //     the EXTRA_DIMENSIONS_* slots.
+  // -------------------------------------------------------------------------
+  it('conditional placeholders expand cleanly when empty', () => {
+    const taskExecEmpty = buildTaskExecutionPrompt('/tmp/progress.md', true, 'ctx.md');
+    // No orphan numbering in the Phase 3 list: step 2 must be directly
+    // followed by step 3, possibly with blank lines. Skipped numbers (e.g.
+    // "1." then "3." with no "2.") would indicate a swallowed conditional.
+    const phase3 = taskExecEmpty.split('## Phase 3: Completion')[1] ?? '';
+    expect(phase3, 'Phase 3 step 1 must be present').toMatch(/^\s*1\. /m);
+    expect(phase3, 'Phase 3 step 2 must be present').toMatch(/^\s*2\. /m);
+    expect(phase3, 'Phase 3 step 3 must be present').toMatch(/^\s*3\. /m);
+    // No unreplaced placeholders leaked through.
+    expect(taskExecEmpty).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    // When noCommit is true the commit reminder is gone but Phase 3 stays
+    // intact.
+    expect(taskExecEmpty).not.toContain('Before continuing');
+    // And the swallowed conditional must not leave an indented-only line —
+    // that was the Phase 3 cosmetic nit called out in the prompt-audit review.
+    expect(taskExecEmpty, 'no line may contain only leading whitespace').not.toMatch(/^[ \t]+$/m);
+
+    const evalEmpty = buildEvaluatorPrompt({
+      taskName: 't',
+      taskDescription: '',
+      taskSteps: [],
+      verificationCriteria: [],
+      projectPath: '/tmp',
+      checkScriptSection: null,
+      projectToolingSection: '',
+      extraDimensions: [],
+    });
+    expect(evalEmpty).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    // The Assessment output block still emits the four floor lines — an
+    // empty EXTRA_DIMENSIONS_ASSESSMENT_* slot must not swallow them.
+    expect(evalEmpty).toContain('**Correctness**: PASS — [one-line finding]');
+    expect(evalEmpty).toContain('**Consistency**: PASS/FAIL — [one-line finding]');
+    // No extra-dimension blocks leaked when extras is empty.
+    expect(evalEmpty).not.toContain('floor="false"');
+  });
 });

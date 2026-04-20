@@ -12,6 +12,27 @@ When finished, emit a signal from the `<signals>` block below.
 
 ## Protocol
 
+### Step 0: Think Before Writing
+
+Before emitting any JSON, write your reasoning in a `<thinking>…</thinking>` block. Use it to work through the problem
+— map tickets to repositories, reason about dependencies, identify risks, and decide on task boundaries. Explicit
+reasoning produces sharper plans than jumping straight to output.
+
+The harness's JSON extractor skips everything before the first `[`, so the `<thinking>` block is stripped
+automatically — but the JSON array itself must still be emitted without markdown fences or commentary after it.
+
+```
+<thinking>
+Ticket 1 touches both the API and the worker repo — split into two tasks with a blockedBy edge.
+The shared schema change must land first so the worker can import it.
+Verification criterion for the API task: a contract test against the new schema.
+…
+</thinking>
+[
+  { … JSON array … }
+]
+```
+
 ### Step 1: Explore the Project
 
 Scope exploration to what will change the plan — read instruction files first, then only the specific files you need
@@ -55,9 +76,13 @@ The sprint contains:
 - **Existing Tasks**: Tasks from a previous planning run (your output replaces all existing tasks)
 - **Projects**: Each ticket belongs to a project which may have multiple repository paths
 
+<context>
+
 {{CONTEXT}}
 
 {{COMMON}}
+
+</context>
 
 ### Step 5: Handle Blockers
 
@@ -72,6 +97,9 @@ If you cannot produce a valid task breakdown, signal the issue instead of output
 {{VALIDATION}}
 
 ## Output
+
+Your output MAY begin with a `<thinking>…</thinking>` block — the harness's JSON extractor skips everything before the
+first `[`. The JSON array itself must still be emitted without markdown fences or surrounding prose.
 
 Output only the JSON document matching the schema below — the harness parses your raw output directly as JSON, so emit
 it without markdown fences, commentary, or surrounding prose. If you cannot produce tasks, output a
@@ -102,7 +130,7 @@ JSON Schema:
     "steps": [
       "Create src/utils/validation.ts with validateEmail(), validatePhone(), validateDateRange()",
       "Add corresponding unit tests in src/utils/__tests__/validation.test.ts covering valid inputs, invalid inputs, and edge cases (empty strings, unicode)",
-      "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+      "{{CHECK_GATE_EXAMPLE}}"
     ],
     "verificationCriteria": [
       "TypeScript compiles with no errors",
@@ -123,7 +151,7 @@ JSON Schema:
       "Wire up validation from src/utils/validation.ts with inline error messages",
       "Add form submission handler that calls POST /api/users",
       "Write component tests in src/components/__tests__/RegistrationForm.test.ts for valid submission, validation errors, and API failure",
-      "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+      "{{CHECK_GATE_EXAMPLE}}"
     ],
     "verificationCriteria": [
       "TypeScript compiles with no errors",

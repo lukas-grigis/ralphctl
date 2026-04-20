@@ -11,6 +11,27 @@ When finished, emit a signal from the `<signals>` block below.
 
 ## Two-Phase Protocol
 
+### Phase 0: Think Before Writing
+
+Before emitting any JSON, write your reasoning in a `<thinking>…</thinking>` block. Use it to interrogate the idea —
+surface hidden assumptions, identify the real user problem, sketch requirements, and reason about which repositories
+and dependencies the work touches. Explicit reasoning produces sharper output than jumping straight to JSON.
+
+The harness's JSON extractor skips everything before the first `{`, so the `<thinking>` block is stripped
+automatically — but the JSON object itself must still be emitted without markdown fences or commentary after it.
+
+```
+<thinking>
+The idea says "webhook notifications" but doesn't say which events. Reviewing the API, the natural candidates are
+task-status transitions. Scope = status-change webhooks only; other event types are out of scope.
+Acceptance: POST to configured URL with JSON payload on task status change; retries on 5xx.
+…
+</thinking>
+{
+  … JSON object …
+}
+```
+
 ### Phase 1: Refine Requirements (WHAT)
 
 Analyze the idea and produce complete, implementation-agnostic requirements:
@@ -87,6 +108,8 @@ If you cannot produce a valid plan, signal the issue instead of outputting incom
 
 - `<planning-blocked>reason</planning-blocked>`
 
+<context>
+
 ## Idea to Implement
 
 **Title:** {{IDEA_TITLE}}
@@ -106,6 +129,8 @@ You have access to these repositories:
 ## Planning Common Context
 
 {{COMMON}}
+
+</context>
 
 {{VALIDATION}}
 
@@ -148,7 +173,7 @@ If you cannot produce a valid plan, output `<planning-blocked>reason</planning-b
         "Update src/repositories/export.ts findExports() to add WHERE clause for date filtering",
         "Add unit tests in src/schemas/__tests__/date-range.test.ts covering valid ranges, invalid formats, and reversed dates",
         "Add integration test in src/controllers/__tests__/export.test.ts for filtered and unfiltered queries",
-        "Run pnpm typecheck && pnpm lint && pnpm test — all pass"
+        "{{CHECK_GATE_EXAMPLE}}"
       ],
       "verificationCriteria": [
         "TypeScript compiles with no errors",
