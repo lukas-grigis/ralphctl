@@ -19,7 +19,11 @@ something entirely new (create a file, add a feature, tweak a script), do exactl
 
 ## User Feedback — Implement this
 
+<task-specification>
+
 {{FEEDBACK}}
+
+</task-specification>
 
 ## Protocol
 
@@ -27,8 +31,8 @@ something entirely new (create a file, add a feature, tweak a script), do exactl
    X. If it says "change Y", change Y. Do not ask for clarification unless the instruction is genuinely contradictory.
 2. **Implement the change** — Create or edit the files required to satisfy the feedback. Make the smallest change that
    fully carries out the instruction.
-3. **Run verification** — If the project has a check script (e.g., `pnpm test`, `pnpm typecheck`), run it and confirm
-   it passes. If no check script is configured, skip this step.
+3. **Run verification** — If the project has a check script (test, typecheck, lint, or build command), run it and
+   confirm it passes. If no check script is configured, skip this step.
 4. **Output verification results** — Wrap any verification output in `<task-verified>...</task-verified>`. If you
    skipped step 3, emit `<task-verified>no check script configured; change applied</task-verified>`.
 5. **Commit your work** — Stage the modified files and create a git commit with a descriptive message summarising the

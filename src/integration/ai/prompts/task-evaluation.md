@@ -58,10 +58,16 @@ Now apply semantic judgment to what the computational checks cannot catch:
 2. **Read the changed files carefully** — understand the full implementation, not just the diff.
 3. **Read surrounding code** — check that the implementation follows existing patterns and conventions.
 4. **Augment the Project Tooling section above** — the section lists detected subagents, skills, and MCP servers.
-   Additionally skim `package.json` scripts, `playwright.config.*`, `cypress.config.*`, `vitest.config.*`, `.storybook/`,
-   `CLAUDE.md`, and `.github/copilot-instructions.md` for the test/verification stack and any conventions the section
-   didn't surface. Note which application type this is (backend API / CLI / frontend SPA / fullstack / library) — it
-   determines which verification methods apply.
+   Additionally skim repository config for the test/verification stack and any conventions the section didn't surface.
+   Note which application type this is (backend API / CLI / frontend SPA / fullstack / library) — it determines which
+   verification methods apply.
+
+   <examples>
+   Representative files to scan when present — not an exhaustive list, adapt to the ecosystem:
+   `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `playwright.config.*`, `cypress.config.*`,
+   `vitest.config.*`, `.storybook/`, `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`.
+   </examples>
+
 5. **Run extended verification when the detected tooling makes it cheap and deterministic:**
    - **Frontend/UI tasks** — if Playwright or Cypress is configured, run a targeted e2e test or use a browser MCP to
      verify the changed UI renders correctly (console errors, layout, interactive behaviour).
@@ -78,14 +84,15 @@ Evaluate the implementation across the dimensions below. Each dimension is pass/
 dimension fails, the overall evaluation fails. The first four are the floor — every task is graded on them. The
 planner may have flagged additional task-specific dimensions; when present, they are graded on top of the floor.
 
-**Dimension 1 — Correctness**
+<dimension name="Correctness" floor="true">
 Does the implementation do what the specification says? Check for:
 
 - Logical errors, off-by-one, race conditions, type issues
 - Behavior matches each verification criterion (grade each one explicitly)
 - Edge cases handled where specified
+  </dimension>
 
-**Dimension 2 — Completeness**
+<dimension name="Completeness" floor="true">
 Is the full specification implemented? Check for:
 
 - Every verification criterion is satisfied (not just most)
@@ -93,25 +100,29 @@ Is the full specification implemented? Check for:
 - No TODO/FIXME/HACK markers left behind that indicate unfinished work
 - Uncommitted changes that look like incomplete work (WIP diffs, stashed edits) — committing is expected unless the
   task's contract says otherwise
+  </dimension>
 
-**Dimension 3 — Safety**
+<dimension name="Safety" floor="true">
 Are there security or reliability issues? Check for:
 
 - Injection vulnerabilities (SQL, command, XSS)
 - Validation gaps on external input
 - Exposed secrets, hardcoded credentials
 - Unsafe error handling that leaks internals
+  </dimension>
 
-**Dimension 4 — Consistency**
+<dimension name="Consistency" floor="true">
 Does the implementation fit the codebase? Check for:
 
 - Follows existing patterns and conventions (naming, structure, error handling)
 - Uses existing utilities instead of reinventing them
 - No unnecessary changes outside the task scope — spec drift
 - Test patterns match the project's existing test style
+  </dimension>
   {{EXTRA_DIMENSIONS_SECTION}}
-  Evaluate only what was asked vs what was delivered — suggesting improvements beyond the task scope creates noise that
-  distracts from the actual pass/fail decision.
+
+Evaluate only what was asked vs what was delivered — suggesting improvements beyond the task scope creates noise that
+distracts from the actual pass/fail decision.
 
 ### Pass Bar
 
@@ -165,6 +176,8 @@ Each issue must reference which dimension it violates.]
 
 ### Calibration Examples
 
+<examples>
+
 **Example of a correct PASS:**
 
 > Task: "Add date validation to export endpoint"
@@ -192,6 +205,8 @@ Each issue must reference which dimension it violates.]
 >    unhandled exception. Add validation before query.
 > 2. [Safety] `src/repositories/users.ts:23` — `WHERE name LIKE '%${query}%'` is SQL injection. Use parameterized
 >    query: `WHERE name LIKE $1` with `%${query}%` as parameter.
+
+</examples>
 
 Be direct and specific — point to files, lines, and concrete problems.
 

@@ -223,9 +223,13 @@ The `ref` field should match either:
 - The ticket's internal ID
 - The exact ticket title
 
+<task-specification>
+
 ## Ticket to Refine
 
 {{TICKET}}
+
+</task-specification>
 
 {{ISSUE_CONTEXT}}
 
