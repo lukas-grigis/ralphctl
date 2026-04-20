@@ -31,7 +31,10 @@ something entirely new (create a file, add a feature, tweak a script), do exactl
    it passes. If no check script is configured, skip this step.
 4. **Output verification results** — Wrap any verification output in `<task-verified>...</task-verified>`. If you
    skipped step 3, emit `<task-verified>no check script configured; change applied</task-verified>`.
-5. **Signal completion** — Output `<task-complete>` once the change is applied and verification (if any) passed.
+5. **Commit your work** — Stage the modified files and create a git commit with a descriptive message summarising the
+   feedback you implemented. The harness refuses to mark the task done with a dirty working tree.
+6. **Signal completion** — Output `<task-complete>` once the change is applied, verification (if any) passed, and the
+   commit has landed.
 
 Only signal `<task-blocked>reason</task-blocked>` if the feedback is literally impossible to carry out (e.g., asks
 you to edit a file in a repository you don't have access to). Ambiguity is **not** a blocker — make a reasonable
@@ -42,6 +45,8 @@ interpretation and proceed.
 - **The feedback is the authoritative instruction** — implement it even if it seems unrelated to the completed tasks.
 - **Do the smallest change that fully satisfies the feedback** — no speculative refactors, no adjacent cleanup.
 - **Make the edits — don't just describe them** — the harness does not apply edits for you; you must write the files.
+- **Must commit** — Create a git commit before signaling completion. Uncommitted changes leave the sprint branch dirty
+  and block sprint close.
 
 </constraints>
 

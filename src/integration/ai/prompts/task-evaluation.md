@@ -21,6 +21,11 @@ These verification criteria are the pre-agreed definition of "done" — your pri
 
 ## Review Protocol
 
+**You are a reviewer — do not edit files.** If you believe a fix is needed, emit `<evaluation-failed>` with a concrete
+critique; the harness will resume the generator to apply the fix. Do not run `git stash`, do not edit tests, do not
+create commits. Your tools are read-only: `git status`, `git log`, `git diff`, file reads, and running existing check
+scripts. Any write operation is a protocol violation.
+
 You are working in this project directory:
 
 ```
@@ -37,7 +42,8 @@ Run deterministic checks first — these are cheap, fast, and authoritative.
 
 1. **Run the check script** (if provided above) — this is the same gate the harness uses post-task. If it fails, the
    implementation fails regardless of how good the code looks. Record the output.
-2. **Run `git status`** — uncommitted changes may indicate incomplete work
+2. **Run `git status`** — the tree MUST be clean. Uncommitted changes from the generator are a Completeness failure;
+   uncommitted changes from you are a protocol violation.
 3. **Run `git log --oneline -10`** — identify which commits belong to this task
 
 Computational results are ground truth. If the check script fails, stop early — the implementation does not pass.

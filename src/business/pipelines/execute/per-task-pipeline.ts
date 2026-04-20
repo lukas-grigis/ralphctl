@@ -21,6 +21,7 @@ import { executeTask } from './steps/execute-task.ts';
 import { storeVerification } from './steps/store-verification.ts';
 import { postTaskCheck } from './steps/post-task-check.ts';
 import { evaluateTask } from './steps/evaluate-task.ts';
+import { recoverDirtyTree } from './steps/recover-dirty-tree.ts';
 import { markDone } from './steps/mark-done.ts';
 
 /**
@@ -66,7 +67,10 @@ export interface PerTaskDeps {
  *   5. store-verification   — persist verified flag if set
  *   6. post-task-check      — run the post-task check gate
  *   7. evaluate-task        — nested evaluator pipeline (REQ-12 live config)
- *   8. mark-done            — persist status + emit `task-finished` + log
+ *   8. recover-dirty-tree   — fence: if the tree is dirty, auto-commit on
+ *                             the harness's behalf and emit a Note signal
+ *                             (non-blocking — see step docs for rationale)
+ *   9. mark-done            — persist status + emit `task-finished` + log
  *
  * `contract-negotiate` sits after branch-preflight (no point writing the
  * contract if the task will be requeued) and before `mark-in-progress`
@@ -78,6 +82,7 @@ export interface PerTaskDeps {
  *   - branch mismatch → `StorageError` → requeue up to N times
  *   - task blocked / `SpawnError` (rate-limit) → retry or pause-all
  *   - post-task-check failure → `ParseError` → `skip-repo`
+ *   - recover-dirty-tree never errors (auto-commit is best-effort)
  *
  * Evaluator failure is the only non-fatal failure: `evaluate-task`
  * swallows errors from the inner pipeline, logs a warning, and returns
@@ -110,6 +115,14 @@ export function createPerTaskPipeline(
         external: deps.external,
         useCase,
         options,
+      })
+    ),
+    trace(
+      recoverDirtyTree({
+        persistence: deps.persistence,
+        external: deps.external,
+        logger: deps.logger,
+        signalBus: deps.signalBus,
       })
     ),
     trace(markDone({ persistence: deps.persistence, logger: deps.logger, signalBus: deps.signalBus })),
