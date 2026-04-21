@@ -7,7 +7,8 @@ describe('ConfigSchemaDefinition', () => {
     expect(keys).toContain('currentSprint');
     expect(keys).toContain('aiProvider');
     expect(keys).toContain('evaluationIterations');
-    expect(keys).toHaveLength(3);
+    expect(keys).toContain('aiCheckScriptDiscovery');
+    expect(keys).toHaveLength(4);
   });
 
   it('each entry has the required fields', () => {
@@ -188,9 +189,9 @@ describe('getSchemaEntry', () => {
 });
 
 describe('getAllSchemaEntries', () => {
-  it('returns an array of 3 entries', () => {
+  it('returns an array of 4 entries', () => {
     const entries = getAllSchemaEntries();
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(4);
   });
 
   it('returns entries with the expected keys', () => {

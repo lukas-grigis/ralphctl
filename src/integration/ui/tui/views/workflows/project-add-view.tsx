@@ -14,6 +14,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { collectCheckScript } from './collect-check-script.ts';
 import { useWorkflow } from './use-workflow.ts';
 
 const TITLE = 'Add Project' as const;
@@ -25,7 +26,7 @@ const HINTS_DONE = [
 ] as const;
 
 type Phase =
-  | { kind: 'running'; step: 'name' | 'display' | 'repo-path' | 'saving' }
+  | { kind: 'running'; step: 'name' | 'display' | 'repo-path' | 'check-script' | 'discovering' | 'saving' }
   | { kind: 'done'; project: Project }
   | { kind: 'error'; message: string };
 
@@ -64,11 +65,17 @@ export function ProjectAddView(): React.JSX.Element {
       const absolute = resolve(repoPath.trim().replace(/^~(\/|$)/, `${process.env['HOME'] ?? ''}$1`));
       const repoName = absolute.split(/[\\/]/).pop() ?? 'repo';
 
+      // Mirror the plain-text CLI: try static detection, then optionally
+      // ask the AI to discover a check script when nothing matched.
+      const checkScript = await collectCheckScript(absolute, (next) => {
+        setPhase({ kind: 'running', step: next });
+      });
+
       setPhase({ kind: 'running', step: 'saving' });
       const project = await createProject({
         name: name.trim(),
         displayName: display.trim(),
-        repositories: [{ name: repoName, path: absolute }],
+        repositories: [{ name: repoName, path: absolute, ...(checkScript ? { checkScript } : {}) }],
       });
       setPhase({ kind: 'done', project });
     },
@@ -112,5 +119,7 @@ function stepLabel(step: Extract<Phase, { kind: 'running' }>['step']): string {
   if (step === 'name') return 'Awaiting project slug…';
   if (step === 'display') return 'Awaiting display name…';
   if (step === 'repo-path') return 'Awaiting repository path…';
+  if (step === 'check-script') return 'Awaiting check-script confirmation…';
+  if (step === 'discovering') return 'Discovering check script with AI…';
   return 'Saving project…';
 }

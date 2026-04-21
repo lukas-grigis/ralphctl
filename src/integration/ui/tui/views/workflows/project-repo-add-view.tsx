@@ -11,6 +11,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { collectCheckScript } from './collect-check-script.ts';
 import { useWorkflow } from './use-workflow.ts';
 
 const TITLE = 'Add Repository' as const;
@@ -22,7 +23,7 @@ const HINTS_DONE = [
 ] as const;
 
 type Phase =
-  | { kind: 'running'; step: 'project' | 'path' | 'saving' }
+  | { kind: 'running'; step: 'project' | 'path' | 'check-script' | 'discovering' | 'saving' }
   | { kind: 'no-projects' }
   | { kind: 'done'; project: Project; repoName: string }
   | { kind: 'error'; message: string };
@@ -57,8 +58,16 @@ export function ProjectRepoAddView(): React.JSX.Element {
       const absolute = resolve(repoPath.trim().replace(/^~(\/|$)/, `${process.env['HOME'] ?? ''}$1`));
       const repoName = absolute.split(/[\\/]/).pop() ?? 'repo';
 
+      const checkScript = await collectCheckScript(absolute, (next) => {
+        setPhase({ kind: 'running', step: next });
+      });
+
       setPhase({ kind: 'running', step: 'saving' });
-      const project = await addProjectRepo(projectName, { name: repoName, path: absolute });
+      const project = await addProjectRepo(projectName, {
+        name: repoName,
+        path: absolute,
+        ...(checkScript ? { checkScript } : {}),
+      });
       setPhase({ kind: 'done', project, repoName });
     },
   });
@@ -92,8 +101,10 @@ function renderBody(phase: Phase): React.JSX.Element {
   }
 }
 
-function stepLabel(step: 'project' | 'path' | 'saving'): string {
+function stepLabel(step: Extract<Phase, { kind: 'running' }>['step']): string {
   if (step === 'project') return 'Awaiting project selection…';
   if (step === 'path') return 'Awaiting repository path…';
+  if (step === 'check-script') return 'Awaiting check-script confirmation…';
+  if (step === 'discovering') return 'Discovering check script with AI…';
   return 'Saving repository…';
 }

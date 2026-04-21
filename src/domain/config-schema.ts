@@ -81,6 +81,17 @@ export const ConfigSchemaDefinition = {
     scope: 'sprint',
   },
 
+  aiCheckScriptDiscovery: {
+    key: 'aiCheckScriptDiscovery',
+    label: 'AI Check-Script Discovery',
+    type: 'boolean',
+    default: false,
+    description:
+      'When static ecosystem detection cannot suggest a check script during `project add`, ask the configured AI provider to inspect the repo and propose one. User approval is always required before saving. Disabled by default — enable with `ralphctl config set aiCheckScriptDiscovery true`.',
+    validation: (val) => typeof val === 'boolean',
+    scope: 'user',
+  },
+
   // Phase 2+ additions can be added here as single schema entries
   // maxTaskTurns: { ... },
   // checkScriptTimeout: { ... },

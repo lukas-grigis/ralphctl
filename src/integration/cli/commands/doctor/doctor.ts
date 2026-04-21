@@ -196,6 +196,23 @@ export async function checkEvaluationConfig(): Promise<CheckResult> {
 }
 
 /**
+ * Surface only when the user has explicitly opted out of the AI check-script
+ * discovery fallback. Default (disabled / unset) is silent — no doctor line.
+ */
+export async function checkAiCheckScriptDiscovery(): Promise<CheckResult | null> {
+  const config = await getConfig();
+  if (config.aiCheckScriptDiscovery === false) {
+    return {
+      name: 'AI check-script discovery',
+      status: 'warn',
+      detail:
+        'disabled — `project add` will skip the AI fallback for unrecognized ecosystems (re-enable: ralphctl config set aiCheckScriptDiscovery true)',
+    };
+  }
+  return null;
+}
+
+/**
  * Validate all config values against schema rules.
  * Reports warnings for values that fail their schema validation function.
  */
@@ -268,9 +285,12 @@ export async function doctorCommand(): Promise<void> {
     checkProjectPaths(),
     checkCurrentSprint(),
     checkEvaluationConfig(),
+    checkAiCheckScriptDiscovery(),
     checkConfigSchemaValidation(),
   ]);
-  results.push(...asyncResults);
+  for (const r of asyncResults) {
+    if (r !== null) results.push(r);
+  }
 
   // Print results
   for (const result of results) {

@@ -20,9 +20,9 @@ describe('getConfigSchema', () => {
 });
 
 describe('getAllConfigSchemaEntries', () => {
-  it('returns an array of 3 entries', () => {
+  it('returns an array of 4 entries', () => {
     const entries = getAllConfigSchemaEntries();
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(4);
   });
 
   it('includes entries for all config keys', () => {
@@ -30,6 +30,7 @@ describe('getAllConfigSchemaEntries', () => {
     expect(keys).toContain('currentSprint');
     expect(keys).toContain('aiProvider');
     expect(keys).toContain('evaluationIterations');
+    expect(keys).toContain('aiCheckScriptDiscovery');
   });
 });
 

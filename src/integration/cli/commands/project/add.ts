@@ -25,6 +25,11 @@ import {
 import { EXIT_ERROR, exitWithCode } from '@src/domain/exit-codes.ts';
 import { browseDirectory } from '@src/integration/ui/prompts/file-browser-impl.ts';
 import { detectCheckScriptCandidates, suggestCheckScript } from '@src/integration/external/detect-scripts.ts';
+import { discoverCheckScriptWithAi } from '@src/integration/ai/discover-check-script.ts';
+import { getConfig } from '@src/integration/persistence/config.ts';
+import { getConfigDefaultValue } from '@src/integration/config/schema-provider.ts';
+import { ProviderAiSessionAdapter } from '@src/integration/ai/session/session-adapter.ts';
+import { SignalParser } from '@src/integration/signals/parser.ts';
 
 interface ProjectAddOptions {
   name?: string;
@@ -68,6 +73,12 @@ export async function addCheckScriptToRepository(repo: RepoDraft): Promise<RepoD
     suggested = suggestCheckScript(repo.path);
   }
 
+  // No static suggestion → optionally ask the AI provider to inspect the repo
+  // and propose one. Off when the user has set `aiCheckScriptDiscovery` to
+  // false (or the AI provider isn't configured); always explicit opt-in per
+  // call so a single discovery doesn't take the user by surprise.
+  suggested ??= await tryAiCheckScriptDiscovery(repo.path);
+
   const checkInput = await getPrompt().input({
     message: '  Check script (optional):',
     default: suggested ?? undefined,
@@ -78,6 +89,46 @@ export async function addCheckScriptToRepository(repo: RepoDraft): Promise<RepoD
     ...repo,
     checkScript,
   };
+}
+
+/**
+ * AI fallback for repos with no recognized ecosystem. Returns the proposed
+ * script (which the caller seeds as the editable input default) or `null`
+ * when the user opts out, the provider isn't configured, or discovery fails.
+ *
+ * Failure is silent on purpose — the manual-input prompt always follows, so
+ * the user is never blocked on a flaky AI call.
+ */
+async function tryAiCheckScriptDiscovery(repoPath: string): Promise<string | null> {
+  const config = await getConfig();
+  const enabled = config.aiCheckScriptDiscovery ?? (getConfigDefaultValue('aiCheckScriptDiscovery') as boolean);
+  if (!enabled) return null;
+  if (!config.aiProvider) return null;
+
+  const wantAi = await getPrompt().confirm({
+    message: '  No ecosystem detected. Ask AI to inspect the repo and suggest a check script?',
+    default: true,
+  });
+  if (!wantAi) return null;
+
+  const spinner = createSpinner('  Asking AI to discover check script...').start();
+  const aiSession = new ProviderAiSessionAdapter();
+  const signalParser = new SignalParser();
+  const discoverR = await wrapAsync(async () => {
+    await aiSession.ensureReady();
+    return discoverCheckScriptWithAi(repoPath, aiSession, signalParser);
+  }, ensureError);
+  if (!discoverR.ok) {
+    spinner.fail('AI discovery unavailable');
+    return null;
+  }
+  const suggestion = discoverR.value;
+  if (suggestion) {
+    spinner.succeed('AI suggestion ready (review before saving)');
+  } else {
+    spinner.fail('AI returned no suggestion');
+  }
+  return suggestion;
 }
 
 export async function projectAddCommand(options: ProjectAddOptions = {}): Promise<void> {
