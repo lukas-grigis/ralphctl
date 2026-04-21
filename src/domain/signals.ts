@@ -90,6 +90,20 @@ export interface NoteSignal {
 }
 
 /**
+ * Check-script discovery signal — emitted by a one-shot AI session during
+ * `project add` / `project repo add` setup. Carries the raw shell command the
+ * AI proposes as a verification gate for the repo.
+ *
+ * Setup-time only. No durable handler — the caller (setup flow) consumes the
+ * signal inline as an editable default. Empty/missing means the AI declined.
+ */
+export interface CheckScriptDiscoverySignal {
+  type: 'check-script-discovery';
+  command: string; // Raw shell command (trimmed; never empty)
+  timestamp: Date;
+}
+
+/**
  * Discriminated union of all signal types.
  * Narrows signal type based on the `type` discriminator field.
  *
@@ -103,4 +117,5 @@ export type HarnessSignal =
   | TaskCompleteSignal
   | TaskVerifiedSignal
   | TaskBlockedSignal
-  | NoteSignal;
+  | NoteSignal
+  | CheckScriptDiscoverySignal;

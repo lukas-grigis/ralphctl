@@ -17,6 +17,7 @@ import type {
   TaskVerifiedSignal,
   TaskBlockedSignal,
   NoteSignal,
+  CheckScriptDiscoverySignal,
   DimensionScore,
 } from '@src/domain/signals.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
@@ -34,6 +35,7 @@ const SIGNAL_PATTERNS = {
   task_complete: /<task-complete>/,
   task_blocked: /<task-blocked>([\s\S]*?)<\/task-blocked>/,
   note: /<note>([\s\S]*?)<\/note>/g,
+  check_script: /<check-script>([\s\S]*?)<\/check-script>/,
 };
 
 /**
@@ -75,6 +77,24 @@ function parseDimensionScores(output: string): DimensionScore[] {
     });
   }
   return scores;
+}
+
+/**
+ * Denylist of obviously-hostile command shapes for AI-discovered check
+ * scripts. Matches pipe-to-shell, `curl ... | ...`, `wget ... -O- | ...`,
+ * `eval`, and `rm -rf`. Checked at parse time — hits drop the signal
+ * silently so the setup flow falls through to manual input.
+ */
+const DANGEROUS_COMMAND_PATTERNS: RegExp[] = [
+  /\|\s*(ba)?sh\b/,
+  /\bcurl\b[^|;&\n]*\|/,
+  /\bwget\b[^|;&\n]*(-O-|--output-document=-)[^|;&\n]*\|/,
+  /\beval\b/,
+  /\brm\s+-[rf]+\b/,
+];
+
+function isDangerousCommand(command: string): boolean {
+  return DANGEROUS_COMMAND_PATTERNS.some((re) => re.test(command));
 }
 
 /**
@@ -182,6 +202,31 @@ export class SignalParser implements SignalParserPort {
           timestamp,
         };
         signals.push(noteSignal);
+      }
+    }
+
+    // Parse check-script discovery signal (setup-time only).
+    // Format: <check-script>shell command</check-script>
+    // Empty/whitespace contents are dropped — caller treats absence as
+    // "AI declined to propose a script" and falls back to a blank default.
+    //
+    // Security: this command is seeded as the editable default of a user-
+    // approval prompt, but the prompt input can be accepted verbatim. We
+    // drop obviously-hostile shapes at parse time (pipe-to-shell,
+    // curl|sh / wget|sh, eval, `rm -rf`) so the suggestion surface is
+    // never a prompt-injection-to-exec vector. Honest suggestions in
+    // this shape are vanishingly rare; false positives fall through to
+    // the manual-input path.
+    const checkScriptMatch = SIGNAL_PATTERNS.check_script.exec(output);
+    if (checkScriptMatch?.[1]) {
+      const command = checkScriptMatch[1].trim();
+      if (command.length > 0 && !isDangerousCommand(command)) {
+        const checkScriptSignal: CheckScriptDiscoverySignal = {
+          type: 'check-script-discovery',
+          command,
+          timestamp,
+        };
+        signals.push(checkScriptSignal);
       }
     }
 

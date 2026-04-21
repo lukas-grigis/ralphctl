@@ -571,6 +571,11 @@ export class ExecuteTasksUseCase {
         case 'note':
           await this.signalHandler.handleNote(signal, ctx);
           break;
+        case 'check-script-discovery':
+          // Setup-time signal — emitted only by the one-shot AI session in
+          // `project add` / `project repo add`. Never produced during task
+          // execution; ignored here. The setup flow consumes it inline.
+          break;
         default: {
           const _exhaustive: never = signal;
           void _exhaustive;
