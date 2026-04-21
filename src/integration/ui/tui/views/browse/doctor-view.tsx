@@ -15,6 +15,7 @@ import {
   checkGlabInstalled,
   checkNodeVersion,
   checkProjectPaths,
+  checkRepoOnboarding,
   type CheckResult,
 } from '@src/integration/cli/commands/doctor/doctor.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
@@ -45,12 +46,15 @@ async function runChecks(): Promise<NamedCheck[]> {
     ['Config schema', await checkConfigSchemaValidation()],
     ['Current sprint', await checkCurrentSprint()],
   ];
-  return Promise.all(
+  const base = await Promise.all(
     checks.map(async ([name, r]) => ({
       name,
       result: r instanceof Promise ? await r : r,
     }))
   );
+  // One row per (project, repo) — already carries its own "Onboarding — <project>/<repo>" name.
+  const onboarding = await checkRepoOnboarding();
+  return [...base, ...onboarding.map((result) => ({ name: result.name, result }))];
 }
 
 function glyph(status: CheckResult['status']): string {
