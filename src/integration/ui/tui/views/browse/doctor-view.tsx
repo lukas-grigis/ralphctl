@@ -84,7 +84,7 @@ async function runChecks(): Promise<Section[]> {
 function glyph(status: CheckResult['status']): string {
   if (status === 'pass') return glyphs.check;
   if (status === 'warn') return glyphs.warningGlyph;
-  if (status === 'skip') return glyphs.inlineDot;
+  if (status === 'skip') return glyphs.phaseDisabled;
   return glyphs.cross;
 }
 

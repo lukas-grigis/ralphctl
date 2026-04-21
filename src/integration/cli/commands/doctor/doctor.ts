@@ -219,12 +219,22 @@ export async function checkRepoOnboarding(): Promise<CheckResult[]> {
       const ver = repo.onboardingVersion;
 
       if (ver == null) {
-        // User authored or no onboarding ever ran — stay quiet.
-        results.push({
-          name,
-          status: 'skip',
-          detail: hasInstructions ? `authored ${relPath} (not harness-managed)` : 'never onboarded',
-        });
+        // User-authored file is a legit pass — nothing for the harness to
+        // fix. "Never onboarded" stays skip so it shows as an opportunity,
+        // not a warning, but renders with a visible marker.
+        if (hasInstructions) {
+          results.push({
+            name,
+            status: 'pass',
+            detail: `authored ${relPath} (not harness-managed)`,
+          });
+        } else {
+          results.push({
+            name,
+            status: 'skip',
+            detail: `never onboarded — run \`project onboard ${project.name} --repo ${repo.name}\``,
+          });
+        }
         continue;
       }
 

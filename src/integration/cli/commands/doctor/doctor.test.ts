@@ -314,12 +314,12 @@ describe('checkRepoOnboarding', () => {
     expect(results[0]?.detail).toContain('never onboarded');
   });
 
-  it('skips authored CLAUDE.md without onboardingVersion (user-managed)', async () => {
+  it('passes authored CLAUDE.md without onboardingVersion (user owns it)', async () => {
     await writeFile(join(testEnv.projectDir, 'CLAUDE.md'), '# Authored by hand\n');
     await writeProjects({ id: 'repoob02', name: 'demo', path: testEnv.projectDir });
     const { checkRepoOnboarding } = await import('./doctor.ts');
     const results = await checkRepoOnboarding();
-    expect(results[0]?.status).toBe('skip');
+    expect(results[0]?.status).toBe('pass');
     expect(results[0]?.detail).toContain('authored');
   });
 
