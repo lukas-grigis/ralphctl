@@ -211,14 +211,15 @@ interface Config {
 Fixed discriminated union in `src/domain/signals.ts`. Adding a variant requires a code change; every switch on
 `HarnessSignal['type']` is exhaustiveness-checked by the compiler via `const _exhaustive: never`.
 
-| Signal               | Parsed from                                                        | Durable handler                     | Bus event |
-| -------------------- | ------------------------------------------------------------------ | ----------------------------------- | --------- |
-| `ProgressSignal`     | `<progress><summary>…</summary>…</progress>`                       | Append to `progress.md`             | `signal`  |
-| `EvaluationSignal`   | `<evaluation-passed>` / `<evaluation-failed>…</evaluation-failed>` | Sidecar + `tasks.json`              | `signal`  |
-| `TaskCompleteSignal` | `<task-complete>`                                                  | None (use case owns task lifecycle) | `signal`  |
-| `TaskVerifiedSignal` | `<task-verified>output</task-verified>`                            | None (use case sets `verified`)     | `signal`  |
-| `TaskBlockedSignal`  | `<task-blocked>reason</task-blocked>`                              | Record blocker in `progress.md`     | `signal`  |
-| `NoteSignal`         | `<note>text</note>`                                                | Append to `progress.md`             | `signal`  |
+| Signal                       | Parsed from                                                        | Durable handler                                                                                          | Bus event |
+| ---------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | --------- |
+| `ProgressSignal`             | `<progress><summary>…</summary>…</progress>`                       | Append to `progress.md`                                                                                  | `signal`  |
+| `EvaluationSignal`           | `<evaluation-passed>` / `<evaluation-failed>…</evaluation-failed>` | Sidecar + `tasks.json`                                                                                   | `signal`  |
+| `TaskCompleteSignal`         | `<task-complete>`                                                  | None (use case owns task lifecycle)                                                                      | `signal`  |
+| `TaskVerifiedSignal`         | `<task-verified>output</task-verified>`                            | None (use case sets `verified`)                                                                          | `signal`  |
+| `TaskBlockedSignal`          | `<task-blocked>reason</task-blocked>`                              | Record blocker in `progress.md`                                                                          | `signal`  |
+| `NoteSignal`                 | `<note>text</note>`                                                | Append to `progress.md`                                                                                  | `signal`  |
+| `CheckScriptDiscoverySignal` | `<check-script>command</check-script>`                             | None — consumed inline by setup flow (`project add` / `project repo add`); no sprint context, no sidecar | `signal`  |
 
 Plus synthetic bus events emitted by the executor (not parsed from AI output):
 `rate-limit-paused`, `rate-limit-resumed`, `task-started`, `task-finished`.

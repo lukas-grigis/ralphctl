@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAutoPrompt,
+  buildCheckScriptDiscoverPrompt,
   buildEvaluationResumePrompt,
   buildEvaluatorPrompt,
   buildIdeateAutoPrompt,
@@ -455,6 +456,24 @@ describe('buildEvaluatorPrompt', () => {
 // buildEvaluationResumePrompt
 // ---------------------------------------------------------------------------
 
+describe('buildCheckScriptDiscoverPrompt', () => {
+  it('substitutes the repo path placeholder', () => {
+    const result = buildCheckScriptDiscoverPrompt('/Users/dev/my-app');
+    expect(result).toContain('/Users/dev/my-app');
+    expect(result).not.toContain('{{REPO_PATH}}');
+  });
+
+  it('asserts the read-only contract in the prompt body', () => {
+    const result = buildCheckScriptDiscoverPrompt('/r');
+    expect(result.toLowerCase()).toMatch(/do not modify|read-only/);
+  });
+
+  it('documents the single <check-script> output contract', () => {
+    const result = buildCheckScriptDiscoverPrompt('/r');
+    expect(result).toContain('<check-script>');
+  });
+});
+
 describe('buildEvaluationResumePrompt', () => {
   it('embeds the critique into the template', () => {
     const result = buildEvaluationResumePrompt({ critique: 'Bug at src/foo.ts:42', needsCommit: false });
@@ -765,6 +784,7 @@ describe('prompt template generic-content audits', () => {
     'signals-evaluation',
     'validation-checklist',
     'sprint-feedback',
+    'check-script-discover',
   ] as const;
 
   for (const name of TEMPLATE_NAMES) {

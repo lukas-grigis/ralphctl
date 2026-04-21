@@ -327,6 +327,18 @@ interface EvaluationResumePromptContext {
   needsCommit: boolean;
 }
 
+/**
+ * Build the check-script discovery prompt for `project add` / `project repo
+ * add`. The agent is read-only — it inspects a small allowlist of config
+ * files and emits a single `<check-script>` block that the user reviews
+ * before saving. See `parseCheckScriptOutput` for the output contract.
+ */
+export function buildCheckScriptDiscoverPrompt(repoPath: string): string {
+  return composePrompt(loadTemplate('check-script-discover'), {
+    REPO_PATH: repoPath,
+  });
+}
+
 export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext): string {
   const template = loadTemplate('task-evaluation-resume');
   const commitInstruction = ctx.needsCommit

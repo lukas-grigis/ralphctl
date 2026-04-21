@@ -152,6 +152,7 @@ export const ConfigSchema = z.object({
   aiProvider: AiProviderSchema.nullable().default(null),
   editor: z.string().nullable().default(null),
   evaluationIterations: z.number().int().min(0).optional(),
+  aiCheckScriptDiscovery: z.boolean().optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
