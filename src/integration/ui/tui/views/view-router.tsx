@@ -57,6 +57,7 @@ import { ProjectRemoveView } from './workflows/project-remove-view.tsx';
 import { ProjectRepoAddView } from './workflows/project-repo-add-view.tsx';
 import { ProjectRepoRemoveView } from './workflows/project-repo-remove-view.tsx';
 import { ProjectEditView } from './workflows/project-edit-view.tsx';
+import { ProjectOnboardView } from './workflows/project-onboard-view.tsx';
 import { SprintListView } from './browse/sprint-list-view.tsx';
 import { SprintShowView } from './browse/sprint-show-view.tsx';
 import { TicketListView } from './browse/ticket-list-view.tsx';
@@ -186,6 +187,14 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
   'project-repo-add': { label: 'Add Repository', render: () => <ProjectRepoAddView /> },
   'project-repo-remove': { label: 'Remove Repository', render: () => <ProjectRepoRemoveView /> },
   'project-edit': { label: 'Edit Project', render: () => <ProjectEditView /> },
+  'project-onboard': {
+    label: 'Onboard Repository',
+    render: (props) => {
+      const projectName = typeof props['projectName'] === 'string' ? props['projectName'] : undefined;
+      const repo = typeof props['repo'] === 'string' ? props['repo'] : undefined;
+      return <ProjectOnboardView projectName={projectName} repo={repo} />;
+    },
+  },
   'sprint-list': { label: 'Sprints', render: () => <SprintListView /> },
   'sprint-show': {
     label: 'Sprint',

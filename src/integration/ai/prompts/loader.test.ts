@@ -785,6 +785,7 @@ describe('prompt template generic-content audits', () => {
     'validation-checklist',
     'sprint-feedback',
     'check-script-discover',
+    'repo-onboard',
   ] as const;
 
   for (const name of TEMPLATE_NAMES) {

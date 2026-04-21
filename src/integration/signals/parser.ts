@@ -18,6 +18,7 @@ import type {
   TaskBlockedSignal,
   NoteSignal,
   CheckScriptDiscoverySignal,
+  AgentsMdProposalSignal,
   DimensionScore,
 } from '@src/domain/signals.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
@@ -36,6 +37,7 @@ const SIGNAL_PATTERNS = {
   task_blocked: /<task-blocked>([\s\S]*?)<\/task-blocked>/,
   note: /<note>([\s\S]*?)<\/note>/g,
   check_script: /<check-script>([\s\S]*?)<\/check-script>/,
+  agents_md: /<agents-md>([\s\S]*?)<\/agents-md>/,
 };
 
 /**
@@ -227,6 +229,24 @@ export class SignalParser implements SignalParserPort {
           timestamp,
         };
         signals.push(checkScriptSignal);
+      }
+    }
+
+    // Parse project context file proposal signal (setup-time only, emitted by
+    // `project onboard`), kept under the legacy `<agents-md>` tag as a stable
+    // wire contract. Format: <agents-md>full markdown body</agents-md>
+    // Empty/whitespace content is dropped — caller treats absence as
+    // "AI declined to propose content".
+    const agentsMdMatch = SIGNAL_PATTERNS.agents_md.exec(output);
+    if (agentsMdMatch?.[1]) {
+      const content = agentsMdMatch[1].trim();
+      if (content.length > 0) {
+        const agentsMdSignal: AgentsMdProposalSignal = {
+          type: 'agents-md-proposal',
+          content,
+          timestamp,
+        };
+        signals.push(agentsMdSignal);
       }
     }
 

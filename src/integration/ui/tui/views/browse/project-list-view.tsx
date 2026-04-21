@@ -2,7 +2,7 @@
  * ProjectListView — scrollable table of registered projects.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useInput } from 'ink';
 import type { Project } from '@src/domain/models.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
@@ -31,6 +31,7 @@ const HINTS_READY = [
   { key: 'Enter', action: 'open' },
   { key: 'a', action: 'add' },
   { key: 'e', action: 'edit' },
+  { key: 'o', action: 'onboard' },
   { key: 'r', action: 'remove' },
 ] as const;
 const HINTS_EMPTY = [{ key: 'a', action: 'add' }] as const;
@@ -38,6 +39,13 @@ const HINTS_EMPTY = [{ key: 'a', action: 'add' }] as const;
 export function ProjectListView(): React.JSX.Element {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: 'loading' });
+  // Track the highlighted row so the `o` hotkey can route to it without
+  // requiring Enter first. Kept in a ref (not state) because the handler
+  // fires from useInput and we don't need to re-render on cursor moves.
+  const highlightedRef = useRef<Project | null>(null);
+  const handleCursorChange = useCallback((row: Project) => {
+    highlightedRef.current = row;
+  }, []);
 
   useEffect(() => {
     const ctl = { cancelled: false };
@@ -68,6 +76,13 @@ export function ProjectListView(): React.JSX.Element {
       router.push({ id: 'project-edit' });
       return;
     }
+    if (input === 'o') {
+      const target = highlightedRef.current ?? state.projects[0];
+      if (target) {
+        router.push({ id: 'project-onboard', props: { projectName: target.name } });
+      }
+      return;
+    }
     if (input === 'r') {
       router.push({ id: 'project-remove' });
     }
@@ -87,6 +102,7 @@ export function ProjectListView(): React.JSX.Element {
         <ListView<Project>
           rows={state.projects}
           columns={COLUMNS}
+          onCursorChange={handleCursorChange}
           onSelect={(p) => {
             router.push({ id: 'project-show', props: { projectName: p.name } });
           }}

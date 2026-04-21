@@ -104,6 +104,25 @@ export interface CheckScriptDiscoverySignal {
 }
 
 /**
+ * Project context file proposal signal — emitted by a one-shot AI session
+ * during `project onboard`. Carries the full proposed body for the
+ * provider-native project context file (`CLAUDE.md` or
+ * `.github/copilot-instructions.md`).
+ *
+ * Historically named after the AGENTS.md tag (`<agents-md>`), which is kept
+ * as the stable wire contract even though the written file is now
+ * provider-native.
+ *
+ * Setup-time only. No durable handler — the caller (onboard pipeline)
+ * consumes the signal inline. Empty/missing means the AI declined.
+ */
+export interface AgentsMdProposalSignal {
+  type: 'agents-md-proposal';
+  content: string; // Full project context file body (trimmed; never empty)
+  timestamp: Date;
+}
+
+/**
  * Discriminated union of all signal types.
  * Narrows signal type based on the `type` discriminator field.
  *
@@ -118,4 +137,5 @@ export type HarnessSignal =
   | TaskVerifiedSignal
   | TaskBlockedSignal
   | NoteSignal
-  | CheckScriptDiscoverySignal;
+  | CheckScriptDiscoverySignal
+  | AgentsMdProposalSignal;

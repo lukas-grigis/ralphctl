@@ -339,6 +339,35 @@ export function buildCheckScriptDiscoverPrompt(repoPath: string): string {
   });
 }
 
+export interface RepoOnboardPromptContext {
+  repoPath: string;
+  mode: 'bootstrap' | 'adopt' | 'update';
+  existingAgentsMd: string | null;
+  projectType: string;
+  checkScriptSuggestion: string;
+  /** Provider-native file name (e.g. `CLAUDE.md`, `.github/copilot-instructions.md`). */
+  fileName: string;
+}
+
+/**
+ * Build the `project onboard` prompt. Fills in the mode and existing-file
+ * context so the AI produces a mode-appropriate project context file proposal + a
+ * check-script suggestion. See `repo-onboard.md` for the output contract.
+ */
+export function buildRepoOnboardPrompt(ctx: RepoOnboardPromptContext): string {
+  const existingSection = ctx.existingAgentsMd
+    ? `\n**Existing project context file:**\n\n\`\`\`\n${ctx.existingAgentsMd}\n\`\`\`\n`
+    : '';
+  return composePrompt(loadTemplate('repo-onboard'), {
+    REPO_PATH: ctx.repoPath,
+    MODE: ctx.mode,
+    EXISTING_AGENTS_MD: existingSection,
+    PROJECT_TYPE: ctx.projectType || 'unknown',
+    CHECK_SCRIPT_SUGGESTION: ctx.checkScriptSuggestion,
+    FILE_NAME: ctx.fileName,
+  });
+}
+
 export function buildEvaluationResumePrompt(ctx: EvaluationResumePromptContext): string {
   const template = loadTemplate('task-evaluation-resume');
   const commitInstruction = ctx.needsCommit

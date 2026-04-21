@@ -155,6 +155,24 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [ ] `sprint close --create-pr` creates PRs for sprint branches
 - [ ] Agent context includes branch section telling agent which branch it's on
 
+## Repo Onboarding
+
+- [x] `ralphctl project onboard <name>` works interactively (Ink TUI) and headlessly (`--auto`)
+- [x] Pipeline `src/business/pipelines/onboard.ts` with an integration test locking the step order (`load-project → select-repo → repo-preflight → ai-inventory → validate-agents-md → retry-agents-md-on-violation → check-drift → review-and-confirm → write-artifacts → verify-check-script`)
+- [x] Prompt `src/integration/ai/prompts/repo-onboard.md` — XML-structured, emits `<agents-md>…</agents-md>` and `<check-script>…</check-script>` (plus `<changes>…</changes>` in update mode)
+- [x] Reuses the static check-script detector and (when enabled) the AI discovery fallback from issue #76
+- [x] Writes the **provider-native** project context file at the path the active AI provider already reads — `CLAUDE.md` for `claude`, `.github/copilot-instructions.md` for `copilot`. No symlinks, no pointer files
+- [x] Never overwrites an authored project context file without the user's consent — adopt mode treats the existing body as authoritative
+- [x] ViewId `'project-onboard'` in `router-context.ts` wired to `ProjectOnboardView`, reachable from the home project submenu
+- [x] Works across ecosystems — Node, Python, Go, Rust, Java, Makefile, polyglot (project-type inference only guides the prompt; the AI inspects the actual repo)
+- [x] `doctor` reports a per-(project, repo) onboarding row: pass / warn / skip based on `onboardingVersion`, presence of the provider-native project context file, and `LOW-CONFIDENCE:` markers; skips with a hint when no AI provider is configured
+- [x] TUI parity — the full onboarding flow runs from the Ink TUI using `ViewShell` + `ResultCard`, with review via the multi-line inline editor prompt (no external editor spawn)
+- [x] `--dry-run` generates the proposal without writing files
+- [x] `--auto` skips interactive review (accepts the AI proposal as-is) and works in non-interactive contexts
+- [x] Linter rejects drafts that violate the hard caps (section count, heading depth, line count); pipeline retries once with the violation summary before surfacing failure
+- [x] Command-drift warnings surface when the proposed project context file cites commands that do not resolve in the target repo
+- [x] `onboardingVersion` bumped to `CURRENT_ONBOARDING_VERSION` after a successful write; the resolved check script is persisted to the repo config
+
 ## Doctor (Environment Health)
 
 - [ ] Checks Node.js version >= 24.0.0

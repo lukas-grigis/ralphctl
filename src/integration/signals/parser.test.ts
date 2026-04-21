@@ -9,6 +9,7 @@ import type {
   TaskBlockedSignal,
   NoteSignal,
   CheckScriptDiscoverySignal,
+  AgentsMdProposalSignal,
 } from '@src/domain/signals.ts';
 
 describe('SignalParser', () => {
@@ -536,6 +537,42 @@ describe('SignalParser', () => {
         const signals = parser.parseSignals(output);
         expect(signals).toHaveLength(1);
       });
+    });
+  });
+
+  describe('agents-md-proposal signals', () => {
+    it('parses a single-line agents-md proposal', () => {
+      const output = '<agents-md>hello world</agents-md>';
+      const signals = parser.parseSignals(output);
+
+      expect(signals).toHaveLength(1);
+      const signal = signals[0] as AgentsMdProposalSignal;
+      expect(signal.type).toBe('agents-md-proposal');
+      expect(signal.content).toBe('hello world');
+      expect(signal.timestamp).toBeInstanceOf(Date);
+    });
+
+    it('preserves multiline content and trims only outer whitespace', () => {
+      const output = '<agents-md>\n# AGENTS\n\n## Build\n\nrun it.\n</agents-md>';
+      const signals = parser.parseSignals(output);
+
+      expect(signals).toHaveLength(1);
+      expect((signals[0] as AgentsMdProposalSignal).content).toBe('# AGENTS\n\n## Build\n\nrun it.');
+    });
+
+    it('emits no signal when the tag is empty', () => {
+      const output = '<agents-md></agents-md>';
+      expect(parser.parseSignals(output)).toHaveLength(0);
+    });
+
+    it('emits no signal when the tag contains only whitespace', () => {
+      const output = '<agents-md>   \n  </agents-md>';
+      expect(parser.parseSignals(output)).toHaveLength(0);
+    });
+
+    it('emits no signal when the tag is unclosed', () => {
+      const output = '<agents-md>partial body';
+      expect(parser.parseSignals(output)).toHaveLength(0);
     });
   });
 

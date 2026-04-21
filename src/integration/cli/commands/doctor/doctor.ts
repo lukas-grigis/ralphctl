@@ -1,12 +1,12 @@
-import { access, constants } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ensureError, wrapAsync } from '@src/integration/utils/result-helpers.ts';
 import { getConfig } from '@src/integration/persistence/config.ts';
 import { listProjects } from '@src/integration/persistence/project.ts';
 import { getAllConfigSchemaEntries } from '@src/integration/config/schema-provider.ts';
-import type { Config } from '@src/domain/models.ts';
-import { SprintSchema } from '@src/domain/models.ts';
+import type { AiProvider, Config } from '@src/domain/models.ts';
+import { CURRENT_ONBOARDING_VERSION, SprintSchema } from '@src/domain/models.ts';
 import { getDataDir, getSprintFilePath, validateProjectPath } from '@src/integration/persistence/paths.ts';
 import { fileExists, readValidatedJson } from '@src/integration/persistence/storage.ts';
 import { colors, getQuoteForContext } from '@src/integration/ui/theme/theme.ts';
@@ -176,6 +176,117 @@ export async function checkProjectPaths(): Promise<CheckResult> {
   return { name: 'Project paths', status: 'fail', detail: issues.join('; ') };
 }
 
+/** Resolve the provider-native project context file path (relative form). */
+function providerInstructionsRelPath(provider: AiProvider): string {
+  if (provider === 'claude') return 'CLAUDE.md';
+  return '.github/copilot-instructions.md';
+}
+
+/**
+ * Per-repo onboarding state. One row per (project, repo) pair. Status matrix:
+ *
+ * | provider unset    | any       | any            | skip (no provider configured)                  |
+ * | onboardingVersion | file      | LOW-CONFIDENCE | Result                                         |
+ * | ----------------- | --------- | -------------- | ---------------------------------------------- |
+ * | unset             | absent    | n/a            | skip (never onboarded; no nudge)               |
+ * | unset             | present   | n/a            | skip (user authored; don't touch)              |
+ * | = CURRENT         | present   | no             | pass                                           |
+ * | = CURRENT         | present   | yes            | warn (low-confidence sections)                 |
+ * | = CURRENT         | absent    | n/a            | warn (project context missing — re-run)        |
+ * | < CURRENT         | any       | any            | warn (template updated — re-run)               |
+ */
+export async function checkRepoOnboarding(): Promise<CheckResult[]> {
+  const projects = await listProjects();
+  const config = await getConfig();
+  const provider = config.aiProvider;
+  const results: CheckResult[] = [];
+  for (const project of projects) {
+    for (const repo of project.repositories) {
+      const name = `Onboarding — ${project.name}/${repo.name}`;
+
+      if (!provider) {
+        results.push({
+          name,
+          status: 'skip',
+          detail: 'configure an AI provider to use onboarding',
+        });
+        continue;
+      }
+
+      const relPath = providerInstructionsRelPath(provider);
+      const instructionsPath = join(repo.path, relPath);
+      const hasInstructions = await fileExists(instructionsPath);
+      const ver = repo.onboardingVersion;
+
+      if (ver == null) {
+        // User-authored file is a legit pass — nothing for the harness to
+        // fix. "Never onboarded" stays skip so it shows as an opportunity,
+        // not a warning, but renders with a visible marker.
+        if (hasInstructions) {
+          results.push({
+            name,
+            status: 'pass',
+            detail: `authored ${relPath} (not harness-managed)`,
+          });
+        } else {
+          results.push({
+            name,
+            status: 'skip',
+            detail: `never onboarded — run \`ralphctl project onboard ${project.name} --repo ${repo.name}\``,
+          });
+        }
+        continue;
+      }
+
+      if (!hasInstructions) {
+        results.push({
+          name,
+          status: 'warn',
+          detail: `onboardingVersion set but ${relPath} missing — re-run \`ralphctl project onboard\``,
+        });
+        continue;
+      }
+
+      if (ver < CURRENT_ONBOARDING_VERSION) {
+        results.push({
+          name,
+          status: 'warn',
+          detail: `onboarding v${String(ver)} < v${String(CURRENT_ONBOARDING_VERSION)} — re-run to refresh`,
+        });
+        continue;
+      }
+
+      if (ver > CURRENT_ONBOARDING_VERSION) {
+        results.push({
+          name,
+          status: 'warn',
+          detail: `onboarding v${String(ver)} > v${String(CURRENT_ONBOARDING_VERSION)} — repo onboarded by a newer ralphctl version — upgrade the CLI to manage it cleanly`,
+        });
+        continue;
+      }
+
+      let body: string;
+      try {
+        body = await readFile(instructionsPath, 'utf-8');
+      } catch {
+        results.push({ name, status: 'warn', detail: `${relPath} unreadable — re-run \`ralphctl project onboard\`` });
+        continue;
+      }
+      if (body.includes('LOW-CONFIDENCE:')) {
+        results.push({
+          name,
+          status: 'warn',
+          detail: 'low-confidence sections detected — re-run interactively to review',
+        });
+        continue;
+      }
+
+      results.push({ name, status: 'pass', detail: `onboarding v${String(ver)}` });
+    }
+  }
+  return results;
+}
+
 /**
  * Check evaluation iteration config is explicitly set
  */
@@ -291,6 +402,10 @@ export async function doctorCommand(): Promise<void> {
   for (const r of asyncResults) {
     if (r !== null) results.push(r);
   }
+
+  // Per-repo onboarding rows (one per project/repo pair).
+  const onboardingResults = await checkRepoOnboarding();
+  results.push(...onboardingResults);
 
   // Print results
   for (const result of results) {

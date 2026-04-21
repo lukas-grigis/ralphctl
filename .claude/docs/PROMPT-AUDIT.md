@@ -33,6 +33,7 @@ Java, mixed), so they must be ecosystem-generic and free of ralphctl-specific le
 | `task-evaluation.md`        |  ✓   |  ✓  |   ✓    |        ✓         |        ✓         |         ✓         |    ✓    |         ✓          | `<dimension name="…" floor="…">` blocks; `<examples>` around discovery file list + calibration.                       |
 | `task-evaluation-resume.md` |  ✓   |  ✓  |   ✓    |        ✓         |        ✓         |         ✓         |    ✓    |         ✓          | Critique is the single input.                                                                                         |
 | `sprint-feedback.md`        |  ✓   |  ✓  |   ✓    |        ✓         |        ✓         |         ✓         |    ✓    |         ✓          | Human feedback wrapped in `<task-specification>` (canonical).                                                         |
+| `repo-onboard.md`           |  ✓   |  ✓  |   ✓    |        ✓         |        ✓         |         ✓         |    ✓    |         ✓          | Setup-time prompt for `project onboard`; emits `<agents-md>` + `<check-script>` + `<changes>` (update mode).          |
 
 \*Pending smoke run — see Verification Log.
 
@@ -40,17 +41,19 @@ Java, mixed), so they must be ecosystem-generic and free of ralphctl-specific le
 
 Every structural input sits inside one of these tags. Adding a new tag requires a row below (and a docs update).
 
-| Tag                                          | Semantics                                                                                                           |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `<harness-context>`                          | Harness lifecycle hints (context compaction, session management).                                                   |
-| `<task-specification>`                       | The immutable contract under action — task name, steps, criteria. Do not paraphrase or weaken.                      |
-| `<context>`                                  | Environmental state — sprint, repositories, prior progress, project config pointers.                                |
-| `<requirements>`                             | Approved ticket requirements — implementation-agnostic WHAT.                                                        |
-| `<constraints>`                              | Do/don't rules with named exceptions.                                                                               |
-| `<examples>`                                 | Non-normative illustrations. Treat as examples, not mandates.                                                       |
-| `<dimension name="..." floor="true\|false">` | Evaluator rubric unit. `floor="true"` means grade every task; `floor="false"` means planner-emitted per-task extra. |
-| `<signals>`                                  | Output signal contract — the exhaustive list of structural tags the role may emit.                                  |
-| `<validation-checklist>`                     | Pre-output self-check list (only in `validation-checklist.md`).                                                     |
+| Tag                                          | Semantics                                                                                                                                                                                                               |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<harness-context>`                          | Harness lifecycle hints (context compaction, session management).                                                                                                                                                       |
+| `<task-specification>`                       | The immutable contract under action — task name, steps, criteria. Do not paraphrase or weaken.                                                                                                                          |
+| `<context>`                                  | Environmental state — sprint, repositories, prior progress, project config pointers.                                                                                                                                    |
+| `<requirements>`                             | Approved ticket requirements — implementation-agnostic WHAT.                                                                                                                                                            |
+| `<constraints>`                              | Do/don't rules with named exceptions.                                                                                                                                                                                   |
+| `<examples>`                                 | Non-normative illustrations. Treat as examples, not mandates.                                                                                                                                                           |
+| `<dimension name="..." floor="true\|false">` | Evaluator rubric unit. `floor="true"` means grade every task; `floor="false"` means planner-emitted per-task extra.                                                                                                     |
+| `<signals>`                                  | Output signal contract — the exhaustive list of structural tags the role may emit.                                                                                                                                      |
+| `<validation-checklist>`                     | Pre-output self-check list (only in `validation-checklist.md`).                                                                                                                                                         |
+| `<agents-md>`                                | Proposed project context file body (legacy `<agents-md>` tag name preserved as stable wire contract) emitted by the onboard AI session; consumed inline by the onboard pipeline. No durable handler, no sprint context. |
+| `<changes>`                                  | Emitted in `update` mode only; bullet list summarising the diff between the prior project context file and the new proposal (additions / removals / rewrites with one-line rationale). No durable handler.              |
 
 ## Anti-patterns locked in CI
 
