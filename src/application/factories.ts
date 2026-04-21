@@ -15,11 +15,14 @@ import {
   createExecuteSprintPipeline as buildExecutePipeline,
   type ExecuteOptions,
 } from '@src/business/pipelines/execute.ts';
+import { createOnboardPipeline as buildOnboardPipeline, type OnboardOptions } from '@src/business/pipelines/onboard.ts';
 import { ProviderAiSessionAdapter } from '@src/integration/ai/session/session-adapter.ts';
 import { TextPromptBuilderAdapter } from '@src/integration/ai/prompts/prompt-builder-adapter.ts';
 import { DefaultOutputParserAdapter } from '@src/integration/ai/output/output-parser-adapter.ts';
 import { AutoUserAdapter, InteractiveUserAdapter } from '@src/integration/user-interaction-adapter.ts';
 import { DefaultExternalAdapter } from '@src/integration/external/external-adapter.ts';
+import { DefaultOnboardAdapter } from '@src/integration/external/onboard-adapter.ts';
+import { updateProject } from '@src/integration/persistence/project.ts';
 
 /** Lazy AI workflow dependencies — created fresh per command invocation. */
 interface AiDeps {
@@ -121,6 +124,31 @@ export function createIdeatePipeline(shared: SharedDeps, idea: IdeaInput, option
  * `execute-tasks` composes `forEachTask` + the per-task pipeline directly —
  * no monolithic executor behind the scenes.
  */
+/**
+ * Build the onboard pipeline with the shared adapter graph.
+ *
+ * The pipeline owns orchestration (load-project → select-repo →
+ * repo-preflight → ai-inventory → validate-agents-md →
+ * retry-agents-md-on-violation → check-drift → review-and-confirm →
+ * write-artifacts → verify-check-script).
+ */
+export function createOnboardPipeline(shared: SharedDeps, options: OnboardOptions = {}) {
+  const aiSession = new ProviderAiSessionAdapter();
+  const adapter = new DefaultOnboardAdapter(aiSession, shared.signalParser);
+  return buildOnboardPipeline(
+    {
+      persistence: shared.persistence,
+      adapter,
+      logger: shared.logger,
+      prompt: shared.prompt,
+      updateProjectRepos: async (name, repositories) => {
+        return updateProject(name, { repositories });
+      },
+    },
+    options
+  );
+}
+
 export function createExecuteSprintPipeline(shared: SharedDeps, options: ExecuteOptions = {}) {
   const { aiSession, promptBuilder, parser, ui, external } = createAiDeps(false);
   return buildExecutePipeline(

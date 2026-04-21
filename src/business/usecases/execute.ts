@@ -576,6 +576,11 @@ export class ExecuteTasksUseCase {
           // `project add` / `project repo add`. Never produced during task
           // execution; ignored here. The setup flow consumes it inline.
           break;
+        case 'agents-md-proposal':
+          // Setup-time signal — emitted only by the one-shot AI session in
+          // `project onboard`. Never produced during task execution; ignored
+          // here. The onboarding pipeline consumes it inline.
+          break;
         default: {
           const _exhaustive: never = signal;
           void _exhaustive;

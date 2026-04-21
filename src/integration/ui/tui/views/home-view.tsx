@@ -105,6 +105,7 @@ const WORKFLOW_VIEWS: Record<string, Record<string, ViewId>> = {
     'repo add': 'project-repo-add',
     'repo remove': 'project-repo-remove',
     edit: 'project-edit',
+    onboard: 'project-onboard',
   },
   progress: {
     log: 'progress-log',

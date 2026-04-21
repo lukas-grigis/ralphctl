@@ -24,6 +24,7 @@ const TITLE = 'Project Details' as const;
 const HINTS_READY = [
   { key: 'e', action: 'edit' },
   { key: 'a', action: 'add repo' },
+  { key: 'o', action: 'onboard' },
   { key: 'r', action: 'remove repo' },
 ] as const;
 const HINTS_EMPTY = [] as const;
@@ -41,6 +42,10 @@ export function ProjectShowView({ projectName }: Props): React.JSX.Element {
     }
     if (input === 'a') {
       router.push({ id: 'project-repo-add' });
+      return;
+    }
+    if (input === 'o') {
+      router.push({ id: 'project-onboard', props: { projectName: state.project.name } });
       return;
     }
     if (input === 'r') {

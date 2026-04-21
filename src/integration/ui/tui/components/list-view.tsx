@@ -9,7 +9,7 @@
  * the selection callback boundary.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
@@ -38,6 +38,12 @@ interface ListViewProps<T> {
   readonly initialCursor?: number;
   /** When false, input is ignored (used while a confirmation is pending). */
   readonly disabled?: boolean;
+  /**
+   * Fires whenever the cursor moves. Used by parents that need to react to
+   * the currently-highlighted row (e.g. a list-level hotkey that targets the
+   * row under the cursor without requiring Enter).
+   */
+  readonly onCursorChange?: (row: T, index: number) => void;
 }
 
 const DEFAULT_PAGE_SIZE = 12;
@@ -73,8 +79,15 @@ export function ListView<T>({
   pageSize = DEFAULT_PAGE_SIZE,
   initialCursor = 0,
   disabled = false,
+  onCursorChange,
 }: ListViewProps<T>): React.JSX.Element {
   const [cursor, setCursor] = useState(() => Math.max(0, Math.min(initialCursor, rows.length - 1)));
+
+  useEffect(() => {
+    if (!onCursorChange) return;
+    const row = rows[cursor];
+    if (row !== undefined) onCursorChange(row, cursor);
+  }, [cursor, rows, onCursorChange]);
 
   const widths = useMemo(() => computeWidths(columns, rows, 72), [columns, rows]);
 

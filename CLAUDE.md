@@ -91,6 +91,16 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   persist. Two sinks, one source — `InMemorySignalBus` micro-batches emissions at ~16ms to avoid render storms.
 - **Live config (no snapshot)** — `ExecuteTasksUseCase.getEvaluationConfig()` reads fresh per task settlement so
   mid-execution changes via the settings panel (REQ-12) take effect on the next task without restart.
+- **Repo onboarding** — `ralphctl project onboard <project> [--repo] [--dry-run] [--auto]` writes the project context
+  file the active `config.aiProvider` natively reads: `CLAUDE.md` at repo root for Claude, `.github/copilot-instructions.md`
+  for Copilot. No symlinks, no pointer files. Three modes auto-detected in `repo-preflight`: `bootstrap` (no prior file),
+  `adopt` (authored file, preserve prose, propose additions only), `update` (prior `onboardingVersion` marker, prune +
+  augment with `<changes>` rationale). Content follows the empirical 7-section skeleton (Project Overview · Build & Run ·
+  Testing · Architecture · Implementation Style · Security & Safety · Performance Constraints); last two are forced to
+  close the empirical gap and accept `LOW-CONFIDENCE:` prefixes when the repo gives no signal. Structural lint in
+  `src/integration/external/agents-md-linter.ts` enforces 1 H1, ≤7 H2, no H4+, <300 lines, Flesch >40, required sections,
+  plus command-drift warnings. `onboardingVersion` marker on `Repository` drives doctor status (skip / pass / warn).
+  Authored project context files are never overwritten — diff-only.
 
 ## Common Mistakes to Avoid
 
@@ -106,6 +116,8 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   `--allow-all-tools` (see Provider Differences below)
 - Don't add runtime auto-detection of check scripts — detection logic in `src/integration/external/detect-scripts.ts` is
   for suggestions during `project add` only
+- Don't introduce symlinks or pointer files for provider-facing artefacts — `project onboard` writes the native file
+  (`CLAUDE.md` or `.github/copilot-instructions.md`) based on `config.aiProvider`. No `AGENTS.md + symlink` scheme.
 - Don't skip file locks for data mutations — use `withFileLock()` to prevent race conditions in concurrent access (30s
   timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
 - Don't add `index.ts` barrel files — every import goes directly to its source module

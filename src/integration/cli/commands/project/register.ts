@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { projectAddCommand } from '@src/integration/cli/commands/project/add.ts';
 import { projectListCommand } from '@src/integration/cli/commands/project/list.ts';
+import { projectOnboardCommand } from '@src/integration/cli/commands/project/onboard.ts';
 import { projectRepoAddCommand, projectRepoRemoveCommand } from '@src/integration/cli/commands/project/repo.ts';
 import { projectShowCommand } from '@src/integration/cli/commands/project/show.ts';
 import { projectRemoveCommand } from '@src/integration/cli/commands/project/remove.ts';
@@ -50,6 +51,21 @@ Examples:
     );
 
   project.command('list').description('List all projects').action(projectListCommand);
+
+  project
+    .command('onboard <project-name>')
+    .description('AI-assisted per-repo onboarding (project context file + check script)')
+    .option('--repo <name>', 'Target repository (required when project has multiple repos)')
+    .option('--dry-run', 'Generate the proposal but do not write files')
+    .option('--auto', 'Skip interactive review; accept the AI proposal as-is')
+    .action(async (projectName: string, opts: { repo?: string; dryRun?: boolean; auto?: boolean }) => {
+      await projectOnboardCommand({
+        project: projectName,
+        repo: opts.repo,
+        dryRun: opts.dryRun === true,
+        auto: opts.auto === true,
+      });
+    });
 
   project
     .command('show [name]')

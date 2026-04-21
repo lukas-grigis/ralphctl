@@ -24,6 +24,13 @@ export type EvaluationStatus = z.infer<typeof EvaluationStatusSchema>;
 // Names/slugs stay display-only, so renames never break references.
 const IdSchema = z.string().min(1);
 
+/**
+ * Bump whenever the onboarding contract changes (new required section, new
+ * constraint, new signal). Stored per-repo so `doctor` and `project onboard`
+ * can detect stale repos and offer a re-run.
+ */
+export const CURRENT_ONBOARDING_VERSION = 1;
+
 // Repository schema — one repo inside a project.
 // `id` is the stable FK; `name` and `path` are display/execution artefacts.
 export const RepositorySchema = z.object({
@@ -32,6 +39,10 @@ export const RepositorySchema = z.object({
   path: z.string().min(1), // Absolute path
   checkScript: z.string().optional(), // e.g., "pnpm install && pnpm typecheck && pnpm lint && pnpm test"
   checkTimeout: z.number().positive().optional(), // Per-repo timeout in ms (overrides RALPHCTL_SETUP_TIMEOUT_MS)
+  // Stamped by `project onboard` on success. Absence means the repo was never
+  // onboarded; `doctor` surfaces a hint. A value < CURRENT_ONBOARDING_VERSION
+  // means the contract has drifted and re-onboarding is recommended.
+  onboardingVersion: z.number().int().nonnegative().optional(),
 });
 export type Repository = z.infer<typeof RepositorySchema>;
 

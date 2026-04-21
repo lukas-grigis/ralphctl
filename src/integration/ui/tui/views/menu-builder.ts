@@ -243,6 +243,11 @@ function buildProjectSubMenu(): SubMenu {
     description: 'Add repository to project',
   });
   items.push({ name: 'Remove Repository', value: 'repo remove', description: 'Remove repository' });
+  items.push({
+    name: 'Onboard repo for agentic work',
+    value: 'onboard',
+    description: 'AI-assisted project context file + check script',
+  });
   items.push(line());
   items.push({ name: 'Remove', value: 'remove', description: 'Remove a project' });
   items.push({ name: 'Back', value: 'back', description: 'Return to main menu' });

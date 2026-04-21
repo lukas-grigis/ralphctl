@@ -58,6 +58,7 @@ export type ViewId =
   | 'project-repo-add'
   | 'project-repo-remove'
   | 'project-edit'
+  | 'project-onboard'
   // Browse list + detail destinations (M6).
   | 'sprint-list'
   | 'sprint-show'

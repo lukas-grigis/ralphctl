@@ -263,6 +263,142 @@ describe('check functions', () => {
   });
 });
 
+describe('checkRepoOnboarding', () => {
+  async function writeClaudeConfig() {
+    await writeFile(
+      join(testEnv.testDir, 'config.json'),
+      JSON.stringify({ currentSprint: null, aiProvider: 'claude' })
+    );
+  }
+
+  async function writeProjects(repo: { id: string; name: string; path: string; onboardingVersion?: number }) {
+    await writeClaudeConfig();
+    await writeFile(
+      join(testEnv.testDir, 'projects.json'),
+      JSON.stringify([
+        {
+          id: 'prjob001',
+          name: 'demo',
+          displayName: 'Demo',
+          repositories: [repo],
+        },
+      ])
+    );
+  }
+
+  it('skips when no AI provider is configured', async () => {
+    // config.json has no aiProvider
+    await writeFile(
+      join(testEnv.testDir, 'projects.json'),
+      JSON.stringify([
+        {
+          id: 'prjnoprov',
+          name: 'demo',
+          displayName: 'Demo',
+          repositories: [{ id: 'repono01', name: 'demo', path: testEnv.projectDir }],
+        },
+      ])
+    );
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('skip');
+    expect(results[0]?.detail).toContain('AI provider');
+  });
+
+  it('skips repos that were never onboarded and have no project context file', async () => {
+    await writeProjects({ id: 'repoob01', name: 'demo', path: testEnv.projectDir });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results).toHaveLength(1);
+    expect(results[0]?.status).toBe('skip');
+    expect(results[0]?.detail).toContain('never onboarded');
+  });
+
+  it('skips authored CLAUDE.md without onboardingVersion (user-managed)', async () => {
+    await writeFile(join(testEnv.projectDir, 'CLAUDE.md'), '# Authored by hand\n');
+    await writeProjects({ id: 'repoob02', name: 'demo', path: testEnv.projectDir });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('skip');
+    expect(results[0]?.detail).toContain('authored');
+  });
+
+  it('passes when version current and no low-confidence marker', async () => {
+    const { CURRENT_ONBOARDING_VERSION } = await import('@src/domain/models.ts');
+    await writeFile(join(testEnv.projectDir, 'CLAUDE.md'), '# Current\n\nrun it.\n');
+    await writeProjects({
+      id: 'repoob03',
+      name: 'demo',
+      path: testEnv.projectDir,
+      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+    });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('pass');
+  });
+
+  it('warns when onboardingVersion set but CLAUDE.md missing', async () => {
+    const { CURRENT_ONBOARDING_VERSION } = await import('@src/domain/models.ts');
+    await writeProjects({
+      id: 'repoob04',
+      name: 'demo',
+      path: testEnv.projectDir,
+      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+    });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('warn');
+    expect(results[0]?.detail).toContain('missing');
+  });
+
+  it('warns when onboardingVersion is older than CURRENT_ONBOARDING_VERSION', async () => {
+    await writeFile(join(testEnv.projectDir, 'CLAUDE.md'), '# Old\n');
+    await writeProjects({
+      id: 'repoob05',
+      name: 'demo',
+      path: testEnv.projectDir,
+      onboardingVersion: 0,
+    });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('warn');
+    expect(results[0]?.detail).toMatch(/refresh|re-run/i);
+  });
+
+  it('warns when onboardingVersion is newer than CURRENT_ONBOARDING_VERSION', async () => {
+    const { CURRENT_ONBOARDING_VERSION } = await import('@src/domain/models.ts');
+    await writeFile(join(testEnv.projectDir, 'CLAUDE.md'), '# Newer\n');
+    await writeProjects({
+      id: 'repoob07',
+      name: 'demo',
+      path: testEnv.projectDir,
+      onboardingVersion: CURRENT_ONBOARDING_VERSION + 1,
+    });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('warn');
+    expect(results[0]?.detail).toMatch(/newer|upgrade/i);
+  });
+
+  it('warns when CLAUDE.md contains LOW-CONFIDENCE markers', async () => {
+    const { CURRENT_ONBOARDING_VERSION } = await import('@src/domain/models.ts');
+    await writeFile(
+      join(testEnv.projectDir, 'CLAUDE.md'),
+      '# Current\n\n## Security & Safety\n\nLOW-CONFIDENCE: no docs.\n'
+    );
+    await writeProjects({
+      id: 'repoob06',
+      name: 'demo',
+      path: testEnv.projectDir,
+      onboardingVersion: CURRENT_ONBOARDING_VERSION,
+    });
+    const { checkRepoOnboarding } = await import('./doctor.ts');
+    const results = await checkRepoOnboarding();
+    expect(results[0]?.status).toBe('warn');
+    expect(results[0]?.detail).toContain('low-confidence');
+  });
+});
+
 // ============================================================================
 // Integration tests — full command output
 // ============================================================================
