@@ -41,9 +41,6 @@ Thumbs.db
 # Claude Code local settings (keep agents/)
 .claude/settings.local.json
 
-# Agent scratch memory (per-session, not shipped)
-.claude/agent-memory/
-
 # ralphctl data
 ralphctl-data/
 
