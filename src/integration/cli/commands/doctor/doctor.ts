@@ -232,7 +232,7 @@ export async function checkRepoOnboarding(): Promise<CheckResult[]> {
           results.push({
             name,
             status: 'skip',
-            detail: `never onboarded — run \`project onboard ${project.name} --repo ${repo.name}\``,
+            detail: `never onboarded — run \`ralphctl project onboard ${project.name} --repo ${repo.name}\``,
           });
         }
         continue;
@@ -242,7 +242,7 @@ export async function checkRepoOnboarding(): Promise<CheckResult[]> {
         results.push({
           name,
           status: 'warn',
-          detail: `onboardingVersion set but ${relPath} missing — re-run \`project onboard\``,
+          detail: `onboardingVersion set but ${relPath} missing — re-run \`ralphctl project onboard\``,
         });
         continue;
       }
@@ -269,7 +269,7 @@ export async function checkRepoOnboarding(): Promise<CheckResult[]> {
       try {
         body = await readFile(instructionsPath, 'utf-8');
       } catch {
-        results.push({ name, status: 'warn', detail: `${relPath} unreadable — re-run \`project onboard\`` });
+        results.push({ name, status: 'warn', detail: `${relPath} unreadable — re-run \`ralphctl project onboard\`` });
         continue;
       }
       if (body.includes('LOW-CONFIDENCE:')) {
