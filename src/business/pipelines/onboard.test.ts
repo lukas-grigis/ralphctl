@@ -197,6 +197,40 @@ describe('createOnboardPipeline', () => {
     }
   });
 
+  it('adopt mode — never overwrites an authored project context file', async () => {
+    const repoPath = makeGitRepo();
+    try {
+      const project: Project = {
+        id: 'p1',
+        name: 'demo',
+        displayName: 'Demo',
+        repositories: [{ id: 'r1', name: 'demo-repo', path: repoPath }],
+      };
+      const writeArgs: { path: string; content: string }[] = [];
+      const adapter: OnboardAdapterPort = {
+        ...makeAdapter(VALID_AGENTS_MD, 'pnpm test'),
+        // Authored file on disk, onboardingVersion unset → adopt mode.
+        readExistingInstructions: () => ({ content: '# Authored by user\n\n...\n', authored: true }),
+        writeProviderInstructions: (p, content) => {
+          writeArgs.push({ path: p, content });
+          return { path: join(p, 'CLAUDE.md') };
+        },
+      };
+      const deps = makeDeps(project, adapter);
+      const pipeline = createOnboardPipeline(deps, { auto: true });
+      const ctx: OnboardContext = { sprintId: '', projectName: 'demo' };
+      const result = await executePipeline(pipeline, ctx);
+
+      expect(result.ok).toBe(true);
+      expect(writeArgs).toHaveLength(0);
+      if (!result.ok) return;
+      const warnings = result.value.context.driftWarnings ?? [];
+      expect(warnings.some((w) => w.startsWith('adopt-mode:'))).toBe(true);
+    } finally {
+      rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
   it('halts when AI inventory returns no project context file proposal', async () => {
     const repoPath = makeGitRepo();
     try {

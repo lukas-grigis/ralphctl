@@ -344,6 +344,24 @@ function writeArtifactsStep(deps: OnboardDeps, options: OnboardOptions) {
       return Result.error(new ParseError('write-artifacts requires repo, project, provider, and final content.'));
     }
 
+    // Adopt mode — authored file exists and must not be replaced. The AI
+    // emits additions only, so overwriting would destroy the user's prose.
+    // Skip the write and surface the proposal through `driftWarnings` so
+    // the CLI/TUI result card shows it and the user can apply the additions
+    // by hand. Bumping `onboardingVersion` now would lie about what's on
+    // disk, so we leave the marker untouched.
+    if (ctx.mode === 'adopt') {
+      deps.logger.warn(
+        'Adopt mode — existing project context file left untouched. Review the proposed additions and apply them manually.'
+      );
+      return Result.ok({
+        driftWarnings: [
+          ...(ctx.driftWarnings ?? []),
+          'adopt-mode: authored file preserved; proposed additions not written — apply manually.',
+        ],
+      }) as DomainResult<Partial<OnboardContext>>;
+    }
+
     try {
       const written = deps.adapter.writeProviderInstructions(repo.path, content, provider);
 
