@@ -7,6 +7,36 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-04-22
+
+### Added
+
+- **`ralphctl project onboard <name>` (#77)** — AI-assisted per-repo bootstrapping of the
+  provider-native project context file (`CLAUDE.md` for Claude, `.github/copilot-instructions.md`
+  for Copilot) plus a check-script suggestion. Pipeline-backed (`load-project → select-repo →
+repo-preflight → ai-inventory → validate-agents-md → retry-agents-md-on-violation → check-drift
+→ review-and-confirm → write-artifacts → verify-check-script`) with structural lint + one-shot
+  retry on violation. Three auto-detected modes: `bootstrap`, `adopt` (authored file — proposal
+  only, never overwrites), and `update` (prior `onboardingVersion` marker — diff with `<changes>`
+  rationale). `--dry-run` surfaces the proposal without writing; `--auto` skips review. Full TUI
+  parity via `ProjectOnboardView` — reachable from the home project submenu.
+- **Per-repo onboarding row in `doctor` (#77)** — reports pass / warn / skip for each
+  (project, repo) based on `onboardingVersion`, the provider-native file's presence, and
+  `LOW-CONFIDENCE:` markers. Skips cleanly when no AI provider is configured. Doctor view
+  rerendered with section blocks + per-section column alignment; hints prefixed with `ralphctl`
+  for copy-paste.
+- **AI-assisted check-script discovery (#76)** — when static heuristic detection finds nothing
+  during `project add` / `project repo add`, a short AI session inspects the repo and proposes a
+  check script via the `<check-script>` signal. Editable suggestion only — never a runtime
+  fallback.
+
+### Changed
+
+- **README leads with the TUI** — new TUI screenshot + interactive quickstart up front; plain-text
+  CLI is now framed as the non-TTY fallback rather than the primary surface.
+- **Dev-dependency refresh** — bumped `vitest`, `eslint`, and `typescript-eslint` to current
+  majors.
+
 ## [0.4.2] - 2026-04-20
 
 ### Changed
