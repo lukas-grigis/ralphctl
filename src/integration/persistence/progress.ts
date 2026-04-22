@@ -126,7 +126,9 @@ export async function getProgress(sprintId?: string): Promise<string> {
     // File not found is expected for sprints without progress yet
     if (
       result.error instanceof StorageError &&
-      (result.error.cause as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+      result.error.cause &&
+      'code' in result.error.cause &&
+      result.error.cause.code === 'ENOENT'
     ) {
       return '';
     }

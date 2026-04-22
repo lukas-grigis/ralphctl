@@ -48,7 +48,7 @@ export function contractNegotiate(deps: {
       await deps.fs.writeFile(contractPath, markdown);
 
       const partial: Partial<PerTaskContext> = { contractPath };
-      return Result.ok(partial) as DomainResult<Partial<PerTaskContext>>;
+      return Result.ok(partial);
     } catch (err) {
       if (err instanceof DomainError) return Result.error(err);
       return Result.error(

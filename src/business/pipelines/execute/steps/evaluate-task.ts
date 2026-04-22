@@ -44,7 +44,7 @@ export function evaluateTask(deps: EvaluateTaskDeps): PipelineStep<PerTaskContex
     const evalCfg = await deps.useCase.getEvaluationConfig(deps.options);
     if (!evalCfg.enabled) {
       const empty: Partial<PerTaskContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+      return Result.ok(empty);
     }
 
     const innerPipeline = createEvaluatorPipeline(
@@ -92,6 +92,6 @@ export function evaluateTask(deps: EvaluateTaskDeps): PipelineStep<PerTaskContex
     }
 
     const partial: Partial<PerTaskContext> = { evaluationStepNames: stepNames };
-    return Result.ok(partial) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok(partial);
   });
 }

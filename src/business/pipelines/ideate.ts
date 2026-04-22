@@ -64,7 +64,7 @@ function assertProjectProvidedStep(options: IdeateOptions) {
       return Result.error(new ParseError('Project name is required for ideation.'));
     }
     const empty: Partial<IdeateContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<IdeateContext>>;
+    return Result.ok(empty);
   });
 }
 
@@ -93,7 +93,7 @@ function runIdeationStep(useCase: IdeateAndPlanUseCase, idea: IdeaInput, options
       ideaSummary: result.value,
       createdTicketId: result.value.ticketId,
     };
-    return Result.ok(partial) as DomainResult<Partial<IdeateContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -111,7 +111,7 @@ function reorderIfImportedStep(persistence: PersistencePort) {
   return step('reorder-dependencies', async (ctx: IdeateContext): Promise<DomainResult<Partial<IdeateContext>>> => {
     if (!ctx.ideaSummary || ctx.ideaSummary.importedTasks === 0) {
       const empty: Partial<IdeateContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<IdeateContext>>;
+      return Result.ok(empty);
     }
     try {
       return await inner.execute(ctx);

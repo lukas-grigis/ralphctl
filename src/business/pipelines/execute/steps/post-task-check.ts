@@ -24,6 +24,6 @@ export function postTaskCheck(deps: { useCase: ExecuteTasksUseCase }): PipelineS
     }
 
     const empty: Partial<PerTaskContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok(empty);
   });
 }

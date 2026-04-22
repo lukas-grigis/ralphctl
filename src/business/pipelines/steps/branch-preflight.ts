@@ -67,7 +67,7 @@ export function branchPreflightStep<TCtx extends StepContext & BranchPreflightCo
     const branchName = sprint.branch;
     if (!branchName) {
       // Branch management disabled — nothing to verify.
-      const empty: Partial<TCtx> = {} as Partial<TCtx>;
+      const empty: Partial<TCtx> = {};
       return Result.ok(empty) as DomainResult<Partial<TCtx>>;
     }
 
@@ -84,7 +84,7 @@ export function branchPreflightStep<TCtx extends StepContext & BranchPreflightCo
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       if (external.verifyBranch(projectPath, branchName)) {
-        const empty: Partial<TCtx> = {} as Partial<TCtx>;
+        const empty: Partial<TCtx> = {};
         return Result.ok(empty) as DomainResult<Partial<TCtx>>;
       }
 

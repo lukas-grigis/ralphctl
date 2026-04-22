@@ -108,13 +108,13 @@ function checkPreconditionsStep(
     if (!sprint) {
       // `load-sprint` guarantees this; guard defensively.
       const partial: Partial<ExecuteContext> = { proceedAfterPrecondition: true };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     }
 
     // Non-draft sprints or --force skip the precondition check entirely.
     if (sprint.status !== 'draft' || options.force) {
       const partial: Partial<ExecuteContext> = { proceedAfterPrecondition: true };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     }
 
     // Warn about unrefined tickets
@@ -139,7 +139,7 @@ function checkPreconditionsStep(
             exitCode: EXIT_SUCCESS,
           },
         };
-        return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+        return Result.ok(partial);
       }
     }
 
@@ -177,12 +177,12 @@ function checkPreconditionsStep(
             exitCode: EXIT_SUCCESS,
           },
         };
-        return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+        return Result.ok(partial);
       }
     }
 
     const partial: Partial<ExecuteContext> = { proceedAfterPrecondition: true };
-    return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -207,12 +207,12 @@ function resolveBranchStep(external: ExternalPort, ui: UserInteractionPort, opti
   return step<ExecuteContext>('resolve-branch', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const sprint = ctx.sprint;
     if (!sprint) {
       const partial: Partial<ExecuteContext> = { branchName: null };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     }
 
     let branchName: string | null;
@@ -228,7 +228,7 @@ function resolveBranchStep(external: ExternalPort, ui: UserInteractionPort, opti
     }
 
     const partial: Partial<ExecuteContext> = { branchName };
-    return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -245,18 +245,18 @@ function autoActivateStep(persistence: PersistencePort): PipelineStep {
   return step<ExecuteContext>('auto-activate', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const sprint = ctx.sprint;
     if (sprint?.status !== 'draft') {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     try {
       const activated = await persistence.activateSprint(sprint.id);
       const partial: Partial<ExecuteContext> = { sprint: activated };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     } catch (err) {
       if (err instanceof DomainError) return Result.error(err);
       return Result.error(
@@ -280,7 +280,7 @@ function assertActiveStep(): PipelineStep {
   return step<ExecuteContext>('assert-active', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const sprint = ctx.sprint;
     // Emit the same error message the monolithic use case uses so CLI callers
@@ -307,7 +307,7 @@ function prepareTasksStep(persistence: PersistencePort): PipelineStep {
   return step<ExecuteContext>('prepare-tasks', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     try {
@@ -326,11 +326,11 @@ function prepareTasksStep(persistence: PersistencePort): PipelineStep {
             exitCode: EXIT_NO_TASKS,
           },
         };
-        return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+        return Result.ok(partial);
       }
 
       const partial: Partial<ExecuteContext> = { tasks, tasksEmpty: false };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     } catch (err) {
       if (err instanceof DomainError) return Result.error(err);
       return Result.error(
@@ -358,19 +358,19 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
   return step<ExecuteContext>('ensure-branches', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const branchName = ctx.branchName;
     if (!branchName) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     const sprint = ctx.sprint;
     const tasks = ctx.tasks;
     if (!sprint || !tasks) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     if (!external.isValidBranchName(branchName)) {
@@ -389,7 +389,7 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
     }
     if (uniquePaths.length === 0) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     try {
@@ -428,7 +428,7 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
       logger.info(`Branch: ${branchName}`);
 
       const partial: Partial<ExecuteContext> = { sprint: updatedSprint };
-      return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(partial);
     } catch (err) {
       if (err instanceof DomainError) return Result.error(err);
       return Result.error(
@@ -459,7 +459,7 @@ function sprintStartCheckStep(
   return step<ExecuteContext>('run-check-scripts', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     // Note: the shared step already matches the monolith's logger.info log line
     // shape. But the monolith wrapped the call in logger.time('check-scripts') —
@@ -507,7 +507,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
   return step<ExecuteContext>('execute-tasks', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const sprint = ctx.sprint;
     if (!sprint) {
@@ -773,7 +773,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     });
 
     const partial: Partial<ExecuteContext> = { executionSummary: summary };
-    return Result.ok(partial) as DomainResult<Partial<ExecuteContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -943,16 +943,16 @@ function feedbackLoopStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
   return step<ExecuteContext>('feedback-loop', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     const summary = ctx.executionSummary;
     if (!summary) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
     if (summary.stopReason !== 'all_completed' || options.session || options.noFeedback) {
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     }
 
     try {
@@ -979,7 +979,7 @@ function feedbackLoopStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       }
 
       const empty: Partial<ExecuteContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<ExecuteContext>>;
+      return Result.ok(empty);
     } catch (err) {
       if (err instanceof DomainError) return Result.error(err);
       return Result.error(

@@ -81,7 +81,7 @@ function safeReadPackageJsonScripts(projectPath: string) {
   try {
     const raw = readFileSync(join(projectPath, 'package.json'), 'utf-8');
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
-    return Result.ok(pkg.scripts ?? ({} as Record<string, string>));
+    return Result.ok(pkg.scripts ?? {});
   } catch {
     return Result.error(new IOError('Failed to read package.json'));
   }
@@ -163,7 +163,7 @@ const rustDetector: EcosystemDetector = {
 };
 
 const gradleDetector: EcosystemDetector = {
-  type: 'java-gradle' as ProjectType,
+  type: 'java-gradle',
   label: 'Java (Gradle)',
   detect: (path) => existsSync(join(path, 'build.gradle')) || existsSync(join(path, 'build.gradle.kts')),
   getInstallCommand: () => null,
@@ -171,7 +171,7 @@ const gradleDetector: EcosystemDetector = {
 };
 
 const mavenDetector: EcosystemDetector = {
-  type: 'java-maven' as ProjectType,
+  type: 'java-maven',
   label: 'Java (Maven)',
   detect: (path) => existsSync(join(path, 'pom.xml')),
   getInstallCommand: () => null,
@@ -179,7 +179,7 @@ const mavenDetector: EcosystemDetector = {
 };
 
 const makefileDetector: EcosystemDetector = {
-  type: 'makefile' as ProjectType,
+  type: 'makefile',
   label: 'Makefile',
   detect: (path) => existsSync(join(path, 'Makefile')),
   getInstallCommand: () => null,

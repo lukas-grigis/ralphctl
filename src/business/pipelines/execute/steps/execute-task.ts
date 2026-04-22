@@ -57,6 +57,6 @@ export function executeTask(deps: {
       executionResult: result,
       generatorModel: result.model ?? null,
     };
-    return Result.ok(partial) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok(partial);
   });
 }

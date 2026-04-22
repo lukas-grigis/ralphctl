@@ -29,6 +29,6 @@ export function recoverDirtyTree(deps: {
       { sprintId: sprint.id, taskId: task.id, taskName: task.name, repoPath }
     );
 
-    return Result.ok({}) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok({});
   });
 }

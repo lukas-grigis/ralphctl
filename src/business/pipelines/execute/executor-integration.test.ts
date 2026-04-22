@@ -130,7 +130,7 @@ function makeBus(sink: HarnessEvent[] = []): SignalBusPort {
 function makeSignalParser(): SignalParserPort {
   return {
     parseSignals: () => [],
-  } as unknown as SignalParserPort;
+  };
 }
 
 function makeSignalHandler(): SignalHandlerPort {
@@ -422,7 +422,7 @@ function buildDeps(scenario: Scenario = {}): {
       }
       return signals as never;
     },
-  } as unknown as SignalParserPort;
+  };
   deps.signalParser = signalParser;
 
   return {
@@ -553,7 +553,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
 
     const scenario = buildDeps({
       tasks: [task],
-      runCheckScript: runCheckScript as never,
+      runCheckScript: runCheckScript,
     });
     // Patch its persistence so the post-task-check gate resolves a repo
     // with a `checkScript` — otherwise `runPostTaskCheck` short-circuits
@@ -646,7 +646,7 @@ describe('executeTasksStep via forEachTask — integration', () => {
       // Yield so the scheduler has a chance to try launching a second task.
       await new Promise((r) => setTimeout(r, 10));
       inFlightNow--;
-      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' } as SessionResult;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' };
     };
     const { deps } = buildDeps({
       tasks: [taskA, taskB],
@@ -680,13 +680,13 @@ describe('executeTasksStep via forEachTask — integration', () => {
           output: '<task-blocked>needs input</task-blocked>',
           sessionId: 'sess',
           model: 'claude-sonnet',
-        } as SessionResult;
+        };
       }
       // Task B — keep running after A has settled so fail-fast has
       // something to drain.
       await new Promise((r) => setTimeout(r, 30));
       bCompleted = true;
-      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' } as SessionResult;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' };
     };
     const { deps } = buildDeps({
       tasks: [taskA, taskB],

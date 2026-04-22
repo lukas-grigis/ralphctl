@@ -29,14 +29,14 @@ export function branchPreflight(deps: {
     const branch = ctx.sprint.branch;
     if (!branch) {
       const empty: Partial<PerTaskContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+      return Result.ok(empty);
     }
 
     const repoPath = await deps.persistence.resolveRepoPath(ctx.task.repoId);
 
     if (deps.external.verifyBranch(repoPath, branch)) {
       const empty: Partial<PerTaskContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+      return Result.ok(empty);
     }
 
     return Result.error(new BranchPreflightError(repoPath, branch));

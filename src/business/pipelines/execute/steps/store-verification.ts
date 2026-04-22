@@ -20,7 +20,7 @@ export function storeVerification(deps: {
     const { task, sprint, executionResult } = ctx;
     if (!executionResult?.verified) {
       const empty: Partial<PerTaskContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+      return Result.ok(empty);
     }
 
     try {
@@ -42,6 +42,6 @@ export function storeVerification(deps: {
     deps.logger.success(`Verification passed: ${task.name}`);
 
     const empty: Partial<PerTaskContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok(empty);
   });
 }

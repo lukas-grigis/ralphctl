@@ -56,6 +56,6 @@ export function markDone(deps: {
     }
 
     const empty: Partial<PerTaskContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<PerTaskContext>>;
+    return Result.ok(empty);
   });
 }

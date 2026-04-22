@@ -7,7 +7,7 @@ import type { PromptBuilderPort } from '@src/business/ports/prompt-builder.ts';
 import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
-import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { ExecuteTasksUseCase, TaskExecutionResult } from '@src/business/usecases/execute.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createPerTaskPipeline, type PerTaskDeps } from './per-task-pipeline.ts';
@@ -220,7 +220,7 @@ function setup(scenario: Scenario = {}): {
       emit: (e) => events.push(e),
       subscribe: () => () => undefined,
       dispose: () => undefined,
-    } as SignalBusPort,
+    },
   };
 
   return {

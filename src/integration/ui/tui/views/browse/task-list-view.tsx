@@ -191,7 +191,7 @@ export function TaskListView({ sprintId }: Props): React.JSX.Element {
         <ResultCard kind="info" title={`No tasks with filter '${filter}'`} lines={['Press f to cycle the filter.']} />
       ) : (
         <ListView<Task>
-          rows={filtered as Task[]}
+          rows={filtered}
           columns={buildColumns(state.repoNamesById, state.ticketTitlesById)}
           onSelect={(t) => {
             router.push({ id: 'task-show', props: { taskId: t.id } });

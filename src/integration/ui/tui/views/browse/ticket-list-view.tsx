@@ -125,7 +125,7 @@ export function TicketListView({ sprintId }: Props): React.JSX.Element {
         <ResultCard kind="error" title="Could not load tickets" lines={[state.message]} />
       ) : (
         <ListView<Ticket>
-          rows={state.tickets as Ticket[]}
+          rows={state.tickets}
           columns={buildColumns(state.repoNamesById)}
           onSelect={(t) => {
             router.push({ id: 'ticket-show', props: { ticketId: t.id } });
