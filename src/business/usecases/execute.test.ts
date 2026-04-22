@@ -49,7 +49,7 @@ function createUseCase(persistence: PersistencePort): PrivateHandle {
     placeholder,
     placeholder
   );
-  return instance as unknown as PrivateHandle;
+  return instance;
 }
 
 describe('ExecuteTasksUseCase — live config (REQ-12)', () => {

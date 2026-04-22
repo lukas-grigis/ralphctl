@@ -33,7 +33,7 @@ export class InkPromptAdapter implements PromptPort {
     return new Promise<T>((resolve, reject) => {
       promptQueue.enqueue({
         kind: 'select',
-        options: options as SelectOptions<unknown>,
+        options: options,
         resolve: resolve as (v: unknown) => void,
         reject,
       });
@@ -59,7 +59,7 @@ export class InkPromptAdapter implements PromptPort {
     return new Promise<T[]>((resolve, reject) => {
       promptQueue.enqueue({
         kind: 'checkbox',
-        options: options as CheckboxOptions<unknown>,
+        options: options,
         resolve: resolve as (v: unknown[]) => void,
         reject,
       });

@@ -95,7 +95,7 @@ export function EvaluationsView({ sprintId }: Props): React.JSX.Element {
         <ResultCard kind="error" title="Could not load evaluations" lines={[state.message]} />
       ) : (
         <ListView<Task>
-          rows={state.tasks as Task[]}
+          rows={state.tasks}
           columns={COLUMNS}
           onSelect={(t) => {
             router.push({ id: 'evaluation-show', props: { sprintId: state.sprintId, taskId: t.id } });

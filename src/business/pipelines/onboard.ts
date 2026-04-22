@@ -92,7 +92,7 @@ function loadProjectStep(deps: OnboardDeps) {
         );
       }
       const partial: Partial<OnboardContext> = { project, provider: config.aiProvider };
-      return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok(partial);
     } catch (err) {
       if (err instanceof ProjectNotFoundError) return Result.error(err);
       return Result.error(new ParseError(err instanceof Error ? err.message : String(err)));
@@ -112,13 +112,13 @@ function selectRepoStep(deps: OnboardDeps, options: OnboardOptions) {
       if (!match) {
         return Result.error(new ParseError(`No repository named "${options.repo}" in project "${project.name}".`));
       }
-      return Result.ok({ repo: match }) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok({ repo: match });
     }
 
     if (repos.length === 1) {
       const only = repos[0];
       if (!only) return Result.error(new ParseError('Project has no repositories.'));
-      return Result.ok({ repo: only }) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok({ repo: only });
     }
 
     if (options.auto) {
@@ -126,7 +126,7 @@ function selectRepoStep(deps: OnboardDeps, options: OnboardOptions) {
       // onboarding is a non-goal; callers wanting every repo should loop.
       const first = repos[0];
       if (!first) return Result.error(new ParseError('Project has no repositories.'));
-      return Result.ok({ repo: first }) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok({ repo: first });
     }
 
     const choice = await deps.prompt.select<string>({
@@ -135,7 +135,7 @@ function selectRepoStep(deps: OnboardDeps, options: OnboardOptions) {
     });
     const selected = repos.find((r) => r.id === choice);
     if (!selected) return Result.error(new ParseError('Invalid repository selection.'));
-    return Result.ok({ repo: selected }) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok({ repo: selected });
   });
 }
 
@@ -167,7 +167,7 @@ function repoPreflightStep(deps: OnboardDeps) {
       mode,
       existingAgentsMd: existing.content,
     };
-    return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -205,7 +205,7 @@ function aiInventoryStep(deps: OnboardDeps) {
       checkScriptDraft: result.checkScript,
       changes: result.changes,
     };
-    return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -214,7 +214,7 @@ function retryOnViolationStep(deps: OnboardDeps) {
     'retry-agents-md-on-violation',
     async (ctx): Promise<DomainResult<Partial<OnboardContext>>> => {
       const violations = ctx.agentsMdViolations ?? [];
-      if (violations.length === 0) return Result.ok({}) as DomainResult<Partial<OnboardContext>>;
+      if (violations.length === 0) return Result.ok({});
 
       const repo = ctx.repo;
       const mode = ctx.mode;
@@ -257,7 +257,7 @@ function retryOnViolationStep(deps: OnboardDeps) {
 
       if (!retry.agentsMd) {
         deps.logger.warn('Retry produced no new proposal — keeping original draft.');
-        return Result.ok({}) as DomainResult<Partial<OnboardContext>>;
+        return Result.ok({});
       }
 
       const { violations: retryViolations } = deps.adapter.lintAgentsMd(retry.agentsMd);
@@ -266,7 +266,7 @@ function retryOnViolationStep(deps: OnboardDeps) {
         checkScriptDraft: retry.checkScript ?? ctx.checkScriptDraft,
         agentsMdViolations: retryViolations,
       };
-      return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok(partial);
     }
   );
 }
@@ -293,7 +293,7 @@ function checkDriftStep(deps: OnboardDeps) {
       driftWarnings: warnings,
       alreadyCurrent,
     };
-    return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -304,7 +304,7 @@ function reviewAndConfirmStep(deps: OnboardDeps, options: OnboardOptions) {
         agentsMdFinal: ctx.agentsMdDraft,
         checkScriptFinal: ctx.checkScriptDraft ?? null,
       };
-      return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok(partial);
     }
 
     const fileName = ctx.provider ? providerInstructionsFileName(ctx.provider) : 'project context file';
@@ -326,7 +326,7 @@ function reviewAndConfirmStep(deps: OnboardDeps, options: OnboardOptions) {
       agentsMdFinal: edited,
       checkScriptFinal: finalCheck,
     };
-    return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -334,7 +334,7 @@ function writeArtifactsStep(deps: OnboardDeps, options: OnboardOptions) {
   return step<OnboardContext>('write-artifacts', async (ctx): Promise<DomainResult<Partial<OnboardContext>>> => {
     if (options.dryRun || ctx.alreadyCurrent) {
       deps.logger.info(options.dryRun ? 'Dry run — skipping writes.' : 'Already up to date — skipping writes.');
-      return Result.ok({}) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok({});
     }
     const repo = ctx.repo;
     const project = ctx.project;
@@ -359,7 +359,7 @@ function writeArtifactsStep(deps: OnboardDeps, options: OnboardOptions) {
           ...(ctx.driftWarnings ?? []),
           'adopt-mode: authored file preserved; proposed additions not written — apply manually.',
         ],
-      }) as DomainResult<Partial<OnboardContext>>;
+      });
     }
 
     try {
@@ -385,7 +385,7 @@ function writeArtifactsStep(deps: OnboardDeps, options: OnboardOptions) {
       const partial: Partial<OnboardContext> = {
         writtenPath: written.path,
       };
-      return Result.ok(partial) as DomainResult<Partial<OnboardContext>>;
+      return Result.ok(partial);
     } catch (err) {
       return Result.error(new ParseError(`Write failed: ${err instanceof Error ? err.message : String(err)}`));
     }
@@ -395,11 +395,11 @@ function writeArtifactsStep(deps: OnboardDeps, options: OnboardOptions) {
 function verifyCheckScriptStep(deps: OnboardDeps) {
   return step<OnboardContext>('verify-check-script', (ctx): DomainResult<Partial<OnboardContext>> => {
     const cmd = ctx.checkScriptFinal;
-    if (!cmd) return Result.ok({}) as DomainResult<Partial<OnboardContext>>;
+    if (!cmd) return Result.ok({});
     if (!/^\S/.test(cmd)) {
       deps.logger.warn(`Check script looks malformed: ${cmd}`);
     }
-    return Result.ok({}) as DomainResult<Partial<OnboardContext>>;
+    return Result.ok({});
   });
 }
 

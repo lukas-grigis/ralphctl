@@ -55,7 +55,7 @@ function refineTicketsStep(useCase: RefineTicketRequirementsUseCase, options: Re
       return Result.error(result.error);
     }
     const partial: Partial<RefineContext> = { refineSummary: result.value };
-    return Result.ok(partial) as DomainResult<Partial<RefineContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -73,7 +73,7 @@ function exportRequirementsStep(useCase: RefineTicketRequirementsUseCase, persis
   return step('export-requirements', async (ctx: RefineContext): Promise<DomainResult<Partial<RefineContext>>> => {
     if (!ctx.refineSummary?.allApproved) {
       const empty: Partial<RefineContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<RefineContext>>;
+      return Result.ok(empty);
     }
 
     // Re-read the sprint to capture approvals written during
@@ -89,7 +89,7 @@ function exportRequirementsStep(useCase: RefineTicketRequirementsUseCase, persis
 
     await useCase.exportRequirements(sprint);
     const empty: Partial<RefineContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<RefineContext>>;
+    return Result.ok(empty);
   });
 }
 

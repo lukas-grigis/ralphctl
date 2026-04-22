@@ -63,7 +63,7 @@ function assertAllApprovedStep() {
     }
 
     const empty: Partial<PlanContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<PlanContext>>;
+    return Result.ok(empty);
   });
 }
 
@@ -84,7 +84,7 @@ function runPlanStep(useCase: PlanSprintTasksUseCase, options: PlanOptions) {
       return Result.error(result.error);
     }
     const partial: Partial<PlanContext> = { planSummary: result.value };
-    return Result.ok(partial) as DomainResult<Partial<PlanContext>>;
+    return Result.ok(partial);
   });
 }
 
@@ -104,7 +104,7 @@ function reorderIfImportedStep(persistence: PersistencePort) {
   return step('reorder-dependencies', async (ctx: PlanContext): Promise<DomainResult<Partial<PlanContext>>> => {
     if (!ctx.planSummary || ctx.planSummary.importedCount === 0) {
       const empty: Partial<PlanContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<PlanContext>>;
+      return Result.ok(empty);
     }
     try {
       return await inner.execute(ctx);

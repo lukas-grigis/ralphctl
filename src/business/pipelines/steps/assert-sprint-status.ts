@@ -37,7 +37,7 @@ export function assertSprintStatusStep<TCtx extends StepContext & { sprint?: Spr
       );
     }
 
-    const empty: Partial<TCtx> = {} as Partial<TCtx>;
+    const empty: Partial<TCtx> = {};
     return Result.ok(empty) as DomainResult<Partial<TCtx>>;
   });
 }

@@ -68,7 +68,7 @@ function loadTaskStep(persistence: PersistencePort) {
     try {
       const task = await persistence.getTask(ctx.taskId, ctx.sprintId);
       const partial: Partial<EvaluateContext> = { tasks: [task] };
-      return Result.ok(partial) as DomainResult<Partial<EvaluateContext>>;
+      return Result.ok(partial);
     } catch {
       return Result.error(new TaskNotFoundError(ctx.taskId));
     }
@@ -92,7 +92,7 @@ function checkAlreadyEvaluatedStep(options: EvaluateOptions) {
       // the earlier step's contract is broken. Fall through — the next
       // step will surface a real error when it tries to read the task.
       const empty: Partial<EvaluateContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<EvaluateContext>>;
+      return Result.ok(empty);
     }
 
     if (task.evaluated && !options.force) {
@@ -102,11 +102,11 @@ function checkAlreadyEvaluatedStep(options: EvaluateOptions) {
         iterations: 0,
       };
       const partial: Partial<EvaluateContext> = { evaluationSummary: summary };
-      return Result.ok(partial) as DomainResult<Partial<EvaluateContext>>;
+      return Result.ok(partial);
     }
 
     const empty: Partial<EvaluateContext> = {};
-    return Result.ok(empty) as DomainResult<Partial<EvaluateContext>>;
+    return Result.ok(empty);
   });
 }
 
@@ -130,7 +130,7 @@ function runEvaluatorLoopStep(useCase: EvaluateTaskUseCase, options: EvaluateOpt
       // `check-already-evaluated` short-circuited us — leave the summary
       // in place and record this step as a no-op success.
       const empty: Partial<EvaluateContext> = {};
-      return Result.ok(empty) as DomainResult<Partial<EvaluateContext>>;
+      return Result.ok(empty);
     }
 
     const result = await useCase.execute(ctx.sprintId, ctx.taskId, {
@@ -142,7 +142,7 @@ function runEvaluatorLoopStep(useCase: EvaluateTaskUseCase, options: EvaluateOpt
       return Result.error(result.error);
     }
     const partial: Partial<EvaluateContext> = { evaluationSummary: result.value };
-    return Result.ok(partial) as DomainResult<Partial<EvaluateContext>>;
+    return Result.ok(partial);
   });
 }
 

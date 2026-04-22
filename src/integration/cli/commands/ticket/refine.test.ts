@@ -157,13 +157,12 @@ function setupSuccessfulFlow(ticketOverrides: Partial<Ticket> = {}): { ticket: T
   const sprint = makeSprint([ticket]);
 
   vi.mocked(getSprint).mockResolvedValue(sprint);
-  vi.mocked(readFile).mockImplementation(
-    (path: unknown) =>
-      Promise.resolve(
-        String(path).endsWith('.schema.json')
-          ? '{}'
-          : JSON.stringify([{ ref: ticket.id, requirements: '## New Requirements\nDone.' }])
-      ) as ReturnType<typeof readFile>
+  vi.mocked(readFile).mockImplementation((path: unknown) =>
+    Promise.resolve(
+      String(path).endsWith('.schema.json')
+        ? '{}'
+        : JSON.stringify([{ ref: ticket.id, requirements: '## New Requirements\nDone.' }])
+    )
   );
   vi.mocked(fileExists).mockResolvedValue(true);
   vi.mocked(parseRequirementsFile).mockReturnValue([{ ref: ticket.id, requirements: '## New Requirements\nDone.' }]);

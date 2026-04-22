@@ -64,7 +64,7 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
     const load = async (): Promise<void> => {
       try {
         const loaded = await getSharedDeps().persistence.getConfig();
-        if (!cancel.current) setConfig(loaded as unknown as ConfigRecord);
+        if (!cancel.current) setConfig(loaded);
       } catch (err) {
         if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
       }
@@ -123,7 +123,7 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
         });
         await saveValue(entry, picked);
       } else if (entry.type === 'enum' && entry.enum) {
-        const choices = entry.enum.map((v) => ({ label: String(v), value: v as unknown }));
+        const choices: { label: string; value: unknown }[] = entry.enum.map((v) => ({ label: String(v), value: v }));
         // Always offer an explicit "null" sentinel when the schema allows it
         // (default is null → clearable).
         if (entry.default === null) {

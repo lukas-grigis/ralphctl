@@ -201,10 +201,10 @@ export async function resolveCompletions(program: Command, ctx: CompletionContex
  */
 function getCommandPath(cmd: Command): string {
   const parts: string[] = [];
-  let current: Command | null = cmd;
-  while (current?.parent) {
+  let current: Command = cmd;
+  while (current.parent) {
     parts.unshift(current.name());
-    current = current.parent as Command | null;
+    current = current.parent;
   }
   return parts.join(' ');
 }

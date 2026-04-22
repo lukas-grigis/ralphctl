@@ -24,7 +24,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { MenuContext, MenuItem, SubMenu } from '@src/integration/ui/tui/views/menu-builder.ts';
+import type { MenuContext, SubMenu } from '@src/integration/ui/tui/views/menu-builder.ts';
 import { buildSubMenu } from '@src/integration/ui/tui/views/menu-builder.ts';
 import {
   computePipelineSnapshot,
@@ -505,7 +505,7 @@ function SubMenuBlock({
     <Box flexDirection="column">
       <SectionStamp title={menu.title} />
       <Box marginTop={spacing.section}>
-        <ActionMenu items={menu.items as readonly MenuItem[]} onSelect={onSelect} onCancel={onCancel} />
+        <ActionMenu items={menu.items} onSelect={onSelect} onCancel={onCancel} />
       </Box>
     </Box>
   );
