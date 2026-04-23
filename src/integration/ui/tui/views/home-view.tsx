@@ -48,8 +48,10 @@ import { SectionStamp } from '@src/integration/ui/tui/components/section-stamp.t
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { useGlobalKeys } from '@src/integration/ui/tui/runtime/use-global-keys.ts';
 import { useRouter, type ViewId } from './router-context.ts';
 import { commandMap } from './command-map.ts';
+import { clearHomeSubmenuMemory, getHomeSubmenuMemory, setHomeSubmenuMemory } from './home-submenu-memory.ts';
 
 // `b browse` lives in the global footer (view-router.tsx) so the browse
 // affordance sits next to the other global shortcuts (settings / dashboard /
@@ -220,18 +222,13 @@ async function loadHomeState(): Promise<ReplState> {
 /** Internal HomeView modes — not router destinations. */
 type Mode = 'main' | { kind: 'sub'; menu: SubMenu; group: string } | 'busy';
 
-// Preserve the last submenu group across HomeView remounts (the router
-// remounts views on push/pop). Without this, navigating away from a drill-in
-// like Browse → Tickets and pressing Esc would land on Home's pipeline map
-// instead of the Browse submenu the user came from.
-let lastSubGroup: string | null = null;
-
 /** Test-only: clear the persisted submenu so fixture runs start from main. */
 export function __resetHomeModeMemory(): void {
-  lastSubGroup = null;
+  clearHomeSubmenuMemory();
 }
 
 export function HomeView(): React.JSX.Element {
+  useGlobalKeys();
   const router = useRouter();
   const [state, setState] = useState<ReplState | null>(null);
   const [mode, setModeInternal] = useState<Mode>('main');
@@ -239,12 +236,12 @@ export function HomeView(): React.JSX.Element {
   const [busyLabel, setBusyLabel] = useState('');
   const [refreshCounter, setRefreshCounter] = useState(0);
 
-  // Keep `lastSubGroup` in sync with mode so returning from a drill-in via
-  // Esc lands the user back in the submenu they came from.
+  // Keep the submenu memory in sync with mode so returning from a drill-in
+  // via Esc lands the user back in the submenu they came from.
   const setMode = useCallback((next: Mode | ((prev: Mode) => Mode)): void => {
     setModeInternal((prev) => {
       const resolved = typeof next === 'function' ? next(prev) : next;
-      lastSubGroup = typeof resolved === 'object' ? resolved.group : null;
+      setHomeSubmenuMemory(typeof resolved === 'object' ? resolved.group : null);
       return resolved;
     });
   }, []);
@@ -262,9 +259,10 @@ export function HomeView(): React.JSX.Element {
         const next = await loadHomeState();
         if (cancel.current) return;
         setState(next);
-        if (lastSubGroup !== null) {
-          const menu = buildSubMenu(lastSubGroup, next.ctx);
-          if (menu) setModeInternal({ kind: 'sub', menu, group: lastSubGroup });
+        const stored = getHomeSubmenuMemory();
+        if (stored !== null) {
+          const menu = buildSubMenu(stored, next.ctx);
+          if (menu) setModeInternal({ kind: 'sub', menu, group: stored });
         }
       } catch (err) {
         if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
@@ -340,6 +338,14 @@ export function HomeView(): React.JSX.Element {
     // Esc inside a submenu drops back to the pipeline map. At root Home the
     // router handles Esc (no-op at stack root).
     if (key.escape && typeof mode === 'object') {
+      setMode('main');
+      return;
+    }
+    // `h` while a submenu is on screen drops back to the pipeline map. The
+    // router-level `h` only remounts Home when we're deeper in the stack; if
+    // Home is already the top frame the remount is a no-op, so we mirror
+    // "go home" locally here.
+    if (input === 'h' && typeof mode === 'object') {
       setMode('main');
       return;
     }

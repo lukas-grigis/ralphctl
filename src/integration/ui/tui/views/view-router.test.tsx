@@ -1,14 +1,14 @@
 /**
  * ViewRouter tests — verify the navigation stack semantics and global-hotkey
- * routing. We stub the three real views with marker components so a frame
- * snapshot tells us which view is on screen, and so the heavy data-loading
- * effects in HomeView/ExecuteView don't run during the test.
+ * routing. We stub the real views with marker components that still call
+ * `useGlobalKeys()` (the hook every ViewShell installs in production) so the
+ * hotkey dispatch is exercised without pulling in each view's heavy
+ * data-loading effects.
  */
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
-import { Text } from 'ink';
 import type { PendingPrompt } from '@src/integration/ui/prompts/prompt-queue.ts';
 
 const currentPromptMock = vi.fn<() => PendingPrompt | null>(() => null);
@@ -17,21 +17,79 @@ vi.mock('@src/integration/ui/prompts/hooks.ts', () => ({
   useCurrentPrompt: () => currentPromptMock(),
 }));
 
-vi.mock('./home-view.tsx', () => ({
-  HomeView: () => <Text>HOME_VIEW</Text>,
-}));
+/*
+ * Each mocked view installs `useGlobalKeys()` so it mirrors the production
+ * surface: every wrapped view inherits the router-level hotkeys through the
+ * hook rather than through a single `useInput` at the router itself. The
+ * factory bodies inline the call instead of referencing a helper from this
+ * module because `vi.mock` factories are evaluated during module-init, before
+ * top-level declarations in this file are available.
+ */
+vi.mock('./home-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    HomeView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>HOME_VIEW</ink.Text>;
+    },
+  };
+});
 
-vi.mock('./settings-view.tsx', () => ({
-  SettingsView: () => <Text>SETTINGS_VIEW</Text>,
-}));
+vi.mock('./settings-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    SettingsView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>SETTINGS_VIEW</ink.Text>;
+    },
+  };
+});
 
-vi.mock('./execute-view.tsx', () => ({
-  ExecuteView: () => <Text>EXECUTE_VIEW</Text>,
-}));
+vi.mock('./execute-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    ExecuteView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>EXECUTE_VIEW</ink.Text>;
+    },
+  };
+});
 
-vi.mock('./dashboard-view.tsx', () => ({
-  DashboardView: () => <Text>DASHBOARD_VIEW</Text>,
-}));
+vi.mock('./dashboard-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    DashboardView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>DASHBOARD_VIEW</ink.Text>;
+    },
+  };
+});
+
+vi.mock('./browse/ticket-list-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    TicketListView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>TICKET_LIST_VIEW</ink.Text>;
+    },
+  };
+});
+
+vi.mock('./browse/ticket-show-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    TicketShowView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>TICKET_SHOW_VIEW</ink.Text>;
+    },
+  };
+});
 
 import { ViewRouter } from './view-router.tsx';
 import type { ViewEntry } from './router-context.ts';
@@ -220,6 +278,51 @@ describe('ViewRouter', () => {
     stdin.write('\u001b');
     await flushEscape();
     expect(lastFrame() ?? '').toContain('HOME_VIEW');
+  });
+
+  it('`h` clears the Home submenu memory so a fresh mount lands on the pipeline map', async () => {
+    // Regression: pressing `h` from a browse drill-in (e.g. ticket-list)
+    // remounted HomeView which then restored the submenu the user had drilled
+    // in from. `h` means "go home" — the landing screen — not "restore my
+    // last submenu". Esc is the right key for "back to where I came from".
+    const { setHomeSubmenuMemory, getHomeSubmenuMemory } = await import('./home-submenu-memory.ts');
+    setHomeSubmenuMemory('browse');
+    const { stdin } = render(<ViewRouter initialStack={[{ id: 'home' }, { id: 'ticket-list' }]} />);
+    await flush();
+
+    stdin.write('h');
+    await flushEscape();
+
+    expect(getHomeSubmenuMemory()).toBeNull();
+  });
+
+  it('`h` collapses a deep browse stack back to home', async () => {
+    // Regression: global hotkeys were only wired into the router itself, so
+    // pressing `h` from a nested browse detail view (ticket-list → ticket-show)
+    // appeared not to fire. `useGlobalKeys()` now installs from every
+    // ViewShell-wrapped view, so the hotkey is reachable at any stack depth.
+    const initialStack: ViewEntry[] = [
+      { id: 'home' },
+      { id: 'ticket-list' },
+      { id: 'ticket-show', props: { ticketId: 't-1' } },
+    ];
+    const { lastFrame, stdin } = render(<ViewRouter initialStack={initialStack} />);
+
+    // Current frame is ticket-show; breadcrumb reflects the deep stack.
+    let frame = lastFrame() ?? '';
+    expect(frame).toContain('TICKET_SHOW_VIEW');
+    expect(frame).toContain('Tickets');
+    expect(frame).toContain('Ticket');
+
+    stdin.write('h');
+    await flushEscape();
+
+    frame = lastFrame() ?? '';
+    expect(frame).toContain('HOME_VIEW');
+    expect(frame).not.toContain('TICKET_SHOW_VIEW');
+    expect(frame).not.toContain('TICKET_LIST_VIEW');
+    // Breadcrumb collapsed to just Home.
+    expect(frame).not.toContain('Tickets');
   });
 
   describe('prompt-aware hotkey gating', () => {

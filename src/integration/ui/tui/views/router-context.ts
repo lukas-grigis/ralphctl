@@ -113,3 +113,13 @@ export function useRouter(): RouterApi {
   }
   return api;
 }
+
+/**
+ * Non-throwing variant for hooks that must degrade gracefully when rendered
+ * outside a `<ViewRouter />` — e.g. view unit tests that exercise a single
+ * view component in isolation without standing up the full router stack.
+ * Returns `null` when no router is present so the caller can no-op.
+ */
+export function useRouterOptional(): RouterApi | null {
+  return useContext(RouterContext);
+}

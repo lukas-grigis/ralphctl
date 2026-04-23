@@ -351,6 +351,47 @@ describe('HomeView — pipeline map', () => {
     expect(frame).not.toContain('Doctor');
   });
 
+  it('`h` while a submenu is on screen drops back to the pipeline map and clears memory', async () => {
+    // Regression: pressing `h` from a Browse-drill-in (e.g. ticket-list) popped
+    // Home back into the Browse submenu instead of the main pipeline map,
+    // because the submenu memory was not cleared. `h` should always land on
+    // Home proper.
+    setState({
+      config: { currentSprint: 'sprint-1', aiProvider: null, editor: null },
+      projects: [
+        {
+          name: 'p',
+          displayName: 'P',
+          id: 'prj00001',
+          repositories: [{ id: 'repo0001', name: 'repo', path: '/tmp/repo' }],
+        },
+      ],
+      sprint: sprint({ tickets: [{ id: 'a', title: 'T', requirementStatus: 'pending' }] }),
+      tasks: [],
+    });
+    const { lastFrame, stdin } = render(withRouter(<HomeView />));
+    await flush();
+
+    // Open the browse submenu.
+    stdin.write('b');
+    await flush();
+    expect(lastFrame() ?? '').toContain('BROWSE');
+
+    // Press `h` — should drop back to the pipeline map (Next: ... Refine etc.).
+    stdin.write('h');
+    await flush();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Next:');
+    expect(frame).toContain('Refine');
+    expect(frame).not.toContain('BROWSE');
+
+    // And the memory is cleared, so a subsequent remount (e.g. the router
+    // `h` hotkey reset) would still land on the pipeline map.
+    const { getHomeSubmenuMemory } = await import('./home-submenu-memory.ts');
+    expect(getHomeSubmenuMemory()).toBeNull();
+  });
+
   describe('phase drill-in', () => {
     beforeEach(() => {
       routerMocks.push.mockClear();

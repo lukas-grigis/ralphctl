@@ -14,7 +14,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
-import { inkColors } from '@src/integration/ui/theme/tokens.ts';
+import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 interface Props {
   readonly records: readonly StepExecutionRecord[];
@@ -51,12 +51,12 @@ export function PhaseRunTrace({ records, title = 'Last run' }: Props): React.JSX
         </Text>
       </Box>
       {records.length === 0 ? (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text dimColor>(no runs yet)</Text>
         </Box>
       ) : (
         records.map((r, i) => (
-          <Box key={`${r.stepName}-${String(i)}`} flexDirection="column" paddingLeft={2}>
+          <Box key={`${r.stepName}-${String(i)}`} flexDirection="column" paddingLeft={spacing.indent}>
             <Box>
               <Text color={STATUS_COLOR[r.status]} bold>
                 {STATUS_GLYPH[r.status]}
@@ -65,7 +65,7 @@ export function PhaseRunTrace({ records, title = 'Last run' }: Props): React.JSX
               <Text dimColor>{formatDuration(r.durationMs)}</Text>
             </Box>
             {r.error ? (
-              <Box paddingLeft={2}>
+              <Box paddingLeft={spacing.indent}>
                 <Text color={inkColors.error}>↳ {r.error.message}</Text>
               </Box>
             ) : null}
