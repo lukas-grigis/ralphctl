@@ -49,6 +49,10 @@ interpretation and proceed.
 - **The feedback is the authoritative instruction** — implement it even if it seems unrelated to the completed tasks.
 - **Do the smallest change that fully satisfies the feedback** — no speculative refactors, no adjacent cleanup.
 - **Make the edits — don't just describe them** — the harness does not apply edits for you; you must write the files.
+- **Never reference sprint-local identifiers in code** — do not mention acceptance-criterion labels (`AC1`, `AC2`,
+  `AC1–AC6`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test names, commit
+  messages, or any committed artefact. These identifiers are ephemeral sprint metadata and become stale. Describe
+  the underlying invariant or constraint directly instead.
 - **Must commit** — Create a git commit before signaling completion. Uncommitted changes leave the sprint branch dirty
   and block sprint close.
 
