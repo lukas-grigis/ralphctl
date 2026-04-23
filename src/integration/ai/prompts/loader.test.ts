@@ -697,8 +697,7 @@ describe('shared partial inlining', () => {
 // loader.ts has no branching on whether the caller is the Ink TUI or the
 // plain-text CLI. A given input produces byte-identical output regardless of
 // surface. These assertions document that invariant and guard against a
-// future "just inject some Ink / ANSI for the dashboard" temptation. See
-// PROMPT-AUDIT.md § Verification Log for the full parity argument.
+// future "just inject some Ink / ANSI for the dashboard" temptation.
 // ---------------------------------------------------------------------------
 
 describe('prompt rendering is surface-agnostic (TUI parity)', () => {
@@ -858,8 +857,8 @@ describe('prompt template generic-content audits', () => {
   // -------------------------------------------------------------------------
   // Structural: every planner-role rendered prompt uses at least one of the
   // canonical XML tags to wrap its top-level inputs. The vocabulary is fixed
-  // in PROMPT-AUDIT.md and CLAUDE.md; a new tag requires updating both docs
-  // AND expanding this allowlist.
+  // in CLAUDE.md § Prompt Template Engineering; a new tag requires updating
+  // that list AND expanding this allowlist.
   // -------------------------------------------------------------------------
   it('planner-role rendered prompts wrap top-level inputs inside a known XML tag', () => {
     const plannerRendered: Record<string, string> = {

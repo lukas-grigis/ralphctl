@@ -252,9 +252,9 @@ prompt files)
 Claude session starts)
 **Template builders** - `src/integration/ai/prompts/loader.ts` compiles `.md` templates with placeholder replacement
 **Canonical XML vocabulary** — structural inputs sit inside known tags (`<harness-context>`, `<task-specification>`,
-`<context>`, `<requirements>`, `<constraints>`, `<examples>`, `<dimension>`, `<signals>`). Full table in
-[.claude/docs/PROMPT-AUDIT.md](.claude/docs/PROMPT-AUDIT.md) — extend both the doc and the loader audit tests when
-adding a new tag.
+`<context>`, `<requirements>`, `<constraints>`, `<examples>`, `<dimension>`, `<signals>`). The allowlist is enforced
+by `src/integration/ai/prompts/loader.test.ts` (`planner-role rendered prompts wrap top-level inputs inside a known
+XML tag`) — extend both the allowlist and this list when adding a new tag.
 **No hardcoded package-manager commands** — prompts must not embed `pnpm`/`npm`/`pip`/`cargo`/`go test` outside the
 `{{PROJECT_TOOLING}}` or `{{CHECK_GATE_EXAMPLE}}` placeholders. Downstream ecosystems differ; the placeholders are the
 seam.
