@@ -1,93 +1,90 @@
 /**
  * ProjectRemoveView — native Ink flow for `project remove`.
+ *
+ * Selection happens here; the shared {@link RemovalWorkflow} owns the confirm
+ * + remove + done state machine.
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
+import { PromptCancelledError } from '@src/business/ports/prompt.ts';
 import { getPrompt } from '@src/integration/bootstrap.ts';
 import { listProjects, removeProject } from '@src/integration/persistence/project.ts';
+import { RemovalWorkflow } from '@src/integration/ui/tui/components/removal-workflow.tsx';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
-import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
-import { useWorkflow } from './use-workflow.ts';
+import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 
 const TITLE = 'Remove Project' as const;
 
-const HINTS_RUNNING = [{ key: 'Esc', action: 'cancel' }] as const;
-const HINTS_DONE = [
-  { key: 'Enter', action: 'home' },
-  { key: 'Esc', action: 'back' },
-] as const;
-
 type Phase =
-  | { kind: 'running'; step: 'select' | 'confirm' | 'removing' }
+  | { kind: 'loading' }
+  | { kind: 'selecting' }
   | { kind: 'no-projects' }
-  | { kind: 'cancelled' }
-  | { kind: 'done'; name: string }
+  | { kind: 'ready'; name: string }
   | { kind: 'error'; message: string };
 
 export function ProjectRemoveView(): React.JSX.Element {
-  const { phase } = useWorkflow<Phase>({
-    initial: { kind: 'running', step: 'select' },
-    onError: (message) => ({ kind: 'error', message }),
-    run: async ({ setPhase }) => {
-      const prompt = getPrompt();
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
+  const [started, setStarted] = useState(false);
 
-      const projects = await listProjects();
-      if (projects.length === 0) {
-        setPhase({ kind: 'no-projects' });
-        return;
+  useEffect(() => {
+    if (started) return;
+    setStarted(true);
+    void (async (): Promise<void> => {
+      try {
+        const projects = await listProjects();
+        if (projects.length === 0) {
+          setPhase({ kind: 'no-projects' });
+          return;
+        }
+        setPhase({ kind: 'selecting' });
+        const name = await getPrompt().select<string>({
+          message: 'Select project to remove:',
+          choices: projects.map((p) => ({
+            label: `${p.displayName} (${p.name})`,
+            value: p.name,
+            description: `${String(p.repositories.length)} repo${p.repositories.length === 1 ? '' : 's'}`,
+          })),
+        });
+        setPhase({ kind: 'ready', name });
+      } catch (err) {
+        if (err instanceof PromptCancelledError) {
+          router.pop();
+          return;
+        }
+        setPhase({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
       }
+    })();
+  }, [started, router]);
 
-      setPhase({ kind: 'running', step: 'select' });
-      const name = await prompt.select<string>({
-        message: 'Select project to remove:',
-        choices: projects.map((p) => ({
-          label: `${p.displayName} (${p.name})`,
-          value: p.name,
-          description: `${String(p.repositories.length)} repo${p.repositories.length === 1 ? '' : 's'}`,
-        })),
-      });
+  if (phase.kind === 'ready') {
+    return (
+      <RemovalWorkflow
+        entityLabel={TITLE}
+        confirmMessage={`Remove project "${phase.name}"? This cannot be undone.`}
+        onConfirm={() => removeProject(phase.name)}
+        successMessage={`Project "${phase.name}" removed`}
+        onDone={() => {
+          router.pop();
+        }}
+      />
+    );
+  }
 
-      setPhase({ kind: 'running', step: 'confirm' });
-      const ok = await prompt.confirm({
-        message: `Remove project "${name}"? This cannot be undone.`,
-        default: false,
-      });
-      if (!ok) {
-        setPhase({ kind: 'cancelled' });
-        return;
-      }
-
-      setPhase({ kind: 'running', step: 'removing' });
-      await removeProject(name);
-      setPhase({ kind: 'done', name });
-    },
-  });
-
-  const hints = useMemo(() => (phase.kind === 'running' ? HINTS_RUNNING : HINTS_DONE), [phase.kind]);
-  useViewHints(hints);
-
-  return <ViewShell title={TITLE}>{renderBody(phase)}</ViewShell>;
+  return <ViewShell title={TITLE}>{renderPre(phase)}</ViewShell>;
 }
 
-function renderBody(phase: Phase): React.JSX.Element {
+function renderPre(phase: Exclude<Phase, { kind: 'ready' }>): React.JSX.Element {
   switch (phase.kind) {
-    case 'running':
-      return <Spinner label={stepLabel(phase.step)} />;
+    case 'loading':
+      return <Spinner label="Loading projects…" />;
+    case 'selecting':
+      return <Spinner label="Awaiting project selection…" />;
     case 'no-projects':
       return <ResultCard kind="info" title="No projects to remove" />;
-    case 'cancelled':
-      return <ResultCard kind="info" title="Removal cancelled" />;
     case 'error':
       return <ResultCard kind="error" title="Could not remove project" lines={[phase.message]} />;
-    case 'done':
-      return <ResultCard kind="success" title="Project removed" fields={[['Name', phase.name]]} />;
   }
-}
-
-function stepLabel(step: 'select' | 'confirm' | 'removing'): string {
-  if (step === 'select') return 'Awaiting project selection…';
-  if (step === 'confirm') return 'Awaiting confirmation…';
-  return 'Removing project…';
 }

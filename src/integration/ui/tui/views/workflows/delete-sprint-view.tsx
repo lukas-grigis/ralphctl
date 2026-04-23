@@ -1,29 +1,26 @@
 /**
  * DeleteSprintView — native Ink flow for `sprint delete`.
  *
- * Select sprint (if no `sprintId` prop) → show summary → confirm → delete.
- * Clears `currentSprint` in config if the deleted sprint was the current
- * target, so Home's pipeline map doesn't point at a ghost.
+ * Selection + validation happen here; once a target sprint is chosen, the
+ * shared {@link RemovalWorkflow} component drives the confirm + delete + done
+ * state machine. Clears `currentSprint` in config if the deleted sprint was
+ * the current target, so Home's pipeline map doesn't point at a ghost.
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { Sprint } from '@src/domain/models.ts';
+import { PromptCancelledError } from '@src/business/ports/prompt.ts';
 import { getPrompt } from '@src/integration/bootstrap.ts';
-import { deleteSprint, getSprint, listSprints } from '@src/integration/persistence/sprint.ts';
 import { getCurrentSprint, setCurrentSprint } from '@src/integration/persistence/config.ts';
+import { deleteSprint, getSprint, listSprints } from '@src/integration/persistence/sprint.ts';
 import { listTasks } from '@src/integration/persistence/task.ts';
+import { RemovalWorkflow } from '@src/integration/ui/tui/components/removal-workflow.tsx';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
-import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
-import { useWorkflow } from './use-workflow.ts';
+import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 
 const TITLE = 'Delete Sprint' as const;
-
-const HINTS_RUNNING = [{ key: 'Esc', action: 'cancel' }] as const;
-const HINTS_DONE = [
-  { key: 'Enter', action: 'home' },
-  { key: 'Esc', action: 'back' },
-] as const;
 
 interface Props {
   readonly sprintId?: string;
@@ -31,93 +28,93 @@ interface Props {
 
 type Phase =
   | { kind: 'loading' }
+  | { kind: 'selecting' }
   | { kind: 'no-sprints' }
-  | { kind: 'running'; step: 'select' | 'confirm' | 'deleting' }
-  | { kind: 'done'; name: string; id: string; clearedCurrent: boolean }
-  | { kind: 'cancelled' }
   | { kind: 'active-blocked'; name: string }
+  | { kind: 'ready'; sprint: Sprint; taskCount: number }
   | { kind: 'error'; message: string };
 
 export function DeleteSprintView({ sprintId: initial }: Props): React.JSX.Element {
-  const { phase } = useWorkflow<Phase>({
-    initial: { kind: 'loading' },
-    onError: (message) => ({ kind: 'error', message }),
-    run: async ({ setPhase }) => {
-      const prompt = getPrompt();
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
+  const [started, setStarted] = useState(false);
 
-      let targetId = initial ?? null;
-      if (!targetId) {
-        const sprints = await listSprints();
-        if (sprints.length === 0) {
-          setPhase({ kind: 'no-sprints' });
+  useEffect(() => {
+    if (started) return;
+    setStarted(true);
+    void (async (): Promise<void> => {
+      try {
+        const prompt = getPrompt();
+        let targetId = initial ?? null;
+
+        if (!targetId) {
+          const sprints = await listSprints();
+          if (sprints.length === 0) {
+            setPhase({ kind: 'no-sprints' });
+            return;
+          }
+          setPhase({ kind: 'selecting' });
+          targetId = await prompt.select<string>({
+            message: 'Select sprint to delete:',
+            choices: sprints.map((s) => ({
+              label: `${s.id} — ${s.name} (${s.status})`,
+              value: s.id,
+            })),
+          });
+        }
+
+        const sprint = await getSprint(targetId);
+        if (sprint.status === 'active') {
+          setPhase({ kind: 'active-blocked', name: sprint.name });
           return;
         }
-        setPhase({ kind: 'running', step: 'select' });
-        targetId = await prompt.select<string>({
-          message: 'Select sprint to delete:',
-          choices: sprints.map((s) => ({
-            label: `${s.id} — ${s.name} (${s.status})`,
-            value: s.id,
-          })),
-        });
+        const tasks = await listTasks(targetId).catch(() => []);
+
+        setPhase({ kind: 'ready', sprint, taskCount: tasks.length });
+      } catch (err) {
+        if (err instanceof PromptCancelledError) {
+          router.pop();
+          return;
+        }
+        setPhase({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
       }
+    })();
+  }, [started, initial, router]);
 
-      const sprint = await getSprint(targetId);
-      if (sprint.status === 'active') {
-        setPhase({ kind: 'active-blocked', name: sprint.name });
-        return;
-      }
-      const tasks = await listTasks(targetId).catch(() => []);
+  if (phase.kind === 'ready') {
+    const { sprint, taskCount } = phase;
+    const ticketCount = sprint.tickets.length;
+    const confirmMessage = `Delete "${sprint.name}" (${String(ticketCount)} ${pluralize('ticket', ticketCount)}, ${String(
+      taskCount
+    )} ${pluralize('task', taskCount)})? All sprint data — tickets, tasks, progress, evaluations — will be removed. This cannot be undone.`;
+    return (
+      <RemovalWorkflow
+        entityLabel={TITLE}
+        confirmMessage={confirmMessage}
+        onConfirm={async (): Promise<void> => {
+          const currentId = await getCurrentSprint();
+          await deleteSprint(sprint.id);
+          if (currentId === sprint.id) await setCurrentSprint(null);
+        }}
+        successMessage={`Sprint "${sprint.name}" deleted`}
+        onDone={() => {
+          router.pop();
+        }}
+      />
+    );
+  }
 
-      setPhase({ kind: 'running', step: 'confirm' });
-      const confirmed = await prompt.confirm({
-        message: `Delete "${sprint.name}" (${String(sprint.tickets.length)} tickets, ${String(tasks.length)} tasks)? This cannot be undone.`,
-        default: false,
-      });
-
-      if (!confirmed) {
-        setPhase({ kind: 'cancelled' });
-        return;
-      }
-
-      // Second confirm — destructive, irreversible. One accidental Enter
-      // shouldn't be enough.
-      const reconfirmed = await prompt.confirm({
-        message: `Really delete "${sprint.name}"? All sprint data (tickets, tasks, progress, evaluations) will be removed.`,
-        default: false,
-      });
-      if (!reconfirmed) {
-        setPhase({ kind: 'cancelled' });
-        return;
-      }
-
-      setPhase({ kind: 'running', step: 'deleting' });
-      const currentId = await getCurrentSprint();
-      await deleteSprint(targetId);
-      const clearedCurrent = currentId === targetId;
-      if (clearedCurrent) await setCurrentSprint(null);
-
-      setPhase({ kind: 'done', name: sprint.name, id: sprint.id, clearedCurrent });
-    },
-  });
-
-  const running = phase.kind === 'running' || phase.kind === 'loading';
-  const hints = useMemo(() => (running ? HINTS_RUNNING : HINTS_DONE), [running]);
-  useViewHints(hints);
-
-  return <ViewShell title={TITLE}>{renderBody(phase)}</ViewShell>;
+  return <ViewShell title={TITLE}>{renderPre(phase)}</ViewShell>;
 }
 
-function renderBody(phase: Phase): React.JSX.Element {
+function renderPre(phase: Exclude<Phase, { kind: 'ready' }>): React.JSX.Element {
   switch (phase.kind) {
     case 'loading':
       return <Spinner label="Loading sprints…" />;
+    case 'selecting':
+      return <Spinner label="Awaiting selection…" />;
     case 'no-sprints':
       return <ResultCard kind="info" title="No sprints to delete" />;
-    case 'running':
-      return <Spinner label={runningLabel(phase.step)} />;
-    case 'cancelled':
-      return <ResultCard kind="info" title="Deletion cancelled" />;
     case 'active-blocked':
       return (
         <ResultCard
@@ -128,23 +125,9 @@ function renderBody(phase: Phase): React.JSX.Element {
       );
     case 'error':
       return <ResultCard kind="error" title="Could not delete sprint" lines={[phase.message]} />;
-    case 'done':
-      return (
-        <ResultCard
-          kind="success"
-          title="Sprint deleted"
-          fields={[
-            ['Name', phase.name],
-            ['ID', phase.id],
-          ]}
-          lines={phase.clearedCurrent ? ['Current sprint pointer was cleared.'] : undefined}
-        />
-      );
   }
 }
 
-function runningLabel(step: Extract<Phase, { kind: 'running' }>['step']): string {
-  if (step === 'select') return 'Awaiting selection…';
-  if (step === 'confirm') return 'Awaiting confirmation…';
-  return 'Deleting sprint…';
+function pluralize(noun: string, count: number): string {
+  return count === 1 ? noun : `${noun}s`;
 }
