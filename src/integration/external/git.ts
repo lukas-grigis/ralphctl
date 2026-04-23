@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { assertSafeCwd } from '@src/integration/persistence/paths.ts';
+import { StorageError } from '@src/domain/errors.ts';
 
 /**
  * Git utility functions for branch management.
@@ -171,6 +172,33 @@ export function hasUncommittedChanges(cwd: string): boolean {
     throw new Error(`Failed to check git status in ${cwd}: ${result.stderr.trim()}`);
   }
   return result.stdout.trim().length > 0;
+}
+
+/**
+ * Hard-reset tracked files to HEAD and remove untracked files and directories.
+ *
+ * Runs `git reset --hard HEAD` then `git clean -fd`. Throws `StorageError`
+ * with the underlying stderr if either step fails (e.g. read-only working
+ * tree). Destructive — callers must only invoke this on explicit user consent.
+ */
+export function hardResetWorkingTree(cwd: string): void {
+  assertSafeCwd(cwd);
+  const reset = spawnSync('git', ['reset', '--hard', 'HEAD'], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (reset.status !== 0) {
+    throw new StorageError(`Failed to reset working tree in ${cwd}: ${reset.stderr.trim() || reset.stdout.trim()}`);
+  }
+  const clean = spawnSync('git', ['clean', '-fd'], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (clean.status !== 0) {
+    throw new StorageError(`Failed to clean working tree in ${cwd}: ${clean.stderr.trim() || clean.stdout.trim()}`);
+  }
 }
 
 /**

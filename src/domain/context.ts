@@ -65,6 +65,18 @@ export interface ExecutionOptions extends StepOptions {
   refreshCheck?: boolean;
   branch?: boolean;
   branchName?: string;
+  /**
+   * Skip prompts and resume with uncommitted changes intact. Mutually
+   * exclusive with `resetOnResume`. Required in non-interactive contexts
+   * (no TTY / CI / piped stdin) when the working tree is dirty.
+   */
+  resumeDirty?: boolean;
+  /**
+   * Skip prompts and hard-reset the working tree to HEAD before resuming.
+   * Destructive — tracked modifications and untracked files are discarded.
+   * Mutually exclusive with `resumeDirty`.
+   */
+  resetOnResume?: boolean;
   noEvaluate?: boolean;
   noFeedback?: boolean;
   /**

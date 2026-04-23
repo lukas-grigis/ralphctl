@@ -402,6 +402,15 @@ function buildDeps(scenario: Scenario = {}): {
       ensureHandlers: () => void 0,
       isShuttingDown: () => false,
     },
+    prompt: {
+      select: () => Promise.reject(new Error('select not stubbed')),
+      confirm: () => Promise.reject(new Error('confirm not stubbed')),
+      input: () => Promise.reject(new Error('input not stubbed')),
+      checkbox: () => Promise.reject(new Error('checkbox not stubbed')),
+      editor: () => Promise.resolve(null),
+      fileBrowser: () => Promise.resolve(null),
+    },
+    isTTY: () => false,
   };
 
   // Parser needs to produce a `task-complete` signal so `executeOneTask`

@@ -16,6 +16,7 @@ import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
+import type { PromptPort } from '@src/business/ports/prompt.ts';
 import { findSpawnError, pipeline, step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { forEachTask, type RetryAction, type SchedulerStats } from '@src/business/pipelines/framework/for-each-task.ts';
@@ -25,6 +26,7 @@ import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scr
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
 import type { PerTaskContext } from '@src/business/pipelines/execute/per-task-context.ts';
+import { resolveDirtyTree } from '@src/business/pipelines/execute/resolve-dirty-tree.ts';
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
@@ -82,6 +84,10 @@ export interface ExecuteDeps {
   createRateLimitCoordinator: () => RateLimitCoordinatorPort;
   /** SIGINT/SIGTERM handler installer + shutdown observer. */
   processLifecycle: ProcessLifecyclePort;
+  /** Interactive prompt port — used by the dirty-tree resume flow. */
+  prompt: PromptPort;
+  /** TTY probe — wired from the composition root (integration-layer helper). */
+  isTTY: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +360,14 @@ function prepareTasksStep(persistence: PersistencePort): PipelineStep {
  * same per-repo checkout loop, same sprint.branch persistence, same
  * "Branch '<name>' ready" + "Branch: <name>" log lines.
  */
-function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort, logger: LoggerPort): PipelineStep {
+function ensureBranchesStep(
+  external: ExternalPort,
+  persistence: PersistencePort,
+  logger: LoggerPort,
+  prompt: PromptPort,
+  isTTY: () => boolean,
+  options: ExecuteOptions
+): PipelineStep {
   return step<ExecuteContext>('ensure-branches', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
@@ -393,20 +406,16 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
     }
 
     try {
-      // Fail-fast: check for uncommitted changes in all repos
+      // Resolve dirty working trees per repo — prompt / reset / abort / block.
       for (const projectPath of uniquePaths) {
-        try {
-          if (external.hasUncommittedChanges(projectPath)) {
-            return Result.error(
-              new StorageError(
-                `Repository at ${projectPath} has uncommitted changes. Commit or stash them before starting.`
-              )
-            );
-          }
-        } catch (err) {
-          if (err instanceof StorageError) return Result.error(err);
-          // Not a git repo — skip silently
-        }
+        await resolveDirtyTree({
+          repoPath: projectPath,
+          options,
+          prompt,
+          isTTY: isTTY(),
+          logger,
+          external,
+        });
       }
 
       // Create/checkout branch in each repo
@@ -1021,7 +1030,7 @@ export function createExecuteSprintPipeline(deps: ExecuteDeps, options: ExecuteO
     autoActivateStep(deps.persistence),
     assertActiveStep(),
     prepareTasksStep(deps.persistence),
-    ensureBranchesStep(deps.external, deps.persistence, deps.logger),
+    ensureBranchesStep(deps.external, deps.persistence, deps.logger, deps.prompt, deps.isTTY, options),
     sprintStartCheckStep(deps.external, deps.persistence, deps.logger, options),
     executeTasksStep(deps, options),
     feedbackLoopStep(deps, options),

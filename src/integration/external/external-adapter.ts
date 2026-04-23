@@ -5,6 +5,7 @@ import { runLifecycleHook, type LifecycleEvent } from '@src/integration/external
 import { getRecentGitHistory } from '@src/integration/ai/task-context.ts';
 import {
   hasUncommittedChanges as gitHasUncommittedChanges,
+  hardResetWorkingTree as gitHardResetWorkingTree,
   autoCommit as gitAutoCommit,
   createAndCheckoutBranch as gitCreateAndCheckoutBranch,
   getCurrentBranch as gitGetCurrentBranch,
@@ -61,6 +62,10 @@ export class DefaultExternalAdapter implements ExternalPort {
 
   hasUncommittedChanges(projectPath: string): boolean {
     return gitHasUncommittedChanges(projectPath);
+  }
+
+  hardResetWorkingTree(projectPath: string): void {
+    gitHardResetWorkingTree(projectPath);
   }
 
   autoCommit(projectPath: string, message: string): Promise<void> {
