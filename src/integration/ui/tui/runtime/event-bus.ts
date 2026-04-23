@@ -28,7 +28,7 @@ export type LogEvent =
 type LogEventListener = (events: readonly LogEvent[]) => void;
 type Unsubscribe = () => void;
 
-interface LogEventBus {
+export interface LogEventBus {
   emit(event: LogEvent): void;
   subscribe(listener: LogEventListener): Unsubscribe;
   dispose(): void;
@@ -37,13 +37,12 @@ interface LogEventBus {
 const FRAME_MS = 16;
 
 /**
- * Singleton log event bus.
- *
- * InkSink and the Ink `useLoggerEvents()` hook both reference this single
- * instance. There is no ambiguity about whose events go where — only one
- * Ink app mounts per process.
+ * Micro-batching log event bus. Drains its buffer on an animation-frame tick
+ * and fans the batch out to every listener. Used as the default singleton
+ * and instantiated per-execution by `createExecutionScope` so concurrent
+ * backgrounded executions do not cross-talk on the shared event stream.
  */
-class SingletonLogEventBus implements LogEventBus {
+export class InMemoryLogEventBus implements LogEventBus {
   private readonly listeners = new Set<LogEventListener>();
   private readonly buffer: LogEvent[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
@@ -101,4 +100,4 @@ class SingletonLogEventBus implements LogEventBus {
   }
 }
 
-export const logEventBus: LogEventBus = new SingletonLogEventBus();
+export const logEventBus: LogEventBus = new InMemoryLogEventBus();

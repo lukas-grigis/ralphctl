@@ -11,15 +11,22 @@
  */
 
 import type { LogContext, LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
-import { logEventBus, type LogEvent } from '@src/integration/ui/tui/runtime/event-bus.ts';
+import { logEventBus, type LogEvent, type LogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
 
 let spinnerId = 0;
 
 export class InkSink implements LoggerPort {
-  constructor(private readonly context: LogContext = {}) {}
+  private readonly bus: LogEventBus;
+
+  constructor(
+    private readonly context: LogContext = {},
+    bus?: LogEventBus
+  ) {
+    this.bus = bus ?? logEventBus;
+  }
 
   private emit(event: LogEvent): void {
-    logEventBus.emit(event);
+    this.bus.emit(event);
   }
 
   // -- Structured log levels --------------------------------------------------
@@ -106,7 +113,7 @@ export class InkSink implements LoggerPort {
   // -- Scoped child -----------------------------------------------------------
 
   child(context: LogContext): LoggerPort {
-    return new InkSink({ ...this.context, ...context });
+    return new InkSink({ ...this.context, ...context }, this.bus);
   }
 
   // -- Timing -----------------------------------------------------------------
