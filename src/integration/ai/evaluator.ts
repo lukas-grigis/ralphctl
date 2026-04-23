@@ -49,15 +49,21 @@ interface EvaluationResult {
 }
 
 /**
- * Generic dimension regex — captures `**Name**: PASS|FAIL — finding` lines.
+ * Generic dimension regex — captures `**Name**: PASS|FAIL [— finding]` lines.
  *
  * - Name: 3–30 chars (`[A-Za-z][A-Za-z0-9]{2,29}`) — wide enough for the four
  *   floor dimensions and planner-emitted extras (`Performance`,
  *   `Accessibility`, `MigrationSafety`, …), narrow enough to skip noise like
  *   `**ok**` or huge bold strings.
  * - PASS/FAIL: case-insensitive (existing prompts emit both `PASS` and `pass`).
- * - Separator: em-dash (`—`) or ASCII hyphen (`-`).
- * - Finding: greedy to end-of-line.
+ * - Separator + finding: em-dash (`—`) or ASCII hyphen (`-`) followed by the
+ *   finding text — OPTIONAL at the regex level so bare `**Name**: PASS` lines
+ *   can still be captured by the parser. The anti-rubber-stamp contract
+ *   (see `task-evaluation.md`) demands a non-empty finding after the
+ *   separator; `parseDimensionScores` enforces that by forcing `passed=false`
+ *   when the finding is missing or whitespace-only, so bare-PASS output fails
+ *   instead of silently sliding through.
+ * - Finding: any non-newline chars ending on a non-whitespace char.
  *
  * The leading-capital intent (filter out random bold prose like `**note**`) is
  * weakened by the case-insensitive flag — that's accepted by design, since the
@@ -68,7 +74,7 @@ interface EvaluationResult {
  * Captured name is lowercased so downstream comparisons (e.g. plateau
  * detection) stay case-insensitive.
  */
-const DIMENSION_LINE = /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/gi;
+const DIMENSION_LINE = /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)(?:\s*(?:—|-)\s*([^\n]*\S))?/gi;
 
 /**
  * Parse structured dimension scores from evaluator output.
@@ -88,15 +94,20 @@ export function parseDimensionScores(output: string): DimensionScore[] {
   while ((match = DIMENSION_LINE.exec(output)) !== null) {
     const rawName = match[1];
     const verdict = match[2];
-    const finding = match[3];
-    if (!rawName || !verdict || !finding) continue;
+    // `match[3]` is undefined when the line has no separator+finding
+    // (e.g. bare `**Correctness**: PASS`). That's a contract violation —
+    // the evaluator prompt requires a justification after the separator —
+    // so we keep the dimension but force `passed=false` to surface it.
+    const finding = (match[3] ?? '').trim();
+    if (!rawName || !verdict) continue;
     const name = rawName.toLowerCase();
     if (seen.has(name)) continue;
     seen.add(name);
+    const hasJustification = finding.length > 0;
     scores.push({
       dimension: name,
-      passed: verdict.toUpperCase() === 'PASS',
-      finding: finding.trim(),
+      passed: verdict.toUpperCase() === 'PASS' && hasJustification,
+      finding,
     });
   }
   return scores;

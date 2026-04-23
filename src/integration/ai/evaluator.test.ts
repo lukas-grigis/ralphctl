@@ -105,6 +105,48 @@ describe('parseDimensionScores', () => {
     expect(scores).toHaveLength(1);
     expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: true, finding: 'first finding' });
   });
+
+  // Anti-rubber-stamp contract: a dimension line without a justification
+  // after the separator is a contract violation (see `task-evaluation.md` —
+  // Justification rule). The parser keeps the dimension so downstream logic
+  // can surface it, but forces `passed=false` so a bare PASS never survives
+  // as a real pass.
+  it('bare `**Correctness**: PASS` with no separator parses as passed=false (rubber stamp)', () => {
+    const scores = parseDimensionScores('**Correctness**: PASS');
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: false, finding: '' });
+  });
+
+  it('`**Correctness**: PASS — ran pnpm test, 42/42 green` still parses as passed (justified)', () => {
+    const scores = parseDimensionScores('**Correctness**: PASS — ran pnpm test, 42/42 green');
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({
+      dimension: 'correctness',
+      passed: true,
+      finding: 'ran pnpm test, 42/42 green',
+    });
+  });
+
+  it('bare `**Correctness**: FAIL` with no finding still parses as passed=false', () => {
+    // FAIL without a finding is unchanged in verdict — it was already a
+    // fail. The justification-required rule only affects PASS lines.
+    const scores = parseDimensionScores('**Correctness**: FAIL');
+    expect(scores).toHaveLength(1);
+    expect(scores[0]).toMatchObject({ dimension: 'correctness', passed: false, finding: '' });
+  });
+
+  it('rubber-stamp block (all four dimensions bare PASS) yields all-unjustified scores', () => {
+    const output = [
+      '**Correctness**: PASS',
+      '**Completeness**: PASS',
+      '**Safety**: PASS',
+      '**Consistency**: PASS',
+    ].join('\n');
+    const scores = parseDimensionScores(output);
+    expect(scores).toHaveLength(4);
+    expect(scores.every((s) => !s.passed)).toBe(true);
+    expect(scores.every((s) => s.finding === '')).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -231,5 +273,40 @@ describe('parseEvaluationResult', () => {
     expect(result.status).toBe('malformed');
     expect(result.passed).toBe(false);
     expect(result.dimensions).toEqual([]);
+  });
+
+  // Anti-rubber-stamp contract at the result level: bare `**X**: PASS` lines
+  // (no justifications, no `<evaluation-passed>` signal) resolve to
+  // `status: 'failed'` — the dimensions are present but every one of them is
+  // unjustified, so the loop picks the actionable-data branch and marks the
+  // overall result failed rather than silently sliding through as malformed.
+  it('bare-PASS dimensions without signal resolve to status=failed', () => {
+    const output = [
+      '**Correctness**: PASS',
+      '**Completeness**: PASS',
+      '**Safety**: PASS',
+      '**Consistency**: PASS',
+    ].join('\n');
+    const result = parseEvaluationResult(output);
+    expect(result.status).toBe('failed');
+    expect(result.passed).toBe(false);
+    expect(result.dimensions).toHaveLength(4);
+    expect(result.dimensions.every((d) => !d.passed)).toBe(true);
+  });
+
+  it('per-dimension justified PASS with <evaluation-passed> signal remains passed', () => {
+    const output = [
+      '## Assessment',
+      '**Correctness**: PASS — 42/42 tests green after `pnpm test`',
+      '**Completeness**: PASS — every verification criterion graded, see `src/foo.ts:12`',
+      '**Safety**: PASS — no unparameterised SQL, input validated via Zod at controller',
+      '**Consistency**: PASS — matches sibling `bar.ts` naming + error-handling patterns',
+      '<evaluation-passed>',
+    ].join('\n');
+    const result = parseEvaluationResult(output);
+    expect(result.status).toBe('passed');
+    expect(result.passed).toBe(true);
+    expect(result.dimensions).toHaveLength(4);
+    expect(result.dimensions.every((d) => d.passed)).toBe(true);
   });
 });
