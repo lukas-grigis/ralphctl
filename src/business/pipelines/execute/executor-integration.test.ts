@@ -401,6 +401,7 @@ function buildDeps(scenario: Scenario = {}): {
     processLifecycle: {
       ensureHandlers: () => void 0,
       isShuttingDown: () => false,
+      registerAbort: () => () => void 0,
     },
     prompt: {
       select: () => Promise.reject(new Error('select not stubbed')),

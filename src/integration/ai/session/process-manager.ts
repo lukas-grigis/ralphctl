@@ -109,6 +109,39 @@ export class ProcessManager {
   }
 
   /**
+   * Wire a task-scoped AbortSignal to a terminate callback. When the signal
+   * aborts, the callback fires once. Returns a disposer that detaches the
+   * listener — call it in a `finally` after the child exits so listeners
+   * don't accumulate across repeated runs.
+   *
+   * If the signal is already aborted, terminate runs on the next microtask
+   * so the caller always observes a consistent async flow.
+   */
+  public registerAbort(signal: AbortSignal, terminate: () => void): () => void {
+    let fired = false;
+    const handler = (): void => {
+      if (fired) return;
+      fired = true;
+      try {
+        terminate();
+      } catch (err) {
+        log.error(`Error in abort-signal handler: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
+    if (signal.aborted) {
+      queueMicrotask(handler);
+      // Still register a listener so the returned disposer has something to
+      // detach — keeps the call-site contract uniform.
+    }
+
+    signal.addEventListener('abort', handler, { once: true });
+    return () => {
+      signal.removeEventListener('abort', handler);
+    };
+  }
+
+  /**
    * Check if a shutdown is in progress.
    * Used by execution loops to break immediately on Ctrl+C.
    */
@@ -273,4 +306,5 @@ export const processLifecycleAdapter: ProcessLifecyclePort = {
     ProcessManager.getInstance().ensureHandlers();
   },
   isShuttingDown: () => ProcessManager.getInstance().isShuttingDown(),
+  registerAbort: (signal, terminate) => ProcessManager.getInstance().registerAbort(signal, terminate),
 };

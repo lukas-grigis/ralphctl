@@ -16,6 +16,13 @@ export interface StepContext {
   aiProvider?: AiProvider;
   branch?: string | null;
   config?: Config;
+  /**
+   * Cooperative cancellation signal for the pipeline. When `aborted`, the
+   * pipeline executor stops launching subsequent steps and `forEachTask` stops
+   * pulling new items. In-flight steps observe the signal via shared context
+   * and are expected to wind down gracefully (see AiSessionPort + ProcessLifecyclePort).
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Result of a check script run for a single repo */

@@ -765,6 +765,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       requeued: 0,
       inFlight: 0,
       pausedRepos: new Set<string>(),
+      cancelled: false,
     };
     const stats: SchedulerStats = schedResult.ok
       ? ((schedResult.value as { schedulerStats?: SchedulerStats }).schedulerStats ?? emptyStats)

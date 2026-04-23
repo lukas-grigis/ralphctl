@@ -29,7 +29,8 @@ export type StopReason =
   | 'task_blocked'
   | 'user_paused'
   | 'no_tasks'
-  | 'all_blocked';
+  | 'all_blocked'
+  | 'cancelled';
 
 export interface ExecutionSummary {
   completed: number;

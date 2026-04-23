@@ -240,6 +240,7 @@ function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
     processLifecycle: {
       ensureHandlers: () => void 0,
       isShuttingDown: () => false,
+      registerAbort: () => () => void 0,
     },
     prompt: makePrompt(),
     isTTY: () => false,
