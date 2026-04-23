@@ -96,6 +96,35 @@ describe('resolveDirtyTree helper', () => {
     });
   });
 
+  describe('hasUncommittedChanges probe fails', () => {
+    // Pins the swallow-on-probe-failure invariant: when the git probe itself
+    // throws (no .git directory, missing git binary, permission error) the
+    // helper returns cleanly without prompting, resetting, or re-throwing. The
+    // old ensure-branches step had the same "not a git repo — skip silently"
+    // behaviour; this test stops the next refactor from silently flipping it.
+    it('returns without prompt or reset', async () => {
+      const prompt = makePrompt([]);
+      const hardResetWorkingTree = vi.fn();
+      const hasUncommittedChanges = vi.fn(() => {
+        throw new Error('not a git repository');
+      });
+      const external = { hasUncommittedChanges, hardResetWorkingTree } as unknown as ExternalPort;
+
+      await resolveDirtyTree({
+        repoPath: '/repo',
+        options: { resetOnResume: true },
+        prompt,
+        isTTY: false,
+        logger: makeLogger(),
+        external,
+      });
+
+      expect(hasUncommittedChanges).toHaveBeenCalledWith('/repo');
+      expect(hardResetWorkingTree).not.toHaveBeenCalled();
+      expect(prompt.consumed).toEqual([]);
+    });
+  });
+
   describe('dirty tree, resume with changes', () => {
     it("first prompt 'Y' → resumes with tree intact (no reset, no second prompt)", async () => {
       const prompt = makePrompt([true]);
