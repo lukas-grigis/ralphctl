@@ -28,8 +28,34 @@ node -p "require('./package.json').version"       # must be < <version>
 If any check fails, surface the exact problem and stop. Don't stash, don't switch branches, don't auto-fix — the user
 wants to know.
 
-Also confirm `## [Unreleased]` in `CHANGELOG.md` has actual entries (not just the heading). If empty, stop and ask the
-user — there's nothing to release.
+### `## [Unreleased]` auto-draft
+
+Check whether `## [Unreleased]` has content. Grab the body between that heading and the next `## [` heading:
+
+```bash
+awk '/^## \[Unreleased\]/{flag=1;next} /^## \[/{flag=0} flag' CHANGELOG.md | sed '/^$/d'
+```
+
+**If empty,** auto-draft entries from the commit range since the last tag, **skipping contributor-side tooling that
+isn't shipped to npm** (`.claude/**`, `.github/**`, `CHANGELOG.md`, `CLAUDE.md`):
+
+```bash
+LAST_TAG="$(git describe --tags --abbrev=0)"
+git log --no-merges --pretty='- %s' "${LAST_TAG}..HEAD" -- \
+  ':!.claude' ':!.github' ':!CHANGELOG.md' ':!CLAUDE.md'
+```
+
+Group the surviving commit subjects by conventional-commit prefix into `### Added` (`feat:`), `### Fixed` (`fix:`),
+`### Changed` (`refactor:` / `perf:` / user-facing `chore:`). Write the result under `## [Unreleased]` in
+`CHANGELOG.md` (edit only — don't commit yet; the release commit in step 5 picks it up).
+
+**If the filtered `git log` is also empty,** there's nothing user-facing to release — stop and tell the user. Don't
+promote an empty section; `release.yml` would fall back to a raw `git log` dump and ship noise.
+
+**If the original `## [Unreleased]` had content,** skip the draft — the user already wrote what they want. Proceed.
+
+Surface the drafted entries back to the user before moving on so they can veto / rewrite in-place on the release
+branch if anything looks off.
 
 ## Steps
 
