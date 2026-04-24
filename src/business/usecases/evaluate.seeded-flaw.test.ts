@@ -9,8 +9,8 @@
  *    can't silently wash real critique out.
  *
  * 2. `EvaluateTaskUseCase.execute()` routes that failed critique back into
- *    the generator via `resumeGeneratorWithCritique` (the private helper at
- *    `evaluate.ts:351-385`) at least once, and the iteration sidecar at
+ *    the generator via `resumeGeneratorWithCritique` (the private helper in
+ *    `evaluate.ts`) at least once, and the iteration sidecar at
  *    `<sprintDir>/evaluations/<taskId>.md` records the feedback-applied
  *    iteration. The counterpart "clean artifact" case proves the loop does
  *    NOT fire a fix iteration when the evaluator returns
@@ -238,10 +238,14 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
 
     // Spawn log — lets us assert that a generator-resume spawn carried the
     // critique verbatim. The use case calls `spawnWithRetry` for each
-    // evaluator spawn AND for the generator resume; the resume prompt is the
-    // only one that contains the "## Evaluator Critique" header string
-    // declared at `evaluate.ts:359-364`.
+    // evaluator spawn AND for the generator resume; the resume prompt is
+    // built via `promptBuilder.buildTaskEvaluationResumePrompt` so the test
+    // stub returns a sentinel header that lets us distinguish it from the
+    // evaluator prompt. The critique is interpolated into the sentinel so
+    // "the failed feedback is not dropped on the way back into the
+    // generator" assertion still works.
     const spawnPrompts: string[] = [];
+    const spawnOptions: { resumeSessionId?: string }[] = [];
 
     // Recorded evaluator outputs: failed → (resume) → passed. Three calls
     // total: initial eval, generator resume, re-eval.
@@ -254,10 +258,14 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
     const persistence = {
       getSprint: () => Promise.resolve(sprint),
       getTask: () => Promise.resolve(task),
-      getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 1 })),
+      // Iterations=2: initial eval fails, 1 fix attempt, then a re-eval
+      // runs because i=0 is NOT the last iteration (max-1=1). The re-eval
+      // passes, so the loop exits before i=1. 3 evaluator/fix spawns total.
+      getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 2 })),
       getTasks: () => Promise.resolve([task]),
-      saveTasks: (tasks: Task[]) => {
-        savedTaskStatus = tasks[0]?.evaluationStatus;
+      saveTasks: () => Promise.resolve(),
+      updateTask: (_taskId: string, updates: Partial<Task>) => {
+        savedTaskStatus = updates.evaluationStatus;
         return Promise.resolve();
       },
       writeEvaluation: (_sprintId: string, _taskId: string, iteration: number, status: string, body: string) => {
@@ -272,16 +280,21 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
       ensureReady: () => Promise.resolve(),
       getProviderName: () => 'claude' as const,
       getSpawnEnv: () => ({}),
-      spawnWithRetry: (prompt: string): Promise<SessionResult> => {
+      spawnWithRetry: (prompt: string, opts: { resumeSessionId?: string }): Promise<SessionResult> => {
         spawnPrompts.push(prompt);
+        spawnOptions.push({ resumeSessionId: opts.resumeSessionId });
         const output = spawnScript[spawnCall] ?? '';
         spawnCall++;
         return Promise.resolve({ output, sessionId: `spawn-${String(spawnCall)}` });
       },
     } as unknown as AiSessionPort;
 
+    // Sentinel-header pattern: the stub embeds the critique inside a
+    // recognisable marker so the test can distinguish the resume spawn from
+    // an evaluator spawn without coupling to the template's actual text.
     const promptBuilder = {
       buildTaskEvaluationPrompt: () => 'evaluator prompt',
+      buildTaskEvaluationResumePrompt: (critique: string) => `RESUME_PROMPT_SENTINEL\n${critique}`,
     } as unknown as PromptBuilderPort;
 
     const parser = {
@@ -304,7 +317,12 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
       makeExternal()
     );
 
-    const result = await useCase.execute(sprint.id, task.id);
+    // Caller supplies the initial generator session ID — the use case must
+    // thread it into the fix spawn via `--resume <id>` (resumeSessionId on
+    // the spawn options).
+    const result = await useCase.execute(sprint.id, task.id, {
+      generatorSessionId: 'generator-session-xyz',
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -312,13 +330,20 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
     // Initial eval + resume + re-eval = three spawns.
     expect(spawnCall).toBe(3);
 
-    // The generator-resume spawn is identified by the header string the use
-    // case injects in `resumeGeneratorWithCritique`. That prompt MUST carry
-    // the critique verbatim, proving the failed feedback is not dropped on
-    // the way back into the generator.
-    const resumePrompt = spawnPrompts.find((p) => p.includes('## Evaluator Critique'));
-    expect(resumePrompt, 'expected a generator-resume spawn carrying the critique').toBeDefined();
-    expect(resumePrompt).toContain(SEEDED_FLAW);
+    // The generator-resume spawn is identified by the sentinel header the
+    // stub injects from `buildTaskEvaluationResumePrompt`. That prompt MUST
+    // carry the critique verbatim, proving the failed feedback is not
+    // dropped on the way back into the generator.
+    const resumeIdx = spawnPrompts.findIndex((p) => p.includes('RESUME_PROMPT_SENTINEL'));
+    expect(resumeIdx, 'expected a generator-resume spawn carrying the sentinel').toBeGreaterThanOrEqual(0);
+    expect(spawnPrompts[resumeIdx]).toContain(SEEDED_FLAW);
+
+    // Session continuity: the resume spawn must carry `resumeSessionId`
+    // pointing at the initial generator's session — the whole point of the
+    // fix-loop rewrite. Evaluator spawns MUST NOT carry it.
+    expect(spawnOptions[resumeIdx]?.resumeSessionId).toBe('generator-session-xyz');
+    expect(spawnOptions[0]?.resumeSessionId).toBeUndefined();
+    expect(spawnOptions[2]?.resumeSessionId).toBeUndefined();
 
     // Sidecar records both iterations. Iteration 2 is the feedback-applied
     // re-evaluation — its body is the passed-output (the fix landed) and the
@@ -345,8 +370,9 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
       getTask: () => Promise.resolve(task),
       getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 1 })),
       getTasks: () => Promise.resolve([task]),
-      saveTasks: (tasks: Task[]) => {
-        savedTaskStatus = tasks[0]?.evaluationStatus;
+      saveTasks: () => Promise.resolve(),
+      updateTask: (_taskId: string, updates: Partial<Task>) => {
+        savedTaskStatus = updates.evaluationStatus;
         return Promise.resolve();
       },
       writeEvaluation: (_sprintId: string, _taskId: string, iteration: number, status: string) => {
@@ -370,6 +396,7 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
 
     const promptBuilder = {
       buildTaskEvaluationPrompt: () => 'evaluator prompt',
+      buildTaskEvaluationResumePrompt: (critique: string) => `RESUME_PROMPT_SENTINEL\n${critique}`,
     } as unknown as PromptBuilderPort;
 
     const parser = {
@@ -400,8 +427,8 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
     // Exactly one evaluator spawn — the fix loop is skipped when the initial
     // evaluation passes, so `resumeGeneratorWithCritique` is not called.
     expect(spawnCall).toBe(1);
-    // No prompt ever carried the generator-resume header.
-    const resumePrompt = spawnPrompts.find((p) => p.includes('## Evaluator Critique'));
+    // No prompt ever carried the generator-resume sentinel.
+    const resumePrompt = spawnPrompts.find((p) => p.includes('RESUME_PROMPT_SENTINEL'));
     expect(resumePrompt).toBeUndefined();
 
     // Sidecar records exactly one iteration (the initial clean pass).

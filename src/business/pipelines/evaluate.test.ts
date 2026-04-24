@@ -184,14 +184,14 @@ function makeDeps(overrides: Partial<EvaluateDeps> = {}): EvaluateDeps {
 }
 
 /**
- * Initial context the pipeline always starts with. `taskId` is required;
- * `generatorModel` is optional and forwarded into the evaluator.
+ * Initial context the pipeline always starts with. Task-specific
+ * evaluator inputs (fallbackModel, generatorSessionId) flow via options
+ * on the pipeline factory, not through context.
  */
 function makeInitialContext(overrides: Partial<EvaluateContext> = {}): EvaluateContext {
   return {
     sprintId: 'test-sprint',
     taskId: 'task-1',
-    generatorModel: null,
     ...overrides,
   };
 }
@@ -212,6 +212,7 @@ describe('createEvaluatorPipeline', () => {
         getConfig: () => Promise.resolve(makeConfig()),
         getTasks: () => Promise.resolve([task]),
         saveTasks: () => Promise.resolve(),
+        updateTask: () => Promise.resolve(),
         writeEvaluation: () => Promise.resolve(),
       }),
       fs: makeFs({
@@ -329,6 +330,7 @@ describe('createEvaluatorPipeline', () => {
         getConfig: () => Promise.resolve(makeConfig()),
         getTasks: () => Promise.resolve([task]),
         saveTasks: () => Promise.resolve(),
+        updateTask: () => Promise.resolve(),
         writeEvaluation: () => Promise.resolve(),
       }),
       fs: makeFs({
@@ -391,8 +393,9 @@ describe('createEvaluatorPipeline', () => {
         getTask: () => Promise.resolve(task),
         getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 3 })),
         getTasks: () => Promise.resolve([task]),
-        saveTasks: (tasks: import('@src/domain/models.ts').Tasks) => {
-          saveTasksCalledWith = tasks[0]?.evaluationStatus;
+        saveTasks: () => Promise.resolve(),
+        updateTask: (_taskId, updates) => {
+          saveTasksCalledWith = updates.evaluationStatus;
           return Promise.resolve();
         },
         writeEvaluation: (_sprintId, _taskId, iteration, status) => {
@@ -414,6 +417,7 @@ describe('createEvaluatorPipeline', () => {
       }),
       promptBuilder: makePromptBuilder({
         buildTaskEvaluationPrompt: () => 'evaluator prompt',
+        buildTaskEvaluationResumePrompt: () => 'resume prompt',
       }),
       parser: makeParser({
         parseEvaluation: (output: string) => {

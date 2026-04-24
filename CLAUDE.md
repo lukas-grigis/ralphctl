@@ -52,7 +52,10 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   - Evaluator is autonomous (full tool access) and grades four floor dimensions (Correctness / Completeness / Safety /
     Consistency) plus optional `extraDimensions` emitted per-task by the planner (undefined = floor-only).
   - Full critique persists to `<sprintDir>/evaluations/<taskId>.md`; `tasks.json` keeps a 2000-char preview + status.
-  - Evaluator **never blocks** — task always completes; `--no-evaluate` skips for one run; session mode disables it.
+  - Evaluator **never blocks** — task always completes and the sprint continues. A failed / malformed / plateau
+    critique logs a warning and persists the full text to `evaluations/<taskId>.md` for later review;
+    `mark-done` still runs. `--no-evaluate` skips evaluation for one run; session mode disables it implicitly;
+    `evaluationIterations: 0` (via settings panel / `config set`) disables it globally.
 - **Result boundaries** — Persistence layer functions throw domain errors. Result types (`wrapAsync`, `zodParse`) are
   used at command/interactive boundaries to handle errors without throwing. Prefer `.ok` property checks over
   `.match()` chains.

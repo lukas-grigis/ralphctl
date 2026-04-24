@@ -128,7 +128,8 @@ see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - [ ] Copilot evaluator spawns without model override (no model control)
 - [ ] `evaluationIterations` config controls max evaluation rounds (default: 1)
 - [ ] Failed evaluation resumes generator with critique, re-checks, re-evaluates
-- [ ] Evaluation never blocks task completion — task always proceeds to `done`
+- [ ] Evaluator **never blocks** — task always proceeds to `done`, even on `failed` / `malformed` / `plateau` outcomes;
+      full critique persists to `evaluations/<taskId>.md` for post-hoc review
 - [ ] `--no-evaluate` flag skips evaluation for a single run
 - [ ] Session/interactive mode disables evaluation
 - [ ] `evaluationOutput` truncated to 2000 chars before persisting
