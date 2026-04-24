@@ -325,5 +325,7 @@ describe('ExecutionRegistryPort contract', () => {
     await Promise.resolve();
 
     expect(statuses).toEqual(['running', 'failed']);
+    // The failure reason is carried on the snapshot so the UI can surface it.
+    expect(registry.get('exec-1')?.error?.message).toBe('boom');
   });
 });

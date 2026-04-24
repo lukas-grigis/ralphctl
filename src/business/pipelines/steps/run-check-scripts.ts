@@ -11,6 +11,19 @@ import { findProjectForRepoId, resolveCheckScriptForRepo } from './project-looku
 
 type CheckScriptsMode = 'sprint-start' | 'post-task';
 
+/** Lines of check-script output to include in the error message. Build tools
+ *  (Maven, pnpm) report the actual failure at the tail of their output, so
+ *  we keep the last N lines and drop the rest. The full output is still
+ *  retained in `checkResults[repoId].output` for downstream consumers. */
+const ERROR_OUTPUT_TAIL_LINES = 100;
+
+function tailOutput(output: string, maxLines = ERROR_OUTPUT_TAIL_LINES): string {
+  const lines = output.split('\n');
+  if (lines.length <= maxLines) return output;
+  const hidden = lines.length - maxLines;
+  return `[${String(hidden)} earlier line${hidden !== 1 ? 's' : ''} omitted]\n${lines.slice(-maxLines).join('\n')}`;
+}
+
 interface RunCheckScriptsOptions {
   /** Force re-running a check even if `sprint.checkRanAt` already has a
    *  timestamp for the repo. Only meaningful in `'sprint-start'` mode. */
@@ -69,7 +82,7 @@ export function runCheckScriptsStep<
           if (!resolved || !checkScript) continue;
 
           const { repo } = resolved;
-          const result = external.runCheckScript(repo.path, checkScript, 'sprintStart', repo.checkTimeout);
+          const result = await external.runCheckScript(repo.path, checkScript, 'sprintStart', repo.checkTimeout);
 
           if (!result.passed) {
             checkResults[repoId] = {
@@ -77,7 +90,9 @@ export function runCheckScriptsStep<
               success: false,
               output: result.output,
             };
-            return Result.error(new StorageError(`Check failed for ${repo.path}: ${checkScript}\n${result.output}`));
+            return Result.error(
+              new StorageError(`Check failed for ${repo.path}: ${checkScript}\n${tailOutput(result.output)}`)
+            );
           }
 
           const ranAt = new Date().toISOString();
@@ -108,7 +123,7 @@ export function runCheckScriptsStep<
         }
 
         const { repo } = resolved;
-        const result = external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
+        const result = await external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
 
         checkResults[targetRepoId] = {
           projectPath: repo.path,
@@ -118,7 +133,7 @@ export function runCheckScriptsStep<
 
         if (!result.passed) {
           return Result.error(
-            new StorageError(`Post-task check failed for ${repo.path}: ${checkScript}\n${result.output}`)
+            new StorageError(`Post-task check failed for ${repo.path}: ${checkScript}\n${tailOutput(result.output)}`)
           );
         }
       }

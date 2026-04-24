@@ -77,7 +77,7 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const sprint = makeSprint();
     const tasks = [makeTask('r-a'), makeTask('r-a', 'task2'), makeTask('r-b', 'task3')];
     const project = makeProject([makeRepo('r-a', '/a', 'echo ok'), makeRepo('r-b', '/b', 'echo ok2')]);
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(
       project,
@@ -95,7 +95,7 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const sprint = makeSprint({ checkRanAt: { 'r-a': '2020-01-01' } });
     const tasks = [makeTask('r-a')];
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check')]);
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -115,7 +115,9 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const tasks = [makeTask('r-a')];
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check')]);
     const saveSprint = vi.fn(() => Promise.resolve());
-    const external = { runCheckScript: vi.fn(() => ({ passed: true, output: 'ok' })) } as unknown as ExternalPort;
+    const external = {
+      runCheckScript: vi.fn(() => Promise.resolve({ passed: true, output: 'ok' })),
+    } as unknown as ExternalPort;
     const persistence = makePersistence(project, saveSprint);
 
     const step = runCheckScriptsStep<Ctx>(external, persistence, 'sprint-start');
@@ -132,7 +134,7 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const tasks = [makeTask('r-a')];
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check')]);
     const external = {
-      runCheckScript: vi.fn(() => ({ passed: false, output: 'linting failed' })),
+      runCheckScript: vi.fn(() => Promise.resolve({ passed: false, output: 'linting failed' })),
     } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -148,7 +150,7 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const sprint = makeSprint();
     const tasks = [makeTask('r-a')];
     const project = makeProject([makeRepo('r-a', '/a')]); // no script
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -163,7 +165,7 @@ describe('runCheckScriptsStep — sprint-start mode', () => {
     const sprint = makeSprint();
     const tasks = [makeTask('r-a', 'done-task', 'done'), makeTask('r-b')];
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check'), makeRepo('r-b', '/b', 'pnpm check')]);
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -188,7 +190,7 @@ describe('runCheckScriptsStep — post-task mode', () => {
   it('runs check for the target repo', async () => {
     const sprint = makeSprint();
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check')]);
-    const runCheck = vi.fn(() => ({ passed: true, output: 'ok' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: 'ok' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -204,7 +206,7 @@ describe('runCheckScriptsStep — post-task mode', () => {
     const sprint = makeSprint();
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check')]);
     const external = {
-      runCheckScript: vi.fn(() => ({ passed: false, output: 'test failure' })),
+      runCheckScript: vi.fn(() => Promise.resolve({ passed: false, output: 'test failure' })),
     } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -227,7 +229,7 @@ describe('runCheckScriptsStep — post-task mode', () => {
   it('treats missing check script as pass (no side effects)', async () => {
     const sprint = makeSprint();
     const project = makeProject([makeRepo('r-a', '/a')]); // no script
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 
@@ -241,7 +243,7 @@ describe('runCheckScriptsStep — post-task mode', () => {
   it('passes per-repo checkTimeout when configured', async () => {
     const sprint = makeSprint();
     const project = makeProject([makeRepo('r-a', '/a', 'pnpm check', 9999)]);
-    const runCheck = vi.fn(() => ({ passed: true, output: '' }));
+    const runCheck = vi.fn(() => Promise.resolve({ passed: true, output: '' }));
     const external = { runCheckScript: runCheck } as unknown as ExternalPort;
     const persistence = makePersistence(project);
 

@@ -9,7 +9,9 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Project, Sprint } from '@src/domain/models.ts';
+import { StepError } from '@src/domain/errors.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
+import type { LogEvent } from '@src/business/ports/log-event-bus.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
@@ -170,5 +172,94 @@ describe('InMemoryExecutionRegistry — scope isolation', () => {
     await Promise.resolve();
 
     expect(registry.get('exec-1')?.status).toBe('completed');
+  });
+});
+
+describe('InMemoryExecutionRegistry — failure surface', () => {
+  async function startFailing(err: Error): Promise<InMemoryExecutionRegistry> {
+    const sprint = makeSprint('s', 'p');
+    const project = makeProject('p', 'alpha');
+    const persistence = makePersistence({ sprints: [sprint], projects: [project] });
+
+    const runner: PipelineRunner = () => Promise.reject(err);
+
+    const registry = new InMemoryExecutionRegistry({
+      baseShared: makeBaseShared(persistence),
+      runner,
+      generateId: () => 'exec-1',
+    });
+
+    await registry.start({ sprintId: 's' });
+    // Two microtask drains — one for the rejected runner, one for the catch
+    // block to run and call transition.
+    await Promise.resolve();
+    await Promise.resolve();
+    return registry;
+  }
+
+  it('failed status carries a plain-string error message when the runner throws a vanilla Error', async () => {
+    const registry = await startFailing(new Error('boom'));
+    const snapshot = registry.get('exec-1');
+    expect(snapshot?.status).toBe('failed');
+    expect(snapshot?.error?.message).toBe('boom');
+    expect(snapshot?.error?.stepName).toBeUndefined();
+  });
+
+  it('failed status round-trips stepName when the runner throws a StepError', async () => {
+    const registry = await startFailing(new StepError("Step 'load-sprint' failed: boom", 'load-sprint'));
+    const snapshot = registry.get('exec-1');
+    expect(snapshot?.status).toBe('failed');
+    expect(snapshot?.error?.message).toBe("Step 'load-sprint' failed: boom");
+    expect(snapshot?.error?.stepName).toBe('load-sprint');
+  });
+
+  it('emits an error-level log event on the scoped LogEventBus when the runner rejects', async () => {
+    const registry = await startFailing(new StepError("Step 'run-check-scripts' failed: exit 1", 'run-check-scripts'));
+    const bus = registry.getLogEventBus('exec-1');
+    if (!bus) throw new Error('expected scoped LogEventBus');
+
+    // The in-memory bus micro-batches on a timer; drain synchronously.
+    const captured: LogEvent[] = [];
+    bus.subscribe((batch) => {
+      for (const e of batch) captured.push(e);
+    });
+    // The default InMemoryLogEventBus exposes `flush` for tests; cast narrowly.
+    (bus as unknown as { flush: () => void }).flush();
+
+    const errorLog = captured.find((e) => e.kind === 'log' && e.level === 'error');
+    expect(errorLog).toBeDefined();
+    if (errorLog?.kind === 'log') {
+      expect(errorLog.message).toContain('run-check-scripts');
+      expect(errorLog.message).toContain('exit 1');
+    }
+  });
+
+  it('cancellation still reads as cancelled (no error forwarded)', async () => {
+    const sprint = makeSprint('s', 'p');
+    const project = makeProject('p', 'alpha');
+    const persistence = makePersistence({ sprints: [sprint], projects: [project] });
+
+    const runner: PipelineRunner = (_scopedShared, { abortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        abortSignal.addEventListener('abort', () => {
+          reject(new Error('interrupted'));
+        });
+      });
+    };
+
+    const registry = new InMemoryExecutionRegistry({
+      baseShared: makeBaseShared(persistence),
+      runner,
+      generateId: () => 'exec-1',
+    });
+
+    await registry.start({ sprintId: 's' });
+    registry.cancel('exec-1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const snapshot = registry.get('exec-1');
+    expect(snapshot?.status).toBe('cancelled');
+    expect(snapshot?.error).toBeUndefined();
   });
 });

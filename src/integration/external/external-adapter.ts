@@ -54,7 +54,7 @@ export class DefaultExternalAdapter implements ExternalPort {
 
   // --- Check script execution ---
 
-  runCheckScript(projectPath: string, script: string, phase: string, timeout?: number): CheckScriptResult {
+  runCheckScript(projectPath: string, script: string, phase: string, timeout?: number): Promise<CheckScriptResult> {
     return runLifecycleHook(projectPath, script, phase as LifecycleEvent, timeout);
   }
 
