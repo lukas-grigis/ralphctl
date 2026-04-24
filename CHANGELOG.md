@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-04-24
+
+### Fixed
+
+- **Check-script output no longer truncated mid-build** — the lifecycle hook
+  now streams stdout/stderr into a 50 MB buffer instead of relying on
+  `spawnSync`'s silent 1 MB cap, so real builds (`mvn`, large test suites)
+  surface the actual failure instead of a spurious "check failed".
+- **Failure reason surfaces in the execute view** — the per-task failure
+  card now carries the underlying `StepError` (message + step name) and
+  pins above the keyboard hints; the log tail auto-sizes to the terminal
+  height. Check-script errors render the **last** lines of output, where
+  build tools actually report failures.
+- **Lifecycle hook timeouts now kill the whole process tree** — spawning
+  with `detached: true` and signalling `-pid` ensures grandchildren
+  spawned by `sh -c` (e.g. `sleep`) are reaped on Linux instead of
+  holding stdio open and hanging the close handler.
+
 ## [0.4.5] - 2026-04-24
 
 ### Fixed
