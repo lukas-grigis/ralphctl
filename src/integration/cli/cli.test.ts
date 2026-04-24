@@ -342,4 +342,75 @@ describe('Draft Re-Plan', () => {
     const task1 = after.find((t) => t.name === 'New Task 1');
     expect(task2?.blockedBy).toEqual([task1?.id]);
   });
+
+  it('importTasks preserves verificationCriteria and extraDimensions through both append and replace paths', async () => {
+    const { createSprint } = await import('@src/integration/persistence/sprint.ts');
+    const { addTicket } = await import('@src/integration/persistence/ticket.ts');
+    const { getTasks } = await import('@src/integration/persistence/task.ts');
+    const { importTasks } = await import('@src/integration/cli/commands/sprint/plan-utils.ts');
+
+    const sprint = await createSprint({ projectId, name: 'Round-trip Test' });
+    const ticket = await addTicket({ title: 'Ticket' }, sprint.id);
+
+    // --- Append path (first plan — no existing tasks) ---
+    const appendInput = [
+      {
+        name: 'Append Task 1',
+        repoId,
+        ticketId: ticket.id,
+        id: 'a-1',
+        verificationCriteria: ['Criterion A1', 'Criterion A2'],
+        extraDimensions: ['Performance', 'Accessibility'],
+      },
+      {
+        name: 'Append Task 2',
+        repoId,
+        ticketId: ticket.id,
+        verificationCriteria: ['Criterion B1'],
+        extraDimensions: ['Security'],
+      },
+    ];
+
+    const appendCount = await importTasks(appendInput, sprint.id);
+    expect(appendCount).toBe(2);
+
+    const afterAppend = await getTasks(sprint.id);
+    const appended1 = afterAppend.find((t) => t.name === 'Append Task 1');
+    const appended2 = afterAppend.find((t) => t.name === 'Append Task 2');
+    expect(appended1?.verificationCriteria).toEqual(['Criterion A1', 'Criterion A2']);
+    expect(appended1?.extraDimensions).toEqual(['Performance', 'Accessibility']);
+    expect(appended2?.verificationCriteria).toEqual(['Criterion B1']);
+    expect(appended2?.extraDimensions).toEqual(['Security']);
+
+    // --- Replace path (re-plan — atomically replaces existing tasks) ---
+    const replaceInput = [
+      {
+        name: 'Replace Task 1',
+        repoId,
+        ticketId: ticket.id,
+        id: 'r-1',
+        verificationCriteria: ['Replace Criterion 1'],
+        extraDimensions: ['Observability'],
+      },
+      {
+        name: 'Replace Task 2',
+        repoId,
+        ticketId: ticket.id,
+        verificationCriteria: ['Replace Criterion 2a', 'Replace Criterion 2b'],
+        extraDimensions: ['Cost', 'Latency'],
+      },
+    ];
+
+    const replaceCount = await importTasks(replaceInput, sprint.id, { replace: true });
+    expect(replaceCount).toBe(2);
+
+    const afterReplace = await getTasks(sprint.id);
+    expect(afterReplace.length).toBe(2);
+    const replaced1 = afterReplace.find((t) => t.name === 'Replace Task 1');
+    const replaced2 = afterReplace.find((t) => t.name === 'Replace Task 2');
+    expect(replaced1?.verificationCriteria).toEqual(['Replace Criterion 1']);
+    expect(replaced1?.extraDimensions).toEqual(['Observability']);
+    expect(replaced2?.verificationCriteria).toEqual(['Replace Criterion 2a', 'Replace Criterion 2b']);
+    expect(replaced2?.extraDimensions).toEqual(['Cost', 'Latency']);
+  });
 });

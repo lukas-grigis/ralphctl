@@ -121,9 +121,11 @@ async function importTasksAppend(tasks: ImportTask[], sprintId: string): Promise
           name: taskInput.name,
           description: taskInput.description,
           steps: taskInput.steps ?? [],
+          verificationCriteria: taskInput.verificationCriteria ?? [],
           ticketId: taskInput.ticketId,
           blockedBy: [], // Set later
           repoId: taskInput.repoId,
+          extraDimensions: taskInput.extraDimensions,
         },
         sprintId
       );
@@ -196,6 +198,7 @@ async function importTasksReplace(tasks: ImportTask[], sprintId: string): Promis
       repoId: taskInput.repoId,
       evaluated: false,
       verified: false,
+      extraDimensions: taskInput.extraDimensions,
     });
   }
 
