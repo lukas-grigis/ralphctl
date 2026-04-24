@@ -924,4 +924,71 @@ describe('executeTasksStep via forEachTask — integration', () => {
     expect(bCompleted).toBe(true);
     expect(result.value.context.executionSummary?.stopReason).toBe('task_blocked');
   });
+
+  // -------------------------------------------------------------------------
+  // Evaluator non-blocking fence — the architectural assertion that a failing
+  // evaluation does NOT short-circuit the per-task pipeline. The task still
+  // reaches `mark-done`, the sprint still finishes `all_completed`, and the
+  // full critique lives in the evaluation sidecar for post-hoc review.
+  //
+  // The evaluator is advisory: its job is to surface concerns, not to stall
+  // forward progress. Blocking behaviour would be a regression of this
+  // design choice.
+  // -------------------------------------------------------------------------
+  it('failed evaluation does NOT block mark-done — sprint proceeds to completion', async () => {
+    const task = makeTask();
+    // Generator emits <task-complete> as usual; the evaluator spawn (same
+    // spawnWithRetry) is differentiated by the prompt content. The
+    // parseEvaluation stub always returns `failed`, simulating a persistent
+    // evaluator rejection. Iterations=1 so the loop exits quickly.
+    const scenario = buildDeps({
+      tasks: [task],
+      config: makeConfig({ evaluationIterations: 1 }),
+      spawnImpl: (): Promise<SessionResult> =>
+        Promise.resolve({
+          output: '<task-complete/>',
+          sessionId: 'sess',
+          model: 'claude-sonnet',
+        } as SessionResult),
+    });
+
+    // Swap in evaluator-aware parser + prompt builder. Prompt-builder gains
+    // `buildTaskEvaluationPrompt`; parser gains `parseEvaluation` returning
+    // failed. parseExecutionSignals from the default stub already handles
+    // the generator's `<task-complete/>`.
+    (
+      scenario.deps as unknown as {
+        promptBuilder: { buildTaskEvaluationPrompt: () => string; buildTaskExecutionPrompt?: () => string };
+      }
+    ).promptBuilder.buildTaskEvaluationPrompt = () => 'evaluator prompt';
+    (scenario.deps as unknown as { parser: OutputParserPort & { parseEvaluation?: unknown } }).parser.parseEvaluation =
+      (output: string) => ({
+        status: 'failed' as const,
+        dimensions: [{ dimension: 'Correctness', status: 'FAIL', description: `bad: ${output}` }],
+        rawOutput: output,
+      });
+    // Persistence needs writeEvaluation for sidecar writes.
+    (scenario.deps.persistence as unknown as { writeEvaluation: () => Promise<void> }).writeEvaluation = vi.fn(() =>
+      Promise.resolve()
+    );
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Task MUST be marked done — the evaluator's failure was advisory only.
+    const persistedTask = scenario.stateTasks.find((t) => t.id === 't1');
+    expect(persistedTask?.status).toBe('done');
+
+    // The sprint ran through all tasks successfully.
+    expect(result.value.context.executionSummary?.stopReason).toBe('all_completed');
+
+    // updateTaskStatus was called with 'in_progress' AND 'done' — the
+    // full happy-path trace. The evaluator did not stall mark-done.
+    const statusCalls = (scenario.calls.updateTaskStatus.mock.calls as [string, string, string][]).map((c) => c[1]);
+    expect(statusCalls).toContain('in_progress');
+    expect(statusCalls).toContain('done');
+  });
 });

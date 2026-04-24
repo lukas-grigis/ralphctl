@@ -149,10 +149,23 @@ export class EvaluateTaskUseCase {
 
       // Fix loop: up to maxIterations fix attempts after the initial evaluation.
       // Bail if passed or malformed (feeding garbage to the generator is wasteful).
+      //
+      // Loop shape: on iteration `i` we resume the generator with the critique,
+      // then — UNLESS it's the last iteration — re-evaluate and check for
+      // plateau. Skipping the re-eval on the last fix saves a multi-minute
+      // evaluator spawn per task: we've already exhausted the fix budget, so
+      // re-running the evaluator only to persist "still failing" burns time
+      // without changing the outcome. The final persisted state is the
+      // critique from the LAST re-eval (iteration `maxIterations - 1`) or the
+      // initial eval when `maxIterations === 1`.
       for (let i = 0; i < maxIterations && !isPassed(evalResult) && evalResult.status !== 'malformed'; i++) {
         log.warning(`Evaluation failed for ${task.name} — fix attempt ${String(i + 1)}/${String(maxIterations)}`);
 
-        // Resume generator with critique
+        // Resume generator with critique. `fixSuccess` reflects whether the
+        // generator emitted `<task-complete>`; it's a useful diagnostic but
+        // NOT a gate on re-evaluation. The evaluator — not the generator's
+        // self-report — is the arbiter of "did the fix work", so we always
+        // re-evaluate regardless and let the evaluator settle the question.
         const fixSuccess = await this.resumeGeneratorWithCritique(
           task,
           sprint,
@@ -162,10 +175,16 @@ export class EvaluateTaskUseCase {
         );
 
         if (!fixSuccess) {
-          const reason = 'Generator could not fix issues after feedback';
-          await this.persistEvaluationStub(sprintId, taskId, i + 2, reason);
-          break;
+          log.debug(`Fix attempt ${String(i + 1)}: generator did not signal completion — re-evaluating anyway`);
         }
+
+        // Last fix attempt — skip the re-eval to save an evaluator spawn.
+        // We're out of fix budget, so a re-eval here can only confirm failure
+        // (or luckily pass) without giving the generator another chance to
+        // fix anything. Ending on the generator keeps the sidecar's final
+        // critique truthful (the one that drove the fix) and shaves a
+        // multi-minute Claude run off every failing task.
+        if (i === maxIterations - 1) break;
 
         // Re-evaluate
         const previousEvalResult = evalResult;
@@ -209,8 +228,10 @@ export class EvaluateTaskUseCase {
       // Persist evaluation fields on the task
       await this.updateTaskEvaluation(sprintId, taskId, evalResult, finalStatus);
 
-      // Report final status
-      this.reportResult(task.name, evalResult, maxIterations, plateaued);
+      // Report final status — use the *actual* iteration count, not the
+      // configured maximum. The two can differ when the loop breaks early
+      // (plateau), or when the generator couldn't fix the issues.
+      this.reportResult(task.name, evalResult, totalIterations, plateaued);
 
       return Result.ok({
         taskId,
@@ -347,7 +368,27 @@ export class EvaluateTaskUseCase {
 
   /**
    * Resume the generator session with the evaluator critique.
-   * Returns true if the generator signaled completion.
+   *
+   * Two load-bearing properties:
+   *
+   *   1. Prompt uses the full `task-evaluation-resume.md` template via
+   *      `promptBuilder.buildTaskEvaluationResumePrompt` — signals block,
+   *      fix protocol, harness context, optional commit instruction — so
+   *      the generator knows exactly how to re-verify and signal. The
+   *      previous 4-line inline prompt silently dropped signal requirements
+   *      and led to fix attempts that never signalled completion.
+   *
+   *   2. When `options.generatorSessionId` is set, the fix is dispatched
+   *      with `resumeSessionId` so the provider's `--resume` is honored and
+   *      the fix conversation is a continuation of the original task
+   *      session — not a fresh cold-start that has to rediscover the code
+   *      from scratch. This is the Anthropic-recommended pattern for
+   *      generator-evaluator loops. Absent a session ID (rare fallback
+   *      path), we spawn fresh and log at debug level.
+   *
+   * Returns true if the generator signaled `<task-complete>`. The caller
+   * uses this as a diagnostic only — the evaluator, not the generator's
+   * self-report, is the arbiter of "did the fix work".
    */
   private async resumeGeneratorWithCritique(
     task: Task,
@@ -357,12 +398,15 @@ export class EvaluateTaskUseCase {
     options?: EvaluationOptions
   ): Promise<boolean> {
     const sprintDir = this.fs.getSprintDir(sprint.id);
-    const resumePrompt = [
-      'The evaluator found issues with your implementation. Fix them and signal completion.',
-      '',
-      '## Evaluator Critique',
-      critique,
-    ].join('\n');
+    const needsCommit = options?.needsCommit ?? true;
+    const resumePrompt = this.promptBuilder.buildTaskEvaluationResumePrompt(critique, needsCommit);
+    const resumeSessionId = options?.generatorSessionId;
+
+    this.logger.debug(
+      resumeSessionId
+        ? `Resuming generator session ${resumeSessionId} for fix attempt: ${task.name}`
+        : `No generator session ID — spawning fresh fix attempt: ${task.name}`
+    );
 
     let spinner: SpinnerHandle | null = null;
     try {
@@ -373,6 +417,7 @@ export class EvaluateTaskUseCase {
         args: ['--add-dir', sprintDir],
         env: this.aiSession.getSpawnEnv(),
         maxTurns: options?.maxTurns,
+        resumeSessionId,
         abortSignal: options?.abortSignal,
       });
 
@@ -413,22 +458,6 @@ export class EvaluateTaskUseCase {
   }
 
   /**
-   * Persist a stub entry when the fix loop bails early.
-   */
-  private async persistEvaluationStub(
-    sprintId: string,
-    taskId: string,
-    iteration: number,
-    reason: string
-  ): Promise<void> {
-    try {
-      await this.persistence.writeEvaluation(sprintId, taskId, iteration, 'failed', `_(no re-evaluation: ${reason})_`);
-    } catch {
-      this.logger.warning(`Could not persist evaluation stub for task ${taskId}`);
-    }
-  }
-
-  /**
    * Update the task record with evaluation fields.
    *
    * `statusOverride` is set when plateau detection fires: the critique body
@@ -459,22 +488,33 @@ export class EvaluateTaskUseCase {
 
   /**
    * Report the evaluation outcome to the user.
+   *
+   * `totalIterations` is the *actual* number of evaluator spawns (initial +
+   * any re-evaluations after fix attempts), NOT the configured maximum.
+   * When the loop breaks early (plateau), runs out of fix budget, or skips
+   * the final re-eval, these two diverge — and the log line must reflect
+   * reality so "6 fix attempts" never shows up when only 1 actually ran.
+   *
+   * The evaluator is advisory: a failing outcome doesn't stop the task
+   * from being marked done; the sprint proceeds. The critique is persisted
+   * in the sidecar for later review, and the warning log lets the user
+   * see what didn't pass without scrolling the evaluations directory.
    */
   private reportResult(
     taskName: string,
     evalResult: EvaluationParseResult,
-    maxIterations: number,
+    totalIterations: number,
     plateaued: boolean
   ): void {
     if (plateaued) {
       this.logger.warning(
-        `Evaluation plateaued on the same failures — further fix attempts were skipped. Marking done: ${taskName}`
+        `Evaluation plateaued on the same failures after ${String(totalIterations)} iteration(s): ${taskName}`
       );
     } else if (evalResult.status === 'malformed') {
-      this.logger.warning(`Evaluator output was malformed for ${taskName} — marking done`);
+      this.logger.warning(`Evaluator output was malformed for ${taskName}`);
     } else if (!isPassed(evalResult)) {
       this.logger.warning(
-        `Evaluation did not pass after ${String(maxIterations)} fix attempt(s) — marking done: ${taskName}`
+        `Evaluation did not pass after ${String(totalIterations)} iteration(s) — marking done: ${taskName}`
       );
     } else {
       this.logger.success(`Evaluation passed: ${taskName}`);

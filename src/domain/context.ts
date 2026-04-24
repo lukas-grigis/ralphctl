@@ -116,4 +116,17 @@ export interface EvaluationOptions extends StepOptions {
    * pipeline so a cancelled execution also tears down an in-flight evaluator.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Generator's initial session ID — threaded into the fix spawn as
+   * `--resume <id>` so the fix turn is a continuation of the original task
+   * session, not a fresh one. Anthropic's recommended pattern for
+   * generator-evaluator loops: the same model that built the implementation
+   * applies the critique, with full context on what was already done.
+   */
+  generatorSessionId?: string;
+  /**
+   * Whether the fix attempt should also commit its work (mirrors
+   * `ExecutionOptions.noCommit` — inverted sense). Default true.
+   */
+  needsCommit?: boolean;
 }

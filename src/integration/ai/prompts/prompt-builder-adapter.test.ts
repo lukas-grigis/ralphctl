@@ -122,6 +122,44 @@ describe('TextPromptBuilderAdapter', () => {
     });
   });
 
+  describe('buildTaskEvaluationResumePrompt', () => {
+    const adapter = new TextPromptBuilderAdapter();
+
+    it('renders the critique verbatim into the prompt', () => {
+      const critique = '**Correctness**: FAIL — off-by-one at src/list.ts:42';
+      const out = adapter.buildTaskEvaluationResumePrompt(critique, true);
+      expect(out).toContain(critique);
+      expect(out).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    });
+
+    it('includes the commit instruction when needsCommit is true', () => {
+      const out = adapter.buildTaskEvaluationResumePrompt('critique body', true);
+      expect(out).toContain('commit');
+    });
+
+    it('omits the commit instruction when needsCommit is false', () => {
+      const out = adapter.buildTaskEvaluationResumePrompt('critique body', false);
+      // The template's optional commit line mentions "commit the fix" —
+      // the omitted variant must not render it. Allow the word "commit" to
+      // appear elsewhere in the template (it does not today), but the
+      // specific commit-the-fix phrase is the regression guard.
+      expect(out).not.toContain('commit the fix');
+    });
+
+    it('includes the fix protocol and signals block so the generator knows how to signal completion', () => {
+      // Regression guard for the "silent bail" symptom: the previous inline
+      // 4-line prompt dropped signal requirements, so generators often
+      // silently finished without signalling. The full template carries the
+      // Fix Protocol section + the signals block — both must land in the
+      // rendered output.
+      const out = adapter.buildTaskEvaluationResumePrompt('critique', true);
+      expect(out).toContain('Fix Protocol');
+      expect(out).toContain('task-complete');
+      expect(out).toContain('task-verified');
+      expect(out).toContain('task-blocked');
+    });
+  });
+
   describe('buildFeedbackPrompt', () => {
     const adapter = new TextPromptBuilderAdapter();
 

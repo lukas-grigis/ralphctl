@@ -414,6 +414,7 @@ describe('createEvaluatorPipeline', () => {
       }),
       promptBuilder: makePromptBuilder({
         buildTaskEvaluationPrompt: () => 'evaluator prompt',
+        buildTaskEvaluationResumePrompt: () => 'resume prompt',
       }),
       parser: makeParser({
         parseEvaluation: (output: string) => {

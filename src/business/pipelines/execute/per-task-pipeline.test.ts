@@ -373,7 +373,7 @@ describe('createPerTaskPipeline', () => {
     ]);
   });
 
-  it('evaluator failure does not block mark-done (evaluator is advisory)', async () => {
+  it('evaluator failure does NOT block mark-done (evaluator is advisory)', async () => {
     const task = makeTask();
     const sprint = makeSprint();
     const { deps, useCase, calls } = setup({
@@ -386,9 +386,31 @@ describe('createPerTaskPipeline', () => {
     const pipeline = createPerTaskPipeline(deps, useCase);
     const result = await executePipeline(pipeline, makeCtx(deps, task, sprint));
 
+    // Inner evaluator pipeline errored → evaluate-task swallows and returns
+    // Result.ok, so the per-task pipeline proceeds to mark-done. The task
+    // is still marked done; the sprint continues.
     expect(result.ok).toBe(true);
-    // mark-done still ran even though the evaluator inner pipeline errored.
+    if (!result.ok) return;
+
+    const stepNames = result.value.stepResults.map((r) => r.stepName);
+    expect(stepNames).toEqual([
+      'branch-preflight',
+      'contract-negotiate',
+      'mark-in-progress',
+      'execute-task',
+      'store-verification',
+      'post-task-check',
+      'evaluate-task',
+      'recover-dirty-tree',
+      'mark-done',
+    ]);
+
+    // updateTaskStatus was called twice — once with 'in_progress', once
+    // with 'done'. The evaluator's failure was advisory only.
+    expect(calls.updateTaskStatus).toHaveBeenCalledTimes(2);
+    expect(calls.updateTaskStatus).toHaveBeenNthCalledWith(1, task.id, 'in_progress', sprint.id);
+    expect(calls.updateTaskStatus).toHaveBeenNthCalledWith(2, task.id, 'done', sprint.id);
+    // logProgress runs inside mark-done on the happy path.
     expect(calls.logProgress).toHaveBeenCalledTimes(1);
-    expect(calls.updateTaskStatus).toHaveBeenCalledWith(task.id, 'done', sprint.id);
   });
 });

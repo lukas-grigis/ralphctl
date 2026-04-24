@@ -146,7 +146,10 @@ describe('evaluateTask step', () => {
         getSpawnEnv: () => ({}),
         spawnWithRetry,
       } as unknown as AiSessionPort,
-      promptBuilder: { buildTaskEvaluationPrompt: () => 'prompt' } as unknown as PromptBuilderPort,
+      promptBuilder: {
+        buildTaskEvaluationPrompt: () => 'prompt',
+        buildTaskEvaluationResumePrompt: () => 'resume prompt',
+      } as unknown as PromptBuilderPort,
       parser: {
         parseEvaluation: () => ({ status: 'passed', dimensions: [], rawOutput: 'ok' }),
       } as unknown as OutputParserPort,
@@ -175,7 +178,7 @@ describe('evaluateTask step', () => {
     expect(spawnWithRetry).toHaveBeenCalled();
   });
 
-  it('swallows inner pipeline errors and proceeds (evaluator never blocks)', async () => {
+  it('swallows inner pipeline errors (evaluator is advisory — non-blocking)', async () => {
     const task = makeTask();
     const sprint = makeSprint();
 
@@ -184,7 +187,9 @@ describe('evaluateTask step', () => {
     } as unknown as ExecuteTasksUseCase;
 
     // getSprint rejects so the inner pipeline fails at load-sprint — the
-    // outer step must still succeed so mark-done runs.
+    // outer step must STILL return Result.ok so the per-task pipeline
+    // proceeds to mark-done. An evaluator that can't run shouldn't stall
+    // the sprint.
     const persistence: Partial<PersistencePort> = {
       getSprint: () => Promise.reject(new Error('db down')),
     };

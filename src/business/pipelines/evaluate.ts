@@ -20,6 +20,14 @@ export interface EvaluateContext extends StepContext {
   taskId: string;
   /** Generator's model (used by the evaluator's model ladder). Seeded by caller; may be null. */
   generatorModel?: string | null;
+  /**
+   * Generator's initial session ID. Seeded by the caller (the per-task
+   * pipeline's `evaluate-task` step reads it from the preceding
+   * `execute-task` result). Threaded into the fix-loop spawn so the fix
+   * runs as a continuation of the original task session — see
+   * `EvaluationOptions.generatorSessionId` for the full rationale.
+   */
+  generatorSessionId?: string;
   /** Populated by `run-evaluator-loop` (or by `check-already-evaluated` when skipping). */
   evaluationSummary?: EvaluationSummary;
 }
@@ -32,6 +40,13 @@ interface EvaluateOptions {
   force?: boolean;
   /** Max agentic turns for evaluator sessions — passed through to the use case. */
   maxTurns?: number;
+  /**
+   * Whether the fix attempt should commit before signaling completion.
+   * Mirrors the inverse of `ExecutionOptions.noCommit`, threaded by the
+   * `evaluate-task` step so the resume prompt matches the task-execution
+   * prompt's commit contract.
+   */
+  needsCommit?: boolean;
   /**
    * Cooperative cancellation. When aborted mid-evaluation, spawned evaluator /
    * fix-loop children receive SIGTERM so a cancelled execution doesn't leak
@@ -143,6 +158,8 @@ function runEvaluatorLoopStep(useCase: EvaluateTaskUseCase, options: EvaluateOpt
       iterations: options.iterations,
       maxTurns: options.maxTurns,
       fallbackModel: ctx.generatorModel ?? undefined,
+      generatorSessionId: ctx.generatorSessionId,
+      needsCommit: options.needsCommit,
       abortSignal: ctx.abortSignal ?? options.abortSignal,
     });
     if (!result.ok) {

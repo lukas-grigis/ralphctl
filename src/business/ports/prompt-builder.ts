@@ -76,6 +76,24 @@ export interface PromptBuilderPort {
     projectToolingSection: string
   ): string;
 
+  /**
+   * Build the prompt used to resume the generator for a fix attempt after the
+   * evaluator flagged issues. The returned string is the full
+   * `task-evaluation-resume.md` template — signals, fix protocol, harness
+   * context, optional commit instruction — so the generator knows how to
+   * re-verify and signal completion. The caller is expected to pass the
+   * result to `spawnWithRetry` with `resumeSessionId` set to the generator's
+   * original session ID so the fix runs as a continuation of the initial
+   * task session, not a fresh one.
+   *
+   * @param critique — full evaluator critique text; embedded verbatim into
+   *   the `{{CRITIQUE}}` placeholder.
+   * @param needsCommit — when true, the template instructs the generator to
+   *   commit its fix before signaling completion. Mirrors the inverse of
+   *   `ExecutionOptions.noCommit`.
+   */
+  buildTaskEvaluationResumePrompt(critique: string, needsCommit: boolean): string;
+
   /** Build prompt for sprint feedback implementation */
   buildFeedbackPrompt(sprintName: string, completedTasks: string, feedback: string, branch: string | null): string;
 }

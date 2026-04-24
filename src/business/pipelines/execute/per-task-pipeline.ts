@@ -84,11 +84,12 @@ export interface PerTaskDeps {
  *   - post-task-check failure → `ParseError` → `skip-repo`
  *   - recover-dirty-tree never errors (auto-commit is best-effort)
  *
- * Evaluator failure is the only non-fatal failure: `evaluate-task`
- * swallows errors from the inner pipeline, logs a warning, and returns
- * `Result.ok` so `mark-done` still runs. This matches the pre-pipeline
- * behaviour where `EvaluateTaskUseCase.execute()`'s result was never
- * checked.
+ * Evaluator failure is advisory — a failed / malformed / plateau
+ * critique, or an errored evaluator pipeline, logs a warning and lets
+ * the task proceed to `mark-done`. The full critique is persisted in
+ * `evaluations/<taskId>.md` for post-hoc review; the sprint keeps
+ * moving. Escape hatches for the user live in the evaluator config
+ * (`--no-evaluate`, `--session`, `evaluationIterations: 0`).
  */
 export function createPerTaskPipeline(
   deps: PerTaskDeps,

@@ -6,6 +6,7 @@ import {
   buildInteractivePrompt,
   buildTaskExecutionPrompt,
   buildEvaluatorPrompt,
+  buildEvaluationResumePrompt,
   buildIdeateAutoPrompt,
   buildIdeatePrompt,
   buildSprintFeedbackPrompt,
@@ -81,6 +82,10 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
       // callers don't have to spread `extraDimensions: []` everywhere.
       extraDimensions: task.extraDimensions ?? [],
     });
+  }
+
+  buildTaskEvaluationResumePrompt(critique: string, needsCommit: boolean): string {
+    return buildEvaluationResumePrompt({ critique, needsCommit });
   }
 
   buildFeedbackPrompt(sprintName: string, completedTasks: string, feedback: string, branch: string | null): string {
