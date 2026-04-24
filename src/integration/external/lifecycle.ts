@@ -52,12 +52,33 @@ export function runLifecycleHook(
   const timeoutMs = timeoutOverrideMs ?? getHookTimeoutMs();
 
   return new Promise<HookResult>((resolve) => {
+    // detached: true makes the child a process-group leader so SIGTERM to
+    // -pid reaches descendants (e.g. `sleep` spawned by `sh -c`). Without
+    // this, killing the shell on Linux leaves the grandchild holding stdio
+    // open and `close` never fires. Windows has no process groups.
     const child = spawn(script, {
       cwd: projectPath,
       shell: true,
+      detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, RALPHCTL_LIFECYCLE_EVENT: event },
     });
+
+    const killTree = (): void => {
+      if (process.platform !== 'win32' && typeof child.pid === 'number') {
+        try {
+          process.kill(-child.pid, 'SIGTERM');
+          return;
+        } catch {
+          // Group already gone — fall through to direct kill.
+        }
+      }
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // Already dead — nothing to do.
+      }
+    };
 
     const chunks: Buffer[] = [];
     let totalBytes = 0;
@@ -70,7 +91,7 @@ export function runLifecycleHook(
       totalBytes += chunk.length;
       if (totalBytes > MAX_OUTPUT_BYTES) {
         capExceeded = true;
-        child.kill('SIGTERM');
+        killTree();
         return;
       }
       chunks.push(chunk);
@@ -85,7 +106,7 @@ export function runLifecycleHook(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      killTree();
     }, timeoutMs);
 
     const finish = (passed: boolean, suffix?: string): void => {
