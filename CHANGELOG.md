@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-04-24
+
+### Fixed
+
+- **Version-check cache TTL reduced from 24h to 1h** — update notifications now
+  surface the same day a release lands on npm rather than up to a day later.
+
 ## [0.4.4] - 2026-04-24
 
 ### Added
