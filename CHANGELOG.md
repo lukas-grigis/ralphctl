@@ -7,8 +7,23 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-04-24
+
 ### Added
 
+- **Running-executions view + backgrounding** — TUI gains a router destination listing active
+  sprint executions with status, elapsed time, and current activity. `Esc` from an execute view
+  now backgrounds the run instead of tearing it down; the run keeps progressing and can be
+  re-attached or cancelled from the list. A completion banner surfaces finished backgrounded
+  runs next time the user lands on home.
+- **`ExecutionRegistry` port + per-execution scope** — in-memory adapter tracks every live
+  `ExecuteTasksUseCase` invocation with its own `SignalBus` scope, so dashboards, notification
+  banners, and the running-executions view share one source of truth without leaking subscribers
+  across runs.
+- **`AbortSignal` plumbing through the scheduler** — cancellation propagates from the registry
+  through `forEachTask`, the per-task pipeline, and the AI session adapter. New `cancelled`
+  terminal variants distinguish user-initiated stops from errors in `stopReason`, task status,
+  and signals.
 - **Interactive dirty-tree handling on sprint resume** — when `sprint start` finds uncommitted
   changes in a sprint repo, the harness now runs a two-step Y/n prompt (`Resume with existing
 changes? [Y/n]` → `Reset to latest commit and resume? [Y/n]`) instead of hard-blocking.
@@ -34,6 +49,16 @@ changes? [Y/n]` → `Reset to latest commit and resume? [Y/n]`) instead of hard-
 - **Prompt guardrail against sprint-local identifiers** — `task-execution.md` and
   `sprint-feedback.md` now instruct the implementer to describe invariants directly rather than
   citing ephemeral sprint metadata (`AC1`–`AC6`, ticket / task / sprint IDs) in committed code.
+
+### Fixed
+
+- **Cancellation actually kills the subprocess and drains `in_progress`** — aborting a run via
+  the running-executions view or `Ctrl+C` now terminates the spawned AI CLI immediately and
+  resets any `in_progress` tasks back to `todo` so the next resume starts from a clean state.
+  Cross-sprint + cross-project concurrency is pinned by a new regression fence.
+- **Plan import preserves `verificationCriteria` and `extraDimensions`** — re-plan rounds no
+  longer strip planner-emitted grading contracts when an existing task is reused, keeping the
+  evaluator's rubric intact across iterations.
 
 ### Removed
 
