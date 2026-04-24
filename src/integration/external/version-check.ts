@@ -19,7 +19,7 @@ export interface VersionCheck {
   readonly checkedAt: string; // ISO8601
 }
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1h
 const FETCH_TIMEOUT_MS = 3000;
 const REGISTRY_URL = 'https://registry.npmjs.org/ralphctl/latest';
 

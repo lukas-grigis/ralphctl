@@ -90,14 +90,14 @@ describe('checkLatestVersion', () => {
     expect(existsSync(join(tempDir, 'version-check.json'))).toBe(false);
   });
 
-  it('refetches when cache is stale (>24h)', async () => {
+  it('refetches when cache is stale (>1h)', async () => {
     const { checkLatestVersion } = await load();
     const current = getCurrent();
     const stale = {
       current,
       latest: '1.0.0',
       updateAvailable: false,
-      checkedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      checkedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
     };
     writeFileSync(join(tempDir, 'version-check.json'), JSON.stringify(stale), 'utf-8');
 
