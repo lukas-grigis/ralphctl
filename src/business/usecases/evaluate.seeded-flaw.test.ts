@@ -263,8 +263,9 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
       // passes, so the loop exits before i=1. 3 evaluator/fix spawns total.
       getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 2 })),
       getTasks: () => Promise.resolve([task]),
-      saveTasks: (tasks: Task[]) => {
-        savedTaskStatus = tasks[0]?.evaluationStatus;
+      saveTasks: () => Promise.resolve(),
+      updateTask: (_taskId: string, updates: Partial<Task>) => {
+        savedTaskStatus = updates.evaluationStatus;
         return Promise.resolve();
       },
       writeEvaluation: (_sprintId: string, _taskId: string, iteration: number, status: string, body: string) => {
@@ -369,8 +370,9 @@ describe('EvaluateTaskUseCase — seeded-flaw fix loop', () => {
       getTask: () => Promise.resolve(task),
       getConfig: () => Promise.resolve(makeConfig({ evaluationIterations: 1 })),
       getTasks: () => Promise.resolve([task]),
-      saveTasks: (tasks: Task[]) => {
-        savedTaskStatus = tasks[0]?.evaluationStatus;
+      saveTasks: () => Promise.resolve(),
+      updateTask: (_taskId: string, updates: Partial<Task>) => {
+        savedTaskStatus = updates.evaluationStatus;
         return Promise.resolve();
       },
       writeEvaluation: (_sprintId: string, _taskId: string, iteration: number, status: string) => {

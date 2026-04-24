@@ -61,35 +61,18 @@ export interface PerTaskDeps {
  * Step order (happy path):
  *   1. branch-preflight     — verify sprint branch (no auto-recovery)
  *   2. contract-negotiate   — write `<sprintDir>/contracts/<taskId>.md`
- *                             (generator + evaluator grading contract)
  *   3. mark-in-progress     — persist status + emit `task-started`
  *   4. execute-task         — delegate to `useCase.executeOneTask`
  *   5. store-verification   — persist verified flag if set
  *   6. post-task-check      — run the post-task check gate
  *   7. evaluate-task        — nested evaluator pipeline (REQ-12 live config)
- *   8. recover-dirty-tree   — fence: if the tree is dirty, auto-commit on
- *                             the harness's behalf and emit a Note signal
- *                             (non-blocking — see step docs for rationale)
- *   9. mark-done            — persist status + emit `task-finished` + log
+ *   8. recover-dirty-tree   — auto-commit on the harness's behalf if dirty
+ *   9. mark-done            — persist status + emit `task-finished`
  *
- * `contract-negotiate` sits after branch-preflight (no point writing the
- * contract if the task will be requeued) and before `mark-in-progress`
- * (the contract must exist at the moment we commit to the task).
- *
- * Failure semantics (each step short-circuits the pipeline via
- * `Result.error` — `executePipeline` stops and the scheduler's
- * `retryPolicy` in commit 3 decides the response):
- *   - branch mismatch → `StorageError` → requeue up to N times
- *   - task blocked / `SpawnError` (rate-limit) → retry or pause-all
- *   - post-task-check failure → `ParseError` → `skip-repo`
- *   - recover-dirty-tree never errors (auto-commit is best-effort)
- *
- * Evaluator failure is advisory — a failed / malformed / plateau
- * critique, or an errored evaluator pipeline, logs a warning and lets
- * the task proceed to `mark-done`. The full critique is persisted in
- * `evaluations/<taskId>.md` for post-hoc review; the sprint keeps
- * moving. Escape hatches for the user live in the evaluator config
- * (`--no-evaluate`, `--session`, `evaluationIterations: 0`).
+ * Failure semantics: each step short-circuits via `Result.error` and the
+ * scheduler's `retryPolicy` decides the response. `evaluate-task` is the
+ * only step that swallows all its failure modes — see its docstring for
+ * why the evaluator is advisory.
  */
 export function createPerTaskPipeline(
   deps: PerTaskDeps,

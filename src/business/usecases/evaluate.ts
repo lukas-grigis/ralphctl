@@ -3,7 +3,7 @@ import { DomainError, SpawnError, SprintNotFoundError, TaskNotFoundError } from 
 import { Result } from '@src/domain/types.ts';
 import type { EvaluationOptions } from '@src/domain/context.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
-import type { AiSessionPort, SessionResult } from '../ports/ai-session.ts';
+import type { AiSessionPort, SessionOptions, SessionResult } from '../ports/ai-session.ts';
 import type { PromptBuilderPort } from '../ports/prompt-builder.ts';
 import type { EvaluationParseResult, OutputParserPort } from '../ports/output-parser.ts';
 import type { UserInteractionPort } from '../ports/user-interaction.ts';
@@ -147,25 +147,16 @@ export class EvaluateTaskUseCase {
       let totalIterations = 1;
       let plateaued = false;
 
-      // Fix loop: up to maxIterations fix attempts after the initial evaluation.
-      // Bail if passed or malformed (feeding garbage to the generator is wasteful).
-      //
-      // Loop shape: on iteration `i` we resume the generator with the critique,
-      // then — UNLESS it's the last iteration — re-evaluate and check for
-      // plateau. Skipping the re-eval on the last fix saves a multi-minute
-      // evaluator spawn per task: we've already exhausted the fix budget, so
-      // re-running the evaluator only to persist "still failing" burns time
-      // without changing the outcome. The final persisted state is the
-      // critique from the LAST re-eval (iteration `maxIterations - 1`) or the
-      // initial eval when `maxIterations === 1`.
+      // Fix loop. On iteration `i`: resume generator with critique, then —
+      // unless it's the last iteration — re-evaluate and check for plateau.
+      // Skipping the re-eval on the final fix saves a multi-minute evaluator
+      // spawn once we're out of fix budget (the re-eval could only confirm
+      // the last critique without giving the generator another chance).
       for (let i = 0; i < maxIterations && !isPassed(evalResult) && evalResult.status !== 'malformed'; i++) {
         log.warning(`Evaluation failed for ${task.name} — fix attempt ${String(i + 1)}/${String(maxIterations)}`);
 
-        // Resume generator with critique. `fixSuccess` reflects whether the
-        // generator emitted `<task-complete>`; it's a useful diagnostic but
-        // NOT a gate on re-evaluation. The evaluator — not the generator's
-        // self-report — is the arbiter of "did the fix work", so we always
-        // re-evaluate regardless and let the evaluator settle the question.
+        // Always re-evaluate regardless of the generator's `<task-complete>`
+        // signal — the evaluator is the arbiter, not the generator.
         const fixSuccess = await this.resumeGeneratorWithCritique(
           task,
           sprint,
@@ -173,20 +164,12 @@ export class EvaluateTaskUseCase {
           evalResult.rawOutput,
           options
         );
-
         if (!fixSuccess) {
           log.debug(`Fix attempt ${String(i + 1)}: generator did not signal completion — re-evaluating anyway`);
         }
 
-        // Last fix attempt — skip the re-eval to save an evaluator spawn.
-        // We're out of fix budget, so a re-eval here can only confirm failure
-        // (or luckily pass) without giving the generator another chance to
-        // fix anything. Ending on the generator keeps the sidecar's final
-        // critique truthful (the one that drove the fix) and shaves a
-        // multi-minute Claude run off every failing task.
         if (i === maxIterations - 1) break;
 
-        // Re-evaluate
         const previousEvalResult = evalResult;
         const stopReeval = log.time('evaluator-re-spawn');
         evalResult = await this.runSingleEvaluation(
@@ -200,13 +183,10 @@ export class EvaluateTaskUseCase {
           options
         );
         stopReeval();
-
         totalIterations++;
 
-        // Plateau detection: if the evaluator keeps flagging the same set of
-        // failed dimensions, further fix attempts are wasteful. Persist the
-        // sidecar with `'plateau'` so the record is distinguishable from a
-        // normal failure, then break.
+        // Plateau: same failed dimensions twice in a row — further fixes are
+        // wasteful. Record as `'plateau'` (distinct from a plain failure).
         if (
           !isPassed(evalResult) &&
           evalResult.status !== 'malformed' &&
@@ -280,11 +260,9 @@ export class EvaluateTaskUseCase {
   }
 
   /**
-   * Spawn a single evaluator session and parse the result.
-   *
-   * `checkScriptSection` and `projectToolingSection` are passed in
-   * pre-resolved — both are stable across fix-loop iterations, so the
-   * caller computes them once and threads them through.
+   * Spawn a single evaluator session and parse the result. Stable inputs
+   * (`checkScriptSection`, `projectToolingSection`) are passed in
+   * pre-resolved so the fix loop doesn't re-compute them per iteration.
    */
   private async runSingleEvaluation(
     task: Task,
@@ -297,7 +275,6 @@ export class EvaluateTaskUseCase {
     options?: EvaluationOptions
   ): Promise<EvaluationParseResult> {
     const evaluatorModel = getEvaluatorModel(generatorModel, provider);
-    const sprintDir = this.fs.getSprintDir(sprint.id);
 
     const prompt = this.promptBuilder.buildTaskEvaluationPrompt(
       task,
@@ -306,35 +283,42 @@ export class EvaluateTaskUseCase {
       projectToolingSection
     );
 
-    const args: string[] = ['--add-dir', sprintDir];
+    const args: string[] = ['--add-dir', this.fs.getSprintDir(sprint.id)];
     if (provider === 'claude') {
-      if (evaluatorModel) {
-        args.push('--model', evaluatorModel);
-      }
+      if (evaluatorModel) args.push('--model', evaluatorModel);
       args.push('--max-turns', String(options?.maxTurns ?? EVALUATOR_MAX_TURNS));
     }
 
-    let result: SessionResult;
-    try {
-      result = await this.aiSession.spawnWithRetry(prompt, {
-        cwd: repoPath,
-        args,
-        env: this.aiSession.getSpawnEnv(),
-        abortSignal: options?.abortSignal,
-      });
-    } catch (err) {
-      // Evaluator spawn failure — return malformed so evaluation never blocks
-      this.logger.warning(
-        `Evaluator spawn failed for ${task.name}: ${err instanceof Error ? err.message : String(err)} — marking malformed`
-      );
-      return {
-        status: 'malformed',
-        dimensions: [],
-        rawOutput: `Evaluator spawn failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
+    const result = await this.spawnOrNull(prompt, {
+      cwd: repoPath,
+      args,
+      env: this.aiSession.getSpawnEnv(),
+      abortSignal: options?.abortSignal,
+    });
 
-    return this.parser.parseEvaluation(result.output);
+    if (!result.ok) {
+      // Evaluator spawn failure — treat as malformed so evaluation never blocks.
+      this.logger.warning(`Evaluator spawn failed for ${task.name}: ${result.message} — marking malformed`);
+      return { status: 'malformed', dimensions: [], rawOutput: `Evaluator spawn failed: ${result.message}` };
+    }
+    return this.parser.parseEvaluation(result.value.output);
+  }
+
+  /**
+   * Wrap `spawnWithRetry` in a try/catch so callers can handle spawn
+   * failures without nested error handling. Returns a small discriminated
+   * union — ok with the session result, or !ok with the message.
+   */
+  private async spawnOrNull(
+    prompt: string,
+    opts: SessionOptions
+  ): Promise<{ ok: true; value: SessionResult } | { ok: false; message: string }> {
+    try {
+      const value = await this.aiSession.spawnWithRetry(prompt, opts);
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -369,26 +353,16 @@ export class EvaluateTaskUseCase {
   /**
    * Resume the generator session with the evaluator critique.
    *
-   * Two load-bearing properties:
+   * Two load-bearing properties (covered by `fix-loop fence` tests):
+   *   1. Prompt comes from `buildTaskEvaluationResumePrompt` — full template
+   *      with signals / fix-protocol / commit instruction. A regression to
+   *      an inline string silently drops signal requirements.
+   *   2. When `options.generatorSessionId` is set, `resumeSessionId` is
+   *      threaded so the fix continues the original session (`--resume`).
+   *      Absent an ID, spawn fresh and log at debug.
    *
-   *   1. Prompt uses the full `task-evaluation-resume.md` template via
-   *      `promptBuilder.buildTaskEvaluationResumePrompt` — signals block,
-   *      fix protocol, harness context, optional commit instruction — so
-   *      the generator knows exactly how to re-verify and signal. The
-   *      previous 4-line inline prompt silently dropped signal requirements
-   *      and led to fix attempts that never signalled completion.
-   *
-   *   2. When `options.generatorSessionId` is set, the fix is dispatched
-   *      with `resumeSessionId` so the provider's `--resume` is honored and
-   *      the fix conversation is a continuation of the original task
-   *      session — not a fresh cold-start that has to rediscover the code
-   *      from scratch. This is the Anthropic-recommended pattern for
-   *      generator-evaluator loops. Absent a session ID (rare fallback
-   *      path), we spawn fresh and log at debug level.
-   *
-   * Returns true if the generator signaled `<task-complete>`. The caller
-   * uses this as a diagnostic only — the evaluator, not the generator's
-   * self-report, is the arbiter of "did the fix work".
+   * Returns true iff the generator signaled `<task-complete>` — used as a
+   * diagnostic only; the evaluator settles whether the fix actually worked.
    */
   private async resumeGeneratorWithCritique(
     task: Task,
@@ -397,9 +371,7 @@ export class EvaluateTaskUseCase {
     critique: string,
     options?: EvaluationOptions
   ): Promise<boolean> {
-    const sprintDir = this.fs.getSprintDir(sprint.id);
-    const needsCommit = options?.needsCommit ?? true;
-    const resumePrompt = this.promptBuilder.buildTaskEvaluationResumePrompt(critique, needsCommit);
+    const resumePrompt = this.promptBuilder.buildTaskEvaluationResumePrompt(critique, options?.needsCommit ?? true);
     const resumeSessionId = options?.generatorSessionId;
 
     this.logger.debug(
@@ -408,27 +380,22 @@ export class EvaluateTaskUseCase {
         : `No generator session ID — spawning fresh fix attempt: ${task.name}`
     );
 
-    let spinner: SpinnerHandle | null = null;
-    try {
-      spinner = this.logger.spinner(`Fixing evaluation issues: ${task.name}`);
+    const spinner: SpinnerHandle = this.logger.spinner(`Fixing evaluation issues: ${task.name}`);
+    const result = await this.spawnOrNull(resumePrompt, {
+      cwd: repoPath,
+      args: ['--add-dir', this.fs.getSprintDir(sprint.id)],
+      env: this.aiSession.getSpawnEnv(),
+      maxTurns: options?.maxTurns,
+      resumeSessionId,
+      abortSignal: options?.abortSignal,
+    });
 
-      const result = await this.aiSession.spawnWithRetry(resumePrompt, {
-        cwd: repoPath,
-        args: ['--add-dir', sprintDir],
-        env: this.aiSession.getSpawnEnv(),
-        maxTurns: options?.maxTurns,
-        resumeSessionId,
-        abortSignal: options?.abortSignal,
-      });
-
-      spinner.succeed(`Fix attempt completed: ${task.name}`);
-
-      const signals = this.parser.parseExecutionSignals(result.output);
-      return signals.complete;
-    } catch {
-      spinner?.fail(`Fix attempt failed: ${task.name}`);
+    if (!result.ok) {
+      spinner.fail(`Fix attempt failed: ${task.name}`);
       return false;
     }
+    spinner.succeed(`Fix attempt completed: ${task.name}`);
+    return this.parser.parseExecutionSignals(result.value.output).complete;
   }
 
   /**
@@ -458,12 +425,10 @@ export class EvaluateTaskUseCase {
   }
 
   /**
-   * Update the task record with evaluation fields.
-   *
-   * `statusOverride` is set when plateau detection fires: the critique body
-   * is still saved (truncated) for traceability, but the discriminator in
-   * `tasks.json` records `'plateau'` so consumers can distinguish it from
-   * a plain `'failed'` run.
+   * Update the task record with evaluation fields. `statusOverride` is set
+   * for plateau — the body is still the real critique, but the status
+   * column records `'plateau'` so readers can distinguish it from a plain
+   * failure.
    */
   private async updateTaskEvaluation(
     sprintId: string,
@@ -471,19 +436,15 @@ export class EvaluateTaskUseCase {
     evalResult: EvaluationParseResult,
     statusOverride?: EvaluationStatus
   ): Promise<void> {
-    const status: EvaluationStatus = statusOverride ?? evalResult.status;
-    const tasks = await this.persistence.getTasks(sprintId);
-    const updatedTasks = tasks.map((t) =>
-      t.id === taskId
-        ? {
-            ...t,
-            evaluated: true,
-            evaluationStatus: status,
-            evaluationOutput: evalResult.rawOutput.slice(0, MAX_EVAL_OUTPUT),
-          }
-        : t
+    await this.persistence.updateTask(
+      taskId,
+      {
+        evaluated: true,
+        evaluationStatus: statusOverride ?? evalResult.status,
+        evaluationOutput: evalResult.rawOutput.slice(0, MAX_EVAL_OUTPUT),
+      },
+      sprintId
     );
-    await this.persistence.saveTasks(updatedTasks, sprintId);
   }
 
   /**
