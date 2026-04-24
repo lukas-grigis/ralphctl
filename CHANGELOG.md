@@ -7,6 +7,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-24
+
+### Fixed
+
+- **Evaluator fix-loop now actually fixes things** — failed evaluations resume the
+  generator session via `--resume <session-id>` (Anthropic's recommended
+  generator-evaluator pattern) and deliver the full fix protocol from
+  `task-evaluation-resume.md` instead of a 4-line hardcoded string. The loop no
+  longer early-bails when the generator omits `<task-complete>`, and the final
+  re-eval is skipped on the last iteration — saving a multi-minute spawn per
+  failing task. Failure logs now report the actual iteration count rather than
+  the configured cap.
+
+### Changed
+
+- **Evaluator option types collapsed** — pipeline `EvaluateOptions` folded into
+  domain `EvaluationOptions` + a `force` flag; `generatorSessionId` /
+  `generatorModel` relay fields removed from `EvaluateContext`. Evaluator-spawn
+  and generator-resume now share a single `spawnOrNull` helper for error
+  handling.
+
 ## [0.4.6] - 2026-04-24
 
 ### Fixed
