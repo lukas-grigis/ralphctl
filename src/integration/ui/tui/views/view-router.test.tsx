@@ -91,6 +91,23 @@ vi.mock('./browse/ticket-show-view.tsx', async () => {
   };
 });
 
+vi.mock('./running-executions-view.tsx', async () => {
+  const keys = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+  const ink = await import('ink');
+  return {
+    RunningExecutionsView: () => {
+      keys.useGlobalKeys();
+      return <ink.Text>RUNNING_EXECUTIONS_VIEW</ink.Text>;
+    },
+  };
+});
+
+vi.mock('@src/integration/ui/tui/components/execution-notification-banner.tsx', () => {
+  return {
+    ExecutionNotificationBanner: () => null,
+  };
+});
+
 import { ViewRouter } from './view-router.tsx';
 import type { ViewEntry } from './router-context.ts';
 
@@ -223,6 +240,33 @@ describe('ViewRouter', () => {
     expect(frame).not.toContain('HOME_VIEW');
     expect(frame).toContain('Home');
     expect(frame).toContain('Dashboard');
+  });
+
+  it('pushes running-executions on top when the user presses `x`', async () => {
+    const initialStack: ViewEntry[] = [{ id: 'home' }];
+    const { lastFrame, stdin } = render(<ViewRouter initialStack={initialStack} />);
+
+    stdin.write('x');
+    await flush();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('RUNNING_EXECUTIONS_VIEW');
+    expect(frame).not.toContain('HOME_VIEW');
+    expect(frame).toContain('Runs');
+  });
+
+  it('does not stack running-executions on top of itself', async () => {
+    const initialStack: ViewEntry[] = [{ id: 'home' }];
+    const { lastFrame, stdin } = render(<ViewRouter initialStack={initialStack} />);
+
+    stdin.write('x');
+    await flush();
+    stdin.write('x');
+    await flush();
+
+    stdin.write('');
+    await flushEscape();
+    expect(lastFrame() ?? '').toContain('HOME_VIEW');
   });
 
   it('pops back to home from dashboard on Esc', async () => {

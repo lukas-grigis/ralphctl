@@ -1,6 +1,6 @@
 /**
- * useGlobalKeys — centralises the router-level hotkeys (Esc, h, s, d, ?, q) so
- * every view inherits them regardless of its own `useInput` handlers.
+ * useGlobalKeys — centralises the router-level hotkeys (Esc, h, s, d, ?, x, q)
+ * so every view inherits them regardless of its own `useInput` handlers.
  *
  * Previously the dispatch lived inside `ViewRouter` as a single `useInput`
  * call. In practice this meant that browse detail views (ticket-show,
@@ -56,6 +56,10 @@ export function useGlobalKeys(): void {
       }
       if (input === '?' && router.current.id !== 'doctor') {
         router.push({ id: 'doctor' });
+        return;
+      }
+      if (input === 'x' && router.current.id !== 'running-executions') {
+        router.push({ id: 'running-executions' });
         return;
       }
       if (input === 'q' && router.stack.length === 1 && router.current.id === 'home') {

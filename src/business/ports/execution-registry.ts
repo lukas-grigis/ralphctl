@@ -20,6 +20,8 @@
 import type { Sprint } from '@src/domain/models.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
+import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { LogEventBus } from '@src/business/ports/log-event-bus.ts';
 
 export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -81,4 +83,16 @@ export interface ExecutionRegistryPort {
    * snapshot. Returns an unsubscribe function.
    */
   subscribe(listener: ExecutionListener): Unsubscribe;
+
+  /**
+   * Fetch the scoped `SignalBusPort` for an execution so a UI view can attach
+   * after navigating away and back. Returns `null` when the id is unknown.
+   */
+  getSignalBus(id: string): SignalBusPort | null;
+
+  /**
+   * Fetch the scoped `LogEventBus` for an execution so a UI view can attach
+   * after navigating away and back. Returns `null` when the id is unknown.
+   */
+  getLogEventBus(id: string): LogEventBus | null;
 }

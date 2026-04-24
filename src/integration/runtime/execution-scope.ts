@@ -24,8 +24,8 @@
 
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { LogEventBus } from '@src/business/ports/log-event-bus.ts';
 import { InkSink } from '@src/integration/logging/ink-sink.ts';
-import type { LogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
 
 export interface ExecutionScopeArgs {
   executionId: string;

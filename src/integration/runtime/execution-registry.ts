@@ -30,9 +30,11 @@ import type {
 } from '@src/business/ports/execution-registry.ts';
 import { ExecutionAlreadyRunningError } from '@src/domain/errors.ts';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
+import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { LogEventBus } from '@src/business/ports/log-event-bus.ts';
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
 import { InMemorySignalBus } from '@src/integration/signals/bus.ts';
-import { InMemoryLogEventBus, type LogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
+import { InMemoryLogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
 import { createExecutionScope } from './execution-scope.ts';
 
 interface Entry {
@@ -183,6 +185,14 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  getSignalBus(id: string): SignalBusPort | null {
+    return this.entries.get(id)?.signalBus ?? null;
+  }
+
+  getLogEventBus(id: string): LogEventBus | null {
+    return this.entries.get(id)?.logEventBus ?? null;
   }
 
   private transition(executionId: string, status: ExecutionStatus, summary?: ExecutionSummary): void {

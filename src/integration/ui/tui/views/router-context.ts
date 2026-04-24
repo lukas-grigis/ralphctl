@@ -30,6 +30,7 @@ export type ViewId =
   | 'settings'
   | 'execute'
   | 'dashboard'
+  | 'running-executions'
   | 'refine-phase'
   | 'plan-phase'
   | 'close-phase'

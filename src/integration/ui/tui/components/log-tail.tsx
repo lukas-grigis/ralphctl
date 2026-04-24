@@ -8,7 +8,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import type { LogEvent, LogEventLevel } from '@src/integration/ui/tui/runtime/event-bus.ts';
+import type { LogEvent, LogEventLevel } from '@src/business/ports/log-event-bus.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 

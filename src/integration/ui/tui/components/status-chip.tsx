@@ -37,6 +37,13 @@ export function chipKindForTaskStatus(status: 'todo' | 'in_progress' | 'done' | 
   return 'muted';
 }
 
+export function chipKindForExecutionStatus(status: 'running' | 'completed' | 'failed' | 'cancelled'): StatusKind {
+  if (status === 'running') return 'warning';
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'error';
+  return 'muted';
+}
+
 export function StatusChip({ label, kind = 'info' }: StatusChipProps): React.JSX.Element {
   return (
     <Text color={COLOR[kind]} bold>

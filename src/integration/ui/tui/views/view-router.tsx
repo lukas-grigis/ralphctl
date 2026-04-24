@@ -78,6 +78,8 @@ import { ReactivateSprintView } from './workflows/reactivate-sprint-view.tsx';
 import { EvaluationsView } from './browse/evaluations-view.tsx';
 import { EvaluationShowView } from './browse/evaluation-show-view.tsx';
 import { FeedbackView } from './browse/feedback-view.tsx';
+import { RunningExecutionsView } from './running-executions-view.tsx';
+import { ExecutionNotificationBanner } from '@src/integration/ui/tui/components/execution-notification-banner.tsx';
 import { VersionHint } from '@src/integration/ui/tui/components/version-hint.tsx';
 
 /**
@@ -100,15 +102,20 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
     label: 'Execute',
     render: (props) => {
       const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : '';
+      const executionId = typeof props['executionId'] === 'string' ? props['executionId'] : undefined;
       const executionOptions = props['executionOptions'] as
         | React.ComponentProps<typeof ExecuteView>['executionOptions']
         | undefined;
-      return <ExecuteView sprintId={sprintId} executionOptions={executionOptions} />;
+      return <ExecuteView sprintId={sprintId} executionId={executionId} executionOptions={executionOptions} />;
     },
   },
   dashboard: {
     label: 'Dashboard',
     render: () => <DashboardView />,
+  },
+  'running-executions': {
+    label: 'Runs',
+    render: () => <RunningExecutionsView />,
   },
   'refine-phase': {
     label: 'Refine',
@@ -337,6 +344,7 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
       <ViewHintsProvider key={current.id}>
         <Box flexDirection="column">
           <Banner />
+          <ExecutionNotificationBanner currentViewId={current.id} />
           {meta.render(props)}
           <PromptHost />
           <Box marginTop={spacing.section}>
@@ -394,6 +402,9 @@ function buildHints(currentId: ViewId, depth: number): readonly { key: string; a
   }
   if (currentId !== 'doctor') {
     hints.push({ key: '?', action: 'doctor' });
+  }
+  if (currentId !== 'running-executions') {
+    hints.push({ key: 'x', action: 'runs' });
   }
   if (currentId === 'home' && depth === 1) {
     hints.push({ key: 'b', action: 'browse' });

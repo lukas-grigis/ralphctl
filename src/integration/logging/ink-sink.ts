@@ -11,7 +11,8 @@
  */
 
 import type { LogContext, LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
-import { logEventBus, type LogEvent, type LogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
+import type { LogEvent, LogEventBus } from '@src/business/ports/log-event-bus.ts';
+import { logEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
 
 let spinnerId = 0;
 
