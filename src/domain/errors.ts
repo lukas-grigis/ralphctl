@@ -218,3 +218,24 @@ export class BranchPreflightError extends DomainError {
     this.expectedBranch = expectedBranch;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Execution registry errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Raised by `ExecutionRegistryPort.start` when the target project already has
+ * a running execution. Carries `existingExecutionId` so the UI can deep-link
+ * the user to the live execution screen instead of offering a new start.
+ */
+export class ExecutionAlreadyRunningError extends DomainError {
+  readonly code = 'EXECUTION_ALREADY_RUNNING';
+  readonly projectName: string;
+  readonly existingExecutionId: string;
+
+  constructor(projectName: string, existingExecutionId: string) {
+    super(`An execution is already running for project '${projectName}' (id: ${existingExecutionId}).`);
+    this.projectName = projectName;
+    this.existingExecutionId = existingExecutionId;
+  }
+}

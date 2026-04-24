@@ -15,6 +15,12 @@ export interface SessionOptions {
    * capture to relaunch with continuity. Default: start a fresh session.
    */
   resumeSessionId?: string;
+  /**
+   * Cooperative cancellation. When the signal aborts mid-spawn, the adapter
+   * sends SIGTERM to the provider's child process via the process-lifecycle
+   * layer so the child winds down gracefully (same machinery as Ctrl+C).
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Result from a headless AI session */

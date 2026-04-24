@@ -206,14 +206,16 @@ function groupTasksByPath(tasks: Tasks): Map<string, Tasks> {
   return map;
 }
 
-function statusGlyph(status: 'todo' | 'in_progress' | 'done'): string {
+function statusGlyph(status: 'todo' | 'in_progress' | 'done' | 'cancelled'): string {
   if (status === 'done') return glyphs.check;
   if (status === 'in_progress') return glyphs.actionCursor;
+  if (status === 'cancelled') return glyphs.cross;
   return glyphs.inlineDot;
 }
 
-function statusColor(status: 'todo' | 'in_progress' | 'done'): string {
+function statusColor(status: 'todo' | 'in_progress' | 'done' | 'cancelled'): string {
   if (status === 'done') return inkColors.success;
   if (status === 'in_progress') return inkColors.warning;
+  if (status === 'cancelled') return inkColors.muted;
   return inkColors.muted;
 }

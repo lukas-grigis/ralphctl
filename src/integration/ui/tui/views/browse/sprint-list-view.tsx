@@ -100,7 +100,7 @@ const HINTS_READY = [
   { key: 'f', action: 'filter' },
   { key: 'n', action: 'new' },
   { key: 'c', action: 'set current' },
-  { key: 'x', action: 'delete' },
+  { key: 'r', action: 'remove' },
 ] as const;
 const HINTS_EMPTY = [{ key: 'n', action: 'new' }] as const;
 
@@ -169,7 +169,7 @@ export function SprintListView(): React.JSX.Element {
       router.push({ id: 'sprint-set-current' });
       return;
     }
-    if (input === 'x') {
+    if (input === 'r') {
       router.push({ id: 'sprint-delete' });
     }
   });

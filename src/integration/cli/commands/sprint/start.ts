@@ -98,9 +98,17 @@ function parseArgs(args: string[]): { sprintId?: string; options: ExecutionOptio
       options.noEvaluate = true;
     } else if (arg === '--no-feedback') {
       options.noFeedback = true;
+    } else if (arg === '--resume-dirty') {
+      options.resumeDirty = true;
+    } else if (arg === '--reset-on-resume') {
+      options.resetOnResume = true;
     } else if (!arg?.startsWith('-')) {
       sprintId = arg;
     }
+  }
+
+  if (options.resumeDirty && options.resetOnResume) {
+    throw new Error('--resume-dirty and --reset-on-resume are mutually exclusive');
   }
 
   return { sprintId, options };

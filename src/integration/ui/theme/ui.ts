@@ -246,13 +246,19 @@ export function labelValue(label: string, value: string, labelWidth = DETAIL_LAB
 // STATUS FORMATTERS
 // ============================================================================
 
-export function formatTaskStatus(status: 'todo' | 'in_progress' | 'done'): string {
+export function formatTaskStatus(status: 'todo' | 'in_progress' | 'done' | 'cancelled'): string {
   const e = getStatusEmoji(status);
-  const labels: Record<string, string> = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' };
+  const labels: Record<string, string> = {
+    todo: 'To Do',
+    in_progress: 'In Progress',
+    done: 'Done',
+    cancelled: 'Cancelled',
+  };
   const statusColors: Record<string, ColorFn> = {
     todo: colors.muted,
     in_progress: colors.warning,
     done: colors.success,
+    cancelled: colors.muted,
   };
   return (statusColors[status] ?? colors.muted)(`${e} ${labels[status] ?? status}`);
 }

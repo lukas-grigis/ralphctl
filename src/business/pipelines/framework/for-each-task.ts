@@ -47,6 +47,11 @@ export interface SchedulerStats {
   requeued: number;
   inFlight: number;
   pausedRepos: Set<string>;
+  /**
+   * Set to `true` when the scheduler exits because `ctx.abortSignal` fired.
+   * Callers project this into their execution summary (e.g. `stopReason: 'cancelled'`).
+   */
+  cancelled: boolean;
 }
 
 export type RetryAction =
@@ -106,8 +111,12 @@ interface ForEachTaskOptions<TItem, TInnerCtx extends StepContext = StepContext>
   policies: ForEachTaskPolicies<TItem>;
   /** Context key for the injected item. Default: `'task'`. */
   itemKey?: string;
-  /** Shared services for the lifetime of this step. */
-  createServices?: () => ParallelSharedServices;
+  /**
+   * Shared services for the lifetime of this step. The scheduler passes the
+   * outer context's abortSignal through so implementations can wire up
+   * services that observe cancellation (e.g. signal bus flushers).
+   */
+  createServices?: (opts: { abortSignal?: AbortSignal }) => ParallelSharedServices;
   disposeServices?: (services: ParallelSharedServices) => void;
 }
 
@@ -166,7 +175,8 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
   const itemKey = opts.itemKey ?? DEFAULT_ITEM_KEY;
   const maxConcurrency = opts.strategy.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
   const mutexKeyFn = opts.strategy.mutexKey ?? identityMutexKey;
-  const services = opts.createServices?.() ?? defaultServices();
+  const abortSignal = ctx.abortSignal;
+  const services = opts.createServices?.({ abortSignal }) ?? defaultServices();
 
   const state: SchedulerState<TItem> = {
     stats: {
@@ -175,6 +185,7 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
       requeued: 0,
       inFlight: 0,
       pausedRepos: new Set<string>(),
+      cancelled: false,
     },
     retryNowQueue: [],
     requeueQueue: [],
@@ -194,6 +205,14 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
     // nothing is pullable and nothing is running, when `stopWhen` fires,
     // when `between` returns 'stop', or when `fail` sets `terminalError`.
     for (;;) {
+      // Cooperative cancellation: stop pulling/launching on an aborted
+      // signal. In-flight items keep running (they observe the signal via
+      // their own ctx and wind themselves down) but we no longer schedule
+      // new work. The terminal 'cancelled' flag is reported via stats.
+      if (abortSignal?.aborted) {
+        state.stats.cancelled = true;
+        break;
+      }
       if (state.stopRequested) break;
       if (state.terminalError) break;
       if (opts.strategy.stopWhen?.(state.stats)) break;
@@ -248,6 +267,17 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
         continue;
       }
 
+      // Cancellation beats retry policy: once the caller's AbortSignal has
+      // fired, any in-flight error is a consequence of the abort (the
+      // provider's SIGTERM wiring), not a real task failure. Routing it
+      // through `retryPolicy` would surface as `task_blocked` in the
+      // scheduler's terminalError path — masking the user's cancel intent.
+      if (abortSignal?.aborted) {
+        state.stats.cancelled = true;
+        opts.policies.onSettle?.(item, 'failed');
+        break;
+      }
+
       // Error path — delegate to retryPolicy.
       const attempt = (state.attempts.get(item) ?? 0) + 1;
       state.attempts.set(item, attempt);
@@ -257,6 +287,14 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
 
     // Drain in-flight if `fail` with `drainInFlight: true` fired.
     if (state.terminalError && state.shouldDrainOnFail && state.inFlight.size > 0) {
+      await Promise.allSettled(state.inFlight.values());
+    }
+
+    // Drain on cancellation — in-flight items observe the abort via their own
+    // ctx and the provider layer's SIGTERM wiring, so awaiting settles
+    // cleanly. Without this the returned stats race against the still-running
+    // promises and leak out of the step's lifetime.
+    if (state.stats.cancelled && state.inFlight.size > 0) {
       await Promise.allSettled(state.inFlight.values());
     }
   } finally {

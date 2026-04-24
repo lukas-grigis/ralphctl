@@ -1,8 +1,9 @@
 import { execSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { StorageError } from '@src/domain/errors.ts';
 import {
   autoCommit,
   branchExists,
@@ -11,6 +12,7 @@ import {
   getCurrentBranch,
   getDefaultBranch,
   getHeadSha,
+  hardResetWorkingTree,
   hasUncommittedChanges,
   isValidBranchName,
   verifyCurrentBranch,
@@ -194,6 +196,38 @@ describe('git operations with temp repo', () => {
       writeFileSync(join(tempDir, 'README.md'), '# Updated');
       execSync('git add .', { cwd: tempDir, stdio: 'pipe' });
       expect(hasUncommittedChanges(tempDir)).toBe(true);
+    });
+  });
+
+  describe('hardResetWorkingTree', () => {
+    it('discards tracked modifications and removes untracked files', () => {
+      writeFileSync(join(tempDir, 'README.md'), '# Modified');
+      writeFileSync(join(tempDir, 'stray.txt'), 'garbage');
+      expect(hasUncommittedChanges(tempDir)).toBe(true);
+
+      hardResetWorkingTree(tempDir);
+
+      expect(hasUncommittedChanges(tempDir)).toBe(false);
+      const contents = execSync('git show HEAD:README.md', { cwd: tempDir, encoding: 'utf-8' });
+      expect(contents.trim()).toBe('# Test');
+      expect(existsSync(join(tempDir, 'stray.txt'))).toBe(false);
+    });
+
+    it('is idempotent on a clean tree', () => {
+      expect(hasUncommittedChanges(tempDir)).toBe(false);
+      hardResetWorkingTree(tempDir);
+      expect(hasUncommittedChanges(tempDir)).toBe(false);
+    });
+
+    it('throws StorageError when run outside a git repository', () => {
+      const notARepo = mkdtempSync(join(tmpdir(), 'ralphctl-not-a-repo-'));
+      try {
+        expect(() => {
+          hardResetWorkingTree(notARepo);
+        }).toThrow(StorageError);
+      } finally {
+        rmSync(notARepo, { recursive: true, force: true });
+      }
     });
   });
 

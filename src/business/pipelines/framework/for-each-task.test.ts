@@ -891,6 +891,107 @@ describe('forEachTask - pull dynamics', () => {
 // Lifecycle callbacks
 // ---------------------------------------------------------------------------
 
+describe('forEachTask - cooperative cancellation', () => {
+  it('already-aborted signal stops the scheduler before any item launches', async () => {
+    const items: TestItem[] = [
+      { id: '1', repo: 'a' },
+      { id: '2', repo: 'b' },
+    ];
+    const pending = new Set(items.map((i) => i.id));
+    const ran: string[] = [];
+
+    const ac = new AbortController();
+    ac.abort();
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', (item) => {
+        ran.push(item.id);
+        pending.delete(item.id);
+        return Result.ok({});
+      }),
+      strategy: {
+        concurrency: 2,
+        pullItems: () => items.filter((i) => pending.has(i.id)),
+        mutexKey: (i) => i.repo,
+      },
+      policies: {
+        retryPolicy: () => ({ action: 'fail', drainInFlight: false }),
+      },
+    });
+
+    const ctx: ForEachTaskContext = { sprintId: 'test-sprint', abortSignal: ac.signal };
+    const result = await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), ctx);
+    const { context } = unwrap(result);
+
+    expect(ran).toEqual([]);
+    expect(context.schedulerStats?.cancelled).toBe(true);
+    expect(context.schedulerStats?.completed).toBe(0);
+  });
+
+  it('abort during a tick stops further launches without aborting in-flight work', async () => {
+    const items: TestItem[] = [
+      { id: '1', repo: 'a' },
+      { id: '2', repo: 'b' },
+      { id: '3', repo: 'c' },
+    ];
+    const pending = new Set(items.map((i) => i.id));
+    const ran: string[] = [];
+    const ac = new AbortController();
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', async (item) => {
+        ran.push(item.id);
+        // Abort as soon as the first item starts — subsequent launches must stop.
+        if (item.id === '1') ac.abort();
+        await tick(10);
+        pending.delete(item.id);
+        return Result.ok({});
+      }),
+      strategy: {
+        concurrency: 1,
+        pullItems: () => items.filter((i) => pending.has(i.id)),
+        mutexKey: (i) => i.repo,
+      },
+      policies: {
+        retryPolicy: () => ({ action: 'fail', drainInFlight: false }),
+      },
+    });
+
+    const ctx: ForEachTaskContext = { sprintId: 'test-sprint', abortSignal: ac.signal };
+    const result = await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), ctx);
+    const { context } = unwrap(result);
+
+    // Only the first item ran — items 2 and 3 never launched because the
+    // scheduler's next tick observed `abortSignal.aborted`.
+    expect(ran).toEqual(['1']);
+    expect(context.schedulerStats?.cancelled).toBe(true);
+    expect(context.schedulerStats?.completed).toBe(1);
+  });
+
+  it('passes abortSignal into createServices', async () => {
+    const ac = new AbortController();
+    let observed: AbortSignal | undefined;
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', () => Result.ok({})),
+      strategy: {
+        concurrency: 1,
+        pullItems: () => [],
+        mutexKey: (i) => i.repo,
+      },
+      policies: { retryPolicy: () => ({ action: 'fail', drainInFlight: false }) },
+      createServices: ({ abortSignal }) => {
+        observed = abortSignal;
+        return makeTestServices().services;
+      },
+    });
+
+    const ctx: ForEachTaskContext = { sprintId: 'test-sprint', abortSignal: ac.signal };
+    await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), ctx);
+    expect(observed).toBe(ac.signal);
+  });
+});
+
 describe('forEachTask - onLaunch / onSettle callbacks', () => {
   it('fires onLaunch before each launch and onSettle after each settlement', async () => {
     const items: TestItem[] = [

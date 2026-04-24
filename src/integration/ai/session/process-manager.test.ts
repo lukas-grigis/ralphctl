@@ -467,6 +467,96 @@ describe('ProcessManager', () => {
     });
   });
 
+  describe('registerAbort', () => {
+    it('should fire terminate when the signal aborts', () => {
+      const ac = new AbortController();
+      const terminate = vi.fn();
+      const detach = manager.registerAbort(ac.signal, terminate);
+
+      ac.abort();
+      // The abort event dispatches synchronously — terminate has already run.
+      expect(terminate).toHaveBeenCalledTimes(1);
+
+      // Disposer is idempotent and safe after firing.
+      expect(() => {
+        detach();
+      }).not.toThrow();
+    });
+
+    it('sends SIGTERM to a tracked child when its abortSignal fires mid-spawn', () => {
+      const child = new MockChildProcess() as unknown as ChildProcess;
+      manager.registerChild(child);
+
+      const killSpy = vi.spyOn(child, 'kill');
+
+      const ac = new AbortController();
+      // Caller wires the abort signal to a child.kill('SIGTERM') via registerAbort.
+      manager.registerAbort(ac.signal, () => {
+        child.kill('SIGTERM');
+      });
+
+      ac.abort();
+
+      expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    it('queues terminate for an already-aborted signal', async () => {
+      const ac = new AbortController();
+      ac.abort();
+
+      const terminate = vi.fn();
+      manager.registerAbort(ac.signal, terminate);
+
+      // queueMicrotask is not sync — flush it.
+      await Promise.resolve();
+
+      expect(terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('terminate runs at most once even if the listener fires twice', () => {
+      const ac = new AbortController();
+      const terminate = vi.fn();
+      manager.registerAbort(ac.signal, terminate);
+
+      ac.abort();
+      // Re-dispatch an abort event on the signal to simulate a duplicate
+      // listener fire — the registration guards against double-invocation.
+      ac.signal.dispatchEvent(new Event('abort'));
+
+      expect(terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposer detaches the listener before abort fires', () => {
+      const ac = new AbortController();
+      const terminate = vi.fn();
+      const detach = manager.registerAbort(ac.signal, terminate);
+
+      detach();
+      ac.abort();
+
+      expect(terminate).not.toHaveBeenCalled();
+    });
+
+    it('swallows errors thrown inside terminate', () => {
+      const ac = new AbortController();
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {
+        // Mock implementation
+      });
+
+      const terminate = vi.fn(() => {
+        throw new Error('boom');
+      });
+      manager.registerAbort(ac.signal, terminate);
+
+      expect(() => {
+        ac.abort();
+      }).not.toThrow();
+      expect(consoleLogSpy).toHaveBeenCalled();
+
+      consoleLogSpy.mockRestore();
+    });
+  });
+
   describe('dispose', () => {
     it('should clear all state', () => {
       const child = new MockChildProcess() as unknown as ChildProcess;

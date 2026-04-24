@@ -1,27 +1,37 @@
 /**
  * React hooks bridging the non-React event buses (`logEventBus`,
- * `SignalBusPort`) and the Ink component tree.
+ * `SignalBusPort`, `ExecutionRegistryPort`) and the Ink component tree.
  *
- * All three hooks use `useSyncExternalStore`-style subscriptions to avoid
- * tearing during concurrent renders.
+ * The hooks use `useSyncExternalStore`-style subscriptions to avoid tearing
+ * during concurrent renders.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
+import type { LogEvent, LogEventBus } from '@src/business/ports/log-event-bus.ts';
+import type { ExecutionRegistryPort, RunningExecution } from '@src/business/ports/execution-registry.ts';
 import { type DashboardData, loadDashboardData } from '@src/integration/ui/tui/views/dashboard-data.ts';
 import { getSharedDeps } from '@src/integration/bootstrap.ts';
-import { logEventBus, type LogEvent } from './event-bus.ts';
+import { logEventBus } from './event-bus.ts';
 
 /**
  * Subscribe to log events. Returns a rolling buffer of the most recent events
  * up to `limit` (default 200). The buffer is a new array on every update so
  * React re-renders.
+ *
+ * `bus` defaults to the process-wide singleton. Pass a scoped bus (e.g. the
+ * one obtained from `ExecutionRegistryPort.getLogEventBus(id)`) to subscribe
+ * only to a specific execution's log stream.
  */
-export function useLoggerEvents(limit = 200): readonly LogEvent[] {
+export function useLoggerEvents(limit = 200, bus?: LogEventBus | null): readonly LogEvent[] {
   const [buffer, setBuffer] = useState<LogEvent[]>([]);
+  const source = bus ?? logEventBus;
 
   useEffect(() => {
-    const unsubscribe = logEventBus.subscribe((batch) => {
+    // Reset the buffer when the source bus changes so a remount against a
+    // different execution does not carry stale events from a prior one.
+    setBuffer([]);
+    const unsubscribe = source.subscribe((batch) => {
       setBuffer((prev) => {
         const next = prev.concat(batch);
         if (next.length > limit) next.splice(0, next.length - limit);
@@ -29,18 +39,49 @@ export function useLoggerEvents(limit = 200): readonly LogEvent[] {
       });
     });
     return unsubscribe;
-  }, [limit]);
+  }, [limit, source]);
 
   return buffer;
 }
 
 /**
- * Subscribe to harness signals/events. Returns a rolling buffer up to `limit`.
+ * Subscribe to the execution registry. Returns the current snapshot of all
+ * known executions — remounted on every transition (start / complete / fail /
+ * cancel). The initial list is read synchronously on mount so consumers never
+ * flash an empty frame when there are already-running executions at mount.
+ *
+ * Accepts `null` to no-op, so callers can pass the shared-deps registry
+ * directly without guarding at the call site.
  */
-export function useSignalEvents(bus: SignalBusPort, limit = 200): readonly HarnessEvent[] {
+export function useRegistryEvents(registry: ExecutionRegistryPort | null): readonly RunningExecution[] {
+  const [executions, setExecutions] = useState<readonly RunningExecution[]>(() => (registry ? registry.list() : []));
+
+  useEffect(() => {
+    if (registry === null) {
+      setExecutions([]);
+      return;
+    }
+    setExecutions(registry.list());
+    const unsubscribe = registry.subscribe(() => {
+      setExecutions(registry.list());
+    });
+    return unsubscribe;
+  }, [registry]);
+
+  return executions;
+}
+
+/**
+ * Subscribe to harness signals/events. Returns a rolling buffer up to `limit`.
+ * Accepts `null` to no-op so a view can pass `registry.getSignalBus(id)`
+ * directly without guarding at the call site.
+ */
+export function useSignalEvents(bus: SignalBusPort | null, limit = 200): readonly HarnessEvent[] {
   const [buffer, setBuffer] = useState<HarnessEvent[]>([]);
 
   useEffect(() => {
+    setBuffer([]);
+    if (bus === null) return;
     const unsubscribe = bus.subscribe((batch) => {
       setBuffer((prev) => {
         const next = prev.concat(batch);

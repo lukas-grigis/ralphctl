@@ -299,6 +299,7 @@ export class EvaluateTaskUseCase {
         cwd: repoPath,
         args,
         env: this.aiSession.getSpawnEnv(),
+        abortSignal: options?.abortSignal,
       });
     } catch (err) {
       // Evaluator spawn failure — return malformed so evaluation never blocks
@@ -372,6 +373,7 @@ export class EvaluateTaskUseCase {
         args: ['--add-dir', sprintDir],
         env: this.aiSession.getSpawnEnv(),
         maxTurns: options?.maxTurns,
+        abortSignal: options?.abortSignal,
       });
 
       spinner.succeed(`Fix attempt completed: ${task.name}`);

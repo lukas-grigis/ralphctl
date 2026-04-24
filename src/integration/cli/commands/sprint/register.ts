@@ -183,6 +183,8 @@ Examples:
     .option('--refresh-check', 'Force re-run check scripts even if they already ran this sprint')
     .option('-b, --branch', 'Create sprint branch (ralphctl/<sprint-id>) in all repos')
     .option('--branch-name <name>', 'Use a custom branch name for sprint execution')
+    .option('--resume-dirty', 'Resume with uncommitted changes intact (skips prompt)')
+    .option('--reset-on-resume', 'Hard-reset working tree to HEAD before resuming (destructive; skips prompt)')
     .option('--max-budget-usd <amount>', 'Max USD budget per AI task (Claude only)')
     .option('--fallback-model <model>', 'Fallback model when primary is overloaded (Claude only)')
     .option('--max-turns <number>', 'Max agentic turns per task (Claude only, default: 200)')
@@ -223,6 +225,8 @@ Branch Management:
           refreshCheck?: boolean;
           branch?: boolean;
           branchName?: string;
+          resumeDirty?: boolean;
+          resetOnResume?: boolean;
           maxBudgetUsd?: string;
           fallbackModel?: string;
           maxTurns?: string;
@@ -241,6 +245,8 @@ Branch Management:
         if (opts?.refreshCheck) args.push('--refresh-check');
         if (opts?.branch) args.push('--branch');
         if (opts?.branchName) args.push('--branch-name', opts.branchName);
+        if (opts?.resumeDirty) args.push('--resume-dirty');
+        if (opts?.resetOnResume) args.push('--reset-on-resume');
         if (opts?.maxBudgetUsd) args.push('--max-budget-usd', opts.maxBudgetUsd);
         if (opts?.fallbackModel) args.push('--fallback-model', opts.fallbackModel);
         if (opts?.maxTurns) args.push('--max-turns', opts.maxTurns);

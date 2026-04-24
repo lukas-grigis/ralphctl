@@ -2,12 +2,16 @@
  * ViewRouter — navigation stack for the Ink TUI.
  *
  * The router is the single source of truth for which view is on screen. It
- * owns the stack, exposes `{push, pop, replace, reset}` via React context,
- * and handles the global hotkeys that work the same everywhere:
+ * owns the stack and exposes `{push, pop, replace, reset}` via React context.
+ * The global hotkeys that work the same everywhere are dispatched by
+ * `useGlobalKeys()` (see `runtime/use-global-keys.ts`), installed by every
+ * `ViewShell` (and by `HomeView` directly, since Home uses a bare shell):
  *
  *   - Esc → pop one frame (no-op at root, so users at home don't accidentally exit)
  *   - h   → reset to [home] (single jump back to landing screen)
  *   - s   → push settings on top of whatever is on screen
+ *   - d   → push dashboard on top of whatever is on screen
+ *   - ?   → push doctor on top of whatever is on screen
  *   - q   → exit the Ink app (only when at home root — elsewhere `q` is free
  *           for views to use as a regular character if they want)
  *
@@ -20,14 +24,13 @@
  * the view. Only top-level destinations live on the router stack.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Box, useApp, useInput } from 'ink';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Box } from 'ink';
 import { Banner } from '@src/integration/ui/tui/components/banner.tsx';
 import { StatusBar } from '@src/integration/ui/tui/components/status-bar.tsx';
 import { KeyboardHints } from '@src/integration/ui/tui/components/keyboard-hints.tsx';
 import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { PromptHost } from '@src/integration/ui/prompts/prompt-host.tsx';
-import { useCurrentPrompt } from '@src/integration/ui/prompts/hooks.ts';
 import { ViewHintsProvider } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { RouterProvider, type RouterApi, type ViewEntry, type ViewId } from './router-context.ts';
 import { HomeView } from './home-view.tsx';
@@ -75,7 +78,11 @@ import { ReactivateSprintView } from './workflows/reactivate-sprint-view.tsx';
 import { EvaluationsView } from './browse/evaluations-view.tsx';
 import { EvaluationShowView } from './browse/evaluation-show-view.tsx';
 import { FeedbackView } from './browse/feedback-view.tsx';
+import { RunningExecutionsView } from './running-executions-view.tsx';
+import { ExecutionNotificationBanner } from '@src/integration/ui/tui/components/execution-notification-banner.tsx';
 import { VersionHint } from '@src/integration/ui/tui/components/version-hint.tsx';
+import { getSharedDeps } from '@src/integration/bootstrap.ts';
+import type { ExecutionRegistryPort } from '@src/business/ports/execution-registry.ts';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -97,15 +104,20 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
     label: 'Execute',
     render: (props) => {
       const sprintId = typeof props['sprintId'] === 'string' ? props['sprintId'] : '';
+      const executionId = typeof props['executionId'] === 'string' ? props['executionId'] : undefined;
       const executionOptions = props['executionOptions'] as
         | React.ComponentProps<typeof ExecuteView>['executionOptions']
         | undefined;
-      return <ExecuteView sprintId={sprintId} executionOptions={executionOptions} />;
+      return <ExecuteView sprintId={sprintId} executionId={executionId} executionOptions={executionOptions} />;
     },
   },
   dashboard: {
     label: 'Dashboard',
     render: () => <DashboardView />,
+  },
+  'running-executions': {
+    label: 'Runs',
+    render: () => <RunningExecutionsView />,
   },
   'refine-phase': {
     label: 'Refine',
@@ -275,7 +287,6 @@ interface Props {
 }
 
 export function ViewRouter({ initialStack }: Props): React.JSX.Element {
-  const app = useApp();
   const [stack, setStack] = useState<readonly ViewEntry[]>(() => {
     if (initialStack.length === 0) {
       return [{ id: 'home' }] as const;
@@ -283,10 +294,16 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     return collapseAdjacentDuplicates(initialStack);
   });
 
-  // Keep a ref in sync so global key handlers can read the current stack
-  // length without triggering re-renders or stale closures.
-  const stackRef = useRef(stack);
-  stackRef.current = stack;
+  // Resolve the registry once at router mount time. `getSharedDeps()` may
+  // throw in non-wired test environments — the banner accepts `null` and
+  // renders nothing in that case.
+  const registry: ExecutionRegistryPort | null = useMemo(() => {
+    try {
+      return getSharedDeps().executionRegistry;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const push = useCallback((entry: ViewEntry): void => {
     setStack((s) => {
@@ -325,48 +342,12 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     [current, stack, push, pop, replace, reset]
   );
 
-  // Global hotkeys. Per-view `useInput` handlers run in parallel — Ink
-  // multiplexes input, so view-level navigation (arrow keys, Enter) keeps
-  // working alongside these.
-  //
-  // While a prompt is pending, the user is typing into an input field — we
-  // must NOT intercept plain characters like `s`/`d`/`h`/`q` or Esc (which
-  // the prompt uses to cancel). The prompt's own `useInput` handler owns the
-  // keyboard until it resolves; disabling our router hotkeys is the cleanest
-  // way to achieve that with Ink's multiplexed input model.
-  const currentPrompt = useCurrentPrompt();
-  const routerHotkeysActive = currentPrompt === null;
-
-  useInput(
-    (input, key) => {
-      if (key.escape) {
-        pop();
-        return;
-      }
-      if (input === 'h') {
-        reset({ id: 'home' });
-        return;
-      }
-      if (input === 's' && current.id !== 'settings') {
-        // Avoid stacking settings on top of itself.
-        push({ id: 'settings' });
-        return;
-      }
-      if (input === 'd' && current.id !== 'dashboard') {
-        // Avoid stacking dashboard on top of itself.
-        push({ id: 'dashboard' });
-        return;
-      }
-      if (input === '?' && current.id !== 'doctor') {
-        push({ id: 'doctor' });
-        return;
-      }
-      if (input === 'q' && stackRef.current.length === 1 && current.id === 'home') {
-        app.exit();
-      }
-    },
-    { isActive: routerHotkeysActive }
-  );
+  // Global hotkeys (Esc / h / s / d / ? / q) are dispatched from
+  // `useGlobalKeys()` installed inside every `ViewShell` (and in `HomeView`
+  // directly, since Home uses a bare shell). Co-locating the key handler with
+  // the view surface it governs keeps the hotkeys firing from any screen,
+  // including browse detail views whose own `useInput` handlers previously
+  // masked the global set.
 
   const meta = views[current.id];
   const props = current.props ?? {};
@@ -376,13 +357,14 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
       <ViewHintsProvider key={current.id}>
         <Box flexDirection="column">
           <Banner />
+          <ExecutionNotificationBanner currentViewId={current.id} registry={registry} />
           {meta.render(props)}
           <PromptHost />
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <KeyboardHints />
           </Box>
           <Box
-            marginTop={1}
+            marginTop={spacing.section}
             borderStyle="round"
             borderColor={inkColors.primary}
             borderDimColor
@@ -433,6 +415,9 @@ function buildHints(currentId: ViewId, depth: number): readonly { key: string; a
   }
   if (currentId !== 'doctor') {
     hints.push({ key: '?', action: 'doctor' });
+  }
+  if (currentId !== 'running-executions') {
+    hints.push({ key: 'x', action: 'runs' });
   }
   if (currentId === 'home' && depth === 1) {
     hints.push({ key: 'b', action: 'browse' });

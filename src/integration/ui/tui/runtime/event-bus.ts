@@ -1,49 +1,36 @@
 /**
- * Event bus for logger events bound for the Ink UI.
+ * Concrete `LogEventBus` adapter plus the process-wide default singleton.
+ *
+ * The interface + event shape lives in `src/business/ports/log-event-bus.ts`
+ * so the execution registry port can expose per-execution buses without
+ * integration types leaking into business.
  *
  * The Ink-mounted app subscribes via `useLoggerEvents()` and renders a rolling
- * log tail. Outside of Ink (plain CLI commands), the bus is never subscribed
- * to and its emissions are harmlessly dropped.
- *
- * Kept separate from `SignalBus` (signals) because log events are semantically
- * different — they're free-form text lines, not typed domain signals.
+ * log tail. Outside of Ink (plain CLI commands), the default singleton is never
+ * subscribed to and its emissions are harmlessly dropped.
  */
 
-import type { LogContext } from '@src/business/ports/logger.ts';
+import type {
+  LogEvent,
+  LogEventBus,
+  LogEventLevel,
+  LogEventListener,
+  LogEventUnsubscribe,
+} from '@src/business/ports/log-event-bus.ts';
 
-export type LogEventLevel = 'debug' | 'info' | 'warn' | 'error' | 'success' | 'warning' | 'tip' | 'item' | 'dim';
-
-export type LogEvent =
-  | { kind: 'log'; level: LogEventLevel; message: string; context: LogContext; timestamp: Date }
-  | { kind: 'header'; title: string; icon?: string; timestamp: Date }
-  | { kind: 'separator'; width: number; timestamp: Date }
-  | { kind: 'field'; label: string; value: string; timestamp: Date }
-  | { kind: 'card'; title: string; lines: string[]; timestamp: Date }
-  | { kind: 'newline'; timestamp: Date }
-  | { kind: 'spinner-start'; id: number; message: string; timestamp: Date }
-  | { kind: 'spinner-succeed'; id: number; message: string; timestamp: Date }
-  | { kind: 'spinner-fail'; id: number; message: string; timestamp: Date }
-  | { kind: 'spinner-stop'; id: number; timestamp: Date };
-
-type LogEventListener = (events: readonly LogEvent[]) => void;
-type Unsubscribe = () => void;
-
-interface LogEventBus {
-  emit(event: LogEvent): void;
-  subscribe(listener: LogEventListener): Unsubscribe;
-  dispose(): void;
-}
+// Re-export the shared types so existing call-sites can keep importing from
+// this module; the canonical source of truth is the business port.
+export type { LogEvent, LogEventBus, LogEventLevel, LogEventListener, LogEventUnsubscribe };
 
 const FRAME_MS = 16;
 
 /**
- * Singleton log event bus.
- *
- * InkSink and the Ink `useLoggerEvents()` hook both reference this single
- * instance. There is no ambiguity about whose events go where — only one
- * Ink app mounts per process.
+ * Micro-batching log event bus. Drains its buffer on an animation-frame tick
+ * and fans the batch out to every listener. Used as the default singleton
+ * and instantiated per-execution by `createExecutionScope` so concurrent
+ * backgrounded executions do not cross-talk on the shared event stream.
  */
-class SingletonLogEventBus implements LogEventBus {
+export class InMemoryLogEventBus implements LogEventBus {
   private readonly listeners = new Set<LogEventListener>();
   private readonly buffer: LogEvent[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
@@ -53,7 +40,7 @@ class SingletonLogEventBus implements LogEventBus {
     this.scheduleFlush();
   }
 
-  subscribe(listener: LogEventListener): Unsubscribe {
+  subscribe(listener: LogEventListener): LogEventUnsubscribe {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -101,4 +88,4 @@ class SingletonLogEventBus implements LogEventBus {
   }
 }
 
-export const logEventBus: LogEventBus = new SingletonLogEventBus();
+export const logEventBus: LogEventBus = new InMemoryLogEventBus();

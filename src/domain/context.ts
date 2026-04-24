@@ -16,6 +16,13 @@ export interface StepContext {
   aiProvider?: AiProvider;
   branch?: string | null;
   config?: Config;
+  /**
+   * Cooperative cancellation signal for the pipeline. When `aborted`, the
+   * pipeline executor stops launching subsequent steps and `forEachTask` stops
+   * pulling new items. In-flight steps observe the signal via shared context
+   * and are expected to wind down gracefully (see AiSessionPort + ProcessLifecyclePort).
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Result of a check script run for a single repo */
@@ -65,6 +72,18 @@ export interface ExecutionOptions extends StepOptions {
   refreshCheck?: boolean;
   branch?: boolean;
   branchName?: string;
+  /**
+   * Skip prompts and resume with uncommitted changes intact. Mutually
+   * exclusive with `resetOnResume`. Required in non-interactive contexts
+   * (no TTY / CI / piped stdin) when the working tree is dirty.
+   */
+  resumeDirty?: boolean;
+  /**
+   * Skip prompts and hard-reset the working tree to HEAD before resuming.
+   * Destructive — tracked modifications and untracked files are discarded.
+   * Mutually exclusive with `resumeDirty`.
+   */
+  resetOnResume?: boolean;
   noEvaluate?: boolean;
   noFeedback?: boolean;
   /**
@@ -80,9 +99,21 @@ export interface ExecutionOptions extends StepOptions {
    * task context string pointing the generator at the file.
    */
   contractPath?: string;
+  /**
+   * Cooperative cancellation for a single task execution. Threaded from
+   * `StepContext.abortSignal` through the per-task pipeline and into
+   * `spawnWithRetry` so a cancelled backgrounded execution kills the child
+   * subprocess (SIGTERM) rather than letting it run to completion.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Options specific to evaluation */
 export interface EvaluationOptions extends StepOptions {
   iterations?: number;
+  /**
+   * Cooperative cancellation for evaluator spawns. Threaded from the outer
+   * pipeline so a cancelled execution also tears down an in-flight evaluator.
+   */
+  abortSignal?: AbortSignal;
 }

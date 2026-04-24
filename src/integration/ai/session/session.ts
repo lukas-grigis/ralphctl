@@ -89,6 +89,21 @@ export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: Pr
       return;
     }
 
+    // Wire a task-scoped abort signal to SIGTERM for this specific child —
+    // distinct from the global SIGINT handlers. Backgrounded executions use
+    // this to cancel one task without affecting sibling tasks. Listener is
+    // detached on child close to avoid accumulation.
+    let detachAbort: (() => void) | null = null;
+    if (options.abortSignal) {
+      detachAbort = manager.registerAbort(options.abortSignal, () => {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // Swallow — process may already be dead (ESRCH) or lacking permission.
+        }
+      });
+    }
+
     const MAX_STDOUT_SIZE = 10_000_000; // 10MB — guard against runaway provider output
 
     // Write prompt to stdin if provided, then close
@@ -116,6 +131,7 @@ export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: Pr
     });
 
     child.on('close', (code) => {
+      detachAbort?.();
       void (async () => {
         const exitCode = code ?? 1;
 
@@ -144,6 +160,7 @@ export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: Pr
     });
 
     child.on('error', (err) => {
+      detachAbort?.();
       reject(new SpawnError(`Failed to spawn ${p.binary} CLI: ${err.message}`, '', 1));
     });
   });
@@ -189,6 +206,12 @@ export async function spawnWithRetry(
     const elapsed = Date.now() - startTime;
     if (attempt > 0 && elapsed >= totalTimeoutMs) {
       throw new SpawnError(`Total retry timeout exceeded (${String(totalTimeoutMs)}ms)`, '', 1, resumeSessionId);
+    }
+
+    // Bail out of the retry loop immediately on cancellation — don't retry
+    // a task the caller has asked to abort.
+    if (options.abortSignal?.aborted) {
+      throw new SpawnError('Aborted by caller', '', 1, resumeSessionId);
     }
 
     const r = await wrapAsync(async () => spawnHeadless({ ...options, resumeSessionId }, p), ensureError);

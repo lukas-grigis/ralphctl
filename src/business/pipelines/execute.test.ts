@@ -212,6 +212,17 @@ function makeCoordinator(): RateLimitCoordinatorPort {
   };
 }
 
+function makePrompt(): ExecuteDeps['prompt'] {
+  return {
+    select: () => Promise.reject(new Error('select not stubbed')),
+    confirm: () => Promise.reject(new Error('confirm not stubbed')),
+    input: () => Promise.reject(new Error('input not stubbed')),
+    checkbox: () => Promise.reject(new Error('checkbox not stubbed')),
+    editor: () => Promise.resolve(null),
+    fileBrowser: () => Promise.resolve(null),
+  };
+}
+
 function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
   return {
     persistence: makePersistence(),
@@ -229,7 +240,10 @@ function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
     processLifecycle: {
       ensureHandlers: () => void 0,
       isShuttingDown: () => false,
+      registerAbort: () => () => void 0,
     },
+    prompt: makePrompt(),
+    isTTY: () => false,
     ...overrides,
   };
 }

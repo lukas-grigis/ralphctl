@@ -49,6 +49,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
         env: options.env,
         prompt,
         resumeSessionId: options.resumeSessionId,
+        abortSignal: options.abortSignal,
       },
       provider
     );
@@ -69,6 +70,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
         env: options.env,
         prompt,
         resumeSessionId: options.resumeSessionId,
+        abortSignal: options.abortSignal,
       },
       { maxRetries: options.maxRetries },
       provider
@@ -90,6 +92,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
         env: options.env,
         prompt,
         resumeSessionId: sessionId,
+        abortSignal: options.abortSignal,
       },
       undefined,
       provider

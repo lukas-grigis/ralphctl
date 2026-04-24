@@ -7,6 +7,40 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Interactive dirty-tree handling on sprint resume** — when `sprint start` finds uncommitted
+  changes in a sprint repo, the harness now runs a two-step Y/n prompt (`Resume with existing
+changes? [Y/n]` → `Reset to latest commit and resume? [Y/n]`) instead of hard-blocking.
+  Non-interactive contexts still block by default and surface a hint naming both new override
+  flags: `--resume-dirty` (keep changes intact) and `--reset-on-resume` (discard tracked
+  modifications + untracked files, then resume). The two flags are mutually exclusive.
+- **`RemovalWorkflow` component** — shared state machine + surface for destructive flows (sprint
+  delete, project / repo / ticket / task remove). Replaces five near-identical view
+  implementations.
+
+### Changed
+
+- **Sprint delete is now single-confirm** — the former two-step "Are you sure? / Really sure?"
+  chain collapses into one confirmation citing the destructive detail (ticket + task counts).
+- **Global hotkeys fire from every view** — `h` / `s` / `d` / `?` / `q` / `Esc` now dispatch
+  consistently from browse detail views (ticket-show, task-show, …) where child `useInput`
+  handlers could previously mask them. Dispatch extracted into a `useGlobalKeys()` hook installed
+  from every `<ViewShell>`.
+- **Evaluator is stricter about rubber-stamping** — `task-evaluation.md` now requires a concrete
+  per-dimension observation before `<evaluation-passed>`; bare `**Correctness**: PASS` lines
+  without a justification parse as `status: failed`. Existing sprints may see more `failed`
+  evaluation outcomes by design; the fix-and-reeval loop handles them like any other real failure.
+- **Prompt guardrail against sprint-local identifiers** — `task-execution.md` and
+  `sprint-feedback.md` now instruct the implementer to describe invariants directly rather than
+  citing ephemeral sprint metadata (`AC1`–`AC6`, ticket / task / sprint IDs) in committed code.
+
+### Removed
+
+- **`.claude/docs/PROMPT-AUDIT.md`** — the doc's invariants are now enforced as assertions in
+  `src/integration/ai/prompts/loader.test.ts` (canonical XML vocabulary, TUI/CLI surface parity,
+  generic-content audits) and summarised inline in `CLAUDE.md § Prompt Template Engineering`.
+
 ## [0.4.3] - 2026-04-22
 
 ### Added

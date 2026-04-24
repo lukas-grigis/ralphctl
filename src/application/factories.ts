@@ -23,6 +23,7 @@ import { AutoUserAdapter, InteractiveUserAdapter } from '@src/integration/user-i
 import { DefaultExternalAdapter } from '@src/integration/external/external-adapter.ts';
 import { DefaultOnboardAdapter } from '@src/integration/external/onboard-adapter.ts';
 import { updateProject } from '@src/integration/persistence/project.ts';
+import { isTTY } from '@src/integration/ui/theme/ui.ts';
 
 /** Lazy AI workflow dependencies — created fresh per command invocation. */
 interface AiDeps {
@@ -166,6 +167,8 @@ export function createExecuteSprintPipeline(shared: SharedDeps, options: Execute
       signalBus: shared.signalBus,
       createRateLimitCoordinator: shared.createRateLimitCoordinator,
       processLifecycle: shared.processLifecycle,
+      prompt: shared.prompt,
+      isTTY,
     },
     options
   );

@@ -31,9 +31,16 @@ export function chipKindForSprintStatus(status: 'draft' | 'active' | 'closed'): 
   return 'muted';
 }
 
-export function chipKindForTaskStatus(status: 'todo' | 'in_progress' | 'done'): StatusKind {
+export function chipKindForTaskStatus(status: 'todo' | 'in_progress' | 'done' | 'cancelled'): StatusKind {
   if (status === 'done') return 'success';
   if (status === 'in_progress') return 'warning';
+  return 'muted';
+}
+
+export function chipKindForExecutionStatus(status: 'running' | 'completed' | 'failed' | 'cancelled'): StatusKind {
+  if (status === 'running') return 'warning';
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'error';
   return 'muted';
 }
 

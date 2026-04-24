@@ -30,6 +30,7 @@ export type ViewId =
   | 'settings'
   | 'execute'
   | 'dashboard'
+  | 'running-executions'
   | 'refine-phase'
   | 'plan-phase'
   | 'close-phase'
@@ -112,4 +113,14 @@ export function useRouter(): RouterApi {
     throw new Error('useRouter() called outside of <ViewRouter />');
   }
   return api;
+}
+
+/**
+ * Non-throwing variant for hooks that must degrade gracefully when rendered
+ * outside a `<ViewRouter />` — e.g. view unit tests that exercise a single
+ * view component in isolation without standing up the full router stack.
+ * Returns `null` when no router is present so the caller can no-op.
+ */
+export function useRouterOptional(): RouterApi | null {
+  return useContext(RouterContext);
 }

@@ -4,8 +4,10 @@ import { z } from 'zod';
 export const SprintStatusSchema = z.enum(['draft', 'active', 'closed']);
 export type SprintStatus = z.infer<typeof SprintStatusSchema>;
 
-// Task statuses (kanban flow: todo → in_progress → done)
-export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done']);
+// Task statuses. `cancelled` is a terminal variant alongside `done` — reached
+// when the harness aborts a running task (e.g. user cancels a backgrounded
+// execution). Cancelled tasks do not satisfy `blockedBy` dependents.
+export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 // Requirement status for tickets (pending → approved)

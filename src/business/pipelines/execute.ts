@@ -16,6 +16,7 @@ import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
+import type { PromptPort } from '@src/business/ports/prompt.ts';
 import { findSpawnError, pipeline, step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { forEachTask, type RetryAction, type SchedulerStats } from '@src/business/pipelines/framework/for-each-task.ts';
@@ -25,11 +26,13 @@ import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scr
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
 import type { PerTaskContext } from '@src/business/pipelines/execute/per-task-context.ts';
+import { resolveDirtyTree } from '@src/business/pipelines/execute/resolve-dirty-tree.ts';
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
 const EXIT_NO_TASKS = 2;
 const EXIT_ALL_BLOCKED = 3;
+const EXIT_INTERRUPTED = 130;
 
 /** Hard cap on parallel task launches — prevents resource exhaustion. */
 const MAX_CONCURRENCY = 10;
@@ -82,6 +85,10 @@ export interface ExecuteDeps {
   createRateLimitCoordinator: () => RateLimitCoordinatorPort;
   /** SIGINT/SIGTERM handler installer + shutdown observer. */
   processLifecycle: ProcessLifecyclePort;
+  /** Interactive prompt port — used by the dirty-tree resume flow. */
+  prompt: PromptPort;
+  /** TTY probe — wired from the composition root (integration-layer helper). */
+  isTTY: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +361,14 @@ function prepareTasksStep(persistence: PersistencePort): PipelineStep {
  * same per-repo checkout loop, same sprint.branch persistence, same
  * "Branch '<name>' ready" + "Branch: <name>" log lines.
  */
-function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort, logger: LoggerPort): PipelineStep {
+function ensureBranchesStep(
+  external: ExternalPort,
+  persistence: PersistencePort,
+  logger: LoggerPort,
+  prompt: PromptPort,
+  isTTY: () => boolean,
+  options: ExecuteOptions
+): PipelineStep {
   return step<ExecuteContext>('ensure-branches', async (ctx): Promise<DomainResult<Partial<ExecuteContext>>> => {
     if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) {
       const empty: Partial<ExecuteContext> = {};
@@ -393,20 +407,16 @@ function ensureBranchesStep(external: ExternalPort, persistence: PersistencePort
     }
 
     try {
-      // Fail-fast: check for uncommitted changes in all repos
+      // Resolve dirty working trees per repo — prompt / reset / abort / block.
       for (const projectPath of uniquePaths) {
-        try {
-          if (external.hasUncommittedChanges(projectPath)) {
-            return Result.error(
-              new StorageError(
-                `Repository at ${projectPath} has uncommitted changes. Commit or stash them before starting.`
-              )
-            );
-          }
-        } catch (err) {
-          if (err instanceof StorageError) return Result.error(err);
-          // Not a git repo — skip silently
-        }
+        await resolveDirtyTree({
+          repoPath: projectPath,
+          options,
+          prompt,
+          isTTY: isTTY(),
+          logger,
+          external,
+        });
       }
 
       // Create/checkout branch in each repo
@@ -545,6 +555,12 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     const taskSessionIds = new Map<string, string>();
     // Repos blocked by post-task-check failures or exhausted branch retries.
     const failedRepos = new Set<string>();
+    // Tasks this run ever launched. On cancellation we use this to decide
+    // which `in_progress` rows to flip to `cancelled` (we never touch tasks
+    // this execution didn't start — those may belong to a prior run). Never
+    // pruned: the drain step reads persisted `task.status` to decide which
+    // are really in_progress, so no stale-state race matters.
+    const launchedTaskIds = new Set<string>();
     // First real failure reason — used to populate stopReason when the
     // scheduler surfaces an error.
     let firstBlockedReason: string | null = null;
@@ -718,6 +734,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           deps.signalBus.emit({ type: 'rate-limit-resumed', timestamp: new Date() });
         },
         onLaunch: (task) => {
+          launchedTaskIds.add(task.id);
           const resumeId = taskSessionIds.get(task.id);
           const action = resumeId ? 'Resuming' : 'Starting';
           deps.logger.info(`--- ${action} task ${String(task.order)}: ${task.name} ---`);
@@ -727,7 +744,9 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         onSettle: (task, result) => {
           if (result === 'success') {
             // Purge session-id tracking — task done. The success log line is
-            // owned by the `mark-done` per-task step.
+            // owned by the `mark-done` per-task step. We deliberately keep
+            // `launchedTaskIds` for the cancellation drain; that set is
+            // never consulted on the happy path.
             taskSessionIds.delete(task.id);
           }
         },
@@ -756,10 +775,47 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       requeued: 0,
       inFlight: 0,
       pausedRepos: new Set<string>(),
+      cancelled: false,
     };
     const stats: SchedulerStats = schedResult.ok
       ? ((schedResult.value as { schedulerStats?: SchedulerStats }).schedulerStats ?? emptyStats)
       : emptyStats;
+
+    // Cancellation drain: when the scheduler winds down via AbortSignal, any
+    // task the per-task pipeline started but didn't finish stays `in_progress`
+    // because `mark-done` never ran. Flip those specific rows to `cancelled`
+    // and emit matching `task-finished` events so the dashboard sees a
+    // terminal state instead of a hung row. We only touch tasks this run
+    // launched (`launchedTaskIds`) — never pre-existing `in_progress` rows
+    // belonging to a prior session.
+    if (stats.cancelled && launchedTaskIds.size > 0) {
+      try {
+        const currentTasks = await deps.persistence.getTasks(sprint.id);
+        const toCancel = currentTasks.filter((t) => launchedTaskIds.has(t.id) && t.status === 'in_progress');
+        if (toCancel.length > 0) {
+          const updated = currentTasks.map((t) =>
+            launchedTaskIds.has(t.id) && t.status === 'in_progress' ? { ...t, status: 'cancelled' as const } : t
+          );
+          await deps.persistence.saveTasks(updated, sprint.id);
+          for (const t of toCancel) {
+            deps.signalBus.emit({
+              type: 'task-finished',
+              sprintId: sprint.id,
+              taskId: t.id,
+              status: 'cancelled',
+              timestamp: new Date(),
+            });
+          }
+          deps.logger.warning(`Cancelled ${String(toCancel.length)} in-progress task(s).`);
+        }
+      } catch (err) {
+        // Drain is best-effort — a write failure here must not mask the real
+        // cancellation outcome in the summary.
+        deps.logger.warning(
+          `Failed to flip in-progress tasks to cancelled: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
 
     const summary = await buildExecutionSummary({
       persistence: deps.persistence,
@@ -849,6 +905,20 @@ async function buildExecutionSummary(args: {
   const remaining = await persistence.getRemainingTasks(sprintId);
   const currentTasks = await persistence.getTasks(sprintId);
   const blocked = remaining.filter((t) => isBlocked(t, currentTasks));
+
+  // Cancellation takes precedence over every other outcome. The scheduler's
+  // `stats.cancelled` flag is set when the outer AbortSignal fired mid-run —
+  // the user's explicit "stop" intent must be reflected in `stopReason`
+  // rather than folded into `task_blocked` / `user_paused`.
+  if (stats.cancelled) {
+    return {
+      completed: stats.completed,
+      remaining: remaining.length,
+      blocked: blocked.length,
+      stopReason: 'cancelled',
+      exitCode: EXIT_INTERRUPTED,
+    };
+  }
 
   if (failedRepos.size > 0) {
     logger.warning(`Repos with failed checks: ${[...failedRepos].join(', ')}`);
@@ -1021,7 +1091,7 @@ export function createExecuteSprintPipeline(deps: ExecuteDeps, options: ExecuteO
     autoActivateStep(deps.persistence),
     assertActiveStep(),
     prepareTasksStep(deps.persistence),
-    ensureBranchesStep(deps.external, deps.persistence, deps.logger),
+    ensureBranchesStep(deps.external, deps.persistence, deps.logger, deps.prompt, deps.isTTY, options),
     sprintStartCheckStep(deps.external, deps.persistence, deps.logger, options),
     executeTasksStep(deps, options),
     feedbackLoopStep(deps, options),

@@ -32,6 +32,12 @@ interface EvaluateOptions {
   force?: boolean;
   /** Max agentic turns for evaluator sessions — passed through to the use case. */
   maxTurns?: number;
+  /**
+   * Cooperative cancellation. When aborted mid-evaluation, spawned evaluator /
+   * fix-loop children receive SIGTERM so a cancelled execution doesn't leak
+   * an in-flight evaluator subprocess.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -137,6 +143,7 @@ function runEvaluatorLoopStep(useCase: EvaluateTaskUseCase, options: EvaluateOpt
       iterations: options.iterations,
       maxTurns: options.maxTurns,
       fallbackModel: ctx.generatorModel ?? undefined,
+      abortSignal: ctx.abortSignal ?? options.abortSignal,
     });
     if (!result.ok) {
       return Result.error(result.error);

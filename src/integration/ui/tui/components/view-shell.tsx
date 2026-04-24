@@ -19,6 +19,7 @@ import React from 'react';
 import { Box } from 'ink';
 import { spacing } from '@src/integration/ui/theme/tokens.ts';
 import { SectionStamp } from '@src/integration/ui/tui/components/section-stamp.tsx';
+import { useGlobalKeys } from '@src/integration/ui/tui/runtime/use-global-keys.ts';
 
 interface Props {
   /** Shown in SectionStamp. Required unless `bare` is set. */
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export function ViewShell({ title, bare = false, children }: Props): React.JSX.Element {
+  useGlobalKeys();
   return (
     <Box flexDirection="column">
       {!bare && title !== undefined ? <SectionStamp title={title} /> : null}

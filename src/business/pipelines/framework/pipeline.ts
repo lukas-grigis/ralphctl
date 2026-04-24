@@ -37,8 +37,16 @@ export async function executePipeline<TCtx extends StepContext>(
 ): Promise<DomainResult<PipelineResult<TCtx>>> {
   let ctx = { ...initialContext };
   const stepResults: StepExecutionRecord[] = [];
+  let stepsRun = 0;
 
   for (const step of pipeline.steps) {
+    // Cooperative cancellation: if the caller's AbortSignal has fired and
+    // we've already executed at least one step, stop launching further steps.
+    // The very first step always runs — steps that need to react to an
+    // already-aborted signal (notably `forEachTask`) own the semantics
+    // themselves and populate a terminal summary in their own result.
+    if (stepsRun > 0 && ctx.abortSignal?.aborted) break;
+
     const startTime = Date.now();
 
     try {
@@ -100,6 +108,7 @@ export async function executePipeline<TCtx extends StepContext>(
         status: 'success',
         durationMs: Date.now() - startTime,
       });
+      stepsRun++;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       stepResults.push({

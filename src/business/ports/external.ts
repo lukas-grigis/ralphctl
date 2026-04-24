@@ -34,6 +34,15 @@ export interface ExternalPort {
   hasUncommittedChanges(projectPath: string): boolean;
 
   /**
+   * Hard-reset the working tree to HEAD and remove untracked files.
+   *
+   * Destructive — only invoke on explicit user consent (e.g. the
+   * `--reset-on-resume` flag or the second-step confirm prompt of the
+   * dirty-tree recovery flow). Throws `StorageError` on failure.
+   */
+  hardResetWorkingTree(projectPath: string): void;
+
+  /**
    * Stage all changes and create a commit with the given message.
    *
    * Used by the `recover-dirty-tree` fence to commit leftover agent changes

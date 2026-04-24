@@ -7,6 +7,7 @@ import type { PromptPort } from '@src/business/ports/prompt.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
+import type { ExecutionRegistryPort } from '@src/business/ports/execution-registry.ts';
 
 /**
  * Shape of the adapter graph every command receives at runtime.
@@ -33,4 +34,11 @@ export interface SharedDeps {
   createRateLimitCoordinator: () => RateLimitCoordinatorPort;
   /** SIGINT/SIGTERM handler installer + shutdown flag used by the scheduler. */
   processLifecycle: ProcessLifecyclePort;
+  /**
+   * Runtime container for in-flight sprint executions. Callers start /
+   * cancel / inspect backgrounded executions through this port; the concrete
+   * in-memory adapter owns per-execution scope (signal bus, log event bus,
+   * abort controller) so concurrent runs do not cross-talk.
+   */
+  executionRegistry: ExecutionRegistryPort;
 }

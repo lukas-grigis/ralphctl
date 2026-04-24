@@ -29,6 +29,12 @@ export interface SpawnAsyncOptions {
 export interface HeadlessSpawnOptions extends SpawnAsyncOptions {
   prompt?: string;
   resumeSessionId?: string;
+  /**
+   * When the signal aborts mid-spawn, the session layer sends SIGTERM to
+   * the provider child via the process-lifecycle adapter so cancellation
+   * propagates to the underlying AI process.
+   */
+  abortSignal?: AbortSignal;
 }
 
 export interface SpawnResult {

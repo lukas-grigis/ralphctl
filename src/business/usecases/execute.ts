@@ -29,7 +29,8 @@ export type StopReason =
   | 'task_blocked'
   | 'user_paused'
   | 'no_tasks'
-  | 'all_blocked';
+  | 'all_blocked'
+  | 'cancelled';
 
 export interface ExecutionSummary {
   completed: number;
@@ -139,6 +140,8 @@ export class ExecuteTasksUseCase {
 
     if (options?.session) {
       try {
+        // Interactive session is a synchronous spawn — backgrounded executions
+        // never use session mode, so there is no abort signal to thread here.
         await this.aiSession.spawnInteractive(spawnPrompt, {
           cwd: repoPath,
           args,
@@ -168,6 +171,7 @@ export class ExecuteTasksUseCase {
         env: this.aiSession.getSpawnEnv(),
         maxRetries: options?.maxRetries,
         resumeSessionId: options?.resumeSessionId,
+        abortSignal: options?.abortSignal,
       });
 
       spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${task.name}`);
@@ -342,6 +346,7 @@ export class ExecuteTasksUseCase {
             args: ['--add-dir', sprintDir],
             env: this.aiSession.getSpawnEnv(),
             maxTurns: options?.maxTurns,
+            abortSignal: options?.abortSignal,
           });
           spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${syntheticTask.name}`);
 

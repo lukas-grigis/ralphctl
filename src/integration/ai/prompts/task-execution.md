@@ -24,6 +24,11 @@ When finished, emit a signal from the `<signals>` block below.
   erases context that downstream tasks depend on.
 - **Leave {{CONTEXT_FILE}} and task definitions alone** — the context file is cleaned up by the harness (committing it
   pollutes the repo); the task name, description, steps, and other task files are immutable.
+- **Never reference sprint-local identifiers in code** — do not mention acceptance-criterion labels (`AC1`, `AC2`,
+  `AC1–AC6`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test names, commit
+  messages, or any committed artefact. These identifiers are ephemeral sprint metadata and become stale as tickets
+  close. If a comment needs to explain WHY, state the underlying invariant or constraint directly (e.g. "exactly one
+  confirmation per destructive action") rather than citing the AC that mandates it.
 
 {{COMMIT_CONSTRAINT}}
 
