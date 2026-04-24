@@ -673,6 +673,212 @@ describe('executeTasksStep via forEachTask — integration', () => {
     expect(maxInFlight).toBe(1);
   });
 
+  // -------------------------------------------------------------------------
+  // Cancellation — regression fence for the bug where cancelling a
+  // backgrounded execution left the Claude subprocess running and reported
+  // `task_blocked` / `user_paused` instead of `cancelled`, and left tasks
+  // stuck in `in_progress` forever.
+  // -------------------------------------------------------------------------
+
+  it('cancellation: aborted before any spawn → scheduler emits cancelled summary with exitCode 130', async () => {
+    // Abort mid-pipeline but after `load-sprint` has run, so the outer
+    // pipeline reaches `execute-tasks` and the scheduler's own cancellation
+    // semantics kick in. `prepare-tasks`'s post-hook is a convenient seam —
+    // it fires just before the scheduler starts.
+    const task = makeTask();
+    const scenario = buildDeps({ tasks: [task] });
+
+    const ac = new AbortController();
+    // Abort the moment getReadyTasks is first consulted — that happens
+    // inside `execute-tasks`'s pullItems tick, so the scheduler enters
+    // runScheduler with an already-aborted signal and short-circuits on
+    // the initial abort check before launching any task.
+    let aborted = false;
+    const persistenceWithSchedulerHook = scenario.deps.persistence as unknown as {
+      getReadyTasks: PersistencePort['getReadyTasks'];
+    };
+    const originalGetReady = persistenceWithSchedulerHook.getReadyTasks.bind(scenario.deps.persistence);
+    persistenceWithSchedulerHook.getReadyTasks = vi.fn(async (sprintId: string) => {
+      if (!aborted) {
+        aborted = true;
+        ac.abort();
+      }
+      return originalGetReady(sprintId);
+    });
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1', abortSignal: ac.signal });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(scenario.spawnWithRetry).not.toHaveBeenCalled();
+    expect(result.value.context.executionSummary).toMatchObject({
+      stopReason: 'cancelled',
+      exitCode: 130,
+    });
+  });
+
+  it('cancellation: abortSignal is threaded into spawnWithRetry so the AI subprocess receives SIGTERM', async () => {
+    const task = makeTask();
+    // Spawn awaits the abort — emulates a real Claude child that is still
+    // running when the user cancels. The scheduler's cancellation path must
+    // deliver the signal all the way through to this call.
+    const spawnImpl = (_taskId: string, _count: number, opts?: { abortSignal?: AbortSignal }) =>
+      new Promise<SessionResult>((resolve, reject) => {
+        const sig = opts?.abortSignal;
+        if (!sig) {
+          reject(new Error('expected abortSignal to be threaded to the provider spawn'));
+          return;
+        }
+        if (sig.aborted) {
+          reject(new SpawnError('Aborted by caller', '', 1));
+          return;
+        }
+        sig.addEventListener('abort', () => {
+          reject(new SpawnError('Aborted by caller', '', 1));
+        });
+      });
+
+    const scenario = buildDeps({ tasks: [task] });
+    // Swap the default spawn impl for one that captures + observes options.
+    scenario.spawnWithRetry.mockReset();
+    const spawnMockImpl: (prompt: string, opts: { abortSignal?: AbortSignal }) => Promise<SessionResult> = (
+      prompt,
+      opts
+    ) => {
+      void prompt;
+      return spawnImpl('t1', 1, { abortSignal: opts.abortSignal });
+    };
+    scenario.spawnWithRetry.mockImplementation(spawnMockImpl as never);
+
+    const ac = new AbortController();
+    setTimeout(() => {
+      ac.abort();
+    }, 20);
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1', abortSignal: ac.signal });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // spawnWithRetry must have been called with the abortSignal (not undefined).
+    const calls = scenario.spawnWithRetry.mock.calls as [unknown, { abortSignal?: AbortSignal }][];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0]?.[1]?.abortSignal).toBe(ac.signal);
+    // Summary reflects cancellation, not a generic task_blocked.
+    expect(result.value.context.executionSummary?.stopReason).toBe('cancelled');
+  });
+
+  it('cancellation drain: in-progress tasks this run launched are flipped to cancelled', async () => {
+    const task = makeTask();
+    let saveCalledWith: Task[] | null = null;
+    const abortFromSpawn = new AbortController();
+
+    // Observe when spawn fires, then abort. The spawn then throws SpawnError
+    // (non-rate-limit) which executeOneTask converts to success:false →
+    // execute-task returns ParseError → pipeline stops without reaching
+    // mark-done. The task is left `in_progress` in persistence.
+    const spawnImpl = (_taskId: string, _count: number, opts?: { abortSignal?: AbortSignal }) =>
+      new Promise<SessionResult>((_resolve, reject) => {
+        const sig = opts?.abortSignal;
+        abortFromSpawn.abort(); // tell the outer test to abort
+        if (sig?.aborted) {
+          reject(new SpawnError('Aborted by caller', '', 1));
+          return;
+        }
+        sig?.addEventListener('abort', () => {
+          reject(new SpawnError('Aborted by caller', '', 1));
+        });
+      });
+
+    const scenario = buildDeps({ tasks: [task] });
+    scenario.spawnWithRetry.mockReset();
+    const spawnMockImpl: (prompt: string, opts: { abortSignal?: AbortSignal }) => Promise<SessionResult> = (
+      prompt,
+      opts
+    ) => {
+      void prompt;
+      return spawnImpl('t1', 1, { abortSignal: opts.abortSignal });
+    };
+    scenario.spawnWithRetry.mockImplementation(spawnMockImpl as never);
+
+    // Intercept saveTasks so we can verify the drain's write. The test
+    // persistence stub doesn't expose saveTasks by default — install one
+    // that mirrors writes into stateTasks so getTasks() sees them.
+    const persistenceWithSave = scenario.deps.persistence as unknown as {
+      saveTasks: PersistencePort['saveTasks'];
+    };
+    persistenceWithSave.saveTasks = vi.fn((next: Task[]) => {
+      saveCalledWith = next.map((t) => ({ ...t }));
+      for (const t of next) {
+        const target = scenario.stateTasks.find((s) => s.id === t.id);
+        if (target) target.status = t.status;
+      }
+      return Promise.resolve();
+    });
+
+    const ac = new AbortController();
+    abortFromSpawn.signal.addEventListener('abort', () => {
+      ac.abort();
+    });
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1', abortSignal: ac.signal });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Summary is cancelled.
+    expect(result.value.context.executionSummary?.stopReason).toBe('cancelled');
+
+    // The drain called saveTasks with the task flipped to cancelled.
+    expect(saveCalledWith).not.toBeNull();
+    const saved = saveCalledWith as unknown as Task[];
+    const updatedTask = saved.find((t) => t.id === 't1');
+    expect(updatedTask?.status).toBe('cancelled');
+
+    // task-finished event fired with status=cancelled (dashboard signal).
+    const cancelled = scenario.events.find((e) => e.type === 'task-finished' && e.status === 'cancelled');
+    expect(cancelled).toBeDefined();
+  });
+
+  it('cancellation drain: skipped entirely when this run never launched anything', async () => {
+    // Empty task list — nothing to launch. `pullItems` is called once, the
+    // test aborts before the first settle, and the scheduler exits with
+    // `stats.cancelled=true`. The drain sees an empty `launchedTaskIds`
+    // and must NOT saveTasks — otherwise a cancelled-but-launched-nothing
+    // run would spuriously write the tasks file.
+    const scenario = buildDeps({
+      tasks: [],
+      sprint: makeSprint({ tickets: [makeTicket({ affectedRepoIds: ['repo-a'] })] }),
+    });
+
+    let saveCalled = false;
+    (scenario.deps.persistence as unknown as { saveTasks: PersistencePort['saveTasks'] }).saveTasks = vi.fn(() => {
+      saveCalled = true;
+      return Promise.resolve();
+    });
+
+    const ac = new AbortController();
+    // Pipeline short-circuits in prepare-tasks (empty) and execute-tasks
+    // no-ops. Abort is an extra guard — the drain only runs when the
+    // scheduler reports cancelled, which requires the scheduler to run.
+    // For the empty-tasks path, that step is skipped, so the drain never
+    // runs and the assertion is that saveTasks is never called.
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1', abortSignal: ac.signal });
+
+    expect(result.ok).toBe(true);
+    // No tasks in the sprint → no launches, no drain write.
+    expect(saveCalled).toBe(false);
+    // Empty tasks short-circuits with stopReason: 'no_tasks'.
+    if (!result.ok) return;
+    expect(result.value.context.executionSummary?.stopReason).toBe('no_tasks');
+  });
+
   it('fail-fast drains in-flight tasks before failing', async () => {
     const taskA = makeTask({ id: 't1', order: 1, repoId: 'repo-a' });
     const taskB = makeTask({ id: 't2', order: 2, repoId: 'repo-b' });

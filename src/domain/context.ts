@@ -99,9 +99,21 @@ export interface ExecutionOptions extends StepOptions {
    * task context string pointing the generator at the file.
    */
   contractPath?: string;
+  /**
+   * Cooperative cancellation for a single task execution. Threaded from
+   * `StepContext.abortSignal` through the per-task pipeline and into
+   * `spawnWithRetry` so a cancelled backgrounded execution kills the child
+   * subprocess (SIGTERM) rather than letting it run to completion.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Options specific to evaluation */
 export interface EvaluationOptions extends StepOptions {
   iterations?: number;
+  /**
+   * Cooperative cancellation for evaluator spawns. Threaded from the outer
+   * pipeline so a cancelled execution also tears down an in-flight evaluator.
+   */
+  abortSignal?: AbortSignal;
 }

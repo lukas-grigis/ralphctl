@@ -61,6 +61,7 @@ export function evaluateTask(deps: EvaluateTaskDeps): PipelineStep<PerTaskContex
       {
         iterations: evalCfg.iterations,
         maxTurns: deps.options.maxTurns,
+        abortSignal: ctx.abortSignal,
       }
     );
 
@@ -68,6 +69,7 @@ export function evaluateTask(deps: EvaluateTaskDeps): PipelineStep<PerTaskContex
       sprintId: ctx.sprint.id,
       taskId: ctx.task.id,
       generatorModel: ctx.generatorModel ?? null,
+      abortSignal: ctx.abortSignal,
     };
 
     let stepNames: string[] = [];

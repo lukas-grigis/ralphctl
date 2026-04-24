@@ -32,6 +32,7 @@ const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
 const EXIT_NO_TASKS = 2;
 const EXIT_ALL_BLOCKED = 3;
+const EXIT_INTERRUPTED = 130;
 
 /** Hard cap on parallel task launches — prevents resource exhaustion. */
 const MAX_CONCURRENCY = 10;
@@ -554,6 +555,12 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     const taskSessionIds = new Map<string, string>();
     // Repos blocked by post-task-check failures or exhausted branch retries.
     const failedRepos = new Set<string>();
+    // Tasks this run ever launched. On cancellation we use this to decide
+    // which `in_progress` rows to flip to `cancelled` (we never touch tasks
+    // this execution didn't start — those may belong to a prior run). Never
+    // pruned: the drain step reads persisted `task.status` to decide which
+    // are really in_progress, so no stale-state race matters.
+    const launchedTaskIds = new Set<string>();
     // First real failure reason — used to populate stopReason when the
     // scheduler surfaces an error.
     let firstBlockedReason: string | null = null;
@@ -727,6 +734,7 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           deps.signalBus.emit({ type: 'rate-limit-resumed', timestamp: new Date() });
         },
         onLaunch: (task) => {
+          launchedTaskIds.add(task.id);
           const resumeId = taskSessionIds.get(task.id);
           const action = resumeId ? 'Resuming' : 'Starting';
           deps.logger.info(`--- ${action} task ${String(task.order)}: ${task.name} ---`);
@@ -736,7 +744,9 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
         onSettle: (task, result) => {
           if (result === 'success') {
             // Purge session-id tracking — task done. The success log line is
-            // owned by the `mark-done` per-task step.
+            // owned by the `mark-done` per-task step. We deliberately keep
+            // `launchedTaskIds` for the cancellation drain; that set is
+            // never consulted on the happy path.
             taskSessionIds.delete(task.id);
           }
         },
@@ -770,6 +780,42 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     const stats: SchedulerStats = schedResult.ok
       ? ((schedResult.value as { schedulerStats?: SchedulerStats }).schedulerStats ?? emptyStats)
       : emptyStats;
+
+    // Cancellation drain: when the scheduler winds down via AbortSignal, any
+    // task the per-task pipeline started but didn't finish stays `in_progress`
+    // because `mark-done` never ran. Flip those specific rows to `cancelled`
+    // and emit matching `task-finished` events so the dashboard sees a
+    // terminal state instead of a hung row. We only touch tasks this run
+    // launched (`launchedTaskIds`) — never pre-existing `in_progress` rows
+    // belonging to a prior session.
+    if (stats.cancelled && launchedTaskIds.size > 0) {
+      try {
+        const currentTasks = await deps.persistence.getTasks(sprint.id);
+        const toCancel = currentTasks.filter((t) => launchedTaskIds.has(t.id) && t.status === 'in_progress');
+        if (toCancel.length > 0) {
+          const updated = currentTasks.map((t) =>
+            launchedTaskIds.has(t.id) && t.status === 'in_progress' ? { ...t, status: 'cancelled' as const } : t
+          );
+          await deps.persistence.saveTasks(updated, sprint.id);
+          for (const t of toCancel) {
+            deps.signalBus.emit({
+              type: 'task-finished',
+              sprintId: sprint.id,
+              taskId: t.id,
+              status: 'cancelled',
+              timestamp: new Date(),
+            });
+          }
+          deps.logger.warning(`Cancelled ${String(toCancel.length)} in-progress task(s).`);
+        }
+      } catch (err) {
+        // Drain is best-effort — a write failure here must not mask the real
+        // cancellation outcome in the summary.
+        deps.logger.warning(
+          `Failed to flip in-progress tasks to cancelled: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
 
     const summary = await buildExecutionSummary({
       persistence: deps.persistence,
@@ -859,6 +905,20 @@ async function buildExecutionSummary(args: {
   const remaining = await persistence.getRemainingTasks(sprintId);
   const currentTasks = await persistence.getTasks(sprintId);
   const blocked = remaining.filter((t) => isBlocked(t, currentTasks));
+
+  // Cancellation takes precedence over every other outcome. The scheduler's
+  // `stats.cancelled` flag is set when the outer AbortSignal fired mid-run —
+  // the user's explicit "stop" intent must be reflected in `stopReason`
+  // rather than folded into `task_blocked` / `user_paused`.
+  if (stats.cancelled) {
+    return {
+      completed: stats.completed,
+      remaining: remaining.length,
+      blocked: blocked.length,
+      stopReason: 'cancelled',
+      exitCode: EXIT_INTERRUPTED,
+    };
+  }
 
   if (failedRepos.size > 0) {
     logger.warning(`Repos with failed checks: ${[...failedRepos].join(', ')}`);

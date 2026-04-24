@@ -49,11 +49,18 @@ export function useLoggerEvents(limit = 200, bus?: LogEventBus | null): readonly
  * known executions — remounted on every transition (start / complete / fail /
  * cancel). The initial list is read synchronously on mount so consumers never
  * flash an empty frame when there are already-running executions at mount.
+ *
+ * Accepts `null` to no-op, so callers can pass the shared-deps registry
+ * directly without guarding at the call site.
  */
-export function useRegistryEvents(registry: ExecutionRegistryPort): readonly RunningExecution[] {
-  const [executions, setExecutions] = useState<readonly RunningExecution[]>(() => registry.list());
+export function useRegistryEvents(registry: ExecutionRegistryPort | null): readonly RunningExecution[] {
+  const [executions, setExecutions] = useState<readonly RunningExecution[]>(() => (registry ? registry.list() : []));
 
   useEffect(() => {
+    if (registry === null) {
+      setExecutions([]);
+      return;
+    }
     setExecutions(registry.list());
     const unsubscribe = registry.subscribe(() => {
       setExecutions(registry.list());

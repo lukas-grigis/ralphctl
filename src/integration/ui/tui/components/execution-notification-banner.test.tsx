@@ -13,7 +13,6 @@ import type {
   RunningExecution,
 } from '@src/business/ports/execution-registry.ts';
 import type { Sprint } from '@src/domain/models.ts';
-import type { SharedDeps } from '@src/integration/shared-deps.ts';
 
 function makeSprint(id: string, name: string): Sprint {
   return {
@@ -70,21 +69,6 @@ function makeStubRegistry(initial: readonly RunningExecution[] = []): StubRegist
   };
 }
 
-let currentRegistry: StubRegistry = makeStubRegistry();
-
-vi.mock('@src/integration/bootstrap.ts', () => ({
-  getSharedDeps: (): SharedDeps => ({ executionRegistry: currentRegistry }) as unknown as SharedDeps,
-  getPrompt: () => ({
-    select: vi.fn(),
-    confirm: vi.fn(),
-    input: vi.fn(),
-    checkbox: vi.fn(),
-    editor: vi.fn(),
-    fileBrowser: vi.fn(),
-  }),
-  setSharedDeps: vi.fn(),
-}));
-
 import { ExecutionNotificationBanner } from './execution-notification-banner.tsx';
 
 async function flush(): Promise<void> {
@@ -95,21 +79,24 @@ async function flush(): Promise<void> {
 describe('ExecutionNotificationBanner', () => {
   afterEach(() => {
     vi.clearAllMocks();
-    currentRegistry = makeStubRegistry();
+  });
+
+  it('renders nothing when no registry is supplied', () => {
+    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="home" registry={null} />);
+    expect(lastFrame() ?? '').toBe('');
   });
 
   it('renders nothing when no execution has settled', async () => {
-    currentRegistry = makeStubRegistry([makeExecution('exec-1', 'alpha', 'Alpha Sprint', 'running')]);
-    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="home" />);
+    const registry = makeStubRegistry([makeExecution('exec-1', 'alpha', 'Alpha Sprint', 'running')]);
+    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
     expect(lastFrame() ?? '').not.toContain('alpha');
   });
 
   it('shows a toast when a running execution transitions to completed', async () => {
     const registry = makeStubRegistry([makeExecution('exec-1', 'alpha', 'Alpha Sprint', 'running')]);
-    currentRegistry = registry;
 
-    const { lastFrame, rerender } = render(<ExecutionNotificationBanner currentViewId="home" />);
+    const { lastFrame, rerender } = render(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
     expect(lastFrame() ?? '').not.toContain('Alpha Sprint');
 
@@ -118,7 +105,7 @@ describe('ExecutionNotificationBanner', () => {
     // Force a re-render to pick up the state transition dispatched from the
     // subscribe listener — ink-testing-library does not auto-re-render
     // after imperative registry state changes.
-    rerender(<ExecutionNotificationBanner currentViewId="home" />);
+    rerender(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
 
     const frame = lastFrame() ?? '';
@@ -129,14 +116,13 @@ describe('ExecutionNotificationBanner', () => {
 
   it('shows a failure toast when a running execution transitions to failed', async () => {
     const registry = makeStubRegistry([makeExecution('exec-2', 'beta', 'Beta Sprint', 'running')]);
-    currentRegistry = registry;
 
-    const { lastFrame, rerender } = render(<ExecutionNotificationBanner currentViewId="home" />);
+    const { lastFrame, rerender } = render(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
 
     registry.emitTransition(makeExecution('exec-2', 'beta', 'Beta Sprint', 'failed'));
     await flush();
-    rerender(<ExecutionNotificationBanner currentViewId="home" />);
+    rerender(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
 
     const frame = lastFrame() ?? '';
@@ -147,9 +133,8 @@ describe('ExecutionNotificationBanner', () => {
 
   it('never surfaces a toast for a cancelled execution', async () => {
     const registry = makeStubRegistry([makeExecution('exec-3', 'gamma', 'Gamma Sprint', 'running')]);
-    currentRegistry = registry;
 
-    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="home" />);
+    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="home" registry={registry} />);
     await flush();
 
     registry.emitTransition(makeExecution('exec-3', 'gamma', 'Gamma Sprint', 'cancelled'));
@@ -162,9 +147,10 @@ describe('ExecutionNotificationBanner', () => {
 
   it('suppresses the toast when the user is already on the running-executions view', async () => {
     const registry = makeStubRegistry([makeExecution('exec-4', 'delta', 'Delta Sprint', 'completed')]);
-    currentRegistry = registry;
 
-    const { lastFrame } = render(<ExecutionNotificationBanner currentViewId="running-executions" />);
+    const { lastFrame } = render(
+      <ExecutionNotificationBanner currentViewId="running-executions" registry={registry} />
+    );
     await flush();
 
     expect(lastFrame() ?? '').not.toContain('Delta Sprint');

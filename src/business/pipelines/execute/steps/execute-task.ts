@@ -47,6 +47,7 @@ export function executeTask(deps: {
       ...deps.options,
       ...(resumeSessionId ? { resumeSessionId } : {}),
       ...(ctx.contractPath ? { contractPath: ctx.contractPath } : {}),
+      ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
     });
 
     if (!result.success) {

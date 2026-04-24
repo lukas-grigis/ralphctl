@@ -267,6 +267,17 @@ async function runScheduler<TItem, TInnerCtx extends StepContext>(
         continue;
       }
 
+      // Cancellation beats retry policy: once the caller's AbortSignal has
+      // fired, any in-flight error is a consequence of the abort (the
+      // provider's SIGTERM wiring), not a real task failure. Routing it
+      // through `retryPolicy` would surface as `task_blocked` in the
+      // scheduler's terminalError path — masking the user's cancel intent.
+      if (abortSignal?.aborted) {
+        state.stats.cancelled = true;
+        opts.policies.onSettle?.(item, 'failed');
+        break;
+      }
+
       // Error path — delegate to retryPolicy.
       const attempt = (state.attempts.get(item) ?? 0) + 1;
       state.attempts.set(item, attempt);

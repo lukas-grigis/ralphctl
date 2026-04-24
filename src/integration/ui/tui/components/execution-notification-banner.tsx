@@ -27,23 +27,19 @@ import type {
   ExecutionStatus,
   RunningExecution,
 } from '@src/business/ports/execution-registry.ts';
-import { getSharedDeps } from '@src/integration/bootstrap.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useRegistryEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
-
-const NOOP_REGISTRY: ExecutionRegistryPort = {
-  start: () => Promise.reject(new Error('no registry')),
-  get: () => null,
-  list: () => [],
-  cancel: () => undefined,
-  subscribe: () => () => undefined,
-  getSignalBus: () => null,
-  getLogEventBus: () => null,
-};
 
 interface Props {
   /** Current view id — used to mark an execution "visited" once the user is on it. */
   readonly currentViewId: string;
+  /**
+   * Execution registry to subscribe to. Pass `null` when no registry is
+   * available (e.g. plain-text CLI mount) — the banner renders nothing.
+   * The router owns the registry lookup so this component never reaches
+   * into `getSharedDeps()` at render time.
+   */
+  readonly registry: ExecutionRegistryPort | null;
 }
 
 function isTerminal(status: ExecutionStatus): boolean {
@@ -72,17 +68,8 @@ function bannerLabel(status: ExecutionStatus): string {
   return 'ENDED';
 }
 
-export function ExecutionNotificationBanner({ currentViewId }: Props): React.JSX.Element | null {
-  const shared = (() => {
-    try {
-      return getSharedDeps();
-    } catch {
-      return null;
-    }
-  })();
-  const registry = shared?.executionRegistry ?? null;
-
-  const executions = useRegistryEvents(registry ?? NOOP_REGISTRY);
+export function ExecutionNotificationBanner({ currentViewId, registry }: Props): React.JSX.Element | null {
+  const executions = useRegistryEvents(registry);
 
   // Track ids we have already shown a notification for so the banner is
   // single-fire per transition.

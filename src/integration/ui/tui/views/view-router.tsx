@@ -81,6 +81,8 @@ import { FeedbackView } from './browse/feedback-view.tsx';
 import { RunningExecutionsView } from './running-executions-view.tsx';
 import { ExecutionNotificationBanner } from '@src/integration/ui/tui/components/execution-notification-banner.tsx';
 import { VersionHint } from '@src/integration/ui/tui/components/version-hint.tsx';
+import { getSharedDeps } from '@src/integration/bootstrap.ts';
+import type { ExecutionRegistryPort } from '@src/business/ports/execution-registry.ts';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -292,6 +294,17 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     return collapseAdjacentDuplicates(initialStack);
   });
 
+  // Resolve the registry once at router mount time. `getSharedDeps()` may
+  // throw in non-wired test environments — the banner accepts `null` and
+  // renders nothing in that case.
+  const registry: ExecutionRegistryPort | null = useMemo(() => {
+    try {
+      return getSharedDeps().executionRegistry;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const push = useCallback((entry: ViewEntry): void => {
     setStack((s) => {
       // Belt-and-braces: never stack identical adjacent frames. If the target
@@ -344,7 +357,7 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
       <ViewHintsProvider key={current.id}>
         <Box flexDirection="column">
           <Banner />
-          <ExecutionNotificationBanner currentViewId={current.id} />
+          <ExecutionNotificationBanner currentViewId={current.id} registry={registry} />
           {meta.render(props)}
           <PromptHost />
           <Box marginTop={spacing.section}>

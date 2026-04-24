@@ -18,7 +18,7 @@
  * with a hint pointing them to `sprint start`.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { RunningExecution } from '@src/business/ports/execution-registry.ts';
 import { getSharedDeps } from '@src/integration/bootstrap.ts';
@@ -93,7 +93,18 @@ export function RunningExecutionsView(): React.JSX.Element {
     return [...executions].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
   }, [executions]);
 
-  const now = useMemo(() => new Date(), [executions]);
+  // Tick `now` every second so the "started N ago" column updates live even
+  // when no registry transition has fired. A stale `now` here would freeze
+  // the relative timestamp between transitions, contradicting the live feel.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
   const columns = useMemo(() => buildColumns(now), [now]);
 
   const handleSelect = useCallback(

@@ -322,4 +322,129 @@ describe('ExecuteTasksUseCase — runFeedbackLoopOnly', () => {
     expect(started.taskName.length).toBeLessThanOrEqual('Feedback: '.length + 61);
     expect(started.taskName.endsWith('…')).toBe(true);
   });
+
+  it('threads abortSignal into spawnWithRetry so feedback-loop honours cancellation', async () => {
+    const deps = buildFeedbackDeps(['fix logging', null]);
+    const ac = new AbortController();
+    await deps.uc.runFeedbackLoopOnly(makeSprint(), { abortSignal: ac.signal });
+    expect(deps.spawnWithRetry).toHaveBeenCalledTimes(1);
+    const [, opts] = deps.spawnWithRetry.mock.calls[0] as [unknown, { abortSignal?: AbortSignal }];
+    expect(opts.abortSignal).toBe(ac.signal);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeOneTask — abortSignal plumbing (regression fence for the cancel bug
+// where spawnWithRetry ran the AI subprocess to completion after the user
+// cancelled a backgrounded execution).
+// ---------------------------------------------------------------------------
+
+describe('ExecuteTasksUseCase.executeOneTask — abortSignal plumbing', () => {
+  it('passes options.abortSignal through to the provider spawn', async () => {
+    const spawnWithRetry = vi.fn().mockResolvedValue({
+      output: '<task-complete/>',
+      sessionId: 'sess',
+      model: 'claude-sonnet',
+    });
+
+    const persistence = {
+      resolveRepoPath: vi.fn().mockResolvedValue('/repo/a'),
+      getRepoById: vi.fn().mockResolvedValue({
+        project: { id: 'p1', name: 'p', displayName: 'P', repositories: [] },
+        repo: { id: 'r1', name: 'a', path: '/repo/a' },
+      }),
+      getProgressSummary: vi.fn().mockResolvedValue(''),
+    } as unknown as PersistencePort;
+
+    const aiSession = {
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      getProviderDisplayName: () => 'Claude',
+      getSpawnEnv: () => ({}),
+      spawnWithRetry,
+    } as unknown as AiSessionPort;
+
+    const spinner = { succeed: vi.fn(), fail: vi.fn(), stop: vi.fn() };
+    const loggerBase = {
+      info: vi.fn(),
+      warning: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      success: vi.fn(),
+      spinner: vi.fn(() => spinner),
+      time: vi.fn(() => () => undefined),
+    };
+    const logger = {
+      ...loggerBase,
+      child: vi.fn(() => logger),
+    } as unknown as LoggerPort;
+
+    const external = {
+      detectProjectTooling: () => '',
+      getRecentGitHistory: () => 'no commits',
+    } as unknown as ExternalPort;
+
+    const fs = {
+      getSprintDir: () => '/tmp/sprint',
+      getProgressFilePath: () => '/tmp/sprint/progress.md',
+      getProjectContextFilePath: () => '/repo/a/.ctx.md',
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      deleteFile: vi.fn().mockResolvedValue(undefined),
+    } as unknown as FilesystemPort;
+
+    const promptBuilder = {
+      buildTaskExecutionPrompt: () => 'instructions',
+    } as unknown as PromptBuilderPort;
+
+    const signalParser = {
+      parseSignals: () => [{ type: 'task-complete' }],
+    } as unknown as SignalParserPort;
+
+    const signalHandler = {
+      handleProgress: vi.fn(),
+      handleEvaluation: vi.fn(),
+      handleTaskBlocked: vi.fn(),
+      handleNote: vi.fn(),
+    } as unknown as SignalHandlerPort;
+
+    const signalBus: SignalBusPort = {
+      emit: () => undefined,
+      subscribe: () => () => undefined,
+      dispose: () => undefined,
+    };
+
+    const uc = new ExecuteTasksUseCase(
+      persistence,
+      aiSession,
+      promptBuilder,
+      {} as OutputParserPort,
+      {} as UserInteractionPort,
+      logger,
+      external,
+      fs,
+      signalParser,
+      signalHandler,
+      signalBus
+    );
+
+    const ac = new AbortController();
+    const task = {
+      id: 't1',
+      name: 'T',
+      steps: [],
+      verificationCriteria: [],
+      status: 'todo' as const,
+      order: 1,
+      blockedBy: [],
+      repoId: 'r1',
+      verified: false,
+      evaluated: false,
+    };
+    const sprint = makeSprint();
+
+    await uc.executeOneTask(task, sprint, { abortSignal: ac.signal });
+
+    expect(spawnWithRetry).toHaveBeenCalledTimes(1);
+    const [, opts] = spawnWithRetry.mock.calls[0] as [unknown, { abortSignal?: AbortSignal }];
+    expect(opts.abortSignal).toBe(ac.signal);
+  });
 });
