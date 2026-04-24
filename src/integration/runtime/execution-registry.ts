@@ -28,7 +28,7 @@ import type {
   StartExecutionParams,
   Unsubscribe,
 } from '@src/business/ports/execution-registry.ts';
-import { ExecutionAlreadyRunningError } from '@src/domain/errors.ts';
+import { ExecutionAlreadyRunningError, StepError } from '@src/domain/errors.ts';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { LogEventBus } from '@src/business/ports/log-event-bus.ts';
@@ -154,14 +154,31 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
         this.transition(executionId, 'completed', summary ?? undefined);
       }
     } catch (err) {
-      void err;
       // A rejected pipeline after cancellation should still read as cancelled —
       // e.g. when the runner throws because the abort interrupted a step.
+      // Cancellation is not a failure: don't forward the error.
       if (abortSignal.aborted) {
         this.transition(executionId, 'cancelled');
-      } else {
-        this.transition(executionId, 'failed');
+        return;
       }
+
+      const errInfo: RunningExecution['error'] =
+        err instanceof StepError
+          ? { message: err.message, stepName: err.stepName }
+          : { message: err instanceof Error ? err.message : String(err) };
+
+      // Publish the error to the scoped LogEventBus so a live <LogTail />
+      // shows it alongside the terminal banner.
+      const entry = this.entries.get(executionId);
+      entry?.logEventBus.emit({
+        kind: 'log',
+        level: 'error',
+        message: errInfo.stepName ? `[${errInfo.stepName}] ${errInfo.message}` : errInfo.message,
+        context: {},
+        timestamp: new Date(),
+      });
+
+      this.transition(executionId, 'failed', undefined, errInfo);
     }
   }
 
@@ -195,7 +212,12 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
     return this.entries.get(id)?.logEventBus ?? null;
   }
 
-  private transition(executionId: string, status: ExecutionStatus, summary?: ExecutionSummary): void {
+  private transition(
+    executionId: string,
+    status: ExecutionStatus,
+    summary?: ExecutionSummary,
+    error?: RunningExecution['error']
+  ): void {
     const entry = this.entries.get(executionId);
     if (!entry) return;
     if (entry.execution.status === status) return;
@@ -204,6 +226,7 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
       status,
       endedAt: new Date(),
       summary: summary ?? entry.execution.summary,
+      error: error ?? entry.execution.error,
     };
     entry.execution = next;
     this.notify(next);

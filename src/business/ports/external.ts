@@ -26,7 +26,7 @@ export interface ExternalPort {
   // --- Check script execution ---
 
   /** Run a check/lifecycle script in a project directory */
-  runCheckScript(projectPath: string, script: string, phase: string, timeout?: number): CheckScriptResult;
+  runCheckScript(projectPath: string, script: string, phase: string, timeout?: number): Promise<CheckScriptResult>;
 
   // --- Git operations ---
 

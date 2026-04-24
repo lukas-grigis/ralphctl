@@ -29,6 +29,12 @@ export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled';
  * Public view of an in-flight or terminal execution. The registry stores a
  * private `Entry` per execution (see the in-memory adapter) and exposes only
  * this projection to callers so the UI never reaches into lifecycle internals.
+ *
+ * `error` is populated on `status === 'failed'` entries so the UI can surface
+ * the failure reason. It's a plain data shape — `Error`/`DomainError` instances
+ * are intentionally not leaked across the port. `stepName` is set when the
+ * caught error is a `StepError` (see `src/domain/errors.ts`) so the view can
+ * tell the user which pipeline step blew up.
  */
 export interface RunningExecution {
   id: string;
@@ -39,6 +45,7 @@ export interface RunningExecution {
   startedAt: Date;
   endedAt?: Date;
   summary?: ExecutionSummary;
+  error?: { message: string; stepName?: string };
 }
 
 /**

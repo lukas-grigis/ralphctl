@@ -22,7 +22,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { RunningExecution } from '@src/business/ports/execution-registry.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
@@ -46,6 +46,38 @@ import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
 
 const EXECUTE_HINTS_RUNNING = [{ key: 'c', action: 'cancel' }] as const;
 const EXECUTE_HINTS_TERMINAL = [{ key: 'Enter', action: 'back' }] as const;
+
+/**
+ * Fixed row overhead consumed by the execute view's non-log chrome on a
+ * terminal-state screen (error card visible). Counted conservatively:
+ *
+ *   1  SectionStamp header
+ *   1  section margin (spacing.section = 1)
+ *   1  sprint name row
+ *   1  section margin
+ *   1  SprintSummary
+ *   1  section margin
+ *   5  TaskGrid (minimum rows assumed — variable, but we need a floor)
+ *   1  section margin
+ *   1  log "── Log ───" header row (inside LogTail)
+ *   3  error card minimum (glyph+title + step field + 1 msg line)
+ *   1  KeyboardHints row
+ *   1  StatusBar row
+ *   2  safety margin
+ *  ──
+ *  20  fixed overhead
+ *
+ * Remaining rows (`terminalRows - FIXED_OVERHEAD`) are given to the log tail.
+ * The floor of 3 ensures at least a sliver of context is visible even on tiny
+ * terminals.
+ */
+const LOG_TAIL_FIXED_OVERHEAD = 20;
+/** Minimum log lines shown even on very small terminals. */
+const LOG_TAIL_MIN_LINES = 3;
+/** Default when terminal height is unknown (non-TTY / tests). */
+const LOG_TAIL_DEFAULT_LINES = 8;
+/** Maximum characters from an error message before truncating in the ResultCard. */
+const ERROR_MESSAGE_MAX_LINES = 20;
 
 interface Props {
   sprintId: string;
@@ -102,6 +134,7 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
   const registryEvents = useRegistryEvents(registry);
   const [attach, setAttach] = useState<AttachState>(initialAttach);
   const [state, setState] = useState(initialState);
+  const { stdout } = useStdout();
   const processedCountRef = useRef(0);
   const startedRef = useRef(false);
 
@@ -222,6 +255,14 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
     }
   }, [signalEvents, shared, sprintId]);
 
+  // Derive how many log lines fit in the viewport. `stdout.rows` is the live
+  // terminal height (undefined in non-TTY / test environments). We subtract
+  // the fixed chrome budget to leave what's left for the log. The result is
+  // clamped to at least LOG_TAIL_MIN_LINES so tiny terminals still see context.
+  const logVisibleLines = stdout.rows
+    ? Math.max(LOG_TAIL_MIN_LINES, stdout.rows - LOG_TAIL_FIXED_OVERHEAD)
+    : LOG_TAIL_DEFAULT_LINES;
+
   const status = liveExecution?.status ?? 'running';
   const terminal = status === 'completed' || status === 'failed' || status === 'cancelled';
   const [closePromptRun, setClosePromptRun] = useState(false);
@@ -263,6 +304,10 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
   // View-local keys:
   //   - `c` while running → cancel via the registry (keeps the user on-view)
   //   - Enter on a terminal execution → pop back to the previous frame
+  //
+  // Log scrolling is intentionally absent. The log auto-tails to its end so
+  // the user always sees the most recent events without any interaction.
+  // Full output is available in the sprint's progress.md.
   useInput((input, key) => {
     if (attach.kind === 'attached' && liveExecution?.status === 'running' && input === 'c') {
       registry.cancel(liveExecution.id);
@@ -314,6 +359,11 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
     );
   }
 
+  // Build error card content — truncate very long messages so the ResultCard
+  // stays readable. The full output is always in the log tail below.
+  const errorCard =
+    terminal && liveExecution?.status === 'failed' && liveExecution.error ? buildErrorCard(liveExecution.error) : null;
+
   return (
     <ViewShell title="Execute">
       <Box>
@@ -357,24 +407,38 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
         </Box>
       ) : null}
 
+      {/* Log tail — always rendered first (above the outcome card) so that on a
+          terminal transition the card lands at the bottom of the viewport, just
+          above the hints/status-bar chrome. The tail auto-sticks to its end so
+          the user sees the most-recent events with no key interaction needed.
+          `logVisibleLines` is computed from the live terminal height so the
+          log never pushes the card into terminal scrollback. */}
       <Box marginTop={spacing.section}>
-        <LogTail events={logEvents} />
+        <LogTail events={logEvents} visibleLines={logVisibleLines} scrollOffset={0} />
       </Box>
 
+      {/* Terminal outcome block — rendered AFTER the log tail so it is pinned
+          at the bottom of the viewport (just above hints) when a run finishes. */}
       {terminal && liveExecution ? (
         <Box marginTop={spacing.section} flexDirection="column">
-          <Text color={terminalColor(liveExecution.status)} bold>
-            {terminalGlyph(liveExecution.status)} Execution {liveExecution.status}
-          </Text>
-          {liveExecution.summary ? (
-            <Text dimColor>
-              {liveExecution.summary.completed} completed {glyphs.inlineDot} {liveExecution.summary.remaining} remaining{' '}
-              {glyphs.inlineDot} {liveExecution.summary.blocked} blocked
-              {'  ('}
-              {liveExecution.summary.stopReason}
-              {')'}
-            </Text>
-          ) : null}
+          {errorCard ? (
+            <ResultCard kind="error" title="Execution failed" fields={errorCard.fields} lines={errorCard.lines} />
+          ) : (
+            <>
+              <Text color={terminalColor(liveExecution.status)} bold>
+                {terminalGlyph(liveExecution.status)} Execution {liveExecution.status}
+              </Text>
+              {liveExecution.summary ? (
+                <Text dimColor>
+                  {liveExecution.summary.completed} completed {glyphs.inlineDot} {liveExecution.summary.remaining}{' '}
+                  remaining {glyphs.inlineDot} {liveExecution.summary.blocked} blocked
+                  {'  ('}
+                  {liveExecution.summary.stopReason}
+                  {')'}
+                </Text>
+              ) : null}
+            </>
+          )}
         </Box>
       ) : null}
     </ViewShell>
@@ -391,6 +455,31 @@ function terminalGlyph(status: RunningExecution['status']): string {
   if (status === 'completed') return glyphs.check;
   if (status === 'failed') return glyphs.cross;
   return glyphs.warningGlyph;
+}
+
+/**
+ * Build the fields + lines for a failure ResultCard. Truncates the error
+ * message to the LAST ERROR_MESSAGE_MAX_LINES lines — build tools (Maven,
+ * pnpm, etc.) report the actual failure at the tail of their output, so
+ * head-truncation would show only banners and dependency resolution noise.
+ *
+ * Exported for unit testing.
+ */
+export function buildErrorCard(error: NonNullable<RunningExecution['error']>): {
+  fields: [string, string][] | undefined;
+  lines: string[];
+} {
+  const fields: [string, string][] | undefined = error.stepName ? [['Step', error.stepName]] : undefined;
+  const rawLines = error.message.split('\n');
+  if (rawLines.length <= ERROR_MESSAGE_MAX_LINES) {
+    return { fields, lines: rawLines };
+  }
+  const hidden = rawLines.length - ERROR_MESSAGE_MAX_LINES;
+  const visibleLines = [
+    `(${String(hidden)} earlier line${hidden !== 1 ? 's' : ''} omitted)`,
+    ...rawLines.slice(-ERROR_MESSAGE_MAX_LINES),
+  ];
+  return { fields, lines: visibleLines };
 }
 
 interface CollisionProps {

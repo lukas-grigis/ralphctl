@@ -363,7 +363,7 @@ function buildDeps(scenario: Scenario = {}): {
     spawnInteractive: () => Promise.resolve(),
   } as unknown as AiSessionPort;
 
-  const runCheckScript = scenario.runCheckScript ?? vi.fn(() => ({ passed: true, output: '' }));
+  const runCheckScript = scenario.runCheckScript ?? vi.fn(() => Promise.resolve({ passed: true, output: '' }));
   const verifyBranch = scenario.verifyBranch ?? vi.fn(() => true);
   const hasUncommittedChanges = scenario.hasUncommittedChanges ?? (() => false);
 
@@ -557,8 +557,8 @@ describe('executeTasksStep via forEachTask — integration', () => {
     const task = makeTask();
     // runCheckScript: sprint-start passes, task-complete fails.
     const runCheckScript = vi.fn((_path: string, _script: string, phase: string) => {
-      if (phase === 'sprintStart') return { passed: true, output: '' };
-      return { passed: false, output: 'lint failed' };
+      if (phase === 'sprintStart') return Promise.resolve({ passed: true, output: '' });
+      return Promise.resolve({ passed: false, output: 'lint failed' });
     });
 
     const scenario = buildDeps({

@@ -133,7 +133,7 @@ function buildFeedbackDeps(feedbackResponses: (string | null)[], spawnOutput = '
   for (const r of feedbackResponses) getFeedback.mockResolvedValueOnce(r);
 
   const spawnWithRetry = vi.fn().mockResolvedValue({ output: spawnOutput, sessionId: 'sid' });
-  const runCheckScript = vi.fn().mockReturnValue({ passed: true });
+  const runCheckScript = vi.fn().mockResolvedValue({ passed: true });
 
   const handleProgress = vi.fn().mockResolvedValue({ ok: true });
   const handleNote = vi.fn().mockResolvedValue({ ok: true });

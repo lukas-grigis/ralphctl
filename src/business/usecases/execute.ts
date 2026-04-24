@@ -239,7 +239,7 @@ export class ExecuteTasksUseCase {
 
     this.logger.info(`Running post-task check: ${checkScript}`);
     const { repo } = resolved;
-    const result = this.external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
+    const result = await this.external.runCheckScript(repo.path, checkScript, 'taskComplete', repo.checkTimeout);
 
     if (result.passed) {
       this.logger.success('Post-task check: passed');

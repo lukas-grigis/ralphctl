@@ -154,7 +154,7 @@ vi.mock('@src/integration/ui/prompts/hooks.ts', () => ({
   useCurrentPrompt: () => null,
 }));
 
-import { initialState, reduceEvents, ExecuteView } from './execute-view.tsx';
+import { initialState, reduceEvents, ExecuteView, buildErrorCard } from './execute-view.tsx';
 
 function renderWithRouter(element: React.ReactElement): ReturnType<typeof render> {
   return render(
@@ -275,5 +275,89 @@ describe('ExecuteView — attach / start behaviour', () => {
     await flush();
 
     expect(currentRegistry.cancelCalls).toContain('exec-cancel');
+  });
+
+  it('renders the failure reason when attaching to a failed execution', async () => {
+    const failed: RunningExecution = {
+      ...makeExecution('exec-fail', 'sprint-f', 'failed'),
+      endedAt: new Date(),
+      error: { message: 'sprint not found: sprint-f', stepName: 'load-sprint' },
+    };
+    currentRegistry = makeStubRegistry({ entry: failed });
+
+    const { lastFrame } = renderWithRouter(<ExecuteView sprintId="sprint-f" executionId="exec-fail" />);
+    await flush();
+    await flush();
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Execution failed');
+    expect(frame).toContain('sprint not found: sprint-f');
+    expect(frame).toContain('load-sprint');
+  });
+
+  it('renders the log tail before the failure card so the card is pinned at the bottom', async () => {
+    const failed: RunningExecution = {
+      ...makeExecution('exec-order', 'sprint-o', 'failed'),
+      endedAt: new Date(),
+      error: { message: 'build failed', stepName: 'run-check-scripts' },
+    };
+    currentRegistry = makeStubRegistry({ entry: failed });
+
+    const { lastFrame } = renderWithRouter(<ExecuteView sprintId="sprint-o" executionId="exec-order" />);
+    await flush();
+    await flush();
+
+    const frame = lastFrame() ?? '';
+    const errorIdx = frame.indexOf('Execution failed');
+    const logIdx = frame.indexOf('── Log');
+    // The log header must appear BEFORE the ResultCard title in the rendered
+    // output — this ensures the error card is pinned at the bottom of the
+    // viewport, not buried in terminal scrollback by a long log tail.
+    expect(errorIdx).toBeGreaterThanOrEqual(0);
+    expect(logIdx).toBeGreaterThanOrEqual(0);
+    expect(logIdx).toBeLessThan(errorIdx);
+  });
+
+  it('does not expose PgUp/PgDn/g/G scroll keys', () => {
+    // The hints arrays are module-level constants — we verify they contain
+    // only the keys the user asked to keep (c and Enter).
+    // We import the view file itself to check, but the simplest verification
+    // is that no hint entry in either hints set mentions those keys.
+    // Since the constants are not exported we read the rendered frame instead.
+    const running = makeExecution('exec-hints', 'sprint-h', 'running');
+    currentRegistry = makeStubRegistry({ entry: running });
+
+    const { lastFrame } = renderWithRouter(<ExecuteView sprintId="sprint-h" executionId="exec-hints" />);
+    const frame = lastFrame() ?? '';
+    expect(frame).not.toContain('PgUp');
+    expect(frame).not.toContain('PgDn');
+    // 'g' and 'G' as single-key bindings won't appear in the hint footer.
+    expect(frame).not.toContain('log top');
+    expect(frame).not.toContain('log bottom');
+  });
+});
+
+describe('buildErrorCard', () => {
+  it('returns all lines when message is short', () => {
+    const { lines, fields } = buildErrorCard({ message: 'line one\nline two', stepName: 'my-step' });
+    expect(lines).toEqual(['line one', 'line two']);
+    expect(fields).toEqual([['Step', 'my-step']]);
+  });
+
+  it('keeps the last 20 lines and prepends an omission marker — build-tool errors report at the tail', () => {
+    const longMessage = Array.from({ length: 30 }, (_, i) => `line ${String(i + 1)}`).join('\n');
+    const { lines } = buildErrorCard({ message: longMessage });
+    // Should have 1 omission marker + 20 content lines = 21 entries
+    expect(lines).toHaveLength(21);
+    expect(lines[0]).toContain('10 earlier line');
+    expect(lines[0]).toContain('omitted');
+    // First retained content line is line 11 (lines 1–10 dropped).
+    expect(lines[1]).toBe('line 11');
+    expect(lines[lines.length - 1]).toBe('line 30');
+  });
+
+  it('returns undefined fields when stepName is absent', () => {
+    const { fields } = buildErrorCard({ message: 'oops' });
+    expect(fields).toBeUndefined();
   });
 });
