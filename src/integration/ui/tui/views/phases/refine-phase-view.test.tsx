@@ -6,7 +6,17 @@
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'ink-testing-library';
+import { render as rawRender } from 'ink-testing-library';
+
+// Track every render so afterEach can unmount them. Without this, Ink
+// instances leak across tests and slow later tests enough to trip the 5s
+// vitest timeout when run in the full suite.
+const __activeRenders: ReturnType<typeof rawRender>[] = [];
+function render(node: React.ReactElement): ReturnType<typeof rawRender> {
+  const instance = rawRender(node);
+  __activeRenders.push(instance);
+  return instance;
+}
 import { Result } from 'typescript-result';
 import type { Sprint } from '@src/domain/models.ts';
 import type { StepExecutionRecord } from '@src/business/pipelines/framework/types.ts';
@@ -61,6 +71,14 @@ async function flush(): Promise<void> {
 describe('RefinePhaseView', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    while (__activeRenders.length > 0) {
+      const instance = __activeRenders.pop();
+      try {
+        instance?.unmount();
+      } catch {
+        // Already unmounted — ignore.
+      }
+    }
   });
 
   it('renders tickets with approval badges', async () => {

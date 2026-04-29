@@ -14,6 +14,10 @@ import { sprintRequirementsCommand } from '@src/integration/cli/commands/sprint/
 import { sprintHealthCommand } from '@src/integration/cli/commands/sprint/health.ts';
 import { sprintInsightsCommand } from '@src/integration/cli/commands/sprint/insights.ts';
 import { sprintDeleteCommand } from '@src/integration/cli/commands/sprint/delete.ts';
+import { sprintListRunsCommand } from '@src/integration/cli/commands/sprint/list-runs.ts';
+import { sprintStopCommand } from '@src/integration/cli/commands/sprint/stop.ts';
+import { sprintAttachCommand } from '@src/integration/cli/commands/sprint/attach.ts';
+import { sprintDaemonRunCommand } from '@src/integration/cli/commands/sprint/daemon-run.ts';
 
 export function registerSprintCommands(program: Command): void {
   const sprint = program.command('sprint').description('Manage sprints');
@@ -159,6 +163,39 @@ Examples:
     });
 
   sprint
+    .command('list-runs')
+    .description('List active and terminal sprint executions across processes')
+    .action(async () => {
+      await sprintListRunsCommand();
+    });
+
+  sprint
+    .command('stop <id>')
+    .description('Gracefully stop a running sprint execution (SIGTERM, then SIGKILL after grace)')
+    .action(async (id: string) => {
+      await sprintStopCommand([id]);
+    });
+
+  sprint
+    .command('attach <id>')
+    .description('Attach (read-only) to a backgrounded sprint daemon')
+    .action(async (id: string) => {
+      await sprintAttachCommand([id]);
+    });
+
+  // Hidden subcommand — entrypoint for the detached daemon process. Users
+  // never invoke this directly; `sprint start --detach` and the in-TUI
+  // detach hotkey re-exec the CLI with this command via daemon-spawn.
+  sprint
+    .command('__daemon-run <sprintId>', { hidden: true })
+    .description('(internal) Run sprint as a detached daemon — re-exec target')
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .action(async (sprintId: string, _opts: unknown, cmd: { args: string[] }) => {
+      await sprintDaemonRunCommand([sprintId, ...cmd.args.slice(1)]);
+    });
+
+  sprint
     .command('insights [id]')
     .description('Analyze evaluation results and suggest improvements')
     .option('--export', 'Export insights to $RALPHCTL_ROOT/insights/<sprint-id>.md')
@@ -188,6 +225,8 @@ Examples:
     .option('--max-budget-usd <amount>', 'Max USD budget per AI task (Claude only)')
     .option('--fallback-model <model>', 'Fallback model when primary is overloaded (Claude only)')
     .option('--max-turns <number>', 'Max agentic turns per task (Claude only, default: 200)')
+    .option('--no-evaluate', 'Skip evaluator for this run (overrides evaluationIterations)')
+    .option('--no-feedback', 'Skip the post-completion feedback loop')
     .addHelpText(
       'after',
       `
@@ -230,6 +269,8 @@ Branch Management:
           maxBudgetUsd?: string;
           fallbackModel?: string;
           maxTurns?: string;
+          evaluate?: boolean;
+          feedback?: boolean;
         }
       ) => {
         const args: string[] = [];
@@ -250,6 +291,8 @@ Branch Management:
         if (opts?.maxBudgetUsd) args.push('--max-budget-usd', opts.maxBudgetUsd);
         if (opts?.fallbackModel) args.push('--fallback-model', opts.fallbackModel);
         if (opts?.maxTurns) args.push('--max-turns', opts.maxTurns);
+        if (opts?.evaluate === false) args.push('--no-evaluate');
+        if (opts?.feedback === false) args.push('--no-feedback');
         await sprintStartCommand(args);
       }
     );
