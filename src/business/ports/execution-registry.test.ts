@@ -6,7 +6,10 @@
  * pipeline wiring) lives in `src/integration/runtime/execution-registry.test.ts`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Project, Sprint } from '@src/domain/models.ts';
 import { ExecutionAlreadyRunningError } from '@src/domain/errors.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
@@ -14,6 +17,17 @@ import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { RunningExecution } from '@src/business/ports/execution-registry.ts';
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
 import { InMemoryExecutionRegistry, type PipelineRunner } from '@src/integration/runtime/execution-registry.ts';
+
+let runsRoot: string;
+beforeEach(async () => {
+  runsRoot = await mkdtemp(join(tmpdir(), 'ralphctl-registry-port-'));
+  process.env['RALPHCTL_ROOT'] = runsRoot;
+});
+
+afterEach(async () => {
+  delete process.env['RALPHCTL_ROOT'];
+  await rm(runsRoot, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // Stub factories

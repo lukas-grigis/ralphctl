@@ -36,6 +36,7 @@ import type { SharedDeps } from '@src/integration/shared-deps.ts';
 import { InMemorySignalBus } from '@src/integration/signals/bus.ts';
 import { InMemoryLogEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
 import { createExecutionScope } from './execution-scope.ts';
+import { claimSprintLock, recordRun, releaseSprintLock, updateStatus as updateRunStatus } from './runs-store.ts';
 
 interface Entry {
   execution: RunningExecution;
@@ -99,41 +100,72 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
     }
 
     const executionId = this.generateId();
-    const signalBus = new InMemorySignalBus();
-    const logEventBus = new InMemoryLogEventBus();
-    const abortController = this.createAbortController();
 
-    const scopedShared = createExecutionScope(this.baseShared, {
-      executionId,
-      logEventBus,
-      signalBus,
-      abortController,
-    });
+    // Cross-process claim. Fails fast with `ExecutionAlreadyRunningError` when
+    // another live PID already runs this sprint, so map state remains untouched.
+    await claimSprintLock({ sprintId: sprint.id, executionId, projectName: project.name });
 
-    const execution: RunningExecution = {
-      id: executionId,
-      projectName: project.name,
-      sprintId: sprint.id,
-      sprint,
-      status: 'running',
-      startedAt: new Date(),
-    };
+    // Once the lock is claimed, anything that throws before the entry is
+    // wired into the registry must release it — otherwise the sprint is
+    // wedged until pruneStale() runs.
+    try {
+      const signalBus = new InMemorySignalBus();
+      const logEventBus = new InMemoryLogEventBus();
+      const abortController = this.createAbortController();
 
-    const entry: Entry = {
-      execution,
-      signalBus,
-      logEventBus,
-      abortController,
-      // Lazy-initialised below; `runner` needs the entry to exist in the map
-      // before it starts emitting so listeners can observe early signals.
-      pipelinePromise: Promise.resolve(),
-    };
-    this.entries.set(executionId, entry);
-    this.notify(execution);
+      const scopedShared = createExecutionScope(this.baseShared, {
+        executionId,
+        logEventBus,
+        signalBus,
+        abortController,
+      });
 
-    entry.pipelinePromise = this.runPipeline(executionId, scopedShared, params, abortController.signal);
+      const execution: RunningExecution = {
+        id: executionId,
+        projectName: project.name,
+        sprintId: sprint.id,
+        sprint,
+        status: 'running',
+        startedAt: new Date(),
+      };
 
-    return execution;
+      const entry: Entry = {
+        execution,
+        signalBus,
+        logEventBus,
+        abortController,
+        // Lazy-initialised below; `runner` needs the entry to exist in the map
+        // before it starts emitting so listeners can observe early signals.
+        pipelinePromise: Promise.resolve(),
+      };
+      this.entries.set(executionId, entry);
+
+      // Persist the initial state.json so external `sprint list-runs` /
+      // `sprint stop` commands can see this run before it makes progress. The
+      // call is best-effort — a transient FS error must not block in-process
+      // execution since the sprint lock has already been claimed.
+      try {
+        await recordRun({
+          executionId,
+          pid: process.pid,
+          sprintId: sprint.id,
+          projectName: project.name,
+          status: 'running',
+          startedAt: execution.startedAt.toISOString(),
+        });
+      } catch {
+        // Swallow — registry continues without runs-store visibility.
+      }
+
+      this.notify(execution);
+
+      entry.pipelinePromise = this.runPipeline(executionId, scopedShared, params, abortController.signal);
+
+      return execution;
+    } catch (err) {
+      void releaseSprintLock(sprint.id).catch(() => undefined);
+      throw err;
+    }
   }
 
   private async runPipeline(
@@ -221,15 +253,25 @@ export class InMemoryExecutionRegistry implements ExecutionRegistryPort {
     const entry = this.entries.get(executionId);
     if (!entry) return;
     if (entry.execution.status === status) return;
+    const endedAt = new Date();
     const next: RunningExecution = {
       ...entry.execution,
       status,
-      endedAt: new Date(),
+      endedAt,
       summary: summary ?? entry.execution.summary,
       error: error ?? entry.execution.error,
     };
     entry.execution = next;
     this.notify(next);
+
+    // Mirror the lifecycle to the file-backed runs-store and drop the
+    // per-sprint claim so a follow-up start can pick the sprint back up.
+    // Fire-and-forget — a transient FS error here must not break the
+    // in-memory registry contract callers depend on.
+    void updateRunStatus(executionId, status, { endedAt: endedAt.toISOString() }).catch(() => undefined);
+    if (status !== 'running') {
+      void releaseSprintLock(next.sprintId).catch(() => undefined);
+    }
   }
 
   private findRunningForProject(projectName: string): RunningExecution | null {

@@ -7,15 +7,29 @@
  * across concurrent executions, and the `baseShared` wiring.
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Project, Sprint } from '@src/domain/models.ts';
-import { StepError } from '@src/domain/errors.ts';
+import { ExecutionAlreadyRunningError, StepError } from '@src/domain/errors.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { LogEvent } from '@src/business/ports/log-event-bus.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
 import { InMemoryExecutionRegistry, type PipelineRunner } from './execution-registry.ts';
+
+let runsRoot: string;
+beforeEach(async () => {
+  runsRoot = await mkdtemp(join(tmpdir(), 'ralphctl-registry-adapter-'));
+  process.env['RALPHCTL_ROOT'] = runsRoot;
+});
+
+afterEach(async () => {
+  delete process.env['RALPHCTL_ROOT'];
+  await rm(runsRoot, { recursive: true, force: true });
+});
 
 function makeSprint(id: string, projectId: string): Sprint {
   return {
@@ -84,6 +98,47 @@ function makeStubLogger(): LoggerPort {
 function makeBaseShared(persistence: PersistencePort): SharedDeps {
   return { persistence, logger: makeStubLogger() } as unknown as SharedDeps;
 }
+
+describe('InMemoryExecutionRegistry — cross-process sprint lock', () => {
+  it('a fresh registry sharing RALPHCTL_ROOT refuses to start a sprint that is already claimed', async () => {
+    const sprint = makeSprint('s1', 'p1');
+    const project = makeProject('p1', 'project-alpha');
+    const persistence = makePersistence({ sprints: [sprint], projects: [project] });
+
+    // Registry A "owns" the sprint after starting — the sprint lock is on disk.
+    const registryA = new InMemoryExecutionRegistry({
+      baseShared: makeBaseShared(persistence),
+      runner: () => new Promise(() => undefined),
+      generateId: () => 'exec-A',
+    });
+    await registryA.start({ sprintId: 's1' });
+
+    // Registry B is a separate in-memory registry but shares the same on-disk
+    // runs-store via RALPHCTL_ROOT — simulates a second ralphctl process.
+    const registryB = new InMemoryExecutionRegistry({
+      baseShared: makeBaseShared(persistence),
+      runner: () => new Promise(() => undefined),
+      generateId: () => 'exec-B',
+    });
+
+    let thrown: unknown = null;
+    try {
+      await registryB.start({ sprintId: 's1' });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ExecutionAlreadyRunningError);
+    if (thrown instanceof ExecutionAlreadyRunningError) {
+      // The error carries the holder's existing executionId so callers can
+      // deep-link the user to the live run instead of offering a fresh start.
+      expect(thrown.existingExecutionId).toBe('exec-A');
+      expect(thrown.projectName).toBe('project-alpha');
+    }
+
+    // Registry B's map is untouched by the failed attempt.
+    expect(registryB.list()).toHaveLength(0);
+  });
+});
 
 describe('InMemoryExecutionRegistry — scope isolation', () => {
   it('two executions on different projects each get distinct SignalBus instances', async () => {
