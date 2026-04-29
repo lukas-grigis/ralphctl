@@ -19,6 +19,13 @@ const ENTER_ALT_SCREEN = '\x1b[?1049h';
 const LEAVE_ALT_SCREEN = '\x1b[?1049l';
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
+// Bracketed-paste mode (DEC private mode 2004). The terminal wraps any
+// pasted block in `\x1b[200~ ... \x1b[201~` markers so we can tell typed
+// input apart from a paste. Without this, terminals send paste content as
+// keystroke chunks, which fires `useInput` per character — a multi-line
+// paste then trips view hotkeys (e.g. a pasted `D` backgrounds the run).
+const ENABLE_BRACKETED_PASTE = '\x1b[?2004h';
+const DISABLE_BRACKETED_PASTE = '\x1b[?2004l';
 // Wipe the whole screen + move cursor home. Needed because Ink's diff
 // renderer only repaints cells with content — empty cells around a centered
 // column keep whatever was in the alt-screen buffer before. Clearing on
@@ -35,6 +42,7 @@ function writeRaw(seq: string): void {
 function restore(): void {
   if (!altScreenActive) return;
   altScreenActive = false;
+  writeRaw(DISABLE_BRACKETED_PASTE);
   writeRaw(SHOW_CURSOR);
   writeRaw(LEAVE_ALT_SCREEN);
 }
@@ -74,6 +82,7 @@ export function enterAltScreen(): void {
   writeRaw(ENTER_ALT_SCREEN);
   writeRaw(CLEAR_SCREEN);
   writeRaw(HIDE_CURSOR);
+  writeRaw(ENABLE_BRACKETED_PASTE);
 }
 
 /**

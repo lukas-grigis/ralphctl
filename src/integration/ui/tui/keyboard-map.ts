@@ -102,11 +102,13 @@ const MAP_ENTRIES = {
   'detail.status': { keys: ['t'], label: 'change status', area: 'detail' },
 
   // === Execute (live execution dashboard) ===
-  // `D` (uppercase) backgrounds the foreground execution. Lowercase `d` is
-  // the global "open dashboard" hotkey, so we use uppercase here to avoid
-  // stomping the global handler.
+  // `D` (uppercase) backgrounds the foreground execution — the run keeps
+  // going inside the registry, the user lands on the running-executions
+  // list and can re-attach later. Lowercase `d` is the global "open
+  // dashboard" hotkey, so we use uppercase here to avoid stomping the
+  // global handler.
   'execute.cancel': { keys: ['c'], label: 'cancel run', area: 'execute' },
-  'execute.detach': { keys: ['D'], label: 'detach (background)', area: 'execute' },
+  'execute.detach': { keys: ['D'], label: 'background (keep running)', area: 'execute' },
   'execute.back': { keys: ['enter'], label: 'back', area: 'execute' },
 
   // === Attach (read-only daemon view) ===

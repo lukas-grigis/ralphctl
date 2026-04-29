@@ -1,30 +1,34 @@
 /**
- * DagView — task dependency graph rendered as topological layers.
+ * DagView — task dependency graph rendered as topological waves.
  *
- * Tasks group into levels: level 0 holds every task with no `blockedBy`
- * predecessors; each subsequent level holds tasks whose predecessors all
- * resolve in earlier levels. Within a level, nodes render side-by-side
- * separated by a thin gutter; between levels, a dim arrow row signals
- * dependency direction.
+ * Tasks group into levels (waves): wave 0 holds every task with no `blockedBy`
+ * predecessors; each subsequent wave holds tasks whose predecessors all
+ * resolve in earlier waves. Each wave gets a labelled separator row so the
+ * boundary is unmistakable even when a wave wraps to multiple sub-rows.
  *
  * Per-node visual encoding:
  *   - pending → dim ◇ glyph
- *   - running → spinner (animated braille frame)
+ *   - running → spinner (animated braille frame) + activity tail
  *   - done    → success ✓
  *   - failed  → error ✗
  *   - skipped → muted ◌ (skipped because a predecessor failed)
  *   - blocked → warning ⚠
  *
- * Tiny-terminal fallback: when the terminal width can't fit even the widest
- * level, the view degrades to a single-column list with a `…` truncation
- * indicator and a hint instructing the user to widen the terminal — never
- * crashes, never produces garbled output.
+ * Layout rules:
+ *   - Node width is computed from the terminal width so labels grow on wide
+ *     terminals instead of being permanently truncated to 18 chars.
+ *   - When the total rendered height exceeds `maxRows`, trailing waves are
+ *     collapsed into a `… +N more wave(s)` summary so the section never
+ *     pushes the log tail off-screen.
+ *   - Tiny terminals (where even the widest wave can't fit two columns)
+ *     degrade to a single-column list with a hint — never crashes, never
+ *     produces garbled output.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Task } from '@src/domain/models.ts';
-import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 
 interface Props {
@@ -35,23 +39,27 @@ interface Props {
   readonly failedTaskIds?: ReadonlySet<string>;
   /** Task IDs that are blocked — predecessor still pending or evaluator gate failed. */
   readonly blockedTaskIds?: ReadonlySet<string>;
+  /** Per-task activity string (latest progress summary). Shown under running nodes. */
+  readonly activityByTask?: ReadonlyMap<string, string>;
   /** Override terminal width — falls back to a sensible default in tests / non-TTY. */
   readonly terminalWidth?: number;
-  /** Per-node visual width (chars). Adjusts how many fit per level. */
-  readonly nodeWidth?: number;
+  /** Maximum rows the section is allowed to occupy. Trailing waves collapse. */
+  readonly maxRows?: number;
 }
 
 export type DagNodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'blocked';
 
-const DEFAULT_NODE_WIDTH = 18;
+const MIN_NODE_WIDTH = 16;
+const MAX_NODE_WIDTH = 36;
 const NODE_GUTTER = 2;
 const FALLBACK_TERMINAL_WIDTH = 80;
+const DEFAULT_MAX_ROWS = 14;
 
 /**
- * Group tasks into topological levels. Tasks with no `blockedBy` go into
- * level 0; subsequent levels collect tasks whose predecessors are all already
+ * Group tasks into topological waves. Tasks with no `blockedBy` go into
+ * wave 0; subsequent waves collect tasks whose predecessors are all already
  * placed. A cycle would leave tasks unplaced — they fall through to a final
- * "orphans" level so the UI never silently drops them.
+ * "orphans" wave so the UI never silently drops them.
  *
  * Exported for unit testing.
  */
@@ -69,8 +77,6 @@ export function layerTasks(tasks: readonly Task[]): Task[][] {
       if (ready) level.push(task);
     }
     if (level.length === 0) {
-      // Cycle / orphan — flush whatever's left as a final level so we don't
-      // loop forever and so the user still sees the tasks.
       levels.push([...remaining.values()]);
       break;
     }
@@ -127,21 +133,53 @@ function truncate(value: string, width: number): string {
   return value.slice(0, Math.max(0, width - 1)) + '…';
 }
 
+/**
+ * Pick a node width that fits the wave with the most tasks neatly into the
+ * terminal width. We bias toward wider nodes (better readability) when the
+ * widest wave is small enough to allow it, and shrink only when packing more
+ * tasks per row demands it. Bounded by MIN/MAX so a single very wide
+ * terminal doesn't produce gigantic empty cells.
+ *
+ * Exported for unit testing.
+ */
+export function computeNodeWidth(terminalWidth: number, widestWaveSize: number): number {
+  if (widestWaveSize <= 0) return MIN_NODE_WIDTH;
+  // How many nodes per row we'd need at MIN_NODE_WIDTH? If even that doesn't
+  // fit one node, return MIN_NODE_WIDTH and let the tiny-terminal branch
+  // handle the layout.
+  const usable = Math.max(0, terminalWidth);
+  const perRowAtMin = Math.max(1, Math.floor((usable + NODE_GUTTER) / (MIN_NODE_WIDTH + NODE_GUTTER)));
+  // Aim to render the widest wave in as few rows as possible while still
+  // giving each node breathing room.
+  const targetPerRow = Math.min(widestWaveSize, perRowAtMin);
+  if (targetPerRow <= 0) return MIN_NODE_WIDTH;
+  const rawWidth = Math.floor((usable - NODE_GUTTER * (targetPerRow - 1)) / targetPerRow);
+  const clamped = Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, rawWidth));
+  return clamped;
+}
+
 interface NodeProps {
   readonly task: Task;
   readonly status: DagNodeStatus;
   readonly width: number;
+  readonly activity?: string;
 }
 
-function DagNode({ task, status, width }: NodeProps): React.JSX.Element {
+function DagNode({ task, status, width, activity }: NodeProps): React.JSX.Element {
   const display = nodeDisplay(status);
   const labelWidth = Math.max(4, width - 2);
   const label = truncate(task.name, labelWidth);
 
   if (status === 'running') {
     return (
-      <Box width={width}>
+      <Box width={width} flexDirection="column">
         <Spinner label={label} color={display.color} />
+        {activity ? (
+          <Text color={inkColors.info} italic dimColor>
+            {' '}
+            {glyphs.activityArrow} {truncate(activity, Math.max(8, width - 3))}
+          </Text>
+        ) : null}
       </Box>
     );
   }
@@ -155,14 +193,58 @@ function DagNode({ task, status, width }: NodeProps): React.JSX.Element {
   );
 }
 
+interface WaveSeparatorProps {
+  readonly index: number;
+  readonly count: number;
+  readonly summary: string;
+  readonly width: number;
+}
+
+function WaveSeparator({ index, count, summary, width }: WaveSeparatorProps): React.JSX.Element {
+  const label = ` wave ${String(index + 1)} · ${String(count)} task${count === 1 ? '' : 's'}${summary ? ' · ' + summary : ''} `;
+  const remaining = Math.max(0, width - label.length - 4);
+  const left = '── ';
+  const right = ' ' + '─'.repeat(remaining) + '──';
+  return (
+    <Text color={inkColors.muted} dimColor>
+      {left}
+      <Text color={inkColors.info} bold={false}>
+        {label.trim()}
+      </Text>
+      {right}
+    </Text>
+  );
+}
+
+function summariseWave(
+  tasks: readonly Task[],
+  runningIds: ReadonlySet<string>,
+  failedIds: ReadonlySet<string>
+): string {
+  let done = 0;
+  let running = 0;
+  let failed = 0;
+  for (const t of tasks) {
+    if (failedIds.has(t.id)) failed++;
+    else if (t.status === 'done') done++;
+    else if (runningIds.has(t.id) || t.status === 'in_progress') running++;
+  }
+  const parts: string[] = [];
+  if (done > 0) parts.push(`${String(done)} done`);
+  if (running > 0) parts.push(`${String(running)} running`);
+  if (failed > 0) parts.push(`${String(failed)} failed`);
+  return parts.join(', ');
+}
+
 export function DagView(props: Props): React.JSX.Element {
   const {
     tasks,
     runningTaskIds = new Set<string>(),
     failedTaskIds = new Set<string>(),
     blockedTaskIds = new Set<string>(),
+    activityByTask,
     terminalWidth = FALLBACK_TERMINAL_WIDTH,
-    nodeWidth = DEFAULT_NODE_WIDTH,
+    maxRows = DEFAULT_MAX_ROWS,
   } = props;
 
   if (tasks.length === 0) {
@@ -174,15 +256,15 @@ export function DagView(props: Props): React.JSX.Element {
   }
 
   const levels = layerTasks(tasks);
-  const perRow = Math.max(1, Math.floor((terminalWidth + NODE_GUTTER) / (nodeWidth + NODE_GUTTER)));
   const widestLevel = levels.reduce((acc, level) => Math.max(acc, level.length), 0);
+  const nodeWidth = computeNodeWidth(terminalWidth, widestLevel);
+  const perRow = Math.max(1, Math.floor((terminalWidth + NODE_GUTTER) / (nodeWidth + NODE_GUTTER)));
   const tooNarrow = widestLevel > 1 && perRow < 2;
 
   if (tooNarrow) {
-    // Tiny terminal — degrade gracefully to a flat list ordered by level.
     return (
       <Box flexDirection="column">
-        <Text dimColor>(graph compressed — widen the terminal to see dependency layers)</Text>
+        <Text dimColor>(graph compressed — widen the terminal to see dependency waves)</Text>
         {levels.flat().map((task) => {
           const status = statusForTask(task, runningTaskIds, failedTaskIds, blockedTaskIds);
           return (
@@ -191,6 +273,7 @@ export function DagView(props: Props): React.JSX.Element {
               task={task}
               status={status}
               width={Math.min(nodeWidth, Math.max(8, terminalWidth - 2))}
+              activity={activityByTask?.get(task.id)}
             />
           );
         })}
@@ -198,32 +281,45 @@ export function DagView(props: Props): React.JSX.Element {
     );
   }
 
+  // Pre-compute the row cost of each wave so we can decide how many waves
+  // fit inside `maxRows`. Each wave costs: 1 separator + ceil(size / perRow) node rows.
+  const waveCosts = levels.map((level) => 1 + Math.ceil(level.length / perRow));
+
+  let rowsUsed = 0;
+  let visibleWaveCount = 0;
+  for (const cost of waveCosts) {
+    if (rowsUsed + cost > maxRows && visibleWaveCount > 0) break;
+    rowsUsed += cost;
+    visibleWaveCount++;
+  }
+  const hiddenWaveCount = levels.length - visibleWaveCount;
+
   return (
     <Box flexDirection="column">
-      {levels.map((level, levelIndex) => (
-        <Box key={`level-${String(levelIndex)}`} flexDirection="column">
-          {levelIndex > 0 ? (
-            <Text dimColor>
-              {' '.repeat(Math.floor(nodeWidth / 2))}
-              {glyphs.arrowRight}
-            </Text>
-          ) : null}
-          <LevelRow
-            level={level}
-            perRow={perRow}
-            nodeWidth={nodeWidth}
-            runningIds={runningTaskIds}
-            failedIds={failedTaskIds}
-            blockedIds={blockedTaskIds}
-          />
-        </Box>
-      ))}
-      <Box marginTop={spacing.section}>
-        <Text dimColor>
-          {glyphs.check} done {glyphs.inlineDot} {glyphs.cross} failed {glyphs.inlineDot} {glyphs.warningGlyph} blocked{' '}
-          {glyphs.inlineDot} {glyphs.phasePending} pending {glyphs.inlineDot} {glyphs.phaseDisabled} skipped
+      {levels.slice(0, visibleWaveCount).map((level, levelIndex) => {
+        const summary = summariseWave(level, runningTaskIds, failedTaskIds);
+        return (
+          <Box key={`level-${String(levelIndex)}`} flexDirection="column">
+            <WaveSeparator index={levelIndex} count={level.length} summary={summary} width={terminalWidth} />
+            <LevelRow
+              level={level}
+              perRow={perRow}
+              nodeWidth={nodeWidth}
+              runningIds={runningTaskIds}
+              failedIds={failedTaskIds}
+              blockedIds={blockedTaskIds}
+              activityByTask={activityByTask}
+            />
+          </Box>
+        );
+      })}
+      {hiddenWaveCount > 0 ? (
+        <Text color={inkColors.muted} dimColor>
+          {'  '}
+          {glyphs.inlineDot} {String(hiddenWaveCount)} more wave{hiddenWaveCount === 1 ? '' : 's'} hidden — widen the
+          terminal or finish earlier waves to reveal
         </Text>
-      </Box>
+      ) : null}
     </Box>
   );
 }
@@ -235,9 +331,18 @@ interface LevelRowProps {
   readonly runningIds: ReadonlySet<string>;
   readonly failedIds: ReadonlySet<string>;
   readonly blockedIds: ReadonlySet<string>;
+  readonly activityByTask?: ReadonlyMap<string, string>;
 }
 
-function LevelRow({ level, perRow, nodeWidth, runningIds, failedIds, blockedIds }: LevelRowProps): React.JSX.Element {
+function LevelRow({
+  level,
+  perRow,
+  nodeWidth,
+  runningIds,
+  failedIds,
+  blockedIds,
+  activityByTask,
+}: LevelRowProps): React.JSX.Element {
   const rows: Task[][] = [];
   for (let i = 0; i < level.length; i += perRow) {
     rows.push(level.slice(i, i + perRow));
@@ -251,7 +356,7 @@ function LevelRow({ level, perRow, nodeWidth, runningIds, failedIds, blockedIds 
             const status = statusForTask(task, runningIds, failedIds, blockedIds);
             return (
               <Box key={task.id} marginRight={idx < row.length - 1 ? NODE_GUTTER : 0}>
-                <DagNode task={task} status={status} width={nodeWidth} />
+                <DagNode task={task} status={status} width={nodeWidth} activity={activityByTask?.get(task.id)} />
               </Box>
             );
           })}

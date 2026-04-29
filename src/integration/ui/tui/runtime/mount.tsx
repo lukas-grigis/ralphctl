@@ -24,8 +24,10 @@ import { InkPromptAdapter } from '@src/integration/ui/prompts/prompt-adapter.ts'
 import { registerExternalHost } from '@src/integration/ui/prompts/auto-mount.tsx';
 import { App } from '@src/integration/ui/tui/views/app.tsx';
 import { enterAltScreen, exitAltScreen } from './screen.ts';
+import { installPasteFilter } from './paste-filter.ts';
 import { registerTuiInstance } from './suspend.ts';
 import { consumeDetachHint } from '@src/integration/runtime/detach-hint.ts';
+import { pruneStale } from '@src/integration/runtime/runs-store.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 
 export type InkViewName = 'repl' | 'execute' | 'attach';
@@ -67,7 +69,16 @@ export async function mountInkApp(options: MountOptions): Promise<MountResult> {
   // use cases, AI sessions — picks these up via `getSharedDeps()`.
   setSharedDeps(createSharedDeps({ logger, signalBus, prompt }));
 
+  // Reconcile the file-backed runs registry against the live process table
+  // before we render. Any orphan `running` entry whose PID is gone gets
+  // flipped to `cancelled`, and stale per-sprint locks get unlinked. Without
+  // this, the running-executions list shows phantom rows from prior crashes
+  // and re-launching the same sprint hits a spurious lock collision. Best
+  // effort — failures here must never block the TUI from mounting.
+  void pruneStale().catch(() => undefined);
+
   enterAltScreen();
+  const releasePasteFilter = installPasteFilter();
   const releaseHost = registerExternalHost();
   const app = render(<App initialView={options.initialView} mountOptions={options} />, {
     exitOnCtrlC: false, // We own Ctrl+C inside the app for prompt cancellation.
@@ -81,6 +92,7 @@ export async function mountInkApp(options: MountOptions): Promise<MountResult> {
   } finally {
     releaseInstance();
     releaseHost();
+    releasePasteFilter();
     signalBus.dispose();
     exitAltScreen();
     const hint = consumeDetachHint();
