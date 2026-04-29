@@ -8,7 +8,8 @@ describe('ConfigSchemaDefinition', () => {
     expect(keys).toContain('aiProvider');
     expect(keys).toContain('evaluationIterations');
     expect(keys).toContain('aiCheckScriptDiscovery');
-    expect(keys).toHaveLength(4);
+    expect(keys).toContain('concurrency');
+    expect(keys).toHaveLength(5);
   });
 
   it('each entry has the required fields', () => {
@@ -123,7 +124,7 @@ describe('evaluationIterations entry', () => {
     expect(entry.type).toBe('integer');
   });
 
-  it('has default 1', () => {
+  it('has default 1 (one fix attempt)', () => {
     expect(entry.default).toBe(1);
   });
 
@@ -188,10 +189,68 @@ describe('getSchemaEntry', () => {
   });
 });
 
+describe('concurrency entry', () => {
+  const entry = ConfigSchemaDefinition.concurrency;
+
+  it('has type integer', () => {
+    expect(entry.type).toBe('integer');
+  });
+
+  it('has default 3', () => {
+    expect(entry.default).toBe(3);
+  });
+
+  it('has min 1', () => {
+    expect(entry.min).toBe(1);
+  });
+
+  it('has max 10', () => {
+    expect(entry.max).toBe(10);
+  });
+
+  it('has scope global', () => {
+    expect(entry.scope).toBe('global');
+  });
+
+  describe('validation', () => {
+    it('accepts 1 (min)', () => {
+      expect(entry.validation(1)).toBe(true);
+    });
+
+    it('accepts 3 (default)', () => {
+      expect(entry.validation(3)).toBe(true);
+    });
+
+    it('accepts 10 (max)', () => {
+      expect(entry.validation(10)).toBe(true);
+    });
+
+    it('rejects 0 (below min)', () => {
+      expect(entry.validation(0)).toBe(false);
+    });
+
+    it('rejects 11 (above max)', () => {
+      expect(entry.validation(11)).toBe(false);
+    });
+
+    it('rejects a float', () => {
+      expect(entry.validation(2.5)).toBe(false);
+    });
+
+    it('rejects null', () => {
+      expect(entry.validation(null)).toBe(false);
+    });
+
+    it('rejects a string', () => {
+      expect(entry.validation('3')).toBe(false);
+    });
+  });
+});
+
 describe('getAllSchemaEntries', () => {
-  it('returns an array of 4 entries', () => {
+  it('returns an array of 5 entries', () => {
     const entries = getAllSchemaEntries();
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(5);
   });
 
   it('returns entries with the expected keys', () => {
@@ -222,7 +281,11 @@ describe('getDefaultValue', () => {
     expect(getDefaultValue('aiProvider')).toBeNull();
   });
 
-  it('returns 1 for evaluationIterations', () => {
+  it('returns 1 for evaluationIterations (one fix attempt by default)', () => {
     expect(getDefaultValue('evaluationIterations')).toBe(1);
+  });
+
+  it('returns 3 for concurrency', () => {
+    expect(getDefaultValue('concurrency')).toBe(3);
   });
 });

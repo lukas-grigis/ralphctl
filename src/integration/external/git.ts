@@ -159,6 +159,59 @@ export function getHeadSha(cwd: string): string | null {
 }
 
 /**
+ * List files changed in the working tree since a baseline commit.
+ *
+ * Combines:
+ *   - `git diff --name-only <baseline>..HEAD` — committed changes
+ *   - `git status --porcelain` — uncommitted (staged + unstaged + untracked)
+ *
+ * Returns an empty array on any git failure or when the baseline is missing
+ * — callers use the empty result as the "no changes" signal. Never throws.
+ *
+ * Validates the baseline against a hex-SHA pattern before invoking git so a
+ * malformed value can't be wedged into the argument vector. Hex matching is
+ * permissive (any length 7–64) so this stays compatible with abbreviated
+ * SHAs returned by `getHeadSha()`.
+ */
+export function getChangedFilesSince(cwd: string, baselineSha: string): string[] {
+  if (!/^[0-9a-f]{7,64}$/i.test(baselineSha)) return [];
+  try {
+    assertSafeCwd(cwd);
+  } catch {
+    return [];
+  }
+  const diff = spawnSync('git', ['diff', '--name-only', `${baselineSha}..HEAD`], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const files = new Set<string>();
+  if (diff.status === 0) {
+    for (const line of diff.stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed) files.add(trimmed);
+    }
+  }
+  if (status.status === 0) {
+    for (const line of status.stdout.split('\n')) {
+      // porcelain v1: `XY <path>` (or `XY <orig> -> <path>` for renames).
+      // We only care that *something* changed — pull the trailing path.
+      const trimmed = line.replace(/^.{2}\s*/, '').trim();
+      if (!trimmed) continue;
+      const arrow = trimmed.split(' -> ');
+      const path = arrow.length > 1 ? arrow[arrow.length - 1] : arrow[0];
+      if (path) files.add(path);
+    }
+  }
+  return [...files];
+}
+
+/**
  * Check if the working directory has uncommitted changes (staged or unstaged).
  */
 export function hasUncommittedChanges(cwd: string): boolean {

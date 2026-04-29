@@ -223,6 +223,35 @@ export class BranchPreflightError extends DomainError {
 // Execution registry errors
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Skills errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Raised by the skills loader when a user-supplied skill in
+ * `~/.ralphctl/skills/<phase>/` declares the same `name` as a built-in skill
+ * (or another user skill). Override is not permitted; the phase aborts before
+ * any AI session is spawned. Both source paths are surfaced so the user can
+ * resolve the conflict by renaming or removing one entry.
+ */
+export class SkillNameCollisionError extends DomainError {
+  readonly code = 'SKILL_NAME_COLLISION';
+  readonly skillName: string;
+  readonly sourcePaths: readonly string[];
+
+  constructor(skillName: string, sourcePaths: readonly string[]) {
+    super(
+      `Skill name collision for '${skillName}'. Conflicting sources: ${sourcePaths.join(', ')}. Rename or remove one before re-running.`
+    );
+    this.skillName = skillName;
+    this.sourcePaths = sourcePaths;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Execution registry errors
+// ---------------------------------------------------------------------------
+
 /**
  * Raised by `ExecutionRegistryPort.start` when the target project already has
  * a running execution. Carries `existingExecutionId` so the UI can deep-link

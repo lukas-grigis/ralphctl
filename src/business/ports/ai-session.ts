@@ -28,6 +28,12 @@ export interface SessionResult {
   output: string;
   sessionId?: string;
   model?: string;
+  /**
+   * Number of agentic turns reported by the provider for this spawn.
+   * `null` when the provider doesn't expose it (e.g. Copilot's JSONL).
+   * Surfaced for harness instrumentation (debug logs).
+   */
+  numTurns?: number | null;
 }
 
 /** Port for AI session management */

@@ -92,6 +92,19 @@ export const ConfigSchemaDefinition = {
     scope: 'user',
   },
 
+  concurrency: {
+    key: 'concurrency',
+    label: 'Concurrency',
+    type: 'integer',
+    min: 1,
+    max: 10,
+    default: 3,
+    description:
+      'Maximum number of tasks the scheduler runs in parallel across distinct repos. Mutex by repo prevents two tasks in the same repo from overlapping. Overridable per-run with `--concurrency`.',
+    validation: (val) => typeof val === 'number' && Number.isInteger(val) && val >= 1 && val <= 10,
+    scope: 'global',
+  },
+
   // Phase 2+ additions can be added here as single schema entries
   // maxTaskTurns: { ... },
   // checkScriptTimeout: { ... },

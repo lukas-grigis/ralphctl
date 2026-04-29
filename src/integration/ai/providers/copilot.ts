@@ -44,10 +44,11 @@ export const copilotAdapter: ProviderAdapter = {
     // Falls back to treating stdout as plain text if JSON parsing fails.
     const lines = stdout.trim().split('\n').filter(Boolean);
     if (lines.length === 0) {
-      return { result: '', sessionId: null, model: null };
+      return { result: '', sessionId: null, model: null, numTurns: null };
     }
 
-    // Try parsing the last line first (most likely to contain the final result)
+    // Try parsing the last line first (most likely to contain the final result).
+    // Copilot's JSONL doesn't currently expose num_turns — left as null.
     const lastLine = lines.at(-1) ?? '';
     const jsonResult = Result.try(() => JSON.parse(lastLine) as unknown);
     if (jsonResult.ok) {
@@ -56,12 +57,13 @@ export const copilotAdapter: ProviderAdapter = {
         result: parsed.result ?? parsed.result_text ?? lastLine,
         sessionId: parsed.session_id ?? null,
         model: null,
+        numTurns: null,
       };
     }
 
     // JSON parse failed — treat raw stdout as the result text.
     // Session ID will be captured via extractSessionId (--share file fallback).
-    return { result: stdout.trim(), sessionId: null, model: null };
+    return { result: stdout.trim(), sessionId: null, model: null, numTurns: null };
   },
 
   buildResumeArgs(sessionId: string): string[] {

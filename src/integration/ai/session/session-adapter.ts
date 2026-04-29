@@ -58,6 +58,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
       output: result.stdout,
       sessionId: result.sessionId ?? undefined,
       model: result.model ?? undefined,
+      numTurns: result.numTurns,
     };
   }
 
@@ -80,6 +81,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
       output: result.stdout,
       sessionId: result.sessionId ?? undefined,
       model: result.model ?? undefined,
+      numTurns: result.numTurns,
     };
   }
 
@@ -102,6 +104,7 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
       output: result.stdout,
       sessionId: result.sessionId ?? undefined,
       model: result.model ?? undefined,
+      numTurns: result.numTurns,
     };
   }
 

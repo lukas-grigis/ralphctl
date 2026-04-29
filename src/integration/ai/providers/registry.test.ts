@@ -26,9 +26,15 @@ describe('claudeAdapter', () => {
       expect(claudeAdapter.experimental).toBe(false);
     });
 
-    it('baseArgs includes --permission-mode and acceptEdits', () => {
-      expect(claudeAdapter.baseArgs).toContain('--permission-mode');
-      expect(claudeAdapter.baseArgs).toContain('acceptEdits');
+    it('baseArgs no longer carries --permission-mode (split between interactive and headless)', () => {
+      // Interactive spawns use `acceptEdits` (human can answer Bash/Web
+      // prompts); headless spawns use `bypassPermissions` because
+      // `acceptEdits` only auto-approves Edit tool calls and an
+      // un-allowlisted Bash call would hang `claude -p` forever. The flag
+      // therefore lives in the per-mode builders, not in baseArgs.
+      expect(claudeAdapter.baseArgs).not.toContain('--permission-mode');
+      expect(claudeAdapter.baseArgs).not.toContain('acceptEdits');
+      expect(claudeAdapter.baseArgs).not.toContain('bypassPermissions');
     });
 
     it('baseArgs includes --effort xhigh (Opus 4.7 reasoning-level default)', () => {
@@ -43,7 +49,7 @@ describe('claudeAdapter', () => {
   });
 
   describe('buildInteractiveArgs', () => {
-    it('returns args with -- separator before the prompt', () => {
+    it('prepends --permission-mode acceptEdits (human answers Bash/Web prompts)', () => {
       const args = claudeAdapter.buildInteractiveArgs('test prompt');
       expect(args).toEqual(['--permission-mode', 'acceptEdits', '--effort', 'xhigh', '--', 'test prompt']);
     });
@@ -67,10 +73,17 @@ describe('claudeAdapter', () => {
       expect(args).toContain('json');
     });
 
-    it('includes base args', () => {
+    it('prepends --permission-mode bypassPermissions (acceptEdits would hang on un-allowlisted Bash)', () => {
       const args = claudeAdapter.buildHeadlessArgs();
       expect(args).toContain('--permission-mode');
-      expect(args).toContain('acceptEdits');
+      expect(args).toContain('bypassPermissions');
+      expect(args).not.toContain('acceptEdits');
+    });
+
+    it('includes base args (--effort xhigh)', () => {
+      const args = claudeAdapter.buildHeadlessArgs();
+      expect(args).toContain('--effort');
+      expect(args).toContain('xhigh');
     });
 
     it('includes extra args', () => {
@@ -83,6 +96,8 @@ describe('claudeAdapter', () => {
       expect(args[0]).toBe('-p');
       expect(args[1]).toBe('--output-format');
       expect(args[2]).toBe('json');
+      expect(args[3]).toBe('--permission-mode');
+      expect(args[4]).toBe('bypassPermissions');
     });
   });
 
@@ -97,7 +112,33 @@ describe('claudeAdapter', () => {
         result: 'Task completed successfully',
         sessionId: 'abc123',
         model: null,
+        numTurns: null,
       });
+    });
+
+    it('parses num_turns when the CLI reports it', () => {
+      const output = JSON.stringify({
+        result: 'done',
+        session_id: 'abc123',
+        num_turns: 12,
+      });
+      const parsed = claudeAdapter.parseJsonOutput(output);
+      expect(parsed.numTurns).toBe(12);
+    });
+
+    it('accepts numTurns (camelCase) as a fallback field name', () => {
+      const output = JSON.stringify({
+        result: 'done',
+        numTurns: 7,
+      });
+      const parsed = claudeAdapter.parseJsonOutput(output);
+      expect(parsed.numTurns).toBe(7);
+    });
+
+    it('treats non-finite num_turns as null', () => {
+      const output = JSON.stringify({ result: 'done', num_turns: 'lots' });
+      const parsed = claudeAdapter.parseJsonOutput(output);
+      expect(parsed.numTurns).toBeNull();
     });
 
     it('handles missing result field', () => {
@@ -109,6 +150,7 @@ describe('claudeAdapter', () => {
         result: output,
         sessionId: 'abc123',
         model: null,
+        numTurns: null,
       });
     });
 
@@ -121,6 +163,7 @@ describe('claudeAdapter', () => {
         result: 'Task completed',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 
@@ -131,6 +174,7 @@ describe('claudeAdapter', () => {
         result: 'Plain text output',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 
@@ -141,6 +185,7 @@ describe('claudeAdapter', () => {
         result: '{ invalid json }',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 
@@ -150,6 +195,7 @@ describe('claudeAdapter', () => {
         result: '',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
   });
@@ -359,6 +405,7 @@ describe('copilotAdapter', () => {
         result: 'Task completed successfully',
         sessionId: 'copilot-abc123',
         model: null,
+        numTurns: null,
       });
     });
 
@@ -397,6 +444,7 @@ describe('copilotAdapter', () => {
         result: 'Plain text output from CLI',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 
@@ -407,6 +455,7 @@ describe('copilotAdapter', () => {
         result: 'Some result with whitespace',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 
@@ -416,6 +465,7 @@ describe('copilotAdapter', () => {
         result: '',
         sessionId: null,
         model: null,
+        numTurns: null,
       });
     });
 

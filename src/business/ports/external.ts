@@ -64,6 +64,20 @@ export interface ExternalPort {
   /** Get HEAD SHA of a repo (null if not a git repo) */
   getHeadSha(projectPath: string): string | null;
 
+  /**
+   * List files changed in the working tree relative to a baseline commit.
+   *
+   * Includes committed changes (`git diff --name-only <baseline>..HEAD`) AND
+   * unstaged + staged working-tree changes (`git status --porcelain`). The
+   * union covers the post-task-check skip decision: a task that left no
+   * artefact at all (no commit, no dirty tree) yields an empty list.
+   *
+   * Returns an empty array when the repo isn't a git repo, the baseline is
+   * unresolvable, or there are genuinely no changes — never throws. Callers
+   * treat an empty array as "no changes since baseline".
+   */
+  getChangedFilesSince(projectPath: string, baselineSha: string): string[];
+
   /** Get recent git log for context building */
   getRecentGitHistory(projectPath: string, count: number): string;
 

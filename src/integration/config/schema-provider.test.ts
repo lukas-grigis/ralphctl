@@ -20,9 +20,9 @@ describe('getConfigSchema', () => {
 });
 
 describe('getAllConfigSchemaEntries', () => {
-  it('returns an array of 4 entries', () => {
+  it('returns an array of 5 entries', () => {
     const entries = getAllConfigSchemaEntries();
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(5);
   });
 
   it('includes entries for all config keys', () => {
@@ -31,6 +31,7 @@ describe('getAllConfigSchemaEntries', () => {
     expect(keys).toContain('aiProvider');
     expect(keys).toContain('evaluationIterations');
     expect(keys).toContain('aiCheckScriptDiscovery');
+    expect(keys).toContain('concurrency');
   });
 });
 
@@ -43,7 +44,7 @@ describe('getConfigDefaultValue', () => {
     expect(getConfigDefaultValue('aiProvider')).toBeNull();
   });
 
-  it('returns 1 for evaluationIterations', () => {
+  it('returns 1 for evaluationIterations (one fix attempt by default)', () => {
     expect(getConfigDefaultValue('evaluationIterations')).toBe(1);
   });
 });

@@ -11,6 +11,7 @@ import {
   getCurrentBranch as gitGetCurrentBranch,
   verifyCurrentBranch,
   getHeadSha as gitGetHeadSha,
+  getChangedFilesSince as gitGetChangedFilesSince,
   generateBranchName as gitGenerateBranchName,
   isValidBranchName as gitIsValidBranchName,
 } from '@src/integration/external/git.ts';
@@ -87,6 +88,10 @@ export class DefaultExternalAdapter implements ExternalPort {
 
   getHeadSha(projectPath: string): string | null {
     return gitGetHeadSha(projectPath);
+  }
+
+  getChangedFilesSince(projectPath: string, baselineSha: string): string[] {
+    return gitGetChangedFilesSince(projectPath, baselineSha);
   }
 
   getRecentGitHistory(projectPath: string, count: number): string {

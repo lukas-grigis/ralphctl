@@ -296,7 +296,8 @@ export async function checkEvaluationConfig(): Promise<CheckResult> {
     return {
       name: 'Evaluation config',
       status: 'warn',
-      detail: 'evaluationIterations not set — defaulting to 1 (set via: ralphctl config set evaluationIterations <n>)',
+      detail:
+        'evaluationIterations not set — defaulting to 1 (1 fix attempt; tune via: ralphctl config set evaluationIterations <n>)',
     };
   }
   return {

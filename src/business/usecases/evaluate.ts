@@ -20,8 +20,12 @@ import { dimensionsEqual } from './plateau.ts';
 /** Max characters persisted in tasks.json `evaluationOutput` (prevents bloat). */
 const MAX_EVAL_OUTPUT = 2000;
 
-/** Max agentic turns for evaluator — lower than executor's budget. */
-const EVALUATOR_MAX_TURNS = 100;
+/** Max agentic turns for evaluator — upper bound, not a target.
+ *  Most evaluations settle in well under this; the cap exists to prevent
+ *  runaway investigation, not to force early termination. Keep it generous
+ *  enough that a non-trivial diff (multiple changed files + verification
+ *  commands) can be reviewed without hitting the wall. */
+const EVALUATOR_MAX_TURNS = 60;
 
 // ---------------------------------------------------------------------------
 // Model Ladder
@@ -102,7 +106,7 @@ export class EvaluateTaskUseCase {
 
       // Resolve evaluation iterations
       const config = await this.persistence.getConfig();
-      const maxIterations = options?.iterations ?? config.evaluationIterations ?? 1;
+      const maxIterations = options?.iterations ?? config.evaluationIterations ?? 0;
 
       if (maxIterations <= 0) {
         return Result.ok({
@@ -287,6 +291,10 @@ export class EvaluateTaskUseCase {
     if (provider === 'claude') {
       if (evaluatorModel) args.push('--model', evaluatorModel);
       args.push('--max-turns', String(options?.maxTurns ?? EVALUATOR_MAX_TURNS));
+      // Inherit the provider's `--effort xhigh` default — careful reasoning is
+      // exactly what a reviewer needs to catch subtle bugs the check script
+      // can't see. Lower effort would optimise for wall time at the cost of
+      // exactly the quality this stage exists to deliver.
     }
 
     const result = await this.spawnOrNull(prompt, {
@@ -301,6 +309,7 @@ export class EvaluateTaskUseCase {
       this.logger.warning(`Evaluator spawn failed for ${task.name}: ${result.message} — marking malformed`);
       return { status: 'malformed', dimensions: [], rawOutput: `Evaluator spawn failed: ${result.message}` };
     }
+    this.logger.debug(`Evaluator turns: ${result.value.numTurns == null ? 'unknown' : String(result.value.numTurns)}`);
     return this.parser.parseEvaluation(result.value.output);
   }
 

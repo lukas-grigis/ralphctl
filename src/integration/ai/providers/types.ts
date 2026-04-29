@@ -8,6 +8,12 @@ export interface ParsedOutput {
   result: string;
   sessionId: string | null;
   model: string | null;
+  /**
+   * Number of agentic turns the provider used to satisfy the prompt.
+   * Surfaced for harness instrumentation (debug logs, future budget gating).
+   * `null` when the provider's JSON output doesn't expose it (e.g. Copilot's JSONL).
+   */
+  numTurns: number | null;
 }
 
 // ============================================================================
@@ -45,6 +51,11 @@ export interface SpawnResult {
   sessionId: string | null;
   /** Model identifier from CLI (available with --output-format json) */
   model: string | null;
+  /**
+   * Agentic turns reported by the provider for this spawn. `null` when the
+   * provider's JSON output doesn't expose the count (e.g. Copilot's JSONL).
+   */
+  numTurns: number | null;
 }
 
 // ============================================================================

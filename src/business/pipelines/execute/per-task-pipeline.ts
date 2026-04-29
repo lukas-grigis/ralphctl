@@ -83,10 +83,17 @@ export function createPerTaskPipeline(
   return pipeline<PerTaskContext>('per-task', [
     trace(branchPreflight({ external: deps.external, persistence: deps.persistence })),
     trace(contractNegotiate({ persistence: deps.persistence, fs: deps.fs })),
-    trace(markInProgress({ persistence: deps.persistence, signalBus: deps.signalBus })),
+    trace(markInProgress({ persistence: deps.persistence, external: deps.external, signalBus: deps.signalBus })),
     trace(executeTask({ useCase, options, taskSessionIds: deps.taskSessionIds, logger: deps.logger })),
     trace(storeVerification({ persistence: deps.persistence, logger: deps.logger })),
-    trace(postTaskCheck({ useCase })),
+    trace(
+      postTaskCheck({
+        useCase,
+        external: deps.external,
+        persistence: deps.persistence,
+        logger: deps.logger,
+      })
+    ),
     trace(
       evaluateTask({
         persistence: deps.persistence,

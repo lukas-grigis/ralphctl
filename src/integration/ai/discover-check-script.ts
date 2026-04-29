@@ -30,8 +30,8 @@ export const DISCOVERY_TIMEOUT_MS = 30_000;
  * fallback.
  *
  * Read-only enforcement is by prompt contract — neither Claude nor Copilot
- * exposes a CLI flag that durably forbids writes (Claude's
- * `--permission-mode acceptEdits` is the opposite of what we want, and
+ * exposes a CLI flag that durably forbids writes (Claude's headless
+ * `--permission-mode bypassPermissions` is the opposite of what we want, and
  * Copilot's `--allow-all-tools` only relaxes prompts). The prompt itself
  * tells the agent "do not modify the working tree".
  */

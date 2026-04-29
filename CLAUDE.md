@@ -47,7 +47,7 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
   auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
 - **Evaluator pattern** — independent code review after each task (see REQUIREMENTS.md § Evaluator Pattern for full spec):
-  - `evaluationIterations` is global (config.json). Default `1` = 1 initial eval + up to 1 fix-and-reeval. `0` disables.
+  - `evaluationIterations` is global (config.json). Default `1` = 1 initial eval + up to 1 fix-and-reeval; `0` disables. Higher values allow more refinement rounds.
   - Claude uses a model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku); Copilot uses the same model (no control).
   - Evaluator is autonomous (full tool access) and grades four floor dimensions (Correctness / Completeness / Safety /
     Consistency) plus optional `extraDimensions` emitted per-task by the planner (undefined = floor-only).
@@ -161,11 +161,11 @@ Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authe
 
 ### Provider Differences
 
-| Aspect              | Claude Code                                              | GitHub Copilot      |
-| ------------------- | -------------------------------------------------------- | ------------------- |
-| CLI flags           | `--permission-mode acceptEdits`, `--effort xhigh`        | `--allow-all-tools` |
-| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json` | None                |
-| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                    | Not applicable      |
+| Aspect              | Claude Code                                                                                      | GitHub Copilot      |
+| ------------------- | ------------------------------------------------------------------------------------------------ | ------------------- |
+| CLI flags           | `--permission-mode bypassPermissions` (headless) / `acceptEdits` (interactive), `--effort xhigh` | `--allow-all-tools` |
+| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json`                                         | None                |
+| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                                                            | Not applicable      |
 
 `--effort xhigh` matches Claude Code's own default for plans (Opus 4.7 introduced the `xhigh` level between `high` and
 `max`). Older Claude models accept `--effort` too; the CLI maps the level down to what the selected model supports.

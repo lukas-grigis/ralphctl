@@ -73,38 +73,80 @@ export function runCheckScriptsStep<
         const tasks = ctx.tasks ?? (await persistence.getTasks(sprint.id));
         const uniqueRepoIds = collectRepoIds(tasks);
 
-        for (const repoId of uniqueRepoIds) {
-          const previousRun = sprint.checkRanAt[repoId];
-          if (previousRun && !options?.refreshCheck) continue;
+        // Run all repo check scripts in parallel — they're independent and the
+        // serial wall-time is dominated by the slowest repo. We collect every
+        // outcome before deciding whether to abort so a single failure doesn't
+        // mask sibling results in `checkResults`.
+        const perRepo = await Promise.all(
+          uniqueRepoIds.map(async (repoId) => {
+            const previousRun = sprint.checkRanAt[repoId];
+            if (previousRun && !options?.refreshCheck) {
+              return { repoId, kind: 'skipped' as const };
+            }
 
-          const resolved = await findProjectForRepoId(persistence, repoId);
-          const checkScript = resolveCheckScriptForRepo(resolved?.repo);
-          if (!resolved || !checkScript) continue;
+            const resolved = await findProjectForRepoId(persistence, repoId);
+            const checkScript = resolveCheckScriptForRepo(resolved?.repo);
+            if (!resolved || !checkScript) {
+              return { repoId, kind: 'skipped' as const };
+            }
 
-          const { repo } = resolved;
-          const result = await external.runCheckScript(repo.path, checkScript, 'sprintStart', repo.checkTimeout);
+            const { repo } = resolved;
+            const result = await external.runCheckScript(repo.path, checkScript, 'sprintStart', repo.checkTimeout);
+            return { repoId, kind: 'ran' as const, repo, checkScript, result };
+          })
+        );
 
-          if (!result.passed) {
-            checkResults[repoId] = {
-              projectPath: repo.path,
+        // First pass: surface results so even failed repos appear in
+        // `checkResults` (matches the prior serial behaviour for the failing
+        // repo while also exposing siblings).
+        const failures: { repoId: string; repoPath: string; checkScript: string; output: string }[] = [];
+        for (const entry of perRepo) {
+          if (entry.kind === 'skipped') continue;
+          if (!entry.result.passed) {
+            checkResults[entry.repoId] = {
+              projectPath: entry.repo.path,
               success: false,
-              output: result.output,
+              output: entry.result.output,
             };
-            return Result.error(
-              new StorageError(`Check failed for ${repo.path}: ${checkScript}\n${tailOutput(result.output)}`)
-            );
+            failures.push({
+              repoId: entry.repoId,
+              repoPath: entry.repo.path,
+              checkScript: entry.checkScript,
+              output: entry.result.output,
+            });
+          } else {
+            checkResults[entry.repoId] = {
+              projectPath: entry.repo.path,
+              success: true,
+              output: entry.result.output,
+            };
           }
+        }
 
-          const ranAt = new Date().toISOString();
-          sprint.checkRanAt[repoId] = ranAt;
+        // Match the prior error format — first failure wins so callers continue
+        // to see a single deterministic error message.
+        const first = failures[0];
+        if (first) {
+          return Result.error(
+            new StorageError(`Check failed for ${first.repoPath}: ${first.checkScript}\n${tailOutput(first.output)}`)
+          );
+        }
+
+        // All passed — record timestamps for every repo that ran and persist
+        // the sprint exactly once (down from N writes in the serial loop).
+        const ranAt = new Date().toISOString();
+        let mutated = false;
+        for (const entry of perRepo) {
+          if (entry.kind !== 'ran') continue;
+          sprint.checkRanAt[entry.repoId] = ranAt;
+          // Patch the existing checkResults entry with `ranAt` so downstream
+          // consumers see the same shape they did pre-parallelisation.
+          const existing = checkResults[entry.repoId];
+          if (existing) existing.ranAt = ranAt;
+          mutated = true;
+        }
+        if (mutated) {
           await persistence.saveSprint(sprint);
-
-          checkResults[repoId] = {
-            projectPath: repo.path,
-            success: true,
-            output: result.output,
-            ranAt,
-          };
         }
       } else {
         // post-task mode

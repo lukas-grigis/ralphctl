@@ -37,4 +37,12 @@ export interface PerTaskContext extends StepContext {
    * source of truth.
    */
   contractPath?: string;
+  /**
+   * Repo HEAD SHA captured by `mark-in-progress` *before* the generator
+   * spawn. `post-task-check` compares against the post-spawn HEAD + working
+   * tree to short-circuit when the AI made no source-file changes — the
+   * common case for many evaluator-driven runs where nothing actually
+   * changed. `null` when the repo wasn't a git repo (HEAD unresolvable).
+   */
+  preTaskHeadSha?: string | null;
 }

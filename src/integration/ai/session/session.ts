@@ -139,7 +139,12 @@ export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: Pr
         // Both providers now use --output-format json; session ID is in JSON output.
         // extractSessionId is called as a fallback (e.g., Copilot's --share file)
         // when JSON output doesn't contain a session_id.
-        const { result, sessionId: parsedSessionId, model: parsedModel } = p.parseJsonOutput(rawStdout);
+        const {
+          result,
+          sessionId: parsedSessionId,
+          model: parsedModel,
+          numTurns: parsedNumTurns,
+        } = p.parseJsonOutput(rawStdout);
         const sessionId = parsedSessionId ?? (await p.extractSessionId?.(options.cwd)) ?? null;
 
         if (exitCode !== 0) {
@@ -152,7 +157,7 @@ export async function spawnHeadless(options: HeadlessSpawnOptions, provider?: Pr
             )
           );
         } else {
-          resolve({ stdout: result, stderr, exitCode: 0, sessionId, model: parsedModel });
+          resolve({ stdout: result, stderr, exitCode: 0, sessionId, model: parsedModel, numTurns: parsedNumTurns });
         }
       })().catch((err: unknown) => {
         reject(new SpawnError(`Unexpected error in close handler: ${String(err)}`, '', 1));

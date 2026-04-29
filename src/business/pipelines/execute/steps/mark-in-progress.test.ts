@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Sprint, Task } from '@src/domain/models.ts';
+import type { ExternalPort } from '@src/business/ports/external.ts';
 import type { PersistencePort } from '@src/business/ports/persistence.ts';
 import type { HarnessEvent, SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import { markInProgress } from './mark-in-progress.ts';
@@ -43,13 +44,25 @@ function makeSignalBus(events: HarnessEvent[]): SignalBusPort {
   };
 }
 
+function makePersistence(update: PersistencePort['updateTaskStatus'], repoPath = '/repo'): PersistencePort {
+  return {
+    updateTaskStatus: update,
+    resolveRepoPath: vi.fn(() => Promise.resolve(repoPath)),
+  } as unknown as PersistencePort;
+}
+
+function makeExternal(headSha: string | null = 'abc1234'): ExternalPort {
+  return { getHeadSha: vi.fn(() => headSha) } as unknown as ExternalPort;
+}
+
 describe('markInProgress step', () => {
-  it('updates status and emits task-started when task is todo', async () => {
+  it('updates status, captures pre-task HEAD, and emits task-started when task is todo', async () => {
     const update = vi.fn(() => Promise.resolve({} as Task));
     const events: HarnessEvent[] = [];
     const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask('todo') };
     const step = markInProgress({
-      persistence: { updateTaskStatus: update } as unknown as PersistencePort,
+      persistence: makePersistence(update),
+      external: makeExternal('deadbee'),
       signalBus: makeSignalBus(events),
     });
 
@@ -58,14 +71,17 @@ describe('markInProgress step', () => {
     expect(update).toHaveBeenCalledWith('t1', 'in_progress', 's1');
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe('task-started');
+    if (!result.ok) return;
+    expect(result.value.preTaskHeadSha).toBe('deadbee');
   });
 
-  it('skips the persistence update when task is already in_progress but still emits', async () => {
+  it('skips the persistence update when task is already in_progress but still emits and captures HEAD', async () => {
     const update = vi.fn(() => Promise.resolve({} as Task));
     const events: HarnessEvent[] = [];
     const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask('in_progress') };
     const step = markInProgress({
-      persistence: { updateTaskStatus: update } as unknown as PersistencePort,
+      persistence: makePersistence(update),
+      external: makeExternal('cafefee'),
       signalBus: makeSignalBus(events),
     });
 
@@ -73,5 +89,23 @@ describe('markInProgress step', () => {
     expect(result.ok).toBe(true);
     expect(update).not.toHaveBeenCalled();
     expect(events).toHaveLength(1);
+    if (!result.ok) return;
+    expect(result.value.preTaskHeadSha).toBe('cafefee');
+  });
+
+  it('records preTaskHeadSha as null when HEAD is unresolvable', async () => {
+    const update = vi.fn(() => Promise.resolve({} as Task));
+    const events: HarnessEvent[] = [];
+    const ctx: PerTaskContext = { sprintId: 's1', sprint: makeSprint(), task: makeTask('todo') };
+    const step = markInProgress({
+      persistence: makePersistence(update),
+      external: makeExternal(null),
+      signalBus: makeSignalBus(events),
+    });
+
+    const result = await step.execute(ctx);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.preTaskHeadSha).toBeNull();
   });
 });

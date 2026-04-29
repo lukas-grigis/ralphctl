@@ -5,7 +5,13 @@ import type { ParsedOutput, ProviderAdapter, RateLimitInfo } from '@src/integrat
  * Claude Code CLI adapter.
  *
  * Maps to the `claude` binary. Default flags:
- * - `--permission-mode acceptEdits` — harness owns approval; agent runs unattended.
+ * - `--permission-mode` — split between interactive and headless: interactive
+ *   spawns use `acceptEdits` (a human is at the keyboard to answer Bash/Web
+ *   prompts), unattended headless spawns use `bypassPermissions` because
+ *   `acceptEdits` only auto-approves Edit tool calls and an un-allowlisted
+ *   Bash call would hang `claude -p` forever waiting on stdin. The harness
+ *   layer (branch isolation, post-task check gate, dirty-tree recovery) is
+ *   the right place to enforce safety, not the CLI permission gate.
  * - `--effort xhigh` — Opus 4.7 introduced the `xhigh` effort level (between
  *   `high` and `max`); Claude Code itself defaults to `xhigh` for plans.
  *   Matching that default in the harness gives long-running executor and
@@ -17,29 +23,40 @@ export const claudeAdapter: ProviderAdapter = {
   name: 'claude',
   displayName: 'Claude',
   binary: 'claude',
-  baseArgs: ['--permission-mode', 'acceptEdits', '--effort', 'xhigh'],
+  // --permission-mode is intentionally NOT in baseArgs — interactive vs headless
+  // need different defaults (acceptEdits for interactive, bypassPermissions for
+  // unattended). See `buildInteractiveArgs` and `buildHeadlessArgs` below.
+  baseArgs: ['--effort', 'xhigh'],
 
   experimental: false,
 
   buildInteractiveArgs(prompt: string, extraArgs: string[] = []): string[] {
-    return [...this.baseArgs, ...extraArgs, '--', prompt];
+    return ['--permission-mode', 'acceptEdits', ...this.baseArgs, ...extraArgs, '--', prompt];
   },
 
   buildHeadlessArgs(extraArgs: string[] = []): string[] {
-    return ['-p', '--output-format', 'json', ...this.baseArgs, ...extraArgs];
+    return ['-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions', ...this.baseArgs, ...extraArgs];
   },
 
   parseJsonOutput(stdout: string): ParsedOutput {
     const jsonResult = Result.try(() => JSON.parse(stdout) as unknown);
     if (!jsonResult.ok) {
       // JSON parse failed — treat raw stdout as the result text
-      return { result: stdout, sessionId: null, model: null };
+      return { result: stdout, sessionId: null, model: null, numTurns: null };
     }
-    const parsed = jsonResult.value as { result?: string; session_id?: string; model?: string };
+    const parsed = jsonResult.value as {
+      result?: string;
+      session_id?: string;
+      model?: string;
+      num_turns?: number;
+      numTurns?: number;
+    };
+    const rawTurns = parsed.num_turns ?? parsed.numTurns ?? null;
     return {
       result: parsed.result ?? stdout,
       sessionId: parsed.session_id ?? null,
       model: parsed.model ?? null,
+      numTurns: typeof rawTurns === 'number' && Number.isFinite(rawTurns) ? rawTurns : null,
     };
   },
 
