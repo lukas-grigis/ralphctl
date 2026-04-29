@@ -1,41 +1,34 @@
 /**
- * ExecutionNotificationBanner — ambient toast for backgrounded executions.
+ * ExecutionNotificationBanner — terminal-transition tracker for backgrounded
+ * executions. Publishes to the shared `notificationBus` instead of rendering
+ * its own JSX; the actual surface lives in `<StickyNotification />`, mounted
+ * once by the router so every notifier in the app shares one slot.
  *
- * Subscribes to the registry and surfaces the most recent terminal transition
- * for an execution the user has not yet visited after settlement. Mounted in
- * the router chrome between the Banner and the current view so it is visible
- * everywhere.
- *
- * Design:
- *   - Tracks `seen` terminal execution ids in a ref. An execution id is marked
- *     seen when the user opens its live view OR opens the running-executions
- *     list after the entry has settled. This prevents a toast from reappearing
- *     on subsequent renders.
- *   - Cancelled transitions never render — the user requested the terminal
- *     state and a "cancelled" toast is noise.
- *   - Running transitions are ignored entirely; only `completed` / `failed`
- *     surface as notifications.
- *   - Dismiss on any of: pressing Enter on the banner's target (handled by the
- *     running-executions view / execute view), or navigating into the execute
- *     view for that id (the id then counts as visited).
+ * Tracking rules carried over from the original implementation:
+ *   - `seen` ids guard against a re-fire if the registry replays the same
+ *     transition during a re-render.
+ *   - `visited` ids absorb the case where the user is already on the
+ *     running-executions list when the entry settles — a toast for a row the
+ *     user is already looking at would be noise.
+ *   - `cancelled` is never notifiable; the user requested that terminal state.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, Text } from 'ink';
+import { useEffect, useRef } from 'react';
 import type {
   ExecutionRegistryPort,
   ExecutionStatus,
   RunningExecution,
 } from '@src/business/ports/execution-registry.ts';
-import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useRegistryEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
+import { notificationBus } from '@src/integration/ui/tui/runtime/notification-bus.ts';
+import { useRouterOptional, type RouterApi } from '@src/integration/ui/tui/views/router-context.ts';
 
 interface Props {
   /** Current view id — used to mark an execution "visited" once the user is on it. */
   readonly currentViewId: string;
   /**
    * Execution registry to subscribe to. Pass `null` when no registry is
-   * available (e.g. plain-text CLI mount) — the banner renders nothing.
+   * available (e.g. plain-text CLI mount) — the tracker no-ops.
    * The router owns the registry lookup so this component never reaches
    * into `getSharedDeps()` at render time.
    */
@@ -50,16 +43,8 @@ function isNotifiable(status: ExecutionStatus): boolean {
   return status === 'completed' || status === 'failed';
 }
 
-function bannerColor(status: ExecutionStatus): string {
-  if (status === 'completed') return inkColors.success;
-  if (status === 'failed') return inkColors.error;
-  return inkColors.muted;
-}
-
-function bannerGlyph(status: ExecutionStatus): string {
-  if (status === 'completed') return glyphs.check;
-  if (status === 'failed') return glyphs.cross;
-  return glyphs.warningGlyph;
+function statusGroup(status: ExecutionStatus): 'success' | 'error' {
+  return status === 'completed' ? 'success' : 'error';
 }
 
 function bannerLabel(status: ExecutionStatus): string {
@@ -68,68 +53,89 @@ function bannerLabel(status: ExecutionStatus): string {
   return 'ENDED';
 }
 
-export function ExecutionNotificationBanner({ currentViewId, registry }: Props): React.JSX.Element | null {
-  const executions = useRegistryEvents(registry);
+function buildAction(routerRef: { current: RouterApi | null }): {
+  key: string;
+  label: string;
+  run(): Promise<{ ok: true } | { ok: false; error: string }>;
+} {
+  return {
+    key: 'x',
+    label: 'the runs list',
+    run: async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+      const router = routerRef.current;
+      if (router === null) {
+        return Promise.resolve({ ok: false, error: 'Navigation unavailable' });
+      }
+      router.push({ id: 'running-executions' });
+      return Promise.resolve({ ok: true });
+    },
+  };
+}
 
-  // Track ids we have already shown a notification for so the banner is
+function buildNotificationFor(
+  execution: RunningExecution,
+  routerRef: { current: RouterApi | null }
+): {
+  id: string;
+  message: string;
+  status: 'success' | 'error';
+  action: ReturnType<typeof buildAction>;
+} {
+  return {
+    id: `execution-${execution.id}`,
+    message: `${execution.projectName} · ${execution.sprint.name} ${bannerLabel(execution.status)}`,
+    status: statusGroup(execution.status),
+    action: buildAction(routerRef),
+  };
+}
+
+export function ExecutionNotificationBanner({ currentViewId, registry }: Props): null {
+  const executions = useRegistryEvents(registry);
+  const router = useRouterOptional();
+
+  // Stable ref so the action closure always uses the latest router instance,
+  // even though useRouterOptional() returns the same identity per mount.
+  const routerRef = useRef<RouterApi | null>(router);
+  routerRef.current = router;
+
+  // Track ids we have already shown a notification for so the bus is
   // single-fire per transition.
   const shownRef = useRef<Set<string>>(new Set());
   // Track ids the user has *visited* while the entry was in a terminal state.
   // Visiting marks the id notified.
   const visitedRef = useRef<Set<string>>(new Set());
-  const [pending, setPending] = useState<RunningExecution | null>(null);
 
-  // Mark the current viewed execution as seen once we land on it, AND mark the
-  // whole list as seen when the user opens the running-executions list.
+  // Mark visited when the user lands on the running-executions list.
   useEffect(() => {
-    if (currentViewId === 'running-executions') {
-      for (const e of executions) {
-        if (isTerminal(e.status)) visitedRef.current.add(e.id);
-      }
-      if (pending && visitedRef.current.has(pending.id)) {
-        setPending(null);
+    if (currentViewId !== 'running-executions') return;
+    let dismissedActive = false;
+    for (const e of executions) {
+      if (!isTerminal(e.status)) continue;
+      visitedRef.current.add(e.id);
+      const active = notificationBus.current();
+      if (!dismissedActive && active?.id === `execution-${e.id}`) {
+        notificationBus.clear(active.id);
+        dismissedActive = true;
       }
     }
-  }, [currentViewId, executions, pending]);
+  }, [currentViewId, executions]);
 
-  // Detect fresh terminal transitions and promote them to the banner slot.
+  // Detect fresh terminal transitions and publish to the bus.
   useEffect(() => {
     for (const e of executions) {
       if (!isTerminal(e.status)) continue;
       if (!isNotifiable(e.status)) continue;
       if (shownRef.current.has(e.id)) continue;
       if (visitedRef.current.has(e.id)) {
-        // User already on the execution's view — no toast, but mark shown.
+        // User is already on the runs list — no toast, but mark shown.
         shownRef.current.add(e.id);
         continue;
       }
       shownRef.current.add(e.id);
-      setPending(e);
+      notificationBus.show(buildNotificationFor(e, routerRef));
       break;
     }
   }, [executions]);
 
-  if (!pending) return null;
-
-  const color = bannerColor(pending.status);
-  const icon = bannerGlyph(pending.status);
-  const label = bannerLabel(pending.status);
-
-  return (
-    <Box borderStyle="round" borderColor={color} paddingX={spacing.cardPadX} marginBottom={spacing.section}>
-      <Text color={color} bold>
-        {icon}{' '}
-      </Text>
-      <Text bold>
-        {pending.projectName} {glyphs.inlineDot} {pending.sprint.name}
-      </Text>
-      <Text color={color} bold>
-        {'  '}
-        {label}
-      </Text>
-      <Text dimColor>{`  ${glyphs.emDash} press `}</Text>
-      <Text bold>x</Text>
-      <Text dimColor> for the runs list</Text>
-    </Box>
-  );
+  return null;
 }
