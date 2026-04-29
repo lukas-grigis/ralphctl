@@ -25,9 +25,10 @@ import { registerExternalHost } from '@src/integration/ui/prompts/auto-mount.tsx
 import { App } from '@src/integration/ui/tui/views/app.tsx';
 import { enterAltScreen, exitAltScreen } from './screen.ts';
 import { registerTuiInstance } from './suspend.ts';
+import { consumeDetachHint } from '@src/integration/runtime/detach-hint.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
 
-export type InkViewName = 'repl' | 'execute';
+export type InkViewName = 'repl' | 'execute' | 'attach';
 
 export interface MountOptions {
   initialView: InkViewName;
@@ -35,6 +36,8 @@ export interface MountOptions {
   sprintId?: string;
   /** For the 'execute' view: execution options. */
   executionOptions?: ExecutionOptions;
+  /** For the 'attach' view: which execution id to attach to (read-only from disk). */
+  executionId?: string;
 }
 
 interface MountResult {
@@ -80,6 +83,10 @@ export async function mountInkApp(options: MountOptions): Promise<MountResult> {
     releaseHost();
     signalBus.dispose();
     exitAltScreen();
+    const hint = consumeDetachHint();
+    if (hint !== null) {
+      process.stdout.write(`${hint}\n`);
+    }
   }
 
   return { fallback: false };

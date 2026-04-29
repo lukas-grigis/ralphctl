@@ -8,6 +8,7 @@ import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
 import type { ExecutionRegistryPort } from '@src/business/ports/execution-registry.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 
 /**
  * Shape of the adapter graph every command receives at runtime.
@@ -41,4 +42,10 @@ export interface SharedDeps {
    * abort controller) so concurrent runs do not cross-talk.
    */
   executionRegistry: ExecutionRegistryPort;
+  /**
+   * Phase-scoped skills loader + symlink lifecycle. Pipelines link the
+   * resolved skill set into each AI session's working directory at the
+   * start of a phase and drain on completion / interrupt.
+   */
+  skills: SkillsPort;
 }

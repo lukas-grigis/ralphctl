@@ -29,6 +29,7 @@ export type ViewId =
   | 'onboarding'
   | 'settings'
   | 'execute'
+  | 'attach'
   | 'dashboard'
   | 'running-executions'
   | 'refine-phase'

@@ -154,7 +154,35 @@ vi.mock('@src/integration/ui/prompts/hooks.ts', () => ({
   useCurrentPrompt: () => null,
 }));
 
-import { initialState, reduceEvents, ExecuteView, buildErrorCard } from './execute-view.tsx';
+const spawnDaemonMock = vi.fn((options: unknown): { pid: number } => {
+  void options;
+  return { pid: 99999 };
+});
+vi.mock('@src/integration/runtime/daemon-spawn.ts', () => ({
+  spawnDaemon: (args: unknown): { pid: number } => spawnDaemonMock(args),
+  resolveCliScript: () => '/cli.mjs',
+}));
+
+const detachHintRef: { value: string | null } = { value: null };
+vi.mock('@src/integration/runtime/detach-hint.ts', () => ({
+  setDetachHint: (msg: string): void => {
+    detachHintRef.value = msg;
+  },
+  consumeDetachHint: (): string | null => {
+    const v = detachHintRef.value;
+    detachHintRef.value = null;
+    return v;
+  },
+}));
+
+import {
+  initialState,
+  reduceEvents,
+  ExecuteView,
+  buildErrorCard,
+  buildOptionFlags,
+  detachAndExit,
+} from './execute-view.tsx';
 
 function renderWithRouter(element: React.ReactElement): ReturnType<typeof render> {
   return render(
@@ -359,5 +387,98 @@ describe('buildErrorCard', () => {
   it('returns undefined fields when stepName is absent', () => {
     const { fields } = buildErrorCard({ message: 'oops' });
     expect(fields).toBeUndefined();
+  });
+});
+
+describe('buildOptionFlags', () => {
+  it('returns an empty array when options are undefined', () => {
+    expect(buildOptionFlags(undefined)).toEqual([]);
+  });
+
+  it('emits the right CLI flags for each option', () => {
+    const flags = buildOptionFlags({
+      session: true,
+      step: false,
+      noCommit: true,
+      count: 3,
+      concurrency: 2,
+      maxRetries: 5,
+      failFast: true,
+      force: true,
+      branch: true,
+      branchName: 'feat',
+      noEvaluate: true,
+      noFeedback: true,
+    });
+    expect(flags).toEqual([
+      '--session',
+      '--no-commit',
+      '--count',
+      '3',
+      '--concurrency',
+      '2',
+      '--max-retries',
+      '5',
+      '--fail-fast',
+      '--force',
+      '--branch',
+      '--branch-name',
+      'feat',
+      '--no-evaluate',
+      '--no-feedback',
+    ]);
+  });
+
+  it('emits --no-fail-fast when failFast is false', () => {
+    const flags = buildOptionFlags({ failFast: false });
+    expect(flags).toContain('--no-fail-fast');
+  });
+});
+
+describe('detachAndExit', () => {
+  it('cancels via the registry, spawns the daemon, sets the hint, then unmounts Ink', async () => {
+    spawnDaemonMock.mockClear();
+    detachHintRef.value = null;
+    const live = makeExecution('exec-detach', 'sprint-d', 'running');
+    const registry = makeStubRegistry({ entry: live });
+    const exitInk = vi.fn();
+
+    await detachAndExit({
+      registry,
+      liveExecution: live,
+      sprintId: 'sprint-d',
+      executionOptions: { concurrency: 4 },
+      exitInk,
+    });
+
+    expect(registry.cancelCalls).toContain('exec-detach');
+    expect(spawnDaemonMock).toHaveBeenCalledTimes(1);
+    const spawnArg = spawnDaemonMock.mock.calls[0]?.[0] as { args: string[] } | undefined;
+    expect(spawnArg?.args).toEqual(['sprint', '__daemon-run', 'sprint-d', '--concurrency', '4']);
+    expect(detachHintRef.value).toContain('Re-attach with: ralphctl sprint attach sprint-d');
+    expect(exitInk).toHaveBeenCalledTimes(1);
+  });
+
+  it('still unmounts Ink and surfaces a hint when spawnDaemon throws', async () => {
+    spawnDaemonMock.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    detachHintRef.value = null;
+    const live = makeExecution('exec-fail', 'sprint-f', 'running');
+    const registry = makeStubRegistry({ entry: live });
+    const exitInk = vi.fn();
+
+    await detachAndExit({
+      registry,
+      liveExecution: live,
+      sprintId: 'sprint-f',
+      executionOptions: undefined,
+      exitInk,
+    });
+
+    expect(detachHintRef.value).toContain('Detach failed: boom');
+    expect(exitInk).toHaveBeenCalledTimes(1);
+    spawnDaemonMock.mockReset();
+    spawnDaemonMock.mockReturnValue({ pid: 99999 });
   });
 });

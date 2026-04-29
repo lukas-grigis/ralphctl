@@ -63,6 +63,7 @@ export function createRefinePipeline(shared: SharedDeps, options: RefineOptions 
       ui,
       logger: shared.logger,
       external,
+      skills: shared.skills,
     },
     options
   );
@@ -86,6 +87,7 @@ export function createPlanPipeline(shared: SharedDeps, options: PlanOptions = {}
       ui,
       logger: shared.logger,
       external,
+      skills: shared.skills,
     },
     options
   );
@@ -169,6 +171,7 @@ export function createExecuteSprintPipeline(shared: SharedDeps, options: Execute
       processLifecycle: shared.processLifecycle,
       prompt: shared.prompt,
       isTTY,
+      skills: shared.skills,
     },
     options
   );

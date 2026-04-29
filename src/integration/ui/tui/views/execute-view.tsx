@@ -22,7 +22,8 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
+import { join } from 'node:path';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
 import type { RunningExecution } from '@src/business/ports/execution-registry.ts';
 import type { ExecutionOptions } from '@src/domain/context.ts';
@@ -31,6 +32,7 @@ import { ExecutionAlreadyRunningError } from '@src/domain/errors.ts';
 import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import { areAllTasksDone } from '@src/integration/persistence/task.ts';
 import { closeSprint } from '@src/integration/persistence/sprint.ts';
+import { getDataDir } from '@src/integration/persistence/paths.ts';
 import { useLoggerEvents, useRegistryEvents, useSignalEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
 import { TaskGrid } from '@src/integration/ui/tui/components/task-grid.tsx';
 import { SprintSummary } from '@src/integration/ui/tui/components/sprint-summary.tsx';
@@ -38,13 +40,29 @@ import { LogTail } from '@src/integration/ui/tui/components/log-tail.tsx';
 import { RateLimitBanner } from '@src/integration/ui/tui/components/rate-limit-banner.tsx';
 import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
+import { DagView } from '@src/integration/ui/tui/components/dag-view.tsx';
+import { spawnDaemon } from '@src/integration/runtime/daemon-spawn.ts';
+import { releaseSprintLock } from '@src/integration/runtime/runs-store.ts';
+import { setDetachHint } from '@src/integration/runtime/detach-hint.ts';
 import { useRouter } from './router-context.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { formatElapsed } from '@src/integration/ui/tui/components/elapsed.ts';
 import type { ExecutionSummary } from '@src/business/usecases/execute.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
-const EXECUTE_HINTS_RUNNING = [{ key: 'c', action: 'cancel' }] as const;
+// View-local hotkeys come from the canonical keyboard map. The detach key
+// is uppercase `D` because lowercase `d` is the global "open dashboard"
+// hotkey — keeping them distinct avoids the global handler stomping the
+// view-local action. The literal lives in `keyboard-map.ts`; views read it.
+const CANCEL_KEY = getKeyFor('execute.cancel');
+const DETACH_KEY = getKeyFor('execute.detach');
+
+const EXECUTE_HINTS_RUNNING = [
+  { key: CANCEL_KEY, action: 'cancel' },
+  { key: DETACH_KEY, action: 'detach' },
+] as const;
 const EXECUTE_HINTS_TERMINAL = [{ key: 'Enter', action: 'back' }] as const;
 
 /**
@@ -94,8 +112,11 @@ interface RunState {
   tasks: readonly Task[];
   running: Set<string>;
   blocked: Set<string>;
+  failed: Set<string>;
   activity: Map<string, string>;
   currentStep: Map<string, string>;
+  /** taskId → epoch ms when the harness reported the task entered `running`. */
+  startedAt: Map<string, number>;
   rateLimit: { pausedSince: Date; delayMs: number } | null;
   taskRefreshError: string | null;
 }
@@ -106,8 +127,10 @@ export function initialState(): RunState {
     tasks: [],
     running: new Set(),
     blocked: new Set(),
+    failed: new Set(),
     activity: new Map(),
     currentStep: new Map(),
+    startedAt: new Map(),
     rateLimit: null,
     taskRefreshError: null,
   };
@@ -303,14 +326,34 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
 
   // View-local keys:
   //   - `c` while running → cancel via the registry (keeps the user on-view)
+  //   - `D` (uppercase) while running → background as a detached daemon
   //   - Enter on a terminal execution → pop back to the previous frame
   //
   // Log scrolling is intentionally absent. The log auto-tails to its end so
   // the user always sees the most recent events without any interaction.
   // Full output is available in the sprint's progress.md.
+  const { exit: exitInk } = useApp();
+  const detachInFlightRef = useRef(false);
+
   useInput((input, key) => {
-    if (attach.kind === 'attached' && liveExecution?.status === 'running' && input === 'c') {
+    if (attach.kind === 'attached' && liveExecution?.status === 'running' && input === CANCEL_KEY) {
       registry.cancel(liveExecution.id);
+      return;
+    }
+    if (
+      attach.kind === 'attached' &&
+      liveExecution?.status === 'running' &&
+      input === DETACH_KEY &&
+      !detachInFlightRef.current
+    ) {
+      detachInFlightRef.current = true;
+      void detachAndExit({
+        registry,
+        liveExecution,
+        sprintId,
+        executionOptions,
+        exitInk,
+      });
       return;
     }
     if (terminal && key.return) {
@@ -396,6 +439,18 @@ export function ExecuteView({ sprintId, executionId, executionOptions }: Props):
           activityByTask={state.activity}
         />
       </Box>
+
+      <Box marginTop={spacing.section} flexDirection="column">
+        <DagView
+          tasks={state.tasks}
+          runningTaskIds={state.running}
+          failedTaskIds={state.failed}
+          blockedTaskIds={state.blocked}
+          terminalWidth={stdout.columns}
+        />
+      </Box>
+
+      <RunningTasksList tasks={state.tasks} running={state.running} startedAt={state.startedAt} />
 
       {!terminal && state.currentStep.size > 0 ? (
         <Box marginTop={spacing.section} flexDirection="column">
@@ -489,6 +544,155 @@ interface CollisionProps {
   readonly fallbackSprintId: string;
 }
 
+interface RunningTasksListProps {
+  readonly tasks: readonly Task[];
+  readonly running: ReadonlySet<string>;
+  readonly startedAt: ReadonlyMap<string, number>;
+}
+
+/**
+ * Compact list of currently-running tasks with live elapsed time. Reuses
+ * `<Spinner />` so each row carries the standard braille animation. The list
+ * collapses to nothing when no task is running.
+ */
+function RunningTasksList({ tasks, running, startedAt }: RunningTasksListProps): React.JSX.Element | null {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (running.size === 0) return;
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [running.size]);
+
+  if (running.size === 0) return null;
+
+  const rows = tasks
+    .filter((t) => running.has(t.id))
+    .map((task) => {
+      const start = startedAt.get(task.id) ?? now;
+      const elapsedSec = Math.max(0, Math.floor((now - start) / 1000));
+      return { task, elapsedSec };
+    });
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Box marginTop={spacing.section} flexDirection="column">
+      <Text dimColor>── Running ────────────────────────</Text>
+      {rows.map(({ task, elapsedSec }) => (
+        <Box key={task.id}>
+          <Spinner label={`${task.name}  (${formatElapsed(elapsedSec)})`} color={inkColors.warning} />
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+interface DetachAndExitArgs {
+  readonly registry: import('@src/business/ports/execution-registry.ts').ExecutionRegistryPort;
+  readonly liveExecution: RunningExecution;
+  readonly sprintId: string;
+  readonly executionOptions: ExecutionOptions | undefined;
+  readonly exitInk: () => void;
+}
+
+/**
+ * Background the foreground execution as a detached daemon.
+ *
+ * Sequence:
+ *   1. Cancel the in-process registry entry so it releases the cross-process
+ *      sprint lock (`runs-store.releaseSprintLock`).
+ *   2. Wait briefly for the cancellation to flush the lock + state.json.
+ *   3. Spawn the detached daemon via `spawnDaemon(...)`. The daemon claims
+ *      the sprint lock fresh and resumes execution from the on-disk task
+ *      state — `in_progress` tasks get re-attempted, `done` tasks are skipped.
+ *   4. Stash a hint so `mountInkApp` can print it to the normal terminal
+ *      after the alt-screen has been restored.
+ *   5. Unmount the Ink app via `useApp().exit()`.
+ *
+ * This necessarily double-counts work for any task that was mid-flight at
+ * detach time — the in-process Claude session is killed and the daemon
+ * launches a fresh one. That's the cost of moving processes; users who want
+ * lossless resume should run with `--detach` from the start.
+ *
+ * Exported for unit testing.
+ */
+export async function detachAndExit(args: DetachAndExitArgs): Promise<void> {
+  const { registry, liveExecution, sprintId, executionOptions, exitInk } = args;
+
+  registry.cancel(liveExecution.id);
+
+  // Wait up to ~2 s for the registry to flush the cancellation.
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    const current = registry.get(liveExecution.id);
+    if (current?.status !== 'running') break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  // The registry's lock release runs fire-and-forget inside `transition()`,
+  // so the in-memory status flips before the lock file is unlinked. Force
+  // the release synchronously here — otherwise the daemon's first act
+  // (`claimSprintLock`) sees the parent's still-live PID and aborts with
+  // `ExecutionAlreadyRunningError`. `releaseSprintLock` is idempotent
+  // (ENOENT swallowed) so a double-release is safe.
+  await releaseSprintLock(sprintId);
+
+  const sprintDir = join(getDataDir(), 'sprints', sprintId);
+  const logPath = join(sprintDir, 'daemon.log');
+  const daemonArgs = ['sprint', '__daemon-run', sprintId, ...buildOptionFlags(executionOptions)];
+
+  let pid: number;
+  try {
+    const result = spawnDaemon({ args: daemonArgs, logPath });
+    pid = result.pid;
+  } catch (err) {
+    setDetachHint(`Detach failed: ${err instanceof Error ? err.message : String(err)}`);
+    exitInk();
+    return;
+  }
+
+  setDetachHint(
+    `Detached. Daemon pid ${String(pid)} writing to ${logPath}\n` + `Re-attach with: ralphctl sprint attach ${sprintId}`
+  );
+  exitInk();
+}
+
+/**
+ * Reverse `parseSprintStartArgs` so detach can re-launch the daemon with
+ * the same options the foreground was running under. Only options that map
+ * cleanly to a CLI flag are forwarded — the rest are dropped silently.
+ *
+ * Exported for unit testing.
+ */
+export function buildOptionFlags(options: ExecutionOptions | undefined): string[] {
+  if (!options) return [];
+  const flags: string[] = [];
+  if (options.session) flags.push('--session');
+  if (options.step) flags.push('--step');
+  if (options.noCommit) flags.push('--no-commit');
+  if (options.count !== undefined) flags.push('--count', String(options.count));
+  if (options.concurrency !== undefined) flags.push('--concurrency', String(options.concurrency));
+  if (options.maxRetries !== undefined) flags.push('--max-retries', String(options.maxRetries));
+  if (options.failFast === true) flags.push('--fail-fast');
+  if (options.failFast === false) flags.push('--no-fail-fast');
+  if (options.force) flags.push('--force');
+  if (options.refreshCheck) flags.push('--refresh-check');
+  if (options.branch) flags.push('--branch');
+  if (options.branchName !== undefined) flags.push('--branch-name', options.branchName);
+  if (options.maxBudgetUsd !== undefined) flags.push('--max-budget-usd', String(options.maxBudgetUsd));
+  if (options.fallbackModel !== undefined) flags.push('--fallback-model', options.fallbackModel);
+  if (options.maxTurns !== undefined) flags.push('--max-turns', String(options.maxTurns));
+  if (options.noEvaluate) flags.push('--no-evaluate');
+  if (options.noFeedback) flags.push('--no-feedback');
+  if (options.resumeDirty) flags.push('--resume-dirty');
+  if (options.resetOnResume) flags.push('--reset-on-resume');
+  return flags;
+}
+
 function CollisionRedirect({ registry, collisionId, fallbackSprintId }: CollisionProps): React.JSX.Element | null {
   const router = useRouter();
   useInput((_input, key) => {
@@ -525,21 +729,30 @@ function labelForStep(stepName: string): string {
 export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): RunState {
   const running = new Set(state.running);
   const blocked = new Set(state.blocked);
+  const failed = new Set(state.failed);
   const activity = new Map(state.activity);
   const currentStep = new Map(state.currentStep);
+  const startedAt = new Map(state.startedAt);
   let rateLimit = state.rateLimit;
 
   for (const event of events) {
     switch (event.type) {
       case 'task-started':
         running.add(event.taskId);
+        if (!startedAt.has(event.taskId)) {
+          startedAt.set(event.taskId, event.timestamp.getTime());
+        }
         break;
       case 'task-finished':
         running.delete(event.taskId);
         activity.delete(event.taskId);
         currentStep.delete(event.taskId);
-        if (event.status === 'blocked' || event.status === 'failed') {
+        startedAt.delete(event.taskId);
+        if (event.status === 'blocked') {
           blocked.add(event.taskId);
+        }
+        if (event.status === 'failed') {
+          failed.add(event.taskId);
         }
         break;
       case 'task-step':
@@ -575,5 +788,5 @@ export function reduceEvents(state: RunState, events: readonly HarnessEvent[]): 
     }
   }
 
-  return { ...state, running, blocked, activity, currentStep, rateLimit };
+  return { ...state, running, blocked, failed, activity, currentStep, startedAt, rateLimit };
 }

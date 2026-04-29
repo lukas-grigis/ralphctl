@@ -62,6 +62,14 @@ function buildInitialStack(initialView: InkViewName, mountOptions: MountOptions)
       },
     ];
   }
+  if (initialView === 'attach' && mountOptions.executionId !== undefined) {
+    return [
+      {
+        id: 'attach',
+        props: { executionId: mountOptions.executionId },
+      },
+    ];
+  }
   return [{ id: 'home' }];
 }
 
@@ -88,8 +96,12 @@ export function App({ initialView, mountOptions }: AppProps): React.JSX.Element 
   useEffect(() => {
     let cancelled = false;
     const decideInitial = async (): Promise<void> => {
-      // Execute path bypasses onboarding — we have an explicit sprintId.
+      // Execute / attach paths bypass onboarding — we have explicit ids.
       if (initialView === 'execute' && mountOptions.sprintId !== undefined) {
+        if (!cancelled) setStack(buildInitialStack(initialView, mountOptions));
+        return;
+      }
+      if (initialView === 'attach' && mountOptions.executionId !== undefined) {
         if (!cancelled) setStack(buildInitialStack(initialView, mountOptions));
         return;
       }

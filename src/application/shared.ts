@@ -10,6 +10,7 @@ import { createLogger } from '@src/integration/logging/factory.ts';
 import { RateLimitCoordinator } from '@src/integration/ai/session/rate-limiter.ts';
 import { processLifecycleAdapter } from '@src/integration/ai/session/process-manager.ts';
 import { InMemoryExecutionRegistry, type PipelineRunner } from '@src/integration/runtime/execution-registry.ts';
+import { DefaultSkillsAdapter } from '@src/integration/ai/skills/skills-adapter.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createExecuteSprintPipeline } from './factories.ts';
 import type { SharedDeps } from '@src/integration/shared-deps.ts';
@@ -37,6 +38,7 @@ export function createSharedDeps(overrides: Partial<SharedDeps> = {}): SharedDep
   const createRateLimitCoordinator =
     overrides.createRateLimitCoordinator ?? ((): RateLimitCoordinatorPort => new RateLimitCoordinator());
   const processLifecycle = overrides.processLifecycle ?? processLifecycleAdapter;
+  const skills = overrides.skills ?? new DefaultSkillsAdapter(logger);
 
   // `executionRegistry` closes a cycle: it needs the full SharedDeps graph
   // to spawn per-execution pipelines, and the graph includes the registry.
@@ -54,6 +56,7 @@ export function createSharedDeps(overrides: Partial<SharedDeps> = {}): SharedDep
     signalBus,
     createRateLimitCoordinator,
     processLifecycle,
+    skills,
   } as SharedDeps;
 
   const defaultRunner: PipelineRunner = async (scopedShared, { sprintId, options, abortSignal }) => {
