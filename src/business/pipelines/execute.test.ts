@@ -13,6 +13,7 @@ import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createExecuteSprintPipeline, type ExecuteContext, type ExecuteDeps } from './execute.ts';
 
@@ -223,6 +224,15 @@ function makePrompt(): ExecuteDeps['prompt'] {
   };
 }
 
+function makeSkills(overrides: Partial<SkillsPort> = {}): SkillsPort {
+  return {
+    loadForPhase: () => Promise.resolve([]),
+    link: (workingDir) => Promise.resolve({ workingDir, linkedNames: [] }),
+    cleanup: () => Promise.resolve(),
+    ...overrides,
+  };
+}
+
 function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
   return {
     persistence: makePersistence(),
@@ -244,6 +254,7 @@ function makeDeps(overrides: Partial<ExecuteDeps> = {}): ExecuteDeps {
     },
     prompt: makePrompt(),
     isTTY: () => false,
+    skills: makeSkills(),
     ...overrides,
   };
 }
@@ -295,8 +306,10 @@ describe('createExecuteSprintPipeline', () => {
       'prepare-tasks',
       'ensure-branches',
       'run-check-scripts',
+      'link-skills',
       'execute-tasks',
       'feedback-loop',
+      'cleanup-skills',
     ]);
 
     const summary = result.value.context.executionSummary;

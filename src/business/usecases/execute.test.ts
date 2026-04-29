@@ -85,7 +85,7 @@ describe('ExecuteTasksUseCase — live config (REQ-12)', () => {
     expect(cfg).toEqual({ enabled: false, iterations: 3 });
   });
 
-  it('defaults to 1 when evaluationIterations is unset', async () => {
+  it('defaults to 1 (one fix attempt) when evaluationIterations is unset', async () => {
     const { persistence } = makePersistenceWithGetConfig([{}]);
     const uc = createUseCase(persistence);
     const cfg = await uc.getEvaluationConfig();

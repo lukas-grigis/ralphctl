@@ -26,7 +26,7 @@ export type HarnessEvent =
       type: 'task-finished';
       sprintId: string;
       taskId: string;
-      status: 'done' | 'blocked' | 'failed' | 'cancelled';
+      status: 'done' | 'blocked' | 'failed' | 'cancelled' | 'skipped';
       timestamp: Date;
     }
   | {

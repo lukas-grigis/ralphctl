@@ -412,6 +412,11 @@ function buildDeps(scenario: Scenario = {}): {
       fileBrowser: () => Promise.resolve(null),
     },
     isTTY: () => false,
+    skills: {
+      loadForPhase: () => Promise.resolve([]),
+      link: (workingDir) => Promise.resolve({ workingDir, linkedNames: [] }),
+      cleanup: () => Promise.resolve(),
+    },
   };
 
   // Parser needs to produce a `task-complete` signal so `executeOneTask`
@@ -471,8 +476,10 @@ describe('executeTasksStep via forEachTask — integration', () => {
       'prepare-tasks',
       'ensure-branches',
       'run-check-scripts',
+      'link-skills',
       'execute-tasks',
       'feedback-loop',
+      'cleanup-skills',
     ]);
 
     expect(result.value.context.executionSummary).toMatchObject({
@@ -642,6 +649,192 @@ describe('executeTasksStep via forEachTask — integration', () => {
     // The task was picked up + completed even though it was never `todo`.
     expect(spawnWithRetry).toHaveBeenCalledTimes(1);
     expect(result.value.context.executionSummary?.stopReason).toBe('all_completed');
+  });
+
+  // -------------------------------------------------------------------------
+  // Concurrency resolution — `--concurrency` flag wins over persisted
+  // `config.concurrency`, which beats the default of 3. Mutex by repo
+  // remains intact regardless of the resolved limit.
+  // -------------------------------------------------------------------------
+
+  it('default concurrency is 3 when neither flag nor config sets it', async () => {
+    // Five tasks across five distinct repos so the scheduler can launch up
+    // to its full concurrency. Spawn yields so multiple launches overlap.
+    const tasks = Array.from({ length: 5 }, (_, i) =>
+      makeTask({ id: `t${String(i + 1)}`, order: i + 1, repoId: `repo-${String(i + 1)}` })
+    );
+    const repoPaths: Record<string, string> = Object.fromEntries(tasks.map((t) => [t.repoId, `/repo/${t.repoId}`]));
+
+    let maxInFlight = 0;
+    let inFlightNow = 0;
+    const spawnImpl = async (): Promise<SessionResult> => {
+      inFlightNow++;
+      maxInFlight = Math.max(maxInFlight, inFlightNow);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlightNow--;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' };
+    };
+
+    const sprint = makeSprint({
+      tickets: [makeTicket({ affectedRepoIds: Object.keys(repoPaths) })],
+    });
+    const scenario = buildDeps({ tasks, sprint, spawnImpl });
+
+    // Patch the persistence stub to know about all 5 repos.
+    const project = {
+      id: 'proj-1',
+      name: 'p',
+      displayName: 'p',
+      repositories: tasks.map((t) => ({ id: t.repoId, name: t.repoId, path: repoPaths[t.repoId] ?? '' })),
+    };
+    const persistencePatched = scenario.deps.persistence as unknown as {
+      getProject: () => Promise<unknown>;
+      resolveRepoPath: (id: string) => Promise<string>;
+      getRepoById: (id: string) => Promise<unknown>;
+    };
+    persistencePatched.getProject = () => Promise.resolve(project);
+    persistencePatched.resolveRepoPath = (id: string) =>
+      Promise.resolve(repoPaths[id] ?? Promise.reject(new Error(`unknown repo ${id}`)));
+    persistencePatched.getRepoById = (id: string) =>
+      Promise.resolve({ project, repo: { id, name: id, path: repoPaths[id] ?? '' } });
+
+    // No --concurrency, no persisted config.concurrency.
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    // Default of 3 — the runner launches at most 3 simultaneously even
+    // though there are 5 ready tasks across 5 distinct repos.
+    expect(maxInFlight).toBe(3);
+  });
+
+  it('--concurrency CLI flag overrides persisted config.concurrency', async () => {
+    const tasks = Array.from({ length: 4 }, (_, i) =>
+      makeTask({ id: `t${String(i + 1)}`, order: i + 1, repoId: `repo-${String(i + 1)}` })
+    );
+    const repoPaths: Record<string, string> = Object.fromEntries(tasks.map((t) => [t.repoId, `/repo/${t.repoId}`]));
+
+    let maxInFlight = 0;
+    let inFlightNow = 0;
+    const spawnImpl = async (): Promise<SessionResult> => {
+      inFlightNow++;
+      maxInFlight = Math.max(maxInFlight, inFlightNow);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlightNow--;
+      return { output: '<task-complete/>', sessionId: 'sess', model: 'claude-sonnet' };
+    };
+
+    const sprint = makeSprint({
+      tickets: [makeTicket({ affectedRepoIds: Object.keys(repoPaths) })],
+    });
+    // Persisted config sets concurrency=4; CLI flag pins it to 2.
+    const scenario = buildDeps({
+      tasks,
+      sprint,
+      spawnImpl,
+      config: makeConfig({ concurrency: 4 }),
+    });
+
+    const project = {
+      id: 'proj-1',
+      name: 'p',
+      displayName: 'p',
+      repositories: tasks.map((t) => ({ id: t.repoId, name: t.repoId, path: repoPaths[t.repoId] ?? '' })),
+    };
+    const persistencePatched = scenario.deps.persistence as unknown as {
+      getProject: () => Promise<unknown>;
+      resolveRepoPath: (id: string) => Promise<string>;
+      getRepoById: (id: string) => Promise<unknown>;
+    };
+    persistencePatched.getProject = () => Promise.resolve(project);
+    persistencePatched.resolveRepoPath = (id: string) =>
+      Promise.resolve(repoPaths[id] ?? Promise.reject(new Error(`unknown repo ${id}`)));
+    persistencePatched.getRepoById = (id: string) =>
+      Promise.resolve({ project, repo: { id, name: id, path: repoPaths[id] ?? '' } });
+
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { concurrency: 2, noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    // CLI flag wins — at most 2 in flight despite config.concurrency=4 and
+    // 4 ready tasks across 4 repos.
+    expect(maxInFlight).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // DAG failure isolation — a "real" task failure transitively skips its
+  // dependents (marked `skipped` in persistence) while independent
+  // sub-graphs keep running. The final summary lists failed and skipped
+  // nodes with reasons.
+  // -------------------------------------------------------------------------
+
+  it('failed task transitively skips dependents while independent task keeps running', async () => {
+    // Task graph:
+    //   X (fails) → Y (skip) → Z (skip)     all in repo-a
+    //   W (succeeds)                        in repo-b — fully independent
+    const taskX = makeTask({ id: 'X', order: 1, repoId: 'repo-a', name: 'task-X' });
+    const taskY = makeTask({ id: 'Y', order: 2, repoId: 'repo-a', name: 'task-Y', blockedBy: ['X'] });
+    const taskZ = makeTask({ id: 'Z', order: 3, repoId: 'repo-a', name: 'task-Z', blockedBy: ['Y'] });
+    const taskW = makeTask({ id: 'W', order: 4, repoId: 'repo-b', name: 'task-W' });
+
+    const spawnImpl = (taskId: string): Promise<SessionResult> => {
+      if (taskId === 'X') {
+        return Promise.resolve({
+          output: '<task-blocked>upstream failure</task-blocked>',
+          sessionId: 'sess',
+          model: 'claude-sonnet',
+        } as SessionResult);
+      }
+      return Promise.resolve({
+        output: '<task-complete/>',
+        sessionId: 'sess',
+        model: 'claude-sonnet',
+      } as SessionResult);
+    };
+
+    const scenario = buildDeps({
+      tasks: [taskX, taskY, taskZ, taskW],
+      sprint: makeSprint({
+        tickets: [makeTicket({ affectedRepoIds: ['repo-a', 'repo-b'] })],
+      }),
+      spawnImpl,
+    });
+
+    // Run with --no-fail-fast so independent branches survive the failure.
+    const pipeline = createExecuteSprintPipeline(scenario.deps, { failFast: false, noFeedback: true });
+    const result = await executePipeline(pipeline, { sprintId: 's1' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Independent branch keeps progressing — W reaches `done`.
+    const wState = scenario.stateTasks.find((t) => t.id === 'W');
+    expect(wState?.status).toBe('done');
+
+    // Y and Z are stamped `skipped` (transitive failure isolation).
+    const yState = scenario.stateTasks.find((t) => t.id === 'Y');
+    const zState = scenario.stateTasks.find((t) => t.id === 'Z');
+    expect(yState?.status).toBe('skipped');
+    expect(zState?.status).toBe('skipped');
+
+    // X itself stays in_progress so a later run can resume / retry it.
+    const xState = scenario.stateTasks.find((t) => t.id === 'X');
+    expect(xState?.status).toBe('in_progress');
+
+    // Summary surfaces failed + skipped counts and per-failure reasons.
+    const summary = result.value.context.executionSummary;
+    expect(summary?.stopReason).toBe('task_blocked');
+    expect(summary?.failed).toBe(1);
+    expect(summary?.skipped).toBe(2);
+    expect(summary?.failures?.[0]).toMatchObject({
+      taskId: 'X',
+      taskName: 'task-X',
+      reason: 'upstream failure',
+    });
+
+    // task-finished events fired with status=skipped for Y and Z (dashboard).
+    const skippedEvents = scenario.events.filter((e) => e.type === 'task-finished' && e.status === 'skipped');
+    expect(skippedEvents.map((e) => (e as { taskId: string }).taskId).sort()).toEqual(['Y', 'Z']);
   });
 
   it('--concurrency 1 forces sequential: two tasks on different repos never overlap', async () => {

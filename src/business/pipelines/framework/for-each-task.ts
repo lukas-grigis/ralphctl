@@ -63,6 +63,13 @@ export type RetryAction =
   | { action: 'pause-all'; delayMs: number; requeueItem: boolean }
   /** Block further items sharing this mutex key. */
   | { action: 'skip-repo'; key: string }
+  /**
+   * Drop just this item (counts as failed, no requeue) without pausing its
+   * mutex key. Use when independent items sharing the same mutex key should
+   * keep running — e.g. transitive DAG failure-skip, where a failing task's
+   * siblings in the same repo are unaffected.
+   */
+  | { action: 'skip-item' }
   /** Stop scheduling; optionally drain in-flight before returning. */
   | { action: 'fail'; drainInFlight: boolean };
 
@@ -461,6 +468,11 @@ function applyRetryAction<TItem>(
     }
     case 'skip-repo': {
       state.stats.pausedRepos.add(action.key);
+      state.stats.failed++;
+      policies.onSettle?.(item, 'failed');
+      return;
+    }
+    case 'skip-item': {
       state.stats.failed++;
       policies.onSettle?.(item, 'failed');
       return;

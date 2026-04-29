@@ -17,12 +17,18 @@ import type { SignalBusPort } from '@src/business/ports/signal-bus.ts';
 import type { RateLimitCoordinatorPort } from '@src/business/ports/rate-limit-coordinator.ts';
 import type { ProcessLifecyclePort } from '@src/business/ports/process-lifecycle.ts';
 import type { PromptPort } from '@src/business/ports/prompt.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { findSpawnError, pipeline, step } from '@src/business/pipelines/framework/helpers.ts';
 import type { PipelineStep } from '@src/business/pipelines/framework/types.ts';
 import { forEachTask, type RetryAction, type SchedulerStats } from '@src/business/pipelines/framework/for-each-task.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-sprint-status.ts';
 import { runCheckScriptsStep } from '@src/business/pipelines/steps/run-check-scripts.ts';
+import {
+  cleanupSkillsStep,
+  linkSkillsStep,
+  type WithLinkedSkills,
+} from '@src/business/pipelines/steps/skill-lifecycle.ts';
 import { ExecuteTasksUseCase, type ExecutionSummary, type StopReason } from '@src/business/usecases/execute.ts';
 import { createPerTaskPipeline } from '@src/business/pipelines/execute/per-task-pipeline.ts';
 import type { PerTaskContext } from '@src/business/pipelines/execute/per-task-context.ts';
@@ -36,6 +42,9 @@ const EXIT_INTERRUPTED = 130;
 
 /** Hard cap on parallel task launches — prevents resource exhaustion. */
 const MAX_CONCURRENCY = 10;
+
+/** Default concurrency when neither `--concurrency` nor `config.concurrency` is set. */
+const DEFAULT_CONCURRENCY = 3;
 
 /** Number of branch-preflight retries before a task is considered failed. */
 const MAX_BRANCH_RETRIES = 3;
@@ -55,7 +64,7 @@ const MAX_BRANCH_RETRIES = 3;
  *   one of: `check-preconditions` (decline), `prepare-tasks` (empty), or
  *   `execute-tasks` (normal completion).
  */
-export interface ExecuteContext extends StepContext {
+export interface ExecuteContext extends StepContext, WithLinkedSkills {
   executionSummary?: ExecutionSummary;
   branchName?: string | null;
   proceedAfterPrecondition?: boolean;
@@ -89,6 +98,8 @@ export interface ExecuteDeps {
   prompt: PromptPort;
   /** TTY probe — wired from the composition root (integration-layer helper). */
   isTTY: () => boolean;
+  /** Phase-scoped skills loader + symlink lifecycle. */
+  skills: SkillsPort;
 }
 
 // ---------------------------------------------------------------------------
@@ -555,6 +566,14 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     const taskSessionIds = new Map<string, string>();
     // Repos blocked by post-task-check failures or exhausted branch retries.
     const failedRepos = new Set<string>();
+    // Task IDs that hit a "real" failure this run (not rate-limit, not
+    // branch-preflight, not post-task-check). Used to compute transitive
+    // dependents and mark them `skipped` in persistence so independent
+    // sub-graphs keep progressing.
+    const failedTaskIds = new Set<string>();
+    // Per-(failed task) failure reasons — surfaced to summary callers and
+    // logged when dependents are skipped.
+    const failedTaskReasons = new Map<string, string>();
     // Tasks this run ever launched. On cancellation we use this to decide
     // which `in_progress` rows to flip to `cancelled` (we never touch tasks
     // this execution didn't start — those may belong to a prior run). Never
@@ -565,11 +584,24 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
     // scheduler surfaces an error.
     let firstBlockedReason: string | null = null;
 
-    // Resolve concurrency: session/step modes force sequential; otherwise cap
-    // at the number of unique repo ids or the caller's `--concurrency`.
+    // Resolve concurrency:
+    //   - Session/step modes force sequential.
+    //   - Otherwise: explicit --concurrency wins, then persisted
+    //     `config.concurrency`, then DEFAULT_CONCURRENCY (3).
+    // Reading config here keeps the resolution live — the settings panel can
+    // change `concurrency` and the next sprint run picks it up without a
+    // restart. (REQ-12 already covers `evaluationIterations`; this matches.)
+    let resolvedConfigConcurrency: number | undefined;
+    try {
+      const cfg = await deps.persistence.getConfig();
+      resolvedConfigConcurrency = cfg.concurrency;
+    } catch {
+      // Config read failure → silently fall through to the default. The
+      // config layer logs its own errors; do not block execution on a
+      // missing/corrupt config when we have a sane default.
+    }
     const forceSequential = options.session === true || options.step === true;
-    const uniqueRepoIds = new Set(allTasks.map((t) => t.repoId));
-    const callerConcurrency = options.concurrency ?? uniqueRepoIds.size;
+    const callerConcurrency = options.concurrency ?? resolvedConfigConcurrency ?? DEFAULT_CONCURRENCY;
     const resolvedConcurrency = forceSequential ? 1 : Math.min(callerConcurrency, MAX_CONCURRENCY);
     const failFast = options.failFast ?? true;
     const targetCount = options.count ?? Infinity;
@@ -624,11 +656,17 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           if (deps.processLifecycle.isShuttingDown()) return [];
           const ready = await deps.persistence.getReadyTasks(sprint.id);
           const current = await deps.persistence.getTasks(sprint.id);
-          const inProgress = current.filter((t) => t.status === 'in_progress');
+          const inProgress = current.filter((t) => t.status === 'in_progress' && !failedTaskIds.has(t.id));
           // in_progress first, then ready (minus any already-in-progress to
           // avoid duplicate launches). Matches `executeParallel`'s
-          // `launchCandidates` ordering.
-          return [...inProgress, ...ready.filter((r) => !inProgress.some((ip) => ip.id === r.id))];
+          // `launchCandidates` ordering. Failed tasks are filtered so the
+          // scheduler does not relaunch them; their dependents naturally
+          // never appear in `ready` because the failed dep is not `done`,
+          // so no extra filter is needed for them.
+          return [
+            ...inProgress,
+            ...ready.filter((r) => !inProgress.some((ip) => ip.id === r.id) && !failedTaskIds.has(r.id)),
+          ];
         },
         stopWhen: (stats) => stats.completed >= targetCount,
       },
@@ -692,11 +730,17 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
             if (reason) deps.logger.warning(`Reason: ${reason}`);
             deps.logger.info(`Task ${task.id} remains in_progress.`);
             firstBlockedReason ??= reason ?? 'Unknown reason';
+            failedTaskIds.add(task.id);
+            failedTaskReasons.set(task.id, reason ?? 'Unknown reason');
             if (failFast) {
               deps.logger.info('Fail-fast: waiting for running tasks to finish...');
               return { action: 'fail', drainInFlight: true };
             }
-            return { action: 'skip-repo', key: task.repoId };
+            // DAG failure isolation: drop just this task so independent
+            // sub-graphs (siblings in the same repo, unrelated branches)
+            // continue. Transitive dependents are stamped `skipped` by
+            // pullItems on the next tick.
+            return { action: 'skip-item' };
           }
 
           // Unexpected failure — spawn error (non-rate-limit), storage error,
@@ -705,11 +749,13 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
           deps.logger.warning(`Error: ${error.message}`);
           deps.logger.info(`Task ${task.id} remains in_progress for resumption.`);
           firstBlockedReason ??= error.message;
+          failedTaskIds.add(task.id);
+          failedTaskReasons.set(task.id, error.message);
           if (failFast) {
             deps.logger.info('Fail-fast: waiting for running tasks to finish...');
             return { action: 'fail', drainInFlight: true };
           }
-          return { action: 'skip-repo', key: task.repoId };
+          return { action: 'skip-item' };
         },
         between: options.step
           ? async (stats): Promise<'continue' | 'stop'> => {
@@ -817,14 +863,62 @@ function executeTasksStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
       }
     }
 
+    // DAG failure isolation: every transitive dependent of a "real" failure
+    // must be stamped `skipped` so the operator sees the full impact instead
+    // of dependents stuck silently in `todo`. Done in a single post-run pass
+    // so the behaviour is identical for failFast (scheduler halts after the
+    // first failure) and non-failFast (scheduler keeps going on independent
+    // sub-graphs). Dependents of a failed task are not returned by
+    // `getReadyTasks` (their dep is not `done`), so no in-flight launch race
+    // is possible — this is purely a persistence + reporting concern.
+    if (failedTaskIds.size > 0) {
+      try {
+        const currentTasks = await deps.persistence.getTasks(sprint.id);
+        const dependents = computeTransitiveDependents(failedTaskIds, currentTasks);
+        for (const id of dependents) {
+          const t = currentTasks.find((x) => x.id === id);
+          if (t?.status !== 'todo') continue;
+          try {
+            await deps.persistence.updateTaskStatus(id, 'skipped', sprint.id);
+            deps.logger.warning(`Skipping ${t.name} (${t.id}) — upstream task failed.`);
+            deps.signalBus.emit({
+              type: 'task-finished',
+              sprintId: sprint.id,
+              taskId: t.id,
+              status: 'skipped',
+              timestamp: new Date(),
+            });
+          } catch (err) {
+            deps.logger.warning(
+              `Failed to mark ${t.id} as skipped: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+      } catch (err) {
+        deps.logger.warning(
+          `Could not finalize skipped dependents: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+
+    // Project the per-task failure reasons accumulated by the retry policy
+    // into a structured list — keeps the summary self-contained for callers
+    // (CLI report, dashboard) rather than asking them to walk persistence.
+    const failures = [...failedTaskIds].map((id) => ({
+      taskId: id,
+      taskName: allTasks.find((t) => t.id === id)?.name ?? id,
+      reason: failedTaskReasons.get(id) ?? 'Unknown reason',
+    }));
+
     const summary = await buildExecutionSummary({
       persistence: deps.persistence,
       sprintId: sprint.id,
       stats,
       targetCount,
-      hasFailure: !schedResult.ok || failedRepos.size > 0,
+      hasFailure: !schedResult.ok || failedRepos.size > 0 || failedTaskIds.size > 0,
       firstBlockedReason,
       failedRepos,
+      failures,
       logger: deps.logger,
     });
 
@@ -887,6 +981,48 @@ function extractTaskNotCompletedReason(err: DomainError): string | null {
   return null;
 }
 
+/**
+ * Compute the transitive closure of dependents over `task.blockedBy`. For
+ * each id in `seedIds`, walk forward through the inverse edge: a task `Y`
+ * is a dependent of `X` iff `X ∈ Y.blockedBy`. Returns dependents only —
+ * the seed ids are excluded from the result so callers can decide whether
+ * the failing task itself stays `in_progress` (today's resumability
+ * contract) or is transitioned elsewhere.
+ *
+ * Pure / O(V + E) over the given task list. Cycles can't happen in a
+ * legitimate DAG, but we still guard against them with a `visited` set so
+ * a corrupt task graph doesn't loop forever.
+ */
+function computeTransitiveDependents(seedIds: ReadonlySet<string>, tasks: readonly Task[]): Set<string> {
+  // Build the inverse edge map exactly once for the traversal.
+  const dependentsOf = new Map<string, string[]>();
+  for (const t of tasks) {
+    for (const dep of t.blockedBy) {
+      const list = dependentsOf.get(dep);
+      if (list) list.push(t.id);
+      else dependentsOf.set(dep, [t.id]);
+    }
+  }
+
+  const result = new Set<string>();
+  const stack: string[] = [];
+  for (const id of seedIds) stack.push(id);
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) break;
+    const downstream = dependentsOf.get(current);
+    if (!downstream) continue;
+    for (const next of downstream) {
+      if (seedIds.has(next)) continue;
+      if (result.has(next)) continue;
+      result.add(next);
+      stack.push(next);
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Summary builder (projects SchedulerStats + persistence into ExecutionSummary)
 // ---------------------------------------------------------------------------
@@ -899,12 +1035,14 @@ async function buildExecutionSummary(args: {
   hasFailure: boolean;
   firstBlockedReason: string | null;
   failedRepos: Set<string>;
+  failures: readonly { taskId: string; taskName: string; reason: string }[];
   logger: LoggerPort;
 }): Promise<ExecutionSummary> {
-  const { persistence, sprintId, stats, targetCount, hasFailure, failedRepos, logger } = args;
+  const { persistence, sprintId, stats, targetCount, hasFailure, failedRepos, failures, logger } = args;
   const remaining = await persistence.getRemainingTasks(sprintId);
   const currentTasks = await persistence.getTasks(sprintId);
   const blocked = remaining.filter((t) => isBlocked(t, currentTasks));
+  const skippedCount = currentTasks.filter((t) => t.status === 'skipped').length;
 
   // Cancellation takes precedence over every other outcome. The scheduler's
   // `stats.cancelled` flag is set when the outer AbortSignal fired mid-run —
@@ -924,14 +1062,32 @@ async function buildExecutionSummary(args: {
     logger.warning(`Repos with failed checks: ${[...failedRepos].join(', ')}`);
   }
 
+  // Surface failed + transitively-skipped tasks so the operator sees the
+  // full DAG impact at a glance, not just a single error string.
+  if (failures.length > 0) {
+    logger.warning(`Failed tasks (${String(failures.length)}):`);
+    for (const f of failures) {
+      logger.warning(`  - ${f.taskName} (${f.taskId}) — ${f.reason}`);
+    }
+    if (skippedCount > 0) {
+      logger.warning(`Skipped ${String(skippedCount)} dependent task(s) due to upstream failure.`);
+    }
+  }
+
   if (hasFailure) {
-    return {
+    const summary: ExecutionSummary = {
       completed: stats.completed,
       remaining: remaining.length,
       blocked: blocked.length,
       stopReason: 'task_blocked',
       exitCode: EXIT_ERROR,
     };
+    if (failures.length > 0) {
+      summary.failed = failures.length;
+      summary.failures = failures;
+    }
+    if (skippedCount > 0) summary.skipped = skippedCount;
+    return summary;
   }
 
   if (remaining.length === 0) {
@@ -1070,13 +1226,21 @@ function feedbackLoopStep(deps: ExecuteDeps, options: ExecuteOptions): PipelineS
  * Build the execute pipeline. Happy-path step order (active sprint, with tasks):
  *   load-sprint → check-preconditions → resolve-branch → auto-activate →
  *   assert-active → prepare-tasks → ensure-branches → run-check-scripts →
- *   execute-tasks → feedback-loop
+ *   link-skills → execute-tasks → feedback-loop → cleanup-skills
  *
  * Short-circuit paths (all run to completion with no-op downstream steps):
  *   - Draft declined: `check-preconditions` writes user_paused summary; all
  *     downstream steps no-op.
  *   - Zero tasks: `prepare-tasks` writes no_tasks summary; all downstream
- *     steps no-op.
+ *     steps no-op (link-skills emits an empty set, cleanup-skills no-ops).
+ *
+ * Skill lifecycle: `link-skills` symlinks the resolved `exec` skill set
+ * (built-in + user) into every unique repo path the sprint touches. Both
+ * the generator (`executeOneTask`, cwd = repoPath) and the evaluator
+ * (`runSingleEvaluation`, cwd = repoPath) read skills from the same
+ * `<repoPath>/.claude/skills/` set with no per-iteration re-resolution.
+ * `cleanup-skills` runs once at the tail of the loop; `process.on('exit')`
+ * reaps any leftover symlinks if the pipeline aborts before reaching it.
  *
  * Behaviour matches the pre-pipeline `ExecuteTasksUseCase.execute()`
  * exactly. The inner scheduler (`execute-tasks`) now composes `forEachTask`
@@ -1093,7 +1257,29 @@ export function createExecuteSprintPipeline(deps: ExecuteDeps, options: ExecuteO
     prepareTasksStep(deps.persistence),
     ensureBranchesStep(deps.external, deps.persistence, deps.logger, deps.prompt, deps.isTTY, options),
     sprintStartCheckStep(deps.external, deps.persistence, deps.logger, options),
+    linkSkillsStep<ExecuteContext>(deps.skills, 'exec', async (ctx) => {
+      // The exec skill set is linked once per sprint into every unique repo
+      // path. Both the generator and the evaluator spawn with `cwd =
+      // repoPath`, so a single link site serves both — no re-resolution per
+      // generator/evaluator turn (the on-disk symlinks are stable across
+      // iterations).
+      if (ctx.proceedAfterPrecondition === false || ctx.tasksEmpty) return [];
+      const tasks = ctx.tasks ?? [];
+      if (tasks.length === 0) return [];
+      const uniqueRepoIds = [...new Set(tasks.map((t) => t.repoId))];
+      const dirs: string[] = [];
+      for (const repoId of uniqueRepoIds) {
+        try {
+          dirs.push(await deps.persistence.resolveRepoPath(repoId));
+        } catch {
+          // Skip unresolvable repoIds — the per-task branch-preflight will
+          // surface the missing repo as a real error during execution.
+        }
+      }
+      return dirs;
+    }),
     executeTasksStep(deps, options),
     feedbackLoopStep(deps, options),
+    cleanupSkillsStep<ExecuteContext>(deps.skills, deps.logger),
   ]);
 }

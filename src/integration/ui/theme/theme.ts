@@ -178,6 +178,8 @@ export const statusEmoji = {
   in_progress: '🏃',
   done: '✅',
   blocked: '🚫',
+  cancelled: '🛑',
+  skipped: '⏭️',
   draft: '📋',
   active: '🎯',
   closed: '🎉',

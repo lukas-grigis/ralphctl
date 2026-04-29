@@ -205,6 +205,74 @@ describe('forEachTask - happy paths', () => {
     expect(context.schedulerStats?.completed).toBe(4);
   });
 
+  it('5 ready tasks across 5 distinct repos with concurrency 3 launches at most 3 simultaneously', async () => {
+    const items: TestItem[] = Array.from({ length: 5 }, (_, i) => ({
+      id: String(i),
+      repo: `repo-${String(i)}`,
+    }));
+    const pending = new Set(items.map((i) => i.id));
+    let inFlightNow = 0;
+    let maxInFlight = 0;
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', async (item) => {
+        inFlightNow++;
+        maxInFlight = Math.max(maxInFlight, inFlightNow);
+        await tick(20);
+        inFlightNow--;
+        pending.delete(item.id);
+        return Result.ok({});
+      }),
+      strategy: {
+        concurrency: 3,
+        pullItems: () => items.filter((i) => pending.has(i.id)),
+        mutexKey: (i) => i.repo,
+      },
+      policies: { retryPolicy: () => ({ action: 'fail', drainInFlight: false }) },
+    });
+
+    const result = await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), makeCtx());
+    const { context } = unwrap(result);
+    expect(maxInFlight).toBe(3);
+    expect(context.schedulerStats?.completed).toBe(5);
+  });
+
+  it('B blockedBy A: B does not start until A completes', async () => {
+    const order: string[] = [];
+    // Two tasks; B has its `ready` flag flip on only after A settles. The
+    // primitive itself doesn't read `blockedBy` — that's pullItems's job —
+    // so we model the dependency through pullItems.
+    const aDone = { value: false };
+    const items: { item: TestItem; isReady: () => boolean }[] = [
+      { item: { id: 'A', repo: 'a' }, isReady: () => true },
+      { item: { id: 'B', repo: 'b' }, isReady: () => aDone.value },
+    ];
+    const pending = new Set(['A', 'B']);
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', async (item) => {
+        order.push(`start:${item.id}`);
+        await tick(15);
+        if (item.id === 'A') aDone.value = true;
+        pending.delete(item.id);
+        order.push(`end:${item.id}`);
+        return Result.ok({});
+      }),
+      strategy: {
+        concurrency: 5,
+        pullItems: () => items.filter((x) => pending.has(x.item.id) && x.isReady()).map((x) => x.item),
+        mutexKey: (i) => i.repo,
+      },
+      policies: { retryPolicy: () => ({ action: 'fail', drainInFlight: false }) },
+    });
+
+    await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), makeCtx());
+
+    // B must not start before A ends.
+    const idx = (s: string) => order.indexOf(s);
+    expect(idx('end:A')).toBeLessThan(idx('start:B'));
+  });
+
   it('concurrency: auto caps at min(uniqueKeys, maxConcurrency)', async () => {
     // 5 unique keys, maxConcurrency 2 → expect 2 at a time.
     const items: TestItem[] = Array.from({ length: 5 }, (_, i) => ({
@@ -485,6 +553,43 @@ describe('forEachTask - retry policies', () => {
     expect(context.schedulerStats?.completed).toBe(1);
     // retry-now does not increment `requeued`.
     expect(context.schedulerStats?.requeued).toBe(0);
+  });
+
+  it('skip-item drops just the failing item without pausing its mutex key', async () => {
+    const items: TestItem[] = [
+      { id: '1', repo: 'a' }, // fails -> skip-item
+      { id: '2', repo: 'a' }, // SAME repo as 1 — must still run
+      { id: '3', repo: 'b' }, // unrelated, runs fine
+    ];
+    const pending = new Set(items.map((i) => i.id));
+    const ran: string[] = [];
+
+    const s = forEachTask<TestItem>({
+      steps: innerPipelineFor('inner', (item) => {
+        ran.push(item.id);
+        pending.delete(item.id);
+        if (item.id === '1') return Result.error(new ParseError('boom'));
+        return Result.ok({});
+      }),
+      strategy: {
+        concurrency: 1,
+        pullItems: () => items.filter((i) => pending.has(i.id)),
+        mutexKey: (i) => i.repo,
+      },
+      policies: {
+        retryPolicy: () => ({ action: 'skip-item' }),
+      },
+    });
+
+    const result = await executePipeline(pipeline<ForEachTaskContext>('outer', [s]), makeCtx());
+    const { context } = unwrap(result);
+
+    // Item 1 fails, but items 2 (same repo) and 3 (different repo) both run.
+    expect(ran).toEqual(['1', '2', '3']);
+    expect(context.schedulerStats?.completed).toBe(2);
+    expect(context.schedulerStats?.failed).toBe(1);
+    // Critical: skip-item must NOT add to pausedRepos.
+    expect(context.schedulerStats?.pausedRepos.has('a')).toBe(false);
   });
 
   it('skip-repo blocks further items with the same mutex key', async () => {

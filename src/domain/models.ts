@@ -6,8 +6,12 @@ export type SprintStatus = z.infer<typeof SprintStatusSchema>;
 
 // Task statuses. `cancelled` is a terminal variant alongside `done` — reached
 // when the harness aborts a running task (e.g. user cancels a backgrounded
-// execution). Cancelled tasks do not satisfy `blockedBy` dependents.
-export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'cancelled']);
+// execution). `skipped` is a terminal variant reached when an upstream
+// dependency failed and this task can no longer make progress; the scheduler
+// stamps it so independent branches keep running while the failed sub-graph
+// is reported in the final summary. Cancelled and skipped tasks do not
+// satisfy `blockedBy` dependents.
+export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'cancelled', 'skipped']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 // Requirement status for tickets (pending → approved)
@@ -166,6 +170,7 @@ export const ConfigSchema = z.object({
   editor: z.string().nullable().default(null),
   evaluationIterations: z.number().int().min(0).optional(),
   aiCheckScriptDiscovery: z.boolean().optional(),
+  concurrency: z.number().int().min(1).max(10).optional(),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 

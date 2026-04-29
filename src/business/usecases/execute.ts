@@ -38,6 +38,12 @@ export interface ExecutionSummary {
   blocked: number;
   stopReason: StopReason;
   exitCode: number;
+  /** Tasks that hit a "real" failure during this run. Omitted when zero. */
+  failed?: number;
+  /** Tasks transitively skipped because an upstream task failed. Omitted when zero. */
+  skipped?: number;
+  /** Per-failure detail surfaced for the post-run report. Omitted when no failures. */
+  failures?: readonly { taskId: string; taskName: string; reason: string }[];
 }
 
 export interface TaskExecutionResult {
@@ -175,6 +181,7 @@ export class ExecuteTasksUseCase {
       });
 
       spinner.succeed(`${this.aiSession.getProviderDisplayName()} completed: ${task.name}`);
+      taskLog.debug(`Generator turns: ${result.numTurns == null ? 'unknown' : String(result.numTurns)}`);
 
       // Dispatch all signals (progress, notes, blocked) through handler
       const ctx: SignalContext = { sprintId: sprint.id, taskId: task.id, projectPath: repoPath };
