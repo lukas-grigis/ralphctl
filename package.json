@@ -35,7 +35,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && mkdir -p dist/prompts && cp src/integration/ai/prompts/*.md dist/prompts/",
+    "build": "tsup && mkdir -p dist/prompts && cp src/integration/ai/prompts/*.md dist/prompts/ && cp -R src/skills dist/skills",
     "prepublishOnly": "pnpm build",
     "dev": "tsx src/application/entrypoint.ts",
     "lint": "eslint .",

@@ -9,6 +9,7 @@ import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createRefinePipeline, type RefineDeps } from './refine.ts';
 
@@ -136,6 +137,15 @@ function makeExternal(overrides: Partial<ExternalPort> = {}): ExternalPort {
   return { ...stub, ...overrides };
 }
 
+function makeSkills(overrides: Partial<SkillsPort> = {}): SkillsPort {
+  return {
+    loadForPhase: () => Promise.resolve([]),
+    link: (workingDir) => Promise.resolve({ workingDir, linkedNames: [] }),
+    cleanup: () => Promise.resolve(),
+    ...overrides,
+  };
+}
+
 /**
  * Build a `RefineDeps` graph where every port is unused by default.
  * The draft-with-no-tickets happy path exercises persistence/assert only.
@@ -150,6 +160,7 @@ function makeDeps(overrides: Partial<RefineDeps> = {}): RefineDeps {
     ui: makeUi(),
     logger: makeLogger(),
     external: makeExternal(),
+    skills: makeSkills(),
     ...overrides,
   };
 }
@@ -177,7 +188,14 @@ describe('createRefinePipeline', () => {
     const stepNames = value.stepResults.map((r) => r.stepName);
     // allApproved is false (no tickets, so no approvals happened) — step 4
     // still runs; it just no-ops on the allApproved check.
-    expect(stepNames).toEqual(['load-sprint', 'assert-draft', 'refine-tickets', 'export-requirements']);
+    expect(stepNames).toEqual([
+      'load-sprint',
+      'assert-draft',
+      'link-skills',
+      'refine-tickets',
+      'export-requirements',
+      'cleanup-skills',
+    ]);
 
     const summary = value.context.refineSummary;
     expect(summary).toEqual({ approved: 0, skipped: 0, total: 0, allApproved: false });
@@ -221,7 +239,14 @@ describe('createRefinePipeline', () => {
     if (!result.ok) return;
 
     const stepNames = result.value.stepResults.map((r) => r.stepName);
-    expect(stepNames).toEqual(['load-sprint', 'assert-draft', 'refine-tickets', 'export-requirements']);
+    expect(stepNames).toEqual([
+      'load-sprint',
+      'assert-draft',
+      'link-skills',
+      'refine-tickets',
+      'export-requirements',
+      'cleanup-skills',
+    ]);
 
     expect(result.value.context.refineSummary?.allApproved).toBe(true);
     expect(exportedWith).not.toBeNull();

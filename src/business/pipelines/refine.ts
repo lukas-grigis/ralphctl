@@ -11,13 +11,19 @@ import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { pipeline, renameStep, step } from '@src/business/pipelines/framework/helpers.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-sprint-status.ts';
+import {
+  cleanupSkillsStep,
+  linkSkillsStep,
+  type WithLinkedSkills,
+} from '@src/business/pipelines/steps/skill-lifecycle.ts';
 import { type RefineSummary, RefineTicketRequirementsUseCase } from '@src/business/usecases/refine.ts';
 
 /** Context accumulated by the refine pipeline. */
-interface RefineContext extends StepContext {
+interface RefineContext extends StepContext, WithLinkedSkills {
   refineSummary?: RefineSummary;
 }
 
@@ -37,6 +43,7 @@ export interface RefineDeps {
   ui: UserInteractionPort;
   logger: LoggerPort;
   external: ExternalPort;
+  skills: SkillsPort;
 }
 
 /**
@@ -95,10 +102,17 @@ function exportRequirementsStep(useCase: RefineTicketRequirementsUseCase, persis
 
 /**
  * Build the refine pipeline. Happy-path step order:
- *   load-sprint → assert-draft → refine-tickets → export-requirements
+ *   load-sprint → assert-draft → link-skills → refine-tickets →
+ *   export-requirements → cleanup-skills
  *
  * Behavior matches `ralphctl sprint refine` pre-pipeline exactly: same
  * prompts, same approvals, same markdown export when all tickets approve.
+ *
+ * `link-skills` resolves the `refine` skill set (built-in + user) and
+ * symlinks each into every ticket's refinement dir before the AI sessions
+ * spawn. `cleanup-skills` drains the symlinks at the tail; the
+ * lifecycle module also installs a `process.on('exit')` reaper so an
+ * interrupt before this step still leaves working dirs clean.
  */
 export function createRefinePipeline(deps: RefineDeps, options: RefineOptions = {}) {
   const useCase = new RefineTicketRequirementsUseCase(
@@ -115,7 +129,17 @@ export function createRefinePipeline(deps: RefineDeps, options: RefineOptions = 
   return pipeline('refine', [
     loadSprintStep<RefineContext>(deps.persistence),
     renameStep('assert-draft', assertSprintStatusStep<RefineContext>(['draft'], 'refine')),
+    linkSkillsStep<RefineContext>(deps.skills, 'refine', (ctx) => {
+      // Each ticket spawns its own AI session inside its refinement dir; the
+      // dirs may not exist yet (the use case ensures them per-ticket), so
+      // the link step pre-creates them so Claude finds .claude/skills/ on
+      // session start.
+      const sprint = ctx.sprint;
+      if (!sprint) return [];
+      return sprint.tickets.map((t) => deps.fs.getRefinementDir(sprint.id, t.id));
+    }),
     refineTicketsStep(useCase, options),
     exportRequirementsStep(useCase, deps.persistence),
+    cleanupSkillsStep<RefineContext>(deps.skills, deps.logger),
   ]);
 }

@@ -10,14 +10,20 @@ import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { pipeline, renameStep, step } from '@src/business/pipelines/framework/helpers.ts';
 import { loadSprintStep } from '@src/business/pipelines/steps/load-sprint.ts';
 import { assertSprintStatusStep } from '@src/business/pipelines/steps/assert-sprint-status.ts';
 import { reorderDependenciesStep } from '@src/business/pipelines/steps/reorder-dependencies.ts';
+import {
+  cleanupSkillsStep,
+  linkSkillsStep,
+  type WithLinkedSkills,
+} from '@src/business/pipelines/steps/skill-lifecycle.ts';
 import { PlanSprintTasksUseCase, type PlanSummary } from '@src/business/usecases/plan.ts';
 
 /** Context accumulated by the plan pipeline. */
-interface PlanContext extends StepContext {
+interface PlanContext extends StepContext, WithLinkedSkills {
   planSummary?: PlanSummary;
 }
 
@@ -37,6 +43,7 @@ export interface PlanDeps {
   ui: UserInteractionPort;
   logger: LoggerPort;
   external: ExternalPort;
+  skills: SkillsPort;
 }
 
 /**
@@ -117,12 +124,18 @@ function reorderIfImportedStep(persistence: PersistencePort) {
 
 /**
  * Build the plan pipeline. Happy-path step order:
- *   load-sprint → assert-draft → assert-all-approved → run-plan →
- *   reorder-dependencies
+ *   load-sprint → assert-draft → assert-all-approved → link-skills →
+ *   run-plan → reorder-dependencies → cleanup-skills
  *
  * Behavior matches `ralphctl sprint plan` pre-pipeline exactly: same
  * prompts (re-plan confirm, repo selection), same AI session, same
  * validation, same import semantics, same re-plan replace behavior.
+ *
+ * `link-skills` resolves the `plan` skill set (built-in + user) and
+ * symlinks each into the sprint's planning dir before the AI session
+ * spawns. `cleanup-skills` drains the symlinks at the tail; the lifecycle
+ * module also installs a `process.on('exit')` reaper so an interrupt
+ * before this step still leaves the working dir clean.
  */
 export function createPlanPipeline(deps: PlanDeps, options: PlanOptions = {}) {
   const useCase = new PlanSprintTasksUseCase(
@@ -140,7 +153,17 @@ export function createPlanPipeline(deps: PlanDeps, options: PlanOptions = {}) {
     loadSprintStep<PlanContext>(deps.persistence),
     renameStep('assert-draft', assertSprintStatusStep<PlanContext>(['draft'], 'plan')),
     assertAllApprovedStep(),
+    linkSkillsStep<PlanContext>(deps.skills, 'plan', (ctx) => {
+      // The plan use case's AI session runs with `cwd = getPlanningDir(...)`,
+      // so the skills must be linked there before the spawn. Pre-creating
+      // the dir is safe — the use case calls `ensureDir` again before
+      // writing planning artifacts.
+      const sprint = ctx.sprint;
+      if (!sprint) return [];
+      return [deps.fs.getPlanningDir(sprint.id)];
+    }),
     runPlanStep(useCase, options),
     reorderIfImportedStep(deps.persistence),
+    cleanupSkillsStep<PlanContext>(deps.skills, deps.logger),
   ]);
 }

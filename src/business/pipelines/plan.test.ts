@@ -9,6 +9,7 @@ import type { OutputParserPort } from '@src/business/ports/output-parser.ts';
 import type { UserInteractionPort } from '@src/business/ports/user-interaction.ts';
 import type { LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
 import type { ExternalPort } from '@src/business/ports/external.ts';
+import type { SkillsPort } from '@src/business/ports/skills.ts';
 import { executePipeline } from '@src/business/pipelines/framework/pipeline.ts';
 import { createPlanPipeline, type PlanDeps } from './plan.ts';
 
@@ -156,6 +157,15 @@ function makeExternal(overrides: Partial<ExternalPort> = {}): ExternalPort {
   return { ...stub, ...overrides };
 }
 
+function makeSkills(overrides: Partial<SkillsPort> = {}): SkillsPort {
+  return {
+    loadForPhase: () => Promise.resolve([]),
+    link: (workingDir) => Promise.resolve({ workingDir, linkedNames: [] }),
+    cleanup: () => Promise.resolve(),
+    ...overrides,
+  };
+}
+
 function makeDeps(overrides: Partial<PlanDeps> = {}): PlanDeps {
   return {
     persistence: makePersistence(),
@@ -166,6 +176,7 @@ function makeDeps(overrides: Partial<PlanDeps> = {}): PlanDeps {
     ui: makeUi(),
     logger: makeLogger(),
     external: makeExternal(),
+    skills: makeSkills(),
     ...overrides,
   };
 }
@@ -254,8 +265,10 @@ describe('createPlanPipeline', () => {
       'load-sprint',
       'assert-draft',
       'assert-all-approved',
+      'link-skills',
       'run-plan',
       'reorder-dependencies',
+      'cleanup-skills',
     ]);
 
     const summary = result.value.context.planSummary;

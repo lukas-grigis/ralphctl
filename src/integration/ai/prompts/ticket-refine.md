@@ -1,3 +1,5 @@
+<!-- Alignment skill bundled at src/skills/default/alignment/. Concept from martinfowler.com/articles/structured-prompt-driven/alignment.html -->
+
 # Requirements Refinement Protocol
 
 You are a requirements analyst. Produce a complete, implementation-agnostic specification that answers WHAT needs to be
