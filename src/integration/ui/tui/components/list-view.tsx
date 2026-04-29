@@ -12,6 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { getBindingFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 export interface ListColumn<T> {
   readonly header: string;
@@ -91,11 +92,16 @@ export function ListView<T>({
 
   const widths = useMemo(() => computeWidths(columns, rows, 72), [columns, rows]);
 
+  // Vim-style aliases — pulled from the canonical map so a future rebind
+  // (e.g. swapping to hjkl) updates every list surface in lockstep.
+  const upAliases = getBindingFor('list.up').keys;
+  const downAliases = getBindingFor('list.down').keys;
+
   useInput(
-    (_input, key) => {
+    (input, key) => {
       if (rows.length === 0) return;
-      if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
-      else if (key.downArrow) setCursor((c) => Math.min(rows.length - 1, c + 1));
+      if (key.upArrow || upAliases.includes(input)) setCursor((c) => Math.max(0, c - 1));
+      else if (key.downArrow || downAliases.includes(input)) setCursor((c) => Math.min(rows.length - 1, c + 1));
       else if (key.pageUp) setCursor((c) => Math.max(0, c - pageSize));
       else if (key.pageDown) setCursor((c) => Math.min(rows.length - 1, c + pageSize));
       else if (key.return && onSelect) {

@@ -45,10 +45,12 @@ import { SprintSummaryLine } from '@src/integration/ui/tui/components/sprint-sum
 import { ActionMenu } from '@src/integration/ui/tui/components/action-menu.tsx';
 import { PipelineMap } from '@src/integration/ui/tui/components/pipeline-map.tsx';
 import { SectionStamp } from '@src/integration/ui/tui/components/section-stamp.tsx';
+import { Spinner } from '@src/integration/ui/tui/components/spinner.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useGlobalKeys } from '@src/integration/ui/tui/runtime/use-global-keys.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 import { useRouter, type ViewId } from './router-context.ts';
 import { commandMap } from './command-map.ts';
 import { clearHomeSubmenuMemory, getHomeSubmenuMemory, setHomeSubmenuMemory } from './home-submenu-memory.ts';
@@ -332,7 +334,9 @@ export function HomeView(): React.JSX.Element {
   );
 
   // Hotkeys owned by Home itself. Global router hotkeys (h/s/d/q/esc) run in
-  // parallel via `view-router.tsx`.
+  // parallel via `view-router.tsx`. Lookups go through the canonical map so
+  // a future rebinding of `b` / `h` updates Home in lockstep with the help
+  // overlay and status-bar hints.
   useInput((input, key) => {
     if (mode === 'busy') return;
     // Esc inside a submenu drops back to the pipeline map. At root Home the
@@ -341,15 +345,15 @@ export function HomeView(): React.JSX.Element {
       setMode('main');
       return;
     }
-    // `h` while a submenu is on screen drops back to the pipeline map. The
-    // router-level `h` only remounts Home when we're deeper in the stack; if
+    // The global home hotkey while a submenu is on screen drops back to the
+    // pipeline map. The router-level `h` would also remount Home, but if
     // Home is already the top frame the remount is a no-op, so we mirror
     // "go home" locally here.
-    if (input === 'h' && typeof mode === 'object') {
+    if (input === getKeyFor('global.home') && typeof mode === 'object') {
       setMode('main');
       return;
     }
-    if (mode === 'main' && input === 'b' && state !== null) {
+    if (mode === 'main' && input === getKeyFor('home.browse') && state !== null) {
       const menu = buildSubMenu('browse', state.ctx);
       if (menu) setMode({ kind: 'sub', menu, group: 'browse' });
     }
@@ -428,7 +432,7 @@ export function HomeView(): React.JSX.Element {
   if (state === null) {
     return (
       <ViewShell bare>
-        <Text dimColor>Loading…</Text>
+        <Spinner label="Loading…" />
       </ViewShell>
     );
   }
@@ -450,7 +454,7 @@ export function HomeView(): React.JSX.Element {
 
         <Box marginTop={spacing.section} flexDirection="column">
           {mode === 'busy' ? (
-            <Text dimColor>Running {busyLabel}…</Text>
+            <Spinner label={`Running ${busyLabel}…`} />
           ) : mode === 'main' ? (
             <PipelineMap snapshot={state.snapshot} onAction={onPipelineAction} onDrillIn={onPipelineDrillIn} />
           ) : (

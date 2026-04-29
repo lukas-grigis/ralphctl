@@ -8,8 +8,21 @@
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'ink-testing-library';
+import { render as rawRender } from 'ink-testing-library';
 import type { PendingPrompt } from '@src/integration/ui/prompts/prompt-queue.ts';
+
+// Track every render so afterEach can unmount them. Without this, Ink
+// instances leak across tests and accumulated `useInput` handlers slow
+// later tests enough to trip the 5s vitest timeout (specifically the
+// help-overlay keypress propagation, which already costs ~600ms even on
+// a clean slate). Unmounting also keeps the notification + help-toggle
+// buses' subscriber sets bounded.
+const __activeRenders: ReturnType<typeof rawRender>[] = [];
+function render(node: React.ReactElement): ReturnType<typeof rawRender> {
+  const instance = rawRender(node);
+  __activeRenders.push(instance);
+  return instance;
+}
 
 const currentPromptMock = vi.fn<() => PendingPrompt | null>(() => null);
 
@@ -130,6 +143,14 @@ describe('ViewRouter', () => {
   afterEach(() => {
     vi.clearAllMocks();
     currentPromptMock.mockImplementation(() => null);
+    while (__activeRenders.length > 0) {
+      const instance = __activeRenders.pop();
+      try {
+        instance?.unmount();
+      } catch {
+        // Already unmounted — ignore.
+      }
+    }
   });
 
   it('renders the home view when seeded with a single home entry', () => {
@@ -439,6 +460,91 @@ describe('ViewRouter', () => {
       stdin.write('s');
       await flush();
       expect(lastFrame() ?? '').toContain('SETTINGS_VIEW');
+    });
+  });
+
+  // The help overlay shadows the global handler — pressing `?` opens it,
+  // then Esc / `?` closes it WITHOUT also firing the underlying view's
+  // global hotkey (which would silently navigate the user out of the
+  // overlay's parent frame). Same for `s`/`d`/`x`/`!` while help is open.
+  describe('help overlay shadows global keys', () => {
+    // Each test starts with the bus closed so a leak from a sibling test
+    // can't carry state across.
+    afterEach(async () => {
+      const { helpToggleBus } = await import('@src/integration/ui/tui/runtime/use-global-keys.ts');
+      if (helpToggleBus.isOpen()) helpToggleBus.close();
+    });
+
+    it('Esc while help is open closes the overlay only — does NOT pop the underlying frame', async () => {
+      // Stack starts at [home, settings]. Open help, press Esc, expect to
+      // still be on settings (overlay closed, but frame unchanged).
+      const { lastFrame, stdin } = render(<ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />);
+      await flush();
+      expect(lastFrame() ?? '').toContain('SETTINGS_VIEW');
+
+      // Open help.
+      stdin.write('?');
+      await flush();
+      expect(lastFrame() ?? '').toContain('Keyboard reference');
+
+      // Esc should close help, NOT pop back to home.
+      stdin.write('');
+      await flushEscape();
+
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('SETTINGS_VIEW');
+      expect(frame).not.toContain('Keyboard reference');
+      // Breadcrumb still shows two frames.
+      expect(frame).toContain('Home');
+      expect(frame).toContain('Settings');
+    });
+
+    it('? while help is open closes the overlay (toggle close)', async () => {
+      const { lastFrame, stdin } = render(<ViewRouter initialStack={[{ id: 'home' }, { id: 'settings' }]} />);
+      await flush();
+
+      stdin.write('?');
+      await flush();
+      expect(lastFrame() ?? '').toContain('Keyboard reference');
+
+      stdin.write('?');
+      await flush();
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('SETTINGS_VIEW');
+      expect(frame).not.toContain('Keyboard reference');
+    });
+
+    it('s/d/x/! while help is open do NOT navigate the underlying view', async () => {
+      const { lastFrame, stdin } = render(<ViewRouter initialStack={[{ id: 'home' }]} />);
+      await flush();
+
+      stdin.write('?');
+      await flush();
+      expect(lastFrame() ?? '').toContain('Keyboard reference');
+
+      // Each of these is a global navigation key. While help is open they
+      // must be no-ops at the global level. The overlay's own useInput only
+      // claims `?` and Esc, so these characters fall on deaf ears.
+      stdin.write('s');
+      await flush();
+      stdin.write('d');
+      await flush();
+      stdin.write('x');
+      await flush();
+      stdin.write('!');
+      await flush();
+
+      // Close help to inspect the underlying stack.
+      stdin.write('?');
+      await flush();
+
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('HOME_VIEW');
+      expect(frame).not.toContain('SETTINGS_VIEW');
+      expect(frame).not.toContain('DASHBOARD_VIEW');
+      expect(frame).not.toContain('RUNNING_EXECUTIONS_VIEW');
+      // Doctor view isn't mocked here, but its breadcrumb label is `Doctor`.
+      expect(frame).not.toContain('Doctor');
     });
   });
 });

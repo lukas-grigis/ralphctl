@@ -89,4 +89,22 @@ describe('ProjectListView', () => {
       props: { projectName: 'beta' },
     });
   });
+
+  it('vim-style j navigates down then onboard targets the new row', async () => {
+    listProjectsMock.mockResolvedValue([project('alpha'), project('beta')]);
+
+    const { stdin } = render(withRouter(<ProjectListView />));
+    await flush();
+
+    // `j` is the canonical alias for down — defined in keyboard-map.ts.
+    stdin.write('j');
+    await flush();
+    stdin.write('o');
+    await flush();
+
+    expect(routerMocks.push).toHaveBeenCalledWith({
+      id: 'project-onboard',
+      props: { projectName: 'beta' },
+    });
+  });
 });

@@ -16,6 +16,7 @@ import { StatusChip } from '@src/integration/ui/tui/components/status-chip.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   readonly ticketId?: string;
@@ -28,7 +29,7 @@ type State =
 
 const TITLE = 'Ticket Details' as const;
 const HINTS_READ_ONLY = [] as const;
-const HINTS_EDITABLE = [{ key: 'e', action: 'edit' }] as const;
+const HINTS_EDITABLE = [{ key: getKeyFor('detail.edit'), action: 'edit' }] as const;
 
 export function TicketShowView({ ticketId }: Props): React.JSX.Element {
   const router = useRouter();
@@ -63,7 +64,7 @@ export function TicketShowView({ ticketId }: Props): React.JSX.Element {
   }, [ticketId]);
 
   useInput((input) => {
-    if (input === 'e' && state.kind === 'ready' && state.editable && ticketId) {
+    if (input === getKeyFor('detail.edit') && state.kind === 'ready' && state.editable && ticketId) {
       router.push({ id: 'ticket-edit', props: { ticketId } });
     }
   });

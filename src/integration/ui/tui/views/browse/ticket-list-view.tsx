@@ -19,6 +19,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   readonly sprintId?: string;
@@ -59,11 +60,11 @@ const TITLE = 'Tickets' as const;
 const HINTS_READY = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'open' },
-  { key: 'a', action: 'add' },
-  { key: 'e', action: 'edit' },
-  { key: 'r', action: 'remove' },
+  { key: getKeyFor('list.add'), action: 'add' },
+  { key: getKeyFor('list.edit'), action: 'edit' },
+  { key: getKeyFor('list.remove'), action: 'remove' },
 ] as const;
-const HINTS_EMPTY = [{ key: 'a', action: 'add' }] as const;
+const HINTS_EMPTY = [{ key: getKeyFor('list.add'), action: 'add' }] as const;
 
 export function TicketListView({ sprintId }: Props): React.JSX.Element {
   const router = useRouter();
@@ -99,16 +100,16 @@ export function TicketListView({ sprintId }: Props): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind === 'loading') return;
-    if (input === 'a') {
+    if (input === getKeyFor('list.add')) {
       router.push({ id: 'ticket-add' });
       return;
     }
     if (state.kind !== 'ready') return;
-    if (input === 'e') {
+    if (input === getKeyFor('list.edit')) {
       router.push({ id: 'ticket-edit' });
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('list.remove')) {
       router.push({ id: 'ticket-remove' });
     }
   });

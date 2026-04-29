@@ -12,6 +12,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 type State =
   | { kind: 'loading' }
@@ -29,12 +30,12 @@ const TITLE = 'Projects' as const;
 const HINTS_READY = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'open' },
-  { key: 'a', action: 'add' },
-  { key: 'e', action: 'edit' },
-  { key: 'o', action: 'onboard' },
-  { key: 'r', action: 'remove' },
+  { key: getKeyFor('list.add'), action: 'add' },
+  { key: getKeyFor('list.edit'), action: 'edit' },
+  { key: getKeyFor('list.onboard'), action: 'onboard' },
+  { key: getKeyFor('list.remove'), action: 'remove' },
 ] as const;
-const HINTS_EMPTY = [{ key: 'a', action: 'add' }] as const;
+const HINTS_EMPTY = [{ key: getKeyFor('list.add'), action: 'add' }] as const;
 
 export function ProjectListView(): React.JSX.Element {
   const router = useRouter();
@@ -67,23 +68,23 @@ export function ProjectListView(): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind === 'loading') return;
-    if (input === 'a') {
+    if (input === getKeyFor('list.add')) {
       router.push({ id: 'project-add' });
       return;
     }
     if (state.kind !== 'ready') return;
-    if (input === 'e') {
+    if (input === getKeyFor('list.edit')) {
       router.push({ id: 'project-edit' });
       return;
     }
-    if (input === 'o') {
+    if (input === getKeyFor('list.onboard')) {
       const target = highlightedRef.current ?? state.projects[0];
       if (target) {
         router.push({ id: 'project-onboard', props: { projectName: target.name } });
       }
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('list.remove')) {
       router.push({ id: 'project-remove' });
     }
   });

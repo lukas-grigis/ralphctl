@@ -23,6 +23,7 @@ import { getPrompt, getSharedDeps } from '@src/integration/bootstrap.ts';
 import type { Config } from '@src/domain/models.ts';
 import { glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
+import { getBindingFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   onClose: () => void;
@@ -167,17 +168,22 @@ export function SettingsPanel({ onClose }: Props): React.JSX.Element {
     }
   }, [cursor, entries, config, saveValue]);
 
+  // Pull vim-style aliases from the canonical map so a future rebind keeps
+  // settings nav in sync with the list-view surfaces.
+  const upAliases = getBindingFor('settings.up').keys;
+  const downAliases = getBindingFor('settings.down').keys;
+
   useInput((input, key) => {
     if (editing) return;
     if (key.escape) {
       onClose();
       return;
     }
-    if (key.upArrow || input === 'k') {
+    if (key.upArrow || upAliases.includes(input)) {
       setCursor((c) => Math.max(0, c - 1));
       return;
     }
-    if (key.downArrow || input === 'j') {
+    if (key.downArrow || downAliases.includes(input)) {
       setCursor((c) => Math.min(entries.length - 1, c + 1));
       return;
     }

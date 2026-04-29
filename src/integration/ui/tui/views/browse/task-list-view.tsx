@@ -19,6 +19,7 @@ import { ResultCard } from '@src/integration/ui/tui/components/result-card.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   readonly sprintId?: string;
@@ -108,12 +109,12 @@ const TITLE_BASE = 'Tasks' as const;
 const HINTS_READY = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'open' },
-  { key: 'f', action: 'filter' },
-  { key: 'a', action: 'add' },
-  { key: 't', action: 'status' },
-  { key: 'r', action: 'remove' },
+  { key: getKeyFor('list.filter'), action: 'filter' },
+  { key: getKeyFor('list.add'), action: 'add' },
+  { key: getKeyFor('list.status'), action: 'status' },
+  { key: getKeyFor('list.remove'), action: 'remove' },
 ] as const;
-const HINTS_EMPTY = [{ key: 'a', action: 'add' }] as const;
+const HINTS_EMPTY = [{ key: getKeyFor('list.add'), action: 'add' }] as const;
 
 export function TaskListView({ sprintId }: Props): React.JSX.Element {
   const router = useRouter();
@@ -153,20 +154,20 @@ export function TaskListView({ sprintId }: Props): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind === 'loading') return;
-    if (input === 'a') {
+    if (input === getKeyFor('list.add')) {
       router.push({ id: 'task-add' });
       return;
     }
     if (state.kind !== 'ready') return;
-    if (input === 'f') {
+    if (input === getKeyFor('list.filter')) {
       setFilter(nextFilter);
       return;
     }
-    if (input === 't') {
+    if (input === getKeyFor('list.status')) {
       router.push({ id: 'task-status' });
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('list.remove')) {
       router.push({ id: 'task-remove' });
     }
   });

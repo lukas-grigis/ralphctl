@@ -30,11 +30,17 @@ import { useRegistryEvents } from '@src/integration/ui/tui/runtime/hooks.ts';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
+
+// `X` (uppercase) cancels the highlighted row. Lowercase `x` is the global
+// hotkey that lands on this view, so the local action must be a different
+// key — capitalisation is the seam.
+const RUNS_CANCEL_KEY = getKeyFor('runs.cancel');
 
 const HINTS_POPULATED = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'open' },
-  { key: 'X', action: 'cancel' },
+  { key: RUNS_CANCEL_KEY, action: 'cancel' },
   { key: 'Esc', action: 'back' },
 ] as const;
 const HINTS_EMPTY = [{ key: 'Esc', action: 'back' }] as const;
@@ -123,11 +129,12 @@ export function RunningExecutionsView(): React.JSX.Element {
 
   useViewHints(rows.length > 0 ? HINTS_POPULATED : HINTS_EMPTY);
 
-  // View-local `X` (uppercase) cancels the highlighted execution. Lowercase
-  // `x` is the global hotkey and would bounce back to this same view.
+  // View-local cancel key (uppercase `X`) cancels the highlighted execution.
+  // Lowercase `x` is the global hotkey and would bounce back to this same
+  // view — the canonical map declares this seam.
   useInput((input) => {
     if (rows.length === 0) return;
-    if (input !== 'X') return;
+    if (input !== RUNS_CANCEL_KEY) return;
     const target = rows[cursor];
     if (target?.status === 'running') {
       registry.cancel(target.id);

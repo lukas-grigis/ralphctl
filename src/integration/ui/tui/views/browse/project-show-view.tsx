@@ -13,6 +13,7 @@ import { FieldList } from '@src/integration/ui/tui/components/field-list.tsx';
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   readonly projectName?: string;
@@ -22,10 +23,10 @@ type State = { kind: 'loading' } | { kind: 'ready'; project: Project } | { kind:
 
 const TITLE = 'Project Details' as const;
 const HINTS_READY = [
-  { key: 'e', action: 'edit' },
-  { key: 'a', action: 'add repo' },
-  { key: 'o', action: 'onboard' },
-  { key: 'r', action: 'remove repo' },
+  { key: getKeyFor('detail.edit'), action: 'edit' },
+  { key: getKeyFor('detail.addRepo'), action: 'add repo' },
+  { key: getKeyFor('detail.onboard'), action: 'onboard' },
+  { key: getKeyFor('detail.removeRepo'), action: 'remove repo' },
 ] as const;
 const HINTS_EMPTY = [] as const;
 
@@ -36,19 +37,19 @@ export function ProjectShowView({ projectName }: Props): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind !== 'ready') return;
-    if (input === 'e') {
+    if (input === getKeyFor('detail.edit')) {
       router.push({ id: 'project-edit' });
       return;
     }
-    if (input === 'a') {
+    if (input === getKeyFor('detail.addRepo')) {
       router.push({ id: 'project-repo-add' });
       return;
     }
-    if (input === 'o') {
+    if (input === getKeyFor('detail.onboard')) {
       router.push({ id: 'project-onboard', props: { projectName: state.project.name } });
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('detail.removeRepo')) {
       router.push({ id: 'project-repo-remove' });
     }
   });

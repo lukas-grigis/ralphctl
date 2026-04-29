@@ -17,6 +17,7 @@ import { chipKindForSprintStatus, type StatusKind } from '@src/integration/ui/tu
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 type Filter = 'all' | SprintStatus;
 
@@ -97,12 +98,12 @@ const TITLE_BASE = 'Sprints' as const;
 const HINTS_READY = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'open' },
-  { key: 'f', action: 'filter' },
-  { key: 'n', action: 'new' },
-  { key: 'c', action: 'set current' },
-  { key: 'r', action: 'remove' },
+  { key: getKeyFor('list.filter'), action: 'filter' },
+  { key: getKeyFor('list.new'), action: 'new' },
+  { key: getKeyFor('list.setCurrent'), action: 'set current' },
+  { key: getKeyFor('list.remove'), action: 'remove' },
 ] as const;
-const HINTS_EMPTY = [{ key: 'n', action: 'new' }] as const;
+const HINTS_EMPTY = [{ key: getKeyFor('list.new'), action: 'new' }] as const;
 
 const FILTER_CYCLE: readonly Filter[] = ['all', 'draft', 'active', 'closed'] as const;
 
@@ -156,20 +157,20 @@ export function SprintListView(): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind === 'loading') return;
-    if (input === 'n') {
+    if (input === getKeyFor('list.new')) {
       router.push({ id: 'sprint-create' });
       return;
     }
     if (state.kind !== 'ready') return;
-    if (input === 'f') {
+    if (input === getKeyFor('list.filter')) {
       setFilter(nextFilter);
       return;
     }
-    if (input === 'c') {
+    if (input === getKeyFor('list.setCurrent')) {
       router.push({ id: 'sprint-set-current' });
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('list.remove')) {
       router.push({ id: 'sprint-delete' });
     }
   });

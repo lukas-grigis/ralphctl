@@ -68,7 +68,7 @@ describe('SettingsPanel', () => {
   });
 
   it('marks values that match the schema default', async () => {
-    // evaluationIterations default is 1
+    // evaluationIterations default is 1 (one fix attempt)
     getConfigMock.mockResolvedValueOnce({
       currentSprint: null,
       aiProvider: null,
@@ -87,5 +87,31 @@ describe('SettingsPanel', () => {
 
     const { lastFrame } = render(<SettingsPanel onClose={() => undefined} />);
     expect(lastFrame() ?? '').toContain('Loading');
+  });
+
+  it('vim-style j/k navigates the row cursor (canonical-map binding)', async () => {
+    getConfigMock.mockResolvedValueOnce({
+      currentSprint: null,
+      aiProvider: 'claude',
+      evaluationIterations: 2,
+    });
+
+    const { lastFrame, stdin } = render(<SettingsPanel onClose={() => undefined} />);
+    await flush();
+
+    const initialFrame = lastFrame() ?? '';
+    // The first row carries the cursor on initial render — find which label it
+    // sits on. We don't depend on the cursor glyph in the assertion; we
+    // instead assert that pressing `j` shifts the highlighted line down.
+    stdin.write('j');
+    await flush();
+    const afterJ = lastFrame() ?? '';
+    expect(afterJ).not.toBe(initialFrame);
+
+    // `k` brings it back up.
+    stdin.write('k');
+    await flush();
+    const afterK = lastFrame() ?? '';
+    expect(afterK).toBe(initialFrame);
   });
 });

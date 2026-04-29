@@ -6,7 +6,18 @@
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from 'ink-testing-library';
+import { render as rawRender } from 'ink-testing-library';
+
+// Track every render so afterEach can unmount them. Ink instances leak
+// across tests otherwise and the accumulated `useInput` subscribers cause
+// late-suite tests (e.g. the registry-transition rerender) to miss state
+// updates because React batches into a stale render tree.
+const __activeRenders: ReturnType<typeof rawRender>[] = [];
+function render(node: React.ReactElement): ReturnType<typeof rawRender> {
+  const instance = rawRender(node);
+  __activeRenders.push(instance);
+  return instance;
+}
 import type {
   ExecutionRegistryPort,
   ExecutionStatus,
@@ -154,6 +165,14 @@ describe('RunningExecutionsView', () => {
   afterEach(() => {
     vi.clearAllMocks();
     currentRegistry = makeStubRegistry();
+    while (__activeRenders.length > 0) {
+      const instance = __activeRenders.pop();
+      try {
+        instance?.unmount();
+      } catch {
+        // Already unmounted — ignore.
+      }
+    }
   });
 
   it('renders the empty state when the registry has no executions', async () => {

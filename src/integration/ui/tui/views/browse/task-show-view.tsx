@@ -14,6 +14,7 @@ import { StatusChip, chipKindForTaskStatus } from '@src/integration/ui/tui/compo
 import { ViewShell } from '@src/integration/ui/tui/components/view-shell.tsx';
 import { useViewHints } from '@src/integration/ui/tui/views/view-hints-context.tsx';
 import { useRouter } from '@src/integration/ui/tui/views/router-context.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 interface Props {
   readonly taskId?: string;
@@ -23,8 +24,8 @@ type State = { kind: 'loading' } | { kind: 'ready'; task: Task } | { kind: 'erro
 
 const TITLE = 'Task Details' as const;
 const HINTS_READY = [
-  { key: 't', action: 'status' },
-  { key: 'r', action: 'remove' },
+  { key: getKeyFor('detail.status'), action: 'status' },
+  { key: getKeyFor('detail.removeRepo'), action: 'remove' },
 ] as const;
 const HINTS_EMPTY = [] as const;
 
@@ -35,11 +36,11 @@ export function TaskShowView({ taskId }: Props): React.JSX.Element {
 
   useInput((input) => {
     if (state.kind !== 'ready') return;
-    if (input === 't') {
+    if (input === getKeyFor('detail.status')) {
       router.push({ id: 'task-status' });
       return;
     }
-    if (input === 'r') {
+    if (input === getKeyFor('detail.removeRepo')) {
       router.push({ id: 'task-remove' });
     }
   });

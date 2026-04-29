@@ -24,7 +24,7 @@
  * the view. Only top-level destinations live on the router stack.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box } from 'ink';
 import { Banner } from '@src/integration/ui/tui/components/banner.tsx';
 import { StatusBar } from '@src/integration/ui/tui/components/status-bar.tsx';
@@ -36,6 +36,7 @@ import { RouterProvider, type RouterApi, type ViewEntry, type ViewId } from './r
 import { HomeView } from './home-view.tsx';
 import { SettingsView } from './settings-view.tsx';
 import { ExecuteView } from './execute-view.tsx';
+import { AttachView } from './attach-view.tsx';
 import { DashboardView } from './dashboard-view.tsx';
 import { RefinePhaseView } from './phases/refine-phase-view.tsx';
 import { PlanPhaseView } from './phases/plan-phase-view.tsx';
@@ -80,9 +81,15 @@ import { EvaluationShowView } from './browse/evaluation-show-view.tsx';
 import { FeedbackView } from './browse/feedback-view.tsx';
 import { RunningExecutionsView } from './running-executions-view.tsx';
 import { ExecutionNotificationBanner } from '@src/integration/ui/tui/components/execution-notification-banner.tsx';
+import { StickyNotification } from '@src/integration/ui/tui/components/sticky-notification.tsx';
+import { HelpOverlay } from '@src/integration/ui/tui/components/help-overlay.tsx';
 import { VersionHint } from '@src/integration/ui/tui/components/version-hint.tsx';
 import { getSharedDeps } from '@src/integration/bootstrap.ts';
 import type { ExecutionRegistryPort } from '@src/business/ports/execution-registry.ts';
+import { notificationBus, type Notification } from '@src/integration/ui/tui/runtime/notification-bus.ts';
+import { useCurrentPrompt } from '@src/integration/ui/prompts/hooks.ts';
+import { helpToggleBus } from '@src/integration/ui/tui/runtime/use-global-keys.ts';
+import { getKeyFor } from '@src/integration/ui/tui/keyboard-map.ts';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -109,6 +116,13 @@ const views: Record<ViewId, { label: string; render(props: Readonly<Record<strin
         | React.ComponentProps<typeof ExecuteView>['executionOptions']
         | undefined;
       return <ExecuteView sprintId={sprintId} executionId={executionId} executionOptions={executionOptions} />;
+    },
+  },
+  attach: {
+    label: 'Attach',
+    render: (props) => {
+      const executionId = typeof props['executionId'] === 'string' ? props['executionId'] : '';
+      return <AttachView executionId={executionId} />;
     },
   },
   dashboard: {
@@ -305,6 +319,39 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
     }
   }, []);
 
+  // Subscribe to the shared notification bus so the StickyNotification slot
+  // re-renders on every show/clear. The bus is single-slot — at most one
+  // notification is on screen at a time.
+  const [activeNotification, setActiveNotification] = useState<Notification | null>(() => notificationBus.current());
+  useEffect(() => {
+    return notificationBus.subscribe((next) => {
+      setActiveNotification(next);
+    });
+  }, []);
+
+  // Subscribe to the help-toggle bus so the overlay opens / closes on `?`
+  // from anywhere. The bus state is the single source of truth — the global
+  // hotkey hook flips it via `helpToggleBus.toggle()` and we mirror it here.
+  const [helpOpen, setHelpOpen] = useState<boolean>(() => helpToggleBus.isOpen());
+  useEffect(() => {
+    return helpToggleBus.subscribe(() => {
+      setHelpOpen(helpToggleBus.isOpen());
+    });
+  }, []);
+  const closeHelp = useCallback((): void => {
+    helpToggleBus.close();
+  }, []);
+
+  const handleNotificationDismiss = useCallback((id: string): void => {
+    notificationBus.clear(id);
+  }, []);
+
+  // While a prompt owns the keyboard the notification must release input —
+  // otherwise its action key would steal characters the user is typing into
+  // a prompt input.
+  const currentPrompt = useCurrentPrompt();
+  const notificationInputActive = currentPrompt === null;
+
   const push = useCallback((entry: ViewEntry): void => {
     setStack((s) => {
       // Belt-and-braces: never stack identical adjacent frames. If the target
@@ -358,6 +405,15 @@ export function ViewRouter({ initialStack }: Props): React.JSX.Element {
         <Box flexDirection="column">
           <Banner />
           <ExecutionNotificationBanner currentViewId={current.id} registry={registry} />
+          {activeNotification !== null ? (
+            <StickyNotification
+              key={activeNotification.id}
+              notification={activeNotification}
+              onDismiss={handleNotificationDismiss}
+              isInputActive={notificationInputActive}
+            />
+          ) : null}
+          {helpOpen ? <HelpOverlay onClose={closeHelp} /> : null}
           {meta.render(props)}
           <PromptHost />
           <Box marginTop={spacing.section}>
@@ -400,28 +456,32 @@ function collapseAdjacentDuplicates(stack: readonly ViewEntry[]): readonly ViewE
 }
 
 function buildHints(currentId: ViewId, depth: number): readonly { key: string; action: string }[] {
+  // Status-bar hints are the global hotkeys filtered by relevance to the
+  // current frame. Pulled from the canonical map so a binding rename in
+  // `keyboard-map.ts` propagates here automatically.
   const hints: { key: string; action: string }[] = [];
   if (depth > 1) {
-    hints.push({ key: 'esc', action: 'back' });
+    hints.push({ key: getKeyFor('global.back'), action: 'back' });
   }
   if (currentId !== 'home') {
-    hints.push({ key: 'h', action: 'home' });
+    hints.push({ key: getKeyFor('global.home'), action: 'home' });
   }
   if (currentId !== 'settings') {
-    hints.push({ key: 's', action: 'settings' });
+    hints.push({ key: getKeyFor('global.settings'), action: 'settings' });
   }
   if (currentId !== 'dashboard') {
-    hints.push({ key: 'd', action: 'dashboard' });
-  }
-  if (currentId !== 'doctor') {
-    hints.push({ key: '?', action: 'doctor' });
+    hints.push({ key: getKeyFor('global.dashboard'), action: 'dashboard' });
   }
   if (currentId !== 'running-executions') {
-    hints.push({ key: 'x', action: 'runs' });
+    hints.push({ key: getKeyFor('global.runs'), action: 'runs' });
+  }
+  hints.push({ key: getKeyFor('global.help'), action: 'help' });
+  if (currentId !== 'doctor') {
+    hints.push({ key: getKeyFor('global.doctor'), action: 'doctor' });
   }
   if (currentId === 'home' && depth === 1) {
-    hints.push({ key: 'b', action: 'browse' });
-    hints.push({ key: 'q', action: 'quit' });
+    hints.push({ key: getKeyFor('home.browse'), action: 'browse' });
+    hints.push({ key: getKeyFor('global.quit'), action: 'quit' });
   }
   return hints;
 }
