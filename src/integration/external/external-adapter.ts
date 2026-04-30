@@ -110,6 +110,10 @@ export class DefaultExternalAdapter implements ExternalPort {
     return this.git.autoCommit(projectPath, message);
   }
 
+  stashChanges(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
+    return this.git.stashChanges(projectPath, message);
+  }
+
   // --- Pull / merge requests -----------------------------------------
 
   createPullRequest(input: CreatePullRequestInput): Promise<Result<CreatePullRequestOutput, StorageError>> {

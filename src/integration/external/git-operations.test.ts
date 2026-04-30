@@ -275,3 +275,36 @@ describe('GitOperations.autoCommit', () => {
     expect(commitCall?.args).not.toContain('--no-verify');
   });
 });
+
+describe('GitOperations.stashChanges', () => {
+  it('emits a "no-changes" StorageError on a clean tree without stashing', async () => {
+    const runner = new FakeGitRunner().on((a) => a[0] === 'status', { stdout: '', exitCode: 0 });
+    const r = await new GitOperations(runner).stashChanges(cwd, 'ralphctl test');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.subCode).toBe('no-changes');
+    }
+    expect(runner.calls.map((c) => c.args[0])).toEqual(['status']);
+  });
+
+  it('runs `git stash push -u -m <message>` when the tree is dirty', async () => {
+    const runner = new FakeGitRunner()
+      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
+      .on((a) => a[0] === 'stash', { exitCode: 0 });
+    const r = await new GitOperations(runner).stashChanges(cwd, 'ralphctl 20260429-x');
+    expect(r.ok).toBe(true);
+    const stashCall = runner.calls.find((c) => c.args[0] === 'stash');
+    expect(stashCall?.args).toEqual(['stash', 'push', '-u', '-m', 'ralphctl 20260429-x']);
+  });
+
+  it('returns StorageError when the stash command fails', async () => {
+    const runner = new FakeGitRunner()
+      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
+      .on((a) => a[0] === 'stash', { stderr: 'unmerged paths', exitCode: 1 });
+    const r = await new GitOperations(runner).stashChanges(cwd, 'msg');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.message).toContain('unmerged paths');
+    }
+  });
+});

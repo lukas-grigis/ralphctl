@@ -236,4 +236,28 @@ export class GitOperations {
 
     return Promise.resolve(Result.ok(undefined));
   }
+
+  /**
+   * Stash all uncommitted + untracked changes with a recoverable message.
+   * Returns `Result.error(StorageError({ subCode: 'no-changes' }))` when
+   * the tree is already clean — callers treat that as a no-op. Other
+   * git failures surface as `subCode: 'io'` with the captured stderr.
+   */
+  stashChanges(cwd: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
+    if (!this.hasUncommittedChanges(cwd)) {
+      return Promise.resolve(Result.error(new StorageError({ subCode: 'no-changes', message: 'no changes to stash' })));
+    }
+    const stash = this.git.run({ cwd, args: ['stash', 'push', '-u', '-m', message] });
+    if (stash.exitCode !== 0) {
+      return Promise.resolve(
+        Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: `failed to stash changes: ${(stash.stderr || stash.stdout).trim()}`,
+          })
+        )
+      );
+    }
+    return Promise.resolve(Result.ok(undefined));
+  }
 }

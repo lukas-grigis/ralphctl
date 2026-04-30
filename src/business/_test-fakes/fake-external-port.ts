@@ -29,6 +29,10 @@ export interface FakeExternalPortOptions {
   readonly checkScriptOutcomes?: readonly CheckScriptResult[];
   /** Outcomes for `autoCommit`, FIFO. Defaults to one ok. */
   readonly autoCommitOutcomes?: readonly Result<void, StorageError>[];
+  /** Outcomes for `stashChanges`, FIFO. Defaults to one ok. */
+  readonly stashOutcomes?: readonly Result<void, StorageError>[];
+  /** Outcomes for `hardResetWorkingTree`, FIFO. Defaults to one ok. */
+  readonly hardResetOutcomes?: readonly Result<void, StorageError>[];
   /** Outcomes for `verifyBranch`. When set, FIFO; otherwise uses `branchOk`. */
   readonly verifyBranchOutcomes?: readonly boolean[];
   /** Outcomes for `createPullRequest`, FIFO. Defaults to one stub URL. */
@@ -47,9 +51,16 @@ export interface CapturedAutoCommit {
   readonly message: string;
 }
 
+export interface CapturedStash {
+  readonly projectPath: AbsolutePath;
+  readonly message: string;
+}
+
 export class FakeExternalPort implements ExternalPort {
   readonly checkScriptCalls: CapturedCheckScript[] = [];
   readonly autoCommitCalls: CapturedAutoCommit[] = [];
+  readonly stashCalls: CapturedStash[] = [];
+  readonly hardResetCalls: AbsolutePath[] = [];
   readonly verifyBranchCalls: { projectPath: AbsolutePath; expected: string }[] = [];
   readonly createPullRequestCalls: CreatePullRequestInput[] = [];
 
@@ -58,6 +69,8 @@ export class FakeExternalPort implements ExternalPort {
   private readonly uncommitted: boolean;
   private readonly checkScriptOutcomes: CheckScriptResult[];
   private readonly autoCommitOutcomes: Result<void, StorageError>[];
+  private readonly stashOutcomes: Result<void, StorageError>[];
+  private readonly hardResetOutcomes: Result<void, StorageError>[];
   private readonly verifyBranchOutcomes: boolean[];
   private readonly createPullRequestOutcomes: Result<CreatePullRequestOutput, StorageError>[];
 
@@ -67,6 +80,8 @@ export class FakeExternalPort implements ExternalPort {
     this.uncommitted = opts?.uncommitted ?? false;
     this.checkScriptOutcomes = opts?.checkScriptOutcomes === undefined ? [] : [...opts.checkScriptOutcomes];
     this.autoCommitOutcomes = opts?.autoCommitOutcomes === undefined ? [] : [...opts.autoCommitOutcomes];
+    this.stashOutcomes = opts?.stashOutcomes === undefined ? [] : [...opts.stashOutcomes];
+    this.hardResetOutcomes = opts?.hardResetOutcomes === undefined ? [] : [...opts.hardResetOutcomes];
     this.verifyBranchOutcomes = opts?.verifyBranchOutcomes === undefined ? [] : [...opts.verifyBranchOutcomes];
     this.createPullRequestOutcomes =
       opts?.createPullRequestOutcomes === undefined ? [] : [...opts.createPullRequestOutcomes];
@@ -141,8 +156,10 @@ export class FakeExternalPort implements ExternalPort {
 
   // --- Git: mutating ---
 
-  hardResetWorkingTree(): Promise<Result<void, StorageError>> {
-    return Promise.resolve(Result.ok());
+  hardResetWorkingTree(projectPath: AbsolutePath): Promise<Result<void, StorageError>> {
+    this.hardResetCalls.push(projectPath);
+    const next = this.hardResetOutcomes.shift();
+    return Promise.resolve(next ?? Result.ok());
   }
 
   createAndCheckoutBranch(): Promise<Result<void, StorageError>> {
@@ -152,6 +169,12 @@ export class FakeExternalPort implements ExternalPort {
   autoCommit(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
     this.autoCommitCalls.push({ projectPath, message });
     const next = this.autoCommitOutcomes.shift();
+    return Promise.resolve(next ?? Result.ok());
+  }
+
+  stashChanges(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
+    this.stashCalls.push({ projectPath, message });
+    const next = this.stashOutcomes.shift();
     return Promise.resolve(next ?? Result.ok());
   }
 

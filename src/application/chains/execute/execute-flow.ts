@@ -4,7 +4,7 @@
  * Steps (happy path):
  *
  *   load-sprint → assert-active → load-tasks → assert-tasks-not-empty →
- *     check-scripts-sprint-start → link-skills →
+ *     dirty-tree-preflight → check-scripts-sprint-start → link-skills →
  *     execute-tasks (Parallel of per-task chains) → unlink-skills
  *
  * The `execute-tasks` step is a `Parallel` whose children are
@@ -27,6 +27,10 @@
  */
 import { Result } from 'typescript-result';
 
+import {
+  DirtyTreePreflightUseCase,
+  type DirtyTreePreflightOutput,
+} from '../../../business/usecases/execute/dirty-tree-preflight.ts';
 import type { Sprint } from '../../../domain/entities/sprint.ts';
 import type { Task } from '../../../domain/entities/task.ts';
 import { InvalidStateError } from '../../../domain/errors/invalid-state-error.ts';
@@ -52,6 +56,8 @@ export interface ExecuteCtx {
   readonly checkScript?: string;
   readonly sprint?: Sprint;
   readonly tasks?: readonly Task[];
+  /** Outcome of the dirty-tree pre-flight (set by `dirty-tree-preflight`). */
+  readonly dirtyTreeOutcome?: DirtyTreePreflightOutput;
 }
 
 export interface CreateExecuteFlowOpts {
@@ -76,6 +82,7 @@ export function createExecuteFlow(
     | 'taskRepo'
     | 'aiSession'
     | 'prompts'
+    | 'prompt'
     | 'signalParser'
     | 'external'
     | 'logger'
@@ -118,11 +125,63 @@ export function createExecuteFlow(
     assertActiveLeaf(),
     loadTasksLeaf<ExecuteCtx>({ taskRepo: deps.taskRepo }),
     assertTasksNotEmptyLeaf(),
+    dirtyTreePreflightLeaf(deps, opts),
     checkScriptsSprintStartLeaf(deps),
     linkSkillsLeaf<ExecuteCtx>({ skillsLinker: deps.skillsLinker }),
     executeTasksStep,
     unlinkSkillsLeaf<ExecuteCtx>({ skillsLinker: deps.skillsLinker }),
   ]);
+}
+
+/**
+ * Sprint-start dirty-tree pre-flight. Surveys every unique repo the sprint
+ * will touch; when any repo has uncommitted changes, prompts the user for
+ * a strategy (stash / reset / continue / cancel). On `cancelled` it surfaces
+ * an `invalid-state` failure so the chain stops cleanly without launching
+ * any tasks.
+ *
+ * Skipped when the sprint has zero tasks — the empty-tasks guard above
+ * already failed in that case.
+ */
+function dirtyTreePreflightLeaf(
+  deps: Pick<ChainSharedDeps, 'external' | 'prompt' | 'logger'>,
+  opts: CreateExecuteFlowOpts
+): Element<ExecuteCtx> {
+  const useCase = new DirtyTreePreflightUseCase(deps.external, deps.prompt, deps.logger);
+  const repoPaths = uniqueRepoPaths(opts.tasks);
+  const stashMessage = `ralphctl ${opts.sprintId}`;
+  return new Leaf<ExecuteCtx, undefined, DirtyTreePreflightOutput>('dirty-tree-preflight', {
+    useCase: {
+      async execute() {
+        const r = await useCase.execute({ repoPaths, stashMessage });
+        if (!r.ok) return Result.error(r.error);
+        if (r.value.outcome === 'cancelled') {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'sprint',
+              currentState: 'dirty-tree-cancelled',
+              attemptedAction: 'execute',
+              message: 'sprint start cancelled — uncommitted changes',
+            })
+          );
+        }
+        return Result.ok(r.value);
+      },
+    },
+    input: () => undefined,
+    output: (ctx, dirtyTreeOutcome) => ({ ...ctx, dirtyTreeOutcome }),
+  });
+}
+
+function uniqueRepoPaths(tasks: readonly Task[]): readonly AbsolutePath[] {
+  const seen = new Set<string>();
+  const out: AbsolutePath[] = [];
+  for (const t of tasks) {
+    if (seen.has(t.projectPath)) continue;
+    seen.add(t.projectPath);
+    out.push(t.projectPath);
+  }
+  return out;
 }
 
 /**

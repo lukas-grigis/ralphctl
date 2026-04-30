@@ -1,6 +1,8 @@
 // Legacy intent: src/business/pipelines/*.test.ts step-order + failure path coverage
 import { describe, expect, it } from 'vitest';
 
+import { FakeExternalPort } from '../../../business/_test-fakes/fake-external-port.ts';
+import { FakePromptPort } from '../../_test-fakes/fake-prompt-port.ts';
 import type { HarnessSignal } from '../../../domain/signals/harness-signal.ts';
 import { abs, makeApprovedTicket, makeSprint, makeTask } from '../../_test-fakes/fixtures.ts';
 import { createTestDeps } from '../../_test-fakes/create-test-deps.ts';
@@ -14,7 +16,7 @@ const taskCompleteSignal: HarnessSignal = {
 };
 
 describe('createExecuteFlow', () => {
-  it('runs load-sprint → assert-active → load-tasks → assert-tasks-not-empty → check-scripts-sprint-start → link-skills → execute-tasks → unlink-skills', async () => {
+  it('runs load-sprint → assert-active → load-tasks → assert-tasks-not-empty → dirty-tree-preflight → check-scripts-sprint-start → link-skills → execute-tasks → unlink-skills', async () => {
     const sprint0 = makeSprint();
     const ticket = makeApprovedTicket();
     const withTicket = sprint0.addTicket(ticket);
@@ -74,6 +76,7 @@ describe('createExecuteFlow', () => {
       'assert-active',
       'load-tasks',
       'assert-tasks-not-empty',
+      'dirty-tree-preflight',
       'check-scripts-sprint-start',
       'link-skills',
       'unlink-skills',
@@ -181,6 +184,55 @@ describe('createExecuteFlow', () => {
     if (result.ok) return;
     expect(result.error.error.code).toBe('aborted');
     expect(result.error.trace.some((t) => t.status === 'aborted')).toBe(true);
+  });
+
+  it('dirty-tree-preflight short-circuits the chain when the user cancels', async () => {
+    const sprint0 = makeSprint();
+    const ticket = makeApprovedTicket();
+    const withTicket = sprint0.addTicket(ticket);
+    if (!withTicket.ok) throw new Error('precondition');
+    const activated = withTicket.value.activate(sprint0.createdAt);
+    if (!activated.ok) throw new Error('precondition');
+    const task = makeTask({ name: 'do work', projectPath: '/tmp/dirty-repo' });
+
+    const dirtyExternal = new FakeExternalPort({ uncommitted: true });
+    const prompt = new FakePromptPort();
+    prompt.queueSelect('cancel');
+
+    const deps = createTestDeps({
+      sprints: [activated.value],
+      tasks: [[activated.value.id, [task]]],
+      overrides: { external: dirtyExternal, prompt },
+    });
+
+    const flow = createExecuteFlow(deps, {
+      sprintId: activated.value.id,
+      cwd: CWD,
+      expectedBranch: '',
+      tasks: [task],
+      sprint: activated.value,
+    });
+
+    const result = await flow.execute({
+      sprintId: activated.value.id,
+      cwd: CWD,
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // The new step landed in the trace between assert-tasks-not-empty and
+    // check-scripts-sprint-start. Failure is the dirty-tree-preflight step
+    // itself; subsequent steps are kernel-skipped (status 'skipped').
+    const failed = result.error.trace.find((t) => t.status === 'failed');
+    expect(failed?.stepName).toBe('dirty-tree-preflight');
+    const checkSprintStart = result.error.trace.find((t) => t.stepName === 'check-scripts-sprint-start');
+    expect(checkSprintStart?.status).toBe('skipped');
+    const executeTasks = result.error.trace.find((t) => t.stepName === 'execute-tasks');
+    expect(executeTasks?.status).toBe('skipped');
+    // No stash / reset calls when the user cancelled.
+    expect(dirtyExternal.stashCalls).toHaveLength(0);
+    expect(dirtyExternal.hardResetCalls).toHaveLength(0);
   });
 
   it('runs per-task chains in parallel respecting the concurrency cap', async () => {

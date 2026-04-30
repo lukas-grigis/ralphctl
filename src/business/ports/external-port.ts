@@ -136,6 +136,20 @@ export interface ExternalPort {
    */
   autoCommit(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>>;
 
+  /**
+   * `git stash push -u -m <message>` — preserves uncommitted + untracked
+   * changes so a clean working tree can be guaranteed before sprint start.
+   *
+   * Returns `Result.error(StorageError({ subCode: 'no-changes' }))` when
+   * the working tree is already clean (callers treat as a no-op). Other
+   * stash failures (e.g. unmerged paths) propagate as `subCode: 'io'`.
+   *
+   * The stash entry is persisted in the repo's `git stash list` — `git
+   * stash pop` recovers it. Callers are responsible for surfacing the
+   * stash message to the user so they can find it again later.
+   */
+  stashChanges(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>>;
+
   // --- Pull / merge requests ---
 
   /**
