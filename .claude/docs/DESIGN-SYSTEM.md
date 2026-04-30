@@ -8,7 +8,7 @@ Companion docs:
 
 - [REQUIREMENTS.md § UI Contract](./REQUIREMENTS.md#ui-contract) — the **testable** acceptance criteria for this design
   system.
-- [ARCHITECTURE.md § Terminal UI Layer](./ARCHITECTURE.md#terminal-ui-layer-srcintegrationuitui) — file layout and
+- [ARCHITECTURE.md § Terminal UI Layer](./ARCHITECTURE.md#terminal-ui-layer-srcapplicationtui) — file layout and
   runtime wiring.
 - `src/integration/ui/theme/tokens.ts` — the tokens themselves, in code.
 
@@ -124,8 +124,8 @@ Home is the single `bare` exception — it renders the Banner + pipeline map ins
 
 ## 4. Component inventory
 
-All components live in `src/integration/ui/tui/components/`. Use these. Don't write a sibling that does 90% of the same
-job.
+All components live in `src/application/tui/components/`. Use these. Don't write a sibling that does 90% of the
+same job.
 
 ### 4.1 Shell + chrome
 
@@ -308,7 +308,8 @@ Before adding anything new, work this ladder top-down:
    states.
 3. **Is it a new state surface?** Add a `ResultCard` `kind`, don't build a parallel card.
 4. **Is it a new view shape?** Describe it here first (add a § 7 subsection), then build it.
-5. **Is it a new prompt kind?** Add a method to `PromptPort` + a prompt component under `src/integration/ui/prompts/`.
+5. **Is it a new prompt kind?** Add a method to `PromptPort` + a prompt component under
+   `src/integration/ui/prompts/`.
 
 If you reach step 4 or 5, open a design note before the PR — this document should change with the code.
 

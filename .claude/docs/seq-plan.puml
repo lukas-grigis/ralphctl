@@ -1,59 +1,60 @@
 @startuml
-' Plan pipeline — ralphctl sprint plan
-' Definition: src/business/pipelines/plan.ts
-' Step shape: load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies
-title ralphctl — Plan pipeline
+' Plan chain — ralphctl sprint plan
+' Factory: src/application/chains/plan/plan-flow.ts
+' Step trace: load-sprint → assert-draft → assert-all-tickets-approved → load-existing-tasks → plan-tasks → reorder-tasks → save-tasks
+title ralphctl — Plan chain (kernel framework)
 
 autonumber
 
 actor User
-participant Harness as "Harness\n(pipeline runner)"
-participant AI as "AI\n(Claude / Copilot)"
-participant Code as "Code\n(target repo)"
+participant CLI as "CLI / TUI"
+participant SM as "SessionManager"
+participant Chain as "Sequential('plan')\n(application/chains)"
+participant UC as "Use cases\n(business)"
+participant Algo as "Kernel algorithms\n(dependency-reorder)"
+participant AI as "AI"
 database sprint.json
 database tasks.json
 
-User -> Harness : ralphctl sprint plan
-activate Harness
+User -> CLI : ralphctl sprint plan
+CLI -> SM : start({ element=createPlanFlow, initialCtx })
+SM -> Chain : execute(ctx)
+activate Chain
 
-note over Harness: createPlanPipeline(deps, options)
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
 
-Harness -> sprint.json : read sprint + tickets
-note right: step: load-sprint
+Chain -> Chain : Sprint.status === 'draft'
+note right: trace: assert-draft
 
-Harness -> Harness : verify sprint.status == 'draft'
-note right: step: assert-draft
+Chain -> Chain : every ticket\nrequirementStatus === 'approved'
+note right: trace: assert-all-tickets-approved
 
-Harness -> Harness : verify every ticket.requirementStatus == 'approved'
-note right: step: assert-all-approved\n(ParseError if any pending)
+Chain -> UC : ListTasksUseCase\n(existing tasks for replan context)
+note right: trace: load-existing-tasks
+UC -> tasks.json : findBySprintId
+UC --> Chain : Task[]\n(empty for first plan)
 
-note over Harness: step: run-plan
-Harness -> tasks.json : getTasks (re-plan detection)
-
-alt existing tasks && !auto
-    Harness -> User : confirm re-plan (will replace tasks)?
-    User --> Harness : confirm
-end
-
-Harness -> User : select affected repositories
-User --> Harness : selected repos
-Harness -> sprint.json : persist ticket.affectedRepositories
-
-Harness -> AI : spawn session\n(plan prompt + schema + project tooling)
+Chain -> UC : PlanSprintTasksUseCase
+note right: trace: plan-tasks
+UC -> AI : spawnHeadless(plan-common.md\n+ tickets + existing tasks)
 activate AI
-AI -> Code : explore repos (read-only)
-AI --> Harness : tasks.json\n(includes floor + extraDimensions)
+AI --> UC : tasks JSON
 deactivate AI
+UC -> UC : parse → Task[]\n(via Task.create())
+UC --> Chain : Task[]
 
-Harness -> Harness : validate tasks (Zod + import rules)
-Harness -> tasks.json : importTasks\n(atomic replace on re-plan)
+Chain -> Algo : topologicalReorder(tasks by blockedBy)
+note right: trace: reorder-tasks
+Algo --> Chain : reordered Task[]\n(or cycle / unknown-dep error)
 
-alt imported > 0
-    note right of Harness: step: reorder-dependencies
-    Harness -> tasks.json : reorderByDependencies
-end
+Chain -> UC : AddTaskUseCase batch\n→ TaskRepository.saveAll
+note right: trace: save-tasks
+UC -> tasks.json : atomically replace
 
-Harness --> User : PlanSummary\n(imported / totalGenerated / isReplan)
-deactivate Harness
+Chain --> SM : Result.ok({ ctx, trace })
+deactivate Chain
+SM --> CLI : completed
+CLI --> User : new task count, step trace
 
 @enduml

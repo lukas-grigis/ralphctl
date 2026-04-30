@@ -1,47 +1,65 @@
 @startuml
-' Refine pipeline — ralphctl sprint refine
-' Definition: src/business/pipelines/refine.ts
-' Step shape: load-sprint → assert-draft → refine-tickets → export-requirements
-title ralphctl — Refine pipeline
+' Refine chain — ralphctl sprint refine
+' Factory: src/application/chains/refine/refine-flow.ts
+' Step trace: load-sprint → assert-draft → link-skills → refine-tickets (Sequential of per-ticket sub-chains) → unlink-skills
+title ralphctl — Refine chain (kernel framework)
 
 autonumber
 
 actor User
-participant Harness as "Harness\n(pipeline runner)"
+participant CLI as "CLI / TUI\n(launch entry)"
+participant SM as "SessionManager\n(application/runtime)"
+participant Runner as "ChainRunner\n(kernel/runtime)"
+participant Chain as "Sequential('refine')\n(application/chains)"
+participant UC as "Use cases\n(business)"
 participant AI as "AI\n(Claude / Copilot)"
 database sprint.json
-database requirements.md
 
-User -> Harness : ralphctl sprint refine
-activate Harness
+User -> CLI : ralphctl sprint refine\n(or TUI Refine)
 
-note over Harness: createRefinePipeline(deps, options)
+CLI -> SM : start({ element, initialCtx, label })
+activate SM
+SM -> Runner : new ChainRunner(...)
+activate Runner
+Runner -> Chain : execute(ctx, abortSignal, onTrace)
+activate Chain
 
-Harness -> sprint.json : read sprint + tickets
-note right: step: load-sprint
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
+UC -> sprint.json : findById
+UC --> Chain : sprint
 
-Harness -> Harness : verify sprint.status == 'draft'
-note right: step: assert-draft
+Chain -> Chain : Sprint.status === 'draft'
+note right: trace: assert-draft
 
-note over Harness: step: refine-tickets\n(loop per pending ticket)
-loop each ticket where requirementStatus == 'pending'
-    Harness -> AI : spawn session\n(ticket-refine.md + ticket + issue context)
+Chain -> UC : LinkSkillsUseCase\n(integration/ai/skills)
+note right: trace: link-skills
+
+note over Chain: trace: refine-tickets\n(Sequential per pending ticket)
+loop each ticket where requirementStatus = 'pending'
+    Chain -> UC : RefineSingleTicketUseCase
+    note right: trace: refine-<ticketId>
+    UC -> AI : spawnHeadless(ticket-refine.md prompt)
     activate AI
-    AI -> User : clarifying questions (HITL)
-    User --> AI : answers
-    AI --> Harness : requirements.json
+    AI --> UC : structured output
     deactivate AI
-    Harness -> User : show refined requirements — approve?
-    User --> Harness : approve
-    Harness -> sprint.json : ticket.requirements\n+ requirementStatus = 'approved'
+    UC --> Chain : updated Ticket\n(requirementStatus='approved')
+    Chain -> UC : SaveSprintUseCase
+    note right: trace: save-after-<ticketId>
+    UC -> sprint.json : save
 end
 
-alt all tickets approved
-    note right of Harness: step: export-requirements
-    Harness -> requirements.md : write <sprintDir>/requirements.md
-end
+Chain -> UC : UnlinkSkillsUseCase
+note right: trace: unlink-skills
 
-Harness --> User : RefineSummary\n(approved / skipped / total)
-deactivate Harness
+Chain --> Runner : Result.ok({ ctx, trace })
+deactivate Chain
+Runner --> SM : status = 'completed'
+deactivate Runner
+
+SM -> CLI : event: { type: 'task-finished' }
+deactivate SM
+
+CLI --> User : sessionId, trace, summary
 
 @enduml
