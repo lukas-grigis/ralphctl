@@ -40,10 +40,14 @@ const result = await spawnWithRetry(
 
 Design rules:
 
-- **Interactive:** prompt as CLI arg, `stdio: 'inherit'` — Claude takes over the terminal.
+- **Interactive:** prompt as CLI arg, `stdio: 'inherit'` — Claude takes over the terminal. Uses
+  `--permission-mode acceptEdits` so a human at the keyboard can answer Bash/Web prompts.
 - **Headless:** prompt via stdin, `-p` (print) mode, always `--output-format json` so we can capture `session_id`.
-- `--permission-mode acceptEdits` enables auto-execution without confirmation. The Copilot adapter uses
-  `--allow-all-tools` instead — never paper over that difference; route through the provider adapter.
+  Uses `--permission-mode bypassPermissions` because piped stdin can't answer prompts — `acceptEdits` would hang
+  forever on un-allowlisted Bash calls. The harness layer enforces safety (branch isolation, post-task check
+  gate, dirty-tree recovery), not the CLI permission gate.
+- The Copilot adapter uses `--allow-all-tools` instead — never paper over that difference; route through the
+  provider adapter.
 
 ## Session resumption (verified)
 
@@ -52,11 +56,11 @@ hitting 429 is requeued with its captured session ID, then resumed from exactly 
 
 ```bash
 # Initial spawn
-claude -p --output-format json --permission-mode acceptEdits < prompt.txt
+claude -p --output-format json --permission-mode bypassPermissions < prompt.txt
 # {"result": "...", "session_id": "49e58e81-...", ...}
 
 # Resume later (same session_id is returned)
-echo "Continue where you left off." | claude -p --resume "49e58e81-..." --output-format json --permission-mode acceptEdits
+echo "Continue where you left off." | claude -p --resume "49e58e81-..." --output-format json --permission-mode bypassPermissions
 ```
 
 Implementation contract:

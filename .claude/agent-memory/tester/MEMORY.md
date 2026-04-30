@@ -4,292 +4,134 @@
 
 - **Framework:** vitest
 - **Config:** `vitest.config.ts` in project root
-- **Location:** Colocated `*.test.ts` files next to source
+- **Location:** Colocated `*.test.ts` files — main tree under `src/`, new tree under `src/`
+- **Commands:** `pnpm test`, `pnpm test:watch`, `pnpm test:coverage`
 
-## Test Files Found
+## Architecture Migration
 
-```
-src/ai/evaluator.test.ts    # parseEvaluationResult: passed/failed signals, empty critique, no signal, precedence
-                            #   getEvaluatorModel: Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku, null model, Copilot→null
-src/ai/permissions.test.ts  # isToolAllowed (pure): exact name, Bash(*), prefix:*, exact specifier, deny
-                            #   getProviderPermissions: copilot returns empty, project-level settings.local.json,
-                            #   malformed JSON, missing permissions section — homedir() mocked via vi.mock('node:os')
-                            #   checkTaskPermissions: copilot no warnings, needsCommit flag, Bash(*) coverage,
-                            #   commit and script warnings simultaneously
-src/ai/prompts/index.test.ts # buildInteractivePrompt, buildAutoPrompt, buildTaskExecutionPrompt (noCommit),
-                             #   buildTicketRefinePrompt (with/without issueContext), buildIdeatePrompt,
-                             #   buildIdeateAutoPrompt — all check no unreplaced tokens (all builders use replaceAll)
-src/ai/executor.test.ts     # pickTasksToLaunch: empty tasks, in-flight filtering, path dedup
-                            #   (first-encountered wins, not lowest order), concurrency limit,
-                            #   slot math (limit - inFlight), all-same-path, zero limit
-src/ai/parser.test.ts       # parseExecutionResult: complete+verified, complete-without-verified,
-                            #   blocked with reason/empty, no signals, verified-only, verified+blocked,
-                            #   large output, multiline verified content
-src/ai/runner.test.ts       # Runner/executor tests: parseExecutionResult, getEffectiveVerifyScript,
-                            #   getRecentGitHistory, buildFullTaskContext (setup + pre-flight rendering),
-                            #   runSetupScripts, runPreFlightVerify, runPreFlightForTask
-src/commands/ticket/refine.test.ts # ticketRefineCommand: sprint resolution, ticket selection,
-                                   #   AI session flow, issue link fetching, approval/rejection
-src/integration/cli-smoke.test.ts # CLI smoke tests (comprehensive E2E scenarios)
-src/integration/cli.test.ts     # CLI integration tests
-src/schemas/index.test.ts       # Schema validation tests (incl. SprintSchema backward compat for setupRanAt)
-                                #   TaskSchema: evaluated/evaluationOutput fields + backward compat
-                                #   ConfigSchema: evaluationIterations (int >=0, optional, rejects negative/float)
-src/store/config.test.ts        # Config store: getConfig default, saveConfig roundtrip,
-                                #   setCurrentSprint/setAiProvider/setEditor/setEvaluationIterations persist and read back
-                                #   getEvaluationIterations: defaults to 1 when field missing
-src/store/progress.test.ts      # Progress store tests
-src/store/project.test.ts       # Project store: listProjects, createProject, getProject,
-                                #   ProjectExistsError/ProjectNotFoundError, removeProject,
-                                #   addProjectRepo, removeProjectRepo (incl. last-repo guard)
-src/store/sprint.test.ts        # Sprint store: assertSprintStatus (pure), createSprint,
-                                #   activateSprint, closeSprint, getCurrentSprintOrThrow,
-                                #   full create→activate→close lifecycle integration
-src/store/task.test.ts          # Task store tests (topological sort, validation)
-src/store/ticket.test.ts        # Ticket store tests
-src/theme/index.test.ts         # Theme tests
-src/utils/ids.test.ts             # ID generation tests
-src/utils/issue-fetch.test.ts     # Issue fetch: parseIssueUrl, fetchIssue (gh/glab), fetchIssueFromUrl,
-                                  #   formatIssueContext, IssueFetchError — spawnSync mocked via vi.mock
-```
+The active codebase is migrating from `src/` (legacy) to `src/` (Clean Architecture). Both trees have tests.
+The deletion commit is `afe771f9`. Legacy tests: `git show afe771f9~1:src/...`.
 
-## Interactive Mode Coverage
+## src/ Test Coverage Summary
 
-The interactive menu (`src/interactive/menu.ts`) defines menu structure but is **not directly tested**. However:
+### Integration — AI Providers
 
-- **CLI commands** are comprehensively tested via `cli-smoke.test.ts`
-- Interactive mode dispatches to the same command handlers
-- Test coverage is indirect but effective
+- `src/integration/ai/providers/claude-adapter.test.ts` — metadata, buildInteractiveArgs, buildHeadlessArgs (exact order), parseJsonOutput, detectRateLimit (all patterns incl. empty stderr, 5xx, retry-after:N), buildResumeArgs (valid, invalid: hyphen/space/metachar/empty/too-long), getSpawnEnv
+- `src/integration/ai/providers/copilot-adapter.test.ts` — same shape, plus extractSessionId (share-file TOCTOU), detectRateLimit (overloaded/529/empty/retry-after:N)
 
-**Ticket Edit Status:**
+### Integration — AI Session
 
-- Menu entry exists at line 72 of `src/interactive/menu.ts`:
-  `{ name: 'Edit', value: 'edit', description: 'Edit a ticket' }`
-- **MISSING:** CLI handler not in interactive dispatch map (line 78-82 of `src/interactive/index.ts`)
-- Command implementation: `src/commands/ticket/edit.ts` (fully implemented)
-- CLI tests: Comprehensive coverage in `cli-smoke.test.ts` lines 310-326, 716-752
+- `src/integration/ai/session/process-runner.test.ts` — stdout/stderr capture, non-zero exit, ENOENT→StorageError, stdin, env merge, abort pre-spawn, SIGTERM→SIGKILL escalation, cwd verification via `pwd`, ESRCH tolerance
 
-**Fix Required:**
+### Integration — External
 
-- Import: `import { ticketEditCommand } from '@src/commands/ticket/edit.ts';`
-- Dispatch: Add `edit: () => ticketEditCommand(undefined, { interactive: true })` to ticket command map
+- `src/integration/external/check-script-runner.test.ts` — exit 0/non-zero, combined output, RALPHCTL_LIFECYCLE_EVENT, per-call timeout, missing binary, >2 MB output (maxBuffer regression), timeout kills child
 
-## Test Patterns
+### Integration — Persistence
 
-### Factory Functions
+- `src/integration/persistence/file-locker.test.ts` — acquire/release, stale timestamp takeover, dead-PID takeover, corrupted lock, throw-release, PID+timestamp content, concurrent DIFFERENT targets (parallel, no deadlock), sequential re-acquire idempotency
+- `src/integration/persistence/file-task-repository.test.ts` — findBySprintId empty, saveAll round-trip, replace, findById, NotFoundError (missing id in real sprint), update in-place, update NotFoundError (no file/unknown id), order preserved, concurrent updates serialised, round-trip all optional fields (description/verificationCriteria/extraDimensions/verificationOutput/evaluationOutput/evaluationStatus/evaluationFile), update leaves siblings unchanged
 
-Create test data with sensible defaults:
+### Integration — Signals
+
+- `src/integration/signals/file-system-handler.test.ts` — progress+files→progress.md, note→progress.md, blocked→progress.md, append-only, evaluation sidecar+progress, sidecar overwrite, evaluation without taskId→error, task-verified/task-complete→no-op, check-script/agents-md→no-op, concurrent serialisation
+
+### Integration — Logging
+
+- `src/integration/logging/jsonl-file-writer.test.ts` — write→jsonl, multi-line, concurrent (no interleave), context payload, lazy mkdir, reuse existing dir, write-after-dispose→error, dispose idempotent, dispose-without-write creates no file
+
+### Chain flow tests — abort + short-circuit pattern (2026-04-29)
+
+Added to all 6 chain flow test files (`evaluate/execute/feedback/ideate/plan/refine`):
+
+- **Step short-circuit**: mid-chain leaf returning error → remaining steps have `status: 'skipped'`, verified via `trace.slice(failedIdx + 1)`.
+- **Abort propagation**: pre-aborted `AbortController.signal` passed to `flow.execute(ctx, ac.signal)` → `result.error.code === 'aborted'` and at least one trace entry with `status: 'aborted'`.
+
+### Business use case coverage (2026-04-29)
+
+- `execute-single-task.test.ts`: empty stdout→failed, multiple blocked signals→all captured, task-verified+task-complete, task-complete alone (no task-verified required)
+- `evaluate-task.test.ts`: evaluation-failed with empty critique still emits failed signal (when dimensions present)
+- `refine-single-ticket.test.ts`: empty AI output → approved with empty requirements (documents: no length guard in use case)
+- `plan-sprint-tasks.test.ts`: ticketId cross-reference intentionally not validated (documented test)
+
+### SessionManager coverage (2026-04-29)
+
+- `kill()` on completed runner: removes from registry, fires `removed` event, returns ok
+- Two concurrent `start()` calls: distinct ids, two `added` events in order
+- Late subscribe on terminated session: descriptor stays in registry until `kill()`, subscriber sees future events (no historical replay)
+- `dispose()` while mid-step: explicitly tests await-and-abort pattern
+
+### CLI coverage (2026-04-29)
+
+- `task add --criterion` repeated: all criteria captured
+- `sprint create` 200+ char name: accepted (no max-length guard in entity)
+- doctor with corrupt `projects.json`: `writeFile` seeds corrupt file, deps rebuilt from same root → `EXIT_ERROR`
+- `config set evaluationIterations` non-integer: `EXIT_ERROR`; value `0` accepted
+
+### Storage paths coverage (2026-04-29)
+
+- `RALPHCTL_ROOT` trailing slash: preserved verbatim via `trustString` (not stripped)
+- `RALPHCTL_ROOT` with `~/...`: tilde NOT expanded (document: caller responsibility)
+
+## Known Regression (not fixed here)
+
+`RALPHCTL_SETUP_TIMEOUT_MS` env var: Legacy `runLifecycleHook` read the env var to set default timeout.
+`src/CheckScriptRunner` accepts a constructor arg but the composition root (`shared-deps.ts`) calls
+`new CheckScriptRunner()` without reading the env var. The env-var override path is missing.
+**Fix required in `shared-deps.ts`** — read and pass `RALPHCTL_SETUP_TIMEOUT_MS` when constructing `CheckScriptRunner`.
+
+## Test Patterns (src style)
+
+### Result-typed assertions
 
 ```typescript
-function createTask(id: string, blockedBy: string[] = []): Task {
-  return {
-    id,
-    name: `Task ${id}`,
-    description: undefined,
-    steps: [],
-    status: 'todo',
-    order: 1,
-    ticketId: undefined,
-    blockedBy,
-    projectPath: '/tmp/test',
-    verified: false,
-  };
+const r = await repo.findById(sprintId, t.id);
+expect(r.ok).toBe(true);
+if (r.ok) expect(r.value.name).toBe('findable');
+
+expect(r.ok).toBe(false);
+if (!r.ok) expect(r.error.code).toBe('not-found');
+```
+
+### Branded value objects
+
+```typescript
+const path = AbsolutePath.trustString('/code');
+const sprintId = SprintId.trustString('20260429-120000-demo');
+const taskId = TaskId.trustString('abcdef01');
+const slug = Slug.parse('demo');
+if (!slug.ok) throw slug.error;
+```
+
+### Temp dirs
+
+```typescript
+function uniqueRoot(): AbsolutePath {
+  return AbsolutePath.trustString(
+    join(
+      tmpdir(),
+      `ralphctl-<module>-${String(process.pid)}-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`
+    )
+  );
 }
+// Clean up in afterEach: await rm(root, { recursive: true, force: true })
 ```
 
-### Describe/It Structure
-
-Group related tests, descriptive names:
+### Windows skip for shell-dependent tests
 
 ```typescript
-describe('topologicalSort', () => {
-  it('sorts independent tasks by original order', () => { ... });
-  it('puts dependencies before dependents', () => { ... });
-  it('detects simple cycle', () => { ... });
-});
+if (process.platform === 'win32') return;
 ```
 
-### Testing Errors
+## Mocking Strategies (src)
 
-```typescript
-it('detects simple cycle', () => {
-  const tasks = [createTask('a', ['b']), createTask('b', ['a'])];
-  expect(() => topologicalSort(tasks)).toThrow(DependencyCycleError);
-});
-```
-
-### Testing Validation
-
-```typescript
-it('rejects reference to non-existent task', () => {
-  const importTasks = [{ name: 'Task', blockedBy: ['nonexistent'] }];
-  const errors = validateImportTasks(importTasks, []);
-  expect(errors).toHaveLength(1);
-  expect(errors[0]).toContain('does not exist');
-});
-```
-
-## Commands
-
-```bash
-pnpm test              # Run all tests
-pnpm test:watch        # Watch mode
-pnpm test:coverage     # Coverage report
-pnpm test <pattern>    # Run specific tests
-```
-
-## Test Categories
-
-### Unit Tests (src/store/, src/utils/)
-
-- Pure function testing
-- No I/O mocking needed for algorithms
-- Fast, focused tests
-
-### Integration Tests (src/integration/)
-
-- CLI command execution via in-process `runCli` helper or `execSync`
-- Tests actual command output
-- Slower, higher confidence
-- `cli-smoke.test.ts` contains comprehensive E2E scenarios including full sprint lifecycle
-
-## Mocking Strategies
-
-### No Mocks Needed
-
-- Pure functions like `topologicalSort()`, `validateImportTasks()`
-- Schema validation tests
-- ID generation tests
-
-### File System (when needed)
-
-- Use temp directories for isolation
-- Clean up in `afterEach`
-
-### Module mocking with partial override (task-context pattern)
-
-When a module exports both pure functions (keep real) and side-effecting functions (mock):
-
-```typescript
-vi.mock('@src/ai/task-context.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@src/ai/task-context.ts')>();
-  return {
-    ...actual, // keep pure functions (buildFullTaskContext, etc.)
-    getProjectForTask: vi.fn(), // override only side-effecting functions
-    getEffectiveSetupScript: vi.fn(),
-  };
-});
-```
-
-vi.mock calls must be at module top level (not inside describe/it). Use dynamic imports
-inside beforeEach/test bodies to get the mocked versions after `vi.clearAllMocks()`.
-
-### vi.resetAllMocks() vs vi.clearAllMocks()
-
-- `vi.clearAllMocks()` — clears call history only; mock implementations/return values persist.
-  Safe to use when `vi.mock()` factories set stable defaults.
-- `vi.resetAllMocks()` — clears call history AND mock return values/implementations.
-  Required when tests need clean isolation, BUT you must re-establish all default mocks in `beforeEach`.
-
-**Pattern for command tests with many mocked modules:**
-
-```typescript
-beforeEach(() => {
-  vi.resetAllMocks();
-  // Re-establish every default needed across all tests:
-  vi.mocked(resolveSprintId).mockResolvedValue('sprint-id');
-  vi.mocked(assertSprintStatus).mockReturnValue(undefined);
-  vi.mocked(getRefinementDir).mockReturnValue('/tmp/dir'); // don't forget path utils!
-  vi.mocked(getSchemaPath).mockReturnValue('/tmp/schema.json');
-  vi.mocked(resolveProvider).mockResolvedValue('claude');
-  vi.mocked(providerDisplayName).mockReturnValue('Claude');
-  vi.mocked(createSpinner).mockReturnValue({ start, stop, succeed, fail });
-  // ... all others
-});
-```
-
-**Common gotcha:** `vi.mock()` factory functions with `.mockReturnValue(...)` are wiped by
-`resetAllMocks()`. Always re-set in `beforeEach` after calling `resetAllMocks()`.
-
-### Testing multi-step guard logic
-
-When a command has sequential guards (e.g., "no approved tickets" check before "ticket not approved" check),
-test data must satisfy all earlier guards to reach the guard being tested:
-
-```typescript
-// Wrong: only a pending ticket — exits at "no approved tickets" guard
-makeSprint([makeTicket({ requirementStatus: 'pending' })]);
-
-// Correct: one approved ticket (passes first guard) + the pending one to test:
-makeSprint([
-  makeTicket({ id: 'approved-one', requirementStatus: 'approved' }),
-  makeTicket({ id: 'target', requirementStatus: 'pending' }),
-]);
-await command('target'); // reaches the "not approved" error
-```
-
-## Coverage Status
-
-### Well Covered (added 2026-04-13)
-
-- [x] Store logic (tickets, tasks, sprints, progress, config, projects)
-- [x] CLI commands (comprehensive smoke tests in `cli-smoke.test.ts`)
-- [x] Schema validation (incl. backward compat for new optional fields via `.default({})`)
-- [x] Ticket edit command (CLI E2E tests)
-- [x] Error handling and edge cases
-- [x] `runSetupScripts` — timestamp recording, skip on cached, refresh flag, partial-failure safety
-- [x] `runPreFlightVerify` — pass/fail detection
-- [x] `runPreFlightForTask` — no-script skip, pass, fail-resuming, self-heal pass/fail, block on no setup
-- [x] `issue-fetch` utils — parseIssueUrl (GitHub + GitLab + edge cases), fetchIssue (gh/glab CLI), formatIssueContext
-- [x] `ticketRefineCommand` — 18 tests covering all guards, AI session flow, issue fetch, approval/rejection
-- [x] `parseExecutionResult` — 11 tests covering all signal combinations (src/ai/parser.test.ts)
-- [x] `pickTasksToLaunch` — 10 tests covering concurrency, dedup, in-flight filtering (src/ai/executor.test.ts)
-- [x] `isToolAllowed` + `getProviderPermissions` + `checkTaskPermissions` — permissions module (
-      src/ai/permissions.test.ts)
-- [x] All prompt builders — token replacement, noCommit variations, distinct outputs (src/ai/prompts/index.test.ts)
-- [x] `parseEvaluationResult` + `getEvaluatorModel` — evaluator module (src/ai/evaluator.test.ts)
-- [x] `evaluationIterations` config field — schema, store getter/setter, doctor check
-- [x] `src/domain/config-schema.ts` — ConfigSchemaDefinition structure, per-key validation, defaults, getSchemaEntry/getAllSchemaEntries/getDefaultValue (101 tests across 2 files)
-- [x] `src/integration/config/schema-provider.ts` — validateConfigValue (unknown key, all four keys), parseConfigValue (string/enum/integer coercion, 'null' → null, NaN error), getConfigDefaultValue, getConfigKeyDescription, getConfigKeyScope
-
-### Coverage Gaps
-
-- [ ] Interactive mode menu dispatch (indirect coverage via CLI tests is sufficient)
-- [ ] Interactive flows (src/interactive/) - need mock prompts for direct testing
-- [ ] Command handlers (src/commands/\*) - partial, mostly via integration tests
+- **No module-level `vi.mock`** for integration tests — they use real implementations with temp dirs
+- `AbsolutePath.trustString()` bypasses the VO validator for test paths (use only when you own the value)
+- Domain entity creation via static factory: `Task.create({...})` returns `Result<Task, ValidationError>`
 
 ## Gotchas
 
-- **Mocking node:os homedir for file I/O isolation**: Functions that read from `homedir()` (e.g.,
-  `getProviderPermissions`
-  reads `~/.claude/settings.json`) will pick up real user settings unless mocked. Use:
-
-  ```typescript
-  vi.mock('node:os', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('node:os')>();
-    return { ...actual, homedir: () => join(actual.tmpdir(), 'fake-home-nonexistent') };
-  });
-  ```
-
-  Then import the module under test AFTER the `vi.mock()` call (dynamic import after mock registration).
-
-- **Template builder token replacement**: All prompt builders including `buildTaskExecutionPrompt` use
-  `.replaceAll()` for all tokens (`{{PROGRESS_FILE}}`, `{{CONTEXT_FILE}}`, etc.). Tests should assert
-  `not.toContain('{{TOKEN}}')` to verify all occurrences are replaced.
-
-- **Optional boolean fields**: `ExecutionResult.verified` is `boolean | undefined` — when not set it is
-  `undefined`, not `false`. Use `.toBeFalsy()` or `.not.toBe(true)` rather than `.toBe(false)`.
-- **`pickTasksToLaunch` picks first-encountered per path**, not lowest `order` value. If callers need
-  lowest-order semantics they must pre-sort `readyTasks` before calling. Tests must reflect this.
-- **vitest globals are not ambient** — always import `{ describe, expect, it, vi, beforeEach, afterEach }`
-  from `'vitest'` explicitly, even though `vitest.config.ts` has `globals: true` (tsc requires the imports).
-- **`export` needed to test internal functions** — added `export` to `pickTasksToLaunch` in executor.ts to
-  enable direct unit testing; the linter simultaneously added an optional `failedPaths` param.
-
-## Test Conventions
-
-1. **Descriptive names**: "puts dependencies before dependents" not "test case 2"
-2. **Factory functions**: Create test data helpers
-3. **Arrange-Act-Assert**: Clear structure in each test
-4. **Error messages**: Test that errors contain helpful info
-5. **Edge cases**: Empty arrays, cycles, missing data
+- **`afterEach` import**: Only import if used — `@typescript-eslint/no-unused-vars` will fail lint
+- **`src/` uses `import type` for type-only imports** — enforced by lint
+- **No barrel files** — imports always point to source modules directly
+- **`// Ported from afe771f9~1:src/...`** comment convention marks tests backported from legacy

@@ -126,18 +126,30 @@ When creating a task breakdown:
 
 ## ralphctl Codebase Context
 
-When planning work on ralphctl, respect the Clean Architecture layering in `CLAUDE.md` and
-`.claude/docs/ARCHITECTURE.md`:
+When planning work on ralphctl, respect the five-module Clean Architecture in `CLAUDE.md` and
+`.claude/docs/ARCHITECTURE.md`. Everything lives under `src/`:
 
-- **Domain** (`src/domain/`) — Zod models, errors, signals, IDs. Pure, zero deps.
-- **Business** (`src/business/`) — use cases, ports (`src/business/ports/`), and pipelines (`src/business/pipelines/`).
-- **Integration** (`src/integration/`) — adapters, CLI commands (`src/integration/cli/commands/` grouped by entity),
-  persistence, AI providers, Ink TUI.
-- **Application** (`src/application/`) — composition root: `entrypoint.ts`, `shared.ts`, `bootstrap.ts`,
-  `factories.ts`.
-- Tests are colocated as `*.test.ts`.
-- Every user-triggered workflow is a composable pipeline — CLI commands invoke `createXxxPipeline()` factories,
-  never use cases directly (enforced by an ESLint `no-restricted-imports` fence).
+- **Kernel** (`src/kernel/`) — chain framework (`Element`, `Leaf`, `Sequential`, `Parallel`, `Retry`, `OnError`)
+  - pure algorithms. Zero IO, zero domain knowledge.
+- **Domain** (`src/domain/`) — entities, value objects, repository interfaces (`domain/repositories/`), errors,
+  signals, `result.ts`. Pure, zero IO.
+- **Business** (`src/business/`) — use cases (`usecases/<group>/<use-case>.ts`) and service ports
+  (`ports/<port>.ts`).
+- **Integration** (`src/integration/`) — adapters: AI providers, persistence (file repositories), external,
+  signals, logging, UI prompts/theme.
+- **Application** (`src/application/`) — composition root (`bootstrap/`), CLI (`cli/commands/` grouped by entity),
+  TUI (`tui/`), chain definitions (`chains/<workflow>/<workflow>-flow.ts`), runtime (`runtime/session-manager.ts`),
+  doctor.
+
+Layering: `kernel < domain < business < integration < application`. Both `kernel/` and `domain/` are pure and
+leaf-importable; `business/` may import from either.
+
+- Tests are colocated as `*.test.ts` / `*.test.tsx`.
+- Every user-triggered workflow is a kernel chain — CLI commands and TUI views invoke chain factories from
+  `application/chains/<workflow>/` and launch via `SessionManager.start(...)`, never use cases directly. Enforced by
+  an ESLint `no-restricted-imports` fence.
+- Multi-chain runtime: `SessionManager` (`application/runtime/`) owns N concurrent `ChainRunner` instances. Plans for
+  long-running workflows should account for the session/foreground/background UX.
 - No barrel `index.ts` files — imports point at the source module directly.
 
 ## What I Don't Do

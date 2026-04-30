@@ -1,5 +1,11 @@
 # Designer Memory
 
+## src TUI
+
+- [project_srcnext_tui_foundation.md](project_srcnext_tui_foundation.md) — Foundation layer shipped Apr 2026: PromptPort in business/ports/, TUI in application/tui/, sessions switcher design
+- [project_srcnext_tui_views.md](project_srcnext_tui_views.md) — Browse + CRUD views shipped Apr 2026: 25 ViewIds, useWorkflow hook, FakePromptPort test fake
+- [project_home_pipeline_map.md](project_home_pipeline_map.md) — HomeView pipeline-map spine + tiered browse submenu + list/detail/execute shortcuts, Apr 2026
+
 ## Theme System
 
 ### Files
