@@ -163,7 +163,13 @@ const views: Record<
     },
   },
   'ticket-remove': { label: 'Remove Ticket', render: () => <TicketRemoveView /> },
-  'project-add': { label: 'Add Project', render: () => <ProjectAddView /> },
+  'project-add': {
+    label: 'Add Project',
+    render: (props) => {
+      const firstLaunch = props['firstLaunch'] === true;
+      return <ProjectAddView firstLaunch={firstLaunch} />;
+    },
+  },
   'project-edit': { label: 'Edit Project', render: () => <ProjectEditView /> },
   'project-remove': { label: 'Remove Project', render: () => <ProjectRemoveView /> },
   'project-repo-add': { label: 'Add Repo', render: () => <ProjectRepoAddView /> },

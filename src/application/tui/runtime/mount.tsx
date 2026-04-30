@@ -22,7 +22,9 @@ import { registerExternalHost } from '../../../integration/ui/prompts/auto-mount
 import { App } from '../views/app.tsx';
 import { enterAltScreen, exitAltScreen } from './screen.ts';
 import { logEventBus } from './event-bus.ts';
-import type { ViewId } from '../views/router-context.ts';
+import { isFirstLaunch } from '../../runtime/first-launch.ts';
+import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
+import type { ViewId, ViewEntry } from '../views/router-context.ts';
 
 export interface MountOptions {
   /** Which view to open initially. Defaults to 'home'. */
@@ -56,11 +58,23 @@ export async function mountInkApp(options: MountOptions = {}): Promise<MountResu
   const inkPrompt = new InkPromptAdapter();
   setSharedDeps({ ...deps, logger: inkLogger, prompt: inkPrompt });
 
+  // First-launch detection: when the user has no projects and no current
+  // sprint, drop them straight into project-add (above home so Esc / `h`
+  // still pop back to the pipeline map). The probe runs against the same
+  // SharedDeps the rest of the TUI uses so a failed read silently
+  // degrades to the normal home root.
+  const initialStack = await resolveInitialStack(deps, options);
+
   enterAltScreen();
   const releaseHost = registerExternalHost();
 
   const app = render(
-    <App initialView={options.initialView} sessionManager={deps.sessionManager} sessionId={options.sessionId} />,
+    <App
+      initialView={options.initialView}
+      sessionManager={deps.sessionManager}
+      sessionId={options.sessionId}
+      initialStack={initialStack}
+    />,
     { exitOnCtrlC: false }
   );
 
@@ -74,4 +88,18 @@ export async function mountInkApp(options: MountOptions = {}): Promise<MountResu
   }
 
   return { fallback: false };
+}
+
+/**
+ * Resolves the initial navigation stack. When the caller passed
+ * `initialView` / `sessionId` we honor that explicit intent. Otherwise we
+ * probe for first-launch state (no projects + no current sprint) and seed
+ * `[home, project-add]` so the user lands on the form with home one Esc
+ * away.
+ */
+async function resolveInitialStack(deps: SharedDeps, options: MountOptions): Promise<readonly ViewEntry[] | undefined> {
+  if (options.initialView !== undefined) return undefined;
+  const firstLaunch = await isFirstLaunch({ projectRepo: deps.projectRepo, configStore: deps.configStore });
+  if (!firstLaunch) return undefined;
+  return [{ id: 'home' }, { id: 'project-add', props: { firstLaunch: true } }];
 }

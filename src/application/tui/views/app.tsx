@@ -24,6 +24,12 @@ export interface AppProps {
   readonly initialView?: ViewId;
   readonly sessionManager: SessionManagerPort;
   readonly sessionId?: string;
+  /**
+   * Override the navigation stack the router seeds with. Used by the
+   * mount path on first launch to route directly to project-add (above
+   * a home root frame so Esc / `h` still go to home).
+   */
+  readonly initialStack?: readonly ViewEntry[];
 }
 
 const MAX_CONTENT_WIDTH = 160;
@@ -53,10 +59,10 @@ function useTerminalWidth(): number {
   return width;
 }
 
-export function App({ initialView, sessionManager, sessionId }: AppProps): React.JSX.Element {
+export function App({ initialView, sessionManager, sessionId, initialStack }: AppProps): React.JSX.Element {
   const terminalWidth = useTerminalWidth();
   const contentWidth = Math.min(terminalWidth, MAX_CONTENT_WIDTH);
-  const [stack] = useState<readonly ViewEntry[]>(() => buildInitialStack(initialView, sessionId));
+  const [stack] = useState<readonly ViewEntry[]>(() => initialStack ?? buildInitialStack(initialView, sessionId));
 
   return (
     <Box width={terminalWidth} justifyContent="center">

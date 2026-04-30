@@ -14,6 +14,8 @@ import { Command } from 'commander';
 
 import { getSharedDeps } from '../bootstrap/get-shared-deps.ts';
 import type { SharedDeps } from '../bootstrap/shared-deps.ts';
+import { isFirstLaunch } from '../runtime/first-launch.ts';
+import { detectLegacyLayout } from '../runtime/legacy-detector.ts';
 import { mountInkApp } from '../tui/runtime/mount.tsx';
 import { handleCompletionRequest } from './completion/handle.ts';
 import { attachCompletion } from './commands/completion-install.ts';
@@ -152,6 +154,18 @@ function readPackageVersion(): string {
  * TTY; otherwise the entrypoint falls back to Commander.
  */
 export async function main(argv: readonly string[]): Promise<ExitCode> {
+  // Legacy layout gate — must run BEFORE getSharedDeps(), since the
+  // composition root assumes the new `<root>/config/` directory shape and
+  // would silently start using a fresh layout next to the legacy data.
+  // Skip during shell-completion calls so tab-completion never blocks.
+  if (!isCompletionCall(argv)) {
+    const legacy = await detectLegacyLayout();
+    if (legacy.isLegacy) {
+      process.stderr.write(`error: ${legacy.hint}\n`);
+      return EXIT_ERROR;
+    }
+  }
+
   const deps = await getSharedDeps();
 
   // Build the program early so the completion intercept can introspect it
@@ -166,7 +180,13 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
   if (shouldMountTui(argv)) {
     const result = await mountInkApp();
     if (!result.fallback) return EXIT_SUCCESS;
-    // Non-TTY / CI fallback: drop into Commander help.
+    // Non-TTY / CI fallback: surface a friendly first-launch hint instead
+    // of dropping the user into Commander help when they have no projects
+    // yet. Commander's `--help` is still one flag away.
+    if (await isFirstLaunch({ projectRepo: deps.projectRepo, configStore: deps.configStore })) {
+      process.stdout.write('No projects yet. Run `ralphctl project add` to get started.\n');
+      return EXIT_SUCCESS;
+    }
   }
 
   try {
@@ -179,6 +199,16 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
     process.stderr.write(`error: ${formatError(err)}\n`);
     return EXIT_ERROR;
   }
+}
+
+/**
+ * Shell tab-completion runs `ralphctl completion -- <words…>` with COMP_*
+ * env vars set. We must not surface any error or prompt on that path —
+ * any stderr write derails the completion script.
+ */
+function isCompletionCall(argv: readonly string[]): boolean {
+  const userArgs = argv.slice(2);
+  return userArgs[0] === 'completion';
 }
 
 /**
