@@ -24,10 +24,37 @@ export default tseslint.config(
   {
     ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.js', '*.config.ts'],
   },
-  // Clean Architecture layer fence. Dependencies point inward only:
-  //   domain < business < integration < application
-  // Inner layers never import from outer layers. Applies to all code in `src/`
-  // except test files, which are free to reach across layers for setup.
+  // Clean Architecture layer fence (src/). Dependencies point inward only:
+  //   kernel < domain < business < integration < application
+  // Both kernel and domain are leaf-importable; business may import from either.
+  {
+    files: ['src/kernel/**/*.ts'],
+    ignores: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/domain/**',
+                '@src/domain/**',
+                '**/business/**',
+                '@src/business/**',
+                '**/integration/**',
+                '@src/integration/**',
+                '**/application/**',
+                '@src/application/**',
+              ],
+              message:
+                'Kernel is the innermost, purest layer — it must not import from domain, business, integration, or application.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     files: ['src/domain/**/*.ts'],
     ignores: ['**/*.test.ts', '**/*.test.tsx'],
@@ -46,7 +73,8 @@ export default tseslint.config(
                 '**/application/**',
                 '@src/application/**',
               ],
-              message: 'Domain is the innermost layer — it must not import from business, integration, or application.',
+              message:
+                'Domain must not import from business, integration, or application. Kernel imports are allowed.',
             },
           ],
         },
@@ -63,9 +91,14 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['**/integration/**', '@src/integration/**', '**/application/**', '@src/application/**'],
+              group: [
+                '**/integration/**',
+                '@src/integration/**',
+                '**/application/**',
+                '@src/application/**',
+              ],
               message:
-                'Business depends only on domain + ports. Concrete adapters live in integration and must be injected, not imported.',
+                'Business depends only on domain, kernel, and ports. Concrete adapters live in integration and must be injected, not imported.',
             },
           ],
         },
@@ -84,29 +117,6 @@ export default tseslint.config(
             {
               group: ['**/application/**', '@src/application/**'],
               message: 'Integration adapters must not import from application (the composition root).',
-            },
-          ],
-        },
-      ],
-    },
-  },
-  // Architectural fence: CLI commands and TUI views must go through
-  // pipeline factories, never import use cases directly. Use cases are
-  // an implementation detail of the pipelines; the CLI/UI layer should
-  // treat `src/application/factories.ts` as the public seam.
-  {
-    files: ['src/integration/cli/**/*.ts', 'src/integration/ui/**/*.{ts,tsx}'],
-    rules: {
-      'no-restricted-imports': 'off',
-      '@typescript-eslint/no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/business/usecases/*', '@src/business/usecases/*'],
-              message:
-                'CLI commands and TUI views must call pipeline factories, not use cases directly. Import from @src/application/factories.ts instead.',
-              allowTypeImports: true,
             },
           ],
         },

@@ -1,157 +1,186 @@
 /**
- * Signal handler adapter — implements SignalHandlerPort by delegating to existing file-writing utilities.
+ * `FileSystemSignalHandler` — concrete `SignalHandlerPort` implementation.
  *
- * This adapter connects parsed HarnessSignal objects to the harness's file I/O layer:
- * - Progress signals → logProgress() from progress.ts
- * - Evaluation signals → writeEvaluation() from evaluation.ts + updateTask() for preview
- * - Task lifecycle signals → updateTask() from task.ts
- * - Note signals → logProgress() (or separate note append)
+ * Routes parsed harness signals to durable filesystem destinations under
+ * the new storage layout:
  *
- * All handlers return Result<void, DomainError> for error handling at call sites.
+ *  - `progress` / `note` / `task-blocked` → append timestamped markdown
+ *    line to `<sprintDir>/progress.md` (under file lock to prevent
+ *    concurrent corruption when parallel tasks emit simultaneously).
+ *  - `evaluation` → write full critique to
+ *    `<sprintDir>/evaluations/<task-id>.md` (overwrite per task) AND
+ *    append a one-line summary to `progress.md`.
+ *  - `task-verified` / `task-complete` → no durable write (use case layer
+ *    owns task lifecycle in `tasks.json`).
+ *  - `check-script-discovery` / `agents-md-proposal` → setup-time only,
+ *    consumed inline by the caller.
+ *
+ * All writes are append-only or atomic-overwrite — a crash mid-write
+ * leaves prior entries intact (resumability invariant).
  */
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-import type {
-  ProgressSignal,
-  EvaluationSignal,
-  TaskCompleteSignal,
-  TaskVerifiedSignal,
-  TaskBlockedSignal,
-  NoteSignal,
-} from '@src/domain/signals.ts';
-import type { DomainResult } from '@src/domain/types.ts';
-import type { SignalHandlerPort, SignalContext } from '@src/business/ports/signal-handler.ts';
-import type { PersistencePort } from '@src/business/ports/persistence.ts';
-import { wrapAsync } from '@src/integration/utils/result-helpers.ts';
-import { logProgress } from '@src/integration/persistence/progress.ts';
-import { writeEvaluation } from '@src/integration/persistence/evaluation.ts';
-import { updateTask, updateTaskStatus } from '@src/integration/persistence/task.ts';
-import type { DomainError } from '@src/domain/errors.ts';
-import { StorageError } from '@src/domain/errors.ts';
+import type { SignalHandlerPort } from '../../business/ports/signal-handler-port.ts';
+import { StorageError } from '../../domain/errors/storage-error.ts';
+import { Result } from '../../domain/result.ts';
+import type { HarnessSignal } from '../../domain/signals/harness-signal.ts';
+import { AbsolutePath } from '../../domain/values/absolute-path.ts';
+import type { SprintId } from '../../domain/values/sprint-id.ts';
+import type { TaskId } from '../../domain/values/task-id.ts';
+import { FileLocker } from '../persistence/file-locker.ts';
+import type { StoragePaths } from '../persistence/storage-paths.ts';
 
-const MAX_EVAL_OUTPUT = 2000; // Preview cap stored in tasks.json — full critique lives in the sidecar.
-
-/**
- * Convert thrown error to DomainError for wrapAsync error mapping.
- * Store functions throw domain errors directly, which inherit from DomainError.
- */
-function errorToDomainError(err: unknown): DomainError {
-  if (err instanceof Error && 'code' in err) {
-    return err as DomainError; // Already a DomainError
-  }
-  return new StorageError(err instanceof Error ? err.message : String(err));
+function progressPath(paths: StoragePaths, sprintId: SprintId): AbsolutePath {
+  return AbsolutePath.trustString(join(paths.sprintDir(sprintId), 'progress.md'));
 }
 
-/**
- * File-based signal handler — delegates to existing harness utilities.
- *
- * Directly imports and calls store functions to handle signals.
- * Constructor is present for consistency with port interface pattern.
- */
+function evaluationPath(paths: StoragePaths, sprintId: SprintId, taskId: TaskId): AbsolutePath {
+  return AbsolutePath.trustString(join(paths.sprintDir(sprintId), 'evaluations', `${taskId}.md`));
+}
+
+async function appendLine(path: AbsolutePath, line: string): Promise<Result<void, StorageError>> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, line.endsWith('\n') ? line : `${line}\n`, 'utf-8');
+    return Result.ok();
+  } catch (err) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `failed to append to ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        path,
+        cause: err,
+      })
+    );
+  }
+}
+
+async function writeText(path: AbsolutePath, body: string): Promise<Result<void, StorageError>> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, body.endsWith('\n') ? body : `${body}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    return Result.ok();
+  } catch (err) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `failed to write ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        path,
+        cause: err,
+      })
+    );
+  }
+}
+
 export class FileSystemSignalHandler implements SignalHandlerPort {
-  // eslint-disable-next-line @typescript-eslint/no-useless-constructor, @typescript-eslint/no-unused-vars
-  constructor(_persistence: PersistencePort) {
-    // Unused for now — delegates to existing store modules directly
-  }
+  constructor(
+    private readonly paths: StoragePaths,
+    private readonly fileLocker: FileLocker = new FileLocker()
+  ) {}
 
-  async handleProgress(signal: ProgressSignal, ctx: SignalContext): Promise<DomainResult<void>> {
-    return wrapAsync(async () => {
-      const message = signal.summary;
-      await logProgress(message, {
-        sprintId: ctx.sprintId,
-        projectPath: ctx.projectPath,
-      });
-    }, errorToDomainError);
-  }
+  async handle(
+    signal: HarnessSignal,
+    ctx: { readonly sprintId: SprintId; readonly taskId?: TaskId }
+  ): Promise<Result<void, StorageError>> {
+    switch (signal.type) {
+      case 'progress':
+        return this.appendProgress(ctx.sprintId, formatProgress(signal.timestamp, signal.summary, signal.files));
 
-  async handleEvaluation(signal: EvaluationSignal, ctx: SignalContext): Promise<DomainResult<void>> {
-    if (!ctx.taskId) {
-      throw new Error('handleEvaluation requires taskId in context');
+      case 'note':
+        return this.appendProgress(ctx.sprintId, formatProgress(signal.timestamp, `**Note:** ${signal.text}`));
+
+      case 'task-blocked':
+        return this.appendProgress(
+          ctx.sprintId,
+          formatProgress(signal.timestamp, `**Task Blocked:** ${signal.reason}`)
+        );
+
+      case 'evaluation': {
+        if (ctx.taskId === undefined) {
+          return Result.error(
+            new StorageError({
+              subCode: 'io',
+              message: 'evaluation signal requires taskId in context',
+            })
+          );
+        }
+        const file = evaluationPath(this.paths, ctx.sprintId, ctx.taskId);
+        const body = renderEvaluationBody(signal);
+        const w = await writeText(file, body);
+        if (!w.ok) return w;
+        return this.appendProgress(
+          ctx.sprintId,
+          formatProgress(
+            signal.timestamp,
+            `**Evaluation:** ${signal.status} (${String(signal.dimensions.length)} dimension(s))`
+          )
+        );
+      }
+
+      // Use-case-owned signals: no durable write here.
+      case 'task-verified':
+      case 'task-complete':
+        return Result.ok();
+
+      // Setup-time signals: consumed inline by the setup / onboarding flow.
+      case 'check-script-discovery':
+      case 'agents-md-proposal':
+      case 'setup-script':
+      case 'verify-script':
+      case 'skill-suggestions':
+        return Result.ok();
+
+      default: {
+        const _exhaustive: never = signal;
+        void _exhaustive;
+        return Result.ok();
+      }
     }
-
-    const taskId = ctx.taskId; // Narrow to non-undefined
-
-    return wrapAsync(async () => {
-      // Determine iteration number (Phase 1: always 1; Phase 3+ will track iterations)
-      const iteration = 1;
-
-      // Write full critique to sidecar
-      const evaluationFilePath = await writeEvaluation(
-        ctx.sprintId,
-        taskId,
-        iteration,
-        signal.status,
-        signal.critique ?? ''
-      );
-
-      // Update task with preview + status + file pointer
-      const preview = (signal.critique ?? '').slice(0, MAX_EVAL_OUTPUT);
-      await updateTask(
-        taskId,
-        {
-          evaluated: true,
-          evaluationStatus: signal.status,
-          evaluationOutput: preview,
-          evaluationFile: evaluationFilePath,
-        },
-        ctx.sprintId
-      );
-    }, errorToDomainError);
   }
 
-  async handleTaskComplete(_signal: TaskCompleteSignal, ctx: SignalContext): Promise<DomainResult<void>> {
-    if (!ctx.taskId) {
-      throw new Error('handleTaskComplete requires taskId in context');
+  private async appendProgress(sprintId: SprintId, line: string): Promise<Result<void, StorageError>> {
+    const path = progressPath(this.paths, sprintId);
+    const locked = await this.fileLocker.withLock(path, () => appendLine(path, line));
+    if (!locked.ok) return Result.error(locked.error);
+    // Inner result is `Result<Result<void, StorageError>, StorageError>` — unwrap.
+    return locked.value;
+  }
+}
+
+function formatProgress(timestamp: string, message: string, files?: readonly string[]): string {
+  const filesSuffix = files !== undefined && files.length > 0 ? ` (files: ${files.join(', ')})` : '';
+  return `- ${timestamp} — ${message}${filesSuffix}`;
+}
+
+function renderEvaluationBody(signal: {
+  readonly status: 'passed' | 'failed' | 'malformed';
+  readonly dimensions: readonly { readonly dimension: string; readonly passed: boolean; readonly finding: string }[];
+  readonly critique?: string;
+  readonly timestamp: string;
+}): string {
+  const lines: string[] = [];
+  lines.push(`# Evaluation — ${signal.status}`);
+  lines.push('');
+  lines.push(`Recorded: ${signal.timestamp}`);
+  lines.push('');
+  if (signal.dimensions.length > 0) {
+    lines.push('## Dimensions');
+    lines.push('');
+    for (const d of signal.dimensions) {
+      const verdict = d.passed ? 'PASS' : 'FAIL';
+      lines.push(`- **${d.dimension}**: ${verdict} — ${d.finding}`);
     }
-
-    const taskId = ctx.taskId; // Narrow to non-undefined
-
-    return wrapAsync(async () => {
-      await updateTaskStatus(taskId, 'done', ctx.sprintId);
-    }, errorToDomainError);
+    lines.push('');
   }
-
-  async handleTaskVerified(signal: TaskVerifiedSignal, ctx: SignalContext): Promise<DomainResult<void>> {
-    if (!ctx.taskId) {
-      throw new Error('handleTaskVerified requires taskId in context');
-    }
-
-    const taskId = ctx.taskId; // Narrow to non-undefined
-
-    return wrapAsync(async () => {
-      await updateTask(
-        taskId,
-        {
-          verified: true,
-          verificationOutput: signal.output,
-        },
-        ctx.sprintId
-      );
-    }, errorToDomainError);
+  if (signal.critique !== undefined && signal.critique.length > 0) {
+    lines.push('## Critique');
+    lines.push('');
+    lines.push(signal.critique);
+    lines.push('');
   }
-
-  async handleTaskBlocked(signal: TaskBlockedSignal, _ctx: SignalContext): Promise<DomainResult<void>> {
-    // taskId not needed for this handler (only logs to progress)
-
-    return wrapAsync(async () => {
-      // Log blocker to progress
-      const message = `**Task Blocked:** ${signal.reason}`;
-      await logProgress(message, {
-        sprintId: _ctx.sprintId,
-        projectPath: _ctx.projectPath,
-      });
-
-      // Mark task as blocked (future: add task.blocked field to schema)
-      // For now, just log — Phase 2+ will add schema field for explicit blocking
-    }, errorToDomainError);
-  }
-
-  async handleNote(signal: NoteSignal, ctx: SignalContext): Promise<DomainResult<void>> {
-    return wrapAsync(async () => {
-      const message = `**Note:** ${signal.text}`;
-      await logProgress(message, {
-        sprintId: ctx.sprintId,
-        projectPath: ctx.projectPath,
-      });
-    }, errorToDomainError);
-  }
+  return lines.join('\n');
 }

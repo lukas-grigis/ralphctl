@@ -1,8 +1,8 @@
 /**
- * Interactive directory browser — Ink component.
+ * Interactive directory browser prompt.
  *
- * Navigation: arrow keys move, Enter descends or selects, Backspace goes up,
- * `h` jumps home, `.` selects current dir, Escape cancels.
+ * Navigation: ↑/↓ move, Enter descends, Backspace goes up,
+ * h jumps home, . selects current dir, Escape cancels.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -10,8 +10,8 @@ import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Box, Text, useInput } from 'ink';
-import type { FileBrowserOptions } from '@src/business/ports/prompt.ts';
-import { emoji } from '@src/integration/ui/theme/tokens.ts';
+import type { FileBrowserOptions } from '../../../business/ports/prompt-port.ts';
+import { DONUT_EMOJI, inkColors } from '../theme/tokens.ts';
 
 interface FileBrowserPromptProps {
   options: FileBrowserOptions;
@@ -76,10 +76,7 @@ export function FileBrowserPrompt({ options, onSubmit, onCancel }: FileBrowserPr
       return;
     }
     if (input === '.') {
-      if (options.mustBeGitRepo && !isGitRepo(currentPath)) {
-        // Silent no-op — could flash an error but keep simple.
-        return;
-      }
+      if (options.mustBeGitRepo && !isGitRepo(currentPath)) return;
       onSubmit(currentPath);
       return;
     }
@@ -93,7 +90,6 @@ export function FileBrowserPrompt({ options, onSubmit, onCancel }: FileBrowserPr
     }
   });
 
-  // Keep cursor visible within the paged window.
   useEffect(() => {
     if (cursor < offset) setOffset(cursor);
     else if (cursor >= offset + PAGE_SIZE) setOffset(cursor - PAGE_SIZE + 1);
@@ -102,10 +98,10 @@ export function FileBrowserPrompt({ options, onSubmit, onCancel }: FileBrowserPr
   const visible = useMemo(() => dirs.slice(offset, offset + PAGE_SIZE), [dirs, offset]);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={inkColors.muted} paddingX={1}>
       <Box>
         <Text>
-          {emoji.donut} {message}
+          {DONUT_EMOJI} {message}
         </Text>
       </Box>
       <Box>
@@ -120,7 +116,7 @@ export function FileBrowserPrompt({ options, onSubmit, onCancel }: FileBrowserPr
           const repo = isGitRepo(full);
           const icon = repo ? '⚙ ' : '▸ ';
           return (
-            <Text key={name} color={isSelected ? 'yellow' : undefined}>
+            <Text key={name} color={isSelected ? inkColors.highlight : undefined}>
               {isSelected ? '› ' : '  '}
               {icon}
               {name}

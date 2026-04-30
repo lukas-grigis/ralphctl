@@ -1,136 +1,88 @@
 /**
- * Ink logger sink — publishes structured log events onto `logEventBus`.
+ * `InkSink` — logger sink active while the Ink TUI is mounted.
  *
- * The Ink app subscribes to the bus via `useLoggerEvents()` and renders a
- * rolling log tail. Outside of Ink mounts, the bus simply has no subscribers
- * and the events are dropped cheaply.
+ * Publishes to a {@link LogEventBus} instead of writing stdout — direct
+ * stdout writes would corrupt Ink's rendered frames. The TUI subscribes
+ * to the bus and renders a rolling log tail.
  *
- * Unlike PlainTextSink, this sink never writes to stdout directly — that
- * would corrupt Ink's rendered frame. Writing to stdout only happens via
- * Ink's own render cycle.
+ * Outside an Ink mount the bus simply has no subscribers and emissions
+ * drop cheaply.
  */
+import type { LogContext, LoggerPort, LogLevel } from '../../business/ports/logger-port.ts';
+import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
+import type { LogEventBus } from './log-event-bus.ts';
 
-import type { LogContext, LoggerPort, SpinnerHandle } from '@src/business/ports/logger.ts';
-import type { LogEvent, LogEventBus } from '@src/business/ports/log-event-bus.ts';
-import { logEventBus } from '@src/integration/ui/tui/runtime/event-bus.ts';
+const LEVEL_RANK: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+} as const;
 
-let spinnerId = 0;
+function envLevel(): LogLevel {
+  if (process.env['VITEST']) return 'error';
+  const raw = process.env['RALPHCTL_LOG_LEVEL']?.toLowerCase();
+  if (raw && raw in LEVEL_RANK) return raw as LogLevel;
+  return 'info';
+}
+
+export interface InkSinkOptions {
+  readonly level?: LogLevel;
+  readonly context?: LogContext;
+  readonly now?: () => IsoTimestamp;
+}
 
 export class InkSink implements LoggerPort {
-  private readonly bus: LogEventBus;
+  private readonly minRank: number;
+  private readonly level: LogLevel;
+  private readonly context: LogContext;
+  private readonly now: () => IsoTimestamp;
 
   constructor(
-    private readonly context: LogContext = {},
-    bus?: LogEventBus
+    private readonly bus: LogEventBus,
+    opts: InkSinkOptions = {}
   ) {
-    this.bus = bus ?? logEventBus;
+    this.level = opts.level ?? envLevel();
+    this.minRank = LEVEL_RANK[this.level];
+    this.context = opts.context ?? {};
+    this.now = opts.now ?? (() => IsoTimestamp.now());
   }
 
-  private emit(event: LogEvent): void {
-    this.bus.emit(event);
+  log(level: LogLevel, message: string, context?: LogContext): void {
+    if (LEVEL_RANK[level] < this.minRank) return;
+    this.bus.emit({
+      level,
+      message,
+      timestamp: this.now(),
+      context: { ...this.context, ...(context ?? {}) },
+    });
   }
-
-  // -- Structured log levels --------------------------------------------------
 
   debug(message: string, context?: LogContext): void {
-    this.emit({ kind: 'log', level: 'debug', message, context: this.merge(context), timestamp: new Date() });
+    this.log('debug', message, context);
   }
-
   info(message: string, context?: LogContext): void {
-    this.emit({ kind: 'log', level: 'info', message, context: this.merge(context), timestamp: new Date() });
+    this.log('info', message, context);
   }
-
   warn(message: string, context?: LogContext): void {
-    this.emit({ kind: 'log', level: 'warn', message, context: this.merge(context), timestamp: new Date() });
+    this.log('warn', message, context);
   }
-
   error(message: string, context?: LogContext): void {
-    this.emit({ kind: 'log', level: 'error', message, context: this.merge(context), timestamp: new Date() });
+    this.log('error', message, context);
   }
 
-  // -- UI-level output --------------------------------------------------------
-
-  success(message: string): void {
-    this.emit({ kind: 'log', level: 'success', message, context: this.context, timestamp: new Date() });
+  child(bound: LogContext): LoggerPort {
+    return new InkSink(this.bus, {
+      level: this.level,
+      context: { ...this.context, ...bound },
+      now: this.now,
+    });
   }
-
-  warning(message: string): void {
-    this.emit({ kind: 'log', level: 'warning', message, context: this.context, timestamp: new Date() });
-  }
-
-  tip(message: string): void {
-    this.emit({ kind: 'log', level: 'tip', message, context: this.context, timestamp: new Date() });
-  }
-
-  // -- Layout -----------------------------------------------------------------
-
-  header(title: string, icon?: string): void {
-    this.emit({ kind: 'header', title, icon, timestamp: new Date() });
-  }
-
-  separator(width = 40): void {
-    this.emit({ kind: 'separator', width, timestamp: new Date() });
-  }
-
-  field(label: string, value: string, _width?: number): void {
-    void _width;
-    this.emit({ kind: 'field', label, value, timestamp: new Date() });
-  }
-
-  card(title: string, lines: string[]): void {
-    this.emit({ kind: 'card', title, lines, timestamp: new Date() });
-  }
-
-  newline(): void {
-    this.emit({ kind: 'newline', timestamp: new Date() });
-  }
-
-  dim(message: string): void {
-    this.emit({ kind: 'log', level: 'dim', message, context: this.context, timestamp: new Date() });
-  }
-
-  item(message: string): void {
-    this.emit({ kind: 'log', level: 'item', message, context: this.context, timestamp: new Date() });
-  }
-
-  // -- Interactive ------------------------------------------------------------
-
-  spinner(message: string): SpinnerHandle {
-    const id = ++spinnerId;
-    this.emit({ kind: 'spinner-start', id, message, timestamp: new Date() });
-    return {
-      succeed: (msg: string) => {
-        this.emit({ kind: 'spinner-succeed', id, message: msg, timestamp: new Date() });
-      },
-      fail: (msg: string) => {
-        this.emit({ kind: 'spinner-fail', id, message: msg, timestamp: new Date() });
-      },
-      stop: () => {
-        this.emit({ kind: 'spinner-stop', id, timestamp: new Date() });
-      },
-    };
-  }
-
-  // -- Scoped child -----------------------------------------------------------
-
-  child(context: LogContext): LoggerPort {
-    return new InkSink({ ...this.context, ...context }, this.bus);
-  }
-
-  // -- Timing -----------------------------------------------------------------
 
   time(label: string): () => void {
     const start = Date.now();
     return () => {
-      const ms = Date.now() - start;
-      this.debug(`${label}: ${String(ms)}ms`);
+      this.debug(label, { ms: Date.now() - start });
     };
-  }
-
-  // -- Internals --------------------------------------------------------------
-
-  private merge(extra?: LogContext): LogContext {
-    if (!extra) return this.context;
-    return { ...this.context, ...extra };
   }
 }

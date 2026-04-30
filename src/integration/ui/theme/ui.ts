@@ -1,11 +1,11 @@
 /**
  * UI output facade — stdout formatters for plain-text command output.
  *
- * This module is the presentation layer for one-shot CLI commands (`ralphctl
- * ticket show`, `ralphctl sprint health`, etc.) — it writes directly to stdout
- * with ANSI colors and ASCII boxes. It is deliberately *separate* from the
- * `LoggerPort` pipeline, which is the structured/Ink path used by long-running
- * use cases and the Ink TUI.
+ * This module is the presentation layer for one-shot CLI commands. It writes
+ * directly to stdout with ANSI colors and ASCII boxes. Separate from the
+ * `LoggerPort` pipeline, which is the structured/Ink path.
+ *
+ * Ported from src/integration/ui/theme/ui.ts — no legacy src/ imports.
  */
 
 import {
@@ -19,15 +19,9 @@ import {
   isColorSupported,
 } from './theme.ts';
 
-// ============================================================================
-// RE-EXPORTS
-// ============================================================================
-
 export { emoji };
 
-// ============================================================================
-// ICONS (data — used across ~20 commands for inline rendering)
-// ============================================================================
+// ── Icons ─────────────────────────────────────────────────────────────────────
 
 export const icons = {
   sprint: '>',
@@ -45,13 +39,10 @@ export const icons = {
   bullet: '-',
 } as const;
 
-// ============================================================================
-// STDOUT LOGGING
-// ============================================================================
+// ── Stdout logging ────────────────────────────────────────────────────────────
 
 const INDENT = '  ';
 
-/** Structured stdout helpers used by command output. */
 export const log = {
   info(message: string): void {
     console.log(`${INDENT}${colors.info(icons.info)}  ${message}`);
@@ -144,46 +135,31 @@ export function printCountSummary(label: string, done: number, total: number): v
   console.log(`${INDENT}${label}  ${color(`${String(done)}/${String(total)} (${String(percent)}%)`)}`);
 }
 
-// ============================================================================
-// BANNER
-// ============================================================================
+// ── Banner ────────────────────────────────────────────────────────────────────
 
-/** Pure function — banner art + random quote as a string. */
 function getBannerText(): string {
   const art = isColorSupported ? gradients.donut.multiline(banner.art) : banner.art;
   const quote = getRandomQuote();
   return `${art}\n  ${colors.muted(`"${quote}"`)}\n`;
 }
 
-/** Print the banner to stdout (used by cli.ts before commander dispatch). */
 export function printBanner(): void {
   console.log(getBannerText());
 }
 
-// ============================================================================
-// TTY DETECTION + TERMINAL BELL
-// ============================================================================
+// ── TTY detection ─────────────────────────────────────────────────────────────
 
 export function isTTY(): boolean {
   if (!process.stdout.isTTY || process.env['NO_COLOR']) return false;
   return true;
 }
 
-/** Ring the terminal bell (used by long-running AI commands to nudge the user). */
 export function terminalBell(): void {
   if (isTTY()) process.stdout.write('\x07');
 }
 
-// ============================================================================
-// SPINNER
-// ============================================================================
+// ── Spinner ───────────────────────────────────────────────────────────────────
 
-/**
- * Minimal non-animating spinner — prints `• start`, `+ success`, `x fail`.
- * Used by plain-text command paths (ticket/add, task/import, project/add,
- * ticket/refine). Inside the Ink TUI, prefer `LoggerPort.spinner()` which
- * the `InkSink` renders as a live component.
- */
 interface SpinnerShim {
   text: string;
   start(): SpinnerShim;
@@ -218,9 +194,9 @@ export function createSpinner(text: string): SpinnerShim {
   return shim;
 }
 
-// ============================================================================
-// FIELD FORMATTERS
-// ============================================================================
+// ── Field formatters ──────────────────────────────────────────────────────────
+
+export const DETAIL_LABEL_WIDTH = 14;
 
 export function field(label: string, value: string, labelWidth = 12): string {
   const paddedLabel = (label + ':').padEnd(labelWidth);
@@ -230,11 +206,11 @@ export function field(label: string, value: string, labelWidth = 12): string {
 export function fieldMultiline(label: string, value: string, labelWidth = 12): string {
   const lines = value.split('\n');
   const paddedLabel = (label + ':').padEnd(labelWidth);
-  const indent = INDENT + ' '.repeat(labelWidth + 1);
+  const indentStr = INDENT + ' '.repeat(labelWidth + 1);
   if (lines.length === 1) return `${INDENT}${colors.muted(paddedLabel)} ${value}`;
   const firstLine = lines[0] ?? '';
   const result: string[] = [`${INDENT}${colors.muted(paddedLabel)} ${firstLine}`];
-  for (let i = 1; i < lines.length; i++) result.push(`${indent}${lines[i] ?? ''}`);
+  for (let i = 1; i < lines.length; i++) result.push(`${indentStr}${lines[i] ?? ''}`);
   return result.join('\n');
 }
 
@@ -242,23 +218,23 @@ export function labelValue(label: string, value: string, labelWidth = DETAIL_LAB
   return field(label, value, labelWidth).trimStart();
 }
 
-// ============================================================================
-// STATUS FORMATTERS
-// ============================================================================
+// ── Status formatters ─────────────────────────────────────────────────────────
 
-export function formatTaskStatus(status: 'todo' | 'in_progress' | 'done' | 'cancelled'): string {
+export function formatTaskStatus(status: 'todo' | 'in_progress' | 'done' | 'cancelled' | 'skipped'): string {
   const e = getStatusEmoji(status);
   const labels: Record<string, string> = {
     todo: 'To Do',
     in_progress: 'In Progress',
     done: 'Done',
     cancelled: 'Cancelled',
+    skipped: 'Skipped',
   };
   const statusColors: Record<string, ColorFn> = {
     todo: colors.muted,
     in_progress: colors.warning,
     done: colors.success,
     cancelled: colors.muted,
+    skipped: colors.warning,
   };
   return (statusColors[status] ?? colors.muted)(`${e} ${labels[status] ?? status}`);
 }
@@ -278,9 +254,7 @@ export function badge(text: string, type: 'success' | 'warning' | 'error' | 'mut
   return colors[type](`[${text}]`);
 }
 
-// ============================================================================
-// BOX / CARD / TABLE / COLUMN RENDERERS (pure)
-// ============================================================================
+// ── Box / Card / Table renderers (pure) ───────────────────────────────────────
 
 export const boxChars = {
   light: {
@@ -333,13 +307,8 @@ function stripAnsi(s: string): string {
   return s.replace(ANSI_REGEX, '');
 }
 
-function sanitizeForDisplay(s: string): string {
-  return s.replace(ANSI_REGEX, '');
-}
-
 const MIN_BOX_WIDTH = 20;
 const DEFAULT_TERMINAL_WIDTH = 80;
-export const DETAIL_LABEL_WIDTH = 14;
 
 function getTerminalWidth(): number {
   return process.stdout.columns || DEFAULT_TERMINAL_WIDTH;
@@ -349,8 +318,8 @@ function wrapLine(line: string, maxWidth: number): string[] {
   const visible = stripAnsi(line);
   if (visible.length <= maxWidth) return [line];
   const indentMatch = /^(\s*)/.exec(visible);
-  const indent = indentMatch?.[1] ?? '';
-  const indentLen = indent.length;
+  const indentStr = indentMatch?.[1] ?? '';
+  const indentLen = indentStr.length;
   const wrapWidth = maxWidth - indentLen;
   if (wrapWidth <= 0) return [line];
   const words = visible.trimStart().split(/(\s+)/);
@@ -360,22 +329,14 @@ function wrapLine(line: string, maxWidth: number): string[] {
     if (current.length + word.length <= wrapWidth) {
       current += word;
     } else if (current.length === 0) {
-      for (let i = 0; i < word.length; i += wrapWidth) wrapped.push(indent + word.slice(i, i + wrapWidth));
+      for (let i = 0; i < word.length; i += wrapWidth) wrapped.push(indentStr + word.slice(i, i + wrapWidth));
     } else {
-      wrapped.push(indent + current.trimEnd());
+      wrapped.push(indentStr + current.trimEnd());
       current = word.trimStart();
     }
   }
-  if (current.trimEnd().length > 0) wrapped.push(indent + current.trimEnd());
+  if (current.trimEnd().length > 0) wrapped.push(indentStr + current.trimEnd());
   return wrapped.length > 0 ? wrapped : [line];
-}
-
-export function horizontalLine(width: number, style: BoxStyle = 'light'): string {
-  return boxChars[style].horizontal.repeat(width);
-}
-
-export function verticalLine(style: BoxStyle = 'light'): string {
-  return boxChars[style].vertical;
 }
 
 export function renderBox(
@@ -385,14 +346,12 @@ export function renderBox(
   const { style = 'rounded', padding = 1, colorFn = colors.muted } = options;
   const chars = boxChars[style];
   const pad = ' '.repeat(padding);
-
   const termWidth = getTerminalWidth();
   const maxInnerWidth = Math.max(MIN_BOX_WIDTH, termWidth - 2);
   const maxContentWidth = maxInnerWidth - padding * 2;
   const wrappedLines = lines.flatMap((l) => wrapLine(l, maxContentWidth));
   const contentWidths = wrappedLines.map((l) => stripAnsi(l).length);
   const innerWidth = Math.min(Math.max(...contentWidths, MIN_BOX_WIDTH) + padding * 2, maxInnerWidth);
-
   const result: string[] = [];
   result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
   for (const line of wrappedLines) {
@@ -411,15 +370,13 @@ export function renderCard(
 ): string {
   const { style = 'rounded', colorFn = colors.muted } = options;
   const chars = boxChars[style];
-
   const termWidth = getTerminalWidth();
   const maxInnerWidth = Math.max(MIN_BOX_WIDTH, termWidth - 4);
-  const safeTitle = sanitizeForDisplay(title);
+  const safeTitle = stripAnsi(title);
   const titleWidth = Math.min(safeTitle.length, maxInnerWidth - 2);
   const wrappedLines = lines.flatMap((l) => wrapLine(l, maxInnerWidth - 2));
   const contentWidths = wrappedLines.map((l) => stripAnsi(l).length);
   const innerWidth = Math.min(Math.max(...contentWidths, titleWidth, MIN_BOX_WIDTH) + 2, maxInnerWidth);
-
   const result: string[] = [];
   result.push(colorFn(chars.topLeft + chars.horizontal.repeat(innerWidth) + chars.topRight));
   const titlePad = ' '.repeat(Math.max(0, innerWidth - titleWidth - 2));
@@ -434,20 +391,17 @@ export function renderCard(
   return result.join('\n');
 }
 
-interface ProgressBarOptions {
-  width?: number;
-  filled?: string;
-  empty?: string;
-  showPercent?: boolean;
-}
-
-export function progressBar(done: number, total: number, options: ProgressBarOptions = {}): string {
-  const { width = 20, filled = '\u2588', empty = '\u2591', showPercent = true } = options;
-  if (total === 0 || width <= 0) return colors.muted('\u2500'.repeat(Math.max(0, width)));
+export function progressBar(
+  done: number,
+  total: number,
+  options: { width?: number; showPercent?: boolean } = {}
+): string {
+  const { width = 20, showPercent = true } = options;
+  if (total === 0 || width <= 0) return colors.muted('─'.repeat(Math.max(0, width)));
   const filledCount = Math.round((done / total) * width);
   const emptyCount = width - filledCount;
   const percent = Math.round((done / total) * 100);
-  const bar = colors.success(filled.repeat(filledCount)) + colors.muted(empty.repeat(emptyCount));
+  const bar = colors.success('█'.repeat(filledCount)) + colors.muted('░'.repeat(emptyCount));
   if (!showPercent) return bar;
   const label = percent === 100 ? colors.success(`${String(percent)}%`) : colors.muted(`${String(percent)}%`);
   return `${bar} ${label}`;
@@ -470,40 +424,30 @@ export function renderTable(columns: TableColumn[], rows: string[][], options: T
   const { style = 'rounded', indent = 2, colorFn = colors.muted } = options;
   const chars = boxChars[style];
   const pad = ' '.repeat(indent);
-
   const colWidths = columns.map((col, i) => {
     const headerWidth = col.header.length;
-    const dataWidth = Math.max(0, ...rows.map((row) => stripAnsi(row[i] ?? '').length));
-    return Math.max(headerWidth, dataWidth, col.minWidth ?? 0);
+    const dataMax = rows.reduce((w, row) => Math.max(w, (row[i] ?? '').length), 0);
+    return Math.max(col.minWidth ?? 0, headerWidth, dataMax);
   });
-
+  const totalWidth = colWidths.reduce((sum, w) => sum + w + 2, 0) + indent * 2;
   const result: string[] = [];
-  const topLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.teeDown);
-  result.push(pad + colorFn(chars.topLeft + topLine + chars.topRight));
-
+  result.push(colorFn(chars.topLeft + chars.horizontal.repeat(totalWidth) + chars.topRight));
   const headerCells = columns.map((col, i) => {
-    const w = colWidths[i] ?? 0;
-    return ' ' + colors.highlight(col.header.padEnd(w)) + ' ';
+    const w = colWidths[i] ?? col.header.length;
+    const h = col.header.padEnd(w);
+    return colors.highlight(h);
   });
-  result.push(pad + colorFn(chars.vertical) + headerCells.join(colorFn(chars.vertical)) + colorFn(chars.vertical));
-
-  const sepLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.cross);
-  result.push(pad + colorFn(chars.teeRight + sepLine + chars.teeLeft));
-
+  result.push(colorFn(chars.vertical) + pad + headerCells.join(colorFn('  ')) + pad + colorFn(chars.vertical));
+  result.push(colorFn(chars.teeRight + chars.horizontal.repeat(totalWidth) + chars.teeLeft));
   for (const row of rows) {
     const cells = columns.map((col, i) => {
-      const w = colWidths[i] ?? 0;
-      const cell = row[i] ?? '';
-      const visibleLen = stripAnsi(cell).length;
-      const padding = Math.max(0, w - visibleLen);
-      const coloredCell = col.color ? col.color(cell) : cell;
-      if (col.align === 'right') return ' ' + ' '.repeat(padding) + coloredCell + ' ';
-      return ' ' + coloredCell + ' '.repeat(padding) + ' ';
+      const w = colWidths[i] ?? col.header.length;
+      const v = row[i] ?? '';
+      const aligned = col.align === 'right' ? v.padStart(w) : v.padEnd(w);
+      return col.color ? col.color(aligned) : aligned;
     });
-    result.push(pad + colorFn(chars.vertical) + cells.join(colorFn(chars.vertical)) + colorFn(chars.vertical));
+    result.push(colorFn(chars.vertical) + pad + cells.join('  ') + pad + colorFn(chars.vertical));
   }
-
-  const bottomLine = colWidths.map((w) => chars.horizontal.repeat(w + 2)).join(chars.teeUp);
-  result.push(pad + colorFn(chars.bottomLeft + bottomLine + chars.bottomRight));
+  result.push(colorFn(chars.bottomLeft + chars.horizontal.repeat(totalWidth) + chars.bottomRight));
   return result.join('\n');
 }

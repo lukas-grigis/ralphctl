@@ -1,0 +1,191 @@
+/**
+ * SprintListView — browse all sprints.
+ *
+ * Lists sprints sorted by createdAt descending (newest first). Press Enter
+ * to open the sprint show view. Empty state shows a next-step pointer.
+ *
+ * Keyboard: ↑/↓ navigate · Enter open · Esc back
+ */
+
+import React, { useEffect, useState } from 'react';
+import { Box, useInput } from 'ink';
+import { inkColors, spacing } from '../../../../integration/ui/theme/tokens.ts';
+import { ViewShell } from '../../components/view-shell.tsx';
+import { ListView, type ListColumn } from '../../components/list-view.tsx';
+import { ResultCard } from '../../components/result-card.tsx';
+import { Spinner } from '../../components/spinner.tsx';
+import { chipKindForSprintStatus } from '../../components/status-chip.tsx';
+import { useViewHints } from '../view-hints-context.tsx';
+import { useRouterOptional } from '../router-context.ts';
+import { getSharedDeps } from '../../../bootstrap/get-shared-deps.ts';
+import { ListSprintsUseCase } from '../../../../business/usecases/sprint/list-sprints.ts';
+import { getKeyFor } from '../../keyboard-map.ts';
+import type { Sprint } from '../../../../domain/entities/sprint.ts';
+
+const LIST_HINTS = [
+  { key: '↑/↓', action: 'navigate' },
+  { key: 'Enter', action: 'open' },
+  { key: getKeyFor('list.add'), action: 'add' },
+  { key: getKeyFor('list.edit'), action: 'edit' },
+  { key: getKeyFor('list.filter'), action: 'cycle filter' },
+  { key: getKeyFor('list.setCurrent'), action: 'set current' },
+] as const;
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+const COLUMNS: readonly ListColumn<Sprint>[] = [
+  {
+    header: 'STATUS',
+    cell: (s) => s.status.toUpperCase(),
+    width: 8,
+    color: (s) => {
+      const kind = chipKindForSprintStatus(s.status);
+      if (kind === 'success') return inkColors.success;
+      if (kind === 'warning') return inkColors.warning;
+      return inkColors.muted;
+    },
+  },
+  {
+    header: 'NAME',
+    cell: (s) => s.name,
+    flex: true,
+  },
+  {
+    header: 'TICKETS',
+    cell: (s) => String(s.tickets.length),
+    width: 7,
+    align: 'right',
+  },
+  {
+    header: 'CREATED',
+    cell: (s) => formatDate(s.createdAt),
+    width: 12,
+  },
+];
+
+type StatusFilter = 'all' | 'draft' | 'active' | 'closed';
+
+const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'draft', 'active', 'closed'];
+
+export function SprintListView(): React.JSX.Element {
+  useViewHints(LIST_HINTS);
+  const router = useRouterOptional();
+  const [sprints, setSprints] = useState<readonly Sprint[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cursor, setCursor] = useState(0);
+  const [filter, setFilter] = useState<StatusFilter>('all');
+
+  useEffect(() => {
+    const cancel = { current: false };
+    void (async () => {
+      try {
+        const deps = await getSharedDeps();
+        const uc = new ListSprintsUseCase(deps.sprintRepo);
+        const result = await uc.execute();
+        if (cancel.current) return;
+        if (!result.ok) {
+          setError(result.error.message);
+          return;
+        }
+        // Sort: newest first
+        const sorted = [...result.value].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setSprints(sorted);
+      } catch (err) {
+        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancel.current = true;
+    };
+  }, []);
+
+  const visible = sprints === null ? null : filter === 'all' ? sprints : sprints.filter((s) => s.status === filter);
+
+  const KEY_ADD = getKeyFor('list.add');
+  const KEY_EDIT = getKeyFor('list.edit');
+  const KEY_FILTER = getKeyFor('list.filter');
+  const KEY_SET_CURRENT = getKeyFor('list.setCurrent');
+  const KEY_REMOVE = getKeyFor('list.remove');
+
+  useInput((input) => {
+    if (input === KEY_ADD) {
+      router?.push({ id: 'sprint-create' });
+      return;
+    }
+    if (input === KEY_EDIT) {
+      const row = visible?.[cursor];
+      if (!row) return;
+      router?.push({ id: 'sprint-edit', props: { sprintId: String(row.id) } });
+      return;
+    }
+    if (input === KEY_FILTER) {
+      setFilter((f) => {
+        const idx = STATUS_FILTERS.indexOf(f);
+        return STATUS_FILTERS[(idx + 1) % STATUS_FILTERS.length] ?? 'all';
+      });
+      return;
+    }
+    if (input === KEY_SET_CURRENT) {
+      const row = visible?.[cursor];
+      if (!row) return;
+      void (async () => {
+        try {
+          const deps = await getSharedDeps();
+          const config = await deps.configStore.load();
+          if (!config.ok) return;
+          await deps.configStore.save({ ...config.value, currentSprint: row.id });
+        } catch {
+          // non-fatal
+        }
+      })();
+      return;
+    }
+    if (input === KEY_REMOVE) {
+      const row = visible?.[cursor];
+      if (!row) return;
+      router?.push({ id: 'sprint-remove', props: { sprintId: String(row.id) } });
+    }
+  });
+
+  function openSprint(sprint: Sprint, index: number): void {
+    setCursor(index);
+    router?.push({ id: 'sprint-show', props: { sprintId: String(sprint.id) } });
+  }
+
+  const filterLabel = filter !== 'all' ? ` [filter: ${filter}]` : '';
+
+  return (
+    <ViewShell title={`SPRINTS${filterLabel}`}>
+      <Box flexDirection="column">
+        {sprints === null && error === null ? (
+          <Spinner label="Loading sprints…" />
+        ) : error !== null ? (
+          <ResultCard kind="error" title="Failed to load sprints" lines={[error]} />
+        ) : visible !== null && visible.length === 0 ? (
+          <ResultCard
+            kind="info"
+            title={filter !== 'all' ? `No ${filter} sprints.` : 'No sprints yet.'}
+            nextSteps={[{ action: 'Create one', description: `press '${KEY_ADD}'` }]}
+          />
+        ) : (
+          <Box marginTop={spacing.section}>
+            <ListView
+              rows={visible ?? []}
+              columns={COLUMNS}
+              onSelect={openSprint}
+              emptyLabel="No sprints"
+              initialCursor={cursor}
+              onCursorChange={(_, idx) => {
+                setCursor(idx);
+              }}
+            />
+          </Box>
+        )}
+      </Box>
+    </ViewShell>
+  );
+}

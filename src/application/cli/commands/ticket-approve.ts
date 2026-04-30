@@ -1,0 +1,64 @@
+/**
+ * `ticket approve` — manually approve a ticket's requirements.
+ *
+ * Bypasses `sprint refine`'s AI clarification loop. Useful for tickets
+ * that don't need refinement, or to recover from a failed refine run.
+ */
+import type { Command } from 'commander';
+import * as c from 'colorette';
+
+import { ApproveTicketRequirementsUseCase } from '../../../business/usecases/ticket/approve-ticket.ts';
+import { Result } from '../../../domain/result.ts';
+import { ValidationError } from '../../../domain/values/validation-error.ts';
+import { SprintId } from '../../../domain/values/sprint-id.ts';
+import { TicketId } from '../../../domain/values/ticket-id.ts';
+import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
+import { runCommand } from '../command-runner.ts';
+import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
+
+interface TicketApproveFlags {
+  readonly sprint: string;
+  readonly ticket: string;
+  readonly requirements: string;
+}
+
+export function attachTicketApprove(group: Command, deps: SharedDeps): void {
+  group
+    .command('approve')
+    .description("manually approve a ticket's requirements (bypasses sprint refine)")
+    .requiredOption('--sprint <id>', 'sprint id')
+    .requiredOption('--ticket <id>', 'ticket id')
+    .requiredOption('--requirements <text>', 'approved requirements text')
+    .action(async (opts: TicketApproveFlags) => {
+      const code = await runTicketApprove(deps, opts);
+      if (code !== EXIT_SUCCESS) process.exitCode = code;
+    });
+}
+
+export async function runTicketApprove(deps: SharedDeps, opts: TicketApproveFlags): Promise<ExitCode> {
+  return runCommand({
+    deps,
+    body: async () => {
+      const sprintId = SprintId.parse(opts.sprint);
+      if (!sprintId.ok) return Result.error(sprintId.error);
+      const ticketId = TicketId.parse(opts.ticket);
+      if (!ticketId.ok) return Result.error(ticketId.error);
+      if (opts.requirements.trim().length === 0) {
+        return Result.error(
+          new ValidationError({
+            field: 'requirements',
+            value: opts.requirements,
+            message: 'requirements must be a non-empty string',
+          })
+        );
+      }
+      const useCase = new ApproveTicketRequirementsUseCase(deps.sprintRepo);
+      return useCase.execute({
+        sprintId: sprintId.value,
+        ticketId: ticketId.value,
+        requirements: opts.requirements,
+      });
+    },
+    format: () => `${c.green('approved')} ticket ${c.bold(opts.ticket)}`,
+  });
+}

@@ -1,31 +1,18 @@
-import type { AiProvider } from '@src/domain/models.ts';
-import type { ProviderAdapter } from '@src/integration/ai/providers/types.ts';
-import { claudeAdapter } from '@src/integration/ai/providers/claude.ts';
-import { copilotAdapter } from '@src/integration/ai/providers/copilot.ts';
-import { resolveProvider } from '@src/integration/external/provider.ts';
-
 /**
- * Get the adapter for a specific provider.
+ * Static registry of {@link ProviderAdapter} implementations keyed by
+ * {@link AiProvider}. The session adapter resolves the active provider
+ * from config (lazily) and looks the adapter up here.
  */
-export function getProvider(provider: AiProvider): ProviderAdapter {
-  switch (provider) {
-    case 'claude':
-      return claudeAdapter;
-    case 'copilot':
-      return copilotAdapter;
-  }
-}
+import type { AiProvider } from '../../../business/ports/ai-session-port.ts';
+import { claudeAdapter } from './claude-adapter.ts';
+import { copilotAdapter } from './copilot-adapter.ts';
+import type { ProviderAdapter } from './types.ts';
 
-/**
- * Resolve the active provider from config (prompting on first use)
- * and return its adapter.
- *
- * The "experimental" status of a provider is surfaced by `ralphctl doctor` —
- * we deliberately do not stdout-write here because this function is called
- * during Ink-mounted pipelines (plan / refine / ideate / execute), and any
- * direct stdout write would bleed into the alt-screen buffer.
- */
-export async function getActiveProvider(): Promise<ProviderAdapter> {
-  const provider = await resolveProvider();
-  return getProvider(provider);
+export const adapters: Readonly<Record<AiProvider, ProviderAdapter>> = {
+  claude: claudeAdapter,
+  copilot: copilotAdapter,
+};
+
+export function getAdapter(name: AiProvider): ProviderAdapter {
+  return adapters[name];
 }

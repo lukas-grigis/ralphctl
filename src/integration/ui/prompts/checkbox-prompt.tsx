@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { CheckboxOptions } from '@src/business/ports/prompt.ts';
-import { emoji, glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
+import type { CheckboxOptions } from '../../../business/ports/prompt-port.ts';
+import { DONUT_EMOJI, glyphs, inkColors } from '../theme/tokens.ts';
 
 interface CheckboxPromptProps {
   options: CheckboxOptions<unknown>;
@@ -9,11 +9,6 @@ interface CheckboxPromptProps {
   onCancel: () => void;
 }
 
-/**
- * Self-contained checkbox prompt. Shares the rendering conventions of
- * `<SelectPrompt>` — `›` cursor + highlight color for focus, dimmed rows for
- * disabled — so multi-select visually matches single-select.
- */
 export function CheckboxPrompt({ options, onSubmit, onCancel }: CheckboxPromptProps): React.JSX.Element {
   const initialFocus = options.choices.findIndex((c) => !isDisabled(c));
   const [focusedIdx, setFocusedIdx] = useState(initialFocus >= 0 ? initialFocus : 0);
@@ -57,7 +52,7 @@ export function CheckboxPrompt({ options, onSubmit, onCancel }: CheckboxPromptPr
     <Box flexDirection="column">
       <Box>
         <Text>
-          {emoji.donut} {options.message} <Text dimColor>(space toggles, enter submits)</Text>
+          {DONUT_EMOJI} {options.message}: <Text dimColor>(space toggles, enter submits)</Text>
         </Text>
       </Box>
       <Box marginLeft={2} flexDirection="column">

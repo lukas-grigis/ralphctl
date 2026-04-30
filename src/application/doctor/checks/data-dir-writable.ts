@@ -1,0 +1,41 @@
+/**
+ * `dataDirWritableCheck` — confirms the data directory is writable.
+ *
+ * `access(W_OK)` alone is not enough — some filesystems (FUSE mounts,
+ * read-only-snapshot bind mounts) report the bit as set but reject the
+ * actual write. We round-trip a tiny temp file to validate end-to-end.
+ */
+import { unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import type { StoragePaths } from '../../runtime/storage-paths-resolver.ts';
+import type { DoctorCheckResult } from '../run-doctor.ts';
+
+export interface DataDirWritableCheckDeps {
+  readonly storage: StoragePaths;
+}
+
+export async function dataDirWritableCheck(deps: DataDirWritableCheckDeps): Promise<DoctorCheckResult> {
+  const probe = join(deps.storage.dataDir, `.doctor-write-${String(process.pid)}-${String(Date.now())}.tmp`);
+  try {
+    await writeFile(probe, 'doctor', { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    return {
+      name: 'Data directory',
+      status: 'fail',
+      message: `${deps.storage.dataDir} not writable: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  // Cleanup is best-effort; the directory write succeeded so the result
+  // is already pass.
+  try {
+    await unlink(probe);
+  } catch {
+    // ignore
+  }
+  return {
+    name: 'Data directory',
+    status: 'pass',
+    message: deps.storage.dataDir,
+  };
+}

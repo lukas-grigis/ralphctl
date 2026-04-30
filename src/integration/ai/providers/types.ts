@@ -1,116 +1,90 @@
-import type { AiProvider } from '@src/domain/models.ts';
+/**
+ * Internal-to-integration types describing how a provider CLI behaves.
+ *
+ * These shapes are *not* part of any port contract. The business layer
+ * never reaches them — it only knows about {@link AiSessionPort} and the
+ * domain types behind it. The session adapter ({@link
+ * provider-ai-session-adapter}) consumes a {@link ProviderAdapter} to
+ * translate between the abstract port and a concrete CLI invocation.
+ */
+import type { AbsolutePath } from '../../../domain/values/absolute-path.ts';
+import type { AiProvider } from '../../../business/ports/ai-session-port.ts';
 
-// ============================================================================
-// Parsed output from provider CLI
-// ============================================================================
-
+/** Structured fields a provider's JSON output produces, post-parse. */
 export interface ParsedOutput {
-  result: string;
-  sessionId: string | null;
-  model: string | null;
-}
-
-// ============================================================================
-// Spawn options & results (provider-agnostic)
-// ============================================================================
-
-export interface SpawnSyncOptions {
-  cwd: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-export interface SpawnAsyncOptions {
-  cwd: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-export interface HeadlessSpawnOptions extends SpawnAsyncOptions {
-  prompt?: string;
-  resumeSessionId?: string;
+  /** Result text the harness records as the AI's reply. */
+  readonly result: string;
+  /** Provider-assigned session id, if exposed. */
+  readonly sessionId: string | null;
+  /** Model identifier the provider actually used, if exposed. */
+  readonly model: string | null;
   /**
-   * When the signal aborts mid-spawn, the session layer sends SIGTERM to
-   * the provider child via the process-lifecycle adapter so cancellation
-   * propagates to the underlying AI process.
+   * Number of agentic turns the provider used. `null` when the provider's
+   * JSON output doesn't expose it (e.g. Copilot's JSONL).
    */
-  abortSignal?: AbortSignal;
+  readonly numTurns: number | null;
 }
 
-export interface SpawnResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  /** Session ID from CLI (available with --output-format json) */
-  sessionId: string | null;
-  /** Model identifier from CLI (available with --output-format json) */
-  model: string | null;
-}
-
-// ============================================================================
-// Rate limit detection
-// ============================================================================
-
+/** Result of a rate-limit pattern match against captured stderr. */
 export interface RateLimitInfo {
-  rateLimited: boolean;
-  retryAfterMs: number | null;
+  readonly rateLimited: boolean;
+  readonly retryAfterMs: number | null;
 }
 
-// ============================================================================
-// Provider adapter interface
-// ============================================================================
-
+/**
+ * Provider-specific behaviour the session runner needs.
+ *
+ * Implementations are stateless — every method is a pure function of its
+ * arguments. The runner injects a single adapter at construction time;
+ * picking the active provider is the caller's responsibility (resolved
+ * lazily through the session adapter's `ensureReady` hook).
+ */
 export interface ProviderAdapter {
   readonly name: AiProvider;
   readonly displayName: string;
   readonly binary: string;
 
-  /** Base CLI args for permission/tool access. */
-  readonly baseArgs: string[];
+  /** Base CLI args common to both interactive and headless modes. */
+  readonly baseArgs: readonly string[];
 
   /**
-   * Whether this provider is experimental (not fully stable).
-   * Copilot CLI is in public preview; Claude Code is GA.
+   * Whether this provider is experimental (not yet GA). Surfaced by
+   * `ralphctl doctor`; the harness itself doesn't gate on it.
    */
   readonly experimental: boolean;
 
-  /** Build args for interactive mode (inherits stdio). */
-  buildInteractiveArgs(prompt: string, extraArgs?: string[]): string[];
+  /** Build args for an interactive `stdio: 'inherit'` spawn. */
+  buildInteractiveArgs(prompt: string, extraArgs?: readonly string[]): readonly string[];
 
-  /** Build args for headless/print mode (captures stdout). */
-  buildHeadlessArgs(extraArgs?: string[]): string[];
+  /** Build args for a headless capture spawn (`-p` / `--print` mode). */
+  buildHeadlessArgs(extraArgs?: readonly string[]): readonly string[];
 
   /**
-   * Parse JSON output from --output-format json.
-   *
-   * Implementations use Result-based internal logic for JSON parsing.
-   * Always returns a valid ParsedOutput — on parse failure, falls back
-   * to treating raw stdout as the result text with null sessionId.
+   * Parse the JSON the provider emits with `--output-format json`.
+   * Implementations must always return a valid `ParsedOutput` — on parse
+   * failure they fall back to treating the raw stdout as the result text.
    */
   parseJsonOutput(stdout: string): ParsedOutput;
 
   /**
-   * Extract a session ID after a headless process completes.
-   * Called when parseJsonOutput returns sessionId: null.
-   * Copilot: parses the --share output file; Claude: not needed (JSON output has it).
-   *
-   * Implementations use Result-based internal logic for I/O.
-   * Returns null when no session file is found or on filesystem errors (graceful degradation).
+   * Recover a session id from a side-channel (e.g. Copilot's `--share`
+   * sidecar file). Called only when {@link parseJsonOutput} returned
+   * `sessionId: null`. Implementations swallow filesystem errors and
+   * return `null` — graceful degradation, never a throw.
    */
-  extractSessionId?(cwd: string): Promise<string | null>;
+  extractSessionId?(cwd: AbsolutePath): Promise<string | null>;
 
   /**
-   * Build CLI args for resuming a previous session.
-   * Claude: `['--resume', sessionId]`
-   * Copilot: `['--resume=' + sessionId]` (optional-value syntax)
-   *
-   * Validates the session ID format and throws if invalid (prevents argument injection).
+   * Build CLI args to resume a previous session. Implementations validate
+   * the session id format and throw on invalid input — that's a
+   * programmer / config error, not a runtime failure, so a synchronous
+   * throw is the right surface.
    */
-  buildResumeArgs(sessionId: string): string[];
+  buildResumeArgs(sessionId: string): readonly string[];
 
-  /** Detect rate limit signals in stderr. */
+  /** Match captured stderr against the provider's rate-limit patterns. */
   detectRateLimit(stderr: string): RateLimitInfo;
 
-  /** Provider-specific env vars to set for a spawn. Claude-only example: CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD */
+  /** Provider-specific environment overrides for spawn(). */
   getSpawnEnv(): Record<string, string>;
 }

@@ -1,6 +1,6 @@
 {
   "name": "ralphctl",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Agent harness for long-running AI coding tasks — orchestrates Claude Code & GitHub Copilot across repositories",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
@@ -35,9 +35,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && mkdir -p dist/prompts && cp src/integration/ai/prompts/*.md dist/prompts/",
+    "build": "tsup && rm -rf dist/prompts dist/skills && mkdir -p dist/prompts dist/skills && cp src/integration/ai/prompts/templates/*.md dist/prompts/ && cp -R src/integration/ai/skills/default dist/skills/default",
     "prepublishOnly": "pnpm build",
-    "dev": "tsx src/application/entrypoint.ts",
+    "dev": "tsx src/application/cli/entrypoint.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

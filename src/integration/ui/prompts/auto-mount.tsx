@@ -1,20 +1,17 @@
 /**
  * Auto-mounting helper for the Ink prompt layer.
  *
- * The prompt adapter is the single source of truth for interactive prompts —
- * whether the full Ink dashboard is mounted or we're in a one-shot CLI command
- * (`ralphctl project add`, `ralphctl sprint create`, etc). When a prompt fires
- * and no host is active, this module spins up a minimal Ink tree containing
- * only `<PromptHost />`, drains the queue, and unmounts.
+ * When a prompt fires and no host is active, this module spins up a minimal
+ * Ink tree containing only `<PromptHost />`, drains the queue, and unmounts.
  *
- * Non-TTY / CI / piped environments cannot host Ink and therefore cannot
- * prompt — callers should pass the answer as a flag. Attempting to prompt in
- * that mode throws `PromptCancelledError` with a helpful message.
+ * Non-TTY / CI environments throw `PromptCancelledError` — pass values as flags.
+ *
+ * Ported from src/integration/ui/prompts/auto-mount.tsx — no legacy src/ imports.
  */
 
 import React from 'react';
 import { render, type Instance } from 'ink';
-import { PromptCancelledError } from '@src/business/ports/prompt.ts';
+import { PromptCancelledError } from '../../../business/ports/prompt-port.ts';
 import { PromptHost } from './prompt-host.tsx';
 import { promptQueue } from './prompt-queue.ts';
 
@@ -48,8 +45,8 @@ function canInteract(): boolean {
 /**
  * Ensure something is rendering `<PromptHost />`. No-op if an external host
  * (the full Ink dashboard) is already active. Otherwise mounts a minimal Ink
- * tree containing only the prompt host and arranges to unmount when the
- * queue drains.
+ * tree containing only the prompt host and arranges to unmount when the queue
+ * drains.
  *
  * Throws `PromptCancelledError` in non-interactive environments.
  */
@@ -67,9 +64,8 @@ export function ensurePromptHost(): void {
 
   // Unmount as soon as the queue is empty — keeps one-shot prompt flows from
   // holding the process open after the answer lands.
-  drainUnsubscribe = promptQueue.subscribe((current) => {
-    if (current === null) {
-      // Defer the unmount so React has a chance to flush the resolved state.
+  drainUnsubscribe = promptQueue.subscribe((state) => {
+    if (state.current === null) {
       setImmediate(() => {
         if (promptQueue.size() === 0) teardownAutoHost();
       });

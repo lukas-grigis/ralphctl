@@ -1,144 +1,106 @@
-import type { LogContext, LoggerPort, LogLevel, SpinnerHandle } from '@src/business/ports/logger.ts';
+/**
+ * `JsonLogger` — non-TTY / piped / CI logger sink.
+ *
+ * Writes one JSON object per line to stdout (errors+warns to stderr).
+ * Each record carries `{ level, message, timestamp, ...context }`. Honors
+ * `RALPHCTL_LOG_LEVEL` and silences info/warn under `VITEST=1` like the
+ * plain-text sink.
+ */
+import type { LogContext, LoggerPort, LogLevel } from '../../business/ports/logger-port.ts';
+import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
 
-const LOG_LEVELS: Record<LogLevel, number> = {
+const LEVEL_RANK: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,
   error: 3,
 } as const;
 
-function resolveLogLevel(): LogLevel {
+function envLevel(): LogLevel {
   if (process.env['VITEST']) return 'error';
-  const env = process.env['RALPHCTL_LOG_LEVEL']?.toLowerCase();
-  if (env && env in LOG_LEVELS) return env as LogLevel;
+  const raw = process.env['RALPHCTL_LOG_LEVEL']?.toLowerCase();
+  if (raw && raw in LEVEL_RANK) return raw as LogLevel;
   return 'info';
 }
 
-export class JsonLogger implements LoggerPort {
-  private readonly context: LogContext;
-  private readonly minLevel: number;
+export interface JsonLoggerOptions {
+  readonly level?: LogLevel;
+  readonly context?: LogContext;
+  readonly stdout?: (line: string) => void;
+  readonly stderr?: (line: string) => void;
+  /** Override the timestamp source — primarily for deterministic tests. */
+  readonly now?: () => IsoTimestamp;
+}
 
-  constructor(context: LogContext = {}, level?: LogLevel) {
-    this.context = context;
-    this.minLevel = LOG_LEVELS[level ?? resolveLogLevel()];
+export class JsonLogger implements LoggerPort {
+  private readonly minRank: number;
+  private readonly level: LogLevel;
+  private readonly context: LogContext;
+  private readonly stdout: (line: string) => void;
+  private readonly stderr: (line: string) => void;
+  private readonly now: () => IsoTimestamp;
+
+  constructor(opts: JsonLoggerOptions = {}) {
+    this.level = opts.level ?? envLevel();
+    this.minRank = LEVEL_RANK[this.level];
+    this.context = opts.context ?? {};
+    this.stdout =
+      opts.stdout ??
+      ((line) => {
+        process.stdout.write(`${line}\n`);
+      });
+    this.stderr =
+      opts.stderr ??
+      ((line) => {
+        process.stderr.write(`${line}\n`);
+      });
+    this.now = opts.now ?? (() => IsoTimestamp.now());
   }
 
-  // -- Structured log levels --------------------------------------------------
+  log(level: LogLevel, message: string, context?: LogContext): void {
+    if (LEVEL_RANK[level] < this.minRank) return;
+    const merged = { ...this.context, ...(context ?? {}) };
+    const record: Record<string, unknown> = {
+      level,
+      message,
+      timestamp: this.now(),
+      ...merged,
+    };
+    const line = JSON.stringify(record);
+    if (level === 'error' || level === 'warn') {
+      this.stderr(line);
+    } else {
+      this.stdout(line);
+    }
+  }
 
   debug(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.debug) return;
-    this.write('debug', message, context);
+    this.log('debug', message, context);
   }
-
   info(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.info) return;
-    this.write('info', message, context);
+    this.log('info', message, context);
   }
-
   warn(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.warn) return;
-    this.write('warn', message, context);
+    this.log('warn', message, context);
   }
-
   error(message: string, context?: LogContext): void {
-    this.write('error', message, context);
+    this.log('error', message, context);
   }
 
-  // -- UI-level output --------------------------------------------------------
-
-  success(message: string): void {
-    this.write('info', message, undefined, 'success');
+  child(bound: LogContext): LoggerPort {
+    return new JsonLogger({
+      level: this.level,
+      context: { ...this.context, ...bound },
+      stdout: this.stdout,
+      stderr: this.stderr,
+      now: this.now,
+    });
   }
-
-  warning(message: string): void {
-    this.write('warn', message, undefined, 'warning');
-  }
-
-  tip(message: string): void {
-    this.write('info', message, undefined, 'tip');
-  }
-
-  // -- Layout -----------------------------------------------------------------
-
-  header(title: string, icon?: string): void {
-    this.write('info', title, icon ? { icon } : undefined, 'header');
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  separator(_width?: number): void {
-    this.write('info', '', undefined, 'separator');
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  field(label: string, value: string, _width?: number): void {
-    this.write('info', value, { label }, 'field');
-  }
-
-  card(title: string, lines: string[]): void {
-    this.write('info', title, { lines }, 'card');
-  }
-
-  newline(): void {
-    this.write('info', '', undefined, 'newline');
-  }
-
-  dim(message: string): void {
-    this.write('info', message, undefined, 'dim');
-  }
-
-  item(message: string): void {
-    this.write('info', message, undefined, 'item');
-  }
-
-  // -- Interactive ------------------------------------------------------------
-
-  spinner(message: string): SpinnerHandle {
-    this.write('info', message, undefined, 'spinner-start');
-    return {
-      succeed: (msg: string) => {
-        this.write('info', msg, undefined, 'spinner-succeed');
-      },
-      fail: (msg: string) => {
-        this.write('error', msg, undefined, 'spinner-fail');
-      },
-      stop: () => {
-        /* no-op for JSON output */
-      },
-    };
-  }
-
-  // -- Scoped child -----------------------------------------------------------
-
-  child(context: LogContext): LoggerPort {
-    return new JsonLogger({ ...this.context, ...context }, this.levelFromNumber());
-  }
-
-  // -- Timing -----------------------------------------------------------------
 
   time(label: string): () => void {
     const start = Date.now();
     return () => {
-      const ms = Date.now() - start;
-      this.debug(`${label}: ${String(ms)}ms`);
+      this.debug(label, { ms: Date.now() - start });
     };
-  }
-
-  // -- Internals --------------------------------------------------------------
-
-  private write(level: LogLevel, message: string, extra?: LogContext, type?: string): void {
-    const entry: Record<string, unknown> = {
-      level,
-      message,
-      timestamp: new Date().toISOString(),
-      ...this.context,
-      ...extra,
-    };
-    if (type) entry['type'] = type;
-    console.log(JSON.stringify(entry));
-  }
-
-  private levelFromNumber(): LogLevel {
-    const entries = Object.entries(LOG_LEVELS) as [LogLevel, number][];
-    return entries.find(([, v]) => v === this.minLevel)?.[0] ?? 'info';
   }
 }

@@ -1,192 +1,127 @@
 /**
- * Plain-text logger sink — ANSI-colored stdout, no screen control, no raw-mode.
+ * `PlainTextSink` — TTY one-shot CLI logger sink.
  *
- * Used for one-shot CLI commands that don't mount Ink (e.g. `sprint show`,
- * `config show`) and as the fallback when `mountInkApp` detects non-TTY.
+ * Writes ANSI-colored lines to stdout/stderr. Honours
+ * `RALPHCTL_LOG_LEVEL` for level filtering and silences info/warn under
+ * `VITEST=1` so test runs don't drown in noise.
  *
- * Spinners render as three plain lines — `• start`, `✓ success`, `✗ fail` —
- * since animated frames would collide with Ink when Ink is mounted and are
- * pointless in non-TTY contexts.
+ * Context bound via `child()` is rendered after the message as
+ * `key=value` pairs (debug-friendly without going full JSON).
+ *
+ * No screen control, no raw-mode — when Ink is mounted, `InkSink` is
+ * used instead and this sink is bypassed entirely.
  */
+import * as colorette from 'colorette';
 
-import { colors } from '@src/integration/ui/theme/theme.ts';
-import type { LogContext, LoggerPort, LogLevel, SpinnerHandle } from '@src/business/ports/logger.ts';
+import type { LogContext, LoggerPort, LogLevel } from '../../business/ports/logger-port.ts';
 
-const INDENT = '  ';
-
-const LOG_LEVELS: Record<LogLevel, number> = {
+const LEVEL_RANK: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,
   error: 3,
 } as const;
 
-const ICONS = {
-  success: '+',
-  error: 'x',
-  warning: '!',
-  info: 'i',
-  tip: '?',
-  item: '-',
-  spinner: '•',
+const PREFIX: Record<LogLevel, string> = {
+  debug: colorette.gray('[debug]'),
+  info: colorette.cyan('[info] '),
+  warn: colorette.yellow('[warn] '),
+  error: colorette.red('[error]'),
 } as const;
 
-function resolveLogLevel(): LogLevel {
+function envLevel(): LogLevel {
   if (process.env['VITEST']) return 'error';
-  const env = process.env['RALPHCTL_LOG_LEVEL']?.toLowerCase();
-  if (env && env in LOG_LEVELS) return env as LogLevel;
+  const raw = process.env['RALPHCTL_LOG_LEVEL']?.toLowerCase();
+  if (raw && raw in LEVEL_RANK) return raw as LogLevel;
   return 'info';
 }
 
-export class PlainTextSink implements LoggerPort {
-  private readonly context: LogContext;
-  private readonly minLevel: number;
+function renderContext(ctx: LogContext): string {
+  const keys = Object.keys(ctx);
+  if (keys.length === 0) return '';
+  const parts = keys.map((k) => {
+    const v = ctx[k];
+    const repr =
+      typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
+    return `${k}=${repr}`;
+  });
+  return ` ${colorette.gray(parts.join(' '))}`;
+}
 
-  constructor(context: LogContext = {}, level?: LogLevel) {
-    this.context = context;
-    this.minLevel = LOG_LEVELS[level ?? resolveLogLevel()];
+export interface PlainTextSinkOptions {
+  readonly level?: LogLevel;
+  readonly context?: LogContext;
+  /** Override the stdout/stderr writers (used by tests). */
+  readonly stdout?: (line: string) => void;
+  readonly stderr?: (line: string) => void;
+}
+
+export class PlainTextSink implements LoggerPort {
+  private readonly minRank: number;
+  private readonly level: LogLevel;
+  private readonly context: LogContext;
+  private readonly stdout: (line: string) => void;
+  private readonly stderr: (line: string) => void;
+
+  constructor(opts: PlainTextSinkOptions = {}) {
+    this.level = opts.level ?? envLevel();
+    this.minRank = LEVEL_RANK[this.level];
+    this.context = opts.context ?? {};
+    this.stdout =
+      opts.stdout ??
+      ((line) => {
+        process.stdout.write(`${line}\n`);
+      });
+    this.stderr =
+      opts.stderr ??
+      ((line) => {
+        process.stderr.write(`${line}\n`);
+      });
   }
 
-  // -- Structured log levels --------------------------------------------------
+  log(level: LogLevel, message: string, context?: LogContext): void {
+    if (LEVEL_RANK[level] < this.minRank) return;
+    const merged = this.merge(context);
+    const line = `${PREFIX[level]} ${message}${renderContext(merged)}`;
+    if (level === 'error' || level === 'warn') {
+      this.stderr(line);
+    } else {
+      this.stdout(line);
+    }
+  }
 
   debug(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.debug) return;
-    const merged = this.mergeContext(context);
-    const ctx = Object.keys(merged).length > 0 ? ` ${colors.muted(JSON.stringify(merged))}` : '';
-    console.debug(`${colors.muted(`[debug]`)} ${message}${ctx}`);
+    this.log('debug', message, context);
   }
-
   info(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.info) return;
-    const merged = this.mergeContext(context);
-    const ctx =
-      this.minLevel === LOG_LEVELS.debug && Object.keys(merged).length > 0
-        ? ` ${colors.muted(JSON.stringify(merged))}`
-        : '';
-    console.info(`${colors.info(ICONS.info)} ${message}${ctx}`);
+    this.log('info', message, context);
   }
-
   warn(message: string, context?: LogContext): void {
-    if (this.minLevel > LOG_LEVELS.warn) return;
-    const merged = this.mergeContext(context);
-    const ctx =
-      this.minLevel === LOG_LEVELS.debug && Object.keys(merged).length > 0
-        ? ` ${colors.muted(JSON.stringify(merged))}`
-        : '';
-    console.warn(`${colors.warning(ICONS.warning)} ${message}${ctx}`);
+    this.log('warn', message, context);
   }
-
   error(message: string, context?: LogContext): void {
-    const merged = this.mergeContext(context);
-    const ctx =
-      this.minLevel === LOG_LEVELS.debug && Object.keys(merged).length > 0
-        ? ` ${colors.muted(JSON.stringify(merged))}`
-        : '';
-    console.error(`${colors.error(ICONS.error)} ${message}${ctx}`);
+    this.log('error', message, context);
   }
 
-  // -- UI-level output --------------------------------------------------------
-
-  success(message: string): void {
-    console.log(`${INDENT}${colors.success(ICONS.success)} ${message}`);
+  child(bound: LogContext): LoggerPort {
+    return new PlainTextSink({
+      level: this.level,
+      context: { ...this.context, ...bound },
+      stdout: this.stdout,
+      stderr: this.stderr,
+    });
   }
-
-  warning(message: string): void {
-    console.log(`${INDENT}${colors.warning(ICONS.warning)} ${message}`);
-  }
-
-  tip(message: string): void {
-    console.log(`${INDENT}${colors.info(ICONS.tip)} ${colors.muted(message)}`);
-  }
-
-  // -- Layout -----------------------------------------------------------------
-
-  header(title: string, icon?: string): void {
-    console.log();
-    const prefix = icon ? `${icon} ` : '';
-    console.log(`${INDENT}${prefix}${colors.highlight(title)}`);
-    console.log(`${INDENT}${colors.muted('─'.repeat(title.length + (icon ? 2 : 0)))}`);
-    console.log();
-  }
-
-  separator(width = 40): void {
-    console.log(`${INDENT}${colors.muted('─'.repeat(width))}`);
-  }
-
-  field(label: string, value: string, width = 14): void {
-    const padded = `${label}:`.padEnd(width);
-    console.log(`${INDENT}${colors.muted(padded)} ${value}`);
-  }
-
-  card(title: string, lines: string[]): void {
-    console.log(`${INDENT}${colors.highlight(title)}`);
-    for (const line of lines) {
-      console.log(`${INDENT}${INDENT}${line}`);
-    }
-  }
-
-  newline(): void {
-    console.log();
-  }
-
-  dim(message: string): void {
-    console.log(`${INDENT}${colors.muted(message)}`);
-  }
-
-  item(message: string): void {
-    console.log(`${INDENT}${INDENT}${colors.muted(ICONS.item)} ${message}`);
-  }
-
-  // -- Interactive ------------------------------------------------------------
-
-  /**
-   * No-animation spinner — just prints start / succeed / fail as plain lines.
-   * Acceptable in scripts, CI, and non-Ink contexts. Inside Ink, the InkSink
-   * takes over and renders a real animated component.
-   */
-  spinner(message: string): SpinnerHandle {
-    // Print the start line only at info or higher to avoid noise in tests.
-    if (this.minLevel <= LOG_LEVELS.info) {
-      console.log(`${INDENT}${colors.info(ICONS.spinner)} ${message}`);
-    }
-    return {
-      succeed: (msg: string) => {
-        if (this.minLevel <= LOG_LEVELS.info) {
-          console.log(`${INDENT}${colors.success(ICONS.success)} ${msg}`);
-        }
-      },
-      fail: (msg: string) => {
-        console.error(`${INDENT}${colors.error(ICONS.error)} ${msg}`);
-      },
-      stop: () => undefined,
-    };
-  }
-
-  // -- Scoped child -----------------------------------------------------------
-
-  child(context: LogContext): LoggerPort {
-    return new PlainTextSink({ ...this.context, ...context }, this.levelFromNumber());
-  }
-
-  // -- Timing -----------------------------------------------------------------
 
   time(label: string): () => void {
     const start = Date.now();
     return () => {
       const ms = Date.now() - start;
-      this.debug(`${label}: ${String(ms)}ms`);
+      this.debug(label, { ms });
     };
   }
 
-  // -- Internals --------------------------------------------------------------
-
-  private mergeContext(extra?: LogContext): LogContext {
+  private merge(extra?: LogContext): LogContext {
     if (!extra) return this.context;
     return { ...this.context, ...extra };
-  }
-
-  private levelFromNumber(): LogLevel {
-    const entries = Object.entries(LOG_LEVELS) as [LogLevel, number][];
-    return entries.find(([, v]) => v === this.minLevel)?.[0] ?? 'info';
   }
 }

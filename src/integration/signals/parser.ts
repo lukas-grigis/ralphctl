@@ -1,74 +1,105 @@
 /**
- * Signal parser implementation — extracts HarnessSignal objects from raw AI agent output.
+ * `SignalParser` — concrete `SignalParserPort` implementation.
  *
- * This parser consolidates signal extraction logic from:
- * - src/ai/parser.ts (task execution signals)
- * - src/ai/evaluator.ts (evaluation signals)
- * - src/commands/sprint/plan-utils.ts (planning signals)
+ * Walks the raw AI agent stdout once per known tag, builds typed
+ * `HarnessSignal`s, and emits them in **source order** — the order they
+ * appear in the input. The legacy parser emitted in fixed type-group order;
+ * the dashboard wants a faithful timeline so we sort by match index here.
  *
- * The parser is pure (no side effects) and returns typed signal objects in extraction order.
+ * Pure (no I/O, no instance state across `parse` calls). Total — malformed
+ * inner content is dropped silently. Timestamps are injected via `opts.now`
+ * so tests can pin time deterministically.
  */
-
-import type {
-  HarnessSignal,
-  ProgressSignal,
-  EvaluationSignal,
-  TaskCompleteSignal,
-  TaskVerifiedSignal,
-  TaskBlockedSignal,
-  NoteSignal,
-  CheckScriptDiscoverySignal,
-  AgentsMdProposalSignal,
-  DimensionScore,
-} from '@src/domain/signals.ts';
-import type { SignalParserPort } from '@src/business/ports/signal-parser.ts';
+import type { SignalParserPort } from '../../business/ports/signal-parser-port.ts';
+import {
+  type AgentsMdProposalSignal,
+  type CheckScriptDiscoverySignal,
+  type DimensionScore,
+  type EvaluationSignal,
+  type HarnessSignal,
+  type NoteSignal,
+  type ProgressSignal,
+  type SetupScriptSignal,
+  type SkillSuggestionsSignal,
+  type TaskBlockedSignal,
+  type TaskCompleteSignal,
+  type TaskVerifiedSignal,
+  type VerifyScriptSignal,
+} from '../../domain/signals/harness-signal.ts';
+import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
 
 /**
- * Regex patterns for signal extraction.
- * Pre-compiled to avoid repeated creation per parse call.
+ * Each entry below is constructed *fresh* per `parse()` call to avoid
+ * leaking `lastIndex` state across invocations. Capture-group meanings are
+ * documented inline.
  */
-const SIGNAL_PATTERNS = {
-  progress: /<progress>([\s\S]*?)<\/progress>/g,
-  progressWithFiles: /<progress>([\s\S]*?)<\/progress>/,
-  evaluation_passed: /<evaluation-passed>/,
-  evaluation_failed: /<evaluation-failed>([\s\S]*?)<\/evaluation-failed>/,
-  task_verified: /<task-verified>([\s\S]*?)<\/task-verified>/,
-  task_complete: /<task-complete>/,
-  task_blocked: /<task-blocked>([\s\S]*?)<\/task-blocked>/,
-  note: /<note>([\s\S]*?)<\/note>/g,
-  check_script: /<check-script>([\s\S]*?)<\/check-script>/,
-  agents_md: /<agents-md>([\s\S]*?)<\/agents-md>/,
-};
+function buildPatterns(): {
+  progress: RegExp;
+  evaluationFailed: RegExp;
+  taskVerified: RegExp;
+  taskComplete: RegExp;
+  taskBlocked: RegExp;
+  note: RegExp;
+  checkScript: RegExp;
+  agentsMd: RegExp;
+  setupScript: RegExp;
+  verifyScript: RegExp;
+  skillSuggestions: RegExp;
+  evaluationPassed: RegExp;
+  dimension: RegExp;
+} {
+  return {
+    progress: /<progress>([\s\S]*?)<\/progress>/g,
+    // Tag-only marker — no inner content.
+    evaluationPassed: /<evaluation-passed>/g,
+    evaluationFailed: /<evaluation-failed>([\s\S]*?)<\/evaluation-failed>/g,
+    taskVerified: /<task-verified>([\s\S]*?)<\/task-verified>/g,
+    taskComplete: /<task-complete>/g,
+    taskBlocked: /<task-blocked>([\s\S]*?)<\/task-blocked>/g,
+    note: /<note>([\s\S]*?)<\/note>/g,
+    checkScript: /<check-script>([\s\S]*?)<\/check-script>/g,
+    agentsMd: /<agents-md>([\s\S]*?)<\/agents-md>/g,
+    setupScript: /<setup-script>([\s\S]*?)<\/setup-script>/g,
+    verifyScript: /<verify-script>([\s\S]*?)<\/verify-script>/g,
+    skillSuggestions: /<skill-suggestions>([\s\S]*?)<\/skill-suggestions>/g,
+    dimension: /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/gi,
+  };
+}
 
 /**
- * Generic dimension regex — captures every `**Name**: PASS|FAIL — finding`
- * line. Matches the four floor dimensions AND planner-emitted extras
- * (`Performance`, `Accessibility`, `MigrationSafety`, …). See
- * `src/integration/ai/evaluator.ts` for the matching definition; both modules
- * share the same shape so the dashboard signal stream and the persisted
- * evaluation result agree on what counts as a dimension line.
+ * Denylist of obviously-hostile shapes for AI-discovered check scripts —
+ * matches pipe-to-shell, `curl ... | sh`, `wget -O- | sh`, `eval`, and
+ * `rm -rf`. Hits drop the signal silently so the setup flow falls through
+ * to manual input rather than seeding an exec-able default.
  */
-const DIMENSION_LINE = /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/gi;
+const DANGEROUS_COMMAND_PATTERNS: readonly RegExp[] = [
+  /\|\s*(ba)?sh\b/,
+  /\bcurl\b[^|;&\n]*\|/,
+  /\bwget\b[^|;&\n]*(-O-|--output-document=-)[^|;&\n]*\|/,
+  /\beval\b/,
+  /\brm\s+-[rf]+\b/,
+];
+
+function isDangerousCommand(command: string): boolean {
+  return DANGEROUS_COMMAND_PATTERNS.some((re) => re.test(command));
+}
 
 /**
- * Extract dimension scores from evaluation output.
- *
- * Matches every well-formed dimension line in the input. Names are lowercased;
- * duplicates collapse to the first occurrence. The parser is line-shaped — a
- * stray `**Note**: PASS — text` outside an assessment context will be picked
- * up too; the surrounding prose is the agent's responsibility.
+ * Find every dimension line in the input, lowercase the name, and dedupe
+ * by first occurrence. The lowercase-at-the-boundary discipline is the
+ * reason this adapter exists — the domain treats `EvaluationDimension` as
+ * free-form text.
  */
-function parseDimensionScores(output: string): DimensionScore[] {
+function parseDimensionScores(output: string, dimensionRe: RegExp): DimensionScore[] {
   const scores: DimensionScore[] = [];
   const seen = new Set<string>();
-  // Reset stateful /g regex before each call to keep the function pure.
-  DIMENSION_LINE.lastIndex = 0;
+  dimensionRe.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = DIMENSION_LINE.exec(output)) !== null) {
+  while ((match = dimensionRe.exec(output)) !== null) {
     const rawName = match[1];
     const verdict = match[2];
     const finding = match[3];
-    if (!rawName || !verdict || !finding) continue;
+    if (rawName === undefined || verdict === undefined || finding === undefined) continue;
     const name = rawName.toLowerCase();
     if (seen.has(name)) continue;
     seen.add(name);
@@ -82,174 +113,199 @@ function parseDimensionScores(output: string): DimensionScore[] {
 }
 
 /**
- * Denylist of obviously-hostile command shapes for AI-discovered check
- * scripts. Matches pipe-to-shell, `curl ... | ...`, `wget ... -O- | ...`,
- * `eval`, and `rm -rf`. Checked at parse time — hits drop the signal
- * silently so the setup flow falls through to manual input.
+ * Internal `(matchIndex, signal)` pairing used to sort by source position
+ * before flattening to the final emission list.
  */
-const DANGEROUS_COMMAND_PATTERNS: RegExp[] = [
-  /\|\s*(ba)?sh\b/,
-  /\bcurl\b[^|;&\n]*\|/,
-  /\bwget\b[^|;&\n]*(-O-|--output-document=-)[^|;&\n]*\|/,
-  /\beval\b/,
-  /\brm\s+-[rf]+\b/,
-];
-
-function isDangerousCommand(command: string): boolean {
-  return DANGEROUS_COMMAND_PATTERNS.some((re) => re.test(command));
+interface IndexedSignal {
+  readonly index: number;
+  readonly signal: HarnessSignal;
 }
 
-/**
- * Signal parser implementation.
- * Extracts all HarnessSignal objects from raw AI agent output in order.
- */
 export class SignalParser implements SignalParserPort {
-  parseSignals(output: string): HarnessSignal[] {
-    const signals: HarnessSignal[] = [];
-    const timestamp = new Date();
+  parse(rawOutput: string, opts?: { readonly now: IsoTimestamp }): readonly HarnessSignal[] {
+    if (rawOutput.length === 0) return [];
 
-    // Parse progress signals
-    // Format: <progress>summary</progress> or <progress files="path1,path2">summary</progress>
-    let progressMatch: RegExpExecArray | null;
-    while ((progressMatch = SIGNAL_PATTERNS.progress.exec(output)) !== null) {
-      const summary = progressMatch[1]?.trim();
-      if (summary) {
-        const progressSignal: ProgressSignal = {
-          type: 'progress',
-          summary,
-          // Note: Phase 1 doesn't parse files attribute; added in Phase 2+
-          timestamp,
-        };
-        signals.push(progressSignal);
-      }
+    const timestamp = opts?.now ?? IsoTimestamp.now();
+    const patterns = buildPatterns();
+    const collected: IndexedSignal[] = [];
+
+    // Progress — multi-match.
+    let m: RegExpExecArray | null;
+    while ((m = patterns.progress.exec(rawOutput)) !== null) {
+      const inner = m[1]?.trim() ?? '';
+      if (inner.length === 0) continue;
+      const sig: ProgressSignal = { type: 'progress', summary: inner, timestamp };
+      collected.push({ index: m.index, signal: sig });
     }
 
-    // Parse evaluation signal
-    // Format: <evaluation-passed> or <evaluation-failed>critique</evaluation-failed>
-    if (output.includes('<evaluation-passed>')) {
-      const dimensions = parseDimensionScores(output);
-      const evaluationSignal: EvaluationSignal = {
+    // Evaluation — `<evaluation-passed>` wins over `<evaluation-failed>` when
+    // both appear (mirrors legacy precedence). Dimensions parsed once and
+    // attached to whichever variant emits.
+    const dimensions = parseDimensionScores(rawOutput, patterns.dimension);
+    const passedMatch = patterns.evaluationPassed.exec(rawOutput);
+    if (passedMatch !== null) {
+      const sig: EvaluationSignal = {
         type: 'evaluation',
         status: 'passed',
         dimensions,
         timestamp,
       };
-      signals.push(evaluationSignal);
+      collected.push({ index: passedMatch.index, signal: sig });
     } else {
-      const failedMatch = SIGNAL_PATTERNS.evaluation_failed.exec(output);
-      if (failedMatch?.[1]) {
+      const failedMatch = patterns.evaluationFailed.exec(rawOutput);
+      if (failedMatch?.[1] !== undefined) {
         const critique = failedMatch[1].trim();
-        const dimensions = parseDimensionScores(output);
-        const evaluationSignal: EvaluationSignal = {
-          type: 'evaluation',
-          status: dimensions.length > 0 ? 'failed' : 'malformed',
-          dimensions,
-          critique: dimensions.length > 0 ? critique : undefined,
-          timestamp,
-        };
-        signals.push(evaluationSignal);
-      } else if (parseDimensionScores(output).length > 0) {
-        // No signal, but dimensions parsed — still failed
-        const dimensions = parseDimensionScores(output);
-        const evaluationSignal: EvaluationSignal = {
+        const status = dimensions.length > 0 ? 'failed' : 'malformed';
+        const sig: EvaluationSignal =
+          status === 'failed'
+            ? { type: 'evaluation', status, dimensions, critique, timestamp }
+            : { type: 'evaluation', status, dimensions, timestamp };
+        collected.push({ index: failedMatch.index, signal: sig });
+      } else if (dimensions.length > 0) {
+        // Dimensions present without a closing tag → still treat as failed.
+        // Anchor the index at the first dimension match for source-order
+        // stability.
+        patterns.dimension.lastIndex = 0;
+        const firstDim = patterns.dimension.exec(rawOutput);
+        const idx = firstDim?.index ?? 0;
+        const sig: EvaluationSignal = {
           type: 'evaluation',
           status: 'failed',
           dimensions,
           timestamp,
         };
-        signals.push(evaluationSignal);
+        collected.push({ index: idx, signal: sig });
       }
     }
 
-    // Parse task execution signals in order: verify → complete, or blocked
-    const taskVerifiedMatch = SIGNAL_PATTERNS.task_verified.exec(output);
-    if (taskVerifiedMatch?.[1]) {
-      const verificationOutput = taskVerifiedMatch[1].trim();
-      const verifiedSignal: TaskVerifiedSignal = {
+    // Task lifecycle — verified, complete, blocked.
+    const verifiedMatch = patterns.taskVerified.exec(rawOutput);
+    if (verifiedMatch?.[1] !== undefined) {
+      const sig: TaskVerifiedSignal = {
         type: 'task-verified',
-        output: verificationOutput,
+        output: verifiedMatch[1].trim(),
         timestamp,
       };
-      signals.push(verifiedSignal);
+      collected.push({ index: verifiedMatch.index, signal: sig });
     }
 
-    if (output.includes('<task-complete>')) {
-      const completeSignal: TaskCompleteSignal = {
-        type: 'task-complete',
-        timestamp,
-      };
-      signals.push(completeSignal);
+    const completeMatch = patterns.taskComplete.exec(rawOutput);
+    if (completeMatch !== null) {
+      const sig: TaskCompleteSignal = { type: 'task-complete', timestamp };
+      collected.push({ index: completeMatch.index, signal: sig });
     }
 
-    const taskBlockedMatch = SIGNAL_PATTERNS.task_blocked.exec(output);
-    if (taskBlockedMatch?.[1]) {
-      const reason = taskBlockedMatch[1].trim();
-      const blockedSignal: TaskBlockedSignal = {
+    const blockedMatch = patterns.taskBlocked.exec(rawOutput);
+    if (blockedMatch?.[1] !== undefined) {
+      const sig: TaskBlockedSignal = {
         type: 'task-blocked',
-        reason,
+        reason: blockedMatch[1].trim(),
         timestamp,
       };
-      signals.push(blockedSignal);
+      collected.push({ index: blockedMatch.index, signal: sig });
     }
 
-    // Parse note signals
-    // Format: <note>text</note>
-    let noteMatch: RegExpExecArray | null;
-    while ((noteMatch = SIGNAL_PATTERNS.note.exec(output)) !== null) {
-      const text = noteMatch[1]?.trim();
-      if (text) {
-        const noteSignal: NoteSignal = {
-          type: 'note',
-          text,
-          timestamp,
-        };
-        signals.push(noteSignal);
-      }
+    // Notes — multi-match.
+    while ((m = patterns.note.exec(rawOutput)) !== null) {
+      const inner = m[1]?.trim() ?? '';
+      if (inner.length === 0) continue;
+      const sig: NoteSignal = { type: 'note', text: inner, timestamp };
+      collected.push({ index: m.index, signal: sig });
     }
 
-    // Parse check-script discovery signal (setup-time only).
-    // Format: <check-script>shell command</check-script>
-    // Empty/whitespace contents are dropped — caller treats absence as
-    // "AI declined to propose a script" and falls back to a blank default.
-    //
-    // Security: this command is seeded as the editable default of a user-
-    // approval prompt, but the prompt input can be accepted verbatim. We
-    // drop obviously-hostile shapes at parse time (pipe-to-shell,
-    // curl|sh / wget|sh, eval, `rm -rf`) so the suggestion surface is
-    // never a prompt-injection-to-exec vector. Honest suggestions in
-    // this shape are vanishingly rare; false positives fall through to
-    // the manual-input path.
-    const checkScriptMatch = SIGNAL_PATTERNS.check_script.exec(output);
-    if (checkScriptMatch?.[1]) {
-      const command = checkScriptMatch[1].trim();
+    // Setup-time signals — first match only, drop unsafe shapes silently.
+    const checkMatch = patterns.checkScript.exec(rawOutput);
+    if (checkMatch?.[1] !== undefined) {
+      const command = checkMatch[1].trim();
       if (command.length > 0 && !isDangerousCommand(command)) {
-        const checkScriptSignal: CheckScriptDiscoverySignal = {
+        const sig: CheckScriptDiscoverySignal = {
           type: 'check-script-discovery',
           command,
           timestamp,
         };
-        signals.push(checkScriptSignal);
+        collected.push({ index: checkMatch.index, signal: sig });
       }
     }
 
-    // Parse project context file proposal signal (setup-time only, emitted by
-    // `project onboard`), kept under the legacy `<agents-md>` tag as a stable
-    // wire contract. Format: <agents-md>full markdown body</agents-md>
-    // Empty/whitespace content is dropped — caller treats absence as
-    // "AI declined to propose content".
-    const agentsMdMatch = SIGNAL_PATTERNS.agents_md.exec(output);
-    if (agentsMdMatch?.[1]) {
-      const content = agentsMdMatch[1].trim();
+    const agentsMatch = patterns.agentsMd.exec(rawOutput);
+    if (agentsMatch?.[1] !== undefined) {
+      const content = agentsMatch[1].trim();
       if (content.length > 0) {
-        const agentsMdSignal: AgentsMdProposalSignal = {
+        const sig: AgentsMdProposalSignal = {
           type: 'agents-md-proposal',
           content,
           timestamp,
         };
-        signals.push(agentsMdSignal);
+        collected.push({ index: agentsMatch.index, signal: sig });
       }
     }
 
-    return signals;
+    // Onboarding-time setup / verify scripts share the check-script
+    // denylist so an LLM can't seed an exec-able pipe-to-shell payload.
+    const setupMatch = patterns.setupScript.exec(rawOutput);
+    if (setupMatch?.[1] !== undefined) {
+      const command = setupMatch[1].trim();
+      if (command.length > 0 && !isDangerousCommand(command)) {
+        const sig: SetupScriptSignal = {
+          type: 'setup-script',
+          command,
+          timestamp,
+        };
+        collected.push({ index: setupMatch.index, signal: sig });
+      }
+    }
+
+    const verifyMatch = patterns.verifyScript.exec(rawOutput);
+    if (verifyMatch?.[1] !== undefined) {
+      const command = verifyMatch[1].trim();
+      if (command.length > 0 && !isDangerousCommand(command)) {
+        const sig: VerifyScriptSignal = {
+          type: 'verify-script',
+          command,
+          timestamp,
+        };
+        collected.push({ index: verifyMatch.index, signal: sig });
+      }
+    }
+
+    const skillsMatch = patterns.skillSuggestions.exec(rawOutput);
+    if (skillsMatch?.[1] !== undefined) {
+      const names = parseSkillBullets(skillsMatch[1]);
+      // Emit the signal even when names is empty — onboarding's review
+      // step distinguishes "AI declined" (no tag) from "AI considered and
+      // suggested nothing" (tag present, list empty).
+      const sig: SkillSuggestionsSignal = {
+        type: 'skill-suggestions',
+        names,
+        timestamp,
+      };
+      collected.push({ index: skillsMatch.index, signal: sig });
+    }
+
+    // Stable sort by source index so the dashboard sees the timeline as it
+    // actually appeared in the AI output.
+    collected.sort((a, b) => a.index - b.index);
+    return collected.map((c) => c.signal);
   }
+}
+
+/**
+ * Parse a `<skill-suggestions>` body into a deduped, trimmed list of
+ * skill names. Accepts a markdown bullet list — `- name` per line — and
+ * silently drops blank lines, non-bullets, and duplicates.
+ */
+function parseSkillBullets(body: string): readonly string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    if (!line.startsWith('-')) continue;
+    const name = line.slice(1).trim();
+    if (name.length === 0) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
