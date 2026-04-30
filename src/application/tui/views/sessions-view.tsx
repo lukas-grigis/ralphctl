@@ -11,8 +11,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
-import { inkColors, spacing } from '../../../integration/ui/theme/tokens.ts';
+import { Box, useInput } from 'ink';
+import { inkColors } from '../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../components/view-shell.tsx';
 import { ResultCard } from '../components/result-card.tsx';
 import { ListView, type ListColumn } from '../components/list-view.tsx';
@@ -20,12 +20,16 @@ import { chipKindForSessionStatus } from '../components/status-chip.tsx';
 import { useViewHints } from './view-hints-context.tsx';
 import { useRouter } from './router-context.ts';
 import { useSessionEvents } from '../runtime/hooks.ts';
+import { getKeyFor } from '../keyboard-map.ts';
 import type { SessionManagerPort, SessionDescriptor } from '../../runtime/session-manager-port.ts';
 
 const SESSIONS_HINTS = [
   { key: '↑/↓', action: 'navigate' },
   { key: 'Enter', action: 'foreground' },
-  { key: 'k', action: 'kill' },
+  { key: getKeyFor('sessions.kill'), action: 'kill' },
+  { key: 'Tab', action: 'next session' },
+  { key: 'Shift+Tab', action: 'previous session' },
+  { key: 'Ctrl+1..9', action: 'jump to session' },
   { key: 'Esc', action: 'back' },
 ] as const;
 
@@ -100,10 +104,12 @@ export function SessionsView({ sessionManager }: Props): React.JSX.Element {
     router.push({ id: 'execute', props: { sessionId: session.id } });
   }
 
+  const KEY_KILL = getKeyFor('sessions.kill');
+
   useInput((_input, key) => {
     if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
     else if (key.downArrow) setCursor((c) => Math.min(sessions.length - 1, c + 1));
-    else if (_input === 'k') {
+    else if (_input === KEY_KILL) {
       const session = sessions[cursor];
       if (session && sessionManager) {
         sessionManager.kill(session.id);
@@ -133,11 +139,6 @@ export function SessionsView({ sessionManager }: Props): React.JSX.Element {
             }}
           />
         )}
-        {sessions.length > 0 ? (
-          <Box marginTop={spacing.section}>
-            <Text dimColor>Tab to cycle · Ctrl+1..9 to jump directly</Text>
-          </Box>
-        ) : null}
       </Box>
     </ViewShell>
   );

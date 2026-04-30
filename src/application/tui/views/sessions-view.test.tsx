@@ -7,6 +7,8 @@ import { Result } from 'typescript-result';
 import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import type { ChainRunner } from '../../../kernel/runtime/chain-runner.ts';
 import { RouterProvider } from './router-context.ts';
+import { ViewHintsProvider } from './view-hints-context.tsx';
+import { KeyboardHints } from '../components/keyboard-hints.tsx';
 
 function makeSessionManager(sessions: SessionDescriptor[] = []): SessionManagerPort {
   const listeners = new Set<(e: SessionManagerEvent) => void>();
@@ -91,16 +93,26 @@ describe('SessionsView', () => {
     expect(lastFrame()).toContain('RUNNING');
   });
 
-  it('shows Tab / Ctrl+N hint when sessions exist', () => {
+  it('declares Tab / Ctrl+1..9 / kill hints via useViewHints', async () => {
     const sm = makeSessionManager([makeSession()]);
     const router = makeRouter();
     const { lastFrame } = render(
       <RouterProvider value={router}>
-        <SessionsView sessionManager={sm} />
+        <ViewHintsProvider>
+          <SessionsView sessionManager={sm} />
+          <KeyboardHints />
+        </ViewHintsProvider>
       </RouterProvider>
     );
-    expect(lastFrame()).toContain('Tab');
-    expect(lastFrame()).toContain('Ctrl+1..9');
+    // useViewHints uses useEffect — give React a tick to flush.
+    await new Promise((r) => setTimeout(r, 20));
+    // ink wraps long strings to fit the test terminal width, so we check for
+    // substrings that survive a hard wrap.
+    const frame = (lastFrame() ?? '').replace(/\s+/g, ' ');
+    expect(frame).toContain('Tab');
+    expect(frame).toContain('Ctrl+1');
+    // `kill` wraps to `kil` in narrow test output; `kil` is a stable substring.
+    expect(frame).toContain('kil');
   });
 
   it('calls kill on sessionManager when k is pressed', () => {

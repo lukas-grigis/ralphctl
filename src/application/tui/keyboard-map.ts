@@ -41,6 +41,7 @@ export type BindingArea =
   | 'execute'
   | 'attach'
   | 'runs'
+  | 'sessions'
   | 'settings'
   | 'help'
   | 'notification';
@@ -73,6 +74,9 @@ const MAP_ENTRIES = {
   'global.runs': { keys: ['x'], label: 'running runs', area: 'global' },
   'global.help': { keys: ['?'], label: 'keyboard help', area: 'global' },
   'global.doctor': { keys: ['!'], label: 'doctor', area: 'global' },
+  'global.sessionNext': { keys: ['tab'], label: 'next session', area: 'global' },
+  'global.sessionPrev': { keys: ['shift+tab'], label: 'previous session', area: 'global' },
+  'global.sessionJump': { keys: ['ctrl+1..9'], label: 'jump to session 1..9', area: 'global' },
   'global.quit': { keys: ['q'], label: 'quit (home only)', area: 'global' },
 
   // === Home view ===
@@ -118,6 +122,11 @@ const MAP_ENTRIES = {
   // `X` (uppercase) cancels the highlighted execution. Lowercase `x` is the
   // global hotkey that lands on this view and would bounce back to itself.
   'runs.cancel': { keys: ['X'], label: 'cancel highlighted run', area: 'runs' },
+
+  // === Sessions (multi-chain switcher) ===
+  // `k` kills the highlighted session. SessionsView claims this key, taking
+  // priority over the `list.up` vim alias on this surface.
+  'sessions.kill': { keys: ['k'], label: 'kill highlighted session', area: 'sessions' },
 
   // === Settings panel ===
   'settings.up': { keys: ['↑', 'k'], label: 'up', area: 'settings' },
@@ -216,6 +225,7 @@ export const HELP_AREA_ORDER: readonly BindingArea[] = [
   'execute',
   'attach',
   'runs',
+  'sessions',
   'settings',
   'help',
   'notification',
@@ -232,6 +242,7 @@ export const AREA_LABEL: Readonly<Record<BindingArea, string>> = {
   execute: 'Live execution',
   attach: 'Attach (read-only)',
   runs: 'Running executions',
+  sessions: 'Sessions switcher',
   settings: 'Settings panel',
   help: 'Help overlay',
   notification: 'Notification',
