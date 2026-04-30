@@ -79,7 +79,6 @@ export function buildBrowseMenu(ctx: MenuContext): SubMenu {
       description: 'Add / edit / status / remove tasks',
       disabled: hasCurrent ? false : 'no current sprint',
     },
-    sep(),
     sep('Across Sprints'),
     {
       name: 'Sprints',
@@ -87,7 +86,6 @@ export function buildBrowseMenu(ctx: MenuContext): SubMenu {
       description: 'Create / edit / activate / close / PR',
     },
     { name: 'Projects', action: { kind: 'subMenu', group: 'project' }, description: 'Add / edit / repos / onboard' },
-    sep(),
     sep('System'),
     {
       name: 'Onboard a repo',
@@ -96,7 +94,6 @@ export function buildBrowseMenu(ctx: MenuContext): SubMenu {
       disabled: ctx.hasProjects ? false : 'add a project first',
     },
     { name: 'Doctor', action: { kind: 'route', viewId: 'doctor' }, description: 'Check environment health' },
-    sep(),
     { name: 'Back', action: BACK, description: 'Return to Home' },
   ];
 
@@ -134,7 +131,6 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [
     sep('NEW'),
     { name: 'Create', action: { kind: 'route', viewId: 'sprint-create' }, description: 'Create a new sprint' },
-    sep(),
     sep('BROWSE'),
     { name: 'List', action: { kind: 'route', viewId: 'sprint-list' }, description: 'List all sprints' },
     {
@@ -143,7 +139,6 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
       description: 'Timeline + blockers + stale + cycles + branch',
       disabled: !hasCurrent ? 'no current sprint' : false,
     },
-    sep(),
     sep('EXPORT'),
     {
       name: 'Requirements',
@@ -157,7 +152,6 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
       description: 'Write full harness context to markdown',
       disabled: exportDisabled,
     },
-    sep(),
     sep('EDIT'),
     {
       name: 'Edit current',
@@ -176,7 +170,6 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
       description: 'Move draft → active',
       disabled: activateDisabled,
     },
-    sep(),
     sep('PUBLISH'),
     {
       name: 'Create PR / MR',
@@ -184,14 +177,12 @@ function buildSprintSubMenu(ctx: MenuContext): SubMenu {
       description: 'Open a pull/merge request from the sprint branch',
       disabled: createPrDisabled,
     },
-    sep(),
     sep('MANAGE'),
     {
       name: 'Remove',
       action: { kind: 'route', viewId: 'sprint-remove' },
       description: 'Remove a sprint permanently',
     },
-    sep(),
     { name: 'Back', action: BACK, description: 'Return to Browse' },
   ];
 
@@ -228,10 +219,8 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
       description: ctx.hasProjects ? 'Add a ticket to the sprint' : 'Add a ticket (add a project first)',
       disabled: !ctx.hasProjects ? 'add a project first' : false,
     },
-    sep(),
     sep('BROWSE'),
     { name: 'List', action: { kind: 'route', viewId: 'ticket-list' }, description: 'List all tickets' },
-    sep(),
     sep('EDIT'),
     {
       name: 'Edit',
@@ -257,10 +246,8 @@ function buildTicketSubMenu(ctx: MenuContext): SubMenu {
       description: 'Re-refine approved requirements',
       disabled: refineDisabled,
     },
-    sep(),
     sep('MANAGE'),
     { name: 'Remove', action: { kind: 'route', viewId: 'ticket-remove' }, description: 'Remove a ticket' },
-    sep(),
     { name: 'Back', action: BACK, description: 'Return to Browse' },
   ];
 
@@ -277,10 +264,8 @@ function buildTaskSubMenu(ctx: MenuContext): SubMenu {
   const items: MenuItem[] = [
     sep('NEW'),
     { name: 'Add', action: { kind: 'route', viewId: 'task-add' }, description: 'Add a new task' },
-    sep(),
     sep('BROWSE'),
     { name: 'List', action: { kind: 'route', viewId: 'task-list' }, description: 'List all tasks' },
-    sep(),
     sep('EDIT'),
     {
       name: 'Edit',
@@ -294,10 +279,8 @@ function buildTaskSubMenu(ctx: MenuContext): SubMenu {
       description: 'Mark in-progress / done / blocked',
       disabled: editDisabledReason,
     },
-    sep(),
     sep('MANAGE'),
     { name: 'Remove', action: { kind: 'route', viewId: 'task-remove' }, description: 'Remove a task' },
-    sep(),
     { name: 'Back', action: BACK, description: 'Return to Browse' },
   ];
 
@@ -313,7 +296,6 @@ function buildProjectSubMenu(ctx: MenuContext): SubMenu {
     { name: 'Add', action: { kind: 'route', viewId: 'project-add' }, description: 'Register a new project' },
     { name: 'Edit', action: { kind: 'route', viewId: 'project-edit' }, description: 'Edit project details' },
     { name: 'List', action: { kind: 'route', viewId: 'project-list' }, description: 'List all projects' },
-    sep(),
     sep('REPOSITORIES'),
     {
       name: 'Add Repository',
@@ -325,7 +307,6 @@ function buildProjectSubMenu(ctx: MenuContext): SubMenu {
       action: { kind: 'route', viewId: 'project-repo-remove' },
       description: 'Remove a repository',
     },
-    sep(),
     sep('ONBOARD'),
     {
       name: 'Onboard repo',
@@ -333,7 +314,6 @@ function buildProjectSubMenu(ctx: MenuContext): SubMenu {
       description: 'AI-assisted setup: scripts + project context file',
       disabled: onboardDisabled,
     },
-    sep(),
     { name: 'Remove', action: { kind: 'route', viewId: 'project-remove' }, description: 'Remove a project' },
     { name: 'Back', action: BACK, description: 'Return to Browse' },
   ];

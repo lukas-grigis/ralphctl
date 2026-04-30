@@ -23,7 +23,6 @@ import { Box } from 'ink';
 import { spacing } from '../../../integration/ui/theme/tokens.ts';
 import { SectionStamp } from './section-stamp.tsx';
 import { Banner } from './banner.tsx';
-import { useGlobalKeys } from '../views/use-global-keys.ts';
 
 interface Props {
   /** Shown in SectionStamp. Required unless `bare` is set. */
@@ -33,8 +32,10 @@ interface Props {
   readonly children: React.ReactNode;
 }
 
+// Note: global hotkeys are owned by GlobalKeyHandler in view-router.tsx —
+// installing them per-view here would fire each Esc / h / s / d / q
+// dispatch multiple times.
 export function ViewShell({ title, bare = false, children }: Props): React.JSX.Element {
-  useGlobalKeys();
   return (
     <Box flexDirection="column" flexGrow={1}>
       <Banner />

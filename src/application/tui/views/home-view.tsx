@@ -39,7 +39,6 @@ import { ActionMenu } from '../components/action-menu.tsx';
 import { SprintSummaryLine, type SprintSummaryData } from '../components/sprint-summary-line.tsx';
 import { useViewHints } from './view-hints-context.tsx';
 import { useRouter } from './router-context.ts';
-import { useGlobalKeys } from './use-global-keys.ts';
 import { getKeyFor } from '../keyboard-map.ts';
 import { buildSubMenu, type MenuContext, type SubMenu } from './menu-builder.ts';
 import { clearHomeSubmenuMemory, getHomeSubmenuMemory, setHomeSubmenuMemory } from './home-submenu-memory.ts';
@@ -242,8 +241,10 @@ interface Props {
 }
 
 export function HomeView({ sessionManager }: Props): React.JSX.Element {
+  // Global hotkeys are installed once by GlobalKeyHandler in view-router.tsx —
+  // installing them again here would double-fire every Esc / h / s / d / q
+  // dispatch (and explain why menu actions could appear to launch twice).
   const router = useRouter();
-  useGlobalKeys(sessionManager);
 
   const [homeData, setHomeData] = useState<HomeSnapshot | null>(null);
   const [mode, setModeInternal] = useState<Mode>('main');

@@ -106,10 +106,19 @@ export function SprintCreateView(): React.JSX.Element {
       });
       if (!result.ok) throw new Error(result.error.message);
 
-      // Auto-set as current sprint in config.
-      const configLoaded = await deps.configStore.load();
-      if (configLoaded.ok) {
-        await deps.configStore.save({ ...configLoaded.value, currentSprint: result.value.id });
+      // Confirm with the user (default yes — Enter accepts) before flipping
+      // the config pointer. Skipping the prompt would silently steal focus
+      // from any sprint they were already working on.
+      setStep('Set as current sprint? [Y/n]…');
+      const setAsCurrent = await deps.prompt.confirm({
+        message: 'Set as current sprint?',
+        default: true,
+      });
+      if (setAsCurrent) {
+        const configLoaded = await deps.configStore.load();
+        if (configLoaded.ok) {
+          await deps.configStore.save({ ...configLoaded.value, currentSprint: result.value.id });
+        }
       }
 
       return result.value;

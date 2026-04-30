@@ -77,6 +77,7 @@ describe('SprintCreateView', () => {
   it('renders without crashing', async () => {
     fakePrompt.queueInput('Test Sprint');
     fakePrompt.queueInput('test-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
@@ -93,6 +94,7 @@ describe('SprintCreateView', () => {
   it('shows CREATE SPRINT header', async () => {
     fakePrompt.queueInput('Test Sprint');
     fakePrompt.queueInput('test-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
@@ -109,6 +111,7 @@ describe('SprintCreateView', () => {
   it('shows success card after successful sprint creation', async () => {
     fakePrompt.queueInput('Test Sprint');
     fakePrompt.queueInput('test-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
@@ -152,6 +155,7 @@ describe('SprintCreateView', () => {
 
     fakePrompt.queueInput('Test Sprint');
     fakePrompt.queueInput('test-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
@@ -205,6 +209,7 @@ describe('SprintCreateView', () => {
     fakePrompt.queueInput('');
     fakePrompt.queueInput('My Sprint');
     fakePrompt.queueInput('my-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
@@ -225,6 +230,7 @@ describe('SprintCreateView', () => {
     fakePrompt.queueInput('My Sprint');
     fakePrompt.queueInput('invalid slug with spaces');
     fakePrompt.queueInput('my-sprint');
+    fakePrompt.queueConfirm(true);
 
     const router = makeRouter();
     const { lastFrame } = render(
