@@ -10,7 +10,7 @@ import type { TaskId } from '../../domain/values/task-id.ts';
 import type { FileLocker } from './file-locker.ts';
 import { readJsonFile, writeJsonFile } from './json-io.ts';
 import { fromTask, taskListJsonSchema, toTask } from './schemas/task-schema.ts';
-import type { StoragePaths } from './storage-paths.ts';
+import { ensureLayoutDirsOnce, type StoragePaths } from './storage-paths.ts';
 
 /**
  * `FileTaskRepository` — task list per sprint at
@@ -30,6 +30,7 @@ export class FileTaskRepository implements TaskRepository {
     const dir = this.paths.sprintDir(sprintId);
     const file = this.paths.tasksFile(sprintId);
     try {
+      await ensureLayoutDirsOnce(this.paths);
       await mkdir(dir, { recursive: true });
     } catch (err) {
       return Result.error(
@@ -83,6 +84,7 @@ export class FileTaskRepository implements TaskRepository {
 
   async update(sprintId: SprintId, task: Task): Promise<Result<void, NotFoundError | StorageError>> {
     const file = this.paths.tasksFile(sprintId);
+    await ensureLayoutDirsOnce(this.paths);
     const locked = await this.locker.withLock(file, async () => {
       const read = await readJsonFile(file, taskListJsonSchema);
       if (!read.ok) {

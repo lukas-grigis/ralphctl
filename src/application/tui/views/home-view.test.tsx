@@ -217,6 +217,99 @@ describe('HomeView', () => {
     expect(lastFrame()).toContain('🍩');
   });
 
+  it('reloads home snapshot when the session manager emits an event', async () => {
+    // Use configStore.load as a proxy for "loadHomeSnapshot fired" — it's
+    // the first I/O call inside the loader.
+    const configLoad = vi.fn(() => Promise.resolve(Result.ok({ ...CONFIG_DEFAULTS, currentSprint: null })));
+    setSharedDeps({
+      configStore: {
+        load: configLoad,
+        save: vi.fn(() => Promise.resolve(Result.ok(undefined))),
+      },
+      sprintRepo: {
+        findById: vi.fn(() => Promise.resolve(Result.error(new Error('not found')))),
+        list: vi.fn(() => Promise.resolve(Result.ok([]))),
+        save: vi.fn(),
+        remove: vi.fn(),
+      },
+      taskRepo: {
+        findBySprintId: vi.fn(() => Promise.resolve(Result.ok([]))),
+        findById: vi.fn(),
+        update: vi.fn(),
+        saveAll: vi.fn(),
+      },
+      projectRepo: {
+        list: vi.fn(() => Promise.resolve(Result.ok([]))),
+        findByName: vi.fn(),
+        save: vi.fn(),
+        remove: vi.fn(),
+      },
+      prompt: {
+        select: vi.fn(),
+        confirm: vi.fn(),
+        input: vi.fn(),
+        checkbox: vi.fn(),
+        editor: vi.fn(),
+        fileBrowser: vi.fn(),
+      },
+      sessionManager: {
+        start: vi.fn(),
+        list: vi.fn(() => []),
+        get: vi.fn(),
+        foreground: vi.fn(() => Result.ok()),
+        background: vi.fn(() => Result.ok()),
+        kill: vi.fn(() => Result.ok()),
+        get active() {
+          return null;
+        },
+        subscribe: vi.fn(() => () => undefined),
+        dispose: vi.fn(),
+      },
+    } as unknown as SharedDeps);
+
+    const router = makeRouter();
+
+    // Capture the subscriber so we can fire a synthetic registry event.
+    const captured: { fn: (() => void) | null } = { fn: null };
+    const sm: SessionManagerPort = {
+      start: vi.fn(),
+      list: vi.fn(() => []),
+      get: vi.fn(),
+      foreground: vi.fn(() => Result.ok()),
+      background: vi.fn(() => Result.ok()),
+      kill: vi.fn(() => Result.ok()),
+      get active() {
+        return null;
+      },
+      subscribe: vi.fn((fn: () => void) => {
+        captured.fn = fn;
+        return () => {
+          captured.fn = null;
+        };
+      }),
+      dispose: vi.fn(),
+    };
+
+    render(
+      <RouterProvider value={router}>
+        <ViewHintsProvider>
+          <HomeView sessionManager={sm} />
+        </ViewHintsProvider>
+      </RouterProvider>
+    );
+
+    // Wait for mount-time load to settle.
+    await new Promise((r) => setTimeout(r, 50));
+    const loadsAfterMount = configLoad.mock.calls.length;
+    expect(loadsAfterMount).toBeGreaterThanOrEqual(1);
+    expect(captured.fn).not.toBeNull();
+
+    // Fire a synthetic registry event — refreshHome should run again.
+    captured.fn?.();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(configLoad.mock.calls.length).toBeGreaterThan(loadsAfterMount);
+  });
+
   it('shows sprint name after loading when sprint is set', async () => {
     const sprint = makeSprint('Pipeline Sprint');
     setSharedDeps({

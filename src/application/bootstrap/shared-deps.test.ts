@@ -1,11 +1,18 @@
-import { rm } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AbsolutePath } from '../../domain/values/absolute-path.ts';
+import { Sprint } from '../../domain/entities/sprint.ts';
+import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
+import { Slug } from '../../domain/values/slug.ts';
 import { DEFAULT_CHECK_TIMEOUT_MS } from '../../integration/external/check-script-runner.ts';
-import { resolveStoragePaths, type StoragePaths } from '../runtime/storage-paths-resolver.ts';
+import {
+  resetEnsureLayoutDirsCache,
+  resolveStoragePaths,
+  type StoragePaths,
+} from '../runtime/storage-paths-resolver.ts';
 import { SessionManager } from '../runtime/session-manager.ts';
 import { createSharedDeps, resolveCheckTimeoutMs } from './shared-deps.ts';
 
@@ -91,6 +98,39 @@ describe('createSharedDeps', () => {
     const cfg = await deps.liveConfig.current();
     expect(cfg.evaluationIterations).toBe(1);
     expect(cfg.aiProvider).toBeNull();
+  });
+
+  it('does not eagerly create layout directories — only on first write', async () => {
+    // Forget any prior memo so this test starts clean for `storage.root`.
+    resetEnsureLayoutDirsCache();
+    const deps = await createSharedDeps({ storage });
+
+    // Read-only commands (`--version`, `--help`, `completion show`) reach
+    // `createSharedDeps` but never write — the directory tree must stay
+    // missing on disk.
+    await expect(stat(storage.configDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(storage.sprintsDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(storage.cacheDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(storage.logsDir)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    // Trigger a write — first save must materialise the layout.
+    const slug = Slug.parse('lazy');
+    if (!slug.ok) throw slug.error;
+    const sprint = Sprint.create({
+      name: 'Lazy',
+      slug: slug.value,
+      now: IsoTimestamp.trustString('2026-04-29T00:00:00.000Z'),
+    });
+    if (!sprint.ok) throw sprint.error;
+    const saved = await deps.sprintRepo.save(sprint.value);
+    expect(saved.ok).toBe(true);
+
+    for (const d of [storage.configDir, storage.sprintsDir, storage.cacheDir, storage.logsDir, storage.backupsDir]) {
+      const s = await stat(d);
+      expect(s.isDirectory()).toBe(true);
+    }
+
+    await deps.sessionManager.dispose();
   });
 });
 

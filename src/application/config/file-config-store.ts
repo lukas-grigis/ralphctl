@@ -26,7 +26,7 @@ import { Result } from '../../domain/result.ts';
 import { SprintId } from '../../domain/values/sprint-id.ts';
 import type { FileLocker } from '../../integration/persistence/file-locker.ts';
 import { readJsonFile, writeJsonFile } from '../../integration/persistence/json-io.ts';
-import type { StoragePaths } from '../../integration/persistence/storage-paths.ts';
+import { ensureLayoutDirsOnce, type StoragePaths } from '../../integration/persistence/storage-paths.ts';
 import { CONFIG_DEFAULTS } from './config-defaults.ts';
 import type { Config } from './config.ts';
 import type { ConfigStorePort } from './config-store-port.ts';
@@ -106,6 +106,7 @@ export class FileConfigStore implements ConfigStorePort {
 
   async save(config: Config): Promise<Result<void, StorageError>> {
     const file = this.paths.configFile;
+    await ensureLayoutDirsOnce(this.paths);
     const locked = await this.locker.withLock(file, () => writeJsonFile(file, fromConfig(config), configFileSchema));
     if (!locked.ok) return Result.error(locked.error);
     return locked.value;

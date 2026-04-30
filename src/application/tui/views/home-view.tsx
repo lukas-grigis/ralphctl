@@ -258,28 +258,48 @@ export function HomeView({ sessionManager }: Props): React.JSX.Element {
     });
   }, []);
 
-  // Load home data on mount and after refresh ticks.
+  // Refresh home snapshot. Used both on mount and whenever the session
+  // manager fires a registry event (added / removed / active-changed) — a
+  // proxy for "a task just finished or a session settled", so users
+  // returning to home see fresh state without manual refresh.
+  const refreshHome = useCallback(async (): Promise<HomeSnapshot | null> => {
+    try {
+      const data = await loadHomeSnapshot();
+      setHomeData(data);
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }, []);
+
+  // Load home data on mount.
   useEffect(() => {
     const guard = { cancelled: false };
     void (async () => {
-      try {
-        const data = await loadHomeSnapshot();
-        if (guard.cancelled) return;
-        setHomeData(data);
-        // Restore submenu memory after reload (e.g. user drills in and back).
-        const stored = getHomeSubmenuMemory();
-        if (stored !== null) {
-          const menu = buildSubMenu(stored, data.ctx);
-          setModeInternal({ kind: 'sub', menu, group: stored });
-        }
-      } catch (err) {
-        if (!guard.cancelled) setError(err instanceof Error ? err.message : String(err));
+      const data = await refreshHome();
+      if (guard.cancelled || data === null) return;
+      // Restore submenu memory after reload (e.g. user drills in and back).
+      const stored = getHomeSubmenuMemory();
+      if (stored !== null) {
+        const menu = buildSubMenu(stored, data.ctx);
+        setModeInternal({ kind: 'sub', menu, group: stored });
       }
     })();
     return () => {
       guard.cancelled = true;
     };
-  }, []);
+  }, [refreshHome]);
+
+  // Re-fetch whenever the session registry changes — the dashboard already
+  // uses this pattern as a "task-finished proxy" (see dashboard-view.tsx).
+  useEffect(() => {
+    if (sessionManager === null) return;
+    const unsub = sessionManager.subscribe(() => {
+      void refreshHome();
+    });
+    return unsub;
+  }, [sessionManager, refreshHome]);
 
   // ── Action dispatch ──────────────────────────────────────────────────────────
 

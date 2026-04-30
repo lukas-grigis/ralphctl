@@ -10,7 +10,7 @@ import type { SprintId } from '../../domain/values/sprint-id.ts';
 import type { FileLocker } from './file-locker.ts';
 import { readJsonFile, writeJsonFile } from './json-io.ts';
 import { fromSprint, sprintJsonSchema, toSprint } from './schemas/sprint-schema.ts';
-import type { StoragePaths } from './storage-paths.ts';
+import { ensureLayoutDirsOnce, type StoragePaths } from './storage-paths.ts';
 
 /**
  * `FileSprintRepository` — persists sprints under
@@ -32,6 +32,7 @@ export class FileSprintRepository implements SprintRepository {
     const dir = this.paths.sprintDir(sprint.id);
     const file = this.paths.sprintFile(sprint.id);
     try {
+      await ensureLayoutDirsOnce(this.paths);
       await mkdir(dir, { recursive: true });
     } catch (err) {
       return Result.error(
@@ -90,38 +91,36 @@ export class FileSprintRepository implements SprintRepository {
       );
     }
 
-    const sprints: Sprint[] = [];
-    for (const name of entries) {
-      // Trust the directory name as a sprint id — corrupt names will simply
-      // fail to read their `sprint.json` below and be skipped.
-      const file = this.paths.sprintFile(
-        // We know `name` is the directory basename; we don't validate it as
-        // a SprintId here because it's used purely as a path segment via
-        // `sprintFile(id as SprintId)`. The downstream read handles the
-        // schema check.
-        name as unknown as SprintId
-      );
-      const read = await readJsonFile(file, sprintJsonSchema);
-      if (!read.ok) {
-        // Tolerate partially-bad sprint dirs so one corrupt entry doesn't
-        // break `sprint list` for the user. Surface as a warning when a
-        // logger is wired in so the user has a breadcrumb for cleanup.
-        this.logger?.warn('Skipping corrupt sprint dir', {
-          path: file,
-          cause: read.error.message,
-        });
-        continue;
-      }
-      const built = toSprint(read.value);
-      if (!built.ok) {
-        this.logger?.warn('Skipping corrupt sprint dir', {
-          path: file,
-          cause: built.error.message,
-        });
-        continue;
-      }
-      sprints.push(built.value);
-    }
+    // Read all sprint files concurrently. Corrupt entries are skipped with
+    // a warning (preserving the prior silent-skip behavior) so a single bad
+    // dir doesn't break `sprint list` for the user.
+    const reads = await Promise.all(
+      entries.map(async (name) => {
+        // Trust the directory name as a sprint id — corrupt names will simply
+        // fail to read their `sprint.json` below and be skipped. We use it
+        // purely as a path segment; the downstream schema check is the gate.
+        const file = this.paths.sprintFile(name as unknown as SprintId);
+        const read = await readJsonFile(file, sprintJsonSchema);
+        if (!read.ok) {
+          this.logger?.warn('Skipping corrupt sprint dir', {
+            path: file,
+            cause: read.error.message,
+          });
+          return null;
+        }
+        const built = toSprint(read.value);
+        if (!built.ok) {
+          this.logger?.warn('Skipping corrupt sprint dir', {
+            path: file,
+            cause: built.error.message,
+          });
+          return null;
+        }
+        return built.value;
+      })
+    );
+
+    const sprints = reads.filter((s): s is Sprint => s !== null);
     return Result.ok(sprints);
   }
 

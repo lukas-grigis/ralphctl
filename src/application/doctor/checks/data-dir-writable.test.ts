@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -34,9 +34,22 @@ describe('dataDirWritableCheck', () => {
     expect(r.message).toBe(storage.dataDir);
   });
 
-  it('returns fail when the data dir does not exist', async () => {
-    // Wipe the layout — write probe should fail because dataDir is gone.
+  it('creates the data dir on the fly and passes when it was missing', async () => {
+    // Layout dirs are created lazily by the composition root, so a fresh
+    // install hits this check with no `dataDir` on disk. The check must
+    // create-and-probe rather than fail.
     await rm(root, { recursive: true, force: true });
+    const r = await dataDirWritableCheck({ storage });
+    expect(r.status).toBe('pass');
+    expect(r.message).toBe(storage.dataDir);
+  });
+
+  it('returns fail when the data dir cannot be created (parent is a file)', async () => {
+    // Wipe the layout, then plant a regular file where `root` should be a
+    // directory — `mkdir(dataDir, { recursive: true })` cannot resolve a
+    // dir under it, so the probe fails.
+    await rm(root, { recursive: true, force: true });
+    await writeFile(root, 'not-a-dir');
     const r = await dataDirWritableCheck({ storage });
     expect(r.status).toBe('fail');
     expect(r.message).toContain('not writable');

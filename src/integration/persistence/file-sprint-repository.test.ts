@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeLoggerPort } from '../../business/_test-fakes/fake-logger-port.ts';
 import { Sprint } from '../../domain/entities/sprint.ts';
@@ -13,6 +13,7 @@ import { Slug } from '../../domain/values/slug.ts';
 import type { SprintId } from '../../domain/values/sprint-id.ts';
 import { FileLocker } from './file-locker.ts';
 import { FileSprintRepository } from './file-sprint-repository.ts';
+import * as jsonIo from './json-io.ts';
 import { ensureLayoutDirs, resolveStoragePaths, type StoragePaths } from './storage-paths.ts';
 
 function uniqueRoot(): AbsolutePath {
@@ -167,5 +168,46 @@ describe('FileSprintRepository', () => {
     expect(r2.ok).toBe(true);
     const after = await repo.findById(s.id);
     expect(after.ok).toBe(true);
+  });
+
+  it('list reads sprint files concurrently (Promise.all, not sequential)', async () => {
+    // Persist three sprints, then stub readJsonFile so each call records its
+    // start time and resolves only after a delay. If the loop were
+    // sequential, the second call would not begin until the first resolved
+    // (start[1] >= start[0] + delay). With Promise.all, all calls begin
+    // overlapping (start[i] - start[0] is well under `delay`).
+    const sprints = await Promise.all([
+      repo.save(makeSprint('A', 'aaa')),
+      repo.save(makeSprint('B', 'bbb')),
+      repo.save(makeSprint('C', 'ccc')),
+    ]);
+    expect(sprints.every((r) => r.ok)).toBe(true);
+
+    const realReadJsonFile = jsonIo.readJsonFile;
+    const starts: number[] = [];
+    const delayMs = 60;
+    const spy = vi.spyOn(jsonIo, 'readJsonFile').mockImplementation(async (path, schema) => {
+      starts.push(Date.now());
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return realReadJsonFile(path, schema);
+    });
+
+    try {
+      const r = await repo.list();
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.value).toHaveLength(3);
+      // We saw at least 3 reads, all kicked off before the first resolved.
+      expect(starts.length).toBeGreaterThanOrEqual(3);
+      const first = starts[0] ?? 0;
+      // Every other call started before the first finished — overlap proves
+      // concurrency. Generous slack to absorb scheduler jitter; sequential
+      // execution would push later starts past `first + delayMs`.
+      for (let i = 1; i < starts.length; i += 1) {
+        expect((starts[i] ?? 0) - first).toBeLessThan(delayMs);
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

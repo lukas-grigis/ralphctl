@@ -112,3 +112,40 @@ export async function ensureLayoutDirs(paths: StoragePaths): Promise<void> {
   ];
   await Promise.all(dirs.map((d) => mkdir(d, { recursive: true })));
 }
+
+// Per-process memo of "have I already ensured the layout for this root?".
+// Read-only paths (`--version`, `--help`, `completion show`) never trigger a
+// write, so they never populate this map and never create directories.
+//
+// Keyed by `paths.root` because tests use unique tmp roots; we must not
+// share a flag across roots or one test would mask another's state.
+const ensuredRoots = new Map<string, Promise<void>>();
+
+/**
+ * Ensure the layout directories for `paths` exist. Memoised per root so
+ * concurrent writes don't race the same `mkdir -p` work, and read-only
+ * commands that never reach this code path don't pay for it.
+ *
+ * Tests can call {@link resetEnsureLayoutDirsCache} in `afterEach` to clear
+ * the memo when a fresh tmp root is recycled across tests.
+ */
+export async function ensureLayoutDirsOnce(paths: StoragePaths): Promise<void> {
+  const key = paths.root as unknown as string;
+  const existing = ensuredRoots.get(key);
+  if (existing !== undefined) return existing;
+  const pending = ensureLayoutDirs(paths);
+  ensuredRoots.set(key, pending);
+  try {
+    await pending;
+  } catch (err) {
+    // Don't cache a failed attempt — the caller may retry after fixing the
+    // permission / disk issue.
+    ensuredRoots.delete(key);
+    throw err;
+  }
+}
+
+/** Test-only: forget every memoised root so tests start from scratch. */
+export function resetEnsureLayoutDirsCache(): void {
+  ensuredRoots.clear();
+}

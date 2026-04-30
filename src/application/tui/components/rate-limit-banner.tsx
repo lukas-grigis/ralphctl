@@ -55,7 +55,14 @@ export function RateLimitBanner({
     }
     setRemaining(secondsRemaining(resumeAt, now()));
     const id = setInterval(() => {
-      setRemaining(secondsRemaining(resumeAt, now()));
+      // Bail out when the recomputed value matches the prior one — Ink
+      // re-renders on every state set, even when the value is identical.
+      // Once the countdown plateaus at 0 (or "Resuming…") this prevents a
+      // 1Hz storm of wasted reconciliations.
+      setRemaining((prev) => {
+        const next = secondsRemaining(resumeAt, now());
+        return next === prev ? prev : next;
+      });
     }, tickIntervalMs);
     return () => {
       clearInterval(id);

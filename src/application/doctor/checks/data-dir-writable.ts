@@ -4,8 +4,14 @@
  * `access(W_OK)` alone is not enough — some filesystems (FUSE mounts,
  * read-only-snapshot bind mounts) report the bit as set but reject the
  * actual write. We round-trip a tiny temp file to validate end-to-end.
+ *
+ * Side-effect: creates `dataDir` (recursive) before probing. The
+ * composition root no longer ensures the layout eagerly (so `--version`
+ * / `--help` / `completion show` don't materialise it), and `doctor` is
+ * a write-shaped probe by design — creating the dir to test it is the
+ * intent.
  */
-import { unlink, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { StoragePaths } from '../../runtime/storage-paths-resolver.ts';
@@ -18,6 +24,7 @@ export interface DataDirWritableCheckDeps {
 export async function dataDirWritableCheck(deps: DataDirWritableCheckDeps): Promise<DoctorCheckResult> {
   const probe = join(deps.storage.dataDir, `.doctor-write-${String(process.pid)}-${String(Date.now())}.tmp`);
   try {
+    await mkdir(deps.storage.dataDir, { recursive: true });
     await writeFile(probe, 'doctor', { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     return {

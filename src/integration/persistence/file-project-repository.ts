@@ -13,7 +13,7 @@ import {
   projectsFileSchema,
   toProject,
 } from './schemas/project-schema.ts';
-import type { StoragePaths } from './storage-paths.ts';
+import { ensureLayoutDirsOnce, type StoragePaths } from './storage-paths.ts';
 
 /**
  * `FileProjectRepository` — every project lives in the single envelope file
@@ -32,6 +32,7 @@ export class FileProjectRepository implements ProjectRepository {
 
   async save(project: Project): Promise<Result<void, StorageError>> {
     const file = this.paths.projectsFile;
+    await ensureLayoutDirsOnce(this.paths);
     const locked = await this.locker.withLock(file, async () => {
       const existing = await this.readEnvelope();
       if (!existing.ok) return Result.error(existing.error);
@@ -75,6 +76,7 @@ export class FileProjectRepository implements ProjectRepository {
 
   async remove(name: ProjectName): Promise<Result<void, NotFoundError | StorageError>> {
     const file = this.paths.projectsFile;
+    await ensureLayoutDirsOnce(this.paths);
     const locked = await this.locker.withLock(file, async () => {
       const existing = await this.readEnvelope();
       if (!existing.ok) return Result.error(existing.error);

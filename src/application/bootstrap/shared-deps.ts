@@ -8,8 +8,9 @@
  *
  * Wiring rules:
  *  - `storage` defaults to `resolveStoragePaths()`. The root layout
- *    directories are created eagerly via `ensureLayoutDirs` so the first
- *    write doesn't race with the first directory creation.
+ *    directories are created lazily on first write via
+ *    `ensureLayoutDirsOnce` so read-only commands (`--version`, `--help`,
+ *    `completion show`) don't materialise the data dir on disk.
  *  - `sessionId` defaults to `generateSessionId()` so the on-disk log
  *    filename is unique per process.
  *  - `logger` defaults to a `FanOutLogger` over (auto-detected console
@@ -66,7 +67,7 @@ import { SignalParser } from '../../integration/signals/parser.ts';
 import { FileConfigStore } from '../config/file-config-store.ts';
 import type { ConfigStorePort } from '../config/config-store-port.ts';
 import { FileLiveConfigReader, type LiveConfigReader } from '../runtime/live-config-reader.ts';
-import { ensureLayoutDirs, resolveStoragePaths, type StoragePaths } from '../runtime/storage-paths-resolver.ts';
+import { resolveStoragePaths, type StoragePaths } from '../runtime/storage-paths-resolver.ts';
 import { generateSessionId } from '../runtime/session-id.ts';
 import { SessionManager } from '../runtime/session-manager.ts';
 import type { SessionManagerPort } from '../runtime/session-manager-port.ts';
@@ -188,8 +189,10 @@ function buildConsoleSink(selector: LogSinkSelector, logsBus: LogEventBus): Logg
 
 export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Promise<SharedDeps> {
   // ── Storage ──────────────────────────────────────────────────────
+  // Layout dirs are created lazily on the first write via
+  // `ensureLayoutDirsOnce` (see file-* repositories + FileConfigStore).
+  // Read-only commands never reach a write path so they never touch disk.
   const storage = overrides.storage ?? resolveStoragePaths();
-  await ensureLayoutDirs(storage);
 
   // ── Session id ───────────────────────────────────────────────────
   const sessionId = overrides.sessionId ?? generateSessionId();
