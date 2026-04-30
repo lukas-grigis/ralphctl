@@ -35,4 +35,18 @@ describe('ConflictError', () => {
     expect(typeof err.code).toBe('string');
     expect(typeof err.message).toBe('string');
   });
+
+  it('round-trips an optional hint when provided', () => {
+    const err = new ConflictError({
+      entity: 'ticket',
+      conflictingId: 'abc12345',
+      hint: 'Use ticket edit to modify it.',
+    });
+    expect(err.hint).toBe('Use ticket edit to modify it.');
+  });
+
+  it('leaves hint undefined when omitted', () => {
+    const err = new ConflictError({ entity: 'ticket', conflictingId: 'abc12345' });
+    expect(err.hint).toBeUndefined();
+  });
 });

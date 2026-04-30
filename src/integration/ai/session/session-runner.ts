@@ -108,6 +108,7 @@ export class SessionRunner {
             retryAfterMs: rl.retryAfterMs ?? undefined,
             sessionId: sessionId ?? undefined,
             message: `${this.adapter.displayName} CLI rate-limited (exit ${String(exitCode)})`,
+            hint: 'The provider is rate-limiting requests. The harness will retry automatically when the window clears.',
           })
         );
       }

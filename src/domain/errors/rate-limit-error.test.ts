@@ -78,4 +78,17 @@ describe('RateLimitError', () => {
     const err: DomainError = new RateLimitError({ subCode: 'spawn-stderr' });
     expect(err.code).toBe('rate-limit');
   });
+
+  it('round-trips an optional hint when provided', () => {
+    const err = new RateLimitError({
+      subCode: 'spawn-stderr',
+      hint: 'The harness will retry automatically.',
+    });
+    expect(err.hint).toBe('The harness will retry automatically.');
+  });
+
+  it('leaves hint undefined when omitted', () => {
+    const err = new RateLimitError({ subCode: 'spawn-stderr' });
+    expect(err.hint).toBeUndefined();
+  });
 });

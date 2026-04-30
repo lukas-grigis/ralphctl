@@ -40,7 +40,13 @@ interface RawTaskEntry {
 export function parseTaskList(rawOutput: string): Result<readonly Task[], ParseError | ValidationError> {
   const jsonText = extractJson(rawOutput);
   if (jsonText === null) {
-    return Result.error(new ParseError({ subCode: 'invalid-json', message: 'no JSON block found in AI output' }));
+    return Result.error(
+      new ParseError({
+        subCode: 'invalid-json',
+        message: 'no JSON block found in AI output',
+        hint: 'The AI did not emit a fenced JSON block. Re-run, or inspect the session log for what was returned.',
+      })
+    );
   }
 
   let parsed: unknown;
@@ -52,6 +58,7 @@ export function parseTaskList(rawOutput: string): Result<readonly Task[], ParseE
         subCode: 'invalid-json',
         message: 'AI output JSON could not be parsed',
         cause,
+        hint: 'The AI emitted malformed JSON. Re-run; inspect the session log if it persists.',
       })
     );
   }

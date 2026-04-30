@@ -160,6 +160,7 @@ export class Task {
           entity: 'task',
           currentState: this.status,
           attemptedAction: 'mark-in-progress',
+          hint: 'Only `todo` tasks can be marked in-progress.',
         })
       );
     }
@@ -173,6 +174,7 @@ export class Task {
           entity: 'task',
           currentState: this.status,
           attemptedAction: 'mark-done',
+          hint: 'Only `in_progress` tasks can be marked done.',
         })
       );
     }
@@ -196,6 +198,7 @@ export class Task {
           entity: 'task',
           currentState: this.status,
           attemptedAction: 'mark-blocked',
+          hint: 'Done or already-blocked tasks cannot be re-blocked.',
         })
       );
     }

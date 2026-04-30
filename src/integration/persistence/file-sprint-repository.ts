@@ -55,7 +55,13 @@ export class FileSprintRepository implements SprintRepository {
     const read = await readJsonFile(file, sprintJsonSchema);
     if (!read.ok) {
       if (isMissingFile(read.error)) {
-        return Result.error(new NotFoundError({ entity: 'sprint', id }));
+        return Result.error(
+          new NotFoundError({
+            entity: 'sprint',
+            id,
+            hint: 'Run `ralphctl sprint list` to see available sprints.',
+          })
+        );
       }
       return Result.error(read.error);
     }
@@ -126,7 +132,13 @@ export class FileSprintRepository implements SprintRepository {
       return Result.ok();
     } catch (err) {
       if (errnoCode(err) === 'ENOENT') {
-        return Result.error(new NotFoundError({ entity: 'sprint', id }));
+        return Result.error(
+          new NotFoundError({
+            entity: 'sprint',
+            id,
+            hint: 'Run `ralphctl sprint list` to see available sprints.',
+          })
+        );
       }
       return Result.error(
         new StorageError({

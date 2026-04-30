@@ -70,7 +70,13 @@ export class FileTaskRepository implements TaskRepository {
     if (!all.ok) return Result.error(all.error);
     const found = all.value.find((t) => t.id === taskId);
     if (found === undefined) {
-      return Result.error(new NotFoundError({ entity: 'task', id: taskId }));
+      return Result.error(
+        new NotFoundError({
+          entity: 'task',
+          id: taskId,
+          hint: 'Run `ralphctl task list --sprint <id>` to see available tasks.',
+        })
+      );
     }
     return Result.ok(found);
   }

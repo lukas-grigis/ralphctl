@@ -63,4 +63,18 @@ describe('StorageError', () => {
     const err: DomainError = new StorageError({ subCode: 'io', message: 'm' });
     expect(err.code).toBe('storage-error');
   });
+
+  it('round-trips an optional hint when provided', () => {
+    const err = new StorageError({
+      subCode: 'lock',
+      message: 'stale lock',
+      hint: 'Wait or remove the lock file if stale.',
+    });
+    expect(err.hint).toBe('Wait or remove the lock file if stale.');
+  });
+
+  it('leaves hint undefined when omitted', () => {
+    const err = new StorageError({ subCode: 'io', message: 'oops' });
+    expect(err.hint).toBeUndefined();
+  });
 });

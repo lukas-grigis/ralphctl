@@ -27,6 +27,8 @@ export interface StorageErrorOptions {
   readonly message: string;
   readonly path?: string;
   readonly cause?: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class StorageError extends Error {
@@ -38,6 +40,8 @@ export class StorageError extends Error {
   readonly path: string | undefined;
   /** Wrapped lower-level error (e.g. the original `NodeJS.ErrnoException`). */
   override readonly cause: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: StorageErrorOptions) {
     super(opts.message);
@@ -45,5 +49,8 @@ export class StorageError extends Error {
     this.subCode = opts.subCode;
     this.path = opts.path;
     this.cause = opts.cause;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }

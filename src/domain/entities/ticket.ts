@@ -117,6 +117,7 @@ export class Ticket {
           entity: 'ticket',
           currentState: this.requirementStatus,
           attemptedAction: 'approve-requirements',
+          hint: 'Requirements have already been approved for this ticket.',
         })
       );
     }

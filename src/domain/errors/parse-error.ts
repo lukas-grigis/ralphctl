@@ -23,6 +23,8 @@ export interface ParseErrorOptions {
   readonly subCode: ParseErrorSubCode;
   readonly message: string;
   readonly cause?: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class ParseError extends Error {
@@ -32,11 +34,16 @@ export class ParseError extends Error {
   readonly subCode: ParseErrorSubCode;
   /** Wrapped lower-level error (e.g. the original `SyntaxError` from `JSON.parse`). */
   override readonly cause: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: ParseErrorOptions) {
     super(opts.message);
     this.name = 'ParseError';
     this.subCode = opts.subCode;
     this.cause = opts.cause;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }

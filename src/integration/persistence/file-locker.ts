@@ -112,6 +112,7 @@ export class FileLocker {
         subCode: 'lock',
         message: `failed to acquire lock after ${String(MAX_RETRIES)} retries`,
         path: lockPath,
+        hint: 'Another ralphctl process is using this file. Wait, or remove the .lock file if stale.',
       })
     );
   }

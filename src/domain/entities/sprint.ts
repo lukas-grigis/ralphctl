@@ -106,6 +106,7 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'activate',
+          hint: 'Only draft sprints can be activated. Check status with `ralphctl sprint show`.',
         })
       );
     }
@@ -119,6 +120,7 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'close',
+          hint: 'Only active sprints can be closed. Run `ralphctl sprint start` first.',
         })
       );
     }
@@ -143,6 +145,7 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'rename',
+          hint: 'Closed sprints are immutable. Create a new sprint to continue work.',
         })
       );
     }
@@ -200,11 +203,18 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'add-ticket',
+          hint: 'Tickets can only be added to draft sprints.',
         })
       );
     }
     if (this.tickets.some((t) => t.id === ticket.id)) {
-      return Result.error(new ConflictError({ entity: 'ticket', conflictingId: ticket.id }));
+      return Result.error(
+        new ConflictError({
+          entity: 'ticket',
+          conflictingId: ticket.id,
+          hint: 'A ticket with this id already exists. Use `ticket edit` to modify it.',
+        })
+      );
     }
     return Result.ok(this.with({ tickets: [...this.tickets, ticket] }));
   }
@@ -216,6 +226,7 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'remove-ticket',
+          hint: 'Tickets can only be removed from draft sprints.',
         })
       );
     }
@@ -230,6 +241,7 @@ export class Sprint {
           entity: 'sprint',
           currentState: this.status,
           attemptedAction: 'replace-ticket',
+          hint: 'Tickets can only be edited on draft sprints.',
         })
       );
     }

@@ -19,6 +19,8 @@ export interface NotFoundErrorOptions {
   readonly entity: string;
   readonly id: string;
   readonly message?: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class NotFoundError extends Error {
@@ -28,11 +30,16 @@ export class NotFoundError extends Error {
   readonly entity: string;
   /** The identifier that was not found. */
   readonly id: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: NotFoundErrorOptions) {
     super(opts.message ?? `${opts.entity} '${opts.id}' not found`);
     this.name = 'NotFoundError';
     this.entity = opts.entity;
     this.id = opts.id;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }

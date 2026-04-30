@@ -14,6 +14,8 @@ export interface ConflictErrorOptions {
   readonly entity: string;
   readonly conflictingId: string;
   readonly message?: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class ConflictError extends Error {
@@ -23,11 +25,16 @@ export class ConflictError extends Error {
   readonly entity: string;
   /** The duplicate identifier or path that caused the conflict. */
   readonly conflictingId: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: ConflictErrorOptions) {
     super(opts.message ?? `${opts.entity} with id '${opts.conflictingId}' already exists`);
     this.name = 'ConflictError';
     this.entity = opts.entity;
     this.conflictingId = opts.conflictingId;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }

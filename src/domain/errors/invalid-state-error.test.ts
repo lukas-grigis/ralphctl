@@ -53,4 +53,23 @@ describe('InvalidStateError', () => {
     expect(typeof err.code).toBe('string');
     expect(typeof err.message).toBe('string');
   });
+
+  it('round-trips an optional hint when provided', () => {
+    const err = new InvalidStateError({
+      entity: 'sprint',
+      currentState: 'closed',
+      attemptedAction: 'reopen',
+      hint: 'Closed sprints cannot be reopened.',
+    });
+    expect(err.hint).toBe('Closed sprints cannot be reopened.');
+  });
+
+  it('leaves hint undefined when omitted', () => {
+    const err = new InvalidStateError({
+      entity: 'sprint',
+      currentState: 'closed',
+      attemptedAction: 'reopen',
+    });
+    expect(err.hint).toBeUndefined();
+  });
 });

@@ -20,6 +20,8 @@ export interface InvalidStateErrorOptions {
   readonly currentState: string;
   readonly attemptedAction: string;
   readonly message?: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class InvalidStateError extends Error {
@@ -31,6 +33,8 @@ export class InvalidStateError extends Error {
   readonly currentState: string;
   /** Identifier for the attempted operation (e.g. "add-ticket", "mark-done"). */
   readonly attemptedAction: string;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: InvalidStateErrorOptions) {
     super(opts.message ?? `cannot ${opts.attemptedAction} on ${opts.entity} in state '${opts.currentState}'`);
@@ -38,5 +42,8 @@ export class InvalidStateError extends Error {
     this.entity = opts.entity;
     this.currentState = opts.currentState;
     this.attemptedAction = opts.attemptedAction;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }

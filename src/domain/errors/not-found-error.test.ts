@@ -42,4 +42,18 @@ describe('NotFoundError', () => {
     // Use a non-trivial assertion so the compiler retains the binding.
     expect(err.code).toBe('not-found');
   });
+
+  it('round-trips an optional hint when provided', () => {
+    const err = new NotFoundError({
+      entity: 'sprint',
+      id: 'x',
+      hint: 'Run `ralphctl sprint list`.',
+    });
+    expect(err.hint).toBe('Run `ralphctl sprint list`.');
+  });
+
+  it('leaves hint undefined when omitted', () => {
+    const err = new NotFoundError({ entity: 'sprint', id: 'x' });
+    expect(err.hint).toBeUndefined();
+  });
 });

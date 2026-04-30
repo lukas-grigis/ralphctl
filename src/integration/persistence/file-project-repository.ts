@@ -50,7 +50,13 @@ export class FileProjectRepository implements ProjectRepository {
     if (!all.ok) return Result.error(all.error);
     const found = all.value.projects.find((p) => p.name === name);
     if (found === undefined) {
-      return Result.error(new NotFoundError({ entity: 'project', id: name }));
+      return Result.error(
+        new NotFoundError({
+          entity: 'project',
+          id: name,
+          hint: 'Run `ralphctl project list` to see available projects.',
+        })
+      );
     }
     return toProject(found);
   }
@@ -74,7 +80,13 @@ export class FileProjectRepository implements ProjectRepository {
       if (!existing.ok) return Result.error(existing.error);
       const idx = existing.value.projects.findIndex((p) => p.name === name);
       if (idx === -1) {
-        return Result.error(new NotFoundError({ entity: 'project', id: name }));
+        return Result.error(
+          new NotFoundError({
+            entity: 'project',
+            id: name,
+            hint: 'Run `ralphctl project list` to see available projects.',
+          })
+        );
       }
       const next: ProjectsFile = {
         version: 1,

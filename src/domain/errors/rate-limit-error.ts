@@ -38,6 +38,8 @@ export interface RateLimitErrorOptions {
    */
   readonly sessionId?: string;
   readonly cause?: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 }
 
 export class RateLimitError extends Error {
@@ -51,6 +53,8 @@ export class RateLimitError extends Error {
   readonly sessionId: string | undefined;
   /** Wrapped lower-level error, when one exists. */
   override readonly cause: unknown;
+  /** Optional human-readable repair hint. */
+  readonly hint?: string;
 
   constructor(opts: RateLimitErrorOptions) {
     super(opts.message ?? defaultMessage(opts));
@@ -59,6 +63,9 @@ export class RateLimitError extends Error {
     this.retryAfterMs = opts.retryAfterMs;
     this.sessionId = opts.sessionId;
     this.cause = opts.cause;
+    if (opts.hint !== undefined) {
+      this.hint = opts.hint;
+    }
   }
 }
 

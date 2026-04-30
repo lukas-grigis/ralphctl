@@ -100,7 +100,13 @@ export class Project {
 
   addRepository(repo: Repository): Result<Project, ConflictError> {
     if (this.repositories.some((r) => r.path === repo.path)) {
-      return Result.error(new ConflictError({ entity: 'repository', conflictingId: repo.path }));
+      return Result.error(
+        new ConflictError({
+          entity: 'repository',
+          conflictingId: repo.path,
+          hint: 'This repository path is already registered on the project.',
+        })
+      );
     }
     return Result.ok(
       new Project({
