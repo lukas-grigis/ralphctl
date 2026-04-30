@@ -7,6 +7,53 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-29
+
+### Added
+
+- 5-module Clean Architecture (kernel / domain / business / integration / application) with strict ESLint
+  layer fences
+- Kernel chain framework: Element / Leaf / Sequential / Parallel / Retry / OnError + ChainRunner runtime
+- Multi-chain SessionManager — N chains run concurrently; Tab cycles, Ctrl+1..9 jumps;
+  foreground/background detaches without killing
+- Chain definitions: refine, plan, ideate, execute, evaluate, feedback, **create-pr** (new),
+  **onboard** (extended interview mode — setup + verify + CLAUDE.md + skill suggestions)
+- Persistent banner across all views; help overlay as modal takeover; prompt transcript above active prompt
+- Pipeline map on home with bright "Next step" quick-action; tiered browse menu
+  (Sprint / Ticket / Task / Project drill-ins)
+- `mark-blocked` task status with reason
+- Multi-round evaluator fix loop with plateau detection
+- Live config read per task settlement
+- Progressive chain trace (subscribers receive `step` events as they happen)
+- Schema-driven settings panel
+- Doctor view + onboarding-status check + log path surfacing
+- Shell tab-completion (bash / zsh / fish) with COMP\_\* intercept
+- `sprint progress` (with health folded in) + `sprint requirements` + `sprint context` exports
+- Repository.setupScript + onboardedAt fields; Sprint.pullRequestUrl
+- Storage layout: ~/.ralphctl/{config,data,cache,logs,backups}/
+- First-launch wizard — bare `ralphctl` on a fresh install routes the user straight to project-add with
+  a welcome card; non-TTY surfaces a friendly hint instead of help noise
+- Legacy-layout detector at boot — refuses to start on a 0.5.x `~/.ralphctl/` and prints back-up
+  instructions, since the on-disk schema is incompatible
+
+### Changed
+
+- Read version from package.json at build time (was hardcoded)
+- Repository interfaces moved to domain layer; service ports stay in business
+- Per-aggregate repositories (SprintRepository / ProjectRepository / TaskRepository) replace the
+  monolithic PersistencePort
+
+### Removed
+
+- Legacy 4-module src/ layout
+- Pipeline framework (replaced by kernel chain framework)
+- Daemon process registry + sprint list-runs/attach/stop/why (intentional cut)
+- sprint insights, agents-md linter, version-check, completion handlers (legacy)
+
+### Breaking
+
+- `~/.ralphctl/` schema is incompatible with 0.5.x — see migration note in README
+
 ## [0.5.0] - 2026-04-24
 
 ### Fixed
