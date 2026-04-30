@@ -22,8 +22,11 @@ function rejectWith(err: unknown): Promise<never> {
 
 function HarnessThrow({ err }: { readonly err: unknown }): React.JSX.Element {
   const { phase, run } = useWorkflow<string>();
+  // Test harness fires the worker exactly once on mount; `run` is stable and
+  // `err` is fixed for the lifetime of this test render.
   React.useEffect(() => {
     run('start', () => rejectWith(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <Text>{JSON.stringify(phase)}</Text>;
 }
@@ -82,9 +85,11 @@ describe('useWorkflow', () => {
   it('does not call the worker when reset() is invoked from idle', () => {
     function ResetHarness(): React.JSX.Element {
       const { phase, reset } = useWorkflow<string>();
-      // Exercising reset on idle should be a no-op.
+      // Exercising reset on idle should be a no-op. Fire-once on mount —
+      // `reset` is stable for the lifetime of this test render.
       React.useEffect(() => {
         reset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
       return <Text>{JSON.stringify(phase)}</Text>;
     }

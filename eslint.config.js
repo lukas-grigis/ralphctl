@@ -1,6 +1,7 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 
 export default tseslint.config(
@@ -23,6 +24,61 @@ export default tseslint.config(
   },
   {
     ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.js', '*.config.ts'],
+  },
+  // React hooks — catches stale-closure bugs (e.g. useEffect with empty deps array
+  // capturing a router or other reactive value). Pair: rules-of-hooks (correctness)
+  // + exhaustive-deps (warning, since some patterns are intentional).
+  {
+    files: ['src/**/*.{tsx,ts}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+  // no-console — business/UI/integration code must route through LoggerPort.
+  // Two narrow exceptions:
+  //   1) Listener-error swallow files — pre-logger pub/sub primitives must not
+  //      route their own failures through the logger. They use `console.warn`
+  //      with an inline rationale comment.
+  //   2) Plain-text CLI presentation (`theme/ui.ts`) — the canonical stdout
+  //      formatter facade. `PlainTextSink` is layered on top of these
+  //      formatters; this file IS the stdout boundary.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      'src/integration/signals/bus.ts',
+      'src/integration/ui/prompts/prompt-queue.ts',
+      'src/kernel/algorithms/rate-limit-coordinator.ts',
+      'src/integration/logging/log-event-bus.ts',
+      'src/kernel/runtime/chain-runner.ts',
+      'src/application/runtime/session-manager.ts',
+      'src/integration/ui/theme/ui.ts',
+    ],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
+    files: [
+      'src/integration/signals/bus.ts',
+      'src/integration/ui/prompts/prompt-queue.ts',
+      'src/kernel/algorithms/rate-limit-coordinator.ts',
+      'src/integration/logging/log-event-bus.ts',
+      'src/kernel/runtime/chain-runner.ts',
+      'src/application/runtime/session-manager.ts',
+    ],
+    rules: {
+      'no-console': ['error', { allow: ['warn'] }],
+    },
+  },
+  {
+    files: ['src/integration/ui/theme/ui.ts'],
+    rules: {
+      'no-console': ['error', { allow: ['log', 'error'] }],
+    },
   },
   // Clean Architecture layer fence (src/). Dependencies point inward only:
   //   kernel < domain < business < integration < application
