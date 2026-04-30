@@ -87,16 +87,17 @@ export interface PromptQueueState {
 type Listener = (state: PromptQueueState) => void;
 
 /**
- * Idle window before a new prompt is treated as the start of a fresh sequence.
- * Within this window, queued prompts contribute to the same transcript; past
- * the window, the next prompt clears the history first.
+ * Idle window before a workflow's transcript is cleared. Inside the window
+ * the next prompt joins the running transcript; past it, the next prompt
+ * (or an idle timer fire) clears the history.
  */
-const SEQUENCE_IDLE_MS = 100;
+const SEQUENCE_IDLE_MS = 250;
 
 class PromptQueue {
   private readonly queue: PendingPrompt[] = [];
   private history: ResolvedPrompt[] = [];
   private lastResolveAt = 0;
+  private idleClearTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new Set<Listener>();
 
   enqueue(prompt: PendingPrompt): void {
@@ -105,6 +106,10 @@ class PromptQueue {
     // sees only the current workflow's answers.
     if (this.queue.length === 0 && Date.now() - this.lastResolveAt > SEQUENCE_IDLE_MS) {
       this.history = [];
+    }
+    if (this.idleClearTimer !== null) {
+      clearTimeout(this.idleClearTimer);
+      this.idleClearTimer = null;
     }
     this.queue.push(prompt);
     this.notify();
@@ -120,6 +125,7 @@ class PromptQueue {
     this.history.push(buildResolved(head, value));
     this.lastResolveAt = Date.now();
     (head.resolve as (v: unknown) => void)(value);
+    this.scheduleIdleClear();
     this.notify();
   }
 
@@ -128,7 +134,27 @@ class PromptQueue {
     if (!head) return;
     this.lastResolveAt = Date.now();
     head.reject(err);
+    this.scheduleIdleClear();
     this.notify();
+  }
+
+  /**
+   * After the queue empties, schedule a clear of the visible transcript.
+   * If a new prompt arrives within the idle window the timer is cancelled
+   * (see `enqueue`) and the transcript continues to accumulate. Without
+   * this, completed workflows leave their transcript on screen indefinitely
+   * (e.g. project-add answers persisting on the home view after pop).
+   */
+  private scheduleIdleClear(): void {
+    if (this.queue.length > 0) return;
+    if (this.idleClearTimer !== null) clearTimeout(this.idleClearTimer);
+    this.idleClearTimer = setTimeout(() => {
+      this.idleClearTimer = null;
+      if (this.queue.length === 0) {
+        this.history = [];
+        this.notify();
+      }
+    }, SEQUENCE_IDLE_MS);
   }
 
   /** Drop all pending prompts without resolving. Used on app shutdown. */

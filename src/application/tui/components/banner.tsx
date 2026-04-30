@@ -6,6 +6,10 @@
  * `<Text>` passes ANSI through unchanged, so we emit the coloured string
  * directly and deliberately avoid stacking Ink's `color` prop on top — that
  * would clash with the embedded gradient codes.
+ *
+ * Sizing: tight on vertical space — round border, no extra paddingY, quote
+ * sits one line below the art. The banner renders on every view; tightening
+ * the box buys back rows for the actual view content.
  */
 
 import React from 'react';
@@ -13,7 +17,7 @@ import { Box, Text } from 'ink';
 import { banner, gradients, getRandomQuote } from '../../../integration/ui/theme/theme.ts';
 import { inkColors, spacing } from '../../../integration/ui/theme/tokens.ts';
 
-// Stabilised at module load: the banner now renders on every view via
+// Stabilised at module load: the banner renders on every view via
 // ViewShell, and a re-rolling quote on each navigation would jitter
 // distractingly. One quote per process — refreshes on app restart, same as
 // the legacy banner did.
@@ -28,13 +32,12 @@ export function Banner(): React.JSX.Element {
       borderColor={inkColors.primary}
       borderDimColor
       paddingX={spacing.indent}
-      paddingY={spacing.section}
       marginBottom={spacing.section}
     >
       <Box alignItems="center" justifyContent="center">
         <Text>{STABLE_ART}</Text>
       </Box>
-      <Box marginTop={spacing.section} alignItems="center" justifyContent="center">
+      <Box alignItems="center" justifyContent="center">
         <Text dimColor italic>
           🍩 &quot;{STABLE_QUOTE}&quot;
         </Text>
