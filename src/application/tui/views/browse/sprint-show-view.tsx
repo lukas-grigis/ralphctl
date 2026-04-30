@@ -26,6 +26,7 @@ import type { Sprint } from '../../../../domain/entities/sprint.ts';
 const SHOW_HINTS = [
   { key: 'Esc', action: 'back' },
   { key: getKeyFor('detail.edit'), action: 'edit' },
+  { key: getKeyFor('list.remove'), action: 'remove' },
 ] as const;
 
 function formatDate(iso: string | null | undefined): string {
@@ -135,7 +136,7 @@ export function SprintShowView({ sprintId }: Props): React.JSX.Element {
     sprint.status === 'draft'
       ? [{ action: 'Add tickets', description: "press 'h' then 'Add ticket'" }]
       : sprint.status === 'active'
-        ? [{ action: 'Start sprint', description: "press 'h' then 'Start sprint'" }]
+        ? [{ action: 'Continue execution', description: "press 'h' then 'Start sprint'" }]
         : [];
 
   return (
@@ -179,7 +180,7 @@ export function SprintShowView({ sprintId }: Props): React.JSX.Element {
 
         {nextStepsForStatus.length > 0 ? (
           <Box marginTop={spacing.actionBreak}>
-            <ResultCard kind="info" title="" nextSteps={nextStepsForStatus} />
+            <ResultCard kind="info" title="Next steps" nextSteps={nextStepsForStatus} />
           </Box>
         ) : null}
       </Box>

@@ -19,6 +19,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../components/view-shell.tsx';
+import { Spinner } from '../components/spinner.tsx';
 import { useViewHints } from './view-hints-context.tsx';
 import { getSharedDeps, getPrompt } from '../../bootstrap/get-shared-deps.ts';
 import type { Config } from '../../config/config.ts';
@@ -153,7 +154,7 @@ export function SettingsView(): React.JSX.Element {
         paddingY={0}
       >
         {config === null ? (
-          <Text dimColor>Loading…</Text>
+          <Spinner label="Loading…" />
         ) : (
           CONFIG_ROWS.map((row, i) => {
             const value = config[row.key];

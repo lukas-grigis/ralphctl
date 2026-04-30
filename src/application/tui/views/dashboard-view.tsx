@@ -21,6 +21,7 @@ import { glyphs, inkColors, spacing } from '../../../integration/ui/theme/tokens
 import { ViewShell } from '../components/view-shell.tsx';
 import { FieldList } from '../components/field-list.tsx';
 import { ResultCard } from '../components/result-card.tsx';
+import { Spinner } from '../components/spinner.tsx';
 import { StatusChip, chipKindForSprintStatus, chipKindForTaskStatus } from '../components/status-chip.tsx';
 import { useViewHints } from './view-hints-context.tsx';
 import { useLoggerEvents, useSessionEvents } from '../runtime/hooks.ts';
@@ -51,7 +52,6 @@ interface HeroProps {
 function Hero({ sprint, tasks }: HeroProps): React.JSX.Element {
   const done = tasks.filter((t) => t.status === 'done').length;
   const fields: [string, string][] = [
-    ['Status', sprint.status.toUpperCase()],
     ['Tickets', String(sprint.tickets.length)],
     ['Tasks', `${String(done)} of ${String(tasks.length)} done`],
     ['Branch', sprint.branch ?? '—'],
@@ -207,7 +207,7 @@ export function DashboardView({ sessionManager }: Props): React.JSX.Element {
         {loadError !== null ? (
           <ResultCard kind="error" title="Failed to load sprint data" lines={[loadError]} />
         ) : sprint === null && tasks === null ? (
-          <Text dimColor>Loading…</Text>
+          <Spinner label="Loading…" />
         ) : sprint === null ? (
           <ResultCard
             kind="info"

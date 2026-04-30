@@ -3,7 +3,7 @@
  *
  * Loads currentSprint from config. Press Enter to see task detail inline.
  *
- * Keyboard: ↑/↓ navigate · Enter view detail · Esc back
+ * Keyboard: ↑/↓ navigate · Enter expand/collapse inline detail · Esc back
  */
 
 import React, { useEffect, useState } from 'react';
@@ -27,7 +27,7 @@ const TASK_FILTERS: readonly TaskFilter[] = ['all', 'todo', 'in_progress', 'done
 
 const LIST_HINTS = [
   { key: '↑/↓', action: 'navigate' },
-  { key: 'Enter', action: 'view detail' },
+  { key: 'Enter', action: 'expand/collapse' },
   { key: getKeyFor('list.add'), action: 'add' },
   { key: getKeyFor('list.edit'), action: 'edit' },
   { key: getKeyFor('list.status'), action: 'change status' },

@@ -248,6 +248,22 @@ Each view type has one shape. Don't invent a new one.
 - `ListView` with `↑/↓ · Enter open · Esc back`.
 - Empty state → `ResultCard kind="info"` with a `nextSteps` pointer.
 
+#### 7.2.1 Inline-detail toggle variant
+
+For lists where the parent is short and the detail content fits below in 5–10 rows
+(today: ticket-list, task-list), `Enter` is allowed to toggle an inline detail card
+beneath the highlighted row instead of pushing a separate show view. This keeps the
+user in one frame and removes a Back step. When using this variant:
+
+- The view-local hint MUST read `Enter expand/collapse` (not `Enter view detail`).
+- Pressing `Enter` a second time on the same row collapses; moving the cursor while
+  expanded collapses the previous and expands the new selection.
+- Use a `<FieldList>` for the detail body so it visually matches the show-view shape.
+
+For lists with long detail content or where the detail view itself has actions (e.g.
+project-show with repo CRUD), use the standard drill-in pattern (Enter pushes a
+dedicated `*-show-view.tsx`).
+
 ### 7.3 Detail views (`browse/*-show-view.tsx`)
 
 - `FieldList` for metadata.

@@ -41,7 +41,7 @@ import { useViewHints } from './view-hints-context.tsx';
 import { useRouterOptional } from './router-context.ts';
 import { useLoggerEvents } from '../runtime/hooks.ts';
 import { getKeyFor } from '../keyboard-map.ts';
-import { getPrompt } from '../../bootstrap/get-shared-deps.ts';
+import { getPrompt, getSharedDeps } from '../../bootstrap/get-shared-deps.ts';
 import { PromptCancelledError } from '../../../business/ports/prompt-port.ts';
 import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import type { SessionManagerPort, SessionDescriptor } from '../../runtime/session-manager-port.ts';
@@ -361,10 +361,15 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
       sessionManager.kill(effectiveId);
     } catch (err) {
       // PromptCancelledError (Esc / Ctrl+C on the prompt) is silent — user
-      // dismissed the confirm. Other errors are unexpected; swallow with a
-      // log to avoid taking down the dashboard, since this is interactive UI.
+      // dismissed the confirm. Other errors are unexpected; route through
+      // LoggerPort (UI Contract: never write to stdout while Ink is mounted —
+      // it would corrupt the alt-screen).
       if (!(err instanceof PromptCancelledError)) {
-        console.warn('[execute-view] cancel prompt threw:', err);
+        void getSharedDeps().then(({ logger }) => {
+          logger.warn('execute-view: cancel prompt error', {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
       }
     } finally {
       cancelInFlight.current = false;

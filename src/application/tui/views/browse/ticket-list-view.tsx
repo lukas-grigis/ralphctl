@@ -5,7 +5,7 @@
  * the current sprint. Press Enter to open the ticket show view (shows detail
  * inline). Empty state guides user to add a ticket.
  *
- * Keyboard: ↑/↓ navigate · Enter view · Esc back
+ * Keyboard: ↑/↓ navigate · Enter expand/collapse inline detail · Esc back
  */
 
 import React, { useEffect, useState } from 'react';
@@ -25,7 +25,7 @@ import type { Ticket } from '../../../../domain/entities/ticket.ts';
 
 const LIST_HINTS = [
   { key: '↑/↓', action: 'navigate' },
-  { key: 'Enter', action: 'view detail' },
+  { key: 'Enter', action: 'expand/collapse' },
   { key: getKeyFor('list.add'), action: 'add' },
   { key: getKeyFor('list.edit'), action: 'edit' },
   { key: getKeyFor('list.remove'), action: 'remove' },

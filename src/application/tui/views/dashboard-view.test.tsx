@@ -143,7 +143,7 @@ describe('DashboardView', () => {
     expect(frame).toContain('DRAFT');
   });
 
-  it('renders hero field list: status, tickets, tasks, branch', async () => {
+  it('renders hero field list: tickets, tasks, branch (status shown via chip, not field)', async () => {
     const { lastFrame } = render(
       <ViewHintsProvider>
         <DashboardView />
@@ -151,8 +151,9 @@ describe('DashboardView', () => {
     );
     await new Promise((r) => setTimeout(r, 20));
     const frame = lastFrame() ?? '';
-    // FieldList labels
-    expect(frame).toContain('Status:');
+    // FieldList labels — Status is intentionally absent: the hero already
+    // renders a colored StatusChip for the same value.
+    expect(frame).not.toContain('Status:');
     expect(frame).toContain('Tickets:');
     expect(frame).toContain('Tasks:');
     // Task progress: 1 done out of 2
