@@ -117,6 +117,7 @@ export async function runSprintStart(deps: SharedDeps, opts: SprintStartFlags): 
     sessionManager: deps.sessionManager,
     label: `execute ${sprintId.value}`,
     element: flow,
+    prompt: deps.prompt,
     initialCtx: {
       sprintId: sprintId.value,
       cwd: cwd.value,

@@ -29,7 +29,7 @@
  * correctly when navigating back to a completed session.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { inkColors, spacing, glyphs } from '../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../components/view-shell.tsx';
@@ -41,7 +41,11 @@ import { useViewHints } from './view-hints-context.tsx';
 import { useRouterOptional } from './router-context.ts';
 import { useLoggerEvents } from '../runtime/hooks.ts';
 import { getKeyFor } from '../keyboard-map.ts';
+import { getPrompt } from '../../bootstrap/get-shared-deps.ts';
+import { PromptCancelledError } from '../../../business/ports/prompt-port.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import type { SessionManagerPort, SessionDescriptor } from '../../runtime/session-manager-port.ts';
+import type { SignalBusPort } from '../../../business/ports/signal-bus-port.ts';
 import type { ChainTraceEntry } from '../../../kernel/chain/element.ts';
 import type { ChainRunnerEvent } from '../../../kernel/runtime/chain-runner.ts';
 
@@ -165,14 +169,24 @@ function TaskSubGrid({ steps }: TaskSubGridProps): React.JSX.Element | null {
 interface Props {
   readonly sessionId?: string;
   readonly sessionManager: SessionManagerPort | null;
+  /**
+   * Optional signal bus for live rate-limit pause/resume events. When
+   * present, the rate-limit banner reflects coordinator state authoritatively.
+   * When absent, the legacy heuristic on `rate-limit-paused` step names is
+   * used as a best-effort fallback.
+   */
+  readonly signalBus?: SignalBusPort | null;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ExecuteView({ sessionId, sessionManager }: Props): React.JSX.Element {
+export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): React.JSX.Element {
   useViewHints(EXECUTE_HINTS);
   const router = useRouterOptional();
   const logs = useLoggerEvents(50);
+  // Re-entrancy guard for the cancel flow — prevents two confirms when the
+  // user mashes the cancel key.
+  const cancelInFlight = useRef(false);
 
   // ── Session resolution ────────────────────────────────────────────────────
 
@@ -237,6 +251,7 @@ export function ExecuteView({ sessionId, sessionManager }: Props): React.JSX.Ele
     }));
   });
   const [rateLimitVisible, setRateLimitVisible] = useState(false);
+  const [rateLimitResumeAt, setRateLimitResumeAt] = useState<IsoTimestamp | null>(null);
 
   // Subscribe to the runner for progressive step events.
   // Also handles late-subscriber replay (runner.subscribe is synchronous
@@ -297,20 +312,67 @@ export function ExecuteView({ sessionId, sessionManager }: Props): React.JSX.Ele
       if (event.type === 'completed' || event.type === 'failed' || event.type === 'aborted') {
         // Settle rate-limit banner on any terminal event
         setRateLimitVisible(false);
+        setRateLimitResumeAt(null);
       }
     });
     return unsub;
   }, [descriptor]);
+
+  // Live rate-limit pause/resume from the signal bus (preferred over the
+  // step-name heuristic above when the bus is wired in).
+  useEffect(() => {
+    if (!signalBus) return;
+    const unsub = signalBus.subscribe((event) => {
+      if (event.type === 'rate-limit-paused') {
+        setRateLimitVisible(true);
+        setRateLimitResumeAt(event.resumeAt ?? null);
+        return;
+      }
+      if (event.type === 'rate-limit-resumed') {
+        setRateLimitVisible(false);
+        setRateLimitResumeAt(null);
+      }
+    });
+    return unsub;
+  }, [signalBus]);
 
   // ── Keyboard handler ─────────────────────────────────────────────────────
 
   const KEY_CANCEL = getKeyFor('execute.cancel');
   const KEY_DETACH = getKeyFor('execute.detach');
 
-  useInput((input, key) => {
-    // cancel — kill the running session
-    if (input === KEY_CANCEL && effectiveId && sessionManager) {
+  // Confirm-then-kill flow. Idempotent: while a confirm is in flight a second
+  // `c` press is ignored, so the user can't queue a second prompt by mashing.
+  const handleCancel = useCallback(async (): Promise<void> => {
+    if (cancelInFlight.current) return;
+    if (!effectiveId || !sessionManager) return;
+    cancelInFlight.current = true;
+    try {
+      const prompt = await getPrompt();
+      const ok = await prompt.confirm({
+        message: 'Cancel running task and mark blocked?',
+        default: false,
+      });
+      if (!ok) return;
+      // Re-check the descriptor — the run may have settled while the user
+      // sat on the prompt, in which case kill is a no-op but harmless.
       sessionManager.kill(effectiveId);
+    } catch (err) {
+      // PromptCancelledError (Esc / Ctrl+C on the prompt) is silent — user
+      // dismissed the confirm. Other errors are unexpected; swallow with a
+      // log to avoid taking down the dashboard, since this is interactive UI.
+      if (!(err instanceof PromptCancelledError)) {
+        console.warn('[execute-view] cancel prompt threw:', err);
+      }
+    } finally {
+      cancelInFlight.current = false;
+    }
+  }, [effectiveId, sessionManager]);
+
+  useInput((input, key) => {
+    // cancel — confirm, then kill the running session
+    if (input === KEY_CANCEL && effectiveId && sessionManager) {
+      void handleCancel();
       return;
     }
     // detach (uppercase D) — background session and pop view
@@ -375,7 +437,7 @@ export function ExecuteView({ sessionId, sessionManager }: Props): React.JSX.Ele
         <TaskSubGrid steps={steps} />
 
         {/* ── Rate-limit banner ─────────────────────────────────────── */}
-        <RateLimitBanner visible={rateLimitVisible} />
+        <RateLimitBanner visible={rateLimitVisible} resumeAt={rateLimitResumeAt} />
 
         {/* ── Log tail ──────────────────────────────────────────────── */}
         {logs.length > 0 ? (

@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from 'ink-testing-library';
 import { ExecuteView } from './execute-view.tsx';
 import { ViewHintsProvider } from './view-hints-context.tsx';
+import { setSharedDeps, resetSharedDeps } from '../../bootstrap/get-shared-deps.ts';
+import { FakePromptPort } from '../../_test-fakes/fake-prompt-port.ts';
+import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
 import type { SessionManagerPort, SessionDescriptor, SessionManagerEvent } from '../../runtime/session-manager-port.ts';
+import type { SignalBusPort, SignalBusEvent } from '../../../business/ports/signal-bus-port.ts';
 import type { ChainRunnerListener } from '../../../kernel/runtime/chain-runner.ts';
 import type { ChainTraceEntry } from '../../../kernel/chain/element.ts';
 import { Result } from 'typescript-result';
@@ -95,10 +99,44 @@ function makeSessionManager(session: FakeSession | null = null): SessionManagerP
   };
 }
 
+function makeFakeSignalBus(): SignalBusPort & { _emit(e: SignalBusEvent): void } {
+  const listeners = new Set<(e: SignalBusEvent) => void>();
+  return {
+    emit: vi.fn((e: SignalBusEvent) => {
+      for (const l of [...listeners]) l(e);
+    }),
+    subscribe: vi.fn((l: (e: SignalBusEvent) => void) => {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    }),
+    dispose: vi.fn(),
+    _emit: (e) => {
+      for (const l of [...listeners]) l(e);
+    },
+  };
+}
+
+/**
+ * Install a minimal SharedDeps shim with a queueable FakePromptPort.
+ * Returns the prompt fake so tests can queue answers and assert call args.
+ */
+function installPromptDeps(): FakePromptPort {
+  const promptPort = new FakePromptPort();
+  setSharedDeps({ prompt: promptPort } as unknown as SharedDeps);
+  return promptPort;
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  resetSharedDeps();
+});
 
 afterEach(() => {
   cleanup();
+  resetSharedDeps();
 });
 
 describe('ExecuteView', () => {
@@ -220,7 +258,10 @@ describe('ExecuteView', () => {
     expect(lastFrame()).toContain('completed');
   });
 
-  it('kills session when c is pressed (execute.cancel)', () => {
+  it('confirms before kill, then kills on c (execute.cancel)', async () => {
+    const prompt = installPromptDeps();
+    prompt.queueConfirm(true);
+
     const session = makeSession();
     const killFn = vi.fn(() => Result.ok());
     const sm = { ...makeSessionManager(session), kill: killFn };
@@ -230,6 +271,91 @@ describe('ExecuteView', () => {
       </ViewHintsProvider>
     );
     stdin.write('c');
+    // Allow the async confirm flow to settle.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(prompt.confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Cancel running task and mark blocked?' })
+    );
     expect(killFn).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('does not kill when user declines the cancel confirm', async () => {
+    const prompt = installPromptDeps();
+    prompt.queueConfirm(false);
+
+    const session = makeSession();
+    const killFn = vi.fn(() => Result.ok());
+    const sm = { ...makeSessionManager(session), kill: killFn };
+    const { stdin } = render(
+      <ViewHintsProvider>
+        <ExecuteView sessionId="sess-1" sessionManager={sm} />
+      </ViewHintsProvider>
+    );
+    stdin.write('c');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(prompt.confirmMock).toHaveBeenCalled();
+    expect(killFn).not.toHaveBeenCalled();
+  });
+
+  it('cancel flow is idempotent: pressing c twice fires only one confirm', async () => {
+    // Custom PromptPort whose confirm() returns a long-pending promise so
+    // we can verify the second `c` press is suppressed while the first
+    // confirm is still in flight.
+    type Resolver = (v: boolean) => void;
+    let pendingResolver: Resolver | undefined;
+    const confirmCalls: number[] = [];
+    // Build a real FakePromptPort and rebind only the `confirm` method so
+    // the prototype is preserved (linter rejects spreading class instances).
+    const promptPort = new FakePromptPort();
+    Object.defineProperty(promptPort, 'confirm', {
+      value: vi.fn(() => {
+        confirmCalls.push(1);
+        return new Promise<boolean>((resolve) => {
+          pendingResolver = resolve;
+        });
+      }),
+    });
+    setSharedDeps({ prompt: promptPort } as unknown as SharedDeps);
+
+    const session = makeSession();
+    const killFn = vi.fn(() => Result.ok());
+    const sm = { ...makeSessionManager(session), kill: killFn };
+    const { stdin } = render(
+      <ViewHintsProvider>
+        <ExecuteView sessionId="sess-1" sessionManager={sm} />
+      </ViewHintsProvider>
+    );
+    stdin.write('c');
+    await new Promise((r) => setTimeout(r, 20));
+    // Second press while the first prompt is still in flight — must be a no-op.
+    stdin.write('c');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(confirmCalls.length).toBe(1);
+    // Resolve the in-flight confirm so the test cleans up.
+    if (pendingResolver) pendingResolver(false);
+  });
+
+  it('signalBus rate-limit-paused renders the banner with countdown', async () => {
+    const bus = makeFakeSignalBus();
+    const session = makeSession();
+    const sm = makeSessionManager(session);
+    const { lastFrame } = render(
+      <ViewHintsProvider>
+        <ExecuteView sessionId="sess-1" sessionManager={sm} signalBus={bus} />
+      </ViewHintsProvider>
+    );
+
+    // Emit a paused event with resumeAt 30s in the future.
+    const resumeAt = new Date(Date.now() + 30_000).toISOString() as IsoTimestamp;
+    bus._emit({ type: 'rate-limit-paused', reason: 'upstream 429', resumeAt });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lastFrame()).toContain('Rate limit');
+    // Countdown text reflects ~30s; allow ±2s tolerance for scheduling jitter.
+    expect(lastFrame()).toMatch(/resuming in (28|29|30)s/);
+
+    // Resume — banner clears.
+    bus._emit({ type: 'rate-limit-resumed' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lastFrame()).not.toContain('Rate limit');
   });
 });

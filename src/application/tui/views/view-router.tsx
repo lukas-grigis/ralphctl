@@ -72,6 +72,7 @@ import { ProgressView } from './browse/progress-view.tsx';
 import { SprintExportRequirementsView } from './crud/sprint-export-requirements-view.tsx';
 import { SprintExportContextView } from './crud/sprint-export-context-view.tsx';
 import type { SessionManagerPort, SessionDescriptor } from '../../runtime/session-manager-port.ts';
+import type { SignalBusPort } from '../../../business/ports/signal-bus-port.ts';
 
 /**
  * The view registry. Adding a new top-level destination is one entry here +
@@ -82,7 +83,11 @@ const views: Record<
   ViewId,
   {
     label: string;
-    render(props: Readonly<Record<string, unknown>>, sessionManager: SessionManagerPort | null): React.JSX.Element;
+    render(
+      props: Readonly<Record<string, unknown>>,
+      sessionManager: SessionManagerPort | null,
+      signalBus: SignalBusPort | null
+    ): React.JSX.Element;
   }
 > = {
   home: {
@@ -99,9 +104,9 @@ const views: Record<
   },
   execute: {
     label: 'Execute',
-    render: (props, sessionManager) => {
+    render: (props, sessionManager, signalBus) => {
       const sessionId = typeof props['sessionId'] === 'string' ? props['sessionId'] : undefined;
-      return <ExecuteView sessionId={sessionId} sessionManager={sessionManager} />;
+      return <ExecuteView sessionId={sessionId} sessionManager={sessionManager} signalBus={signalBus} />;
     },
   },
   sessions: {
@@ -200,9 +205,15 @@ const views: Record<
 interface Props {
   readonly initialStack: readonly ViewEntry[];
   readonly sessionManager: SessionManagerPort | null;
+  /**
+   * Optional signal bus for live observability events (rate-limit pause /
+   * resume, task lifecycle). Only consumed by the ExecuteView today; absent
+   * during one-shot CLI prompts which never see live events.
+   */
+  readonly signalBus?: SignalBusPort | null;
 }
 
-export function ViewRouter({ initialStack, sessionManager }: Props): React.JSX.Element {
+export function ViewRouter({ initialStack, sessionManager, signalBus = null }: Props): React.JSX.Element {
   const [stack, setStack] = useState<readonly ViewEntry[]>(() => {
     if (initialStack.length === 0) return [{ id: 'home' }] as const;
     return collapseAdjacentDuplicates(initialStack);
@@ -280,7 +291,7 @@ export function ViewRouter({ initialStack, sessionManager }: Props): React.JSX.E
           <HelpOverlay onClose={closeHelp} />
         ) : (
           <Box flexDirection="column">
-            {meta.render(props, sessionManager)}
+            {meta.render(props, sessionManager, signalBus)}
             <PromptHost />
             <Box marginTop={spacing.section}>
               <KeyboardHints />

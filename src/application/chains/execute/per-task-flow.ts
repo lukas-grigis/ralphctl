@@ -17,6 +17,11 @@
  *    rate-limited spawn as outcome `'rate-limited'` returned via
  *    `Result.ok(...)`, so Retry won't fire automatically. We surface
  *    rate-limit as a kernel error instead, letting Retry pick it up.
+ *  - **Cancel** — the Retry-wrapped execute-task is further wrapped in
+ *    `OnError(catchIf: code === 'aborted', fallback: markBlocked)` so a
+ *    user-initiated cancel (TUI `c` key, CLI Ctrl+C) transitions the
+ *    in-flight task to `'blocked'` with reason "cancelled by user" and
+ *    short-circuits the rest of the chain via `taskBlocked`.
  *  - **Branch preflight** — wrapped in `OnError(catchIf: BranchPreflight
  *    mismatch, fallback: mark-blocked)` so a wrong-branch repo doesn't
  *    crash the entire sprint. The fallback transitions the Task aggregate
@@ -112,11 +117,21 @@ export function createPerTaskFlow(
     fallback: markBlockedFallbackLeaf(deps),
   });
 
-  const executeTaskStep = new Retry<PerTaskCtx>(executeTaskLeaf(executeOne), {
+  const executeTaskWithRetry = new Retry<PerTaskCtx>(executeTaskLeaf(executeOne), {
     maxAttempts: 2,
     backoff: 'fixed',
     initialDelayMs: 0,
     retryOn: (err) => err.code === 'rate-limited',
+  });
+
+  // User-initiated cancellation propagates as `code: 'aborted'` from the
+  // kernel's AbortSignal plumbing. Catch only that variant and transition
+  // the task to `'blocked'` with reason "cancelled by user" so the rest
+  // of the per-task chain can short-circuit cleanly. Any other error
+  // (rate-limit-exhausted, spawn failure, etc.) falls through unchanged.
+  const executeTaskStep = new OnError<PerTaskCtx>(executeTaskWithRetry, {
+    catchIf: (err) => err.code === 'aborted',
+    fallback: markCancelledFallbackLeaf(deps),
   });
 
   // Wrap the evaluate-and-fix loop so any unexpected spawn error from
@@ -196,6 +211,31 @@ function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Eleme
     // chain knows to short-circuit. Every downstream leaf checks the flag
     // and no-ops without doing any work — the chain trace still records
     // each step (kept honest) but no further side effects fire.
+    output: (ctx, task) => ({ ...ctx, task, taskBlocked: true }),
+  });
+}
+
+/**
+ * `executeTask` `OnError` fallback for user cancellation. Reached only when
+ * the kernel surfaces `code: 'aborted'` (SessionManager.kill / Ctrl+C).
+ *
+ * The task may already be `in_progress` (mark-in-progress ran first) — both
+ * states are valid sources for `markBlocked()`. Records "cancelled by user"
+ * as the blocked reason so it appears in `tasks.json` / sprint health.
+ */
+function markCancelledFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<PerTaskCtx> {
+  return new Leaf<PerTaskCtx, { readonly sprintId: SprintId; readonly task: Task }, Task>('mark-blocked', {
+    useCase: {
+      async execute(input) {
+        const reason = 'cancelled by user';
+        const transitioned = input.task.markBlocked(reason);
+        if (!transitioned.ok) return Result.error(transitioned.error);
+        const saved = await deps.taskRepo.update(input.sprintId, transitioned.value);
+        if (!saved.ok) return Result.error(saved.error);
+        return Result.ok(transitioned.value);
+      },
+    },
+    input: (ctx) => ({ sprintId: ctx.sprintId, task: ctx.task }),
     output: (ctx, task) => ({ ...ctx, task, taskBlocked: true }),
   });
 }

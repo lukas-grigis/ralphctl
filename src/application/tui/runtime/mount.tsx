@@ -73,6 +73,7 @@ export async function mountInkApp(options: MountOptions = {}): Promise<MountResu
       initialView={options.initialView}
       sessionManager={deps.sessionManager}
       sessionId={options.sessionId}
+      signalBus={deps.signalBus}
       initialStack={initialStack}
     />,
     { exitOnCtrlC: false }

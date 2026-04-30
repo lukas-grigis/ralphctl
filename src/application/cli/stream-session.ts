@@ -8,12 +8,21 @@
  * command's lifecycle is tied to the chain — when the chain settles, the
  * command exits.
  *
- * Ctrl+C is wired to abort the runner via `sessionManager.kill(id)`. The
- * chain settles to `aborted`, the listener emits the terminal event, and
- * the function resolves with `EXIT_INTERRUPTED`.
+ * Ctrl+C is wired to a graceful confirm-then-kill flow:
+ *   - First Ctrl+C: prompt the user for confirmation. If they confirm, the
+ *     runner is aborted via `sessionManager.kill(id)` and the function
+ *     resolves with `EXIT_INTERRUPTED`. If they decline, streaming
+ *     continues.
+ *   - Second Ctrl+C while a confirm is in flight: hard-cancel — bypass the
+ *     prompt and kill immediately. Useful when the prompt itself becomes
+ *     unresponsive.
+ *
+ * Non-TTY / piped invocations skip the prompt and hard-kill on the first
+ * SIGINT (consistent with traditional Unix CLI behaviour).
  */
 import * as c from 'colorette';
 
+import { PromptCancelledError, type PromptPort } from '../../business/ports/prompt-port.ts';
 import type { Element } from '../../kernel/chain/element.ts';
 import type { ChainRunnerEvent } from '../../kernel/runtime/chain-runner.ts';
 import type { SessionManagerPort } from '../runtime/session-manager-port.ts';
@@ -25,6 +34,11 @@ export interface StreamSessionOptions<TCtx> {
   readonly element: Element<TCtx>;
   readonly initialCtx: TCtx;
   /**
+   * Optional prompt port for the SIGINT confirmation flow. When omitted (or
+   * stdin/stdout is not a TTY) the first SIGINT hard-kills.
+   */
+  readonly prompt?: PromptPort;
+  /**
    * Optional event renderer. Defaults to a plain-text renderer that prints
    * step transitions, error messages, and a final status line.
    */
@@ -32,7 +46,7 @@ export interface StreamSessionOptions<TCtx> {
 }
 
 export async function streamSession<TCtx>(opts: StreamSessionOptions<TCtx>): Promise<ExitCode> {
-  const { sessionManager, label, element, initialCtx, render = defaultRender } = opts;
+  const { sessionManager, label, element, initialCtx, prompt, render = defaultRender } = opts;
   const id = sessionManager.start({ label, element, initialCtx });
   const descriptor = sessionManager.get(id);
   if (!descriptor) {
@@ -41,16 +55,70 @@ export async function streamSession<TCtx>(opts: StreamSessionOptions<TCtx>): Pro
   }
   process.stdout.write(c.dim(`session ${id} — ${label}`) + '\n');
 
-  // Ctrl+C: kill the session. The runner emits 'aborted' which terminates
-  // the await below, and we exit with EXIT_INTERRUPTED.
+  // Ctrl+C lifecycle:
+  //  - state 'idle'    → first SIGINT, ask for confirm (interactive only).
+  //  - state 'asking'  → confirm prompt is in flight. A second Ctrl+C
+  //                       short-circuits the prompt and kills.
+  //  - state 'killing' → kill already issued; further SIGINTs are no-ops.
+  let cancelState: 'idle' | 'asking' | 'killing' = 'idle';
   let interrupted = false;
-  const sigint = (): void => {
-    if (interrupted) return;
+  const interactive = process.stdin.isTTY && process.stdout.isTTY && prompt !== undefined;
+
+  const hardKill = (): void => {
+    if (cancelState === 'killing') return;
+    cancelState = 'killing';
     interrupted = true;
     process.stderr.write(c.yellow('\n^C — aborting session…') + '\n');
     sessionManager.kill(id);
   };
-  process.once('SIGINT', sigint);
+
+  const askToCancel = async (): Promise<void> => {
+    if (cancelState !== 'idle') return;
+    if (!interactive) {
+      hardKill();
+      return;
+    }
+    cancelState = 'asking';
+    // `interactive` already includes `prompt !== undefined`; narrow into a
+    // local so TS sees a definite PromptPort below.
+    const interactivePrompt: PromptPort = prompt;
+    try {
+      const ok = await interactivePrompt.confirm({
+        message: 'Cancel running session and mark blocked?',
+        default: false,
+      });
+      // Second Ctrl+C may have raced past us (transitioning to 'killing').
+      // Re-check the state via a `string` widening so the discriminator
+      // doesn't narrow away the killing branch.
+      if ((cancelState as string) === 'killing') return;
+      if (ok) {
+        hardKill();
+      } else {
+        cancelState = 'idle';
+        process.stdout.write(c.dim('continuing…') + '\n');
+      }
+    } catch (err) {
+      // PromptCancelledError (Esc on the prompt) → resume streaming.
+      // Any other error → fall through to hard-kill so the user has an
+      // escape hatch even if the prompt layer is broken.
+      if (err instanceof PromptCancelledError) {
+        cancelState = 'idle';
+        return;
+      }
+      hardKill();
+    }
+  };
+
+  const sigint = (): void => {
+    if (cancelState === 'asking') {
+      hardKill();
+      return;
+    }
+    if (cancelState === 'idle') {
+      void askToCancel();
+    }
+  };
+  process.on('SIGINT', sigint);
 
   try {
     return await new Promise<ExitCode>((resolve) => {

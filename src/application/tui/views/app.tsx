@@ -19,11 +19,17 @@ import { Box, useStdout } from 'ink';
 import { ViewRouter } from './view-router.tsx';
 import type { ViewEntry, ViewId } from './router-context.ts';
 import type { SessionManagerPort } from '../../runtime/session-manager-port.ts';
+import type { SignalBusPort } from '../../../business/ports/signal-bus-port.ts';
 
 export interface AppProps {
   readonly initialView?: ViewId;
   readonly sessionManager: SessionManagerPort;
   readonly sessionId?: string;
+  /**
+   * Optional signal bus — when wired, the ExecuteView subscribes for
+   * live rate-limit pause/resume and task lifecycle events.
+   */
+  readonly signalBus?: SignalBusPort | null;
   /**
    * Override the navigation stack the router seeds with. Used by the
    * mount path on first launch to route directly to project-add (above
@@ -59,7 +65,13 @@ function useTerminalWidth(): number {
   return width;
 }
 
-export function App({ initialView, sessionManager, sessionId, initialStack }: AppProps): React.JSX.Element {
+export function App({
+  initialView,
+  sessionManager,
+  sessionId,
+  signalBus = null,
+  initialStack,
+}: AppProps): React.JSX.Element {
   const terminalWidth = useTerminalWidth();
   const contentWidth = Math.min(terminalWidth, MAX_CONTENT_WIDTH);
   const [stack] = useState<readonly ViewEntry[]>(() => initialStack ?? buildInitialStack(initialView, sessionId));
@@ -67,7 +79,7 @@ export function App({ initialView, sessionManager, sessionId, initialStack }: Ap
   return (
     <Box width={terminalWidth} justifyContent="center">
       <Box flexDirection="column" width={contentWidth}>
-        <ViewRouter initialStack={stack} sessionManager={sessionManager} />
+        <ViewRouter initialStack={stack} sessionManager={sessionManager} signalBus={signalBus} />
       </Box>
     </Box>
   );

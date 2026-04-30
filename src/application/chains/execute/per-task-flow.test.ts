@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { Result } from 'typescript-result';
+import { StorageError } from '../../../domain/errors/storage-error.ts';
+import type { AiSessionPort, SessionResult } from '../../../business/ports/ai-session-port.ts';
+import type { DomainError } from '../../../domain/errors/domain-error.ts';
 import type { HarnessSignal } from '../../../domain/signals/harness-signal.ts';
 import { abs, makeSprint, makeTask } from '../../_test-fakes/fixtures.ts';
 import { createTestDeps } from '../../_test-fakes/create-test-deps.ts';
@@ -220,6 +224,78 @@ describe('createPerTaskFlow', () => {
     // Evaluator was skipped entirely.
     expect(reread.value.evaluated).toBe(false);
     expect(reread.value.evaluationStatus).toBeUndefined();
+  });
+
+  it('on user-initiated abort during execute-task: marks task blocked with reason "cancelled by user", short-circuits the rest of the chain', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+
+    // Custom AiSession that throws an `aborted` kernel error mid-spawn —
+    // mimics the abort propagated by SessionManager.kill() during AI work.
+    // The thrown value carries `code: 'aborted'` so the kernel's
+    // `toKernelError` recognises it as an abort. We extend Error to keep
+    // the lint rule against non-Error rejections happy.
+    class AbortKernelError extends Error {
+      readonly code = 'aborted';
+      constructor() {
+        super('cancelled by user');
+        this.name = 'AbortKernelError';
+      }
+    }
+    const abortingAiSession: AiSessionPort = {
+      spawnHeadless(): Promise<Result<SessionResult, DomainError>> {
+        return Promise.reject(new AbortKernelError());
+      },
+      spawnWithRetry(): Promise<Result<SessionResult, DomainError>> {
+        return Promise.reject(new AbortKernelError());
+      },
+      spawnInteractive(): Promise<Result<void, DomainError>> {
+        return Promise.resolve(Result.error(new StorageError({ subCode: 'io', message: 'unused' })));
+      },
+      resumeSession(): Promise<Result<SessionResult, DomainError>> {
+        return Promise.reject(new AbortKernelError());
+      },
+      ensureReady(): Promise<void> {
+        return Promise.resolve();
+      },
+      getProviderName: () => 'claude',
+      getProviderDisplayName: () => 'Claude',
+      getSpawnEnv: () => ({}),
+    };
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      overrides: { aiSession: abortingAiSession },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    // The chain resolves OK because mark-blocked recovers the abort.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    // execute-task ran (and aborted), then the OnError fallback's
+    // mark-blocked leaf transitioned the task and short-circuited downstream.
+    expect(stepNames).toContain('execute-task');
+    expect(stepNames).toContain('mark-blocked');
+    // Downstream leaves still emit trace entries (kept honest) but no-op.
+    expect(stepNames).toContain('post-task-check');
+    expect(stepNames).toContain('mark-done');
+
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('blocked');
+    expect(reread.value.blockedReason).toBe('cancelled by user');
   });
 
   it('leaves the task in_progress when execute-task does not complete', async () => {
