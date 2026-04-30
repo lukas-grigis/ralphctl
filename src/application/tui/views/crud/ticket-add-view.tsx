@@ -70,7 +70,6 @@ export function TicketAddView(): React.JSX.Element {
         throw err;
       }
 
-      // Title — retry loop on empty input.
       let ticketTitle: string | undefined;
       let titleError: string | null = null;
       while (ticketTitle === undefined) {

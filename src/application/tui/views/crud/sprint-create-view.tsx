@@ -68,7 +68,6 @@ export function SprintCreateView(): React.JSX.Element {
 
       const prompt = await getPrompt();
 
-      // Name prompt — retry loop on empty input.
       let name: string | undefined;
       let nameError: string | null = null;
       while (name === undefined) {
@@ -91,7 +90,6 @@ export function SprintCreateView(): React.JSX.Element {
       }
       const sprintName: string = name;
 
-      // Slug prompt — retry loop on invalid slug.
       let slug: Slug | null = null;
       let slugError: string | null = null;
       while (slug === null) {
@@ -138,7 +136,6 @@ export function SprintCreateView(): React.JSX.Element {
     if (phase.kind !== 'done') return;
 
     if (phase.error === NO_PROJECTS_ERROR) {
-      // No-projects warning: `a` → add project; Enter or Esc → back.
       if (input === 'a') {
         router.replace({ id: 'project-add' });
         return;

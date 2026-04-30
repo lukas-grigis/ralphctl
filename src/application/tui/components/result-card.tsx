@@ -46,14 +46,10 @@ export function ResultCard({ kind, title, fields, nextSteps, lines, hint }: Resu
   const color = COLOR[kind];
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text color={color} bold>
-          {GLYPH[kind]}
-        </Text>
-        <Text color={color} bold>
-          {`  ${title}`}
-        </Text>
-      </Box>
+      <Text color={color} bold>
+        {GLYPH[kind]}
+        {`  ${title}`}
+      </Text>
 
       {fields && fields.length > 0 ? (
         <Box marginTop={spacing.section}>

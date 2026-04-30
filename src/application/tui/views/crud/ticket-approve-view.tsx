@@ -59,7 +59,6 @@ export function TicketApproveView({ ticketId }: Props = {}): React.JSX.Element {
 
       const prompt = await getPrompt();
 
-      // Resolve target ticket — by prop or via picker.
       let pickedTicketId: string;
       if (ticketId !== undefined) {
         const found = pending.find((t) => String(t.id) === ticketId);
@@ -87,7 +86,6 @@ export function TicketApproveView({ ticketId }: Props = {}): React.JSX.Element {
       const ticket = pending.find((t) => String(t.id) === pickedTicketId);
       if (!ticket) throw new Error('Ticket not found.');
 
-      // Requirements editor — retry until non-empty.
       let requirements: string | undefined;
       let editorError: string | null = null;
       while (requirements === undefined) {

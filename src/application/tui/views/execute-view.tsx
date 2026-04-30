@@ -296,11 +296,13 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
           return [...prev, settled];
         });
 
-        // Heuristic: detect rate-limit pause/resume via step name.
-        // When the execute chain exposes a dedicated bus event this can be
-        // replaced with a proper signal subscription.
-        if (entry.stepName === 'rate-limit-paused') setRateLimitVisible(true);
-        if (entry.stepName === 'rate-limit-resumed') setRateLimitVisible(false);
+        // Heuristic: detect rate-limit pause/resume via step name. Skipped
+        // when a signalBus is wired in — the bus subscription below is
+        // authoritative and this fallback would race with it.
+        if (signalBus === undefined || signalBus === null) {
+          if (entry.stepName === 'rate-limit-paused') setRateLimitVisible(true);
+          if (entry.stepName === 'rate-limit-resumed') setRateLimitVisible(false);
+        }
       }
 
       if (event.type === 'started') {
@@ -316,7 +318,7 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
       }
     });
     return unsub;
-  }, [descriptor]);
+  }, [descriptor, signalBus]);
 
   // Live rate-limit pause/resume from the signal bus (preferred over the
   // step-name heuristic above when the bus is wired in).

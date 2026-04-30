@@ -61,7 +61,6 @@ export function TicketAssignReposView({ ticketId }: Props = {}): React.JSX.Eleme
 
       const prompt = await getPrompt();
 
-      // Resolve target ticket — by prop or via picker.
       let pickedTicketId: string;
       if (ticketId !== undefined) {
         pickedTicketId = ticketId;
@@ -87,7 +86,6 @@ export function TicketAssignReposView({ ticketId }: Props = {}): React.JSX.Eleme
       const ticket = sprint.tickets.find((t) => String(t.id) === pickedTicketId);
       if (!ticket) throw new Error('Ticket not found.');
 
-      // Build repo choices from every registered project.
       setStep('Loading projects…');
       const projectsUc = new ListProjectsUseCase(deps.projectRepo);
       const projectsResult = await projectsUc.execute();

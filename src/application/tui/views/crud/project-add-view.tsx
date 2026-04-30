@@ -50,7 +50,6 @@ export function ProjectAddView({ firstLaunch = false }: ProjectAddViewProps = {}
     run('Adding project…', async (setStep) => {
       const prompt = await getPrompt();
 
-      // Project slug — retry loop on invalid name.
       let projectName: ProjectName | null = null;
       let nameError: string | null = null;
       let nameStr = ''; // Preserved for the display name default.

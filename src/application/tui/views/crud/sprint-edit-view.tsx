@@ -43,7 +43,6 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
       const deps = await getSharedDeps();
       const prompt = await getPrompt();
 
-      // Resolve target sprint — by prop or via picker.
       let target: Sprint;
       if (sprintId !== undefined) {
         const parsed = SprintId.parse(sprintId);
@@ -84,7 +83,6 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
         target = found;
       }
 
-      // Name prompt — retry loop on empty.
       let newName: string | undefined;
       let nameError: string | null = null;
       while (newName === undefined) {

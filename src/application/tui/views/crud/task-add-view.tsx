@@ -40,14 +40,12 @@ export function TaskAddView(): React.JSX.Element {
       const idResult = SprintId.parse(sprintIdStr);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
-      // Collect available repo paths from all projects
       setStep('Loading projects…');
       const projectsUc = new ListProjectsUseCase(deps.projectRepo);
       const projectsResult = await projectsUc.execute();
       if (!projectsResult.ok) throw new Error(projectsResult.error.message);
 
       const prompt = await getPrompt();
-      // Task name — retry loop on empty input.
       let taskName: string | undefined;
       let nameError: string | null = null;
       while (taskName === undefined) {
@@ -77,7 +75,6 @@ export function TaskAddView(): React.JSX.Element {
       );
 
       if (repoPaths.length === 0) {
-        // Fall back to manual entry
         try {
           projectPath = await prompt.input({ message: 'Project path (absolute)', default: '' });
         } catch (err) {

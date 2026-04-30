@@ -93,18 +93,14 @@ export function createExecuteFlow(
 ): Element<ExecuteCtx> {
   const concurrency = opts.concurrency ?? 4;
 
-  const perTaskChildren: Element<PerTaskCtx>[] = opts.tasks.map((task) =>
-    createPerTaskFlow(deps, { task, sprint: opts.sprint })
-  );
-
   // Bridge: the outer chain's ExecuteCtx is wider than each per-task
   // chain's PerTaskCtx. Wrap each per-task chain in a leaf-shaped
   // adapter that projects `ExecuteCtx → PerTaskCtx`, runs the inner
   // chain, and folds the result back into ExecuteCtx (we discard the
   // per-task ctx; the outer flow only needs to know the per-task
   // chain's overall success/failure).
-  const adaptedChildren: Element<ExecuteCtx>[] = opts.tasks.map((task, idx) =>
-    bridgePerTaskChain(task, perTaskChildren[idx], opts)
+  const adaptedChildren: Element<ExecuteCtx>[] = opts.tasks.map((task) =>
+    bridgePerTaskChain(task, createPerTaskFlow(deps, { task, sprint: opts.sprint }), opts)
   );
 
   const executeTasksStep = new Parallel<ExecuteCtx>('execute-tasks', adaptedChildren, {
@@ -200,14 +196,7 @@ function uniqueRepoPaths(tasks: readonly Task[]): readonly AbsolutePath[] {
  * directly via `inner.execute(...)`, which is allowed at the chain
  * layer (only use cases are barred from doing this).
  */
-function bridgePerTaskChain(
-  task: Task,
-  inner: Element<PerTaskCtx> | undefined,
-  opts: CreateExecuteFlowOpts
-): Element<ExecuteCtx> {
-  if (!inner) {
-    throw new Error(`bridgePerTaskChain: no inner chain for task ${task.id}`);
-  }
+function bridgePerTaskChain(task: Task, inner: Element<PerTaskCtx>, opts: CreateExecuteFlowOpts): Element<ExecuteCtx> {
   return new Leaf<ExecuteCtx, ExecuteCtx, ExecuteCtx>(`task-${task.id}`, {
     useCase: {
       async execute(input) {

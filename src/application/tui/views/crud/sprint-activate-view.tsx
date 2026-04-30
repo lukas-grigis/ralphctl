@@ -40,7 +40,6 @@ export function SprintActivateView({ sprintId }: Props = {}): React.JSX.Element 
     run('Activating sprint…', async (setStep) => {
       const deps = await getSharedDeps();
 
-      // Resolve target id — prop first, fall back to currentSprint config.
       let idStr: string;
       if (sprintId !== undefined) {
         idStr = sprintId;

@@ -78,7 +78,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
 
       const prompt = await getPrompt();
 
-      // Resolve target task — by prop or via picker.
       let target: Task;
       if (taskId !== undefined) {
         const found = editable.find((t) => String(t.id) === taskId);
@@ -107,7 +106,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         target = found;
       }
 
-      // Name — retry loop on empty.
       let newName: string | undefined;
       let nameError: string | null = null;
       while (newName === undefined) {
@@ -129,7 +127,7 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         }
       }
 
-      // Description — multi-line editor. Empty result clears.
+      // Empty editor result clears the description (null sentinel).
       setStep('Awaiting description…');
       let descriptionInput: string | null | undefined;
       try {
@@ -146,7 +144,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         } else throw err;
       }
 
-      // Steps — one per line via editor.
       setStep('Awaiting steps…');
       let stepsInput: readonly string[] | undefined;
       try {
@@ -160,7 +157,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         } else throw err;
       }
 
-      // Verification criteria — one per line via editor.
       setStep('Awaiting verification criteria…');
       let criteriaInput: readonly string[] | undefined;
       try {
@@ -174,7 +170,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         } else throw err;
       }
 
-      // Extra dimensions — comma-separated.
       setStep('Awaiting extra dimensions…');
       let extraInput: readonly string[] | null | undefined;
       try {
@@ -194,7 +189,6 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         } else throw err;
       }
 
-      // Project path — pick from registered repos or keep current.
       setStep('Loading projects…');
       const projectsUc = new ListProjectsUseCase(deps.projectRepo);
       const projectsResult = await projectsUc.execute();
