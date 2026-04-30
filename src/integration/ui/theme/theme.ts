@@ -70,7 +70,7 @@ export const banner = {
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
 
-export const RALPH_QUOTES = [
+const RALPH_QUOTES = [
   "I'm helping!",
   "Me fail English? That's unpossible!",
   'Go banana!',
@@ -101,66 +101,4 @@ export const RALPH_QUOTES = [
 export function getRandomQuote(): string {
   const index = Math.floor(Math.random() * RALPH_QUOTES.length);
   return RALPH_QUOTES[index] ?? '';
-}
-
-export type QuoteCategory = 'error' | 'success' | 'farewell' | 'idle';
-
-export const QUOTES_BY_CATEGORY: Record<QuoteCategory, readonly string[]> = {
-  error: [
-    'My tummy hurts!',
-    'Tastes like burning!',
-    'I ate the purple berries...',
-    "The doctor said I wouldn't have so many nose bleeds if I kept my finger outta there.",
-    "My parents won't let me use scissors.",
-    'Principal Skinner, I got carsick in your office.',
-  ],
-  success: [
-    "I'm helping!",
-    'Go banana!',
-    "I'm learnding!",
-    "I'm a unitard!",
-    'I dress myself!',
-    'I picked the red one!',
-    "Yay! I'm a helper!",
-  ],
-  farewell: [
-    "Bye bye! My cat's breath smells like cat food!",
-    'When I grow up, I want to be a principal or a caterpillar.',
-    'I sleep in a drawer!',
-    "I'm Idaho!",
-    'The pointy kitty took it!',
-  ],
-  idle: [
-    'Hi, Super Nintendo Chalmers!',
-    'I bent my wookie.',
-    "My cat's breath smells like cat food.",
-    'It smells like hot dogs.',
-    "That's where I saw the leprechaun. He told me to burn things.",
-    "Me fail English? That's unpossible!",
-  ],
-} as const;
-
-export function getQuoteForContext(category: QuoteCategory): string {
-  const quotes = QUOTES_BY_CATEGORY[category];
-  const index = Math.floor(Math.random() * quotes.length);
-  return quotes[index] ?? '';
-}
-
-export const statusEmoji = {
-  todo: '📝',
-  in_progress: '🏃',
-  done: '✅',
-  blocked: '🚫',
-  cancelled: '🛑',
-  skipped: '⏭️',
-  draft: '📋',
-  active: '🎯',
-  closed: '🎉',
-} as const;
-
-export function getStatusEmoji(status: string): string {
-  if (status in statusEmoji) {
-    return statusEmoji[status as keyof typeof statusEmoji];
-  }
-  return status;
 }

@@ -26,7 +26,7 @@ import { Result } from 'typescript-result';
 
 import { EvaluateTaskUseCase, type EvaluationOutcome } from '../../../business/usecases/evaluate/evaluate-task.ts';
 import type { Sprint } from '../../../domain/entities/sprint.ts';
-import { Task } from '../../../domain/entities/task.ts';
+import type { Task } from '../../../domain/entities/task.ts';
 import { NotFoundError } from '../../../domain/errors/not-found-error.ts';
 import type { Element } from '../../../kernel/chain/element.ts';
 import { Leaf } from '../../../kernel/chain/leaf.ts';
@@ -71,11 +71,8 @@ export function createEvaluateFlow(
   ]);
 }
 
-/**
- * Build a load-task leaf — exported so per-task chains can reuse the
- * same step name + adapter shape.
- */
-export function loadTaskLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<EvaluateCtx> {
+/** Build a load-task leaf for the evaluate flow's per-task pipeline. */
+function loadTaskLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<EvaluateCtx> {
   return new Leaf<EvaluateCtx, { readonly sprintId: SprintId; readonly taskId: TaskId }, Task>('load-task', {
     useCase: {
       async execute(input) {

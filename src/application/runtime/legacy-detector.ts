@@ -18,13 +18,13 @@ import { join } from 'node:path';
 
 import { AbsolutePath } from '../../domain/values/absolute-path.ts';
 
-export interface LegacyDetection {
+interface LegacyDetection {
   readonly isLegacy: boolean;
   readonly legacyConfigPath: AbsolutePath | null;
   readonly hint: string;
 }
 
-export interface LegacyDetectorDeps {
+interface LegacyDetectorDeps {
   /**
    * Override the root directory checked for the legacy `config.json` marker.
    * Defaults to `RALPHCTL_ROOT` env var or `~/.ralphctl`. Tests pass an

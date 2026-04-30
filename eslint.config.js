@@ -2,6 +2,8 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
+import importPlugin from 'eslint-plugin-import-x';
+import vitest from '@vitest/eslint-plugin';
 import globals from 'globals';
 
 export default tseslint.config(
@@ -25,6 +27,43 @@ export default tseslint.config(
   {
     ignores: ['dist/', 'node_modules/', 'coverage/', '*.config.js', '*.config.ts'],
   },
+  // consistent-type-imports — `import type` for type-only imports keeps the
+  // emitted JS small and clarifies intent. `separate-type-imports` keeps the
+  // type and value imports as distinct statements (no `import { type X, y }`
+  // mixes), which plays nicer with TS isolatedModules.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
+      ],
+    },
+  },
+  // no-default-export — every export is named. Defaults are easy to rename at
+  // import sites and harder to grep for. There are zero legitimate defaults in
+  // this repo (no React component conventions that require it, no module that
+  // ships a single value).
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { 'import-x': importPlugin },
+    rules: {
+      'import-x/no-default-export': 'error',
+    },
+  },
+  // vitest — guards against typical test-suite footguns: stray .only/.skip
+  // committed by accident, malformed expects, and looser equality. Test files
+  // only — production code never imports vitest.
+  {
+    files: ['src/**/*.test.{ts,tsx}', 'src/__e2e__/**/*.{ts,tsx}'],
+    plugins: { vitest },
+    rules: {
+      'vitest/no-focused-tests': 'error',
+      'vitest/no-disabled-tests': 'error',
+      'vitest/valid-expect': 'error',
+      'vitest/prefer-strict-equal': 'warn',
+    },
+  },
   // React hooks — catches stale-closure bugs (e.g. useEffect with empty deps array
   // capturing a router or other reactive value). Pair: rules-of-hooks (correctness)
   // + exhaustive-deps (warning, since some patterns are intentional).
@@ -37,13 +76,9 @@ export default tseslint.config(
     },
   },
   // no-console — business/UI/integration code must route through LoggerPort.
-  // Two narrow exceptions:
-  //   1) Listener-error swallow files — pre-logger pub/sub primitives must not
-  //      route their own failures through the logger. They use `console.warn`
-  //      with an inline rationale comment.
-  //   2) Plain-text CLI presentation (`theme/ui.ts`) — the canonical stdout
-  //      formatter facade. `PlainTextSink` is layered on top of these
-  //      formatters; this file IS the stdout boundary.
+  // Narrow exception: listener-error swallow files — pre-logger pub/sub
+  // primitives must not route their own failures through the logger. They
+  // use `console.warn` with an inline rationale comment.
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: [
@@ -55,7 +90,6 @@ export default tseslint.config(
       'src/integration/logging/log-event-bus.ts',
       'src/kernel/runtime/chain-runner.ts',
       'src/application/runtime/session-manager.ts',
-      'src/integration/ui/theme/ui.ts',
     ],
     rules: {
       'no-console': 'error',
@@ -72,12 +106,6 @@ export default tseslint.config(
     ],
     rules: {
       'no-console': ['error', { allow: ['warn'] }],
-    },
-  },
-  {
-    files: ['src/integration/ui/theme/ui.ts'],
-    rules: {
-      'no-console': ['error', { allow: ['log', 'error'] }],
     },
   },
   // Clean Architecture layer fence (src/). Dependencies point inward only:
