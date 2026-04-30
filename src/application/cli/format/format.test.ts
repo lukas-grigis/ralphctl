@@ -13,6 +13,9 @@ import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
+import { NotFoundError } from '../../../domain/errors/not-found-error.ts';
+import { StorageError } from '../../../domain/errors/storage-error.ts';
+import { formatError } from './format-error.ts';
 import { formatProjectCard, formatProjectLine } from './format-project.ts';
 import { formatSprintCard, formatSprintLine, formatSprintStatus } from './format-sprint.ts';
 import { formatTaskCard, formatTaskLine, formatTaskStatus } from './format-task.ts';
@@ -150,6 +153,34 @@ describe('format-project', () => {
       'project'
     );
     expect(formatProjectLine(project)).toContain('1/2 onboarded');
+  });
+});
+
+describe('format-error', () => {
+  it('renders the error tag, code, and message on the first line', () => {
+    const err = new NotFoundError({ entity: 'sprint', id: 'x' });
+    const out = formatError(err);
+    expect(out).toContain('error');
+    expect(out).toContain('not-found');
+    expect(out).toContain("sprint 'x' not found");
+  });
+
+  it('appends a hint line when the error carries a hint', () => {
+    const err = new NotFoundError({
+      entity: 'sprint',
+      id: 'x',
+      hint: 'Run `ralphctl sprint list`.',
+    });
+    const out = formatError(err);
+    expect(out).toMatch(/hint:.*sprint list/);
+    expect(out.split('\n').length).toBe(2);
+  });
+
+  it('omits the hint line when no hint is present', () => {
+    const err = new StorageError({ subCode: 'io', message: 'read failed' });
+    const out = formatError(err);
+    expect(out).not.toContain('hint:');
+    expect(out.split('\n').length).toBe(1);
   });
 });
 

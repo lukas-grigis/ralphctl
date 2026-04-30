@@ -155,6 +155,7 @@ export function TicketAssignReposView({ ticketId }: Props = {}): React.JSX.Eleme
           kind="error"
           title="Failed to assign repositories"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (

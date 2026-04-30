@@ -24,6 +24,8 @@ interface ResultCardProps {
   readonly nextSteps?: readonly ResultNextStep[];
   /** Free-form dim lines rendered under the fields (extra paths, hints). */
   readonly lines?: readonly string[];
+  /** Single repair hint rendered as a dim line prefixed with `↳ hint:`. */
+  readonly hint?: string;
 }
 
 const GLYPH: Record<ResultKind, string> = {
@@ -40,7 +42,7 @@ const COLOR: Record<ResultKind, string> = {
   info: inkColors.info,
 };
 
-export function ResultCard({ kind, title, fields, nextSteps, lines }: ResultCardProps): React.JSX.Element {
+export function ResultCard({ kind, title, fields, nextSteps, lines, hint }: ResultCardProps): React.JSX.Element {
   const color = COLOR[kind];
   return (
     <Box flexDirection="column">
@@ -66,6 +68,12 @@ export function ResultCard({ kind, title, fields, nextSteps, lines }: ResultCard
               <Text dimColor>{line}</Text>
             </Box>
           ))}
+        </Box>
+      ) : null}
+
+      {hint !== undefined && hint.length > 0 ? (
+        <Box marginTop={spacing.section}>
+          <Text dimColor>{`${glyphs.activityArrow} hint: ${hint}`}</Text>
         </Box>
       ) : null}
 

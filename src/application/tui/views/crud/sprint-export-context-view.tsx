@@ -87,6 +87,7 @@ export function SprintExportContextView(): React.JSX.Element {
           kind="error"
           title="Failed to export context"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (

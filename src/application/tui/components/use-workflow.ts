@@ -31,8 +31,8 @@ import { useCallback, useState } from 'react';
 export type WorkflowPhase<T> =
   | { readonly kind: 'idle' }
   | { readonly kind: 'running'; readonly label: string }
-  | { readonly kind: 'done'; readonly value: T; readonly error: null }
-  | { readonly kind: 'done'; readonly value: null; readonly error: string };
+  | { readonly kind: 'done'; readonly value: T; readonly error: null; readonly hint?: undefined }
+  | { readonly kind: 'done'; readonly value: null; readonly error: string; readonly hint?: string };
 
 export interface WorkflowHook<T> {
   readonly phase: WorkflowPhase<T>;
@@ -58,7 +58,21 @@ export function useWorkflow<T = void>(): WorkflowHook<T> {
       },
       (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        setPhase({ kind: 'done', value: null, error: message });
+        // Surface a `hint` carried by domain errors (and any Error subclass that
+        // assigns a string `hint` field) so views can pass it to ResultCard.
+        const hint =
+          typeof err === 'object' &&
+          err !== null &&
+          'hint' in err &&
+          typeof (err as { hint?: unknown }).hint === 'string'
+            ? (err as { hint: string }).hint
+            : undefined;
+        setPhase({
+          kind: 'done',
+          value: null,
+          error: message,
+          ...(hint !== undefined && hint.length > 0 ? { hint } : {}),
+        });
       }
     );
   }, []);

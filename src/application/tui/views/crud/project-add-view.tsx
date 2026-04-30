@@ -18,6 +18,7 @@ import { useInput } from 'ink';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { Spinner } from '../../components/spinner.tsx';
 import { ResultCard } from '../../components/result-card.tsx';
+import { FirstLaunchIntroCard } from '../../components/first-launch-intro-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
@@ -31,7 +32,16 @@ import type { Project } from '../../../../domain/entities/project.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
-export function ProjectAddView(): React.JSX.Element {
+export interface ProjectAddViewProps {
+  /**
+   * Render the first-launch intro card above the form. Set when the boot
+   * path routed the user here because they have no projects yet — see
+   * `isFirstLaunch` in `runtime/first-launch.ts`.
+   */
+  readonly firstLaunch?: boolean;
+}
+
+export function ProjectAddView({ firstLaunch = false }: ProjectAddViewProps = {}): React.JSX.Element {
   useViewHints(HINTS);
   const router = useRouter();
   const { phase, run } = useWorkflow<Project>();
@@ -140,6 +150,7 @@ export function ProjectAddView(): React.JSX.Element {
 
   return (
     <ViewShell title="ADD PROJECT">
+      {firstLaunch ? <FirstLaunchIntroCard /> : null}
       {phase.kind === 'idle' || phase.kind === 'running' ? (
         <Spinner label={phase.kind === 'running' ? phase.label : 'Starting…'} />
       ) : phase.error !== null ? (
@@ -147,6 +158,7 @@ export function ProjectAddView(): React.JSX.Element {
           kind="error"
           title="Failed to add project"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (

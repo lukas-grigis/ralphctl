@@ -168,6 +168,7 @@ export function SprintCreateView(): React.JSX.Element {
             kind="error"
             title="Failed to create sprint"
             lines={[phase.error]}
+            {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
             nextSteps={[{ action: 'Press Enter to go back' }]}
           />
         )

@@ -152,6 +152,7 @@ export function TaskEditStatusView(): React.JSX.Element {
           kind="error"
           title="Failed to update task"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (

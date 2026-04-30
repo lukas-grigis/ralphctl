@@ -105,6 +105,7 @@ export function SprintActivateView({ sprintId }: Props = {}): React.JSX.Element 
           kind="error"
           title="Failed to activate sprint"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (

@@ -10,12 +10,11 @@
  * Workflow commands that launch a chain via `SessionManager` do their
  * own streaming; they don't go through this helper.
  */
-import * as c from 'colorette';
-
 import type { DomainError } from '../../domain/errors/domain-error.ts';
 import type { Result } from '../../domain/result.ts';
 import type { SharedDeps } from '../bootstrap/shared-deps.ts';
 import { EXIT_ERROR, EXIT_SUCCESS, type ExitCode } from './exit-codes.ts';
+import { formatError } from './format/format-error.ts';
 
 /** Format function: render the command's success value to stdout. */
 export type Formatter<TResult> = (deps: SharedDeps, result: TResult) => string | undefined;
@@ -54,15 +53,7 @@ export async function runCommand<TResult>(options: RunCommandOptions<TResult>): 
 
 /** Render a domain error to stderr in a uniform shape. */
 export function printError(deps: SharedDeps, error: DomainError): void {
-  const tag = c.red(c.bold('error'));
-  const code = c.dim(`[${error.code}]`);
-  process.stderr.write(`${tag} ${code} ${error.message}\n`);
-  // Hint discoverability — many domain errors carry a `hint` field; the
-  // shape isn't fully unified across subclasses so we narrow defensively.
-  const candidate = error as unknown as { hint?: unknown };
-  if (typeof candidate.hint === 'string' && candidate.hint.length > 0) {
-    process.stderr.write(`  ${c.dim('hint:')} ${candidate.hint}\n`);
-  }
+  process.stderr.write(`${formatError(error)}\n`);
   // Structured log for non-TTY consumers (the JsonlSink also captures it).
   deps.logger.error('command failed', { code: error.code, message: error.message });
 }

@@ -125,6 +125,7 @@ export function ProjectRepoRemoveView(): React.JSX.Element {
           kind="error"
           title="Failed to remove repository"
           lines={[phase.error]}
+          {...(phase.hint !== undefined ? { hint: phase.hint } : {})}
           nextSteps={[{ action: 'Press Enter to go back' }]}
         />
       ) : (
