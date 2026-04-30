@@ -116,7 +116,7 @@ export function ProjectEditView(): React.JSX.Element {
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

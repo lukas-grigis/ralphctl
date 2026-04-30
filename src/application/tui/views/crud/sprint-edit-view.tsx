@@ -133,7 +133,7 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     });
-  }, [sprintId]);
+  }, [run, router, sprintId]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

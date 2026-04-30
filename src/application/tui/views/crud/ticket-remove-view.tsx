@@ -96,7 +96,7 @@ export function TicketRemoveView(): React.JSX.Element {
 
       return ticketTitle;
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

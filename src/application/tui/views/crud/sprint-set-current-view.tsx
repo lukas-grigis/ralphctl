@@ -81,7 +81,7 @@ export function SprintSetCurrentView(): React.JSX.Element {
       const found = list.value.find((s) => String(s.id) === picked);
       return { cleared: false, sprintName: found?.name ?? picked };
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

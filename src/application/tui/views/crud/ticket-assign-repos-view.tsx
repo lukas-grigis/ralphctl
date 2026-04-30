@@ -138,7 +138,7 @@ export function TicketAssignReposView({ ticketId }: Props = {}): React.JSX.Eleme
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     });
-  }, [ticketId]);
+  }, [run, router, ticketId]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

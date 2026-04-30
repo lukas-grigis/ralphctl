@@ -130,7 +130,7 @@ export function SprintCreateView(): React.JSX.Element {
 
       return result.value;
     });
-  }, []);
+  }, [run, router]);
 
   useInput((input, key) => {
     if (phase.kind !== 'done') return;

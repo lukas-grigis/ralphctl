@@ -87,7 +87,7 @@ export function ProjectRemoveView(): React.JSX.Element {
 
       return displayName;
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

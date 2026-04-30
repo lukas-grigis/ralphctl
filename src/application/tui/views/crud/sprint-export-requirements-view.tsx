@@ -74,7 +74,7 @@ export function SprintExportRequirementsView(): React.JSX.Element {
 
       return { path: String(result.value.path), byteCount: result.value.byteCount };
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();

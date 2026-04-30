@@ -96,7 +96,7 @@ export function TaskRemoveView(): React.JSX.Element {
 
       return taskName;
     });
-  }, []);
+  }, [run, router]);
 
   useInput((_input, key) => {
     if (phase.kind === 'done' && key.return) router.pop();
