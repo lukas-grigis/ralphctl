@@ -5,10 +5,9 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { ListTasksUseCase } from '../../../business/usecases/task/list-tasks.ts';
-import { Result } from '../../../domain/result.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatTaskLine } from '../format/format-task.ts';
 
@@ -31,8 +30,8 @@ export async function runTaskList(deps: SharedDeps, opts: TaskListFlags): Promis
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
       return new ListTasksUseCase(deps.taskRepo).execute({ sprintId: sprintId.value });
     },
     format: (_d, tasks) => {

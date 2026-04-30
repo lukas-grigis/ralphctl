@@ -15,7 +15,7 @@ import { Result } from '../../../domain/result.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { TaskId } from '../../../domain/values/task-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 const VALID_ACTIONS: readonly EditTaskStatusActionKind[] = ['mark-in-progress', 'mark-done', 'mark-blocked', 'unblock'];
@@ -45,10 +45,10 @@ export async function runTaskEditStatus(deps: SharedDeps, opts: TaskEditStatusFl
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const taskId = TaskId.parse(opts.task);
-      if (!taskId.ok) return Result.error(taskId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const taskId = parseId(TaskId, opts.task);
+      if (!taskId.ok) return taskId;
       if (!isValidActionKind(opts.action)) {
         return Result.error(
           new ValidationError({

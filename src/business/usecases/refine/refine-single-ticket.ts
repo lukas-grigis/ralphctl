@@ -8,7 +8,7 @@
  * This class only owns the AI round-trip + entity transition.
  */
 import type { Sprint } from '../../../domain/entities/sprint.ts';
-import { Ticket } from '../../../domain/entities/ticket.ts';
+import type { Ticket } from '../../../domain/entities/ticket.ts';
 import type { DomainError } from '../../../domain/errors/domain-error.ts';
 import { InvalidStateError } from '../../../domain/errors/invalid-state-error.ts';
 import { Result } from '../../../domain/result.ts';

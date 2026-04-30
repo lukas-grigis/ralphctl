@@ -4,10 +4,9 @@
 import type { Command } from 'commander';
 
 import { ShowSprintUseCase } from '../../../business/usecases/sprint/show-sprint.ts';
-import { Result } from '../../../domain/result.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatSprintCard, formatTicketsTable } from '../format/format-sprint.ts';
 
@@ -25,8 +24,8 @@ export async function runSprintShow(deps: SharedDeps, id: string): Promise<ExitC
   return runCommand({
     deps,
     body: async () => {
-      const parsed = SprintId.parse(id);
-      if (!parsed.ok) return Result.error(parsed.error);
+      const parsed = parseId(SprintId, id);
+      if (!parsed.ok) return parsed;
       return new ShowSprintUseCase(deps.sprintRepo).execute({ id: parsed.value });
     },
     format: (_d, sprint) => `${formatSprintCard(sprint)}\n${formatTicketsTable(sprint)}`,

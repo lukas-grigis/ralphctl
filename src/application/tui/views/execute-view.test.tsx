@@ -11,7 +11,7 @@ import type { SignalBusPort, SignalBusEvent } from '../../../business/ports/sign
 import type { ChainRunnerListener } from '../../../kernel/runtime/chain-runner.ts';
 import type { ChainTraceEntry } from '../../../kernel/chain/element.ts';
 import { Result } from 'typescript-result';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 
 // ── fakes ─────────────────────────────────────────────────────────────────────
 

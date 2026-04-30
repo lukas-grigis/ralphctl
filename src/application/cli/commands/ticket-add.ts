@@ -5,11 +5,10 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { AddTicketUseCase } from '../../../business/usecases/ticket/add-ticket.ts';
-import { Result } from '../../../domain/result.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TicketAddFlags {
@@ -39,10 +38,10 @@ export async function runTicketAdd(deps: SharedDeps, opts: TicketAddFlags): Prom
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const projectName = ProjectName.parse(opts.project);
-      if (!projectName.ok) return Result.error(projectName.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const projectName = parseId(ProjectName, opts.project);
+      if (!projectName.ok) return projectName;
 
       const useCase = new AddTicketUseCase(deps.sprintRepo);
       return useCase.execute({

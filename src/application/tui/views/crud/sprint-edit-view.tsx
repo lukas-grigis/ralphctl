@@ -19,12 +19,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { EditSprintUseCase } from '../../../../business/usecases/sprint/edit-sprint.ts';
 import { ListSprintsUseCase } from '../../../../business/usecases/sprint/list-sprints.ts';
 import { ShowSprintUseCase } from '../../../../business/usecases/sprint/show-sprint.ts';
 import { SprintId } from '../../../../domain/values/sprint-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
@@ -60,22 +60,15 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
         if (editable.length === 0) throw new Error('No editable sprints (all are closed or empty).');
 
         setStep('Awaiting sprint selection…');
-        let pickedId: string;
-        try {
-          pickedId = await prompt.select<string>({
+        const pickedId = await promptOrPop(router, () =>
+          prompt.select<string>({
             message: 'Select sprint to edit',
             choices: editable.map((s) => ({
               label: `${s.name} [${s.status}]`,
               value: String(s.id),
             })),
-          });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+          })
+        );
         const parsed = SprintId.parse(pickedId);
         if (!parsed.ok) throw new Error(parsed.error.message);
         const found = editable.find((s) => String(s.id) === pickedId);
@@ -87,16 +80,9 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
       let nameError: string | null = null;
       while (newName === undefined) {
         setStep(nameError !== null ? `${nameError} — try again…` : 'Awaiting new name…');
-        let raw: string;
-        try {
-          raw = (await prompt.input({ message: 'Sprint name', default: target.name })).trim();
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const raw = (
+          await promptOrPop(router, () => prompt.input({ message: 'Sprint name', default: target.name }))
+        ).trim();
         if (raw === '') {
           nameError = 'Sprint name cannot be empty';
         } else {
@@ -106,19 +92,12 @@ export function SprintEditView({ sprintId }: Props = {}): React.JSX.Element {
 
       // Branch prompt. Empty string => clear (null). Default = current branch.
       setStep('Awaiting branch…');
-      let rawBranch: string;
-      try {
-        rawBranch = await prompt.input({
+      const rawBranch = await promptOrPop(router, () =>
+        prompt.input({
           message: 'Branch (empty to clear)',
           default: target.branch ?? '',
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
       const trimmedBranch = rawBranch.trim();
       const branchInput: string | null | undefined =
         trimmedBranch === '' ? (target.branch !== null ? null : undefined) : trimmedBranch;

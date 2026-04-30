@@ -12,7 +12,7 @@ import { Result } from '../../../domain/result.ts';
 import { ValidationError } from '../../../domain/values/validation-error.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface SprintSetCurrentFlags {
@@ -54,8 +54,8 @@ export async function runSprintSetCurrent(deps: SharedDeps, opts: SprintSetCurre
       }
 
       // opts.id is defined here.
-      const id = SprintId.parse(opts.id ?? '');
-      if (!id.ok) return Result.error(id.error);
+      const id = parseId(SprintId, opts.id ?? '');
+      if (!id.ok) return id;
       const r = await useCase.execute({ id: id.value });
       if (!r.ok) return Result.error(r.error);
       return Result.ok({ cleared: false });

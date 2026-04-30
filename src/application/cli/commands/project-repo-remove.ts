@@ -3,12 +3,11 @@
  */
 import type { Command } from 'commander';
 
-import { Result } from '../../../domain/result.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { RemoveRepositoryFromProjectUseCase } from '../../../business/usecases/project/remove-repository-from-project.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatProjectCard } from '../format/format-project.ts';
 
@@ -33,10 +32,10 @@ export async function runProjectRepoRemove(deps: SharedDeps, opts: ProjectRepoRe
   return runCommand({
     deps,
     body: async () => {
-      const projectName = ProjectName.parse(opts.project);
-      if (!projectName.ok) return Result.error(projectName.error);
-      const path = AbsolutePath.parse(opts.path);
-      if (!path.ok) return Result.error(path.error);
+      const projectName = parseId(ProjectName, opts.project);
+      if (!projectName.ok) return projectName;
+      const path = parseId(AbsolutePath, opts.path);
+      if (!path.ok) return path;
       const useCase = new RemoveRepositoryFromProjectUseCase(deps.projectRepo);
       return useCase.execute({
         projectName: projectName.value,

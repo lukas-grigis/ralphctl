@@ -17,12 +17,13 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { ActivateSprintUseCase } from '../../../../business/usecases/sprint/activate-sprint.ts';
 import { ShowSprintUseCase } from '../../../../business/usecases/sprint/show-sprint.ts';
 import { IsoTimestamp } from '../../../../domain/values/iso-timestamp.ts';
 import { SprintId } from '../../../../domain/values/sprint-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
@@ -40,23 +41,20 @@ export function SprintActivateView({ sprintId }: Props = {}): React.JSX.Element 
     run('Activating sprint…', async (setStep) => {
       const deps = await getSharedDeps();
 
-      let idStr: string;
+      let resolvedId;
       if (sprintId !== undefined) {
-        idStr = sprintId;
+        const parsed = SprintId.parse(sprintId);
+        if (!parsed.ok) throw new Error(parsed.error.message);
+        resolvedId = parsed.value;
       } else {
-        const config = await deps.configStore.load();
-        if (!config.ok) throw new Error(config.error.message);
-        if (!config.value.currentSprint) {
-          throw new Error('No sprint selected. Open this from the sprint list, or set a current sprint.');
-        }
-        idStr = config.value.currentSprint;
+        const resolved = await resolveCurrentSprintId(deps.configStore);
+        if (!resolved.ok) throw new Error(resolved.error.message);
+        resolvedId = resolved.value;
       }
-      const parsed = SprintId.parse(idStr);
-      if (!parsed.ok) throw new Error(parsed.error.message);
 
       setStep('Loading sprint…');
       const showUc = new ShowSprintUseCase(deps.sprintRepo);
-      const found = await showUc.execute({ id: parsed.value });
+      const found = await showUc.execute({ id: resolvedId });
       if (!found.ok) throw new Error(found.error.message);
       const sprint = found.value;
 
@@ -66,26 +64,19 @@ export function SprintActivateView({ sprintId }: Props = {}): React.JSX.Element 
 
       const prompt = await getPrompt();
       setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
+      const confirmed = await promptOrPop(router, () =>
+        prompt.confirm({
           message: `Activate sprint "${sprint.name}"?`,
           default: true,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
       if (!confirmed) {
         throw new Error('Cancelled.');
       }
 
       setStep('Activating…');
       const uc = new ActivateSprintUseCase(deps.sprintRepo);
-      const result = await uc.execute({ id: parsed.value, now: IsoTimestamp.now() });
+      const result = await uc.execute({ id: resolvedId, now: IsoTimestamp.now() });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     });

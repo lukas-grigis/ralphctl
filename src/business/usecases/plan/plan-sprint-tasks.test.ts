@@ -5,7 +5,7 @@ import { Task } from '../../../domain/entities/task.ts';
 import { Ticket } from '../../../domain/entities/ticket.ts';
 import { StorageError } from '../../../domain/errors/storage-error.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { TicketId } from '../../../domain/values/ticket-id.ts';

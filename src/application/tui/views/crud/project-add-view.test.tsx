@@ -13,6 +13,7 @@ import { ProjectName } from '../../../../domain/values/project-name.ts';
 import { AbsolutePath } from '../../../../domain/values/absolute-path.ts';
 import { Result } from 'typescript-result';
 import { NotFoundError } from '../../../../domain/errors/not-found-error.ts';
+import type { DomainError } from '../../../../domain/errors/domain-error.ts';
 
 function makeRouter() {
   return {
@@ -128,7 +129,7 @@ describe('ProjectAddView', () => {
             Result.error({
               message: 'DB error',
               code: 'storage-error',
-            } as unknown as import('../../../../domain/errors/domain-error.ts').DomainError)
+            } as unknown as DomainError)
           )
         ),
         list: vi.fn(() => Promise.resolve(Result.ok([]))),

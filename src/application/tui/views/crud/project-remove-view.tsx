@@ -14,11 +14,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { runSelectConfirmRemove } from '../../components/run-select-confirm-remove.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { RemoveProjectUseCase } from '../../../../business/usecases/project/remove-project.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
 import { ProjectName } from '../../../../domain/values/project-name.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -38,54 +38,25 @@ export function ProjectRemoveView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting project selection…');
-      let projectNameStr: string;
-      try {
-        projectNameStr = await prompt.select<string>({
-          message: 'Select project to remove',
-          choices: listed.value.map((p) => ({
-            label: `${p.displayName} (${String(p.name)})`,
-            value: String(p.name),
-          })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-
-      const project = listed.value.find((p) => String(p.name) === projectNameStr);
-      const displayName = project?.displayName ?? projectNameStr;
-
-      setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
-          message: `Remove project "${displayName}"? This cannot be undone.`,
-          default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-      if (!confirmed) {
-        router.pop();
-        throw new Error('Cancelled.');
-      }
-
-      const nameResult = ProjectName.parse(projectNameStr);
-      if (!nameResult.ok) throw new Error(nameResult.error.message);
-
-      setStep('Removing project…');
       const uc = new RemoveProjectUseCase(deps.projectRepo);
-      const result = await uc.execute({ name: nameResult.value });
-      if (!result.ok) throw new Error(result.error.message);
+      const removed = await runSelectConfirmRemove({
+        prompt,
+        router,
+        items: listed.value,
+        selectMessage: 'Select project to remove',
+        itemLabel: (p) => `${p.displayName} (${String(p.name)})`,
+        itemId: (p) => String(p.name),
+        confirmMessage: (p) => `Remove project "${p.displayName}"? This cannot be undone.`,
+        remove: async (name) => {
+          const nameResult = ProjectName.parse(name);
+          if (!nameResult.ok) throw new Error(nameResult.error.message);
+          setStep('Removing project…');
+          const result = await uc.execute({ name: nameResult.value });
+          if (!result.ok) throw new Error(result.error.message);
+        },
+      });
 
-      return displayName;
+      return removed.displayName;
     });
   }, [run, router]);
 

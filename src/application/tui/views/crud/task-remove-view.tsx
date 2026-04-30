@@ -15,12 +15,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { runSelectConfirmRemove } from '../../components/run-select-confirm-remove.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { RemoveTaskUseCase } from '../../../../business/usecases/task/remove-task.ts';
 import { ListTasksUseCase } from '../../../../business/usecases/task/list-tasks.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { TaskId } from '../../../../domain/values/task-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -32,11 +32,7 @@ export function TaskRemoveView(): React.JSX.Element {
   useEffect(() => {
     run('Removing task…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading tasks…');
@@ -47,54 +43,25 @@ export function TaskRemoveView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting task selection…');
-      let taskIdStr: string;
-      try {
-        taskIdStr = await prompt.select<string>({
-          message: 'Select task to remove',
-          choices: tasksResult.value.map((t) => ({
-            label: `#${String(t.order)} [${t.status.toUpperCase()}] ${t.name}`,
-            value: String(t.id),
-          })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-
-      const task = tasksResult.value.find((t) => String(t.id) === taskIdStr);
-      const taskName = task?.name ?? taskIdStr;
-
-      setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
-          message: `Remove task "${taskName}"?`,
-          default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-      if (!confirmed) {
-        router.pop();
-        throw new Error('Cancelled.');
-      }
-
-      const taskIdResult = TaskId.parse(taskIdStr);
-      if (!taskIdResult.ok) throw new Error(taskIdResult.error.message);
-
-      setStep('Removing task…');
       const uc = new RemoveTaskUseCase(deps.taskRepo);
-      const result = await uc.execute({ sprintId: idResult.value, taskId: taskIdResult.value });
-      if (!result.ok) throw new Error(result.error.message);
+      const removed = await runSelectConfirmRemove({
+        prompt,
+        router,
+        items: tasksResult.value,
+        selectMessage: 'Select task to remove',
+        itemLabel: (t) => `#${String(t.order)} [${t.status.toUpperCase()}] ${t.name}`,
+        itemId: (t) => String(t.id),
+        confirmMessage: (t) => `Remove task "${t.name}"?`,
+        remove: async (id) => {
+          const taskIdResult = TaskId.parse(id);
+          if (!taskIdResult.ok) throw new Error(taskIdResult.error.message);
+          setStep('Removing task…');
+          const result = await uc.execute({ sprintId: idResult.value, taskId: taskIdResult.value });
+          if (!result.ok) throw new Error(result.error.message);
+        },
+      });
 
-      return taskName;
+      return removed.name;
     });
   }, [run, router]);
 

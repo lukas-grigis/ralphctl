@@ -9,12 +9,11 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { EditTaskUseCase } from '../../../business/usecases/task/edit-task.ts';
-import { Result } from '../../../domain/result.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { TaskId } from '../../../domain/values/task-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TaskEditFlags {
@@ -52,23 +51,23 @@ export async function runTaskEdit(deps: SharedDeps, opts: TaskEditFlags): Promis
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const taskId = TaskId.parse(opts.task);
-      if (!taskId.ok) return Result.error(taskId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const taskId = parseId(TaskId, opts.task);
+      if (!taskId.ok) return taskId;
 
       let projectPath;
       if (opts.projectPath !== undefined) {
-        const parsed = AbsolutePath.parse(opts.projectPath);
-        if (!parsed.ok) return Result.error(parsed.error);
+        const parsed = parseId(AbsolutePath, opts.projectPath);
+        if (!parsed.ok) return parsed;
         projectPath = parsed.value;
       }
 
       const blockedBy: TaskId[] = [];
       if (opts.blockedBy !== undefined) {
         for (const raw of opts.blockedBy) {
-          const parsedDep = TaskId.parse(raw);
-          if (!parsedDep.ok) return Result.error(parsedDep.error);
+          const parsedDep = parseId(TaskId, raw);
+          if (!parsedDep.ok) return parsedDep;
           blockedBy.push(parsedDep.value);
         }
       }

@@ -20,10 +20,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { AddTicketUseCase } from '../../../../business/usecases/ticket/add-ticket.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { ProjectName } from '../../../../domain/values/project-name.ts';
 import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
@@ -38,11 +39,7 @@ export function TicketAddView(): React.JSX.Element {
   useEffect(() => {
     run('Adding ticket…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading projects…');
@@ -53,37 +50,21 @@ export function TicketAddView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting project selection…');
-      let projectNameStr: string;
-      try {
-        projectNameStr = await prompt.select<string>({
+      const projectNameStr = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Project',
           choices: projectsResult.value.map((p) => ({
             label: `${p.displayName} (${String(p.name)})`,
             value: String(p.name),
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       let ticketTitle: string | undefined;
       let titleError: string | null = null;
       while (ticketTitle === undefined) {
         setStep(titleError !== null ? `${titleError} — try again…` : 'Awaiting ticket title…');
-        let rawTitle: string;
-        try {
-          rawTitle = (await prompt.input({ message: 'Title', default: '' })).trim();
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const rawTitle = (await promptOrPop(router, () => prompt.input({ message: 'Title', default: '' }))).trim();
         if (rawTitle === '') {
           titleError = 'Title cannot be empty';
         } else {
@@ -103,17 +84,10 @@ export function TicketAddView(): React.JSX.Element {
       }
 
       setStep('Awaiting link…');
-      let link: string | undefined;
-      try {
-        const raw = await prompt.input({ message: 'Link (optional URL, leave blank to skip)', default: '' });
-        link = raw.trim() !== '' ? raw.trim() : undefined;
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const linkRaw = await promptOrPop(router, () =>
+        prompt.input({ message: 'Link (optional URL, leave blank to skip)', default: '' })
+      );
+      const link: string | undefined = linkRaw.trim() !== '' ? linkRaw.trim() : undefined;
 
       const projectNameResult = ProjectName.parse(projectNameStr);
       if (!projectNameResult.ok) throw new Error(projectNameResult.error.message);

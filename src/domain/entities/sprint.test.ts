@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AbsolutePath } from '../values/absolute-path.ts';
-import { IsoTimestamp } from '../values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../values/iso-timestamp.ts';
 import { ProjectName } from '../values/project-name.ts';
 import { Slug } from '../values/slug.ts';
 import { TicketId } from '../values/ticket-id.ts';

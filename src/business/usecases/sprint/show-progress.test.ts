@@ -8,7 +8,7 @@ import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
-import { TaskId } from '../../../domain/values/task-id.ts';
+import type { TaskId } from '../../../domain/values/task-id.ts';
 import { InMemoryProjectRepository } from '../../_test-fakes/in-memory-project-repository.ts';
 import { InMemorySprintRepository } from '../../_test-fakes/in-memory-sprint-repository.ts';
 import { InMemoryTaskRepository } from '../../_test-fakes/in-memory-task-repository.ts';

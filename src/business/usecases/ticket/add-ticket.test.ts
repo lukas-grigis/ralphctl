@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Sprint } from '../../../domain/entities/sprint.ts';
 import { Ticket } from '../../../domain/entities/ticket.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';

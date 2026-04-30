@@ -4,7 +4,7 @@
 import type { Command } from 'commander';
 import * as c from 'colorette';
 
-import { Result } from '../../../domain/result.ts';
+import type { Result } from '../../../domain/result.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
 import type { Config } from '../../config/config.ts';
 import { runCommand } from '../command-runner.ts';

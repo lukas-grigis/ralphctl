@@ -19,7 +19,7 @@ import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { CreateProjectUseCase } from '../../../business/usecases/project/create-project.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatProjectCard } from '../format/format-project.ts';
 
@@ -50,10 +50,10 @@ export async function runProjectAdd(deps: SharedDeps, opts: ProjectAddFlags): Pr
   return runCommand({
     deps,
     body: async () => {
-      const nameResult = ProjectName.parse(opts.name ?? '');
-      if (!nameResult.ok) return Result.error(nameResult.error);
-      const pathResult = AbsolutePath.parse(opts.repoPath ?? '');
-      if (!pathResult.ok) return Result.error(pathResult.error);
+      const nameResult = parseId(ProjectName, opts.name ?? '');
+      if (!nameResult.ok) return nameResult;
+      const pathResult = parseId(AbsolutePath, opts.repoPath ?? '');
+      if (!pathResult.ok) return pathResult;
 
       const repoResult = Repository.create({
         path: pathResult.value,

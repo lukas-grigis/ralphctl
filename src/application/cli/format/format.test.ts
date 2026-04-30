@@ -10,7 +10,7 @@ import { Repository } from '../../../domain/entities/repository.ts';
 import { Sprint } from '../../../domain/entities/sprint.ts';
 import { Task } from '../../../domain/entities/task.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { NotFoundError } from '../../../domain/errors/not-found-error.ts';

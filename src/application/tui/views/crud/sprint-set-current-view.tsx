@@ -17,11 +17,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { ListSprintsUseCase } from '../../../../business/usecases/sprint/list-sprints.ts';
 import { SetCurrentSprintUseCase } from '../../../config/set-current-sprint.ts';
 import { SprintId } from '../../../../domain/values/sprint-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const NONE_SENTINEL = '__NONE__';
 
@@ -48,22 +48,15 @@ export function SprintSetCurrentView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting sprint selection…');
-      let picked: string;
-      try {
-        picked = await prompt.select<string>({
+      const picked = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Set current sprint',
           choices: [
             { label: '(none — clear)', value: NONE_SENTINEL },
             ...list.value.map((s) => ({ label: `${s.name} [${s.status}]`, value: String(s.id) })),
           ],
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       setStep('Saving config…');
       const uc = new SetCurrentSprintUseCase(deps.sprintRepo, deps.configStore);

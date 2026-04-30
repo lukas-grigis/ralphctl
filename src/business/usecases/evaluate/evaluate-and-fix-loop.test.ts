@@ -10,7 +10,7 @@ import { CONFIG_DEFAULTS } from '../../../application/config/config-defaults.ts'
 import type { Config } from '../../../application/config/config.ts';
 import type { EvaluationSignal } from '../../../domain/signals/harness-signal.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { FakeAiSessionPort, type ScriptedSpawnOutcome } from '../../_test-fakes/fake-ai-session-port.ts';
 import { FakeExternalPort } from '../../_test-fakes/fake-external-port.ts';

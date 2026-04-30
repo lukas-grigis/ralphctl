@@ -5,12 +5,11 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { EditTicketUseCase } from '../../../business/usecases/ticket/edit-ticket.ts';
-import { Result } from '../../../domain/result.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { TicketId } from '../../../domain/values/ticket-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TicketEditFlags {
@@ -42,15 +41,15 @@ export async function runTicketEdit(deps: SharedDeps, opts: TicketEditFlags): Pr
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const ticketId = TicketId.parse(opts.ticket);
-      if (!ticketId.ok) return Result.error(ticketId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const ticketId = parseId(TicketId, opts.ticket);
+      if (!ticketId.ok) return ticketId;
 
-      let projectName: import('../../../domain/values/project-name.ts').ProjectName | undefined;
+      let projectName: ProjectName | undefined;
       if (opts.project !== undefined) {
-        const parsed = ProjectName.parse(opts.project);
-        if (!parsed.ok) return Result.error(parsed.error);
+        const parsed = parseId(ProjectName, opts.project);
+        if (!parsed.ok) return parsed;
         projectName = parsed.value;
       }
 

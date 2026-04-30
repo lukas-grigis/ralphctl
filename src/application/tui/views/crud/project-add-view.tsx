@@ -22,6 +22,7 @@ import { FirstLaunchIntroCard } from '../../components/first-launch-intro-card.t
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { CreateProjectUseCase } from '../../../../business/usecases/project/create-project.ts';
 import { Repository } from '../../../../domain/entities/repository.ts';
@@ -55,16 +56,9 @@ export function ProjectAddView({ firstLaunch = false }: ProjectAddViewProps = {}
       let nameStr = ''; // Preserved for the display name default.
       while (projectName === null) {
         setStep(nameError !== null ? `${nameError} — try again…` : 'Awaiting project name…');
-        let rawName: string;
-        try {
-          rawName = await prompt.input({ message: 'Project slug (lowercase alnum + hyphens)', default: '' });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const rawName = await promptOrPop(router, () =>
+          prompt.input({ message: 'Project slug (lowercase alnum + hyphens)', default: '' })
+        );
         const nameResult = ProjectName.parse(rawName.trim());
         if (!nameResult.ok) {
           nameError = nameResult.error.message;
@@ -75,28 +69,12 @@ export function ProjectAddView({ firstLaunch = false }: ProjectAddViewProps = {}
       }
 
       setStep('Awaiting display name…');
-      let displayName: string;
-      try {
-        displayName = await prompt.input({ message: 'Display name', default: nameStr });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const displayName = await promptOrPop(router, () => prompt.input({ message: 'Display name', default: nameStr }));
 
       setStep('Awaiting repository path…');
-      let repoPath: string | null;
-      try {
-        repoPath = await prompt.fileBrowser({ startPath: process.cwd(), message: 'Repository path (directory)' });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const repoPath = await promptOrPop(router, () =>
+        prompt.fileBrowser({ startPath: process.cwd(), message: 'Repository path (directory)' })
+      );
       if (repoPath === null || repoPath.trim() === '') throw new Error('Repository path is required.');
 
       const pathResult = AbsolutePath.parse(repoPath.trim());

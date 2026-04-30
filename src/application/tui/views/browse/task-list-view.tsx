@@ -6,19 +6,20 @@
  * Keyboard: ↑/↓ navigate · Enter expand/collapse inline detail · Esc back
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, useInput } from 'ink';
 import { inkColors, spacing } from '../../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { ListView, type ListColumn } from '../../components/list-view.tsx';
 import { ResultCard } from '../../components/result-card.tsx';
 import { Spinner } from '../../components/spinner.tsx';
+import { useAsyncLoad } from '../../components/use-async-load.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { chipKindForTaskStatus } from '../../components/status-chip.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouterOptional } from '../router-context.ts';
 import { getSharedDeps } from '../../../bootstrap/get-shared-deps.ts';
 import { ListTasksUseCase } from '../../../../business/usecases/task/list-tasks.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { getKeyFor } from '../../keyboard-map.ts';
 import type { Task } from '../../../../domain/entities/task.ts';
 
@@ -90,49 +91,18 @@ function TaskDetail({ task }: TaskDetailProps): React.JSX.Element {
 export function TaskListView(): React.JSX.Element {
   useViewHints(LIST_HINTS);
   const router = useRouterOptional();
-  const [tasks, setTasks] = useState<readonly Task[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: tasks, error } = useAsyncLoad<readonly Task[]>(async () => {
+    const deps = await getSharedDeps();
+    const idResult = await resolveCurrentSprintId(deps.configStore);
+    if (!idResult.ok) throw new Error(idResult.error.message);
+    const uc = new ListTasksUseCase(deps.taskRepo);
+    const result = await uc.execute({ sprintId: idResult.value });
+    if (!result.ok) throw new Error(result.error.message);
+    return [...result.value].sort((a, b) => a.order - b.order);
+  });
   const [selected, setSelected] = useState<Task | null>(null);
   const [cursor, setCursor] = useState(0);
   const [filter, setFilter] = useState<TaskFilter>('all');
-
-  useEffect(() => {
-    const cancel = { current: false };
-    void (async () => {
-      try {
-        const deps = await getSharedDeps();
-        const config = await deps.configStore.load();
-        if (!config.ok) {
-          setError(config.error.message);
-          return;
-        }
-        const sprintIdStr = config.value.currentSprint;
-        if (!sprintIdStr) {
-          setError('No current sprint. Set one via Settings.');
-          return;
-        }
-        const idResult = SprintId.parse(sprintIdStr);
-        if (!idResult.ok) {
-          setError(idResult.error.message);
-          return;
-        }
-        const uc = new ListTasksUseCase(deps.taskRepo);
-        const result = await uc.execute({ sprintId: idResult.value });
-        if (cancel.current) return;
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        const sorted = [...result.value].sort((a, b) => a.order - b.order);
-        setTasks(sorted);
-      } catch (err) {
-        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancel.current = true;
-    };
-  }, []);
 
   const visible = tasks === null ? null : filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
 

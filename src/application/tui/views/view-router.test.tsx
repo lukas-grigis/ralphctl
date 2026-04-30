@@ -3,6 +3,8 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { ViewRouter } from './view-router.tsx';
 import type { SessionManagerPort, SessionDescriptor, SessionManagerEvent } from '../../runtime/session-manager-port.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { ChainRunner } from '../../../kernel/runtime/chain-runner.ts';
 import { Result } from 'typescript-result';
 
 function makeSessionManager(sessions: SessionDescriptor[] = []): SessionManagerPort {
@@ -77,8 +79,8 @@ describe('ViewRouter', () => {
         id: 'sess-1',
         label: 'my sprint refine',
         status: 'running',
-        startedAt: '2026-04-29T10:00:00.000Z' as import('../../../domain/values/iso-timestamp.ts').IsoTimestamp,
-        runner: {} as import('../../../kernel/runtime/chain-runner.ts').ChainRunner<unknown>,
+        startedAt: '2026-04-29T10:00:00.000Z' as IsoTimestamp,
+        runner: {} as ChainRunner<unknown>,
       },
     ]);
     const { lastFrame } = render(<ViewRouter initialStack={[{ id: 'home' }]} sessionManager={sm} />);
@@ -100,8 +102,8 @@ describe('ViewRouter', () => {
         id: 'sess-1',
         label: 'refine',
         status: 'running',
-        startedAt: '2026-04-29T10:00:00.000Z' as import('../../../domain/values/iso-timestamp.ts').IsoTimestamp,
-        runner: {} as import('../../../kernel/runtime/chain-runner.ts').ChainRunner<unknown>,
+        startedAt: '2026-04-29T10:00:00.000Z' as IsoTimestamp,
+        runner: {} as ChainRunner<unknown>,
       },
     ];
     const activeSession: SessionDescriptor | null = sessions[0] ?? null;

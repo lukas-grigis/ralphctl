@@ -16,11 +16,12 @@ import type { Project } from '../../../domain/entities/project.ts';
 import type { Repository } from '../../../domain/entities/repository.ts';
 import { InvalidStateError } from '../../../domain/errors/invalid-state-error.ts';
 import { StorageError } from '../../../domain/errors/storage-error.ts';
-import { ValidationError } from '../../../domain/values/validation-error.ts';
+import type { ValidationError } from '../../../domain/values/validation-error.ts';
 import type { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import type { ProjectName } from '../../../domain/values/project-name.ts';
 import type { Element } from '../../../kernel/chain/element.ts';
+import type { LeafUseCase } from '../../../kernel/chain/leaf.ts';
 import { Leaf } from '../../../kernel/chain/leaf.ts';
 import {
   contextFilePathFor,
@@ -29,6 +30,29 @@ import {
 } from '../../../business/usecases/onboard/onboard-repo.ts';
 import type { ChainSharedDeps } from '../chain-deps.ts';
 import type { OnboardCtx } from './onboard-flow.ts';
+
+/**
+ * Build a leaf whose `output` reducer simply assigns the use-case result
+ * to a single field on the context. Replaces the boilerplate
+ * `output: (ctx, value) => ({ ...ctx, [outputKey]: value })` pattern used
+ * across most onboard leaves.
+ *
+ * Type-safety: `TKey` is constrained to a key on `OnboardCtx`, and the
+ * use-case output must match that field's type — so renaming a context
+ * field forces the call site to update.
+ */
+function makePropLeaf<TKey extends keyof OnboardCtx, UInput>(
+  name: string,
+  useCase: LeafUseCase<UInput, OnboardCtx[TKey]>,
+  input: (ctx: OnboardCtx) => UInput,
+  outputKey: TKey
+): Element<OnboardCtx> {
+  return new Leaf<OnboardCtx, UInput, OnboardCtx[TKey]>(name, {
+    useCase,
+    input,
+    output: (ctx, value) => ({ ...ctx, [outputKey]: value }),
+  });
+}
 
 /**
  * Sentinel marker the harness injects on the first line of a written
@@ -45,15 +69,16 @@ function makeMarker(now: () => Date = () => new Date()): string {
 // ── load-project ─────────────────────────────────────────────────────
 
 export function loadProjectLeaf(deps: Pick<ChainSharedDeps, 'projectRepo'>): Element<OnboardCtx> {
-  return new Leaf<OnboardCtx, { readonly name: ProjectName }, Project>('load-project', {
-    useCase: {
+  return makePropLeaf<'project', { readonly name: ProjectName }>(
+    'load-project',
+    {
       async execute(input) {
         return deps.projectRepo.findByName(input.name);
       },
     },
-    input: (ctx) => ({ name: ctx.projectName }),
-    output: (ctx, project) => ({ ...ctx, project }),
-  });
+    (ctx) => ({ name: ctx.projectName }),
+    'project'
+  );
 }
 
 // ── resolve-repo ─────────────────────────────────────────────────────
@@ -136,12 +161,12 @@ export function runOnboardAiLeaf(
   deps: Pick<ChainSharedDeps, 'aiSession' | 'prompts' | 'signalParser' | 'logger'>
 ): Element<OnboardCtx> {
   const useCase = new OnboardRepoUseCase(deps.aiSession, deps.prompts, deps.signalParser, deps.logger);
-  return new Leaf<
-    OnboardCtx,
-    { readonly project: Project; readonly repo: Repository; readonly cwd: AbsolutePath },
-    OnboardRepoProposals
-  >('run-onboard-ai', {
-    useCase: {
+  return makePropLeaf<
+    'proposals',
+    { readonly project: Project; readonly repo: Repository; readonly cwd: AbsolutePath }
+  >(
+    'run-onboard-ai',
+    {
       async execute(input) {
         await deps.aiSession.ensureReady();
         const provider = deps.aiSession.getProviderName();
@@ -161,14 +186,14 @@ export function runOnboardAiLeaf(
         });
       },
     },
-    input: (ctx) => {
+    (ctx) => {
       if (!ctx.project) throw new Error('run-onboard-ai: ctx.project must be loaded first');
       if (!ctx.repo) throw new Error('run-onboard-ai: ctx.repo must be resolved first');
       if (!ctx.cwd) throw new Error('run-onboard-ai: ctx.cwd must be set first');
       return { project: ctx.project, repo: ctx.repo, cwd: ctx.cwd };
     },
-    output: (ctx, proposals) => ({ ...ctx, proposals }),
-  });
+    'proposals'
+  );
 }
 
 interface DetectedMode {
@@ -193,12 +218,12 @@ async function detectModeAndBody(targetPath: string): Promise<DetectedMode> {
 // ── confirm-setup-script ─────────────────────────────────────────────
 
 export function confirmSetupScriptLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): Element<OnboardCtx> {
-  return new Leaf<
-    OnboardCtx,
-    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean },
-    string | null
-  >('confirm-setup-script', {
-    useCase: {
+  return makePropLeaf<
+    'acceptedSetupScript',
+    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean }
+  >(
+    'confirm-setup-script',
+    {
       async execute(input) {
         if (input.autoAccept) {
           return Result.ok(input.proposals.setupScript);
@@ -211,23 +236,23 @@ export function confirmSetupScriptLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): E
         return Result.ok(trimmed.length === 0 ? null : trimmed);
       },
     },
-    input: (ctx) => {
+    (ctx) => {
       if (!ctx.proposals) throw new Error('confirm-setup-script: ctx.proposals must be set first');
       return { proposals: ctx.proposals, autoAccept: ctx.autoAccept };
     },
-    output: (ctx, accepted) => ({ ...ctx, acceptedSetupScript: accepted }),
-  });
+    'acceptedSetupScript'
+  );
 }
 
 // ── confirm-verify-script ────────────────────────────────────────────
 
 export function confirmVerifyScriptLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): Element<OnboardCtx> {
-  return new Leaf<
-    OnboardCtx,
-    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean },
-    string | null
-  >('confirm-verify-script', {
-    useCase: {
+  return makePropLeaf<
+    'acceptedVerifyScript',
+    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean }
+  >(
+    'confirm-verify-script',
+    {
       async execute(input) {
         if (input.autoAccept) {
           return Result.ok(input.proposals.verifyScript);
@@ -240,23 +265,23 @@ export function confirmVerifyScriptLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): 
         return Result.ok(trimmed.length === 0 ? null : trimmed);
       },
     },
-    input: (ctx) => {
+    (ctx) => {
       if (!ctx.proposals) throw new Error('confirm-verify-script: ctx.proposals must be set first');
       return { proposals: ctx.proposals, autoAccept: ctx.autoAccept };
     },
-    output: (ctx, accepted) => ({ ...ctx, acceptedVerifyScript: accepted }),
-  });
+    'acceptedVerifyScript'
+  );
 }
 
 // ── confirm-context-file ─────────────────────────────────────────────
 
 export function confirmContextFileLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): Element<OnboardCtx> {
-  return new Leaf<
-    OnboardCtx,
-    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean },
-    string | null
-  >('confirm-context-file', {
-    useCase: {
+  return makePropLeaf<
+    'acceptedContextFile',
+    { readonly proposals: OnboardRepoProposals; readonly autoAccept: boolean }
+  >(
+    'confirm-context-file',
+    {
       async execute(input) {
         if (input.autoAccept) {
           return Result.ok(input.proposals.contextFileContent);
@@ -271,12 +296,12 @@ export function confirmContextFileLeaf(deps: Pick<ChainSharedDeps, 'prompt'>): E
         return Result.ok(edited.length === 0 ? null : edited);
       },
     },
-    input: (ctx) => {
+    (ctx) => {
       if (!ctx.proposals) throw new Error('confirm-context-file: ctx.proposals must be set first');
       return { proposals: ctx.proposals, autoAccept: ctx.autoAccept };
     },
-    output: (ctx, accepted) => ({ ...ctx, acceptedContextFile: accepted }),
-  });
+    'acceptedContextFile'
+  );
 }
 
 // ── write-context-file ───────────────────────────────────────────────

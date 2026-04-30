@@ -8,7 +8,7 @@
  * `business/_test-fakes/` because {@link ProcessRunner} is an
  * integration-internal seam — the business layer never sees it.
  */
-import { StorageError } from '../../domain/errors/storage-error.ts';
+import type { StorageError } from '../../domain/errors/storage-error.ts';
 import { Result } from '../../domain/result.ts';
 import type { ProcessRunOptions, ProcessRunResult, ProcessRunner } from '../ai/session/process-runner.ts';
 

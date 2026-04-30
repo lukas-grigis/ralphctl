@@ -57,3 +57,27 @@ export function printError(deps: SharedDeps, error: DomainError): void {
   // Structured log for non-TTY consumers (the JsonlSink also captures it).
   deps.logger.error('command failed', { code: error.code, message: error.message });
 }
+
+/**
+ * Thin wrapper around `Parser.parse(raw)` that widens the error type to
+ * `DomainError`. Lets command bodies early-return on parse failure
+ * without a `Result.error(parsed.error)` re-wrap, since the body's
+ * declared error type is `DomainError`:
+ *
+ * ```ts
+ * body: async () => {
+ *   const id = parseId(SprintId, opts.id);
+ *   if (!id.ok) return id;
+ *   return useCase.execute({ id: id.value, ... });
+ * }
+ * ```
+ *
+ * Replaces the `if (!parsed.ok) return Result.error(parsed.error)`
+ * pattern repeated across ~20 CLI command files.
+ */
+export function parseId<T>(
+  parser: { parse(raw: string): Result<T, DomainError> },
+  raw: string
+): Result<T, DomainError> {
+  return parser.parse(raw);
+}

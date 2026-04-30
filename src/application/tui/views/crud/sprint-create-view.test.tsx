@@ -8,6 +8,7 @@ import { setSharedDeps, resetSharedDeps } from '../../../bootstrap/get-shared-de
 import type { SharedDeps } from '../../../bootstrap/shared-deps.ts';
 import { FakePromptPort } from '../../../_test-fakes/fake-prompt-port.ts';
 import { Sprint } from '../../../../domain/entities/sprint.ts';
+import type { DomainError } from '../../../../domain/errors/domain-error.ts';
 import { Slug } from '../../../../domain/values/slug.ts';
 import { IsoTimestamp } from '../../../../domain/values/iso-timestamp.ts';
 import { Result } from 'typescript-result';
@@ -133,7 +134,7 @@ describe('SprintCreateView', () => {
           Promise.resolve(
             Result.error({
               message: 'storage error',
-            } as unknown as import('../../../../domain/errors/domain-error.ts').DomainError)
+            } as unknown as DomainError)
           )
         ),
         findById: vi.fn(),

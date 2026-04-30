@@ -9,7 +9,6 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { ExportContextUseCase } from '../../../business/usecases/sprint/export-context.ts';
-import { Result } from '../../../domain/result.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
 import { runCommand } from '../command-runner.ts';
@@ -40,7 +39,7 @@ export async function runSprintContext(
     deps,
     body: async () => {
       const sprintR = await resolveSprintId(deps, id);
-      if (!sprintR.ok) return Result.error(sprintR.error);
+      if (!sprintR.ok) return sprintR;
       const outPath = resolveOutputPath(opts.output, `${String(sprintR.value)}-context.md`);
       const uc = new ExportContextUseCase(deps.sprintRepo, deps.taskRepo, deps.projectRepo, (path, body) =>
         writeFile(path, body, 'utf-8')

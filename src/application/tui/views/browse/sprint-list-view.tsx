@@ -7,13 +7,14 @@
  * Keyboard: ↑/↓ navigate · Enter open · Esc back
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { inkColors, spacing } from '../../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { ListView, type ListColumn } from '../../components/list-view.tsx';
 import { ResultCard } from '../../components/result-card.tsx';
 import { Spinner } from '../../components/spinner.tsx';
+import { useAsyncLoad } from '../../components/use-async-load.ts';
 import { chipKindForSprintStatus } from '../../components/status-chip.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouterOptional } from '../router-context.ts';
@@ -72,36 +73,15 @@ const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'draft', 'active', 'clos
 export function SprintListView(): React.JSX.Element {
   useViewHints(LIST_HINTS);
   const router = useRouterOptional();
-  const [sprints, setSprints] = useState<readonly Sprint[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: sprints, error } = useAsyncLoad<readonly Sprint[]>(async () => {
+    const deps = await getSharedDeps();
+    const uc = new ListSprintsUseCase(deps.sprintRepo);
+    const result = await uc.execute();
+    if (!result.ok) throw new Error(result.error.message);
+    return [...result.value].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  });
   const [cursor, setCursor] = useState(0);
   const [filter, setFilter] = useState<StatusFilter>('all');
-
-  useEffect(() => {
-    const cancel = { current: false };
-    void (async () => {
-      try {
-        const deps = await getSharedDeps();
-        const uc = new ListSprintsUseCase(deps.sprintRepo);
-        const result = await uc.execute();
-        if (cancel.current) return;
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        // Sort: newest first
-        const sorted = [...result.value].sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setSprints(sorted);
-      } catch (err) {
-        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancel.current = true;
-    };
-  }, []);
 
   const visible = sprints === null ? null : filter === 'all' ? sprints : sprints.filter((s) => s.status === filter);
 

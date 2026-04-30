@@ -15,12 +15,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { RemoveRepositoryFromProjectUseCase } from '../../../../business/usecases/project/remove-repository-from-project.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
 import { AbsolutePath } from '../../../../domain/values/absolute-path.ts';
 import { ProjectName } from '../../../../domain/values/project-name.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -40,59 +40,38 @@ export function ProjectRepoRemoveView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting project selection…');
-      let projectNameStr: string;
-      try {
-        projectNameStr = await prompt.select<string>({
+      const projectNameStr = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Select project',
           choices: listed.value.map((p) => ({
             label: p.displayName,
             value: String(p.name),
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       const project = listed.value.find((p) => String(p.name) === projectNameStr);
       if (!project) throw new Error('Project not found.');
       if (project.repositories.length === 0) throw new Error('Project has no repositories.');
 
       setStep('Awaiting repository selection…');
-      let repoPath: string;
-      try {
-        repoPath = await prompt.select<string>({
+      const repoPath = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Select repository to remove',
           choices: project.repositories.map((r) => ({
             label: `${r.name} (${r.path})`,
             value: r.path,
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
+      const confirmed = await promptOrPop(router, () =>
+        prompt.confirm({
           message: `Remove repository "${repoPath}" from "${project.displayName}"?`,
           default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
       if (!confirmed) {
         router.pop();
         throw new Error('Cancelled.');

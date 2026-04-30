@@ -8,11 +8,10 @@
 import type { Command } from 'commander';
 
 import { ActivateSprintUseCase } from '../../../business/usecases/sprint/activate-sprint.ts';
-import { Result } from '../../../domain/result.ts';
 import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatSprintCard } from '../format/format-sprint.ts';
 
@@ -35,8 +34,8 @@ export async function runSprintActivate(deps: SharedDeps, opts: SprintActivateFl
   return runCommand({
     deps,
     body: async () => {
-      const id = SprintId.parse(opts.id);
-      if (!id.ok) return Result.error(id.error);
+      const id = parseId(SprintId, opts.id);
+      if (!id.ok) return id;
       const useCase = new ActivateSprintUseCase(deps.sprintRepo);
       return useCase.execute({ id: id.value, now: IsoTimestamp.now() });
     },

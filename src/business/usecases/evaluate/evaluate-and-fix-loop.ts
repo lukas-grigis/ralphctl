@@ -36,9 +36,10 @@ import { Result } from '../../../domain/result.ts';
 import type { EvaluationSignal } from '../../../domain/signals/harness-signal.ts';
 import type { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import type { LoggerPort } from '../../ports/logger-port.ts';
-import { ExecuteSingleTaskUseCase } from '../execute/execute-single-task.ts';
-import { PostTaskCheckUseCase } from '../execute/post-task-check.ts';
-import { EvaluateTaskUseCase, type EvaluationOutcome } from './evaluate-task.ts';
+import type { ExecuteSingleTaskUseCase } from '../execute/execute-single-task.ts';
+import type { PostTaskCheckUseCase } from '../execute/post-task-check.ts';
+import type { EvaluateTaskUseCase } from './evaluate-task.ts';
+import { type EvaluationOutcome } from './evaluate-task.ts';
 import { dimensionsEqual } from './plateau-detection.ts';
 
 /**

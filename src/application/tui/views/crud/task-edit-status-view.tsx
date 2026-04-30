@@ -15,6 +15,8 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import {
   EditTaskStatusUseCase,
@@ -22,9 +24,7 @@ import {
   type EditTaskStatusActionKind,
 } from '../../../../business/usecases/task/edit-task-status.ts';
 import { ListTasksUseCase } from '../../../../business/usecases/task/list-tasks.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { TaskId } from '../../../../domain/values/task-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Task } from '../../../../domain/entities/task.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
@@ -37,11 +37,7 @@ export function TaskEditStatusView(): React.JSX.Element {
   useEffect(() => {
     run('Updating task status…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading tasks…');
@@ -54,22 +50,15 @@ export function TaskEditStatusView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting task selection…');
-      let taskIdStr: string;
-      try {
-        taskIdStr = await prompt.select<string>({
+      const taskIdStr = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Select task',
           choices: activeTasks.map((t) => ({
             label: `[${t.status.replace('_', ' ').toUpperCase()}] #${String(t.order)} ${t.name}`,
             value: String(t.id),
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       const task = activeTasks.find((t) => String(t.id) === taskIdStr);
       if (!task) throw new Error('Task not found.');
@@ -89,35 +78,21 @@ export function TaskEditStatusView(): React.JSX.Element {
       if (availableActions.length === 0) throw new Error('No valid transitions for this task.');
 
       setStep('Awaiting action selection…');
-      let actionKind: EditTaskStatusActionKind;
-      try {
-        actionKind = await prompt.select<EditTaskStatusActionKind>({
+      const actionKind = await promptOrPop(router, () =>
+        prompt.select<EditTaskStatusActionKind>({
           message: 'Action',
           choices: availableActions,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       let action: EditTaskStatusAction;
       if (actionKind === 'mark-blocked') {
         setStep('Awaiting block reason…');
-        let reason: string;
-        try {
-          reason = await prompt.input({
+        const reason = await promptOrPop(router, () =>
+          prompt.input({
             message: 'Reason for blocking',
-          });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+          })
+        );
         if (reason.trim().length === 0) throw new Error('Reason is required when blocking a task.');
         action = { kind: 'mark-blocked', reason };
       } else {

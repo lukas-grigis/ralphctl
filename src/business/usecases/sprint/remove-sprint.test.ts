@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Sprint } from '../../../domain/entities/sprint.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { InMemorySprintRepository } from '../../_test-fakes/in-memory-sprint-repository.ts';

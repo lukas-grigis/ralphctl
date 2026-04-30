@@ -10,12 +10,11 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { AssignTicketRepositoriesUseCase } from '../../../business/usecases/ticket/assign-ticket-repositories.ts';
-import { Result } from '../../../domain/result.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { TicketId } from '../../../domain/values/ticket-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TicketAssignReposFlags {
@@ -43,16 +42,16 @@ export async function runTicketAssignRepos(deps: SharedDeps, opts: TicketAssignR
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const ticketId = TicketId.parse(opts.ticket);
-      if (!ticketId.ok) return Result.error(ticketId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const ticketId = parseId(TicketId, opts.ticket);
+      if (!ticketId.ok) return ticketId;
 
       const paths: AbsolutePath[] = [];
       if (opts.clear !== true && opts.path !== undefined) {
         for (const raw of opts.path) {
-          const parsed = AbsolutePath.parse(raw);
-          if (!parsed.ok) return Result.error(parsed.error);
+          const parsed = parseId(AbsolutePath, raw);
+          if (!parsed.ok) return parsed;
           paths.push(parsed.value);
         }
       }

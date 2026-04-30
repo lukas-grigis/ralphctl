@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { InMemorySprintRepository } from '../../_test-fakes/in-memory-sprint-repository.ts';
 import { CreateSprintUseCase } from './create-sprint.ts';

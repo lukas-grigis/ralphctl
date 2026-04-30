@@ -5,7 +5,7 @@ import { Task } from '../../../domain/entities/task.ts';
 import { StorageError } from '../../../domain/errors/storage-error.ts';
 import type { TaskBlockedSignal, TaskCompleteSignal } from '../../../domain/signals/harness-signal.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { FakeAiSessionPort } from '../../_test-fakes/fake-ai-session-port.ts';
 import { FakeLoggerPort } from '../../_test-fakes/fake-logger-port.ts';

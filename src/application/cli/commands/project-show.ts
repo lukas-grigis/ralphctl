@@ -3,11 +3,10 @@
  */
 import type { Command } from 'commander';
 
-import { Result } from '../../../domain/result.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { ShowProjectUseCase } from '../../../business/usecases/project/show-project.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 import { formatProjectCard } from '../format/format-project.ts';
 
@@ -25,8 +24,8 @@ export async function runProjectShow(deps: SharedDeps, name: string): Promise<Ex
   return runCommand({
     deps,
     body: async () => {
-      const parsed = ProjectName.parse(name);
-      if (!parsed.ok) return Result.error(parsed.error);
+      const parsed = parseId(ProjectName, name);
+      if (!parsed.ok) return parsed;
       return new ShowProjectUseCase(deps.projectRepo).execute({ name: parsed.value });
     },
     format: (_d, p) => formatProjectCard(p),

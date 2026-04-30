@@ -8,11 +8,10 @@ import type { Command } from 'commander';
 import * as c from 'colorette';
 
 import { AddTaskUseCase } from '../../../business/usecases/task/add-task.ts';
-import { Result } from '../../../domain/result.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TaskAddFlags {
@@ -46,10 +45,10 @@ export async function runTaskAdd(deps: SharedDeps, opts: TaskAddFlags): Promise<
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const projectPath = AbsolutePath.parse(opts.projectPath);
-      if (!projectPath.ok) return Result.error(projectPath.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const projectPath = parseId(AbsolutePath, opts.projectPath);
+      if (!projectPath.ok) return projectPath;
 
       const order = opts.order !== undefined ? Number.parseInt(opts.order, 10) : undefined;
       const useCase = new AddTaskUseCase(deps.taskRepo);

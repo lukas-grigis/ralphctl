@@ -15,11 +15,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { AddTaskUseCase } from '../../../../business/usecases/task/add-task.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
 import { AbsolutePath } from '../../../../domain/values/absolute-path.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Task } from '../../../../domain/entities/task.ts';
 
@@ -33,11 +34,7 @@ export function TaskAddView(): React.JSX.Element {
   useEffect(() => {
     run('Adding task…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading projects…');
@@ -50,16 +47,7 @@ export function TaskAddView(): React.JSX.Element {
       let nameError: string | null = null;
       while (taskName === undefined) {
         setStep(nameError !== null ? `${nameError} — try again…` : 'Awaiting task name…');
-        let rawName: string;
-        try {
-          rawName = (await prompt.input({ message: 'Task name', default: '' })).trim();
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const rawName = (await promptOrPop(router, () => prompt.input({ message: 'Task name', default: '' }))).trim();
         if (rawName === '') {
           nameError = 'Task name cannot be empty';
         } else {
@@ -69,35 +57,16 @@ export function TaskAddView(): React.JSX.Element {
       const name: string = taskName;
 
       setStep('Awaiting project path…');
-      let projectPath: string;
       const repoPaths = projectsResult.value.flatMap((p) =>
         p.repositories.map((r) => ({ label: `${p.displayName} — ${r.name} (${r.path})`, value: r.path }))
       );
 
-      if (repoPaths.length === 0) {
-        try {
-          projectPath = await prompt.input({ message: 'Project path (absolute)', default: '' });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
-      } else {
-        try {
-          projectPath = await prompt.select<string>({
-            message: 'Project repository',
-            choices: repoPaths,
-          });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
-      }
+      const projectPath: string =
+        repoPaths.length === 0
+          ? await promptOrPop(router, () => prompt.input({ message: 'Project path (absolute)', default: '' }))
+          : await promptOrPop(router, () =>
+              prompt.select<string>({ message: 'Project repository', choices: repoPaths })
+            );
 
       const pathResult = AbsolutePath.parse(projectPath);
       if (!pathResult.ok) throw new Error(pathResult.error.message);

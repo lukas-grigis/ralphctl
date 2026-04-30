@@ -9,7 +9,7 @@
  * implemented in any meaningful way. Methods we don't call from tests are
  * stubbed enough to satisfy the interface.
  */
-import { StorageError } from '../../domain/errors/storage-error.ts';
+import type { StorageError } from '../../domain/errors/storage-error.ts';
 import { Result } from '../../domain/result.ts';
 import type { AiProvider, AiSessionPort, SessionOptions, SessionResult } from '../ports/ai-session-port.ts';
 

@@ -4,7 +4,7 @@ import { InMemorySprintRepository } from '../../business/_test-fakes/in-memory-s
 import { Sprint } from '../../domain/entities/sprint.ts';
 import type { StorageError } from '../../domain/errors/storage-error.ts';
 import { Result } from '../../domain/result.ts';
-import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
 import { Slug } from '../../domain/values/slug.ts';
 import { SprintId } from '../../domain/values/sprint-id.ts';
 import { CONFIG_DEFAULTS } from './config-defaults.ts';

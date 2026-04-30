@@ -42,7 +42,7 @@ export async function runSprintRequirements(
     deps,
     body: async () => {
       const sprintR = await resolveSprintId(deps, id);
-      if (!sprintR.ok) return Result.error(sprintR.error);
+      if (!sprintR.ok) return sprintR;
       const outPath = resolveOutputPath(opts.output, `${String(sprintR.value)}-requirements.md`);
       const uc = new ExportRequirementsUseCase(deps.sprintRepo, (path, body) => writeFile(path, body, 'utf-8'));
       return uc.execute({ sprintId: sprintR.value, outputPath: outPath });
@@ -62,7 +62,7 @@ function resolveOutputPath(raw: string | undefined, fallbackName: string): Absol
 export async function resolveSprintId(
   deps: SharedDeps,
   id: string | undefined
-): Promise<Result<import('../../../domain/values/sprint-id.ts').SprintId, ValidationError>> {
+): Promise<Result<SprintId, ValidationError>> {
   if (id !== undefined && id.length > 0) {
     const parsed = SprintId.parse(id);
     if (!parsed.ok) {

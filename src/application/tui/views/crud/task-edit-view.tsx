@@ -20,12 +20,13 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { EditTaskUseCase } from '../../../../business/usecases/task/edit-task.ts';
 import { ListTasksUseCase } from '../../../../business/usecases/task/list-tasks.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
 import { AbsolutePath } from '../../../../domain/values/absolute-path.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { TaskId } from '../../../../domain/values/task-id.ts';
 import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Task } from '../../../../domain/entities/task.ts';
@@ -60,11 +61,7 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
   useEffect(() => {
     run('Editing task…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading tasks…');
@@ -85,22 +82,15 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
         target = found;
       } else {
         setStep('Awaiting task selection…');
-        let pickedId: string;
-        try {
-          pickedId = await prompt.select<string>({
+        const pickedId = await promptOrPop(router, () =>
+          prompt.select<string>({
             message: 'Select task to edit',
             choices: editable.map((t) => ({
               label: `#${String(t.order)} ${t.name}`,
               value: String(t.id),
             })),
-          });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+          })
+        );
         const found = editable.find((t) => String(t.id) === pickedId);
         if (!found) throw new Error('Task not found.');
         target = found;
@@ -110,16 +100,9 @@ export function TaskEditView({ taskId }: Props = {}): React.JSX.Element {
       let nameError: string | null = null;
       while (newName === undefined) {
         setStep(nameError !== null ? `${nameError} — try again…` : 'Awaiting task name…');
-        let raw: string;
-        try {
-          raw = (await prompt.input({ message: 'Task name', default: target.name })).trim();
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const raw = (
+          await promptOrPop(router, () => prompt.input({ message: 'Task name', default: target.name }))
+        ).trim();
         if (raw === '') {
           nameError = 'Task name cannot be empty';
         } else {

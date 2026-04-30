@@ -18,10 +18,10 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { ExportRequirementsUseCase } from '../../../../business/usecases/sprint/export-requirements.ts';
 import { AbsolutePath } from '../../../../domain/values/absolute-path.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -50,16 +50,7 @@ export function SprintExportRequirementsView(): React.JSX.Element {
 
       setStep('Awaiting output path…');
       const prompt = await getPrompt();
-      let raw: string;
-      try {
-        raw = await prompt.input({ message: 'Output path', default: defaultPath });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const raw = await promptOrPop(router, () => prompt.input({ message: 'Output path', default: defaultPath }));
       const trimmed = raw.trim();
       const finalPath =
         trimmed.length === 0 ? defaultPath : isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);

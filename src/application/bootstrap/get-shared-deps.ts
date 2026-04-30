@@ -11,6 +11,7 @@
  * graph is essentially long-lived runtime state.
  */
 import { createSharedDeps, type SharedDeps, type SharedDepsOverrides } from './shared-deps.ts';
+import type { PromptPort } from '../../business/ports/prompt-port.ts';
 
 let cached: SharedDeps | null = null;
 let pending: Promise<SharedDeps> | null = null;
@@ -43,6 +44,6 @@ export function resetSharedDeps(): void {
  * Convenience accessor for the interactive prompt port.
  * Equivalent to `(await getSharedDeps()).prompt`.
  */
-export async function getPrompt(): Promise<import('../../business/ports/prompt-port.ts').PromptPort> {
+export async function getPrompt(): Promise<PromptPort> {
   return (await getSharedDeps()).prompt;
 }

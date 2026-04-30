@@ -25,12 +25,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { CreateSprintUseCase } from '../../../../business/usecases/sprint/create-sprint.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
 import { Slug } from '../../../../domain/values/slug.ts';
 import { IsoTimestamp } from '../../../../domain/values/iso-timestamp.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
 
 /**
@@ -72,16 +72,7 @@ export function SprintCreateView(): React.JSX.Element {
       let nameError: string | null = null;
       while (name === undefined) {
         setStep(nameError !== null ? `${nameError} — try again…` : 'Awaiting sprint name…');
-        let raw: string;
-        try {
-          raw = (await prompt.input({ message: 'Sprint name', default: '' })).trim();
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const raw = (await promptOrPop(router, () => prompt.input({ message: 'Sprint name', default: '' }))).trim();
         if (raw === '') {
           nameError = 'Sprint name cannot be empty';
         } else {
@@ -95,16 +86,9 @@ export function SprintCreateView(): React.JSX.Element {
       while (slug === null) {
         const suggested = toSlug(sprintName);
         setStep(slugError !== null ? `${slugError} — try again…` : 'Awaiting slug…');
-        let slugStr: string;
-        try {
-          slugStr = await prompt.input({ message: 'Slug (lowercase alnum + hyphens)', default: suggested });
-        } catch (err) {
-          if (err instanceof PromptCancelledError) {
-            router.pop();
-            throw err;
-          }
-          throw err;
-        }
+        const slugStr = await promptOrPop(router, () =>
+          prompt.input({ message: 'Slug (lowercase alnum + hyphens)', default: suggested })
+        );
         const slugResult = Slug.parse(slugStr);
         if (!slugResult.ok) {
           slugError = slugResult.error.message;

@@ -11,7 +11,7 @@
 import type { Sprint } from '../../domain/entities/sprint.ts';
 import type { Task } from '../../domain/entities/task.ts';
 import type { Ticket } from '../../domain/entities/ticket.ts';
-import { StorageError } from '../../domain/errors/storage-error.ts';
+import type { StorageError } from '../../domain/errors/storage-error.ts';
 import { Result } from '../../domain/result.ts';
 import type { BuildOnboardPromptInput, PromptBuilderPort } from '../ports/prompt-builder-port.ts';
 

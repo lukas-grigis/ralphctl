@@ -13,7 +13,7 @@ import { ValidationError } from '../../../domain/values/validation-error.ts';
 import { SprintId } from '../../../domain/values/sprint-id.ts';
 import { TicketId } from '../../../domain/values/ticket-id.ts';
 import type { SharedDeps } from '../../bootstrap/shared-deps.ts';
-import { runCommand } from '../command-runner.ts';
+import { parseId, runCommand } from '../command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '../exit-codes.ts';
 
 interface TicketApproveFlags {
@@ -39,10 +39,10 @@ export async function runTicketApprove(deps: SharedDeps, opts: TicketApproveFlag
   return runCommand({
     deps,
     body: async () => {
-      const sprintId = SprintId.parse(opts.sprint);
-      if (!sprintId.ok) return Result.error(sprintId.error);
-      const ticketId = TicketId.parse(opts.ticket);
-      if (!ticketId.ok) return Result.error(ticketId.error);
+      const sprintId = parseId(SprintId, opts.sprint);
+      if (!sprintId.ok) return sprintId;
+      const ticketId = parseId(TicketId, opts.ticket);
+      if (!ticketId.ok) return ticketId;
       if (opts.requirements.trim().length === 0) {
         return Result.error(
           new ValidationError({

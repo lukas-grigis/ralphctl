@@ -17,13 +17,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HarnessSignal } from '../../domain/signals/harness-signal.ts';
+import type { SignalParserPort } from '../../business/ports/signal-parser-port.ts';
 import { Sprint } from '../../domain/entities/sprint.ts';
 import { Ticket } from '../../domain/entities/ticket.ts';
 import { AbsolutePath } from '../../domain/values/absolute-path.ts';
 import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../domain/values/project-name.ts';
 import { Slug } from '../../domain/values/slug.ts';
-import { SprintId } from '../../domain/values/sprint-id.ts';
+import type { SprintId } from '../../domain/values/sprint-id.ts';
 import { TaskId } from '../../domain/values/task-id.ts';
 import { createSharedDeps, type SharedDeps } from '../bootstrap/shared-deps.ts';
 import { resolveStoragePaths, type StoragePaths } from '../runtime/storage-paths-resolver.ts';
@@ -343,7 +345,7 @@ describe('CLI commands', () => {
       );
 
       // Wire the parser to surface all four onboarding signals.
-      const onboardSignals: import('../../domain/signals/harness-signal.ts').HarnessSignal[] = [
+      const onboardSignals: HarnessSignal[] = [
         {
           type: 'agents-md-proposal',
           content: '# Onboard Demo\n\nbody',
@@ -361,7 +363,7 @@ describe('CLI commands', () => {
         },
       ];
       // Spy on the real parser by overriding it via deps.
-      const fakeParser: import('../../business/ports/signal-parser-port.ts').SignalParserPort = {
+      const fakeParser: SignalParserPort = {
         parse: () => onboardSignals,
       };
       const onboardDeps = { ...customDeps, signalParser: fakeParser };

@@ -8,18 +8,19 @@
  * Keyboard: ↑/↓ navigate · Enter expand/collapse inline detail · Esc back
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, useInput } from 'ink';
 import { inkColors, spacing } from '../../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { ListView, type ListColumn } from '../../components/list-view.tsx';
 import { ResultCard } from '../../components/result-card.tsx';
 import { Spinner } from '../../components/spinner.tsx';
+import { useAsyncLoad } from '../../components/use-async-load.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouterOptional } from '../router-context.ts';
 import { getSharedDeps } from '../../../bootstrap/get-shared-deps.ts';
 import { ShowSprintUseCase } from '../../../../business/usecases/sprint/show-sprint.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { getKeyFor } from '../../keyboard-map.ts';
 import type { Ticket } from '../../../../domain/entities/ticket.ts';
 
@@ -72,47 +73,17 @@ function TicketDetail({ ticket }: TicketDetailProps): React.JSX.Element {
 export function TicketListView(): React.JSX.Element {
   useViewHints(LIST_HINTS);
   const router = useRouterOptional();
-  const [tickets, setTickets] = useState<readonly Ticket[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: tickets, error } = useAsyncLoad<readonly Ticket[]>(async () => {
+    const deps = await getSharedDeps();
+    const idResult = await resolveCurrentSprintId(deps.configStore);
+    if (!idResult.ok) throw new Error(idResult.error.message);
+    const uc = new ShowSprintUseCase(deps.sprintRepo);
+    const result = await uc.execute({ id: idResult.value });
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value.tickets;
+  });
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [cursor, setCursor] = useState(0);
-
-  useEffect(() => {
-    const cancel = { current: false };
-    void (async () => {
-      try {
-        const deps = await getSharedDeps();
-        const config = await deps.configStore.load();
-        if (!config.ok) {
-          setError(config.error.message);
-          return;
-        }
-        const sprintIdStr = config.value.currentSprint;
-        if (!sprintIdStr) {
-          setError('No current sprint. Set one via Settings.');
-          return;
-        }
-        const idResult = SprintId.parse(sprintIdStr);
-        if (!idResult.ok) {
-          setError(idResult.error.message);
-          return;
-        }
-        const uc = new ShowSprintUseCase(deps.sprintRepo);
-        const result = await uc.execute({ id: idResult.value });
-        if (cancel.current) return;
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        setTickets(result.value.tickets);
-      } catch (err) {
-        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancel.current = true;
-    };
-  }, []);
 
   const KEY_ADD = getKeyFor('list.add');
   const KEY_EDIT = getKeyFor('list.edit');

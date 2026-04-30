@@ -14,12 +14,12 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { runSelectConfirmRemove } from '../../components/run-select-confirm-remove.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { RemoveTicketUseCase } from '../../../../business/usecases/ticket/remove-ticket.ts';
 import { ShowSprintUseCase } from '../../../../business/usecases/sprint/show-sprint.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { TicketId } from '../../../../domain/values/ticket-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -31,11 +31,7 @@ export function TicketRemoveView(): React.JSX.Element {
   useEffect(() => {
     run('Removing ticket…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading sprint…');
@@ -47,54 +43,25 @@ export function TicketRemoveView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting ticket selection…');
-      let ticketIdStr: string;
-      try {
-        ticketIdStr = await prompt.select<string>({
-          message: 'Select ticket to remove',
-          choices: sprint.tickets.map((t) => ({
-            label: t.title,
-            value: String(t.id),
-          })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-
-      const ticket = sprint.tickets.find((t) => String(t.id) === ticketIdStr);
-      const ticketTitle = ticket?.title ?? ticketIdStr;
-
-      setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
-          message: `Remove ticket "${ticketTitle}"?`,
-          default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-      if (!confirmed) {
-        router.pop();
-        throw new Error('Cancelled.');
-      }
-
-      const ticketIdResult = TicketId.parse(ticketIdStr);
-      if (!ticketIdResult.ok) throw new Error(ticketIdResult.error.message);
-
-      setStep('Removing ticket…');
       const uc = new RemoveTicketUseCase(deps.sprintRepo);
-      const result = await uc.execute({ sprintId: idResult.value, ticketId: ticketIdResult.value });
-      if (!result.ok) throw new Error(result.error.message);
+      const removed = await runSelectConfirmRemove({
+        prompt,
+        router,
+        items: sprint.tickets,
+        selectMessage: 'Select ticket to remove',
+        itemLabel: (t) => t.title,
+        itemId: (t) => String(t.id),
+        confirmMessage: (t) => `Remove ticket "${t.title}"?`,
+        remove: async (id) => {
+          const ticketIdResult = TicketId.parse(id);
+          if (!ticketIdResult.ok) throw new Error(ticketIdResult.error.message);
+          setStep('Removing ticket…');
+          const result = await uc.execute({ sprintId: idResult.value, ticketId: ticketIdResult.value });
+          if (!result.ok) throw new Error(result.error.message);
+        },
+      });
 
-      return ticketTitle;
+      return removed.title;
     });
   }, [run, router]);
 

@@ -15,11 +15,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { CloseSprintUseCase } from '../../../../business/usecases/sprint/close-sprint.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { IsoTimestamp } from '../../../../domain/values/iso-timestamp.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
@@ -32,11 +32,7 @@ export function SprintCloseView(): React.JSX.Element {
   useEffect(() => {
     run('Closing sprint…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint configured.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       // Load sprint so we can show its name in the confirmation
@@ -47,19 +43,12 @@ export function SprintCloseView(): React.JSX.Element {
 
       setStep('Awaiting confirmation…');
       const prompt = await getPrompt();
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
+      const confirmed = await promptOrPop(router, () =>
+        prompt.confirm({
           message: `Close sprint "${sprint.name}"? This cannot be undone.`,
           default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       if (!confirmed) {
         router.pop();

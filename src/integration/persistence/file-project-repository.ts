@@ -1,6 +1,6 @@
 import type { Project } from '../../domain/entities/project.ts';
 import { NotFoundError } from '../../domain/errors/not-found-error.ts';
-import { StorageError } from '../../domain/errors/storage-error.ts';
+import type { StorageError } from '../../domain/errors/storage-error.ts';
 import type { ProjectRepository } from '../../domain/repositories/project-repository.ts';
 import { Result } from '../../domain/result.ts';
 import type { ProjectName } from '../../domain/values/project-name.ts';

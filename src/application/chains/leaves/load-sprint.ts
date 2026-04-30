@@ -14,7 +14,7 @@ import type { Sprint } from '../../../domain/entities/sprint.ts';
 import type { NotFoundError } from '../../../domain/errors/not-found-error.ts';
 import type { StorageError } from '../../../domain/errors/storage-error.ts';
 import type { SprintRepository } from '../../../domain/repositories/sprint-repository.ts';
-import { Result } from '../../../domain/result.ts';
+import type { Result } from '../../../domain/result.ts';
 import type { SprintId } from '../../../domain/values/sprint-id.ts';
 import { Leaf } from '../../../kernel/chain/leaf.ts';
 import type { Element } from '../../../kernel/chain/element.ts';

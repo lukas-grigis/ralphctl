@@ -6,13 +6,14 @@
  * Keyboard: ↑/↓ navigate · Enter open · Esc back
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, useInput } from 'ink';
 import { spacing } from '../../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { ListView, type ListColumn } from '../../components/list-view.tsx';
 import { ResultCard } from '../../components/result-card.tsx';
 import { Spinner } from '../../components/spinner.tsx';
+import { useAsyncLoad } from '../../components/use-async-load.ts';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouterOptional } from '../router-context.ts';
 import { getSharedDeps } from '../../../bootstrap/get-shared-deps.ts';
@@ -64,32 +65,14 @@ const COLUMNS: readonly ListColumn<Project>[] = [
 export function ProjectListView(): React.JSX.Element {
   useViewHints(LIST_HINTS);
   const router = useRouterOptional();
-  const [projects, setProjects] = useState<readonly Project[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: projects, error } = useAsyncLoad<readonly Project[]>(async () => {
+    const deps = await getSharedDeps();
+    const uc = new ListProjectsUseCase(deps.projectRepo);
+    const result = await uc.execute();
+    if (!result.ok) throw new Error(result.error.message);
+    return [...result.value].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  });
   const [cursor, setCursor] = useState(0);
-
-  useEffect(() => {
-    const cancel = { current: false };
-    void (async () => {
-      try {
-        const deps = await getSharedDeps();
-        const uc = new ListProjectsUseCase(deps.projectRepo);
-        const result = await uc.execute();
-        if (cancel.current) return;
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        const sorted = [...result.value].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-        setProjects(sorted);
-      } catch (err) {
-        if (!cancel.current) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancel.current = true;
-    };
-  }, []);
 
   const KEY_ADD = getKeyFor('list.add');
   const KEY_REMOVE = getKeyFor('list.remove');

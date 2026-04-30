@@ -15,6 +15,7 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { AddRepositoryToProjectUseCase } from '../../../../business/usecases/project/add-repository-to-project.ts';
 import { ListProjectsUseCase } from '../../../../business/usecases/project/list-projects.ts';
@@ -41,34 +42,20 @@ export function ProjectRepoAddView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting project selection…');
-      let projectNameStr: string;
-      try {
-        projectNameStr = await prompt.select<string>({
+      const projectNameStr = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Select project',
           choices: listed.value.map((p) => ({
             label: p.displayName,
             value: String(p.name),
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       setStep('Awaiting repository path…');
-      let repoPath: string | null;
-      try {
-        repoPath = await prompt.fileBrowser({ startPath: process.cwd(), message: 'Repository path (directory)' });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const repoPath = await promptOrPop(router, () =>
+        prompt.fileBrowser({ startPath: process.cwd(), message: 'Repository path (directory)' })
+      );
       if (repoPath === null || repoPath.trim() === '') throw new Error('Repository path is required.');
 
       const pathResult = AbsolutePath.parse(repoPath.trim());

@@ -15,11 +15,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { runSelectConfirmRemove } from '../../components/run-select-confirm-remove.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { RemoveSprintUseCase } from '../../../../business/usecases/sprint/remove-sprint.ts';
 import { ListSprintsUseCase } from '../../../../business/usecases/sprint/list-sprints.ts';
 import { SprintId } from '../../../../domain/values/sprint-id.ts';
-import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -39,54 +39,25 @@ export function SprintRemoveView(): React.JSX.Element {
 
       setStep('Awaiting sprint selection…');
       const prompt = await getPrompt();
-      let selectedId: string;
-      try {
-        selectedId = await prompt.select<string>({
-          message: 'Select sprint to remove',
-          choices: listed.value.map((s) => ({
-            label: `[${s.status.toUpperCase()}] ${s.name} (${String(s.id)})`,
-            value: String(s.id),
-          })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-
-      const sprint = listed.value.find((s) => String(s.id) === selectedId);
-      const sprintName = sprint?.name ?? selectedId;
-
-      setStep('Awaiting confirmation…');
-      let confirmed: boolean;
-      try {
-        confirmed = await prompt.confirm({
-          message: `Permanently remove sprint "${sprintName}"?`,
-          default: false,
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
-      if (!confirmed) {
-        router.pop();
-        throw new Error('Cancelled.');
-      }
-
-      const idResult = SprintId.parse(selectedId);
-      if (!idResult.ok) throw new Error(idResult.error.message);
-
-      setStep('Removing sprint…');
       const uc = new RemoveSprintUseCase(deps.sprintRepo);
-      const result = await uc.execute({ id: idResult.value });
-      if (!result.ok) throw new Error(result.error.message);
+      const removed = await runSelectConfirmRemove({
+        prompt,
+        router,
+        items: listed.value,
+        selectMessage: 'Select sprint to remove',
+        itemLabel: (s) => `[${s.status.toUpperCase()}] ${s.name} (${String(s.id)})`,
+        itemId: (s) => String(s.id),
+        confirmMessage: (s) => `Permanently remove sprint "${s.name}"?`,
+        remove: async (id) => {
+          const idResult = SprintId.parse(id);
+          if (!idResult.ok) throw new Error(idResult.error.message);
+          setStep('Removing sprint…');
+          const result = await uc.execute({ id: idResult.value });
+          if (!result.ok) throw new Error(result.error.message);
+        },
+      });
 
-      return sprintName;
+      return removed.name;
     });
   }, [run, router]);
 

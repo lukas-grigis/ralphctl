@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Sprint } from '../../../domain/entities/sprint.ts';
 import { Ticket } from '../../../domain/entities/ticket.ts';
 import { AbsolutePath } from '../../../domain/values/absolute-path.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { ProjectName } from '../../../domain/values/project-name.ts';
 import { Slug } from '../../../domain/values/slug.ts';
 import { TicketId } from '../../../domain/values/ticket-id.ts';

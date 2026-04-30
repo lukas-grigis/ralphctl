@@ -15,10 +15,11 @@ import { ResultCard } from '../../components/result-card.tsx';
 import { useViewHints } from '../view-hints-context.tsx';
 import { useRouter } from '../router-context.ts';
 import { useWorkflow } from '../../components/use-workflow.ts';
+import { promptOrPop } from '../../components/prompt-or-pop.ts';
+import { resolveCurrentSprintId } from '../../components/resolve-current-sprint.ts';
 import { getSharedDeps, getPrompt } from '../../../bootstrap/get-shared-deps.ts';
 import { EditTicketUseCase } from '../../../../business/usecases/ticket/edit-ticket.ts';
 import { ShowSprintUseCase } from '../../../../business/usecases/sprint/show-sprint.ts';
-import { SprintId } from '../../../../domain/values/sprint-id.ts';
 import { TicketId } from '../../../../domain/values/ticket-id.ts';
 import { PromptCancelledError } from '../../../ui/prompt-cancelled-error.ts';
 import type { Sprint } from '../../../../domain/entities/sprint.ts';
@@ -33,11 +34,7 @@ export function TicketEditView(): React.JSX.Element {
   useEffect(() => {
     run('Editing ticket…', async (setStep) => {
       const deps = await getSharedDeps();
-      const config = await deps.configStore.load();
-      if (!config.ok) throw new Error(config.error.message);
-      const sprintIdStr = config.value.currentSprint;
-      if (!sprintIdStr) throw new Error('No current sprint. Set one via Settings.');
-      const idResult = SprintId.parse(sprintIdStr);
+      const idResult = await resolveCurrentSprintId(deps.configStore);
       if (!idResult.ok) throw new Error(idResult.error.message);
 
       setStep('Loading sprint…');
@@ -49,37 +46,21 @@ export function TicketEditView(): React.JSX.Element {
 
       const prompt = await getPrompt();
       setStep('Awaiting ticket selection…');
-      let ticketIdStr: string;
-      try {
-        ticketIdStr = await prompt.select<string>({
+      const ticketIdStr = await promptOrPop(router, () =>
+        prompt.select<string>({
           message: 'Select ticket to edit',
           choices: sprint.tickets.map((t) => ({
             label: `${t.title} [${t.requirementStatus}]`,
             value: String(t.id),
           })),
-        });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+        })
+      );
 
       const ticket = sprint.tickets.find((t) => String(t.id) === ticketIdStr);
       if (!ticket) throw new Error('Ticket not found.');
 
       setStep('Awaiting new title…');
-      let title: string;
-      try {
-        title = await prompt.input({ message: 'Title', default: ticket.title });
-      } catch (err) {
-        if (err instanceof PromptCancelledError) {
-          router.pop();
-          throw err;
-        }
-        throw err;
-      }
+      const title = await promptOrPop(router, () => prompt.input({ message: 'Title', default: ticket.title }));
 
       setStep('Awaiting description…');
       let description: string | undefined;

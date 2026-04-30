@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EvaluationSignal } from '../../../domain/signals/harness-signal.ts';
-import { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
+import type { IsoTimestamp } from '../../../domain/values/iso-timestamp.ts';
 import { dimensionsEqual, failedDimensions } from './plateau-detection.ts';
 
 const T = '2026-04-29T14:15:22.000Z' as IsoTimestamp;
