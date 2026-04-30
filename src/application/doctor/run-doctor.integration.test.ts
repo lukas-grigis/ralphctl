@@ -43,6 +43,8 @@ describe('runDoctor (integration)', () => {
       'Project paths',
       'Onboarding status',
       'Current sprint',
+      'Session log path',
+      'Log level',
     ]);
   });
 

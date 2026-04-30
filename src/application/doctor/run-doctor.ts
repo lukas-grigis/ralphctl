@@ -23,9 +23,11 @@ import { currentSprintReadableCheck } from './checks/current-sprint-readable.ts'
 import { dataDirWritableCheck } from './checks/data-dir-writable.ts';
 import { gitIdentityCheck } from './checks/git-identity.ts';
 import { gitInstalledCheck } from './checks/git-installed.ts';
+import { logLevelCheck } from './checks/log-level.ts';
 import { nodeVersionCheck } from './checks/node-version.ts';
 import { onboardingStatusCheck } from './checks/onboarding-status.ts';
 import { projectPathsExistCheck } from './checks/project-paths-exist.ts';
+import { sessionLogPathCheck } from './checks/session-log-path.ts';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -49,7 +51,9 @@ export function aggregateStatus(checks: readonly DoctorCheckResult[]): DoctorRep
 
 export async function runDoctor(deps: SharedDeps): Promise<DoctorReport> {
   // Each check is independent — fan out and gather. `Promise.all`
-  // preserves order so the rendered report has a stable layout.
+  // preserves order so the rendered report has a stable layout. Info-only
+  // rows (session log path, log level) sit at the end so they don't crowd
+  // the actual probes.
   const checks = await Promise.all([
     nodeVersionCheck(),
     gitInstalledCheck(),
@@ -62,6 +66,8 @@ export async function runDoctor(deps: SharedDeps): Promise<DoctorReport> {
       configStore: deps.configStore,
       sprintRepo: deps.sprintRepo,
     }),
+    sessionLogPathCheck({ storage: deps.storage, sessionId: deps.sessionId }),
+    logLevelCheck(),
   ]);
 
   return {
