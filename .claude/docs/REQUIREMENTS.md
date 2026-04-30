@@ -131,7 +131,7 @@ evaluate-task → mark-done`
 
 - [ ] `createOnboardFlow(deps, opts)` returns an `Element<OnboardCtx>`
 - [ ] Step trace: `load-project → resolve-repo → run-onboard-ai → confirm-setup-script → confirm-verify-script →
-  confirm-context-file → write-context-file → save-repo-scripts`
+confirm-context-file → write-context-file → save-repo-scripts`
 - [ ] A single AI session emits up to four artefacts via signals: `<setup-script>`, `<verify-script>`, `<agents-md>`,
       `<skill-suggestions>`
 - [ ] Mode auto-detected per repo: `bootstrap` (no prior project context file), `adopt` (file present, no harness

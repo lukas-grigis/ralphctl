@@ -28,12 +28,10 @@ import type { ExternalPort } from '../../business/ports/external-port.ts';
 import type { LoggerPort } from '../../business/ports/logger-port.ts';
 import type { PromptBuilderPort } from '../../business/ports/prompt-builder-port.ts';
 import type { PromptPort } from '../../business/ports/prompt-port.ts';
-import type { SignalHandlerPort } from '../../business/ports/signal-handler-port.ts';
 import type { SignalParserPort } from '../../business/ports/signal-parser-port.ts';
 import type { ProjectRepository } from '../../domain/repositories/project-repository.ts';
 import type { SprintRepository } from '../../domain/repositories/sprint-repository.ts';
 import type { TaskRepository } from '../../domain/repositories/task-repository.ts';
-import type { ConfigStorePort } from '../config/config-store-port.ts';
 import type { LiveConfigReader } from '../runtime/live-config-reader.ts';
 import type { SessionSkillsLinkerLike } from './leaves/link-skills.ts';
 
@@ -45,9 +43,7 @@ export interface ChainSharedDeps {
   readonly prompts: PromptBuilderPort;
   readonly external: ExternalPort;
   readonly signalParser: SignalParserPort;
-  readonly signalHandler: SignalHandlerPort;
   readonly logger: LoggerPort;
-  readonly configStore: ConfigStorePort;
   /**
    * Live-reads the current config on demand. Per-task chains thread
    * this into the multi-round evaluator loop so settings-panel edits

@@ -73,8 +73,7 @@ export default tseslint.config(
                 '**/application/**',
                 '@src/application/**',
               ],
-              message:
-                'Domain must not import from business, integration, or application. Kernel imports are allowed.',
+              message: 'Domain must not import from business, integration, or application. Kernel imports are allowed.',
             },
           ],
         },
@@ -91,12 +90,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                '**/integration/**',
-                '@src/integration/**',
-                '**/application/**',
-                '@src/application/**',
-              ],
+              group: ['**/integration/**', '@src/integration/**', '**/application/**', '@src/application/**'],
               message:
                 'Business depends only on domain, kernel, and ports. Concrete adapters live in integration and must be injected, not imported.',
             },
@@ -117,6 +111,51 @@ export default tseslint.config(
             {
               group: ['**/application/**', '@src/application/**'],
               message: 'Integration adapters must not import from application (the composition root).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // Workflow orchestration belongs to chain factories — CLI commands and TUI
+  // views must launch refine/plan/ideate/execute/evaluate/feedback/onboard/
+  // create-pr through `src/application/chains/`, never instantiate the
+  // underlying multi-step use cases directly.
+  //
+  // CRUD use cases (sprint create/list/show/edit/remove, ticket CRUD, task
+  // CRUD, project CRUD) are still callable directly — they're single-shot,
+  // single-aggregate operations that don't need a chain wrapper.
+  {
+    files: ['src/application/cli/**/*.ts', 'src/application/tui/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: {
+      'no-restricted-imports': 'off',
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/business/usecases/refine/*',
+                '@src/business/usecases/refine/*',
+                '**/business/usecases/plan/*',
+                '@src/business/usecases/plan/*',
+                '**/business/usecases/ideate/*',
+                '@src/business/usecases/ideate/*',
+                '**/business/usecases/execute/*',
+                '@src/business/usecases/execute/*',
+                '**/business/usecases/evaluate/*',
+                '@src/business/usecases/evaluate/*',
+                '**/business/usecases/feedback/*',
+                '@src/business/usecases/feedback/*',
+                '**/business/usecases/onboard/*',
+                '@src/business/usecases/onboard/*',
+                '**/business/usecases/sprint/create-pull-request*',
+                '@src/business/usecases/sprint/create-pull-request*',
+              ],
+              message:
+                'Workflow use cases must be invoked through chain factories (src/application/chains/), not instantiated directly. Type-only imports are allowed.',
+              allowTypeImports: true,
             },
           ],
         },
