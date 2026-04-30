@@ -106,10 +106,15 @@ export function PipelineMap({ snapshot, onAction, onDrillIn, disabled = false }:
       {rows.map((row, i) => {
         const selected = !disabled && i === cursor;
         if (row.kind === 'quick') {
+          // The quick-action row is the primary CTA — always rendered in
+          // highlight + bold so it stands out from the phase rows even when
+          // the cursor is elsewhere. Focus adds the arrow suffix to signal
+          // "Enter runs this immediately".
           return (
             <Box key="quick" marginBottom={spacing.section}>
-              <Text color={selected ? inkColors.highlight : inkColors.info} bold>
+              <Text color={inkColors.highlight} bold>
                 {selected ? glyphs.actionCursor : ' '} Next: {row.action.label}
+                {selected ? `  ${glyphs.arrowRight} Enter` : ''}
               </Text>
             </Box>
           );

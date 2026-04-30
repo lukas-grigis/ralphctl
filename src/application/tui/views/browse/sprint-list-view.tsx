@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Box, useInput } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { inkColors, spacing } from '../../../../integration/ui/theme/tokens.ts';
 import { ViewShell } from '../../components/view-shell.tsx';
 import { ListView, type ListColumn } from '../../components/list-view.tsx';
@@ -156,11 +156,14 @@ export function SprintListView(): React.JSX.Element {
     router?.push({ id: 'sprint-show', props: { sprintId: String(sprint.id) } });
   }
 
-  const filterLabel = filter !== 'all' ? ` [filter: ${filter}]` : '';
-
   return (
-    <ViewShell title={`SPRINTS${filterLabel}`}>
+    <ViewShell title="SPRINTS">
       <Box flexDirection="column">
+        {filter !== 'all' ? (
+          <Box>
+            <Text dimColor>filter: {filter}</Text>
+          </Box>
+        ) : null}
         {sprints === null && error === null ? (
           <Spinner label="Loading sprints…" />
         ) : error !== null ? (

@@ -44,23 +44,23 @@ export function HelpOverlay({ onClose }: Props): React.JSX.Element {
       paddingY={0}
       marginBottom={spacing.section}
     >
+      {/* Title + close hint on the same row — always visible at the top of
+          the overlay, so the close affordance survives small terminals
+          regardless of how the area sections overflow below. */}
       <Box>
         <Text color={inkColors.primary} bold>
           {glyphs.badge} Keyboard reference
         </Text>
+        <Text dimColor>{`   ${glyphs.inlineDot}  press `}</Text>
+        <Text bold>{getKeyFor('global.help')}</Text>
+        <Text dimColor>{` or `}</Text>
+        <Text bold>esc</Text>
+        <Text dimColor>{` to close`}</Text>
       </Box>
       <Box marginTop={spacing.section} flexDirection="column">
         {HELP_AREA_ORDER.map((area) => (
           <AreaSection key={area} area={area} />
         ))}
-      </Box>
-      <Box marginTop={spacing.section}>
-        <Text dimColor>
-          press <Text bold>{getKeyFor('global.help')}</Text>
-          <Text dimColor>{` or `}</Text>
-          <Text bold>esc</Text>
-          <Text dimColor>{` to close`}</Text>
-        </Text>
       </Box>
     </Box>
   );
