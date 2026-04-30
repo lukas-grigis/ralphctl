@@ -59,6 +59,7 @@ import { FileLocker } from '../../integration/persistence/file-locker.ts';
 import { FileProjectRepository } from '../../integration/persistence/file-project-repository.ts';
 import { FileSprintRepository } from '../../integration/persistence/file-sprint-repository.ts';
 import { FileTaskRepository } from '../../integration/persistence/file-task-repository.ts';
+import { IsoTimestamp } from '../../domain/values/iso-timestamp.ts';
 import { InMemorySignalBus } from '../../integration/signals/bus.ts';
 import { FileSystemSignalHandler } from '../../integration/signals/file-system-handler.ts';
 import { SignalParser } from '../../integration/signals/parser.ts';
@@ -254,6 +255,21 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
         const loaded = await configStore.load();
         if (!loaded.ok) return 'claude';
         return loaded.value.aiProvider ?? 'claude';
+      },
+      // Bridge the provider's per-spawn rate-limit recovery into the live
+      // signal bus so the TUI dashboard can render a countdown banner.
+      rateLimitListener: {
+        onPaused: (reason, resumeAt) => {
+          const at = resumeAt ? IsoTimestamp.parse(resumeAt.toISOString()) : null;
+          signalBus.emit({
+            type: 'rate-limit-paused',
+            reason,
+            ...(at?.ok ? { resumeAt: at.value } : {}),
+          });
+        },
+        onResumed: () => {
+          signalBus.emit({ type: 'rate-limit-resumed' });
+        },
       },
     });
 

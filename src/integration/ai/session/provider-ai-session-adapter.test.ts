@@ -168,6 +168,36 @@ describe('ProviderAiSessionAdapter.spawnWithRetry', () => {
     expect(proc.calls[1]?.args).toContain('rl-sess');
   });
 
+  it('fires rateLimitListener.onPaused with resumeAt before sleeping and onResumed after', async () => {
+    const proc = new FakeProcessRunner()
+      .enqueue({
+        stderr: 'rate limit exceeded. retry-after: 30',
+        exitCode: 1,
+      })
+      .enqueue({ stdout: JSON.stringify({ result: 'final' }) });
+
+    const calls: { phase: 'paused' | 'resumed'; reason?: string; resumeAt?: Date }[] = [];
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+      sleep: () => Promise.resolve(),
+      rateLimitListener: {
+        onPaused(reason, resumeAt) {
+          calls.push({ phase: 'paused', reason, ...(resumeAt ? { resumeAt } : {}) });
+        },
+        onResumed() {
+          calls.push({ phase: 'resumed' });
+        },
+      },
+    });
+
+    const r = await adapter.spawnWithRetry('p', baseOptions());
+    expect(r.ok).toBe(true);
+    expect(calls.map((c) => c.phase)).toEqual(['paused', 'resumed']);
+    expect(calls[0]?.reason).toMatch(/rate-limited/i);
+    expect(calls[0]?.resumeAt).toBeInstanceOf(Date);
+  });
+
   it('uses default retry-after when the upstream supplies none', async () => {
     const proc = new FakeProcessRunner()
       .enqueue({ stderr: 'rate limit exceeded', exitCode: 1 })

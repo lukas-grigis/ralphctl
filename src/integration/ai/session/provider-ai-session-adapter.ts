@@ -39,6 +39,17 @@ const DEFAULT_RETRY_AFTER_MS = 60_000;
 /** Default retry budget for `spawnWithRetry`. */
 const DEFAULT_MAX_RETRIES = 1;
 
+/**
+ * Lifecycle callback fired by {@link ProviderAiSessionAdapter.spawnWithRetry}
+ * around its rate-limit recovery sleep. The composition root wires this to
+ * `SignalBusPort` so the live execution dashboard can render a countdown
+ * while the adapter waits.
+ */
+export interface RateLimitListenerCallbacks {
+  onPaused(reason: string, resumeAt?: Date): void;
+  onResumed(): void;
+}
+
 export interface ProviderAiSessionAdapterOptions {
   /**
    * Resolve the active provider lazily. Called at most once (cached).
@@ -49,6 +60,13 @@ export interface ProviderAiSessionAdapterOptions {
   readonly process: ProcessRunner;
   /** Sleep helper — overridable so tests don't burn real time. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Optional rate-limit lifecycle callback. When set, fires `onPaused`
+   * before the inter-attempt sleep and `onResumed` once the sleep completes
+   * (or when the retry budget is exhausted). Composition root wires this to
+   * `SignalBusPort`; tests inject spies.
+   */
+  readonly rateLimitListener?: RateLimitListenerCallbacks;
 }
 
 export class ProviderAiSessionAdapter implements AiSessionPort {
@@ -146,7 +164,17 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
       if (attempt >= maxRetries) {
         return r;
       }
-      await this.sleep(err.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS);
+      const sleepMs = err.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS;
+      const listener = this.opts.rateLimitListener;
+      if (listener) {
+        const resumeAt = new Date(Date.now() + sleepMs);
+        listener.onPaused(err.message, resumeAt);
+      }
+      try {
+        await this.sleep(sleepMs);
+      } finally {
+        listener?.onResumed();
+      }
     }
 
     // Defensive — the loop body always returns above.
