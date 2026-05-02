@@ -1,0 +1,356 @@
+/**
+ * `createExecuteFlow` — chain definition for sprint task execution.
+ *
+ * Steps (happy path):
+ *
+ *   load-sprint → assert-active → load-tasks → assert-tasks-not-empty →
+ *     dirty-tree-preflight → check-scripts-sprint-start → link-skills →
+ *     execute-tasks (Parallel of per-task chains) → unlink-skills →
+ *     summarise-execution
+ *
+ * The `execute-tasks` step is a `Parallel` whose children are
+ * `createPerTaskFlow(deps, { task, sprint })` instances. Concurrency
+ * defaults to 4 and `failureMode` is `'collect-all'` so one failing
+ * task doesn't abort the others — the per-task chain is responsible
+ * for capturing its own outcome.
+ *
+ * SIMPLIFICATION: feedback is **not** embedded inside this chain. The
+ * brief calls this out — once `execute-tasks` settles, the CLI/TUI is
+ * responsible for prompting the user for feedback and starting a
+ * separate `createFeedbackFlow` session if they provide any. Embedding
+ * feedback here would couple the executor to user-input timing.
+ *
+ * `auto-activate` is not a step here. The brief allowed an "active OR
+ * auto-activate" branch, but conditionals are not a kernel primitive —
+ * the caller (CLI / TUI) is responsible for activating a draft sprint
+ * before launching execution. The chain enforces `assert-active` so
+ * misuse fails loudly.
+ */
+import { Result } from '@src/domain/result.ts';
+
+import {
+  DirtyTreePreflightUseCase,
+  type DirtyTreePreflightOutput,
+} from '@src/business/usecases/execute/dirty-tree-preflight.ts';
+import type { Sprint } from '@src/domain/entities/sprint.ts';
+import type { Task } from '@src/domain/entities/task.ts';
+import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
+import type { Element } from '@src/kernel/chain/element.ts';
+import { Leaf } from '@src/kernel/chain/leaf.ts';
+import { Parallel } from '@src/kernel/chain/parallel.ts';
+import { Sequential } from '@src/kernel/chain/sequential.ts';
+import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import type { SprintId } from '@src/domain/values/sprint-id.ts';
+import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
+import { linkSkillsLeaf } from '@src/application/chains/leaves/link-skills.ts';
+import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
+import { loadTasksLeaf } from '@src/application/chains/leaves/load-tasks.ts';
+import { unlinkSkillsLeaf } from '@src/application/chains/leaves/unlink-skills.ts';
+import { createPerTaskFlow, type PerTaskCtx } from './per-task-flow.ts';
+
+export interface ExecuteCtx {
+  readonly sprintId: SprintId;
+  readonly cwd: AbsolutePath;
+  /** Sprint branch name. Empty string disables branch verification per task. */
+  readonly expectedBranch: string;
+  /** Resolved check script (per-repo lookup happens at the caller). */
+  readonly checkScript?: string;
+  readonly sprint?: Sprint;
+  readonly tasks?: readonly Task[];
+  /** Outcome of the dirty-tree pre-flight (set by `dirty-tree-preflight`). */
+  readonly dirtyTreeOutcome?: DirtyTreePreflightOutput;
+}
+
+export interface CreateExecuteFlowOpts {
+  readonly sprintId: SprintId;
+  readonly cwd: AbsolutePath;
+  /** Sprint branch (empty string opts out of branch enforcement). */
+  readonly expectedBranch: string;
+  /** Pre-loaded task list — used to size the Parallel children at construction time. */
+  readonly tasks: readonly Task[];
+  /** Pre-loaded sprint — passed to each per-task chain. */
+  readonly sprint: Sprint;
+  /** Concurrency cap. Defaults to 4. */
+  readonly concurrency?: number;
+  /** Optional check script for the post-task gate (uniform across tasks for now). */
+  readonly checkScript?: string;
+}
+
+export function createExecuteFlow(
+  deps: Pick<
+    ChainSharedDeps,
+    | 'sprintRepo'
+    | 'taskRepo'
+    | 'aiSession'
+    | 'prompts'
+    | 'prompt'
+    | 'signalParser'
+    | 'external'
+    | 'logger'
+    | 'skillsLinker'
+    | 'liveConfig'
+    | 'signalBus'
+    | 'rateLimitCoordinator'
+  >,
+  opts: CreateExecuteFlowOpts
+): Element<ExecuteCtx> {
+  const concurrency = opts.concurrency ?? 4;
+
+  // Bridge: the outer chain's ExecuteCtx is wider than each per-task
+  // chain's PerTaskCtx. Wrap each per-task chain in a leaf-shaped
+  // adapter that projects `ExecuteCtx → PerTaskCtx`, runs the inner
+  // chain, and folds the result back into ExecuteCtx (we discard the
+  // per-task ctx; the outer flow only needs to know the per-task
+  // chain's overall success/failure).
+  const adaptedChildren: Element<ExecuteCtx>[] = opts.tasks.map((task) =>
+    bridgePerTaskChain(task, createPerTaskFlow(deps, { task, sprint: opts.sprint }), opts)
+  );
+
+  const executeTasksStep = new Parallel<ExecuteCtx>('execute-tasks', adaptedChildren, {
+    concurrency,
+    failureMode: 'collect-all',
+    reduce: (childCtxs) => {
+      // Each child returns the same ExecuteCtx shape. Merge: keep the
+      // freshest ctx fields by preferring the last child's snapshot —
+      // the outer state is otherwise identical (per-task chains write
+      // their own state, not the executor's).
+      const last = childCtxs[childCtxs.length - 1];
+      return last ?? ({} as ExecuteCtx);
+    },
+  });
+
+  return new Sequential<ExecuteCtx>('execute', [
+    loadSprintLeaf<ExecuteCtx>({ sprintRepo: deps.sprintRepo }),
+    assertActiveLeaf(),
+    loadTasksLeaf<ExecuteCtx>({ taskRepo: deps.taskRepo }),
+    assertTasksNotEmptyLeaf(),
+    dirtyTreePreflightLeaf(deps, opts),
+    checkScriptsSprintStartLeaf(deps),
+    linkSkillsLeaf<ExecuteCtx>({ skillsLinker: deps.skillsLinker }),
+    executeTasksStep,
+    unlinkSkillsLeaf<ExecuteCtx>({ skillsLinker: deps.skillsLinker }),
+    summariseExecutionLeaf(deps, opts),
+  ]);
+}
+
+/**
+ * Final milestone leaf — emits a success-level summary log so the live
+ * execute view's "Recent events" panel has a clear "all done" line at
+ * the end of a run. Reads task statuses fresh via the repository so the
+ * counts reflect any per-task transitions that happened during the
+ * Parallel fan-out (the outer ctx.tasks snapshot is the pre-run list).
+ *
+ * Never blocks: persistence read errors fall through to a quieter info
+ * log so the chain still settles cleanly.
+ */
+function summariseExecutionLeaf(
+  deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>,
+  opts: CreateExecuteFlowOpts
+): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprintId: SprintId }, void>('summarise-execution', {
+    useCase: {
+      async execute(input) {
+        const tasks = await deps.taskRepo.findBySprintId(input.sprintId);
+        if (!tasks.ok) {
+          // Don't fail the chain on a read-back error — the work has
+          // already been done and the trace will surface the failure.
+          deps.logger.info(`sprint ${String(input.sprintId)} executed`, { tasks: opts.tasks.length });
+          return Result.ok(undefined);
+        }
+        const total = tasks.value.length;
+        const done = tasks.value.filter((t) => t.status === 'done').length;
+        const blocked = tasks.value.filter((t) => t.status === 'blocked').length;
+        const ctx: Record<string, unknown> = { sprintId: input.sprintId, total, done };
+        if (blocked > 0) ctx['blocked'] = blocked;
+        deps.logger.success(
+          `sprint ${String(input.sprintId)} executed: ${String(done)}/${String(total)} tasks completed`,
+          ctx
+        );
+        return Result.ok(undefined);
+      },
+    },
+    input: (ctx) => ({ sprintId: ctx.sprintId }),
+    output: (ctx) => ctx,
+  });
+}
+
+/**
+ * Sprint-start dirty-tree pre-flight. Surveys every unique repo the sprint
+ * will touch; when any repo has uncommitted changes, prompts the user for
+ * a strategy (stash / reset / continue / cancel). On `cancelled` it surfaces
+ * an `invalid-state` failure so the chain stops cleanly without launching
+ * any tasks.
+ *
+ * Skipped when the sprint has zero tasks — the empty-tasks guard above
+ * already failed in that case.
+ */
+function dirtyTreePreflightLeaf(
+  deps: Pick<ChainSharedDeps, 'external' | 'prompt' | 'logger'>,
+  opts: CreateExecuteFlowOpts
+): Element<ExecuteCtx> {
+  const useCase = new DirtyTreePreflightUseCase(deps.external, deps.prompt, deps.logger);
+  const repoPaths = uniqueRepoPaths(opts.tasks);
+  const stashMessage = `ralphctl ${opts.sprintId}`;
+  return new Leaf<ExecuteCtx, undefined, DirtyTreePreflightOutput>('dirty-tree-preflight', {
+    useCase: {
+      async execute() {
+        const r = await useCase.execute({ repoPaths, stashMessage });
+        if (!r.ok) return Result.error(r.error);
+        if (r.value.outcome === 'cancelled') {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'sprint',
+              currentState: 'dirty-tree-cancelled',
+              attemptedAction: 'execute',
+              message: 'sprint start cancelled — uncommitted changes',
+            })
+          );
+        }
+        return Result.ok(r.value);
+      },
+    },
+    input: () => undefined,
+    output: (ctx, dirtyTreeOutcome) => ({ ...ctx, dirtyTreeOutcome }),
+  });
+}
+
+function uniqueRepoPaths(tasks: readonly Task[]): readonly AbsolutePath[] {
+  const seen = new Set<string>();
+  const out: AbsolutePath[] = [];
+  for (const t of tasks) {
+    if (seen.has(t.projectPath)) continue;
+    seen.add(t.projectPath);
+    out.push(t.projectPath);
+  }
+  return out;
+}
+
+/**
+ * Wrap a per-task chain so it consumes the outer `ExecuteCtx` shape.
+ * The bridge:
+ *  - projects ctx → PerTaskCtx,
+ *  - runs the per-task chain to completion,
+ *  - rolls per-task trace entries up into the outer chain's trace
+ *    (already handled by the kernel's Element.execute contract — we
+ *    just return the inner result),
+ *  - returns the original outer ctx unchanged on success.
+ *
+ * NOTE: we use a `Leaf` here rather than calling `inner.execute` from
+ * inside a use case, because Leaf is the canonical adapter and gives
+ * us trace entries for free. The leaf invokes the inner chain
+ * directly via `inner.execute(...)`, which is allowed at the chain
+ * layer (only use cases are barred from doing this).
+ */
+function bridgePerTaskChain(task: Task, inner: Element<PerTaskCtx>, opts: CreateExecuteFlowOpts): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, ExecuteCtx, ExecuteCtx>(`task-${task.id}`, {
+    useCase: {
+      async execute(input) {
+        const innerCtx: PerTaskCtx = {
+          sprintId: input.sprintId,
+          sprint: opts.sprint,
+          task,
+          cwd: task.projectPath,
+          expectedBranch: input.expectedBranch,
+          ...(input.checkScript !== undefined ? { checkScript: input.checkScript } : {}),
+        };
+        const innerResult = await inner.execute(innerCtx);
+        if (!innerResult.ok) {
+          // Per-task failure surfaces, but the surrounding Parallel
+          // is `collect-all` so siblings continue.
+          return Result.error(innerResult.error.error);
+        }
+        return Result.ok(input);
+      },
+    },
+    input: (ctx) => ctx,
+    output: (ctx) => ctx,
+  });
+}
+
+function assertActiveLeaf(): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprint: Sprint }, void>('assert-active', {
+    useCase: {
+      async execute(input) {
+        if (input.sprint.status !== 'active') {
+          return Promise.resolve(
+            Result.error(
+              new InvalidStateError({
+                entity: 'sprint',
+                currentState: input.sprint.status,
+                attemptedAction: 'execute',
+                message: 'execute requires an active sprint (run sprint start first)',
+              })
+            )
+          );
+        }
+        return Promise.resolve(Result.ok(undefined));
+      },
+    },
+    input: (ctx) => {
+      if (!ctx.sprint) throw new Error('assert-active: ctx.sprint must be loaded first');
+      return { sprint: ctx.sprint };
+    },
+    output: (ctx) => ctx,
+  });
+}
+
+function assertTasksNotEmptyLeaf(): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly tasks: readonly Task[] }, void>('assert-tasks-not-empty', {
+    useCase: {
+      async execute(input) {
+        if (input.tasks.length === 0) {
+          return Promise.resolve(
+            Result.error(
+              new InvalidStateError({
+                entity: 'sprint',
+                currentState: 'no-tasks',
+                attemptedAction: 'execute',
+                message: 'no tasks to execute — run sprint plan first',
+              })
+            )
+          );
+        }
+        return Promise.resolve(Result.ok(undefined));
+      },
+    },
+    input: (ctx) => ({ tasks: ctx.tasks ?? [] }),
+    output: (ctx) => ctx,
+  });
+}
+
+/**
+ * Sprint-start check execution — runs the project check script once
+ * before any tasks fan out, surfacing a hard failure if the baseline
+ * environment is broken. Skipped when no check script is configured.
+ */
+function checkScriptsSprintStartLeaf(deps: Pick<ChainSharedDeps, 'external'>): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly cwd: AbsolutePath; readonly checkScript?: string }, void>(
+    'check-scripts-sprint-start',
+    {
+      useCase: {
+        async execute(input) {
+          if (input.checkScript === undefined || input.checkScript.length === 0) {
+            return Promise.resolve(Result.ok(undefined));
+          }
+          const r = await deps.external.runCheckScript(input.cwd, input.checkScript, 'sprint-start');
+          if (!r.passed) {
+            return Result.error(
+              new InvalidStateError({
+                entity: 'sprint',
+                currentState: 'check-failed',
+                attemptedAction: 'execute',
+                message: 'sprint-start check script failed',
+              })
+            );
+          }
+          return Result.ok(undefined);
+        },
+      },
+      input: (ctx) => ({
+        cwd: ctx.cwd,
+        ...(ctx.checkScript !== undefined ? { checkScript: ctx.checkScript } : {}),
+      }),
+      output: (ctx) => ctx,
+    }
+  );
+}
