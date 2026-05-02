@@ -1,140 +1,208 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { InMemorySignalBus, NoopSignalBus } from './bus.ts';
-import type { HarnessEvent } from '@src/business/ports/signal-bus.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-function progressEvent(summary: string): HarnessEvent {
-  return {
-    type: 'signal',
-    signal: { type: 'progress', summary, timestamp: new Date() },
-    ctx: { sprintId: 's1' },
-  };
-}
+import type { SignalBusEvent } from '@src/business/ports/signal-bus-port.ts';
+import { TaskId } from '@src/domain/values/task-id.ts';
+import { InMemorySignalBus, NoopSignalBus } from './bus.ts';
+
+const TASK_A = TaskId.trustString('aaaaaaaa');
+const TASK_B = TaskId.trustString('bbbbbbbb');
+
+const startedA: SignalBusEvent = { type: 'task-started', taskId: TASK_A };
+const startedB: SignalBusEvent = { type: 'task-started', taskId: TASK_B };
+const finishedA: SignalBusEvent = {
+  type: 'task-finished',
+  taskId: TASK_A,
+  status: 'completed',
+};
 
 describe('InMemorySignalBus', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
-
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('delivers events in emission order within a batch', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 10 });
-    const received: HarnessEvent[] = [];
-    bus.subscribe((batch) => received.push(...batch));
+  it('delivers events in emission order to a single subscriber', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const received: SignalBusEvent[] = [];
+    bus.subscribe((e) => received.push(e));
 
-    bus.emit(progressEvent('a'));
-    bus.emit(progressEvent('b'));
-    bus.emit(progressEvent('c'));
-
-    vi.advanceTimersByTime(10);
-
-    expect(received).toHaveLength(3);
-    expect((received[0] as { signal: { summary: string } }).signal.summary).toBe('a');
-    expect((received[2] as { signal: { summary: string } }).signal.summary).toBe('c');
-  });
-
-  it('coalesces multiple emits within the flush window into one listener call', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 16 });
-    const listener = vi.fn();
-    bus.subscribe(listener);
-
-    bus.emit(progressEvent('x'));
-    bus.emit(progressEvent('y'));
-    bus.emit(progressEvent('z'));
+    bus.emit(startedA);
+    bus.emit(startedB);
+    bus.emit(finishedA);
+    expect(received).toHaveLength(0);
 
     vi.advanceTimersByTime(16);
-
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect((listener.mock.calls[0] as [readonly HarnessEvent[]])[0]).toHaveLength(3);
+    expect(received).toStrictEqual([startedA, startedB, finishedA]);
+    bus.dispose();
   });
 
-  it('starts a new batch after a flush', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 10 });
-    const listener = vi.fn();
-    bus.subscribe(listener);
+  it('fans out a single event to multiple subscribers', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const a: SignalBusEvent[] = [];
+    const b: SignalBusEvent[] = [];
+    bus.subscribe((e) => a.push(e));
+    bus.subscribe((e) => b.push(e));
 
-    bus.emit(progressEvent('a'));
-    vi.advanceTimersByTime(10);
-    bus.emit(progressEvent('b'));
-    vi.advanceTimersByTime(10);
+    bus.emit(startedA);
+    vi.advanceTimersByTime(16);
 
-    expect(listener).toHaveBeenCalledTimes(2);
+    expect(a).toStrictEqual([startedA]);
+    expect(b).toStrictEqual([startedA]);
+    bus.dispose();
   });
 
-  it('unsubscribes cleanly', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 5 });
-    const listener = vi.fn();
-    const unsub = bus.subscribe(listener);
-    unsub();
-    bus.emit(progressEvent('orphan'));
-    vi.advanceTimersByTime(5);
-    expect(listener).not.toHaveBeenCalled();
+  it('coalesces emissions within the micro-batch window', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    let flushes = 0;
+    const events: SignalBusEvent[] = [];
+    bus.subscribe((e) => {
+      flushes++;
+      events.push(e);
+    });
+
+    bus.emit(startedA);
+    bus.emit(startedB);
+    bus.emit(finishedA);
+    expect(flushes).toBe(0); // nothing delivered yet
+
+    vi.advanceTimersByTime(16);
+    expect(events).toStrictEqual([startedA, startedB, finishedA]);
+    bus.dispose();
   });
 
-  it('isolates listeners: one listener throwing does not block others', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 5 });
-    const good = vi.fn();
+  it('starts a fresh window after a flush', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const events: SignalBusEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+
+    bus.emit(startedA);
+    vi.advanceTimersByTime(16);
+    expect(events).toStrictEqual([startedA]);
+
+    bus.emit(startedB);
+    vi.advanceTimersByTime(8);
+    expect(events).toStrictEqual([startedA]);
+    vi.advanceTimersByTime(8);
+    expect(events).toStrictEqual([startedA, startedB]);
+    bus.dispose();
+  });
+
+  it('isolates a throwing listener from other listeners', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const ok: SignalBusEvent[] = [];
     bus.subscribe(() => {
       throw new Error('boom');
     });
-    bus.subscribe(good);
-    bus.emit(progressEvent('a'));
-    vi.advanceTimersByTime(5);
-    expect(good).toHaveBeenCalledTimes(1);
-  });
+    bus.subscribe((e) => ok.push(e));
 
-  it('flush() drains immediately', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 60_000 });
-    const listener = vi.fn();
-    bus.subscribe(listener);
-    bus.emit(progressEvent('now'));
-    bus.flush();
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
+    bus.emit(startedA);
+    vi.advanceTimersByTime(16);
 
-  it('dispose() drops listeners and stops delivery', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 5 });
-    const listener = vi.fn();
-    bus.subscribe(listener);
+    expect(ok).toStrictEqual([startedA]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
     bus.dispose();
-    bus.emit(progressEvent('a'));
-    vi.advanceTimersByTime(5);
-    expect(listener).not.toHaveBeenCalled();
   });
 
-  it('emits rate-limit and task lifecycle event types', () => {
-    const bus = new InMemorySignalBus({ flushIntervalMs: 5 });
-    const received: HarnessEvent[] = [];
-    bus.subscribe((batch) => received.push(...batch));
+  it('unsubscribe stops delivery to that listener', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const events: SignalBusEvent[] = [];
+    const off = bus.subscribe((e) => events.push(e));
 
-    const now = new Date();
-    bus.emit({ type: 'rate-limit-paused', delayMs: 30_000, timestamp: now });
-    bus.emit({ type: 'rate-limit-resumed', timestamp: now });
-    bus.emit({ type: 'task-started', sprintId: 's1', taskId: 't1', taskName: 'x', timestamp: now });
-    bus.emit({ type: 'task-finished', sprintId: 's1', taskId: 't1', status: 'done', timestamp: now });
+    bus.emit(startedA);
+    vi.advanceTimersByTime(16);
+    expect(events).toStrictEqual([startedA]);
 
-    vi.advanceTimersByTime(5);
+    off();
+    bus.emit(startedB);
+    vi.advanceTimersByTime(16);
+    expect(events).toStrictEqual([startedA]); // unchanged
+    bus.dispose();
+  });
 
-    expect(received).toHaveLength(4);
-    expect(received.map((e) => e.type)).toEqual([
-      'rate-limit-paused',
-      'rate-limit-resumed',
-      'task-started',
-      'task-finished',
-    ]);
+  it('dispose() flushes pending events synchronously', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    const events: SignalBusEvent[] = [];
+    bus.subscribe((e) => events.push(e));
+
+    bus.emit(startedA);
+    bus.emit(startedB);
+    bus.dispose();
+
+    expect(events).toStrictEqual([startedA, startedB]);
+  });
+
+  it('dispose() drops subsequent emissions and subscriptions', () => {
+    const bus = new InMemorySignalBus({ intervalMs: 16 });
+    bus.dispose();
+
+    const events: SignalBusEvent[] = [];
+    const off = bus.subscribe((e) => events.push(e));
+    bus.emit(startedA);
+    vi.advanceTimersByTime(16);
+
+    expect(events).toStrictEqual([]);
+    // Returned unsubscribe is a no-op (no entry was added).
+    expect(() => {
+      off();
+    }).not.toThrow();
+  });
+});
+
+describe('InMemorySignalBus session-context auto-tagging', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('tags events emitted inside a runWithSession scope with the session id', async () => {
+    const { runWithSession } = await import('@src/kernel/runtime/session-context.ts');
+    const bus = new InMemorySignalBus({ intervalMs: 0 });
+    const seen: SignalBusEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    await runWithSession('sess-X', () => {
+      bus.emit({ type: 'task-started', taskId: TASK_A });
+      return Promise.resolve();
+    });
+    bus.emit({ type: 'task-started', taskId: TASK_B });
+
+    // Drain any pending micro-batch
+    bus.dispose();
+
+    expect(seen.map((e) => e.sessionId)).toStrictEqual(['sess-X', undefined]);
+  });
+
+  it('caller-provided sessionId wins over the active scope', async () => {
+    const { runWithSession } = await import('@src/kernel/runtime/session-context.ts');
+    const bus = new InMemorySignalBus({ intervalMs: 0 });
+    const seen: SignalBusEvent[] = [];
+    bus.subscribe((e) => seen.push(e));
+
+    await runWithSession('A', () => {
+      bus.emit({ type: 'task-started', taskId: TASK_A, sessionId: 'B' });
+      return Promise.resolve();
+    });
+    bus.dispose();
+
+    expect(seen.map((e) => e.sessionId)).toStrictEqual(['B']);
   });
 });
 
 describe('NoopSignalBus', () => {
-  it('accepts emit without error and subscribe is a no-op', () => {
+  it('emit/subscribe/dispose are no-ops and never throw', () => {
     const bus = new NoopSignalBus();
-    const listener = vi.fn();
-    const unsub = bus.subscribe(listener);
-    bus.emit({ type: 'rate-limit-resumed', timestamp: new Date() });
-    unsub();
-    bus.dispose();
-    expect(listener).not.toHaveBeenCalled();
+    expect(() => {
+      bus.emit(startedA);
+    }).not.toThrow();
+    const off = bus.subscribe(() => undefined);
+    expect(() => {
+      off();
+    }).not.toThrow();
+    expect(() => {
+      bus.dispose();
+    }).not.toThrow();
   });
 });

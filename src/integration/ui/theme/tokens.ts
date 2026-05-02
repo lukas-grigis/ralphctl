@@ -1,13 +1,13 @@
 /**
- * Theme tokens for Ink components — the single source of visual truth for the TUI.
+ * Theme tokens for Ink components — the single source of visual truth for
+ * the src TUI.
  *
  * Design direction: "Technical Letterpress". Color is used only for semantic
  * state (success/warning/error) and for focus. The workhorse is typography
  * (bold/dim) and spacing rhythm. Ralph personality lives in the banner and
  * the occasional pull-quote — not painted across every surface.
+ *
  */
-
-export { emoji } from '@src/integration/ui/theme/theme.ts';
 
 /**
  * Ink `color` prop values. Truecolor hex where ANSI-256 lookalikes would
@@ -31,7 +31,6 @@ export const inkColors = {
 /**
  * Curated glyph family — used consistently across views. Keep this set
  * small; adding a new glyph is a design decision, not a convenience.
- * See .claude/docs/REQUIREMENTS.md § Glyphs for when to use which.
  */
 export const glyphs = {
   // Phase / status
@@ -65,7 +64,7 @@ export const glyphs = {
 
 /**
  * Spacing rhythm constants — use these everywhere instead of hardcoded magic
- * numbers so the whole TUI shares one vertical cadence. See REQUIREMENTS.md § Layout tokens.
+ * numbers so the whole TUI shares one vertical cadence.
  */
 export const spacing = {
   /** Between top-level sections (blank line). */
@@ -86,3 +85,6 @@ export const spacing = {
  * without truncation.
  */
 export const FIELD_LABEL_WIDTH = 12;
+
+/** Donut emoji used for prompts and personality. Not for Ink TUI surfaces. */
+export const DONUT_EMOJI = '🍩';
