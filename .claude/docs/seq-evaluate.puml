@@ -1,62 +1,64 @@
 @startuml
-' Evaluate pipeline — runs standalone (`sprint evaluate-task`) AND nested
-' inside the Execute per-task pipeline's `evaluate-task` step.
-' Definition: src/business/pipelines/evaluate.ts
-' Step shape: load-sprint → load-task → check-already-evaluated → run-evaluator-loop
-title ralphctl — Evaluate pipeline (generator-evaluator)
+' Evaluate chain — ralphctl sprint evaluate (standalone, single round)
+' Standalone factory: src/application/chains/evaluate/evaluate-flow.ts
+' Step trace: load-sprint → load-task → check-already-evaluated → evaluate-task → persist-evaluation
+'
+' The standalone chain runs ONE round per invocation. The multi-round
+' fix-and-re-evaluate loop lives inside `execute/per-task-flow.ts` as
+' `EvaluateAndFixLoopUseCase`, NOT here.
+title ralphctl — Evaluate chain (single round, standalone)
 
 autonumber
 
 actor User
-participant Harness as "Harness\n(pipeline runner)"
-participant AI as "AI\n(Claude / Copilot)"
-participant Code as "Code\n(target repo)"
+participant CLI as "CLI / TUI"
+participant SM as "SessionManager"
+participant Chain as "Sequential('evaluate')"
+participant UC as "Use cases\n(business)"
+participant AI as "AI\n(autonomous evaluator)"
 database sprint.json
 database tasks.json
-database "evaluations/\n<taskId>.md" as evals
 
-User -> Harness : ralphctl sprint evaluate-task <id>\n(or nested from Execute)
-activate Harness
+User -> CLI : ralphctl sprint evaluate <taskId>
+CLI -> SM : start({ element=createEvaluateFlow, ctx })
+SM -> Chain : execute(ctx)
+activate Chain
 
-note over Harness: createEvaluatePipeline(deps, options)
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
+UC -> sprint.json : findById
 
-Harness -> sprint.json : load sprint
-note right: step: load-sprint
+Chain -> UC : taskRepo.findById(sprintId, taskId)
+note right: trace: load-task
+UC -> tasks.json : findById
 
-Harness -> tasks.json : load task + verificationCriteria\n+ extraDimensions
-note right: step: load-task
+Chain -> Chain : task.evaluated === false
+note right: trace: check-already-evaluated\n(returns NotFoundError 'unevaluated-task'\nto short-circuit if already evaluated —\nthe only step that fails the chain on\na business condition rather than an error)
 
-alt task.evaluated && !force
-    note right of Harness: step: check-already-evaluated\n(short-circuit; status='skipped')
-    Harness --> User : EvaluateSummary (skipped)
-end
+Chain -> UC : EvaluateTaskUseCase\n+ previousCritique?
+note right: trace: evaluate-task
+UC -> AI : spawnHeadless(task-evaluation.md\n+ task + sprint + previousCritique?)
+activate AI
+note right: model ladder for Claude:\nOpus→Sonnet, Sonnet→Haiku, Haiku→Haiku\nCopilot: same model
+AI --> UC : raw output
+deactivate AI
+UC -> UC : SignalParser.parse → EvaluationSignal\n(dimensions: **Name**: PASS|FAIL — finding)
+UC --> Chain : { outcome, fullCritique }
 
-note over Harness: step: run-evaluator-loop\n(config read LIVE — REQ-12)
+Chain -> UC : task.recordEvaluation({\n  status, output: critique.slice(0, 2000),\n  file: 'evaluations/<taskId>.md'\n}) + taskRepo.update
+note right: trace: persist-evaluation\n(records preview on Task aggregate;\nstandalone chain does NOT write the\nfull-critique sidecar — that adapter\nlives in the per-task chain)
 
-loop up to evaluationIterations + 1 rounds\n(Claude model ladder: Opus→Sonnet→Haiku)
-    Harness -> AI : spawn Evaluator session\n(task-evaluation.md\n+ floor + extraDimensions\n+ contract.md ref\n+ sibling model)
-    activate AI
-    AI -> Code : read diff, tests, CLAUDE.md
-    AI --> Harness : <evaluation-passed> |\n<evaluation-failed>critique
-    deactivate AI
+Chain --> SM : Result.ok({ ctx, trace })
+deactivate Chain
+SM --> CLI : completed
+CLI --> User : EvaluationSignal\n(passed / failed / malformed)
 
-    Harness -> evals : append full critique\n(one entry per iteration)
-    Harness -> tasks.json : evaluationOutput (≤2000 chars)\n+ evaluationStatus (passed|failed|malformed)\n+ evaluationFile\n+ evaluated = true
-
-    alt failed && attempts remain
-        Harness -> Harness : diff guard\n(HEAD + dirty check)
-        Harness -> AI : resume Generator\n(task-evaluation-resume.md + critique)
-        activate AI
-        AI -> Code : fix per critique
-        AI --> Harness : updated result
-        deactivate AI
-        Harness -> Code : re-run checkScript
-    else passed or exhausted
-        note right of Harness: loop breaks\n(task never blocked on eval failure)
-    end
-end
-
-Harness --> User : EvaluateSummary\n(passed / failed / malformed / skipped)
-deactivate Harness
+note over Chain
+  Use case never blocks: malformed /
+  failed evaluations resolve as
+  Result.ok so the surrounding chain
+  (whether standalone or per-task)
+  always proceeds.
+end note
 
 @enduml

@@ -8,7 +8,7 @@ Companion docs:
 
 - [REQUIREMENTS.md § UI Contract](./REQUIREMENTS.md#ui-contract) — the **testable** acceptance criteria for this design
   system.
-- [ARCHITECTURE.md § Terminal UI Layer](./ARCHITECTURE.md#terminal-ui-layer-srcintegrationuitui) — file layout and
+- [ARCHITECTURE.md § Terminal UI Layer](./ARCHITECTURE.md#terminal-ui-layer-srcapplicationtui) — file layout and
   runtime wiring.
 - `src/integration/ui/theme/tokens.ts` — the tokens themselves, in code.
 
@@ -124,8 +124,8 @@ Home is the single `bare` exception — it renders the Banner + pipeline map ins
 
 ## 4. Component inventory
 
-All components live in `src/integration/ui/tui/components/`. Use these. Don't write a sibling that does 90% of the same
-job.
+All components live in `src/application/tui/components/`. Use these. Don't write a sibling that does 90% of the
+same job.
 
 ### 4.1 Shell + chrome
 
@@ -154,6 +154,26 @@ job.
 | `PipelineMap`                         | Home phase map (refine → plan → start → close).                                                                    |
 | `ActionMenu`                          | Home action menu + submenus. Driven by `menu-builder.ts`.                                                          |
 | `VersionHint`                         | Dim footer version tag.                                                                                            |
+
+### 4.2.1 Execute-view family (`src/application/tui/components/execute/`)
+
+Specialised components owned exclusively by `ExecuteView`. Don't import them from other views.
+
+| Component            | Purpose                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `HeaderHeartbeat`    | Braille spinner next to the `[RUNNING]` chip — persistent "alive" indicator at 120ms per frame. |
+| `StepTrace`          | Outer chain trace list (load-sprint, assert-active, …). Filters out `task-*` entries.           |
+| `TaskExecutionGrid`  | DAG-ordered per-task card grid. One card per task with status pill, activity line, deps line.   |
+| `RecentEventsTail`   | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                           |
+| `FeedbackPromptLoop` | Post-execute feedback loop + sprint auto-close. Renders `null`; side-effect only.               |
+| `FlowContextLine`    | Dim flow descriptor line below the header (e.g. "Sprint workflow — execute · sprint-id").       |
+| `nextStepsForFlow`   | Helper function: maps `(label, terminalStatus, steps)` → contextual next-step CTA items.        |
+| `ctx-helpers.ts`     | Duck-typed ctx extractors: `getTaskList`, `buildTaskNameLookup`, `getExecuteCtxFields`.         |
+
+**`TaskExecutionGrid` DAG ordering:** topological BFS assigns each task a depth
+(`0` = root, `1+max(deps.depth)` for dependents). Tasks are sorted ascending by depth, then by id
+within each layer, so roots appear first and dependents appear below them — indented by
+`spacing.indent * depth`. Cycles fall back to insertion order (no crash).
 
 ### 4.3 Prompt family (`src/integration/ui/prompts/`)
 
@@ -248,6 +268,22 @@ Each view type has one shape. Don't invent a new one.
 - `ListView` with `↑/↓ · Enter open · Esc back`.
 - Empty state → `ResultCard kind="info"` with a `nextSteps` pointer.
 
+#### 7.2.1 Inline-detail toggle variant
+
+For lists where the parent is short and the detail content fits below in 5–10 rows
+(today: ticket-list, task-list), `Enter` is allowed to toggle an inline detail card
+beneath the highlighted row instead of pushing a separate show view. This keeps the
+user in one frame and removes a Back step. When using this variant:
+
+- The view-local hint MUST read `Enter expand/collapse` (not `Enter view detail`).
+- Pressing `Enter` a second time on the same row collapses; moving the cursor while
+  expanded collapses the previous and expands the new selection.
+- Use a `<FieldList>` for the detail body so it visually matches the show-view shape.
+
+For lists with long detail content or where the detail view itself has actions (e.g.
+project-show with repo CRUD), use the standard drill-in pattern (Enter pushes a
+dedicated `*-show-view.tsx`).
+
 ### 7.3 Detail views (`browse/*-show-view.tsx`)
 
 - `FieldList` for metadata.
@@ -308,7 +344,8 @@ Before adding anything new, work this ladder top-down:
    states.
 3. **Is it a new state surface?** Add a `ResultCard` `kind`, don't build a parallel card.
 4. **Is it a new view shape?** Describe it here first (add a § 7 subsection), then build it.
-5. **Is it a new prompt kind?** Add a method to `PromptPort` + a prompt component under `src/integration/ui/prompts/`.
+5. **Is it a new prompt kind?** Add a method to `PromptPort` + a prompt component under
+   `src/integration/ui/prompts/`.
 
 If you reach step 4 or 5, open a design note before the PR — this document should change with the code.
 

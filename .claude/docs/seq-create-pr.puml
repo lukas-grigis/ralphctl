@@ -1,0 +1,64 @@
+@startuml
+' Create-PR chain — ralphctl sprint create-pr
+' Factory: src/application/chains/create-pr/create-pr-flow.ts
+' Step trace: load-sprint → assert-has-branch → derive-pr-content →
+'             create-pull-request → record-pr-url
+title ralphctl — Create-PR / MR chain
+
+autonumber
+
+actor User
+participant CLI as "CLI / TUI\n(prompts for base, draft,\ntitle?, body? before chain starts)"
+participant SM as "SessionManager"
+participant Chain as "Sequential('create-pr')"
+participant UC as "CreatePullRequestUseCase\n(business)"
+participant Ext as "ExternalPort\n(gh / glab)"
+database sprint.json
+
+User -> CLI : ralphctl sprint create-pr [id]\n  [--base <ref>] [--draft] [--title ...] [--body ...]
+CLI -> SM : start({ element=createCreatePrFlow,\n  ctx={ sprintId, base, draft, title?, body? },\n  opts: { tasks } })
+SM -> Chain : execute(ctx)
+activate Chain
+
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
+UC -> sprint.json : findById
+
+Chain -> Chain : sprint.branch !== null
+note right: trace: assert-has-branch\n(InvalidStateError 'no-branch' otherwise —\nstart sprint with --branch first)
+
+Chain -> Chain : derivePrContent(sprint, tasks)
+note right: trace: derive-pr-content\nResolved title := opts.title ?? derived.title\nResolved body  := opts.body  ?? derived.body
+
+Chain -> UC : CreatePullRequestUseCase\n(sprint, cwd, base, draft, title, body)
+note right: trace: create-pull-request
+UC -> Ext : detect platform from git remote
+note right: gh ↔ github.com\nglab ↔ gitlab.* / self-hosted
+UC -> Ext : gh pr create / glab mr create\n  --base <ref> [--draft]\n  --title <title> --body <body>
+activate Ext
+Ext --> UC : pull request URL
+deactivate Ext
+UC -> UC : sprint.recordPullRequestUrl(url)
+UC -> sprint.json : save (URL persisted)
+UC --> Chain : { sprint (with URL), url }
+
+Chain -> Chain : ctx.pullRequestUrl = url
+note right: trace: record-pr-url\n(no-op leaf — final mirror so\ndownstream observers see the URL\nwithout re-reading sprint.json)
+
+Chain --> SM : Result.ok({ ctx, trace })
+deactivate Chain
+SM --> CLI : completed
+CLI --> User : pull request URL
+
+note over CLI
+  TUI parity — sprint submenu has
+  "Create PR / MR" entry under PUBLISH;
+  pipeline-map's Close phase prefers
+  Create-PR over Close-Sprint when:
+    sprint.status === 'active'
+    AND every task done
+    AND sprint.branch !== null
+    AND sprint.pullRequestUrl === null
+end note
+
+@enduml
