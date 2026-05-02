@@ -2,6 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PlainTextSink } from './plain-text-sink.ts';
 
+// CSI-style SGR sequences (`[<n>m`) — strip in assertions so the
+// test cares about the rendered text, not whether colorette emitted
+// colors (varies by TTY/FORCE_COLOR/CI).
+// eslint-disable-next-line no-control-regex
+const ANSI = /\[\d+m/g;
+const stripAnsi = (s: string): string => s.replace(ANSI, '');
+
 const ORIGINAL_LEVEL = process.env['RALPHCTL_LOG_LEVEL'];
 const ORIGINAL_VITEST = process.env['VITEST'];
 
@@ -55,11 +62,11 @@ describe('PlainTextSink', () => {
 
     expect(c.out).toHaveLength(1);
     // The prefix is what makes a success line visibly distinct from an
-    // info line in the recent-events panel. colorette strips ANSI under
-    // non-TTY (test runners pipe stdout) so we lock the prefix label
-    // rather than the green start-code; the prefix carries the visible
-    // distinction even when colors are stripped.
-    expect(c.out[0]).toMatch(/\[ok\]\s+task done/);
+    // info line in the recent-events panel. colorette emits or strips
+    // ANSI based on TTY / FORCE_COLOR / CI, so strip CSI codes before
+    // matching — the test should care about the prefix label, not the
+    // colorette runtime decision.
+    expect(stripAnsi(c.out[0] ?? '')).toMatch(/\[ok\]\s+task done/);
     // Routes to stdout, not stderr (success is info-tier).
     expect(c.err).toHaveLength(0);
   });
