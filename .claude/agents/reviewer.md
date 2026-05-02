@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: 'Code reviewer for ralphctl. Use AFTER implementation — to review a diff / PR / branch for correctness, bugs, architectural-layering violations (domain < business < integration < application), TypeScript nuance (generics, narrowing, Result vs throws), and consistency with project conventions. Read-only; runs `typecheck` / `lint` / `test`, reports findings, does not patch.'
+description: 'Code reviewer for ralphctl. Use AFTER implementation — to review a diff / PR / branch for correctness, bugs, architectural-layering violations (kernel < domain < business < integration < application), TypeScript nuance (generics, narrowing, Result vs throws), kernel chain composition, and consistency with project conventions. Read-only; runs `typecheck` / `lint` / `test`, reports findings, does not patch.'
 tools: Read, Grep, Glob, Bash
 model: sonnet
 color: yellow
@@ -170,6 +170,29 @@ const config = '~/.config'; // Should use proper resolution
 // Missing exit codes
 process.exit(); // Should exit with appropriate code
 ```
+
+## ralphctl-specific review checks
+
+ralphctl uses a five-module Clean Architecture under `src/`. Watch for these violations:
+
+- **Layering** — `kernel < domain < business < integration < application`. Both `kernel/` and `domain/` must stay
+  pure (zero IO). `business/` must depend on ports, not concrete adapters. ESLint `no-restricted-imports` flags most
+  of these, but spot-check imports manually.
+- **Repository placement** — repository interfaces (`ProjectRepository`, `SprintRepository`, `TaskRepository`) live
+  in `src/domain/repositories/`. Service ports live in `src/business/ports/`. Don't accept a PR that puts
+  them in the wrong place.
+- **Chain composition** — CLI commands and TUI views must invoke chain factories from
+  `src/application/chains/<workflow>/` and launch via `SessionManager.start(...)`. Direct use-case imports from
+  CLI/TUI are blocked by an ESLint fence — confirm.
+- **Result imports** — every consumer should import `Result` from `src/domain/result.ts`, not directly from
+  `typescript-result`. Catch direct-package imports.
+- **No barrels** — every import points at a specific source file. Reject any new `index.ts` that re-exports siblings.
+- **Step-order tests** — every chain factory has an integration test asserting `trace.map(s => s.stepName)` for happy
+  - failure paths. If a PR changes a chain's step order, the corresponding test must change too.
+- **No new conditional primitives** — the kernel has six concepts: `Element`, `Leaf`, `Sequential`, `Parallel`,
+  `Retry`, `OnError`. If a PR adds a `Conditional` (or anything similar), it needs a documented justification —
+  branching belongs inside a use case or in a sub-chain selected by the caller.
+- **No `@inquirer/prompts`** — all prompts go through `getPrompt()`. `InkPromptAdapter` is the only implementation.
 
 ## What I Don't Do
 

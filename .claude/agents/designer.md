@@ -1,6 +1,6 @@
 ---
 name: designer
-description: 'CLI + TUI UX specialist for ralphctl. Use when designing OR implementing user-facing surface area — command / flag structure, Ink TUI views and prompts, output formatting, error messages, empty-state guidance, help text, theme tokens. Owns `src/integration/ui/` end-to-end and makes the call on UX decisions.'
+description: 'CLI + TUI UX specialist for ralphctl. Use when designing OR implementing user-facing surface area — command / flag structure, Ink TUI views and prompts, multi-chain session UX, output formatting, error messages, empty-state guidance, help text, theme tokens. Owns `src/integration/ui/` and `src/application/tui/` end-to-end and makes the call on UX decisions.'
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 color: cyan
@@ -96,6 +96,7 @@ Examples:
   ralphctl sprint create
   ralphctl task status abc123 done
   ralphctl project repo add my-app ~/code
+  ralphctl sessions list
 ```
 
 ### Entity Nouns
@@ -106,7 +107,7 @@ Examples:
 | `sprint`   | Work container with tickets and tasks |
 | `ticket`   | Work item linked to a project         |
 | `task`     | Atomic implementation unit            |
-| `progress` | Append-only work log                  |
+| `sessions` | Multi-chain runtime registry          |
 
 ### Interactive vs CLI Mode
 
@@ -123,53 +124,23 @@ Examples:
 
 ### Output Formatting
 
-**Use helpers from `@src/integration/ui/theme/ui.ts`:**
+**Use helpers from `src/integration/ui/theme/ui.ts`:**
 
-```typescript
-// Success with structured fields
-showSuccess('Sprint created!', [
-  ['ID', sprint.id],
-  ['Name', sprint.name],
-]);
-
-// Error with actionable hint
-showError('Project not found');
-showNextStep('ralphctl project add', 'create it first');
-
-// Empty state with guidance
-showEmpty('tasks', 'Add one with: ralphctl task add');
-```
-
-**Icons (ASCII):**
-
-```typescript
-import { icons } from '@src/integration/ui/theme/ui.ts';
-
-icons.sprint; // >
-icons.ticket; // #
-icons.task; // *
-icons.project; // @
-icons.success; // +
-icons.error; // x
-```
+Read the file to discover the current roster — card / table / status / success / warning / info / field / progress
+families are all there. Don't duplicate. Theme tokens (`inkColors`, `glyphs`, `spacing`) live in
+`src/integration/ui/theme/tokens.ts`.
 
 ### Semantic Colors
 
-```typescript
-import { success, error, warning, info, muted } from '@src/integration/ui/theme/theme.ts';
-
-success('Done!'); // Green - positive outcomes
-error('Failed!'); // Red - errors
-warning('Caution!'); // Yellow - warnings
-info('Status:'); // Cyan - headers, labels
-muted('(optional)'); // Gray - secondary info
-```
+Always semantic — never `color="red"`. Use `inkColors.error`, `inkColors.success`, `inkColors.warning`,
+`inkColors.info`, `inkColors.muted`, `inkColors.highlight`, `inkColors.primary`, `inkColors.secondary`. See the
+palette in [DESIGN-SYSTEM.md](../docs/DESIGN-SYSTEM.md).
 
 ### Tables vs Cards
 
-- **Tables** (`renderTable`) — for list commands with multiple items (task list, sprint list, ticket list)
-- **Cards** (`renderCard`) — for detail views showing a single entity (task show, health check results)
-- **labelValue** — for key:value pairs inside cards or show commands (import from `ui.ts`, don't duplicate)
+- **Tables** — for list commands with multiple items (task list, sprint list, ticket list, sessions list)
+- **Cards** (`<ResultCard>` in Ink) — for detail views and workflow outcomes
+- **FieldList** — for key:value pairs inside cards or show commands
 
 ### State-Aware Next Steps
 
@@ -185,56 +156,62 @@ showNextStep('ralphctl sprint plan', 'generate implementation tasks');
 
 ### Action-on-Empty Pattern
 
-When a selector finds no entities, offer inline creation:
+When a selector finds no entities, offer inline creation. Use `getPrompt()` from
+`src/application/bootstrap/get-shared-deps.ts` — never `@inquirer/prompts`.
 
-```typescript
-import { getPrompt } from '@src/application/bootstrap.ts';
+## Multi-chain runtime UX
 
-const shouldCreate = await getPrompt().confirm({ message: 'No projects found. Create one now?' });
-if (shouldCreate) {
-  const { projectAddCommand } = await import('@src/integration/cli/commands/project/add.ts');
-  await projectAddCommand({ interactive: true });
-}
+ralphctl supports N concurrent chains running as independent sessions (`SessionManager` in
+`src/application/runtime/`). When designing flows that launch a chain, account for:
+
+- **Foreground vs background** — backgrounding a session does NOT pause it; it only detaches the UI. Logs and signals
+  keep accumulating.
+- **Switching** — Tab / Shift+Tab cycles foreground sessions; `Ctrl+1..9` direct-jumps. The dedicated Sessions view
+  (`tui/views/sessions-view.tsx`) lists every runner with status + age.
+- **CLI parity** — every TUI affordance must have a CLI equivalent (`ralphctl sessions list / attach / detach / kill`).
+
+## TUI Architecture (`src/application/tui/`)
+
+```
+application/tui/
+├── runtime/      mount.tsx, screen.ts, event-bus.ts, hooks.ts
+├── components/   ViewShell, SectionStamp, ResultCard, FieldList, KeyboardHints, StatusBar,
+│                 ListView, RateLimitBanner, Spinner, StatusChip, useWorkflow
+└── views/        Top-level screens: app.tsx, view-router.tsx, home/dashboard/execute/sessions/settings,
+                  browse/{sprint,ticket,task,project}-{list,show}-view, crud/<entity>-{add,edit,remove}-view
 ```
 
-### Batch Operations
+Prompt components live at `src/integration/ui/prompts/` — `<PromptHost />` auto-mounts for one-shot CLI commands.
 
-For operations where users commonly repeat (ticket add):
+Every view mounts through `<ViewShell>` (header + body + auto `<PromptHost />` + auto `<KeyboardHints />`). Views
+never render their own header, hints, or section spacing — `ViewShell` owns that.
 
-```typescript
-while (true) {
-  await doOneThing();
-  const another = await getPrompt().confirm({ message: `${emoji.donut} Add another?`, default: true });
-  if (!another) break;
-}
-```
-
-### Filter Flags for List Commands
-
-All list commands support `--status` and entity-specific filters. Show filter summary in output:
-"Showing X of Y (filtered: status=todo, project=api)"
+Global hotkeys come from `tui/views/use-global-keys.ts`: Esc / h / s / d / Tab / Shift+Tab / Ctrl+1..9 / q.
 
 ## Design Review Checklist
 
 - [ ] **Naming**: Does the command follow `<noun> <verb>` convention?
 - [ ] **Defaults**: Are sensible defaults provided for optional args?
 - [ ] **Discoverability**: Is `-h/--help` informative with examples?
-- [ ] **Interactive**: Does it gracefully prompt when args missing?
+- [ ] **Interactive**: Does it gracefully prompt when args missing? (via `getPrompt()`)
 - [ ] **Scriptable**: Does `-n` mode work without prompts?
 - [ ] **Errors**: Are error messages actionable with hints?
 - [ ] **Output**: Is success feedback clear but not verbose?
-- [ ] **Consistency**: Does it match existing command patterns?
-- [ ] **Exit codes**: 0 for success, non-zero for errors?
+- [ ] **Consistency**: Does it match existing command and view patterns?
+- [ ] **Exit codes**: 0 for success, non-zero for errors? (`EXIT_SUCCESS`, `EXIT_ERROR`, `EXIT_INTERRUPTED`)
 - [ ] **Next step**: Does output suggest what to do next?
-- [ ] **Empty state**: Does it guide user when no data exists?
+- [ ] **Empty state**: Does it guide the user when no data exists?
 - [ ] **Filters**: Do list commands support relevant filter flags?
+- [ ] **TUI parity**: If a workflow has an Ink view, does the CLI command have matching capability?
+- [ ] **Sessions surface**: Long-running workflows account for foreground/background switching?
 
 ## What I Do
 
 - Design command structures, flags, and interaction flows
 - Implement prompts, selectors, and interactive modes
 - Write output formatting, success/error messages
-- Maintain theme + UI files (`src/integration/ui/theme/`, `src/integration/ui/prompts/`, `src/integration/ui/tui/`)
+- Maintain theme + UI files (`src/integration/ui/theme/`, `src/integration/ui/prompts/`,
+  `src/application/tui/`)
 - Create help text and usage examples
 
 ## What I Don't Do
@@ -251,35 +228,6 @@ All list commands support `--status` and entity-specific filters. Show filter su
 "Improve the error messages in [module]"
 "Add a new output format for [data type]"
 "Update the theme for [component]"
-```
-
-## Example Design Session
-
-**User**: I want to add a command to archive old sprints.
-
-**Me**: Here's my recommendation:
-
-```bash
-# Command structure
-ralphctl sprint archive [id]     # Archive specific sprint
-ralphctl sprint archive --all    # Archive all closed sprints
-
-# Behavior
-- Only closed sprints can be archived
-- Without args: prompt to select from closed sprints
-- With --all: show count and confirm (unless -y)
-- Archived sprints move to ralphctl-data/archive/
-
-# Output
-showSuccess('Sprint archived!', [
-  ['ID', sprint.id],
-  ['Name', sprint.name],
-  ['Location', archivePath],
-]);
-
-# Error cases
-- "Sprint 'xyz' is still active. Close it first with: ralphctl sprint close"
-- "No closed sprints to archive."
 ```
 
 ## Memory
