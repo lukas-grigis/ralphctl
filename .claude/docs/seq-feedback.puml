@@ -1,0 +1,63 @@
+@startuml
+' Feedback chain — one round of post-execute feedback
+' Factory: src/application/chains/feedback/feedback-flow.ts
+' Step trace: load-sprint → apply-feedback → check-scripts-feedback → record-feedback-iteration
+'
+' The feedback loop is a SEPARATE chain (its own session) — NOT embedded
+' inside executeFlow. The CLI/TUI launches it once executeFlow settles.
+' One chain run = one feedback round; iteration cap (MAX_FEEDBACK_ITERATIONS)
+' is owned by the launcher, not the chain.
+title ralphctl — Feedback chain (one round)
+
+autonumber
+
+actor User
+participant CLI as "CLI / TUI\n(loop owner —\nprompts + iteration cap)"
+participant SM as "SessionManager"
+participant Chain as "Sequential('feedback')"
+participant UC as "Use cases\n(business)"
+participant AI as "AI"
+database sprint.json
+
+User -> CLI : feedback text\n(after executeFlow settles)
+
+note over CLI
+  Empty input → CLI exits the loop
+  WITHOUT spawning the chain.
+  --no-feedback flag and --session mode
+  also short-circuit at the launcher.
+end note
+
+CLI -> SM : start({ element=createFeedbackFlow,\n  ctx={ sprintId, feedbackText, iteration } })
+SM -> Chain : execute(ctx)
+activate Chain
+
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
+
+Chain -> UC : ApplyFeedbackUseCase
+note right: trace: apply-feedback
+UC -> AI : spawnHeadless(feedback.md\n+ feedbackText + sprint context)
+activate AI
+AI --> UC : signals (progress / verified)
+deactivate AI
+UC --> Chain : signals[]
+
+Chain -> Chain : (placeholder — marks checkPassed=true)
+note right: trace: check-scripts-feedback\nFollow-up: per-repo check fan-out\nrequires kernel `forEachItem` primitive
+
+Chain -> UC : logger.info('feedback iteration recorded',\n  { sprintId, iteration })
+note right: trace: record-feedback-iteration
+
+Chain --> SM : Result.ok({ ctx, trace })
+deactivate Chain
+SM --> CLI : completed
+
+CLI -> User : "Provide more feedback?\n(empty to finish)"
+opt non-empty AND iteration < MAX_FEEDBACK_ITERATIONS
+    User -> CLI : next feedback text
+    CLI -> SM : start({ ..., iteration: prev + 1 })
+    note right: next round = new chain run
+end
+
+@enduml

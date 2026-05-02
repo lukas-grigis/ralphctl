@@ -1,6 +1,6 @@
 ---
 name: tester
-description: "Test engineer for ralphctl. Use when writing new vitest tests, shoring up coverage for a module or pipeline, debugging a flaky / failing test, or designing the test strategy for a new feature. Knows the project's port-based test-double patterns and the pipeline step-order fence tests."
+description: "Test engineer for ralphctl. Use when writing new vitest tests, shoring up coverage for a module or chain, debugging a flaky / failing test, or designing the test strategy for a new feature. Knows the project's port-based test-double patterns and the chain step-order fence tests."
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: sonnet
 color: green
@@ -219,13 +219,21 @@ Don't obsess over:
 - Test framework: vitest
 - Run tests: `pnpm test` (watch: `pnpm test:watch`, coverage: `pnpm test:coverage`)
 - Test location: `src/**/*.test.ts` (colocated with source)
-- Pipelines have **step-order fence tests** at `src/business/pipelines/*.test.ts` asserting
-  `stepResults.map(r => r.stepName)` on happy + failure paths — these lock orchestration order; update them
-  when intentionally changing a pipeline's step list.
+- **Chain step-order fence tests** at `src/application/chains/<workflow>/<workflow>-flow.test.ts` assert
+  `trace.map(s => s.stepName)` on happy + failure paths — these lock orchestration order; update them when
+  intentionally changing a chain's step list.
+- **Kernel primitive tests** at `src/kernel/chain/*.test.ts` and `src/kernel/algorithms/*.test.ts` cover
+  every primitive in isolation. Business depends only on tested kernel parts.
+- **Use case tests** at `src/business/usecases/<group>/<use-case>.test.ts` use fake ports from
+  `src/business/_test-fakes/` (and `integration/_test-fakes/`, `application/_test-fakes/` for layered fakes).
 - `RALPHCTL_ROOT` must be set **before** importing persistence modules (e.g. in a vitest setup file, not inside
   `beforeEach`) — otherwise the file-backed adapter binds to the real `~/.ralphctl/`.
 - `VITEST=1` silences info / warn output in `PlainTextSink` automatically.
-- Prefer test doubles via the port interfaces in `src/business/ports/` over module-level mocking.
+- Prefer test doubles via the port interfaces in `src/business/ports/` and the repository interfaces in
+  `src/domain/repositories/` over module-level mocking.
+- For TUI views, render with `ink-testing-library` (`render(<View />)`) and assert against frame output. Global keys
+  (Tab, Esc, h, s, d, Ctrl+1..9) come from `src/application/tui/views/use-global-keys.ts` and only fire when the
+  router is mounted — wrap the view in a router test harness when testing those.
 
 ## Memory
 

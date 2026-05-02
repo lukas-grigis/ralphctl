@@ -24,6 +24,21 @@ across repositories.**
 
 ---
 
+## Upgrading from 0.5.x to 0.6.0
+
+The rewrite changes the on-disk layout under `~/.ralphctl/`. Existing 0.5.x data is **not migrated automatically**.
+Before upgrading:
+
+1. Back up your existing data: `mv ~/.ralphctl ~/.ralphctl.0.5-backup`
+2. Install 0.6.0 (`pnpm install ralphctl@0.6.0` or via your package manager)
+3. Run `ralphctl project add` to register your projects in the new layout
+4. (Optional) Re-create sprints from your backup as needed
+
+ralphctl will detect a legacy layout on first launch and refuse to start until you back up + reset, with
+instructions printed.
+
+---
+
 ## Why ralphctl?
 
 AI coding agents are powerful but lose context on long tasks, need babysitting when things break, and have no way to
@@ -174,14 +189,14 @@ export RALPHCTL_ROOT="/path/to/custom/data-dir"
 
 ### Project & Sprint Setup
 
-| Command                  | Description                      |
-| ------------------------ | -------------------------------- |
-| `ralphctl project add`   | Register a project and its repos |
-| `ralphctl sprint create` | Create a new sprint (draft)      |
-| `ralphctl sprint list`   | List all sprints                 |
-| `ralphctl sprint show`   | Show current sprint details      |
-| `ralphctl sprint switch` | Quick sprint switcher            |
-| `ralphctl ticket add`    | Add a work item to a sprint      |
+| Command                       | Description                      |
+| ----------------------------- | -------------------------------- |
+| `ralphctl project add`        | Register a project and its repos |
+| `ralphctl sprint create`      | Create a new sprint (draft)      |
+| `ralphctl sprint list`        | List all sprints                 |
+| `ralphctl sprint show`        | Show current sprint details      |
+| `ralphctl sprint set-current` | Switch the current sprint        |
+| `ralphctl ticket add`         | Add a work item to a sprint      |
 
 ### AI-Assisted Planning
 
@@ -197,13 +212,10 @@ export RALPHCTL_ROOT="/path/to/custom/data-dir"
 | Command                    | Description                                            |
 | -------------------------- | ------------------------------------------------------ |
 | `ralphctl sprint start`    | Execute tasks with AI (`--branch` for a sprint branch) |
-| `ralphctl sprint health`   | Diagnose blockers and stale tasks                      |
-| `ralphctl sprint insights` | Analyze evaluator results across tasks                 |
-| `ralphctl status`          | Sprint overview with progress bar                      |
+| `ralphctl sprint progress` | Sprint progress with blocker / stale-task diagnostics  |
 | `ralphctl task list`       | List tasks in the current sprint                       |
-| `ralphctl task next`       | Show the next unblocked task                           |
 | `ralphctl sprint close`    | Close an active sprint (`--create-pr` for PRs)         |
-| `ralphctl sprint delete`   | Delete a sprint permanently                            |
+| `ralphctl sprint remove`   | Delete a sprint permanently                            |
 
 Run `ralphctl <command> --help` for details on any command.
 

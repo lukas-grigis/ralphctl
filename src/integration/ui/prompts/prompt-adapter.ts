@@ -8,11 +8,12 @@
  *
  * The host can come from two places:
  *   1. The full Ink dashboard — `mountInkApp()` already renders `<PromptHost />`
- *      as a sibling of any view and calls `registerExternalHost()`.
+ *      and calls `registerExternalHost()`.
  *   2. A one-shot CLI command — the first prompt call auto-mounts a minimal
  *      Ink tree containing only `<PromptHost />` via `ensurePromptHost()`.
  *
  * Non-TTY / CI environments throw `PromptCancelledError` — pass values as flags.
+ *
  */
 
 import type {
@@ -23,9 +24,9 @@ import type {
   InputOptions,
   PromptPort,
   SelectOptions,
-} from '@src/business/ports/prompt.ts';
-import { ensurePromptHost } from '@src/integration/ui/prompts/auto-mount.tsx';
-import { promptQueue } from '@src/integration/ui/prompts/prompt-queue.ts';
+} from '@src/business/ports/prompt-port.ts';
+import { ensurePromptHost } from './auto-mount.tsx';
+import { promptQueue } from './prompt-queue.ts';
 
 export class InkPromptAdapter implements PromptPort {
   select<T>(options: SelectOptions<T>): Promise<T> {
@@ -33,8 +34,9 @@ export class InkPromptAdapter implements PromptPort {
     return new Promise<T>((resolve, reject) => {
       promptQueue.enqueue({
         kind: 'select',
-        options: options,
-        resolve: resolve as (v: unknown) => void,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        options: options as SelectOptions<unknown>,
+        resolve: resolve as unknown as (v: unknown) => void,
         reject,
       });
     });
@@ -59,8 +61,9 @@ export class InkPromptAdapter implements PromptPort {
     return new Promise<T[]>((resolve, reject) => {
       promptQueue.enqueue({
         kind: 'checkbox',
-        options: options,
-        resolve: resolve as (v: unknown[]) => void,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        options: options as CheckboxOptions<unknown>,
+        resolve: resolve as unknown as (v: unknown[]) => void,
         reject,
       });
     });

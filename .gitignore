@@ -40,6 +40,7 @@ Thumbs.db
 
 # Claude Code local settings (keep agents/)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # ralphctl data
 ralphctl-data/

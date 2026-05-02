@@ -1,33 +1,21 @@
 /**
- * Claude Code-style inline multi-line text editor (REQ-9).
+ * Claude Code-style inline multi-line text editor.
  *
  * Keybindings:
- * - Printable chars                     Insert at cursor
- * - Enter                               Insert newline
- * - Return (standalone, no shift)       Same as Enter — multi-line buffer
- * - Ctrl+D                              Submit
- * - Escape                              Cancel (resolves to null)
- * - Backspace                           Delete char before cursor
- * - Delete                              Delete char at cursor
- * - Left / Right                        Move cursor
- * - Up / Down                           Move cursor across lines
- * - Home / Ctrl+A                       Start of line
- * - End  / Ctrl+E                       End of line
- * - Ctrl+C                              Cancel (same as Escape)
- *
- * Goal: feel like typing into Claude Code. Submit is Ctrl+D rather than plain
- * Enter because Enter inserts a newline — this matches terminal multi-line
- * editor norms (nano, heredocs) and avoids accidental submits.
- *
- * Visual: rounded border + section-stamp header + a fixed minimum height
- * (8 rows of edit area) + a live `lines · chars` counter in the footer —
- * gives the input room to breathe even for short text, and a readable
- * character budget for longer descriptions.
+ * - Printable chars         Insert at cursor
+ * - Enter                   Insert newline
+ * - Ctrl+D                  Submit
+ * - Escape / Ctrl+C         Cancel (resolves to null)
+ * - Backspace               Delete char before cursor
+ * - Left / Right            Move cursor
+ * - Up / Down               Move cursor across lines
+ * - Ctrl+A                  Start of line
+ * - Ctrl+E                  End of line
  */
 
 import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { EditorOptions } from '@src/business/ports/prompt.ts';
+import type { EditorOptions } from '@src/business/ports/prompt-port.ts';
 import { glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface EditorPromptProps {
@@ -41,7 +29,6 @@ interface CursorState {
   col: number;
 }
 
-/** Minimum visible rows for the edit area — gives room even when empty. */
 const MIN_EDIT_ROWS = 8;
 
 function splitLines(text: string): string[] {
@@ -72,12 +59,10 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
       onCancel();
       return;
     }
-
     if (key.ctrl && input === 'd') {
       onSubmit(joinLines(lines));
       return;
     }
-
     if (key.leftArrow) {
       setCursor((prev) => {
         if (prev.col > 0) return { row: prev.row, col: prev.col - 1 };
@@ -117,7 +102,6 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
       });
       return;
     }
-
     if (key.backspace || key.delete) {
       setLines((prev) => {
         const next = [...prev];
@@ -136,7 +120,6 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
       });
       return;
     }
-
     if (key.return) {
       setLines((prev) => {
         const next = [...prev];
@@ -150,7 +133,6 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
       setCursor({ row: cursor.row + 1, col: 0 });
       return;
     }
-
     if (input && !key.ctrl && !key.meta) {
       const chunk = input;
       setLines((prev) => {
@@ -172,8 +154,6 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
     }
   });
 
-  // Pad visible buffer to the minimum row count so the edit area always has
-  // visual "room" — encourages longer prose without feeling cramped.
   const renderedLines = useMemo(() => {
     const padCount = Math.max(0, MIN_EDIT_ROWS - lines.length);
     const padded: (string | { before: string; at: string; after: string })[] = lines.map((line, i) => {
@@ -187,7 +167,6 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
     return padded;
   }, [lines, cursor]);
 
-  // Live counter: lines and total characters (excluding newlines for honesty).
   const charCount = lines.reduce((sum, l) => sum + l.length, 0);
   const lineCount = lines.length;
 
@@ -218,7 +197,9 @@ export function EditorPrompt({ options, onSubmit, onCancel }: EditorPromptProps)
         })}
       </Box>
       <Box marginTop={1} justifyContent="space-between">
-        <Text dimColor>Ctrl+D submit · Esc cancel · Enter newline</Text>
+        <Text dimColor>
+          Ctrl+D submit {glyphs.inlineDot} Esc cancel {glyphs.inlineDot} Enter newline
+        </Text>
         <Text dimColor>
           {String(lineCount)} {lineCount === 1 ? 'line' : 'lines'} {glyphs.inlineDot} {String(charCount)}{' '}
           {charCount === 1 ? 'char' : 'chars'}

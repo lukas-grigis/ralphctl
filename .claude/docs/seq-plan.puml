@@ -1,59 +1,82 @@
 @startuml
-' Plan pipeline — ralphctl sprint plan
-' Definition: src/business/pipelines/plan.ts
-' Step shape: load-sprint → assert-draft → assert-all-approved → run-plan → reorder-dependencies
-title ralphctl — Plan pipeline
+' Plan chain — ralphctl sprint plan
+' Factory: src/application/chains/plan/plan-flow.ts
+' Step trace: load-sprint → assert-draft → assert-all-tickets-approved →
+'             load-existing-tasks → confirm-replan → plan-tasks →
+'             reorder-tasks → confirm-task-list → save-tasks
+title ralphctl — Plan chain (kernel framework)
 
 autonumber
 
 actor User
-participant Harness as "Harness\n(pipeline runner)"
-participant AI as "AI\n(Claude / Copilot)"
-participant Code as "Code\n(target repo)"
+participant CLI as "CLI / TUI\n(repo multi-select happens\nbefore chain starts)"
+participant SM as "SessionManager"
+participant Chain as "Sequential('plan')\n(application/chains)"
+participant UC as "Use cases\n(business)"
+participant Algo as "Kernel algorithms\n(dependency-reorder)"
+participant Prompt as "PromptPort"
+participant AI as "AI"
 database sprint.json
 database tasks.json
 
-User -> Harness : ralphctl sprint plan
-activate Harness
+User -> CLI : ralphctl sprint plan
+note right of CLI: repo multi-select prompt\n(persists to ticket.affectedRepositories)\nbecomes additionalRepoPaths
+CLI -> SM : start({ element=createPlanFlow, initialCtx, opts })
+SM -> Chain : execute(ctx)
+activate Chain
 
-note over Harness: createPlanPipeline(deps, options)
+Chain -> UC : LoadSprintUseCase
+note right: trace: load-sprint
 
-Harness -> sprint.json : read sprint + tickets
-note right: step: load-sprint
+Chain -> Chain : Sprint.status === 'draft'
+note right: trace: assert-draft
 
-Harness -> Harness : verify sprint.status == 'draft'
-note right: step: assert-draft
+Chain -> Chain : every ticket\nrequirementStatus === 'approved'
+note right: trace: assert-all-tickets-approved
 
-Harness -> Harness : verify every ticket.requirementStatus == 'approved'
-note right: step: assert-all-approved\n(ParseError if any pending)
+Chain -> UC : ListTasksUseCase\n(existing tasks for replan context)
+note right: trace: load-existing-tasks
+UC -> tasks.json : findBySprintId
+UC --> Chain : Task[]\n(empty for first plan)
 
-note over Harness: step: run-plan
-Harness -> tasks.json : getTasks (re-plan detection)
-
-alt existing tasks && !auto
-    Harness -> User : confirm re-plan (will replace tasks)?
-    User --> Harness : confirm
+opt interactive AND existingTasks.length > 0
+    Chain -> Prompt : confirm("<n> task(s) exist. Replan will replace them all. Continue?")
+    note right: trace: confirm-replan
+    Prompt --> Chain : proceed?
+    alt user declined
+        Chain --> SM : Result.error(InvalidStateError 'replan-cancelled')
+    end
 end
 
-Harness -> User : select affected repositories
-User --> Harness : selected repos
-Harness -> sprint.json : persist ticket.affectedRepositories
-
-Harness -> AI : spawn session\n(plan prompt + schema + project tooling)
+Chain -> UC : PlanSprintTasksUseCase\n+ interactive (when set)\n+ outputFilePath (interactive)\n+ runInTerminal (interactive)\n+ additionalRepoPaths → --add-dir
+note right: trace: plan-tasks
+UC -> AI : interactive: stdio inherit (Claude UI)\nheadless: spawnHeadless(plan-common.md\n+ tickets + existing tasks)
 activate AI
-AI -> Code : explore repos (read-only)
-AI --> Harness : tasks.json\n(includes floor + extraDimensions)
+AI --> UC : interactive: write tasks.json\nheadless: structured stdout
 deactivate AI
+UC -> UC : parse → Task[]\n(via Task.create())
+UC --> Chain : Task[]
 
-Harness -> Harness : validate tasks (Zod + import rules)
-Harness -> tasks.json : importTasks\n(atomic replace on re-plan)
+Chain -> Algo : topologicalReorder(tasks by blockedBy)
+note right: trace: reorder-tasks
+Algo --> Chain : reordered Task[]\n(or cycle / unknown-dep error)
 
-alt imported > 0
-    note right of Harness: step: reorder-dependencies
-    Harness -> tasks.json : reorderByDependencies
+opt interactive AND tasks.length > 0
+    Chain -> Prompt : confirm("Approve the planned tasks and save?")\nwith details = task list summary (scrollable)
+    note right: trace: confirm-task-list
+    Prompt --> Chain : accept?
+    alt user rejected
+        Chain --> SM : Result.error(InvalidStateError 'task-list-rejected')\n(save-tasks NEVER runs — atomic)
+    end
 end
 
-Harness --> User : PlanSummary\n(imported / totalGenerated / isReplan)
-deactivate Harness
+Chain -> UC : TaskRepository.save\n→ atomically replace
+note right: trace: save-tasks
+UC -> tasks.json : write
+
+Chain --> SM : Result.ok({ ctx, trace })
+deactivate Chain
+SM --> CLI : completed
+CLI --> User : new task count, step trace
 
 @enduml

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { SelectOptions } from '@src/business/ports/prompt.ts';
-import { emoji, glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
+import type { SelectOptions } from '@src/business/ports/prompt-port.ts';
+import { DONUT_EMOJI, glyphs, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface SelectPromptProps {
   options: SelectOptions<unknown>;
@@ -9,17 +9,6 @@ interface SelectPromptProps {
   onCancel: () => void;
 }
 
-/**
- * A small self-contained select prompt.
- *
- * We deliberately don't use `@inkjs/ui`'s `<Select>` here: its internal
- * state keeps the initial focus on the first option regardless of
- * `defaultValue`, and its `onChange` only fires when the committed value
- * changes — which made Enter-on-default silently submit whatever was at
- * index 0 instead of the option the user actually highlighted. Owning the
- * focused index locally lets us honour `options.default`, step over
- * disabled items, and emit exactly `choices[focusedIdx].value` on Enter.
- */
 export function SelectPrompt({ options, onSubmit, onCancel }: SelectPromptProps): React.JSX.Element {
   const initialIdx = findInitialIdx(options);
   const [focusedIdx, setFocusedIdx] = useState(initialIdx);
@@ -49,7 +38,7 @@ export function SelectPrompt({ options, onSubmit, onCancel }: SelectPromptProps)
     <Box flexDirection="column">
       <Box>
         <Text>
-          {emoji.donut} {options.message}
+          {DONUT_EMOJI} {options.message}:
         </Text>
       </Box>
       <Box marginLeft={2} flexDirection="column">
@@ -82,15 +71,10 @@ function findInitialIdx(options: SelectOptions<unknown>): number {
     const chosen = options.choices[idx];
     if (idx >= 0 && chosen && !isDisabled(chosen)) return idx;
   }
-  // Fall back to the first non-disabled choice.
   const firstEnabled = options.choices.findIndex((c) => !isDisabled(c));
   return firstEnabled >= 0 ? firstEnabled : 0;
 }
 
-/**
- * Move the focus by `delta` (-1 or +1), skipping disabled rows. Wraps to the
- * opposite end when it falls off, so navigation is always responsive.
- */
 function stepFocus(choices: SelectOptions<unknown>['choices'], from: number, delta: -1 | 1): number {
   const len = choices.length;
   if (len === 0) return from;

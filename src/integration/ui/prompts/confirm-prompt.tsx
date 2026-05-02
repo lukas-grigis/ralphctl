@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { ConfirmInput } from '@inkjs/ui';
-import type { ConfirmOptions } from '@src/business/ports/prompt.ts';
-import { emoji, glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
+import type { ConfirmOptions } from '@src/business/ports/prompt-port.ts';
+import { DONUT_EMOJI, glyphs, inkColors, spacing } from '@src/integration/ui/theme/tokens.ts';
 
 interface ConfirmPromptProps {
   options: ConfirmOptions;
@@ -10,8 +10,6 @@ interface ConfirmPromptProps {
   onCancel: () => void;
 }
 
-// Rows reserved for the rest of the prompt (confirm line, hints, breadcrumb,
-// borders). Viewport = terminalRows - RESERVED_ROWS, clamped to a sane range.
 const RESERVED_ROWS = 10;
 const MIN_VIEWPORT = 6;
 const MAX_VIEWPORT = 40;
@@ -32,7 +30,6 @@ function useTerminalRows(): number {
 }
 
 export function ConfirmPrompt({ options, onSubmit }: ConfirmPromptProps): React.JSX.Element {
-  const hint = options.default === false ? '(y/N)' : '(Y/n)';
   const details = options.details?.trim();
   const lines = useMemo(() => (details ? details.split('\n') : []), [details]);
   const terminalRows = useTerminalRows();
@@ -84,9 +81,8 @@ export function ConfirmPrompt({ options, onSubmit }: ConfirmPromptProps): React.
       ) : null}
       <Box>
         <Text>
-          {emoji.donut} {options.message}{' '}
+          {DONUT_EMOJI} {options.message}{' '}
         </Text>
-        <Text dimColor>{hint} </Text>
         <ConfirmInput
           defaultChoice={options.default === false ? 'cancel' : 'confirm'}
           onConfirm={() => {

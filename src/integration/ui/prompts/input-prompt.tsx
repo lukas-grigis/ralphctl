@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { TextInput } from '@inkjs/ui';
-import type { InputOptions } from '@src/business/ports/prompt.ts';
-import { emoji } from '@src/integration/ui/theme/tokens.ts';
+import type { InputOptions } from '@src/business/ports/prompt-port.ts';
+import { DONUT_EMOJI, inkColors } from '@src/integration/ui/theme/tokens.ts';
 
 interface InputPromptProps {
   options: InputOptions;
@@ -21,7 +21,7 @@ export function InputPrompt({ options, onSubmit, onCancel }: InputPromptProps): 
     <Box flexDirection="column">
       <Box>
         <Text>
-          {emoji.donut} {options.message}{' '}
+          {DONUT_EMOJI} {options.message}:{' '}
         </Text>
         <TextInput
           defaultValue={options.default}
@@ -29,9 +29,6 @@ export function InputPrompt({ options, onSubmit, onCancel }: InputPromptProps): 
           onSubmit={(value) => {
             const validation = options.validate?.(value);
             if (validation !== undefined && validation !== true) {
-              // Async validators (Promise<true|string>) bypass this branch —
-              // they'll be awaited by the caller if needed. The sync path is
-              // the common case for inline rules like "not empty".
               if (typeof validation === 'string') {
                 setError(validation);
                 return;
@@ -44,7 +41,7 @@ export function InputPrompt({ options, onSubmit, onCancel }: InputPromptProps): 
       </Box>
       {error !== null && (
         <Box>
-          <Text color="red"> ✗ {error}</Text>
+          <Text color={inkColors.error}> ✗ {error}</Text>
         </Box>
       )}
     </Box>

@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: 'TypeScript implementer for ralphctl. Use for writing features, fixing bugs, refactoring, or adding tests — anywhere a code change is needed. Respects the Clean Architecture layering (domain < business < integration < application), pipeline orchestration, and the port/adapter boundaries. Prefer this agent over inline coding for any non-trivial diff.'
+description: 'TypeScript implementer for ralphctl. Use for writing features, fixing bugs, refactoring, or adding tests — anywhere a code change is needed. Respects the five-module Clean Architecture layering (kernel < domain < business < integration < application), the kernel chain framework, and the port/adapter boundaries. Prefer this agent over inline coding for any non-trivial diff.'
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: opus
 color: blue
@@ -45,48 +45,98 @@ conventions and modern best practices.
 
 **Error Handling:**
 
-- Use `Result<T, E>` from `typescript-result` at command and interactive boundaries; prefer `.ok` property checks
-  over chained `.match(...)`
-- Persistence-layer functions throw domain errors (`DomainError` subclasses in `src/domain/errors.ts`); wrap at the
-  boundary via `wrapAsync` / `zodParse` from `src/integration/utils/result-helpers.ts`
+- Use `Result<T, E>` from `src/domain/result.ts` (the canonical re-export of `typescript-result`) at command and
+  chain boundaries; prefer `.ok` property checks over chained `.match(...)`
+- Domain errors live in `src/domain/errors/` (`NotFoundError`, `ConflictError`, `InvalidStateError`,
+  `ValidationError`, `ParseError`, `StorageError`, `RateLimitError`) and extend `DomainError`
+- Persistence-layer functions may throw domain errors at the bottom of the stack; the use-case layer wraps them
 - Throw only for programmer errors; provide actionable error messages with context
+
+## Architecture & Layering
+
+ralphctl is a five-module Clean Architecture under `src/`:
+
+```
+kernel < domain < business < integration < application
+```
+
+- **`kernel/`** — chain framework (`Element`, `Leaf`, `Sequential`, `Parallel`, `Retry`, `OnError`) + pure algorithms
+  (mutex queue, rate-limit coordinator, signal micro-batcher, dependency reorder). Zero IO, zero domain knowledge.
+- **`domain/`** — entities (Sprint, Project, Task, Ticket, Repository), value objects (SprintId, AbsolutePath,
+  IsoTimestamp, Slug, ProjectName, …), repository INTERFACES (`ProjectRepository`, `SprintRepository`,
+  `TaskRepository`), errors, signals, `result.ts`. Pure, zero IO.
+- **`business/`** — use cases (constructor-injected classes returning `Result<T, DomainError>`) and SERVICE ports
+  (`AiSessionPort`, `ExternalPort`, `LoggerPort`, `PromptPort`, `SignalBusPort`, …).
+- **`integration/`** — concrete adapters: AI providers, persistence (file repositories), external (git/gh), signals,
+  logging sinks, UI prompts, theme.
+- **`application/`** — composition root (`bootstrap/`), CLI commands (`cli/commands/`), TUI (`tui/`), chain definitions
+  (`chains/<workflow>/<workflow>-flow.ts`), runtime (`runtime/session-manager.ts`), doctor.
+
+ESLint `no-restricted-imports` enforces every direction. CLI commands and TUI views invoke chain factories from
+`application/chains/<workflow>/` and launch via `SessionManager.start(...)` — they cannot import use cases directly.
 
 ## CLI Patterns
 
 **User Experience:**
 
-- Instant feedback for async operations — `createSpinner` from `src/integration/ui/theme/ui.ts` on plain-text CLI,
-  `LoggerPort` event-bus emissions in the Ink TUI
-- Meaningful colors (errors red, success green, warnings yellow)
+- Instant feedback for async operations — `LoggerPort` event-bus emissions in the Ink TUI; structured `PlainTextSink`
+  output on plain-text CLI
+- Meaningful colors (semantic via `inkColors` / `colors` from `src/integration/ui/theme/`)
 - Support both interactive and non-interactive modes
-- Meaningful exit codes (0 success, 1 user error, 2 system error)
+- Meaningful exit codes (`EXIT_SUCCESS = 0`, `EXIT_ERROR = 1`, `EXIT_INTERRUPTED = 130`)
 
 **Architecture:**
 
 - Separate command parsing from business logic
-- Keep entry points thin - delegate to services
+- Keep entry points thin — delegate to chain factories
 - Make operations idempotent where possible
 
 **Libraries:**
 
 - `commander` for argument parsing
-- `PromptPort` via `getPrompt()` from `@src/application/bootstrap.ts` for interactive prompts (no direct
-  `@inquirer/prompts` — it's deleted; `InkPromptAdapter` is the only implementation)
-- `colorette` for colors (via `src/integration/ui/theme/theme.ts`)
+- `PromptPort` via `getPrompt()` from `src/application/bootstrap/get-shared-deps.ts` for interactive prompts (no
+  direct `@inquirer/prompts` — `InkPromptAdapter` is the only implementation)
+- Theme tokens from `src/integration/ui/theme/{theme,tokens,ui}.ts`
 - Ink + `@inkjs/ui` for the TUI surface
-- `zod` for validation, `typescript-result` for Result types at command / interactive boundaries
+- `zod` for serialization-boundary validation, `typescript-result` (via `domain/result.ts`) for Result types
 - `vitest` for testing
+
+## Chain framework
+
+When orchestrating a workflow, do NOT write a bespoke imperative loop. Use the kernel chain framework:
+
+```ts
+import { Sequential } from '../../../kernel/chain/sequential.ts';
+import { Leaf } from '../../../kernel/chain/leaf.ts';
+import { Retry } from '../../../kernel/chain/retry.ts';
+import { OnError } from '../../../kernel/chain/on-error.ts';
+import { Parallel } from '../../../kernel/chain/parallel.ts';
+```
+
+- `Element<TCtx>` — base interface; everything implements it
+- `Leaf` — the only seam to use cases (adapts `useCase.execute(input)` into `element.execute(ctx)`)
+- `Sequential` — runs children in order, threading the context; first error aborts the rest
+- `Parallel` — fan-out with concurrency cap and `failureMode: 'fail-fast' | 'collect-all'`
+- `Retry` — wrap an element in a retry policy keyed on `retryOn(error)`
+- `OnError` — catch errors that match `catchIf` and run a `fallback` element
+
+There is **no** `Conditional` element. Branching belongs inside a use case or in a sub-chain selected by the caller.
+
+Multi-chain runtime: every chain launch goes through `SessionManager.start({ element, initialCtx, label })` from
+`src/application/runtime/session-manager.ts`. Do not call `chain.execute()` directly from a command/view.
 
 ## Testing Philosophy
 
 - Test behavior, not implementation
-- Unit tests for pure logic, integration tests for I/O
-- Use dependency injection for testability
+- Unit tests for pure logic (kernel + domain), integration tests for I/O and chains
+- Use dependency injection for testability — fake ports under `_test-fakes/`
 - Test error paths, not just happy paths
+- Every chain factory has a test asserting `trace.map(s => s.stepName)` for happy + failure paths — this is the
+  architectural fence
 
 ## Git Practices
 
-- Atomic commits - one logical change per commit
+- Atomic commits — one logical change per commit
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
 - Commit messages explain WHY, not just WHAT
 
@@ -95,10 +145,11 @@ conventions and modern best practices.
 Before considering code complete:
 
 - [ ] Types are accurate (no `any` leakage)
-- [ ] Error cases handled with useful messages
+- [ ] Error cases handled with useful messages and the right `DomainError` subclass
 - [ ] Code is self-documenting
-- [ ] Follows existing project conventions
+- [ ] Follows existing project conventions (no barrels, no direct `typescript-result` imports, no `@inquirer/prompts`)
 - [ ] Tests cover critical paths
+- [ ] Layering preserved — `kernel/` and `domain/` stay pure; CLI/TUI use chain factories not use cases
 
 ## What I Don't Do
 
