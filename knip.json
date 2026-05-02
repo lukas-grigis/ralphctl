@@ -1,0 +1,8 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/application/tui/runtime/mount.tsx", "src/__e2e__/**/*.test.ts"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignoreExportsUsedInFile": true,
+  "ignore": ["src/**/_test-fakes/**"],
+  "ignoreBinaries": ["ralphctl"]
+}
