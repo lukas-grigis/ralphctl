@@ -6,10 +6,9 @@ import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
 
 /**
- * `StoragePaths` — the resolved on-disk layout described in
- * `ARCHITECTURE-NEXT.md § Storage layout`. Pure value object — no I/O. The
- * adapter calls {@link ensureLayoutDirs} when it needs the directory tree to
- * exist before a write.
+ * `StoragePaths` — the resolved on-disk layout. Pure value object — no
+ * I/O. The adapter calls {@link ensureLayoutDirs} when it needs the
+ * directory tree to exist before a write.
  *
  * Layout:
  *
@@ -20,7 +19,14 @@ import type { SprintId } from '@src/domain/values/sprint-id.ts';
  * │   └── projects.json
  * ├── data/sprints/<sprint-id>/
  * │   ├── sprint.json
- * │   └── tasks.json
+ * │   ├── tasks.json                  ← canonical task list
+ * │   ├── progress.md                 ← signal log
+ * │   ├── requirements.json           ← canonical aggregate (only approved tickets)
+ * │   ├── feedback.md                 ← optional, append-only
+ * │   ├── refinement/<unit-slug>/     ← cwd for refine AI session
+ * │   ├── ideation/<unit-slug>/       ← cwd for ideate AI session
+ * │   ├── planning/                   ← cwd for plan AI session
+ * │   └── execution/<unit-slug>/      ← cwd for evaluator (per-task)
  * ├── cache/
  * ├── logs/
  * └── backups/
@@ -41,6 +47,33 @@ export interface StoragePaths {
   sprintDir(id: SprintId): AbsolutePath;
   sprintFile(id: SprintId): AbsolutePath;
   tasksFile(id: SprintId): AbsolutePath;
+
+  /** `<sprintDir>/progress.md` — append-only signal log. */
+  progressFile(id: SprintId): AbsolutePath;
+  /**
+   * `<sprintDir>/requirements.json` — canonical aggregate compiled from
+   * refinement. Auto-maintained by the refine flow: only `approved`
+   * tickets appear, re-derived after each save so it never drifts from
+   * `sprint.json`. Consumed by the plan flow (copied into the planning
+   * folder) and by the `sprint requirements` markdown export.
+   */
+  requirementsAggregateFile(id: SprintId): AbsolutePath;
+  /** `<sprintDir>/feedback.md` — optional append-only feedback log. */
+  feedbackFile(id: SprintId): AbsolutePath;
+  /** `<sprintDir>/refinement/<unitSlug>/` — refine AI session cwd. */
+  refinementUnitDir(id: SprintId, unitSlug: string): AbsolutePath;
+  /** `<sprintDir>/ideation/<unitSlug>/` — ideate AI session cwd. */
+  ideationUnitDir(id: SprintId, unitSlug: string): AbsolutePath;
+  /** `<sprintDir>/planning/` — plan AI session cwd (single per sprint). */
+  planningDir(id: SprintId): AbsolutePath;
+  /** `<sprintDir>/execution/<unitSlug>/` — evaluator AI session cwd (per task). */
+  executionUnitDir(id: SprintId, unitSlug: string): AbsolutePath;
+  /**
+   * `<sprintDir>/done-criteria.md` — one bullet per task naming its
+   * success criterion. Written by the `save-tasks` leaf after planning;
+   * copied into every per-task execution unit for evaluator context.
+   */
+  doneCriteriaFile(id: SprintId): AbsolutePath;
 }
 
 export interface ResolveStoragePathsOptions {
@@ -94,6 +127,30 @@ export function resolveStoragePaths(opts: ResolveStoragePathsOptions = {}): Stor
     },
     tasksFile(id: SprintId): AbsolutePath {
       return asAbsolute(join(sprintsDir, id, 'tasks.json'));
+    },
+    progressFile(id: SprintId): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'progress.md'));
+    },
+    requirementsAggregateFile(id: SprintId): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'requirements.json'));
+    },
+    feedbackFile(id: SprintId): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'feedback.md'));
+    },
+    refinementUnitDir(id: SprintId, unitSlug: string): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'refinement', unitSlug));
+    },
+    ideationUnitDir(id: SprintId, unitSlug: string): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'ideation', unitSlug));
+    },
+    planningDir(id: SprintId): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'planning'));
+    },
+    executionUnitDir(id: SprintId, unitSlug: string): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'execution', unitSlug));
+    },
+    doneCriteriaFile(id: SprintId): AbsolutePath {
+      return asAbsolute(join(sprintsDir, id, 'done-criteria.md'));
     },
   };
 }

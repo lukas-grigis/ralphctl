@@ -2,16 +2,18 @@
  * `ApplyFeedbackUseCase` — apply user-provided feedback as a follow-up AI
  * session against a settled sprint.
  *
- * Single-responsibility: build the feedback prompt, spawn the AI, parse
- * signals. The dirty-tree fence after each iteration, post-feedback check
- * gate, and per-repo fan-out are chain-layer concerns and live in the
- * feedback chain definition. The loop terminator (empty submission) lives
- * in the launching surface (TUI execute view / `sprint feedback` CLI).
+ * Single-responsibility: hand the AI a thin wrapper pointing at the
+ * pre-rendered feedback prompt file, parse signals. The dirty-tree fence
+ * after each iteration, post-feedback check gate, and per-repo fan-out
+ * are chain-layer concerns and live in the feedback chain definition.
+ * The loop terminator (empty submission) lives in the launching surface
+ * (TUI execute view / `sprint feedback` CLI).
  *
  * Empty-feedback short-circuit: an empty (or whitespace-only) `feedbackText`
  * is treated as "user wants to exit the loop". This use case returns an
  * empty-signals envelope so the chain can decide to stop without the cost
- * of an AI spawn.
+ * of an AI spawn. The check happens in the chain leaf (before this use
+ * case is called) so the use case stays focused on the spawn round-trip.
  */
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
@@ -21,16 +23,25 @@ import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session-port.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
-import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import { renderFileHandoffWrapper } from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
 
 export interface ApplyFeedbackInput {
   /** Sprint receiving feedback — typically `'active'` or just-completed. */
   readonly sprint: Sprint;
-  /** Free-form user feedback. Empty / whitespace-only short-circuits. */
-  readonly feedbackText: string;
+  /**
+   * Absolute path to the feedback prompt file produced by the upstream
+   * `render-prompt-to-file` leaf. Required — the wrapper the AI
+   * receives points at this path.
+   */
+  readonly promptFilePath: string;
   readonly cwd: AbsolutePath;
+  /**
+   * Optional absolute path the AI session adapter writes a `session.md`
+   * audit record to. Best-effort.
+   */
+  readonly sessionMdPath?: AbsolutePath;
   readonly abortSignal?: AbortSignal;
 }
 
@@ -44,7 +55,6 @@ export interface ApplyFeedbackOutput {
 export class ApplyFeedbackUseCase {
   constructor(
     private readonly ai: AiSessionPort,
-    private readonly prompts: PromptBuilderPort,
     private readonly parser: SignalParserPort,
     private readonly logger: LoggerPort,
     /**
@@ -59,28 +69,28 @@ export class ApplyFeedbackUseCase {
   async execute(input: ApplyFeedbackInput): Promise<Result<ApplyFeedbackOutput, DomainError>> {
     const log = this.logger.child({ sprintId: input.sprint.id });
 
-    if (input.feedbackText.trim().length === 0) {
-      log.debug('feedback is empty — skipping AI spawn');
-      return Result.ok({ signals: [], rawAiOutput: '' });
-    }
+    // The full feedback prompt is on disk at `input.promptFilePath`.
+    // Hand the AI a thin wrapper pointing at it.
+    const wrapper = renderFileHandoffWrapper(input.promptFilePath);
 
-    const promptResult = await this.prompts.buildFeedbackPrompt({
-      sprint: input.sprint,
-      feedbackText: input.feedbackText,
-    });
-    if (!promptResult.ok) return Result.error(promptResult.error);
+    log.info('applying feedback');
 
-    log.info('applying feedback', { length: input.feedbackText.length });
-
-    const sessionResult = await this.ai.spawnHeadless(promptResult.value, {
+    const sessionResult = await this.ai.spawnHeadless(wrapper, {
       cwd: input.cwd,
       ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+      ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
     });
     if (!sessionResult.ok) return Result.error(sessionResult.error);
 
-    const signals = this.parser.parse(sessionResult.value.output, {
+    const { signals, diagnostics } = this.parser.parseWithDiagnostics(sessionResult.value.output, {
       now: IsoTimestamp.now(),
     });
+
+    // Surface silently-dropped malformed AI output. Same contract as
+    // ExecuteSingleTaskUseCase — log only (the bus event vocabulary is closed).
+    for (const d of diagnostics) {
+      log.warn('signal parse diagnostic', { kind: d.kind, sample: d.sample });
+    }
 
     // Live observability — same contract as ExecuteSingleTaskUseCase.
     if (this.signalBus !== undefined) {

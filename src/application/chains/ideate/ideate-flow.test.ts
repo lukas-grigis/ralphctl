@@ -25,7 +25,7 @@ const IDEATE_OUTPUT = `<ticket>
 </tasks>`;
 
 describe('createIdeateFlow', () => {
-  it('runs load-sprint → assert-draft → load-project → ideate-and-plan → save-results (save-sprint + save-tasks)', async () => {
+  it('runs load-sprint → assert-draft → load-project → render-prompt-to-file → ideate-and-plan → save-results (save-sprint + save-tasks)', async () => {
     const sprint = makeSprint();
     const project = makeProject();
 
@@ -35,12 +35,7 @@ describe('createIdeateFlow', () => {
       aiSession: { outcomes: [{ kind: 'ok', result: { output: IDEATE_OUTPUT } }] },
     });
 
-    const flow = createIdeateFlow(deps, {
-      sprintId: sprint.id,
-      cwd: CWD,
-      projectName: project.name,
-      ideaText: 'Speed up reads with caching',
-    });
+    const flow = createIdeateFlow(deps);
 
     const result = await flow.execute({
       sprintId: sprint.id,
@@ -56,6 +51,7 @@ describe('createIdeateFlow', () => {
       'load-sprint',
       'assert-draft',
       'load-project',
+      'render-prompt-to-file',
       'ideate-and-plan',
       'save-sprint',
       'save-tasks',
@@ -80,12 +76,7 @@ describe('createIdeateFlow', () => {
     const project = makeProject();
 
     const deps = createTestDeps({ sprints: [activated.value], projects: [project] });
-    const flow = createIdeateFlow(deps, {
-      sprintId: activated.value.id,
-      cwd: CWD,
-      projectName: project.name,
-      ideaText: 'idea',
-    });
+    const flow = createIdeateFlow(deps);
 
     const result = await flow.execute({
       sprintId: activated.value.id,
@@ -108,12 +99,7 @@ describe('createIdeateFlow', () => {
     const project = makeProject();
     const deps = createTestDeps({ sprints: [sprint], projects: [project] });
 
-    const flow = createIdeateFlow(deps, {
-      sprintId: sprint.id,
-      cwd: CWD,
-      projectName: project.name,
-      ideaText: 'idea',
-    });
+    const flow = createIdeateFlow(deps);
 
     const ac = new AbortController();
     ac.abort();
@@ -134,12 +120,7 @@ describe('createIdeateFlow', () => {
     const deps = createTestDeps({ sprints: [sprint] });
 
     const ghost = projectName('ghost');
-    const flow = createIdeateFlow(deps, {
-      sprintId: sprint.id,
-      cwd: CWD,
-      projectName: ghost,
-      ideaText: 'idea',
-    });
+    const flow = createIdeateFlow(deps);
 
     const result = await flow.execute({
       sprintId: sprint.id,

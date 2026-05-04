@@ -37,7 +37,7 @@ import { Spinner } from '@src/application/tui/components/spinner.tsx';
 import { StatusChip, chipKindForSessionStatus } from '@src/application/tui/components/status-chip.tsx';
 import { RateLimitBanner } from '@src/application/tui/components/rate-limit-banner.tsx';
 import { HeaderHeartbeat } from '@src/application/tui/components/execute/header-heartbeat.tsx';
-import { StepTrace } from '@src/application/tui/components/execute/step-trace.tsx';
+import { StepTrace, CompactStepSummary } from '@src/application/tui/components/execute/step-trace.tsx';
 import { TaskExecutionGrid } from '@src/application/tui/components/execute/task-execution-grid.tsx';
 import { RecentEventsTail } from '@src/application/tui/components/execute/recent-events-tail.tsx';
 import { FeedbackPromptLoop } from '@src/application/tui/components/execute/feedback-prompt-loop.tsx';
@@ -209,11 +209,22 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
     return unsub;
   }, [runnerRef, signalBus]);
 
-  // SignalBus — rate-limit events (authoritative) + per-task signal map.
+  // SignalBus — rate-limit events (authoritative) + per-task signal map +
+  // task lifecycle overrides (`task-started` / `task-finished`). The seeded
+  // task list in `runner.ctx.tasks` freezes at the pre-run snapshot, so
+  // we apply the latest lifecycle status on top before rendering.
+  // Override values: 'in_progress' | 'done' | 'blocked'.
   const [taskSignals, setTaskSignals] = useState<Map<string, HarnessSignal>>(new Map());
+  const [taskStatusOverrides, setTaskStatusOverrides] = useState<Map<string, 'in_progress' | 'done' | 'blocked'>>(
+    new Map()
+  );
 
   useEffect(() => {
     if (!signalBus) return;
+    // Reset overrides on session switch — the prior session's [RUN] / [DONE]
+    // pills must not bleed into the next session view.
+    setTaskStatusOverrides(new Map());
+    setTaskSignals(new Map());
     const unsub = signalBus.subscribe((event) => {
       if (effectiveId !== undefined && event.sessionId !== undefined && event.sessionId !== effectiveId) return;
       if (event.type === 'rate-limit-paused') {
@@ -233,6 +244,27 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
           next.set(taskId, event.signal);
           return next;
         });
+        return;
+      }
+      if (event.type === 'task-started') {
+        const taskId = String(event.taskId);
+        setTaskStatusOverrides((prev) => {
+          const next = new Map(prev);
+          next.set(taskId, 'in_progress');
+          return next;
+        });
+        return;
+      }
+      if (event.type === 'task-finished') {
+        const taskId = String(event.taskId);
+        // Bus statuses: 'completed' | 'blocked'. Map to the visual override union.
+        const mapped: 'done' | 'blocked' = event.status === 'completed' ? 'done' : 'blocked';
+        setTaskStatusOverrides((prev) => {
+          const next = new Map(prev);
+          next.set(taskId, mapped);
+          return next;
+        });
+        return;
       }
     });
     return unsub;
@@ -311,7 +343,20 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
   const effectiveStatus = effectiveStatusForHooks;
   const isRunning = effectiveStatus === 'running' || effectiveStatus === 'idle';
   const mainSteps = steps.filter((s) => !isTaskStep(s.name));
-  const taskList = getTaskList(descriptor.runner.ctx);
+  const baseTaskList = getTaskList(descriptor.runner.ctx);
+  // Overlay live statuses from the bus on top of the seeded list.
+  // ChainRunner.ctx is frozen at the initial value until the chain
+  // settles, so without this overlay every pill would stay [TODO] for
+  // the entire run.
+  const taskList =
+    baseTaskList === null
+      ? null
+      : taskStatusOverrides.size === 0
+        ? baseTaskList
+        : baseTaskList.map((t) => {
+            const override = taskStatusOverrides.get(t.id);
+            return override === undefined || override === t.status ? t : { ...t, status: override };
+          });
   const taskNameLookup = buildTaskNameLookup(taskList);
 
   return (
@@ -346,12 +391,24 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
         ) : null}
 
         {/* ── Step trace ─────────────────────────────────────────────── */}
+        {/*
+         * Live runs render the full vertical trace so the user can watch
+         * each step settle. After the chain reaches a terminal state the
+         * full trace stops being useful — a 13+ row trace pushes the
+         * result card, task grid, and events tail off-screen on typical
+         * terminals. Swap to the compact tally so the post-completion
+         * surface stays usable.
+         */}
         <Box marginTop={spacing.section} flexDirection="column">
           <Text dimColor bold>
             {glyphs.badge} Steps
           </Text>
           <Box marginTop={0}>
-            <StepTrace steps={mainSteps} isRunning={isRunning} />
+            {isTerminalEffective ? (
+              <CompactStepSummary steps={mainSteps} />
+            ) : (
+              <StepTrace steps={mainSteps} isRunning={isRunning} />
+            )}
           </Box>
         </Box>
 

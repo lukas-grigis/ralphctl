@@ -29,11 +29,27 @@ import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 export type EvaluationDimension = string;
 
 /**
+ * Numeric score on the 1–5 rubric used by the evaluator prompt:
+ *   5 = exemplary   — no issues, idiomatic, all criteria met
+ *   4 = solid       — minor concerns, fully meets the bar
+ *   3 = adequate    — functional but with notable gaps
+ *   2 = below bar   — incomplete or buggy
+ *   1 = unacceptable — broken, missing, or unsafe
+ *
+ * Scores of 4 or 5 map to `passed: true`; 1–3 map to `passed: false`.
+ */
+export type DimensionScoreValue = 1 | 2 | 3 | 4 | 5;
+
+/**
  * One graded dimension from an evaluator's output. Parsed from lines like
- * `**Name**: PASS|FAIL — one-line finding`.
+ * `**Name** (score 1-5): N — one-line finding`.
+ *
+ * `passed` is derived: `score >= 4 → true`. It is retained for callers
+ * that only need a binary gate without inspecting the numeric value.
  */
 export interface DimensionScore {
   readonly dimension: EvaluationDimension;
+  readonly score: DimensionScoreValue;
   readonly passed: boolean;
   readonly finding: string;
 }
@@ -55,11 +71,17 @@ export interface ProgressSignal {
  *  - `passed`     — `<evaluation-passed>` tag found.
  *  - `failed`     — `<evaluation-failed>` tag found, or one or more dimensions failed.
  *  - `malformed`  — neither tag was found and no dimension lines parsed.
+ *
+ * `overallScore` is the mean of all dimension scores, rounded to one decimal
+ * place. Undefined when there are no dimensions (e.g. `malformed` with an
+ * empty dimension list). Provided for UI rendering convenience — it is
+ * derivable from `dimensions`.
  */
 export interface EvaluationSignal {
   readonly type: 'evaluation';
   readonly status: 'passed' | 'failed' | 'malformed';
   readonly dimensions: readonly DimensionScore[];
+  readonly overallScore?: number;
   readonly critique?: string;
   readonly timestamp: IsoTimestamp;
 }

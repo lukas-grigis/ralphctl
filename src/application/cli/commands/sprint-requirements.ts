@@ -16,6 +16,7 @@ import { ValidationError } from '@src/domain/values/validation-error.ts';
 import type { SharedDeps } from '@src/application/bootstrap/shared-deps.ts';
 import { runCommand } from '@src/application/cli/command-runner.ts';
 import { EXIT_SUCCESS, type ExitCode } from '@src/application/cli/exit-codes.ts';
+import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
 
 interface RequirementsOptions {
   output?: string;
@@ -44,8 +45,9 @@ async function runSprintRequirements(
       const sprintR = await resolveSprintId(deps, id);
       if (!sprintR.ok) return sprintR;
       const outPath = resolveOutputPath(opts.output, `${String(sprintR.value)}-requirements.md`);
-      const uc = new ExportRequirementsUseCase(deps.sprintRepo, (path, body) => writeFile(path, body, 'utf-8'));
-      return uc.execute({ sprintId: sprintR.value, outputPath: outPath });
+      const aggregatePath = resolveStoragePaths().requirementsAggregateFile(sprintR.value);
+      const uc = new ExportRequirementsUseCase((path, body) => writeFile(path, body, 'utf-8'));
+      return uc.execute({ aggregatePath, outputPath: outPath });
     },
     format: (_d, out) => `${c.green('wrote')} ${String(out.path)} (${String(out.byteCount)} bytes)`,
   });

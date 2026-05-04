@@ -173,10 +173,18 @@ describe('prompt completeness — no unresolved {{PLACEHOLDER}} in rendered outp
   });
 
   it('execute — task + sprint context', async () => {
-    const r = await adapter.buildExecutePrompt({ task: makeTask(), sprint: makeSprint() });
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+    });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt');
+    // Regression guard: task body (name + steps + verification criteria)
+    // must render inline — the prompt itself IS the file the harness
+    // writes to disk.
+    expect(r.value).toContain('wire-up-login-form');
+    expect(r.value).toContain('Build form');
   });
 
   it('evaluate — task + sprint, first round (no previous critique)', async () => {
@@ -197,11 +205,28 @@ describe('prompt completeness — no unresolved {{PLACEHOLDER}} in rendered outp
     assertNoUnresolvedPlaceholders(r.value, 'buildEvaluatePrompt(round-2)');
   });
 
-  it('feedback — sprint + free-form feedback text', async () => {
-    const r = await adapter.buildFeedbackPrompt({ sprint: makeSprint(), feedbackText: 'tighten the error UX' });
+  it('feedback — sprint + free-form feedback text + empty completed-tasks list', async () => {
+    const r = await adapter.buildFeedbackPrompt({
+      sprint: makeSprint(),
+      feedbackText: 'tighten the error UX',
+      completedTasks: [],
+    });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    assertNoUnresolvedPlaceholders(r.value, 'buildFeedbackPrompt');
+    assertNoUnresolvedPlaceholders(r.value, 'buildFeedbackPrompt(no-tasks)');
+  });
+
+  it('feedback — sprint + completed tasks list (regression: each task name + path lands in the prompt)', async () => {
+    const r = await adapter.buildFeedbackPrompt({
+      sprint: makeSprint(),
+      feedbackText: 'tighten the error UX',
+      completedTasks: [makeTask()],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildFeedbackPrompt(with-tasks)');
+    expect(r.value).toContain('wire-up-login-form');
+    expect(r.value).toContain('/tmp/repo');
   });
 
   it('onboard — bootstrap mode (no prior context file)', async () => {
@@ -243,5 +268,175 @@ describe('prompt completeness — no unresolved {{PLACEHOLDER}} in rendered outp
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     assertNoUnresolvedPlaceholders(r.value, 'buildOnboardPrompt(update)');
+  });
+
+  // ─── additional completeness tests ───────────────────────────────────────
+
+  it('refine — with pre-fetched issueContext text (distinct from bare-link rendering)', async () => {
+    // The caller (chain leaf) may supply a pre-fetched issue body via
+    // `issueContext`; the adapter wraps it in <context>…</context> rather
+    // than falling back to the bare-link helper. Both code paths write to
+    // the same {{ISSUE_CONTEXT}} slot — verify neither branch leaves a token.
+    const ticket = makeTicket({ link: 'https://github.com/owner/repo/issues/99' });
+    const r = await adapter.buildRefinePrompt({
+      ticket,
+      issueContext: '## Summary\n\nThe login button does nothing on mobile Safari.',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildRefinePrompt(pre-fetched-issueContext)');
+    expect(r.value).toContain('mobile Safari');
+    expect(r.value).toContain('<context>');
+  });
+
+  it('execute — with checkScript supplied (renders fenced shell block, not "no script" text)', async () => {
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+      checkScript: 'pnpm typecheck && pnpm test',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt(with-checkScript)');
+    expect(r.value).toContain('pnpm typecheck && pnpm test');
+    expect(r.value).toContain('```sh');
+  });
+
+  it('execute — with sprint branch set (renders BRANCH_LINE inline)', async () => {
+    // When a sprint has a branch, the execute prompt renders a "Branch: …"
+    // line inside the task header. Verify the {{BRANCH_LINE}} slot is
+    // always resolved regardless of whether branch is null or non-null.
+    const base = makeSprint();
+    const branched = base.setBranch('ralphctl/sprint-a');
+    expect(branched.ok).toBe(true);
+    if (!branched.ok) return;
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: branched.value,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt(with-branch)');
+    expect(r.value).toContain('ralphctl/sprint-a');
+  });
+
+  it('execute — with checkRanAt populated (renders non-generic ENVIRONMENT_STATUS)', async () => {
+    // When the harness has already run the check script for a repo, it
+    // stamps `checkRanAt` on the sprint; the execute prompt renders the
+    // timestamp instead of the generic "Not run." fallback.
+    const base = makeSprint();
+    const withCheck = base.recordCheckRun(path('/tmp/repo'), T0);
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: withCheck,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt(with-checkRanAt)');
+    expect(r.value).toContain('2026-04-29T12:00:00Z');
+    expect(r.value).not.toContain('Not run.');
+  });
+
+  it('evaluate — with evaluateWorkspaceDir supplied (renders contract-files section)', async () => {
+    // The per-task chain mounts an evaluate workspace and passes its path
+    // via `evaluateWorkspaceDir`. The template embeds a "Contract files"
+    // section pointing the evaluator at the pre-staged artefacts. Verify
+    // the {{EVALUATE_WORKSPACE}} slot resolves fully in this branch.
+    const r = await adapter.buildEvaluatePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+      evaluateWorkspaceDir: '/tmp/sprints/sprint-a/execution/task-1/evaluate',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildEvaluatePrompt(with-workspace)');
+    expect(r.value).toContain('Contract files');
+    expect(r.value).toContain('/tmp/sprints/sprint-a/execution/task-1/evaluate');
+  });
+
+  it('evaluate — with doneCriteriaBullet supplied (renders per-task done-criteria section)', async () => {
+    // The per-task chain reads the done-criteria.md bullet and passes it
+    // to the evaluator prompt so the AI has an explicit, stable definition
+    // of "done" for the current task. Verify the {{DONE_CRITERIA_SECTION}}
+    // slot resolves fully and the section heading lands in the output.
+    const bullet = '- **wire-up-login-form** (`tid-abc`) — Submit POSTs credentials; Errors render inline';
+    const r = await adapter.buildEvaluatePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+      doneCriteriaBullet: bullet,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildEvaluatePrompt(with-doneCriteriaBullet)');
+    expect(r.value).toContain('## Per-task done criteria');
+    expect(r.value).toContain(bullet);
+  });
+
+  it('evaluate — without doneCriteriaBullet (DONE_CRITERIA_SECTION collapses to empty string)', async () => {
+    // When no bullet is supplied (legacy sprint, no plan run, or standalone
+    // evaluate without a workspace), the section must collapse cleanly —
+    // no orphan heading, no literal placeholder.
+    const r = await adapter.buildEvaluatePrompt({ task: makeTask(), sprint: makeSprint() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildEvaluatePrompt(no-doneCriteriaBullet)');
+    expect(r.value).not.toContain('## Per-task done criteria');
+    expect(r.value).not.toContain('{{DONE_CRITERIA_SECTION}}');
+  });
+
+  it('feedback — sprint without a branch (BRANCH_SECTION collapses to empty string)', async () => {
+    // `makeSprint()` creates a sprint with `branch: null`. The adapter
+    // renders an empty `BRANCH_SECTION` in that case. Verify the slot is
+    // still fully resolved (no literal {{BRANCH_SECTION}} survives).
+    const sprint = makeSprint(); // branch is null
+    const r = await adapter.buildFeedbackPrompt({
+      sprint,
+      feedbackText: 'improve error messages',
+      completedTasks: [makeTask()],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildFeedbackPrompt(no-branch)');
+    // The branch section must not bleed a literal placeholder or an empty
+    // "Branch:" header into the rendered prompt.
+    expect(r.value).not.toContain('{{BRANCH_SECTION}}');
+  });
+
+  it('plan — sprint with affectedRepositories set (repos appear in CONTEXT block)', async () => {
+    // `renderPlanContext` emits a "## Repositories" block only when
+    // `sprint.affectedRepositories` is non-empty. Verify the {{CONTEXT}}
+    // slot resolves fully in that branch and the repo path lands in the output.
+    const base = makeSprint();
+    const withRepos = base.setAffectedRepositories([path('/tmp/repo')]);
+    expect(withRepos.ok).toBe(true);
+    if (!withRepos.ok) return;
+    const r = await adapter.buildPlanPrompt({
+      sprint: withRepos.value,
+      existingTasks: [],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildPlanPrompt(with-affectedRepositories)');
+    expect(r.value).toContain('/tmp/repo');
+  });
+
+  it('ideate — sprint with affectedRepositories set (repos appear in REPOSITORIES block)', async () => {
+    // `renderRepositories` emits a bulleted list only when
+    // `sprint.affectedRepositories` is non-empty; ideate uses the same
+    // helper. Verify the {{REPOSITORIES}} slot resolves and the path lands
+    // in the prompt.
+    const base = makeSprint();
+    const withRepos = base.setAffectedRepositories([path('/tmp/repo')]);
+    expect(withRepos.ok).toBe(true);
+    if (!withRepos.ok) return;
+    const r = await adapter.buildIdeatePrompt({
+      sprint: withRepos.value,
+      ideaText: 'add a new dashboard widget',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    assertNoUnresolvedPlaceholders(r.value, 'buildIdeatePrompt(with-affectedRepositories)');
+    expect(r.value).toContain('/tmp/repo');
+    expect(r.value).not.toContain('(no repositories selected)');
   });
 });

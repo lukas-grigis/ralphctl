@@ -12,7 +12,7 @@ import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 
 function makeRouter() {

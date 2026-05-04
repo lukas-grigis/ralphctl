@@ -6,10 +6,15 @@ import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
-import { InMemorySprintRepository } from '@src/business/_test-fakes/in-memory-sprint-repository.ts';
-import { ExportRequirementsUseCase, renderRequirementsMarkdown } from './export-requirements.ts';
+import {
+  buildSprintRequirementsAggregate,
+  renderSprintRequirementsMarkdown,
+  serialiseSprintRequirementsAggregate,
+} from './sprint-requirements-aggregate.ts';
+import { ExportRequirementsUseCase } from './export-requirements.ts';
 
 const NOW = IsoTimestamp.trustString('2026-04-29T12:00:00.000Z');
+const NOW_DATE = new Date('2026-04-29T12:00:00.000Z');
 
 function unwrap<T>(r: { ok: boolean; value?: T; error?: unknown }): T {
   if (!r.ok) throw new Error(`expected ok: ${String(r.error)}`);
@@ -25,50 +30,53 @@ function buildSprint(): Sprint {
       projectName: unwrap(ProjectName.parse('demo')),
     })
   );
-  const ticket1 = unwrap(
+  const ticket = unwrap(
     Ticket.create({
       title: 'Add feature X',
       description: 'A short description',
     })
   );
-  sprint = unwrap(sprint.addTicket(ticket1));
+  sprint = unwrap(sprint.addTicket(ticket));
   return sprint;
 }
 
-describe('renderRequirementsMarkdown', () => {
-  it('renders a sprint header + ticket sections', () => {
-    const sprint = buildSprint();
-    const md = renderRequirementsMarkdown(sprint);
+function approveAllTickets(sprint: Sprint, requirementsBody: string): Sprint {
+  let next = sprint;
+  for (const ticket of sprint.tickets) {
+    const approved = unwrap(ticket.approveRequirements(requirementsBody));
+    next = unwrap(next.replaceTicket(ticket.id, approved));
+  }
+  return next;
+}
+
+describe('renderSprintRequirementsMarkdown', () => {
+  it('renders a sprint header + approved ticket sections', () => {
+    const sprint = approveAllTickets(buildSprint(), '## Detailed\n\nGo do the thing.');
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    const md = renderSprintRequirementsMarkdown(agg);
     expect(md).toContain('# Requirements — Sprint A');
     expect(md).toContain('- Project: demo');
     expect(md).toContain('## Add feature X');
-    expect(md).toContain('Requirement status: pending');
+    expect(md).toContain('Go do the thing.');
   });
 
   it('renders sprint-level affected repositories when set', () => {
-    let sprint = buildSprint();
-    const repoPath = AbsolutePath.trustString('/tmp/demo-repo');
-    sprint = unwrap(sprint.setAffectedRepositories([repoPath]));
-    const md = renderRequirementsMarkdown(sprint);
+    let sprint = approveAllTickets(buildSprint(), '## R\n\nbody');
+    sprint = unwrap(sprint.setAffectedRepositories([AbsolutePath.trustString('/tmp/demo-repo')]));
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    const md = renderSprintRequirementsMarkdown(agg);
     expect(md).toContain('- Affected repositories:');
     expect(md).toContain('  - `/tmp/demo-repo`');
   });
 
-  it('shows "(not yet refined)" for tickets with no requirements', () => {
+  it('omits tickets that are not approved', () => {
+    // Sprint where the ticket stays pending → aggregate filters it out.
     const sprint = buildSprint();
-    const md = renderRequirementsMarkdown(sprint);
-    expect(md).toContain('not yet refined');
-  });
-
-  it('renders refined requirements verbatim', () => {
-    let sprint = buildSprint();
-    const ticket = sprint.tickets[0];
-    if (!ticket) throw new Error('precondition failed');
-    const refined = unwrap(ticket.approveRequirements('## Detailed requirements\n\nGo do the thing.'));
-    sprint = unwrap(sprint.replaceTicket(ticket.id, refined));
-    const md = renderRequirementsMarkdown(sprint);
-    expect(md).toContain('Go do the thing.');
-    expect(md).not.toContain('not yet refined');
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    expect(agg.tickets).toHaveLength(0);
+    const md = renderSprintRequirementsMarkdown(agg);
+    expect(md).toContain('no approved ticket requirements yet');
+    expect(md).not.toContain('## Add feature X');
   });
 
   it('handles empty ticket list', () => {
@@ -80,16 +88,19 @@ describe('renderRequirementsMarkdown', () => {
         projectName: unwrap(ProjectName.parse('demo')),
       })
     );
-    const md = renderRequirementsMarkdown(sprint);
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    const md = renderSprintRequirementsMarkdown(agg);
     expect(md).toContain('# Requirements — Empty');
-    expect(md).toContain('(no tickets)');
+    expect(md).toContain('no approved ticket requirements yet');
   });
 });
 
 describe('ExportRequirementsUseCase', () => {
-  it('writes the markdown to the requested output path', async () => {
-    const sprint = buildSprint();
-    const sprintRepo = new InMemorySprintRepository([sprint]);
+  it('reads the JSON aggregate, renders markdown, and writes to the requested output path', async () => {
+    const sprint = approveAllTickets(buildSprint(), '## R\n\nbody');
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    const aggregateBody = serialiseSprintRequirementsAggregate(agg);
+
     let writtenPath: string | undefined;
     let writtenBody: string | undefined;
     const writeFile = (path: string, body: string): Promise<void> => {
@@ -97,38 +108,62 @@ describe('ExportRequirementsUseCase', () => {
       writtenBody = body;
       return Promise.resolve();
     };
-    const uc = new ExportRequirementsUseCase(sprintRepo, writeFile);
+    const readFile = (): Promise<string> => Promise.resolve(aggregateBody);
+    const uc = new ExportRequirementsUseCase(writeFile, readFile);
 
     const output = AbsolutePath.trustString('/tmp/requirements.md');
-    const result = await uc.execute({ sprintId: sprint.id, outputPath: output });
+    const result = await uc.execute({
+      aggregatePath: AbsolutePath.trustString('/tmp/requirements.json'),
+      outputPath: output,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.path).toBe(output);
     expect(result.value.byteCount).toBeGreaterThan(0);
     expect(writtenPath).toBe('/tmp/requirements.md');
     expect(writtenBody).toContain('# Requirements — Sprint A');
+    expect(writtenBody).toContain('body');
   });
 
-  it('returns NotFoundError for an unknown sprint', async () => {
-    const sprint = buildSprint();
-    const sprintRepo = new InMemorySprintRepository();
-    const uc = new ExportRequirementsUseCase(sprintRepo, () => Promise.resolve());
+  it('surfaces a missing aggregate file as ValidationError', async () => {
+    const readFile = (): Promise<string> => Promise.reject(new Error('ENOENT'));
+    const uc = new ExportRequirementsUseCase(() => Promise.resolve(), readFile);
 
     const result = await uc.execute({
-      sprintId: sprint.id,
+      aggregatePath: AbsolutePath.trustString('/tmp/requirements.json'),
       outputPath: AbsolutePath.trustString('/tmp/x.md'),
     });
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain('requirements aggregate not found');
+      expect(result.error.message).toContain('sprint refine');
+    }
+  });
+
+  it('surfaces JSON parse failures as ValidationError', async () => {
+    const readFile = (): Promise<string> => Promise.resolve('{ this is not json');
+    const uc = new ExportRequirementsUseCase(() => Promise.resolve(), readFile);
+
+    const result = await uc.execute({
+      aggregatePath: AbsolutePath.trustString('/tmp/requirements.json'),
+      outputPath: AbsolutePath.trustString('/tmp/x.md'),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain('failed to parse');
+    }
   });
 
   it('surfaces filesystem write failures as ValidationError', async () => {
-    const sprint = buildSprint();
-    const sprintRepo = new InMemorySprintRepository([sprint]);
+    const sprint = approveAllTickets(buildSprint(), '## R\n\nbody');
+    const agg = buildSprintRequirementsAggregate(sprint, NOW_DATE);
+    const aggregateBody = serialiseSprintRequirementsAggregate(agg);
+    const readFile = (): Promise<string> => Promise.resolve(aggregateBody);
     const writeFile = (): Promise<void> => Promise.reject(new Error('disk full'));
-    const uc = new ExportRequirementsUseCase(sprintRepo, writeFile);
+    const uc = new ExportRequirementsUseCase(writeFile, readFile);
 
     const result = await uc.execute({
-      sprintId: sprint.id,
+      aggregatePath: AbsolutePath.trustString('/tmp/requirements.json'),
       outputPath: AbsolutePath.trustString('/tmp/x.md'),
     });
     expect(result.ok).toBe(false);

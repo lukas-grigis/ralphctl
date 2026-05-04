@@ -1,12 +1,18 @@
 /**
  * `createPerTaskFlow` — per-task chain composed inside the executeFlow's
- * Parallel fan-out. One instance per task in the sprint.
+ * Sequential of topologically-ordered tasks. One instance per task in the
+ * sprint.
  *
  * Steps (happy path):
  *
- *   branch-preflight → mark-in-progress → wait-for-rate-limit →
- *     execute-task → post-task-check → recover-dirty-tree →
- *     evaluate-task → mark-done
+ *   branch-preflight → mark-in-progress → render-prompt-to-file →
+ *     execute-task → post-task-check → evaluate-task → mark-done
+ *
+ * The chain does NOT auto-commit a dirty tree after the generator. The
+ * evaluator runs `git status` as part of its read-only checks and treats
+ * leftover uncommitted changes as a Completeness failure — auto-committing
+ * first defeats that signal and produces noise commits attributed to the
+ * harness for changes the agent forgot to ship.
  *
  * The brief calls for `Retry(execute-task, ...)` on rate-limit and
  * `OnError(branch-preflight, fallback: mark-blocked)`. Today's
@@ -17,6 +23,9 @@
  *    rate-limited spawn as outcome `'rate-limited'` returned via
  *    `Result.ok(...)`, so Retry won't fire automatically. We surface
  *    rate-limit as a kernel error instead, letting Retry pick it up.
+ *    The retry loop is independent of the rate-limit coordinator's
+ *    pause/resume machinery — it handles in-flight 429 via session
+ *    resume on the same task.
  *  - **Cancel** — the Retry-wrapped execute-task is further wrapped in
  *    `OnError(catchIf: code === 'aborted', fallback: markBlocked)` so a
  *    user-initiated cancel (TUI `c` key, CLI Ctrl+C) transitions the
@@ -29,9 +38,15 @@
  *    and sets `ctx.taskBlocked = true`. Every downstream leaf checks the
  *    flag and short-circuits as a no-op so the rest of the chain still
  *    runs (each step still emits a trace entry, keeping the trace honest)
- *    but performs no work. The Parallel fan-out's `failureMode:
- *    'collect-all'` swallows nothing here because the chain returns
- *    `Result.ok` — other tasks continue independently regardless.
+ *    but performs no work. The outer Sequential continues with the next
+ *    task because the per-task chain returns `Result.ok` after the
+ *    fallback recovers.
+ *
+ * `render-prompt-to-file` writes the FULL execute prompt (with task
+ * data, harness context, signal vocabulary) to
+ * `<sprintDir>/contexts/execute-<task-id>.md`. The downstream `execute-task`
+ * leaf hands the AI a thin wrapper pointing at that file — the file body
+ * is the prompt the AI actually reads.
  *
  * The `evaluate-task` step is a single Leaf wrapping
  * {@link EvaluateAndFixLoopUseCase} — the loop owns the multi-round
@@ -46,7 +61,11 @@
  * the surrounding chain frame so `mark-done` still runs. (See the
  * `OnError(catchIf: () => true)` wrapper below.)
  */
+import { dirname, join } from 'node:path';
+
 import { Result } from '@src/domain/result.ts';
+import { nextSessionPath } from '@src/integration/persistence/session-md-writer.ts';
+import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 
 import { BranchPreflightUseCase } from '@src/business/usecases/execute/branch-preflight.ts';
 import {
@@ -59,17 +78,22 @@ import {
   type TaskExecutionOutcome,
 } from '@src/business/usecases/execute/execute-single-task.ts';
 import { PostTaskCheckUseCase, type PostTaskCheckOutput } from '@src/business/usecases/execute/post-task-check.ts';
-import { RecoverDirtyTreeUseCase } from '@src/business/usecases/execute/recover-dirty-tree.ts';
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
-import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import type { DomainError } from '@src/domain/errors/domain-error.ts';
+import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
+import type { TaskId } from '@src/domain/values/task-id.ts';
 import type { Element, KernelError } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
 import { OnError } from '@src/kernel/chain/on-error.ts';
 import { Retry } from '@src/kernel/chain/retry.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
+import { buildExecutionUnitLeaf } from '@src/application/chains/leaves/build-execution-unit.ts';
+import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
+import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
+import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 
 export interface PerTaskCtx {
   readonly sprintId: SprintId;
@@ -79,6 +103,14 @@ export interface PerTaskCtx {
   readonly expectedBranch: string;
   /** Optional resolved check script for the post-task gate; skipped when missing. */
   readonly checkScript?: string;
+  /**
+   * Absolute path to the per-task prompt file written by the
+   * `render-prompt-to-file` leaf. Consumed by `execute-task` (the AI
+   * receives a thin wrapper pointing at this file). Undefined when
+   * the upstream leaf hasn't run — every downstream leaf treats
+   * absence as a programmer error.
+   */
+  readonly promptFilePath?: AbsolutePath;
   readonly outcome?: TaskExecutionOutcome;
   readonly newSessionId?: string;
   readonly checkResult?: PostTaskCheckOutput;
@@ -91,11 +123,71 @@ export interface PerTaskCtx {
    * the actual work.
    */
   readonly taskBlocked?: boolean;
+  /**
+   * Stamped from the launcher (CLI `--no-commit` / TUI flag). When `true`,
+   * the per-task `commit-task` leaf no-ops — the harness leaves the dirty
+   * tree for the user to commit manually.
+   */
+  readonly noCommit?: boolean;
+  /**
+   * Per-task execution unit folder root. Stamped by
+   * `build-execution-unit`; consumed by `evaluate-task` (passes it down
+   * to the loop, which in turn embeds it into the evaluator prompt's
+   * contract-files section and refreshes its volatile contents per
+   * round).
+   */
+  readonly executionUnitRoot?: AbsolutePath;
+  /**
+   * Read roots the evaluator session should expose to the AI. Claude:
+   * `[executionUnitRoot]`. Copilot: `[]` (the unit folder mirrors the
+   * repo internally — no `--add-dir` equivalent on Copilot's CLI).
+   */
+  readonly executionAddDirs?: readonly AbsolutePath[];
+  /**
+   * Working directory the evaluator session spawns under. Claude:
+   * `task.projectPath` (read-only checks against the real repo).
+   * Copilot: `executionUnitRoot` (the repo is mirrored inside).
+   * The generator's cwd is unaffected — generator always runs in the
+   * real `task.projectPath`.
+   */
+  readonly executionSessionCwd?: AbsolutePath;
+  /** `<executionUnitRoot>/evaluation.md` — durable evaluator critique sink. */
+  readonly executionEvaluationMdPath?: AbsolutePath;
+  /**
+   * Full sprint task list. Used by `build-execution-unit` to derive
+   * `priorEvaluations` and to populate `tasks.md` / `tasks.json` inside
+   * the unit folder. Stamped onto the ctx by the outer `executeFlow`'s
+   * `load-tasks` leaf via the per-task chain construction; we expose
+   * it on the per-task ctx so the build leaf can read it without
+   * threading a separate input.
+   */
+  readonly tasks?: readonly Task[];
+  /**
+   * The single `done-criteria.md` bullet for this task, read from the
+   * per-task execution unit folder after `build-execution-unit` runs.
+   * Threaded through to every `buildEvaluatePrompt` call so the
+   * evaluator has an explicit, stable definition of "done". Absent when
+   * the file doesn't exist (legacy sprint) or when the task is not found
+   * in the file — in both cases the evaluator gracefully omits the
+   * section.
+   */
+  readonly doneCriteriaBullet?: string;
 }
 
 export interface CreatePerTaskFlowOpts {
   readonly task: Task;
   readonly sprint: Sprint;
+}
+
+/** Per-task commit message: trim to 64 chars, prefix with task id. */
+const COMMIT_NAME_MAX = 64;
+const COMMIT_MESSAGE_MAX = 200;
+function buildCommitMessage(task: Task): string {
+  const idPrefix = String(task.id).slice(0, 8);
+  const trimmedName = task.name.trim();
+  const slicedName = trimmedName.length > COMMIT_NAME_MAX ? trimmedName.slice(0, COMMIT_NAME_MAX) : trimmedName;
+  const message = slicedName.length > 0 ? `task(${idPrefix}): ${slicedName}` : `task(${idPrefix})`;
+  return message.length > COMMIT_MESSAGE_MAX ? message.slice(0, COMMIT_MESSAGE_MAX) : message;
 }
 
 export function createPerTaskFlow(
@@ -110,23 +202,32 @@ export function createPerTaskFlow(
     | 'logger'
     | 'liveConfig'
     | 'signalBus'
+    | 'signalHandler'
     | 'rateLimitCoordinator'
+    | 'writeContextFile'
+    | 'sessionFolderBuilder'
   >,
   opts: CreatePerTaskFlowOpts
 ): Element<PerTaskCtx> {
   const branchPreflight = new BranchPreflightUseCase(deps.external, deps.logger);
   const executeOne = new ExecuteSingleTaskUseCase(
     deps.aiSession,
-    deps.prompts,
     deps.signalParser,
     deps.logger,
     deps.signalBus,
     deps.rateLimitCoordinator
   );
   const postCheck = new PostTaskCheckUseCase(deps.external, deps.logger);
-  const recoverDirty = new RecoverDirtyTreeUseCase(deps.external, deps.logger);
-  const evaluator = new EvaluateTaskUseCase(deps.aiSession, deps.prompts, deps.signalParser, deps.logger);
-  const evaluateLoop = new EvaluateAndFixLoopUseCase(deps.liveConfig, evaluator, executeOne, postCheck, deps.logger);
+  const evaluator = new EvaluateTaskUseCase(deps.aiSession, deps.signalParser, deps.logger, deps.signalHandler);
+  const evaluateLoop = new EvaluateAndFixLoopUseCase(
+    deps.liveConfig,
+    evaluator,
+    executeOne,
+    postCheck,
+    deps.prompts,
+    deps.writeContextFile,
+    deps.logger
+  );
 
   const branchPreflightStep = new OnError<PerTaskCtx>(branchPreflightLeaf(branchPreflight), {
     catchIf: (err) => err.code === 'invalid-state',
@@ -150,60 +251,67 @@ export function createPerTaskFlow(
     fallback: markCancelledFallbackLeaf(deps),
   });
 
-  // Wrap the evaluate-and-fix loop so any unexpected spawn error from
-  // the loop never blocks the per-task chain. REQUIREMENTS.md guarantees
-  // the evaluator never gates task completion.
-  const evaluatorAsLeaf = new OnError<PerTaskCtx>(evaluateLoopLeaf(deps, evaluateLoop), {
-    catchIf: () => true,
-    fallback: noopLeaf<PerTaskCtx>('evaluate-task-noop'),
+  // The evaluator pack: `build-evaluate-workspace` lays down the per-task
+  // contract files, then `evaluate-task` runs the multi-round loop and
+  // reads them via the workspace root. Wrap BOTH together so a workspace
+  // builder failure (disk full, EPERM, ...) ALSO doesn't block task
+  // completion — the task should still proceed to `mark-done`. The
+  // existing "evaluator never gates mark-done" contract extends to the
+  // workspace setup that feeds it. User-initiated cancellation
+  // (`code: 'aborted'`) propagates so Ctrl+C mid-evaluator doesn't
+  // silently fall through to mark-done.
+  const buildEvalWorkspaceStep = buildExecutionUnitLeaf<PerTaskCtx>({
+    sessionFolderBuilder: deps.sessionFolderBuilder,
+    aiSession: deps.aiSession,
   });
+  const evaluatorAsLeaf = new OnError<PerTaskCtx>(
+    new Sequential<PerTaskCtx>('evaluate', [buildEvalWorkspaceStep, evaluateLoopLeaf(deps, evaluateLoop)]),
+    {
+      catchIf: (err) => err.code !== 'aborted',
+      fallback: noopLeaf<PerTaskCtx>('evaluate-task-noop'),
+    }
+  );
 
   // Conditionally include post-task-check only when a check script is
   // configured. Tasks with no check script (e.g. polyglot subdirs) skip
   // the gate cleanly.
   const postTaskStep = postTaskCheckLeaf(postCheck);
 
+  // The render-prompt-to-file leaf writes the FULL execute prompt (with
+  // task body, harness context, signal vocabulary, project tooling) to
+  // `<sprintDir>/execution/<unit-slug>/prompt.md` — co-located with the
+  // other per-task artefacts so the sandbox is self-contained. The
+  // downstream `execute-task` leaf hands the AI a thin wrapper pointing
+  // at that file — the file body is the prompt the AI actually reads.
+  const renderPromptStep = renderPromptToFileLeaf<PerTaskCtx>(
+    { writeContextFile: deps.writeContextFile },
+    {
+      flowName: 'execute',
+      identifier: (ctx) => String(ctx.task.id),
+      path: (ctx) => {
+        const slug = unitSlug(String(ctx.task.id), ctx.task.name);
+        const root = resolveStoragePaths().executionUnitDir(ctx.sprintId, slug);
+        return AbsolutePath.trustString(join(String(root), 'prompt.md'));
+      },
+      buildPrompt: (ctx) =>
+        deps.prompts.buildExecutePrompt({
+          task: ctx.task,
+          sprint: ctx.sprint,
+          ...(ctx.checkScript !== undefined ? { checkScript: ctx.checkScript } : {}),
+        }),
+    }
+  );
+
   return new Sequential<PerTaskCtx>(`per-task-${opts.task.id}`, [
     branchPreflightStep,
     markInProgressLeaf(deps),
-    waitForRateLimitLeaf(deps),
+    renderPromptStep,
     executeTaskStep,
     postTaskStep,
-    recoverDirtyTreeLeaf(recoverDirty),
     evaluatorAsLeaf,
+    commitTaskLeaf(deps),
     markDoneLeaf(deps),
   ]);
-}
-
-/**
- * Hold off launching a new AI session while the global
- * `RateLimitCoordinator` is paused. When the coordinator is in the
- * running state this leaf resolves immediately (`0ms`); when paused,
- * it awaits `waitUntilResumed()` and then proceeds, surfacing the
- * wait time in the chain trace's `durationMs`.
- *
- * Skipped (no-op) when `taskBlocked` is set so a preflight-blocked
- * task doesn't park here for no reason.
- *
- * The `Retry(maxAttempts: 2, retryOn: code === 'rate-limited')` wrapper
- * around `execute-task` continues to handle the in-task 429 itself —
- * this leaf is the courtesy gate for siblings: when one task hits the
- * rate limit and pauses the coordinator, every other task arriving at
- * this point waits before spawning, instead of three tasks all
- * spawning AI sessions and immediately rate-limiting again.
- */
-function waitForRateLimitLeaf(deps: Pick<ChainSharedDeps, 'rateLimitCoordinator'>): Element<PerTaskCtx> {
-  return new Leaf<PerTaskCtx, { readonly taskBlocked: boolean }, void>('wait-for-rate-limit', {
-    useCase: {
-      async execute(input) {
-        if (input.taskBlocked) return Result.ok(undefined);
-        await deps.rateLimitCoordinator.waitUntilResumed();
-        return Result.ok(undefined);
-      },
-    },
-    input: (ctx) => ({ taskBlocked: ctx.taskBlocked === true }),
-    output: (ctx) => ctx,
-  });
 }
 
 function branchPreflightLeaf(useCase: BranchPreflightUseCase): Element<PerTaskCtx> {
@@ -235,7 +343,7 @@ function branchPreflightLeaf(useCase: BranchPreflightUseCase): Element<PerTaskCt
  * reason on the Task aggregate so callers grepping `tasks.json` can see
  * which step failed without needing the trace.
  */
-function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<PerTaskCtx> {
+function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signalBus'>): Element<PerTaskCtx> {
   return new Leaf<
     PerTaskCtx,
     { readonly sprintId: SprintId; readonly task: Task; readonly expectedBranch: string },
@@ -251,6 +359,7 @@ function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Eleme
         if (!transitioned.ok) return Result.error(transitioned.error);
         const saved = await deps.taskRepo.update(input.sprintId, transitioned.value);
         if (!saved.ok) return Result.error(saved.error);
+        deps.signalBus.emit({ type: 'task-finished', taskId: transitioned.value.id, status: 'blocked' });
         return Result.ok(transitioned.value);
       },
     },
@@ -271,8 +380,8 @@ function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Eleme
  * states are valid sources for `markBlocked()`. Records "cancelled by user"
  * as the blocked reason so it appears in `tasks.json` / sprint health.
  */
-function markCancelledFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<PerTaskCtx> {
-  return new Leaf<PerTaskCtx, { readonly sprintId: SprintId; readonly task: Task }, Task>('mark-blocked', {
+function markCancelledFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signalBus'>): Element<PerTaskCtx> {
+  return new Leaf<PerTaskCtx, { readonly sprintId: SprintId; readonly task: Task }, Task>('mark-cancelled', {
     useCase: {
       async execute(input) {
         const reason = 'cancelled by user';
@@ -280,6 +389,7 @@ function markCancelledFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Ele
         if (!transitioned.ok) return Result.error(transitioned.error);
         const saved = await deps.taskRepo.update(input.sprintId, transitioned.value);
         if (!saved.ok) return Result.error(saved.error);
+        deps.signalBus.emit({ type: 'task-finished', taskId: transitioned.value.id, status: 'blocked' });
         return Result.ok(transitioned.value);
       },
     },
@@ -288,7 +398,7 @@ function markCancelledFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Ele
   });
 }
 
-function markInProgressLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<PerTaskCtx> {
+function markInProgressLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signalBus'>): Element<PerTaskCtx> {
   return new Leaf<
     PerTaskCtx,
     { readonly sprintId: SprintId; readonly task: Task; readonly taskBlocked: boolean },
@@ -301,6 +411,7 @@ function markInProgressLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<Pe
         if (!transitioned.ok) return Result.error(transitioned.error);
         const saved = await deps.taskRepo.update(input.sprintId, transitioned.value);
         if (!saved.ok) return Result.error(saved.error);
+        deps.signalBus.emit({ type: 'task-started', taskId: transitioned.value.id });
         return Result.ok(transitioned.value);
       },
     },
@@ -312,7 +423,14 @@ function markInProgressLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<Pe
 function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx> {
   return new Leaf<
     PerTaskCtx,
-    { readonly sprint: Sprint; readonly task: Task; readonly cwd: AbsolutePath; readonly taskBlocked: boolean },
+    {
+      readonly sprint: Sprint;
+      readonly task: Task;
+      readonly cwd: AbsolutePath;
+      readonly promptFilePath?: AbsolutePath;
+      readonly taskBlocked: boolean;
+      readonly executionUnitRoot?: AbsolutePath;
+    },
     { readonly outcome: TaskExecutionOutcome; readonly newSessionId?: string }
   >('execute-task', {
     useCase: {
@@ -322,10 +440,33 @@ function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx>
         if (input.taskBlocked) {
           return Result.ok({ outcome: 'blocked' });
         }
+        // Programmer-error guard: the upstream `render-prompt-to-file`
+        // leaf must have run by now and stamped the resolved path on
+        // the context. If it's missing, fail loudly via a kernel error
+        // rather than silently sending the AI an empty wrapper.
+        if (input.promptFilePath === undefined) {
+          return Result.error({
+            code: 'invalid-state',
+            message: 'execute-task: promptFilePath is missing — render-prompt-to-file must run first',
+          });
+        }
+        // Per-spawn `session.md` audit path. Each retry attempt OR
+        // resume on rate-limit recovery counts as its own round and
+        // gets its own `session-N.md` under the execution unit folder
+        // so the audit history shows each attempt distinctly. Best-
+        // effort: if the unit folder wasn't materialised (build leaf
+        // failed and the OnError above this leaf is about to swallow
+        // the result anyway), audit is silently skipped.
+        const sessionMdPath =
+          input.executionUnitRoot !== undefined
+            ? AbsolutePath.trustString(await nextSessionPath(String(input.executionUnitRoot)))
+            : undefined;
         const result = await useCase.execute({
           sprint: input.sprint,
           task: input.task,
           cwd: input.cwd,
+          promptFilePath: String(input.promptFilePath),
+          ...(sessionMdPath !== undefined ? { sessionMdPath } : {}),
         });
         if (!result.ok) return Result.error(result.error);
         // Convert the rate-limited outcome into a kernel error so the
@@ -344,7 +485,14 @@ function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx>
         });
       },
     },
-    input: (ctx) => ({ sprint: ctx.sprint, task: ctx.task, cwd: ctx.cwd, taskBlocked: ctx.taskBlocked === true }),
+    input: (ctx) => ({
+      sprint: ctx.sprint,
+      task: ctx.task,
+      cwd: ctx.cwd,
+      ...(ctx.promptFilePath !== undefined ? { promptFilePath: ctx.promptFilePath } : {}),
+      taskBlocked: ctx.taskBlocked === true,
+      ...(ctx.executionUnitRoot !== undefined ? { executionUnitRoot: ctx.executionUnitRoot } : {}),
+    }),
     output: (ctx, out) => ({
       ...ctx,
       outcome: out.outcome,
@@ -382,40 +530,7 @@ function postTaskCheckLeaf(useCase: PostTaskCheckUseCase): Element<PerTaskCtx> {
   });
 }
 
-function recoverDirtyTreeLeaf(useCase: RecoverDirtyTreeUseCase): Element<PerTaskCtx> {
-  return new Leaf<
-    PerTaskCtx,
-    {
-      readonly projectPath: AbsolutePath;
-      readonly taskName: string;
-      readonly sprintId: SprintId;
-      readonly taskBlocked: boolean;
-    },
-    void
-  >('recover-dirty-tree', {
-    useCase: {
-      async execute(input) {
-        if (input.taskBlocked) return Result.ok(undefined);
-        const r = await useCase.execute({
-          projectPath: input.projectPath,
-          taskName: input.taskName,
-          sprintId: input.sprintId,
-        });
-        if (!r.ok) return Result.error(r.error);
-        return Result.ok(undefined);
-      },
-    },
-    input: (ctx) => ({
-      projectPath: ctx.cwd,
-      taskName: ctx.task.name,
-      sprintId: ctx.sprintId,
-      taskBlocked: ctx.taskBlocked === true,
-    }),
-    output: (ctx) => ctx,
-  });
-}
-
-function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>): Element<PerTaskCtx> {
+function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger' | 'signalBus'>): Element<PerTaskCtx> {
   return new Leaf<
     PerTaskCtx,
     {
@@ -428,13 +543,14 @@ function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>): Eleme
   >('mark-done', {
     useCase: {
       async execute(input) {
+        // Already blocked upstream — the markBlocked fallback already
+        // transitioned the task and emitted `task-finished`. No-op here.
         if (input.taskBlocked) return Result.ok(input.task);
         // Mark-done semantics: by the time we reach this leaf the
         // per-task chain has already run preflight, the AI session,
-        // post-task check, dirty-tree recovery, and the (non-blocking)
-        // evaluator. The work has either been done or the chain
-        // would have aborted. We mark done unless something
-        // explicitly negative happened:
+        // post-task check, and the (non-blocking) evaluator. The work
+        // has either been done or the chain would have aborted. We
+        // mark done unless something explicitly negative happened:
         //
         //   - outcome === 'blocked'        — AI emitted <task-blocked>
         //   - evaluationStatus === 'failed'    — evaluator caught a real
@@ -456,10 +572,9 @@ function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>): Eleme
         // 'rate-limited' never reaches here — Retry surfaces it as a
         // kernel error so this leaf doesn't run on a rate-limited run.
         if (input.outcome === 'blocked') {
-          return Result.ok(input.task);
-        }
-        const evalStatus = input.task.evaluationStatus;
-        if (evalStatus === 'failed' || evalStatus === 'malformed') {
+          // AI emitted <task-blocked> — mirror that on the bus so the
+          // live execute view flips the task pill from RUNNING to BLOCKED.
+          deps.signalBus.emit({ type: 'task-finished', taskId: input.task.id, status: 'blocked' });
           return Result.ok(input.task);
         }
         const transitioned = input.task.markDone();
@@ -476,6 +591,7 @@ function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>): Eleme
             taskId: transitioned.value.id,
           }
         );
+        deps.signalBus.emit({ type: 'task-finished', taskId: transitioned.value.id, status: 'completed' });
         return Result.ok(transitioned.value);
       },
     },
@@ -490,8 +606,7 @@ function markDoneLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'logger'>): Eleme
 }
 
 /**
- * Render a task name slice for success log messages — three parallel tasks
- * all logging "task <id> completed" is unreadable; appending the name
+ * Render a task name slice for success log messages — appending the name
  * makes the recent-events panel scannable. Mirrors the same helper in
  * `execute-single-task.ts` and `refine-single-ticket.ts`.
  */
@@ -512,7 +627,7 @@ function formatNameSuffix(name: string): string {
 const MAX_PREVIEW_CHARS = 2000;
 
 function evaluateLoopLeaf(
-  deps: Pick<ChainSharedDeps, 'taskRepo'>,
+  deps: Pick<ChainSharedDeps, 'taskRepo' | 'sessionFolderBuilder' | 'aiSession'>,
   loop: EvaluateAndFixLoopUseCase
 ): Element<PerTaskCtx> {
   return new Leaf<
@@ -521,10 +636,16 @@ function evaluateLoopLeaf(
       readonly sprintId: SprintId;
       readonly sprint: Sprint;
       readonly task: Task;
+      readonly tasks: readonly Task[];
       readonly cwd: AbsolutePath;
+      readonly promptFilePath?: AbsolutePath;
       readonly checkScript?: string;
       readonly resumeSessionId?: string;
       readonly taskBlocked: boolean;
+      readonly executionUnitRoot?: AbsolutePath;
+      readonly executionAddDirs?: readonly AbsolutePath[];
+      readonly executionSessionCwd?: AbsolutePath;
+      readonly executionEvaluationMdPath?: AbsolutePath;
     },
     { readonly evaluation?: EvaluateAndFixLoopOutput; readonly task: Task }
   >('evaluate-task', {
@@ -533,12 +654,86 @@ function evaluateLoopLeaf(
         if (input.taskBlocked) {
           return Result.ok({ task: input.task });
         }
+        // Read the per-task bullet from the execution unit's done-criteria.md.
+        // Best-effort — returns '' when absent or unreadable.
+        const doneCriteriaBullet =
+          input.executionUnitRoot !== undefined
+            ? await readDoneCriteriaBullet(
+                join(String(input.executionUnitRoot), 'done-criteria.md'),
+                String(input.task.id)
+              )
+            : '';
+        // Programmer-error guard — the upstream `render-prompt-to-file`
+        // leaf must have set this. The fix-and-reeval loop re-spawns
+        // the generator, which needs the same execute-prompt file path.
+        if (input.promptFilePath === undefined) {
+          return Result.error({
+            code: 'invalid-state',
+            message: 'evaluate-task: promptFilePath is missing — render-prompt-to-file must run first',
+          });
+        }
+        // The render-prompt-to-file leaf already wrote the execute prompt
+        // under `<sprintDir>/contexts/`; derive the directory from the
+        // stamped path so the chain doesn't re-resolve storage paths.
+        const contextsDir = AbsolutePath.trustString(dirname(String(input.promptFilePath)));
+
+        // Build a `refreshWorkspace` closure when an evaluate workspace
+        // was mounted upstream. The closure recomputes `priorEvaluations`
+        // from the live task list each call so a sibling that finishes
+        // mid-sprint surfaces in the next round's contract pack. When
+        // the workspace wasn't mounted (e.g. `build-evaluate-workspace`
+        // failed and the OnError wrapper is about to swallow this leaf
+        // anyway, or the standalone evaluate chain), refresh is a no-op
+        // and the loop skips it. The workspace root is captured by
+        // value — refresh works against the root that was already laid
+        // down, which is the contract for `refreshEvaluateWorkspace`.
+        const unitMounted = input.executionUnitRoot !== undefined;
+        const refreshWorkspace = unitMounted
+          ? async (): Promise<Result<void, DomainError>> => {
+              await deps.aiSession.ensureReady();
+              const aiProvider = deps.aiSession.getProviderName();
+              const priorEvaluations = collectPriorEvaluations(input.tasks);
+              return deps.sessionFolderBuilder.refreshExecutionUnit({
+                sprint: input.sprint,
+                tasks: input.tasks,
+                task: input.task,
+                aiProvider,
+                priorEvaluations,
+              });
+            }
+          : undefined;
+
+        // Per-spawn `session.md` audit path provider for the multi-round
+        // loop. Both evaluator and generator (fix-attempt) rounds get
+        // their own `session-N.md` under the per-task execution unit
+        // folder so the user can audit every round individually. The
+        // file basename is monotonic across kinds — interleaving the
+        // counter is an explicit decision so chronological order is
+        // preserved on disk; the frontmatter records `provider`/`flags`
+        // and the body shows the prompt, which together disambiguate
+        // generator vs evaluator without filename suffixes. When no
+        // unit folder was materialised (build failed) the closure
+        // returns undefined and audit is skipped.
+        const unitRoot = input.executionUnitRoot;
+        const nextSessionMdPath = unitRoot
+          ? async (): Promise<AbsolutePath | undefined> =>
+              AbsolutePath.trustString(await nextSessionPath(String(unitRoot)))
+          : undefined;
+
         const result = await loop.execute({
           task: input.task,
           sprint: input.sprint,
           cwd: input.cwd,
+          executePromptFilePath: String(input.promptFilePath),
+          contextsDir,
           ...(input.checkScript !== undefined ? { checkScript: input.checkScript } : {}),
           ...(input.resumeSessionId !== undefined ? { resumeSessionId: input.resumeSessionId } : {}),
+          ...(input.executionAddDirs !== undefined ? { addDirs: input.executionAddDirs } : {}),
+          ...(input.executionSessionCwd !== undefined ? { evaluateSessionCwd: input.executionSessionCwd } : {}),
+          ...(input.executionUnitRoot !== undefined ? { evaluateWorkspaceDir: String(input.executionUnitRoot) } : {}),
+          ...(refreshWorkspace !== undefined ? { refreshWorkspace } : {}),
+          ...(nextSessionMdPath !== undefined ? { nextSessionMdPath } : {}),
+          ...(doneCriteriaBullet.length > 0 ? { doneCriteriaBullet } : {}),
         });
         if (!result.ok) return Result.error(result.error);
 
@@ -546,10 +741,17 @@ function evaluateLoopLeaf(
         // evaluator was disabled (rounds === 0) — the task entity's
         // `evaluated` flag stays false so consumers can tell.
         if (result.value.rounds > 0 && result.value.finalSignal !== null) {
+          // Evaluation file lives at `execution/<unit-slug>/evaluation.md`.
+          // Persist the absolute path stamped by the build leaf when present;
+          // fall back to a best-effort relative path keyed on the task id
+          // when no unit was mounted (e.g. standalone evaluate chain).
           const recorded = input.task.recordEvaluation({
             status: result.value.finalSignal.status,
             output: result.value.finalCritique.slice(0, MAX_PREVIEW_CHARS),
-            file: `evaluations/${input.task.id}.md`,
+            file:
+              input.executionEvaluationMdPath !== undefined
+                ? String(input.executionEvaluationMdPath)
+                : `execution/${String(input.task.id)}/evaluation.md`,
           });
           const saved = await deps.taskRepo.update(input.sprintId, recorded);
           if (!saved.ok) return Result.error(saved.error);
@@ -562,10 +764,18 @@ function evaluateLoopLeaf(
       sprintId: ctx.sprintId,
       sprint: ctx.sprint,
       task: ctx.task,
+      tasks: ctx.tasks ?? [],
       cwd: ctx.cwd,
+      ...(ctx.promptFilePath !== undefined ? { promptFilePath: ctx.promptFilePath } : {}),
       ...(ctx.checkScript !== undefined ? { checkScript: ctx.checkScript } : {}),
       ...(ctx.newSessionId !== undefined ? { resumeSessionId: ctx.newSessionId } : {}),
       taskBlocked: ctx.taskBlocked === true,
+      ...(ctx.executionUnitRoot !== undefined ? { executionUnitRoot: ctx.executionUnitRoot } : {}),
+      ...(ctx.executionAddDirs !== undefined ? { executionAddDirs: ctx.executionAddDirs } : {}),
+      ...(ctx.executionSessionCwd !== undefined ? { executionSessionCwd: ctx.executionSessionCwd } : {}),
+      ...(ctx.executionEvaluationMdPath !== undefined
+        ? { executionEvaluationMdPath: ctx.executionEvaluationMdPath }
+        : {}),
     }),
     // Push the recorded task back onto the context so the downstream
     // `mark-done` leaf carries the evaluation forward when it flips
@@ -574,6 +784,110 @@ function evaluateLoopLeaf(
       out.evaluation === undefined
         ? { ...ctx, task: out.task }
         : { ...ctx, task: out.task, evaluation: out.evaluation },
+  });
+}
+
+/**
+ * Collect prior task evaluations from the sprint's task list — same
+ * predicate as `build-evaluate-workspace.collectPriorEvaluations`, kept
+ * in sync so the per-round refresh doesn't surface a different set of
+ * priors than the initial build laid down.
+ */
+function collectPriorEvaluations(tasks: readonly Task[]): ReadonlyMap<TaskId, string> {
+  const map = new Map<TaskId, string>();
+  for (const t of tasks) {
+    if (t.evaluated && t.evaluationOutput !== undefined && t.evaluationOutput.length > 0) {
+      map.set(t.id, t.evaluationOutput);
+    }
+  }
+  return map;
+}
+
+/**
+ * `commit-task` — captures the work the AI just did into a single commit
+ * AFTER the evaluator round settles. Commits sit between the evaluator
+ * and `mark-done` so:
+ *
+ *  - the evaluator sees the dirty tree (its `git status` Completeness
+ *    signal works as designed — see `dimensions.md`), and
+ *  - the user's history shows one clean commit per task with a meaningful
+ *    message instead of having to manually stage at the end of a sprint.
+ *
+ * Skip conditions (no commit, no log, leaf returns the ctx unchanged):
+ *  - `ctx.taskBlocked === true` — branch preflight or user cancellation
+ *    already short-circuited the work.
+ *  - `ctx.noCommit === true` — explicit launcher opt-out.
+ *  - working tree is clean (the AI emitted no file changes, or already
+ *    committed itself).
+ *
+ * Commit failures do NOT abort the chain — the leaf logs a warning and
+ * resolves OK. A failed commit shouldn't strand a task whose work is
+ * otherwise complete; the user can recover by committing manually.
+ */
+function commitTaskLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'external' | 'logger'>): Element<PerTaskCtx> {
+  return new Leaf<
+    PerTaskCtx,
+    {
+      readonly sprintId: SprintId;
+      readonly task: Task;
+      readonly cwd: AbsolutePath;
+      readonly taskBlocked: boolean;
+      readonly noCommit: boolean;
+    },
+    Task
+  >('commit-task', {
+    useCase: {
+      async execute(input) {
+        if (input.taskBlocked) return Result.ok(input.task);
+        if (input.noCommit) return Result.ok(input.task);
+        if (!deps.external.hasUncommittedChanges(input.cwd)) {
+          return Result.ok(input.task);
+        }
+
+        const message = buildCommitMessage(input.task);
+        const committed = await deps.external.commitChanges(input.cwd, message);
+        if (!committed.ok) {
+          // Commit failure is non-fatal — log and continue so mark-done
+          // still runs. Distinguish a clean tree (already handled above
+          // but races / .gitignore edge cases can still surface it) from
+          // a real I/O error so the warning is meaningful.
+          const subCode = 'subCode' in committed.error ? committed.error.subCode : 'unknown';
+          deps.logger.warn(`commit-task: failed to commit task ${String(input.task.id)} (${subCode})`, {
+            taskId: String(input.task.id),
+            error: committed.error.message,
+          });
+          return Result.ok(input.task);
+        }
+
+        const sha = committed.value;
+        const recorded = input.task.recordCommit(sha);
+        const saved = await deps.taskRepo.update(input.sprintId, recorded);
+        if (!saved.ok) {
+          // Persistence failure on the SHA is non-fatal too — the commit
+          // itself is already on disk, only the metadata pointer failed.
+          deps.logger.warn(`commit-task: committed task ${String(input.task.id)} but failed to persist SHA`, {
+            taskId: String(input.task.id),
+            sha,
+            error: saved.error.message,
+          });
+          return Result.ok(recorded);
+        }
+        deps.logger.success(`committed task ${String(input.task.id)} as ${sha.slice(0, 7)}`, {
+          sprintId: String(input.sprintId),
+          taskId: String(input.task.id),
+          sha,
+        });
+        return Result.ok(recorded);
+      },
+    },
+    input: (ctx) => ({
+      sprintId: ctx.sprintId,
+      task: ctx.task,
+      cwd: ctx.cwd,
+      taskBlocked: ctx.taskBlocked === true,
+      noCommit: ctx.noCommit === true,
+    }),
+    output: (ctx, task) => ({ ...ctx, task }),
   });
 }
 

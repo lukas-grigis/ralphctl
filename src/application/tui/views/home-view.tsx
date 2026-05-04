@@ -145,7 +145,11 @@ async function loadHomeSnapshot(): Promise<HomeSnapshot> {
   ]);
 
   if (!sprintResult.ok) {
-    return { ctx, summaryData: null, snapshot: computePipelineSnapshot(ctx) };
+    // Orphaned reference — config points to a sprint that no longer exists.
+    // Treat as "no current sprint" so the pipeline map and summary line agree
+    // (otherwise the map offers Add Ticket against a sprint the user can't see).
+    const orphanedCtx: MenuContext = { ...ctx, currentSprintId: null };
+    return { ctx: orphanedCtx, summaryData: null, snapshot: computePipelineSnapshot(orphanedCtx) };
   }
 
   const sprint = sprintResult.value;

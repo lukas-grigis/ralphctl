@@ -94,7 +94,7 @@ class StubTemplateLoader implements TemplateLoader {
 describe('TEMPLATE_NAMES', () => {
   it('maps each port method to the expected .md basename', () => {
     expect(TEMPLATE_NAMES.refine).toBe('ticket-refine');
-    expect(TEMPLATE_NAMES.plan).toBe('plan-common');
+    expect(TEMPLATE_NAMES.planCommon).toBe('plan-common');
     expect(TEMPLATE_NAMES.ideate).toBe('ideate');
     expect(TEMPLATE_NAMES.execute).toBe('task-execution');
     expect(TEMPLATE_NAMES.evaluate).toBe('task-evaluation');
@@ -130,21 +130,6 @@ describe('TextPromptBuilderAdapter — refine', () => {
     const r = await adapter.buildRefinePrompt({ ticket: makeTicket() });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toBe('');
-  });
-
-  it('substitutes the JSON schema into SCHEMA so Claude has a format contract', async () => {
-    // The ticket-refine template embeds the JSON schema the AI is
-    // expected to write against. Without this Claude invents a shape
-    // and the parser falls through to the raw-body fallback.
-    const loader = new StubTemplateLoader({
-      'ticket-refine': '<<<{{SCHEMA}}>>>',
-    });
-    const adapter = new TextPromptBuilderAdapter(loader);
-    const r = await adapter.buildRefinePrompt({ ticket: makeTicket() });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value).toContain('RefinedRequirements');
-    expect(r.value).toContain('"requirements"');
   });
 
   it('wraps an upstream link in <context>...</context> when present', async () => {
@@ -242,6 +227,12 @@ describe('TextPromptBuilderAdapter — ideate', () => {
   it('substitutes the idea text into the IDEA_DESCRIPTION slot', async () => {
     const loader = new StubTemplateLoader({
       ideate: '## {{IDEA_TITLE}}\n{{IDEA_DESCRIPTION}}\n{{REPOSITORIES}}',
+      // Ideate now mirrors the planner's partial loadout — stub all five.
+      'plan-common': 'C',
+      'plan-common-examples': 'E',
+      'harness-context': 'H',
+      'validation-checklist': 'V',
+      'signals-planning': 'S',
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const sprint = makeSprint([makeTicket()]);
@@ -253,6 +244,33 @@ describe('TextPromptBuilderAdapter — ideate', () => {
       expect(r.value).toContain('(no repositories selected)');
     }
   });
+
+  it('substitutes the planner partials + schema so the AI emits a valid <tasks> block', async () => {
+    // Bug guard: the previous implementation passed empty strings for
+    // HARNESS_CONTEXT / COMMON / VALIDATION / SIGNALS / SCHEMA, so the
+    // template emitted stray placeholders and the AI improvised a shape
+    // the parser couldn't match.
+    const loader = new StubTemplateLoader({
+      ideate: 'HX:{{HARNESS_CONTEXT}}|COMMON:{{COMMON}}|VAL:{{VALIDATION}}|SIG:{{SIGNALS}}|SCHEMA:{{SCHEMA}}',
+      'plan-common': 'PLAN-COMMON|tooling={{PROJECT_TOOLING}}|ex={{PLAN_COMMON_EXAMPLES}}|gate={{CHECK_GATE_EXAMPLE}}',
+      'plan-common-examples': 'PLAN-EXAMPLES',
+      'harness-context': 'HARNESS-PARTIAL',
+      'validation-checklist': 'VALIDATION-PARTIAL',
+      'signals-planning': 'SIGNALS-PARTIAL',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const sprint = makeSprint([makeTicket()]);
+    const r = await adapter.buildIdeatePrompt({ sprint, ideaText: 'a brand new idea' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('HX:HARNESS-PARTIAL');
+    expect(r.value).toContain('COMMON:PLAN-COMMON');
+    expect(r.value).toContain('ex=PLAN-EXAMPLES');
+    expect(r.value).toContain('VAL:VALIDATION-PARTIAL');
+    expect(r.value).toContain('SIG:SIGNALS-PARTIAL');
+    expect(r.value).toContain('PlannedTasks');
+    expect(r.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
 });
 
 describe('TextPromptBuilderAdapter — execute', () => {
@@ -261,6 +279,8 @@ describe('TextPromptBuilderAdapter — execute', () => {
     // returns the empty shape and the placeholder collapses cleanly.
     const loader = new StubTemplateLoader({
       'task-execution': 'BEGIN:{{PROJECT_TOOLING}}:END',
+      'harness-context': 'H',
+      'signals-task': 'S',
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const sprint = makeSprint();
@@ -271,6 +291,106 @@ describe('TextPromptBuilderAdapter — execute', () => {
       expect(r.value).toBe('BEGIN::END');
     }
   });
+
+  it('embeds task name + steps + verification criteria inline (the prompt IS the file)', async () => {
+    // Task content (name, description, steps, criteria) lives directly
+    // in the rendered prompt body — the chain layer writes the result
+    // to disk and hands the AI a thin wrapper pointing at it.
+    const loader = new StubTemplateLoader({
+      'task-execution': 'NAME:{{TASK_NAME}}|STEPS:{{TASK_STEPS_SECTION}}|VC:{{VERIFICATION_CRITERIA_SECTION}}',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('NAME:Wire OAuth callback');
+    // Steps + verification criteria render inline as numbered/bulleted lists.
+    expect(r.value).toContain('1. Read existing router');
+    expect(r.value).toContain('- Login redirects work');
+  });
+
+  it('includes a non-empty PROGRESS_FILE path derived from the sprint id', async () => {
+    const loader = new StubTemplateLoader({
+      'task-execution': 'progress:{{PROGRESS_FILE}}',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const sprint = makeSprint();
+    const r = await adapter.buildExecutePrompt({ task: makeTask(), sprint });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // The path must be non-empty and end with progress.md — the exact
+    // prefix depends on RALPHCTL_ROOT but the filename is fixed.
+    expect(r.value).toMatch(/progress:.*progress\.md$/);
+  });
+
+  it('fails loud when a placeholder is absent from the substitution map', async () => {
+    // The adapter calls `assertFullySubstituted` after substitution —
+    // any leftover `{{TOKEN}}` surfaces as a `Result.error(StorageError)`
+    // instead of silently leaking to Claude.
+    const loader = new StubTemplateLoader({
+      // {{UNFILLED_PLACEHOLDER}} is never set by the execute builder.
+      'task-execution': 'task:{{TASK_NAME}} extra:{{UNFILLED_PLACEHOLDER}}',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildExecutePrompt({ task: makeTask(), sprint: makeSprint() });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.message).toContain('UNFILLED_PLACEHOLDER');
+  });
+
+  it('embeds the actual checkScript command when supplied by the chain', async () => {
+    // The chain layer threads the per-repo `checkScript` through PerTaskCtx.
+    // When provided, the prompt builder renders the actual command the
+    // harness will run as the post-task gate — not a "see docs" pointer.
+    const loader = new StubTemplateLoader({
+      'task-execution': 'CHECK:{{CHECK_SCRIPT_SECTION}}:END',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+      checkScript: 'pnpm typecheck && pnpm test',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('pnpm typecheck && pnpm test');
+    // Should be in a fenced shell block so the agent treats it as runnable.
+    expect(r.value).toContain('```sh');
+    // And NEVER the legacy "see docs" boilerplate.
+    expect(r.value).not.toContain('See the project documentation');
+  });
+
+  it('renders an explicit "no check script configured" line when checkScript is undefined', async () => {
+    // Absent checkScript must NOT regress to the legacy "see the project
+    // documentation" pointer — that just sent the AI off looking for a
+    // command that isn't there. The replacement is honest: the section
+    // states the repo has no check script configured.
+    const loader = new StubTemplateLoader({
+      'task-execution': 'CHECK:{{CHECK_SCRIPT_SECTION}}:END',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('No check script configured for this repo.');
+    expect(r.value).not.toContain('See the project documentation');
+  });
 });
 
 describe('TextPromptBuilderAdapter — evaluate', () => {
@@ -278,6 +398,8 @@ describe('TextPromptBuilderAdapter — evaluate', () => {
     const loader = new StubTemplateLoader({
       'task-evaluation':
         'task: {{TASK_NAME}}\n{{TASK_DESCRIPTION_SECTION}}\n{{VERIFICATION_CRITERIA_SECTION}}\nproject: {{PROJECT_PATH}}\n{{CHECK_SCRIPT_SECTION}}',
+      'harness-context': 'H',
+      'signals-evaluation': 'S',
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const sprint = makeSprint();
@@ -296,11 +418,65 @@ describe('TextPromptBuilderAdapter — evaluate', () => {
   it('omits the previous-critique section when none is provided', async () => {
     const loader = new StubTemplateLoader({
       'task-evaluation': 'crit:{{CHECK_SCRIPT_SECTION}}:end',
+      'harness-context': 'H',
+      'signals-evaluation': 'S',
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const r = await adapter.buildEvaluatePrompt({ task: makeTask(), sprint: makeSprint() });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toBe('crit::end');
+  });
+
+  it('substitutes the signals-evaluation partial so the AI knows the verdict vocabulary', async () => {
+    // Without this substitution the evaluator emits prose that the
+    // harness signal parser flags malformed → mark-done skips → task
+    // stays stuck in_progress. This is the bug this test guards against.
+    const loader = new StubTemplateLoader({
+      'task-evaluation': 'BEGIN[{{HARNESS_CONTEXT}}|{{SIGNALS}}|{{PROJECT_TOOLING}}]END',
+      'harness-context': '<harness-context>HARNESS</harness-context>',
+      'signals-evaluation':
+        '<signals>\n- `<evaluation-passed>` — pass\n- `<evaluation-failed>critique</evaluation-failed>` — fail\n</signals>',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildEvaluatePrompt({ task: makeTask(), sprint: makeSprint() });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('<harness-context>');
+    expect(r.value).toContain('<evaluation-passed>');
+    expect(r.value).toContain('<evaluation-failed>');
+    expect(r.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders the DONE_CRITERIA_SECTION when doneCriteriaBullet is supplied', async () => {
+    const loader = new StubTemplateLoader({
+      'task-evaluation': 'crit:{{DONE_CRITERIA_SECTION}}:end',
+      'harness-context': 'H',
+      'signals-evaluation': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const bullet = '- **Wire OAuth** (`tid-001`) — Login redirects work; Tests pass';
+    const r = await adapter.buildEvaluatePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+      doneCriteriaBullet: bullet,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value).toContain('## Per-task done criteria');
+    expect(r.value).toContain(bullet);
+    expect(r.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('collapses DONE_CRITERIA_SECTION to empty string when doneCriteriaBullet is absent', async () => {
+    const loader = new StubTemplateLoader({
+      'task-evaluation': 'before{{DONE_CRITERIA_SECTION}}after',
+      'harness-context': 'H',
+      'signals-evaluation': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const r = await adapter.buildEvaluatePrompt({ task: makeTask(), sprint: makeSprint() });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBe('beforeafter');
   });
 });
 
@@ -381,21 +557,64 @@ describe('TextPromptBuilderAdapter — onboard', () => {
 });
 
 describe('TextPromptBuilderAdapter — feedback', () => {
-  it('renders sprint name + branch + feedback text', async () => {
+  it('renders sprint name + branch + feedback text + completed tasks + harness/signals partials', async () => {
     const loader = new StubTemplateLoader({
-      'sprint-feedback': 'Sprint: {{SPRINT_NAME}}\n{{BRANCH_SECTION}}\nNote: {{FEEDBACK}}',
+      'sprint-feedback':
+        'Sprint: {{SPRINT_NAME}}\n{{BRANCH_SECTION}}\nDone:\n{{COMPLETED_TASKS}}\nNote: {{FEEDBACK}}\nHX:{{HARNESS_CONTEXT}}\nSIG:{{SIGNALS}}',
+      'harness-context': 'HARNESS-PARTIAL',
+      'signals-task': 'SIGNALS-TASK-PARTIAL',
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const base = makeSprint();
     const branched = base.setBranch('ralphctl/foo');
     if (!branched.ok) throw new Error('precondition failed');
     const sprint = branched.value;
-    const r = await adapter.buildFeedbackPrompt({ sprint, feedbackText: 'add retries' });
+    const r = await adapter.buildFeedbackPrompt({ sprint, feedbackText: 'add retries', completedTasks: [] });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value).toContain('Sprint: Sprint Alpha');
       expect(r.value).toContain('Branch:** ralphctl/foo');
       expect(r.value).toContain('Note: add retries');
+      // Feedback section is non-empty: empty input renders a placeholder
+      // so the section doesn't collapse to a stray header.
+      expect(r.value).toContain('(no tasks completed)');
+      expect(r.value).toContain('HX:HARNESS-PARTIAL');
+      expect(r.value).toContain('SIG:SIGNALS-TASK-PARTIAL');
+    }
+  });
+
+  it('renders each completed task by name + project path so the AI sees what shipped', async () => {
+    const loader = new StubTemplateLoader({
+      'sprint-feedback': 'TASKS:\n{{COMPLETED_TASKS}}',
+      'harness-context': 'H',
+      'signals-task': 'S',
+    });
+    const adapter = new TextPromptBuilderAdapter(loader);
+    const sprint = makeSprint();
+    const taskA = makeTask();
+    // makeTask returns `Wire OAuth callback` with /tmp/demo-repo — pair
+    // it with a synthesized second task so the renderer's iteration
+    // boundary is exercised.
+    const taskBResult = Task.create({
+      name: 'Render login form',
+      description: 'Build the form scaffold',
+      steps: ['Sketch'],
+      verificationCriteria: ['Renders'],
+      order: 2,
+      projectPath: path('/tmp/demo-repo'),
+    });
+    if (!taskBResult.ok) throw new Error('precondition failed');
+    const r = await adapter.buildFeedbackPrompt({
+      sprint,
+      feedbackText: 'add retries',
+      completedTasks: [taskA, taskBResult.value],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value).toContain('Wire OAuth callback');
+      expect(r.value).toContain('Render login form');
+      expect(r.value).toContain('/tmp/demo-repo');
+      expect(r.value).not.toContain('(no tasks completed)');
     }
   });
 });
@@ -425,18 +644,29 @@ describe('TextPromptBuilderAdapter — integration with bundled templates', () =
     expect(ideate.ok).toBe(true);
     if (ideate.ok) expect(ideate.value).toContain('XYZ_IDEATE_MARKER');
 
-    const exec = await adapter.buildExecutePrompt({ task: makeTask(), sprint: makeSprint() });
+    const exec = await adapter.buildExecutePrompt({
+      task: makeTask(),
+      sprint: makeSprint(),
+    });
     expect(exec.ok).toBe(true);
-    // Task name is no longer projected into the prompt body — anchor on
-    // the template's own preamble instead.
-    if (exec.ok) expect(exec.value).toContain('Task Execution Protocol');
+    // Task content is now embedded inline — the prompt itself IS the file
+    // the harness writes to disk; the AI receives a thin wrapper that
+    // points at it.
+    if (exec.ok) {
+      expect(exec.value).toContain('Task Execution Protocol');
+      expect(exec.value).toContain('Wire OAuth callback');
+    }
 
     const evalR = await adapter.buildEvaluatePrompt({ task: makeTask(), sprint: makeSprint() });
     expect(evalR.ok).toBe(true);
     // TASK_NAME is wired into the evaluator template heading directly.
     if (evalR.ok) expect(evalR.value).toContain('Wire OAuth callback');
 
-    const fb = await adapter.buildFeedbackPrompt({ sprint: makeSprint(), feedbackText: 'XYZ_FEEDBACK_MARKER' });
+    const fb = await adapter.buildFeedbackPrompt({
+      sprint: makeSprint(),
+      feedbackText: 'XYZ_FEEDBACK_MARKER',
+      completedTasks: [],
+    });
     expect(fb.ok).toBe(true);
     if (fb.ok) expect(fb.value).toContain('XYZ_FEEDBACK_MARKER');
   });

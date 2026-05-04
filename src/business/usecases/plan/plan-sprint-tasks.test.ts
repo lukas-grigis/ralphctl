@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { Sprint } from '@src/domain/entities/sprint.ts';
-import { Task } from '@src/domain/entities/task.ts';
 import { Ticket } from '@src/domain/entities/ticket.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
@@ -11,7 +10,6 @@ import { Slug } from '@src/domain/values/slug.ts';
 import { TicketId } from '@src/domain/values/ticket-id.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
-import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { PlanSprintTasksUseCase } from './plan-sprint-tasks.ts';
 
 const T0 = '2026-04-29T14:15:22.000Z' as IsoTimestamp;
@@ -29,14 +27,14 @@ function projectName(): ProjectName {
   return r.value;
 }
 
-function projectPath(): AbsolutePath {
-  const r = AbsolutePath.parse(PROJECT_PATH);
+function cwd(): AbsolutePath {
+  const r = AbsolutePath.parse('/tmp/ralphctl-plan');
   if (!r.ok) throw new Error('precondition failed');
   return r.value;
 }
 
-function cwd(): AbsolutePath {
-  const r = AbsolutePath.parse('/tmp/ralphctl-plan');
+function projectPath(): AbsolutePath {
+  const r = AbsolutePath.parse(PROJECT_PATH);
   if (!r.ok) throw new Error('precondition failed');
   return r.value;
 }
@@ -54,7 +52,14 @@ function approvedSprint(): Sprint {
 
   const withTicket = sprint.value.addTicket(approved.value);
   if (!withTicket.ok) throw new Error('precondition failed');
-  return withTicket.value;
+
+  // Real plan flow runs `persist-repo-selection` before the use case fires,
+  // so the sprint always has affectedRepositories set by the time we get
+  // here. Mirror that contract in the fixture so the projectPath guard
+  // matches production behaviour.
+  const withRepos = withTicket.value.setAffectedRepositories([projectPath()]);
+  if (!withRepos.ok) throw new Error('precondition failed');
+  return withRepos.value;
 }
 
 function tasksJson(): string {
@@ -83,12 +88,13 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: '```json\n' + tasksJson() + '\n```' } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(true);
@@ -103,44 +109,18 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: tasksJson() } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.tasks).toHaveLength(2);
-  });
-
-  it('passes existing tasks through to the prompt builder for replan context', async () => {
-    const ai = new FakeAiSessionPort({
-      outcomes: [{ kind: 'ok', result: { output: tasksJson() } }],
-    });
-    const prompts = new FakePromptBuilderPort();
-    const uc = new PlanSprintTasksUseCase(ai, prompts, new FakeLoggerPort());
-
-    const sprint = approvedSprint();
-    const existingResult = Task.create({
-      name: 'old task',
-      steps: [],
-      verificationCriteria: [],
-      order: 1,
-      projectPath: projectPath(),
-    });
-    if (!existingResult.ok) throw new Error('precondition failed');
-
-    await uc.execute({
-      sprint,
-      existingTasks: [existingResult.value],
-      cwd: cwd(),
-    });
-
-    expect(prompts.planCalls).toHaveLength(1);
-    expect(prompts.planCalls[0]?.existingTasks).toHaveLength(1);
   });
 
   it('rejects a non-draft sprint with InvalidStateError', async () => {
@@ -149,12 +129,13 @@ describe('PlanSprintTasksUseCase', () => {
     if (!active.ok) throw new Error('precondition failed');
 
     const ai = new FakeAiSessionPort();
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: active.value,
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -178,12 +159,13 @@ describe('PlanSprintTasksUseCase', () => {
     if (!withTicket.ok) throw new Error('precondition failed');
 
     const ai = new FakeAiSessionPort();
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: withTicket.value,
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -200,12 +182,13 @@ describe('PlanSprintTasksUseCase', () => {
     if (!sprint.ok) throw new Error('precondition failed');
 
     const ai = new FakeAiSessionPort();
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: sprint.value,
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -218,12 +201,13 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'not json at all' } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -239,12 +223,13 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: '```json\n{"not": "an array"}\n```' } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -261,12 +246,13 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: malformed } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -275,10 +261,10 @@ describe('PlanSprintTasksUseCase', () => {
     }
   });
 
-  it('task with non-existent ticketId is accepted: ticketId cross-reference is not validated here', async () => {
-    // Legacy intent: document that ticketId validation is out-of-scope for this use case.
-    // The use case is plan-only — it does not cross-reference ticketIds against sprint.tickets.
-    // Callers are responsible for validating/linking ticketIds post-parse.
+  it('rejects a task whose ticketId does not match any sprint ticket', async () => {
+    // The AI must never invent ticketIds — every emitted ticketId must be
+    // one of the sprint's tickets. Catch this at parse time so the failure
+    // surfaces with context, not later as an orphaned task in the UI.
     const unknownTicketId = 'bbbbbbbb';
     const output = JSON.stringify([
       {
@@ -293,31 +279,100 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
-    // The use case accepts the task — ticketId validation is intentionally out-of-scope.
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.tasks).toHaveLength(1);
-    // The ticketId is carried through as-is (a TicketId branded string).
-    expect(result.value.tasks[0]?.ticketId?.toString()).toBe(unknownTicketId);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain('does not match any sprint ticket');
+        expect(result.error.message).toContain(unknownTicketId);
+      }
+    }
+  });
+
+  it('rejects a task whose projectPath is not in sprint.affectedRepositories', async () => {
+    // The AI is told to use exact paths from the project's Repositories
+    // section. If it hallucinates a path, the per-task chain would either
+    // ENOENT at session-spawn or run Claude in an unrelated directory.
+    // Surface the failure here with the allowed list.
+    const output = JSON.stringify([
+      {
+        name: 'rogue task',
+        steps: [],
+        verificationCriteria: [],
+        order: 1,
+        ticketId: 'aaaaaaaa',
+        projectPath: '/repos/wrong-place',
+      },
+    ]);
+    const ai = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output } }],
+    });
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
+
+    const result = await uc.execute({
+      sprint: approvedSprint(),
+      existingTasks: [],
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain("not one of the sprint's affected repositories");
+        expect(result.error.message).toContain('/repos/wrong-place');
+        expect(result.error.message).toContain(PROJECT_PATH);
+      }
+    }
+  });
+
+  it('rejects an empty task list with ParseError', async () => {
+    // `[]` is valid JSON but useless — fail loudly here rather than letting
+    // the chain proceed and trip `assert-tasks-not-empty` deep in execute.
+    const ai = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: '[]' } }],
+    });
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
+
+    const result = await uc.execute({
+      sprint: approvedSprint(),
+      existingTasks: [],
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain('empty task list');
+      }
+    }
   });
 
   it('propagates an AI session failure', async () => {
     const failure = new StorageError({ subCode: 'io', message: 'spawn failed' });
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'error', error: failure }] });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
     });
 
     expect(result.ok).toBe(false);
@@ -330,13 +385,14 @@ describe('PlanSprintTasksUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: tasksJson() } }],
     });
-    const uc = new PlanSprintTasksUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new PlanSprintTasksUseCase(ai, new FakeLoggerPort());
     const ac = new AbortController();
 
     await uc.execute({
       sprint: approvedSprint(),
       existingTasks: [],
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/plan.md',
       abortSignal: ac.signal,
     });
 

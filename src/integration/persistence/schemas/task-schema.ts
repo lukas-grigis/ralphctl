@@ -33,6 +33,7 @@ export const taskJsonSchema = z.object({
   evaluationFile: z.string().optional(),
   extraDimensions: z.array(z.string()).optional(),
   blockedReason: z.string().optional(),
+  commitSha: z.string().optional(),
 });
 
 export type TaskJson = z.infer<typeof taskJsonSchema>;
@@ -111,6 +112,7 @@ export function fromTask(task: Task): TaskJson {
     ...(task.evaluationFile !== undefined ? { evaluationFile: task.evaluationFile } : {}),
     ...(task.extraDimensions !== undefined ? { extraDimensions: [...task.extraDimensions] } : {}),
     ...(task.blockedReason !== undefined ? { blockedReason: task.blockedReason } : {}),
+    ...(task.commitSha !== undefined ? { commitSha: task.commitSha } : {}),
   };
 }
 
@@ -160,6 +162,9 @@ function rehydrate(base: Task, parsed: TaskJson): Task {
       status: parsed.evaluationStatus,
       file: parsed.evaluationFile,
     });
+  }
+  if (parsed.commitSha !== undefined) {
+    t = t.recordCommit(parsed.commitSha);
   }
   return t;
 }

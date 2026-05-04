@@ -31,7 +31,7 @@ Task 3: Implement user profile editor          (blockedBy: [1])
 Task 4: Add form submission analytics          (blockedBy: [2, 3])
 ```
 
-Tasks 2 and 3 run in parallel (both depend only on 1). Task 4 waits for both.
+Tasks 2 and 3 are independent (both depend only on 1). Task 4 waits for both.
 
 ### Bad Dependency Graph
 
@@ -42,8 +42,8 @@ Task 3: Implement profile editor               (blockedBy: [2])  <-- WRONG
 Task 4: Add submission analytics               (blockedBy: [3])  <-- WRONG
 ```
 
-Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that prevents parallel
-execution.
+Task 3 does not actually need Task 2 — it only needs Task 1. This creates a false serial chain that obscures the real
+dependency structure.
 
 ## Precise Steps — good vs bad
 

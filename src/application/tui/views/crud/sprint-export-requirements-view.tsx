@@ -22,6 +22,7 @@ import { promptOrPop } from '@src/application/tui/components/prompt-or-pop.ts';
 import { getSharedDeps, getPrompt } from '@src/application/bootstrap/get-shared-deps.ts';
 import { ExportRequirementsUseCase } from '@src/business/usecases/sprint/export-requirements.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
 
 const HINTS = [{ key: 'Enter', action: 'confirm (terminal state)' }] as const;
 
@@ -56,9 +57,10 @@ export function SprintExportRequirementsView(): React.JSX.Element {
         trimmed.length === 0 ? defaultPath : isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed);
 
       setStep('Writing file…');
-      const uc = new ExportRequirementsUseCase(deps.sprintRepo, (p, b) => writeFile(p, b, 'utf-8'));
+      const aggregatePath = resolveStoragePaths().requirementsAggregateFile(sprintId);
+      const uc = new ExportRequirementsUseCase((p, b) => writeFile(p, b, 'utf-8'));
       const result = await uc.execute({
-        sprintId,
+        aggregatePath,
         outputPath: AbsolutePath.trustString(finalPath),
       });
       if (!result.ok) throw new Error(result.error.message);

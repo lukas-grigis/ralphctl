@@ -3,9 +3,14 @@
 Version 0.6.0 — read from `package.json` at build time via the JSON import attribute in
 `src/application/cli/entrypoint.ts`.
 
-@.claude/docs/REQUIREMENTS.md - Acceptance criteria + UI contract
 @.claude/docs/ARCHITECTURE.md - Layout, data models, file storage, error/exit tables
-@.claude/docs/KERNEL-DESIGN.md - Chain framework reference (Element / Leaf / Sequential / Parallel / Retry / OnError)
+@.claude/docs/KERNEL-DESIGN.md - Chain framework reference (Element / Leaf / Sequential / Retry / OnError)
+
+Reference docs (read on demand, not auto-imported):
+
+- `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist + UI contract (load when ticking off requirements or running a release audit)
+- `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules (designer agent loads automatically)
+- `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
 
 ## Quick Start
 
@@ -42,8 +47,8 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   `src/business/ports/`. Concrete adapters live in `src/integration/`.
 - **Chains are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, execute, evaluate,
   feedback) is a `kernel/chain` `Element` composed in `src/application/chains/<name>/`. The framework primitives
-  are `Element`, `Leaf` (the only seam to use cases), `Sequential`, `Parallel`, `Retry`, `OnError`. There are NO
-  conditional / pipeline / step-builder helpers — branching belongs inside a use case or in a sub-chain selected by
+  are `Element`, `Leaf` (the only seam to use cases), `Sequential`, `Retry`, `OnError`. There are NO conditional /
+  parallel / pipeline / step-builder helpers — branching belongs inside a use case or in a sub-chain selected by
   the caller. See `KERNEL-DESIGN.md` for the full contract.
 - **Multi-chain runtime** — `SessionManager` (`src/application/runtime/session-manager.ts`) owns N concurrent
   `ChainRunner` instances. Users start, foreground, background, and kill sessions like tmux windows: Tab cycles,
@@ -55,7 +60,7 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   accessor + swap hook used by the Ink mount path. `getPrompt()` is the convenience accessor for the prompt port.
 - **Result types** — every business operation returns `Result<T, DomainError>`. Import `Result` and `AsyncResult` from
   `src/domain/result.ts` (the canonical re-export point) — never reach into `typescript-result` directly.
-- **No `sprint activate` command** — `sprint start` auto-activates draft sprints
+- **`sprint activate` is the explicit draft → active transition** — `sprint start` auto-activates draft sprints, so most users never need it. Use `sprint activate --id <id>` only when you want to flip status without immediately starting execution (e.g. so other commands that require `active` can run).
 - **`affectedRepositories` stores absolute paths** (not names) — set during `sprint plan`, persisted on `Sprint.affectedRepositories` (not per-ticket)
 - **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one AI session per ticket; project name comes from the sprint, not from the ticket
 - **Planning is per-sprint** — every sprint targets exactly one project (`Sprint.projectName`); repo selection runs inside the plan chain's `persist-repo-selection` leaf and is saved on `sprint.affectedRepositories`
@@ -73,16 +78,19 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
 - **Evaluator pattern** — independent code review after each task (see REQUIREMENTS.md § Evaluator Pattern):
   - `evaluationIterations` is global (config.json). `0` disables; `>= 1` enables N rounds with plateau detection.
     Inside the per-task chain the multi-round loop runs via `EvaluateAndFixLoopUseCase`
-    (`src/business/usecases/evaluate/evaluate-and-fix-loop.ts`); the standalone `sprint evaluate` command still runs
-    ONE round per invocation. The loop reader is `LiveConfigReader` (`src/application/runtime/live-config-reader.ts`)
-    — config is re-read fresh per task settlement, so settings-panel edits land on the next task without restart.
+    (`src/business/usecases/evaluate/evaluate-and-fix-loop.ts`). The loop reader is `LiveConfigReader`
+    (`src/application/runtime/live-config-reader.ts`) — config is re-read fresh per task settlement, so
+    settings-panel edits land on the next task without restart.
   - Claude uses a model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku); Copilot uses the same model (no control).
   - Evaluator grades four floor dimensions (Correctness / Completeness / Safety / Consistency) plus optional
     `extraDimensions` emitted per-task by the planner.
   - Full critique persists to `<sprintDir>/evaluations/<taskId>.md`; `tasks.json` keeps a 2000-char preview + status.
-  - Evaluator **never blocks** — failure is wrapped in `OnError(catchIf: () => true, fallback: noop)` in the per-task
-    chain, so the task always proceeds to `done` (or `blocked` via `markBlocked` when branch-preflight fails) and
-    the chain continues.
+  - Evaluator **never blocks** — evaluator spawn / parse failures are wrapped in
+    `OnError(catchIf: err => err.code !== 'aborted', fallback: noop)` in the per-task chain, so the task always
+    proceeds to `done` (or `blocked` via `markBlocked` when branch-preflight fails) and the chain continues.
+    User-initiated cancellation (`code: 'aborted'`) is the one error the catch lets through — otherwise Ctrl+C
+    during an evaluator round would silently fall through to `mark-done` and the task would be reported complete
+    despite the user trying to stop it.
 - **Ink TUI is the default interactive surface** — bare `ralphctl` / `ralphctl interactive` / `ralphctl sprint start`
   mount the Ink app via `src/application/tui/runtime/mount.tsx`. The mount path takes over the terminal using the
   alt-screen buffer (vim/htop-style) and restores it on exit via `src/application/tui/runtime/screen.ts`. Non-TTY
@@ -99,17 +107,26 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
 - **SignalBusPort is the live observability stream** — `ExecuteSingleTaskUseCase` (and the per-task chain it sits in)
   emit on every parsed signal, rate-limit pause/resume, and task lifecycle event. Dashboard subscribes to render
   live; filesystem signal handler subscribes to persist. `InMemorySignalBus` micro-batches emissions at ~16ms.
-- **Skills lifecycle** — default skills sync to `<dataRoot>/cache/skills/` and link from sprint working directories
-  via `link-skills` / `unlink-skills` leaves. `executeFlow` and `refineFlow` bracket their AI sessions with the pair
-  — execute does code editing, refine produces structured requirement artefacts where skills like "good-requirements"
-  shape output quality. Plan / ideate / onboard skip the bracket — they read code or do environment detection where
-  bundled skills add nothing. Adapter lives in `src/integration/ai/skills/`.
+- **Skills lifecycle** — `link-skills` / `unlink-skills` leaves bracket every AI session phase that benefits from
+  bundled defaults. `BundledSkillsCopier.install(cwd, phase)` copies the union of `default/` and `<phase>/` from the
+  bundled root (`src/integration/ai/skills/{default,refine,plan,exec}/`) into `<cwd>/.claude/skills/`; `uninstall(cwd)`
+  removes only the entries `install` actually created. **Project skills always win:** when
+  `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project copy is left
+  untouched — and not tracked, so `uninstall` never removes it. `refineFlow`, `planFlow`, and `executeFlow` use the
+  pair (refine: structured requirement artefacts; plan: task decomposition; execute: code editing). Ideate / onboard
+  skip the bracket — they read code or do environment detection where bundled skills add nothing. No cache dir, no
+  symlinks. Adapter lives in `src/integration/ai/skills/`. **Local-git exclude:** when `<cwd>` is a git repo root
+  (`<cwd>/.git/` is a directory), `install` writes a marker block to `.git/info/exclude` so `git add -A` from
+  downstream leaves (e.g. per-task `commit-task`) doesn't stage the bundled skills; `uninstall` strips the block
+  again. Idempotent and crash-safe — orphan blocks from a prior crashed run get cleaned up on the next uninstall.
+  Helper: `src/integration/ai/skills/skill-git-exclude.ts`.
 - **No barrel files** — every import points to the source module directly. Never add an `index.ts` that only
   re-exports from siblings; tree-shaking and import clarity beat brevity at the call site.
 - **Repo onboarding** — `ralphctl project onboard <project> [--repo] [--dry-run] [--auto]` runs the
   `createOnboardFlow` chain (`src/application/chains/onboard/onboard-flow.ts`). Step trace:
-  `load-project → resolve-repo → run-onboard-ai → confirm-setup-script → confirm-verify-script → confirm-context-file
-→ write-context-file → save-repo-scripts`. A single AI session emits four artefacts via signals
+  `load-project → resolve-repo → detect-existing-files → confirm-start-ai → run-onboard-ai → confirm-setup-script →
+confirm-verify-script → confirm-context-file → write-context-file → save-repo-scripts`. A single AI session emits
+  four artefacts via signals
   (`<setup-script>`, `<verify-script>`, `<agents-md>`, `<skill-suggestions>`); the user reviews each independently.
   Writes the provider-native project context file the active `config.aiProvider` natively reads: `CLAUDE.md` at repo
   root for Claude, `.github/copilot-instructions.md` for Copilot. No symlinks, no pointer files. Mode auto-detected:
@@ -129,7 +146,7 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   generates its rows from the same table; adding a binding is a single edit. Areas: `global / home / list / detail /
 execute / attach / runs / settings / help / notification`.
 - **Prompt transcript** — resolved prompts render dim above the live prompt as a transcript so the user sees the
-  values they've already entered. History clears when the queue idles past `SEQUENCE_IDLE_MS = 100ms`
+  values they've already entered. History clears when the queue idles past `SEQUENCE_IDLE_MS = 250ms`
   (`src/integration/ui/prompts/prompt-queue.ts`). Per-kind value renderers live in `prompt-transcript.tsx`.
 - **Schema-driven settings panel** — rows iterate `CONFIG_ROWS` (`src/application/config/config-schema-rows.ts`);
   each row's prompt kind (`select` / `confirm` / `input`) is determined by value type. Edits save immediately via
@@ -140,10 +157,19 @@ execute / attach / runs / settings / help / notification`.
 - **Mark-blocked task status** — `Task.markBlocked(reason)` / `Task.unblock()` add `'blocked'` to the
   `TaskStatus` union (todo / in_progress / done / blocked). Branch-preflight failures fall back to `markBlocked`
   via `OnError` rather than aborting the chain.
+- **Refine, plan, and evaluate AI sessions run in sandbox unit folders** — `<sprintDir>/refinement/<unit-slug>/`
+  (per ticket), `<sprintDir>/planning/` (single per sprint), and `<sprintDir>/execution/<unit-slug>/` (per task,
+  for the evaluator) are the AI's cwd; `.claude/skills/`, the provider-native context file (`CLAUDE.md` /
+  `.github/copilot-instructions.md`), and any per-phase contract files are pre-staged there. Affected repos are
+  exposed via `--add-dir` (Claude) or mirrored under `<unit>/repos/` (Copilot). Execute itself remains in
+  `task.projectPath`; only the evaluator runs in the execution unit folder. `SessionFolderBuilderPort`
+  (`src/business/ports/session-folder-builder-port.ts`) owns the layout; `FileSessionFolderBuilderAdapter` is the
+  implementation. Unit folders are durable — never auto-deleted; `refreshExecutionUnit` overwrites only the
+  volatile per-task files between rounds.
 
 ## Common Mistakes to Avoid
 
-- Don't reference or create a `sprint activate` command — use `sprint start`
+- Don't conflate `sprint activate` with `sprint start` — `start` auto-activates and begins execution; `activate` only flips status
 - Don't confuse `currentSprint` (which sprint CLI targets) with `sprintStatus` (draft/active/closed)
 - Don't store repository names in `affectedRepositories` — store absolute paths
 - Don't explore repos during `sprint refine` — refinement is implementation-agnostic (WHAT, not HOW)
@@ -162,9 +188,12 @@ execute / attach / runs / settings / help / notification`.
 - Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use chain factories from
   `src/application/chains/<workflow>/` and launch via `SessionManager.start(...)`.
 - Don't invent a `Conditional` chain element — branching belongs inside a use case or in a sub-chain the caller
-  selects. The kernel framework has six concepts only: `Element`, `Leaf`, `Sequential`, `Parallel`, `Retry`, `OnError`.
+  selects. The kernel framework has five concepts only: `Element`, `Leaf`, `Sequential`, `Retry`, `OnError`.
 - Don't import from `typescript-result` directly — use `import { Result } from '<path>/domain/result.ts'`
 - Don't put repository interfaces in `business/ports/` — they live in `domain/repositories/` (one per aggregate root)
+- Don't run refine, plan, or evaluator AI sessions in a user's repo — the unit-folder builder leaves are positioned
+  in every chain that needs sandboxing. Adding a new AI-session phase? Build a unit folder via
+  `SessionFolderBuilderPort`; never reuse a real repo path as the AI's cwd.
 
 ## Workflow
 
@@ -351,18 +380,20 @@ Optional, opt-out, runs only after all tasks complete successfully. The feedback
 - No hard iteration cap — empty submission is the natural terminator, owned by the launching CLI/TUI
 - Disable per-run with `--no-feedback`; disabled implicitly in `--session` mode
 
-## Parallel Execution
+## Sequential Execution
 
-`sprint start` runs tasks in parallel by default — the `executeFlow` uses a `kernel/chain` `Parallel` element with
-default concurrency 4 and `failureMode: 'collect-all'` so one failing task doesn't abort the others:
+`sprint start` runs tasks strictly one at a time, in dependency order. The `executeFlow` linearises `opts.tasks` via
+`topologicalReorder` (Kahn's algorithm — `blockedBy` → dependency edge) and feeds the result into a `Sequential` of
+per-task chains. Tasks already in `done` / `blocked` from a prior run are filtered out at construction time so the
+trace stays focused on runnable work; cycles or unknown deps surface as an `InvalidStateError` from
+`assert-tasks-acyclic`.
 
-- Session/step mode forces sequential (`--concurrency 1` equivalent)
-- **Rate limiting:** `RateLimitCoordinator` (`src/kernel/algorithms/`) pauses new task launches when any task hits
-  a rate limit; running tasks continue uninterrupted. `ExecuteSingleTaskUseCase` calls `coordinator.pause(reason)`
-  on a 429 hint; the per-task chain's `wait-for-rate-limit` leaf awaits `coordinator.waitUntilResumed()` before
-  launching the AI session, and `execute-task` is wrapped in `Retry(maxAttempts: 2, retryOn: code === 'rate-limited')`
-  for the in-task retry. The coordinator's pause / resume events bridge to `SignalBusPort` so the dashboard's
-  `RateLimitBanner` reacts uniformly whether the pause came from the spawn-loop or the chain layer.
+- **Rate limiting:** `RateLimitCoordinator` (`src/kernel/algorithms/`) is still wired, but only for in-task
+  pause/resume. `ExecuteSingleTaskUseCase` calls `coordinator.pause(reason)` on a 429 hint and `coordinator.resume()`
+  once the cooldown elapses; `execute-task` is wrapped in `Retry(maxAttempts: 2, retryOn: code === 'rate-limited')` for
+  the in-task retry via session resume. The coordinator's pause / resume events bridge to `SignalBusPort` so the
+  dashboard's `RateLimitBanner` reflects state. With sequential execution there are no siblings to throttle, so the
+  former `wait-for-rate-limit` leaf is gone.
 - Errors with rate-limit headers (429-style responses) trigger coordinator pause automatically
 
 ## Environment Variables
@@ -384,14 +415,19 @@ blocks).
 
 ## Build & Distribution
 
-Prompt templates and default skills are distributed with the CLI. The build script copies `.md` templates and the
-bundled skill set from `src/integration/ai/` into `dist/`. Template loading is dual-mode:
+Prompt templates and default skills are distributed with the CLI. The build is a two-stage pipeline:
+`tsup` compiles the TypeScript graph, then `scripts/build-assets.mjs` copies `.md` templates and the bundled skill
+set from `src/integration/ai/` into `dist/` and writes `dist/manifest.json` listing every staged asset. Template
+loading is dual-mode:
 
-- **Dev:** Reads from `src/integration/ai/prompts/templates/*.md`
-- **Bundled (npm):** Reads from `dist/prompts/*.md`
+- **Dev:** Reads from `src/integration/ai/prompts/templates/*.md`. Manifest verification is a no-op (no
+  `manifest.json` next to the source loader).
+- **Bundled (npm):** Reads from `dist/prompts/*.md`. The CLI's `main()` calls `verifyDistAssets()` before any
+  command runs — a missing or corrupt asset fails fast with a clear repair hint
+  (`Run \`pnpm build\` to regenerate`) instead of letting prompt builds silently emit empty templates.
 
-**Gotcha:** If `.md` files are missing in `dist`, templates silently fail with empty placeholder values (no
-file-not-found error). CI verifies dist works by testing `node dist/cli.mjs --version` from arbitrary cwd.
+Helpers: `src/integration/ai/dist-asset-manifest.ts` (verifier), `scripts/build-assets.mjs` (producer). CI verifies
+dist works by testing `node dist/cli.mjs --version` from arbitrary cwd.
 
 ## Releasing
 

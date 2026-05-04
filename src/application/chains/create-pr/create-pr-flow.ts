@@ -4,7 +4,7 @@
  *
  * Steps (happy path):
  *
- *   load-sprint → assert-has-branch → derive-pr-content →
+ *   load-sprint → assert-active → assert-has-branch → derive-pr-content →
  *     create-pull-request → record-pr-url
  *
  * Confirmation lives at the caller boundary (CLI prompts; TUI form view).
@@ -29,6 +29,7 @@ import { Leaf } from '@src/kernel/chain/leaf.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import { CreatePullRequestUseCase } from '@src/business/usecases/sprint/create-pull-request.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
+import { assertActiveLeaf } from '@src/application/chains/leaves/assert-active.ts';
 import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
 import { derivePrContent } from './derive-pr-content.ts';
 
@@ -70,6 +71,7 @@ export function createCreatePrFlow(
 
   return new Sequential<CreatePrCtx>('create-pr', [
     loadSprintLeaf<CreatePrCtx>({ sprintRepo: deps.sprintRepo }),
+    assertActiveLeaf<CreatePrCtx>('create-pr'),
     assertHasBranchLeaf(),
     derivePrContentLeaf(opts.tasks ?? []),
     createPullRequestLeaf(useCase),

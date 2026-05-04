@@ -215,64 +215,86 @@ describe('GitOperations.hardResetWorkingTree', () => {
   });
 });
 
-describe('GitOperations.autoCommit', () => {
-  it('emits a "no-changes" StorageError on a clean tree without staging', async () => {
-    const runner = new FakeGitRunner().on((a) => a[0] === 'status', { stdout: '', exitCode: 0 });
-    const r = await new GitOperations(runner).autoCommit(cwd, 'msg');
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      // Dedicated discriminator so callers don't have to match on
-      // `message === 'no changes'` (legacy-parity shape, pre-cleanup).
-      expect(r.error.subCode).toBe('no-changes');
-      expect(r.error.message).toBe('no changes');
-    }
-    // Only the porcelain probe ran.
-    expect(runner.calls.map((c) => c.args[0])).toStrictEqual(['status']);
-  });
-
-  it('stages and commits when the tree is dirty', async () => {
+describe('GitOperations.commitChanges', () => {
+  it('runs `git add -A && git commit -m <msg>` and returns the new HEAD SHA', async () => {
     const runner = new FakeGitRunner()
-      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
-      .on((a) => a[0] === 'add', { exitCode: 0 })
-      .on((a) => a[0] === 'commit', { exitCode: 0 });
-    const r = await new GitOperations(runner).autoCommit(cwd, 'wip');
+      // hasUncommittedChanges (pre-add)
+      .on(
+        (a) => a[0] === 'status' && a[1] === '--porcelain',
+        // First two `status` calls are the dirty checks (pre-add and post-add).
+        // FakeGitRunner re-uses the same scripted response for the predicate,
+        // which is exactly what we want — the tree stays dirty across both.
+        { stdout: ' M file.ts\n', exitCode: 0 }
+      )
+      .on((a) => a[0] === 'add' && a[1] === '-A', { exitCode: 0 })
+      .on((a) => a[0] === 'commit' && a[1] === '-m', { exitCode: 0 })
+      .on((a) => a[0] === 'rev-parse' && a[1] === 'HEAD', {
+        stdout: 'abc123def4567890\n',
+        exitCode: 0,
+      });
+    const r = await new GitOperations(runner).commitChanges(cwd, 'task(deadbeef): work');
     expect(r.ok).toBe(true);
-    const ops = runner.calls.map((c) => c.args);
-    expect(ops).toStrictEqual([
-      ['status', '--porcelain'],
-      ['add', '-A'],
-      ['commit', '-m', 'wip'],
-    ]);
+    if (!r.ok) return;
+    expect(r.value).toBe('abc123def4567890');
+    const opNames = runner.calls.map((c) => c.args[0]);
+    expect(opNames).toContain('add');
+    expect(opNames).toContain('commit');
+    expect(opNames).toContain('rev-parse');
   });
 
-  it('returns StorageError when staging fails', async () => {
-    const runner = new FakeGitRunner()
-      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
-      .on((a) => a[0] === 'add', { stderr: 'denied', exitCode: 1 });
-    const r = await new GitOperations(runner).autoCommit(cwd, 'wip');
+  it('returns no-changes StorageError on a clean tree without invoking git add/commit', async () => {
+    const runner = new FakeGitRunner().on((a) => a[0] === 'status' && a[1] === '--porcelain', {
+      stdout: '',
+      exitCode: 0,
+    });
+    const r = await new GitOperations(runner).commitChanges(cwd, 'task(x): noop');
     expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.subCode).toBe('no-changes');
+    // Only the `status` check ran — no `add`, no `commit`.
+    const opNames = runner.calls.map((c) => c.args[0]);
+    expect(opNames).toStrictEqual(['status']);
   });
 
-  it('returns StorageError when commit fails (e.g. pre-commit hook reject)', async () => {
+  it('returns io StorageError when git commit fails (e.g. missing user.email)', async () => {
+    const runner = new FakeGitRunner()
+      .on((a) => a[0] === 'status', { stdout: ' M file.ts\n', exitCode: 0 })
+      .on((a) => a[0] === 'add', { exitCode: 0 })
+      .on((a) => a[0] === 'commit', { stderr: 'please tell me who you are', exitCode: 128 });
+    const r = await new GitOperations(runner).commitChanges(cwd, 'task(x): test');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.subCode).toBe('io');
+    expect(r.error.message).toContain('please tell me who you are');
+  });
+
+  it('passes the commit message verbatim through argv (no shell expansion)', async () => {
+    // Special chars: $, `, ", ', semicolons, newlines, backslash. Argv-style
+    // invocation must preserve them — no shell parsing or escaping.
     const runner = new FakeGitRunner()
       .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
       .on((a) => a[0] === 'add', { exitCode: 0 })
-      .on((a) => a[0] === 'commit', { stderr: 'pre-commit hook failed', exitCode: 1 });
-    const r = await new GitOperations(runner).autoCommit(cwd, 'wip');
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error.message).toContain('pre-commit');
-    }
-  });
-
-  it('does not pass --no-verify (honours pre-commit hooks)', async () => {
-    const runner = new FakeGitRunner()
-      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
-      .on((a) => a[0] === 'add', { exitCode: 0 })
-      .on((a) => a[0] === 'commit', { exitCode: 0 });
-    await new GitOperations(runner).autoCommit(cwd, 'wip');
+      .on((a) => a[0] === 'commit', { exitCode: 0 })
+      .on((a) => a[0] === 'rev-parse', { stdout: 'cafebabe1234\n', exitCode: 0 });
+    const evil = `task(x): "$( ls; rm -rf / )" \`whoami\` 'quoted'\nnewline\\backslash`;
+    const r = await new GitOperations(runner).commitChanges(cwd, evil);
+    expect(r.ok).toBe(true);
     const commitCall = runner.calls.find((c) => c.args[0] === 'commit');
-    expect(commitCall?.args).not.toContain('--no-verify');
+    // The message is the third argv element — `commit -m <message>`.
+    expect(commitCall?.args).toStrictEqual(['commit', '-m', evil]);
+  });
+
+  it('returns io StorageError when rev-parse HEAD fails to resolve the new commit', async () => {
+    const runner = new FakeGitRunner()
+      .on((a) => a[0] === 'status', { stdout: ' M f.ts\n', exitCode: 0 })
+      .on((a) => a[0] === 'add', { exitCode: 0 })
+      .on((a) => a[0] === 'commit', { exitCode: 0 })
+      .on((a) => a[0] === 'rev-parse', { exitCode: 128 });
+    const r = await new GitOperations(runner).commitChanges(cwd, 'task(x): test');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.subCode).toBe('io');
+    expect(r.error.message).toContain('HEAD');
   });
 });
 

@@ -22,6 +22,15 @@
  * on every loop tick so a settings-panel edit mid-execution applies to the
  * next round (REQ-12).
  *
+ * **Prompt file rendering** — each evaluator round writes a fresh
+ * evaluator prompt to `<sprintDir>/contexts/evaluate-<task-id>.md`,
+ * overwriting the prior round's body so the AI always reads the
+ * current critique. The generator's prompt at
+ * `<sprintDir>/contexts/execute-<task-id>.md` is rendered once by the
+ * chain layer's `render-prompt-to-file` leaf and reused across fix
+ * rounds (Claude resumes via `--resume <session-id>` so the original
+ * file body remains in scope).
+ *
  * **Never blocks** — the loop **always** returns `Result.ok(...)`. A
  * failed / malformed / plateau outcome is signalled via the structured
  * output and surfaced to the chain layer, which records it on the task
@@ -29,13 +38,18 @@
  * or generator do propagate as `Result.error`; that's a system fault,
  * not an evaluator verdict.)
  */
+import { join } from 'node:path';
+
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { Result } from '@src/domain/result.ts';
 import type { EvaluationSignal } from '@src/domain/signals/harness-signal.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { AbsolutePath as AbsolutePathVO } from '@src/domain/values/absolute-path.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
+import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
 import type { ExecuteSingleTaskUseCase } from '@src/business/usecases/execute/execute-single-task.ts';
 import type { PostTaskCheckUseCase } from '@src/business/usecases/execute/post-task-check.ts';
 import type { EvaluateTaskUseCase } from './evaluate-task.ts';
@@ -58,6 +72,19 @@ export interface EvaluateAndFixLoopInput {
   readonly sprint: Sprint;
   readonly cwd: AbsolutePath;
   /**
+   * Absolute path to the per-task generator prompt file produced by
+   * the upstream `render-prompt-to-file` leaf. Reused across fix
+   * rounds — the generator resumes the same session so the original
+   * file body stays in scope.
+   */
+  readonly executePromptFilePath: string;
+  /**
+   * Absolute path to the sprint dir's contexts/ folder. The loop
+   * writes per-round evaluator prompts under
+   * `<contextsDir>/evaluate-<task-id>.md`, overwriting on each round.
+   */
+  readonly contextsDir: AbsolutePath;
+  /**
    * Resolved check script for the post-task gate after a generator fix
    * round. When omitted, the post-task gate is skipped between rounds.
    */
@@ -68,6 +95,61 @@ export interface EvaluateAndFixLoopInput {
    * fix attempt continues the same conversation.
    */
   readonly resumeSessionId?: string;
+  /**
+   * Extra read roots the evaluator session should be able to see. Set by
+   * the per-task chain to the evaluate workspace root so the evaluator
+   * can read upstream contract files. Empty / undefined for Copilot and
+   * for the standalone `sprint evaluate` chain.
+   */
+  readonly addDirs?: readonly AbsolutePath[];
+  /**
+   * Working directory the evaluator session spawns under. When set,
+   * overrides `task.projectPath` for the evaluator's `cwd`. Used by
+   * the per-task chain on the Copilot path: Copilot has no `--add-dir`
+   * equivalent, so the workspace builder mirrors the repo into the
+   * sandbox and the evaluator's cwd becomes the workspace root. The
+   * generator continues to spawn from `task.projectPath`.
+   */
+  readonly evaluateSessionCwd?: AbsolutePath;
+  /**
+   * Absolute path of the evaluate workspace root, embedded into the
+   * evaluator prompt's `Contract files` section so the AI knows where
+   * to read upstream contracts (refined requirements, full task plan,
+   * dimension definitions, prior sibling evaluations). When undefined
+   * the section renders empty (standalone `sprint evaluate`).
+   */
+  readonly evaluateWorkspaceDir?: string;
+  /**
+   * The single `done-criteria.md` bullet for this task — e.g.
+   * `- **Task name** (\`<id>\`) — <criteria>`. Threaded through to
+   * each `buildEvaluatePrompt` call so the evaluator receives a stable,
+   * explicit definition of "done" for the current task. Collapses to
+   * an empty string in the prompt when absent.
+   */
+  readonly doneCriteriaBullet?: string;
+  /**
+   * Optional callback that refreshes the volatile evaluate-workspace
+   * files for this task. Invoked AT THE TOP of every round — including
+   * round 1 — so the evaluator always reads the latest sibling state.
+   * Best-effort: a refresh failure logs a warning but does NOT abort
+   * the loop, because the workspace from `buildEvaluateWorkspace` is
+   * still readable; stale snapshots are better than no evaluation.
+   */
+  readonly refreshWorkspace?: () => Promise<Result<void, DomainError>>;
+  /**
+   * Optional per-spawn `session.md` path provider. The loop calls this
+   * before each generator (`{ kind: 'generator' }`) and evaluator
+   * (`{ kind: 'evaluator' }`) spawn to obtain a fresh audit path; it
+   * threads the result into the spawn's `SessionOptions` so the AI
+   * session adapter brackets the spawn with `writeSessionStart` /
+   * `writeSessionFinish`. Returning `undefined` skips the audit for
+   * that round. Implementations typically use {@link nextSessionPath}
+   * over the per-task execution unit root.
+   *
+   * Lives in `business/` so the use case stays IO-free; the chain
+   * leaf injects an integration-side closure.
+   */
+  readonly nextSessionMdPath?: (kind: 'generator' | 'evaluator') => Promise<AbsolutePath | undefined>;
   readonly abortSignal?: AbortSignal;
 }
 
@@ -97,6 +179,8 @@ export class EvaluateAndFixLoopUseCase {
     private readonly evaluator: EvaluateTaskUseCase,
     private readonly generator: ExecuteSingleTaskUseCase,
     private readonly checkRunner: PostTaskCheckUseCase,
+    private readonly prompts: PromptBuilderPort,
+    private readonly writeContextFile: WriteContextFilePort,
     private readonly logger: LoggerPort
   ) {}
 
@@ -117,6 +201,12 @@ export class EvaluateAndFixLoopUseCase {
         history: [],
       });
     }
+
+    const evaluatorPromptPath = AbsolutePathVO.trustString(
+      input.evaluateWorkspaceDir !== undefined
+        ? join(input.evaluateWorkspaceDir, 'evaluator-prompt.md')
+        : join(String(input.contextsDir), `evaluate-${String(input.task.id)}.md`)
+    );
 
     const history: EvaluationRound[] = [];
     let previousSignal: EvaluationSignal | undefined;
@@ -142,12 +232,48 @@ export class EvaluateAndFixLoopUseCase {
 
       round += 1;
 
+      // ── Refresh the evaluate workspace's volatile files BEFORE the
+      //    round (including round 1) so the evaluator reads the
+      //    freshest sibling state. Best-effort: a refresh failure
+      //    means the AI sees a slightly-stale snapshot, which is
+      //    strictly better than aborting the round outright. The
+      //    workspace adapter never throws on missing files — refresh
+      //    only fails on disk-full / EPERM, both of which the user
+      //    can act on without losing the evaluation itself.
+      if (input.refreshWorkspace) {
+        const refreshed = await input.refreshWorkspace();
+        if (!refreshed.ok) {
+          log.warn('failed to refresh evaluate workspace — continuing with stale snapshot', {
+            round,
+            error: refreshed.error.message,
+          });
+        }
+      }
+
+      // ── Render the evaluator prompt to file (per-round; the
+      //    `previousCritique` slot changes between rounds). Overwriting
+      //    is intentional — the AI reads the FRESH version each time.
+      const evalPromptResult = await this.prompts.buildEvaluatePrompt({
+        task: input.task,
+        sprint: input.sprint,
+        ...(previousCritique !== undefined ? { previousCritique } : {}),
+        ...(input.evaluateWorkspaceDir !== undefined ? { evaluateWorkspaceDir: input.evaluateWorkspaceDir } : {}),
+        ...(input.doneCriteriaBullet !== undefined ? { doneCriteriaBullet: input.doneCriteriaBullet } : {}),
+      });
+      if (!evalPromptResult.ok) return Result.error(evalPromptResult.error);
+      const written = await this.writeContextFile.write(evaluatorPromptPath, evalPromptResult.value);
+      if (!written.ok) return Result.error(written.error);
+
       // ── Evaluator round ─────────────────────────────────────────
+      const evaluatorCwd = input.evaluateSessionCwd ?? input.cwd;
+      const evaluatorSessionMdPath = input.nextSessionMdPath ? await input.nextSessionMdPath('evaluator') : undefined;
       const evalResult = await this.evaluator.execute({
         task: input.task,
         sprint: input.sprint,
-        cwd: input.cwd,
-        ...(previousCritique !== undefined ? { previousCritique } : {}),
+        cwd: evaluatorCwd,
+        promptFilePath: String(evaluatorPromptPath),
+        ...(input.addDirs !== undefined ? { addDirs: input.addDirs } : {}),
+        ...(evaluatorSessionMdPath !== undefined ? { sessionMdPath: evaluatorSessionMdPath } : {}),
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
       });
       if (!evalResult.ok) return Result.error(evalResult.error);
@@ -191,12 +317,18 @@ export class EvaluateAndFixLoopUseCase {
       }
 
       // ── Generator fix round ─────────────────────────────────────
+      // The generator resumes the same session, so the original
+      // execute prompt file at `input.executePromptFilePath` is
+      // already in scope. No re-render needed.
       log.info('resuming generator with critique', { round });
+      const generatorSessionMdPath = input.nextSessionMdPath ? await input.nextSessionMdPath('generator') : undefined;
       const fixResult = await this.generator.execute({
         task: input.task,
         sprint: input.sprint,
         cwd: input.cwd,
+        promptFilePath: input.executePromptFilePath,
         ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
+        ...(generatorSessionMdPath !== undefined ? { sessionMdPath: generatorSessionMdPath } : {}),
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
       });
       if (!fixResult.ok) return Result.error(fixResult.error);

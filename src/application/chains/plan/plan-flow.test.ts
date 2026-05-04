@@ -3,13 +3,17 @@ import { describe, expect, it } from 'vitest';
 
 import { Project } from '@src/domain/entities/project.ts';
 import { Repository } from '@src/domain/entities/repository.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { abs, makeApprovedTicket, makeProject, makeSprint, makeTicket } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { FakePromptPort } from '@src/application/_test-fakes/fake-prompt-port.ts';
+import { FakeSessionFolderBuilderPort } from '@src/business/_test-fakes/fake-session-folder-builder-port.ts';
 import { createPlanFlow } from './plan-flow.ts';
 
-const CWD = abs('/tmp/plan-test');
-
+// projectPath must match the project's repository (`makeProject` defaults
+// to `/tmp/demo-repo`) — `persist-repo-selection` writes that path onto
+// `sprint.affectedRepositories`, which the use case's projectPath guard
+// then validates against.
 const TASK_OUTPUT = `\`\`\`json
 [
   {
@@ -17,13 +21,13 @@ const TASK_OUTPUT = `\`\`\`json
     "steps": ["do A"],
     "verificationCriteria": ["it works"],
     "order": 1,
-    "projectPath": "/tmp/repo"
+    "projectPath": "/tmp/demo-repo"
   }
 ]
 \`\`\``;
 
 describe('createPlanFlow', () => {
-  it('runs load-sprint → assert-draft → assert-all-tickets-approved → persist-repo-selection → load-existing-tasks → plan-tasks → reorder-tasks → save-tasks', async () => {
+  it('runs load-sprint → assert-draft → assert-all-tickets-approved → persist-repo-selection → load-existing-tasks → snapshot-existing-tasks → build-planning-folder → link-skills → confirm-replan → render-prompt-to-file → plan-tasks → reorder-tasks → confirm-task-list → save-tasks → unlink-skills', async () => {
     const sprint0 = makeSprint();
     const ticket = makeApprovedTicket();
     const sprint1 = sprint0.addTicket(ticket);
@@ -36,9 +40,9 @@ describe('createPlanFlow', () => {
       aiSession: { outcomes: [{ kind: 'ok', result: { output: TASK_OUTPUT } }] },
     });
 
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -49,11 +53,16 @@ describe('createPlanFlow', () => {
       'assert-all-tickets-approved',
       'persist-repo-selection',
       'load-existing-tasks',
+      'snapshot-existing-tasks',
+      'build-planning-folder',
+      'link-skills',
       'confirm-replan',
+      'render-prompt-to-file',
       'plan-tasks',
       'reorder-tasks',
       'confirm-task-list',
       'save-tasks',
+      'unlink-skills',
     ]);
 
     // Tasks were persisted.
@@ -78,9 +87,9 @@ describe('createPlanFlow', () => {
     const project = makeProject();
 
     const deps = createTestDeps({ sprints: [sprint1.value], projects: [project] });
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
     expect(result.ok).toBe(false);
     if (result.ok) return;
 
@@ -91,11 +100,16 @@ describe('createPlanFlow', () => {
     expect(stepNames.slice(3)).toStrictEqual([
       'persist-repo-selection',
       'load-existing-tasks',
+      'snapshot-existing-tasks',
+      'build-planning-folder',
+      'link-skills',
       'confirm-replan',
+      'render-prompt-to-file',
       'plan-tasks',
       'reorder-tasks',
       'confirm-task-list',
       'save-tasks',
+      'unlink-skills',
     ]);
     for (const e of result.error.trace.slice(3)) {
       expect(e.status).toBe('skipped');
@@ -111,9 +125,9 @@ describe('createPlanFlow', () => {
     const project = makeProject();
 
     const deps = createTestDeps({ sprints: [sprint1.value], projects: [project] });
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
     expect(result.ok).toBe(false);
     if (result.ok) return;
 
@@ -135,12 +149,12 @@ describe('createPlanFlow', () => {
     const project = makeProject();
 
     const deps = createTestDeps({ sprints: [sprint1.value], projects: [project] });
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
 
     const ac = new AbortController();
     ac.abort();
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD }, ac.signal);
+    const result = await flow.execute({ sprintId: sprint1.value.id }, ac.signal);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error.code).toBe('aborted');
@@ -157,9 +171,9 @@ describe('createPlanFlow', () => {
     const project = makeProject();
 
     const deps = createTestDeps({ sprints: [activated.value], projects: [project] });
-    const flow = createPlanFlow(deps, { sprintId: activated.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: activated.value.id });
 
-    const result = await flow.execute({ sprintId: activated.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: activated.value.id });
     expect(result.ok).toBe(false);
     if (result.ok) return;
 
@@ -195,8 +209,8 @@ describe('createPlanFlow', () => {
       aiSession: { outcomes: [{ kind: 'ok', result: { output: TASK_OUTPUT } }] },
     });
 
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -232,12 +246,64 @@ describe('createPlanFlow', () => {
       prompt,
     });
 
-    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id, cwd: CWD });
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     const failed = result.error.trace.find((t) => t.status === 'failed');
     expect(failed?.stepName).toBe('persist-repo-selection');
+  });
+
+  it('build-planning-folder failure aborts before link-skills runs', async () => {
+    const sprint0 = makeSprint();
+    const ticket = makeApprovedTicket();
+    const sprint1 = sprint0.addTicket(ticket);
+    if (!sprint1.ok) throw new Error('precondition');
+    const project = makeProject();
+
+    const failingBuilder = new FakeSessionFolderBuilderPort({
+      failWith: new StorageError({ subCode: 'io', message: 'cannot create planning folder' }),
+    });
+    const deps = createTestDeps({
+      sprints: [sprint1.value],
+      projects: [project],
+      overrides: { sessionFolderBuilder: failingBuilder },
+    });
+
+    const flow = createPlanFlow(deps, { sprintId: sprint1.value.id });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    const stepNames = result.error.trace.map((t) => t.stepName);
+    // Steps up to and including build-planning-folder ran; everything after is skipped.
+    expect(stepNames).toStrictEqual([
+      'load-sprint',
+      'assert-draft',
+      'assert-all-tickets-approved',
+      'persist-repo-selection',
+      'load-existing-tasks',
+      'snapshot-existing-tasks',
+      'build-planning-folder',
+      'link-skills',
+      'confirm-replan',
+      'render-prompt-to-file',
+      'plan-tasks',
+      'reorder-tasks',
+      'confirm-task-list',
+      'save-tasks',
+      'unlink-skills',
+    ]);
+
+    const failedIdx = result.error.trace.findIndex((t) => t.status === 'failed');
+    expect(result.error.trace[failedIdx]?.stepName).toBe('build-planning-folder');
+    // link-skills (immediately after build-planning-folder) and every later
+    // step must be skipped — that's the whole point: the user's repo
+    // never sees `.claude/skills/` when the workspace can't be built.
+    for (const entry of result.error.trace.slice(failedIdx + 1)) {
+      expect(entry.status).toBe('skipped');
+    }
   });
 });

@@ -97,3 +97,49 @@ export function StepTrace({ steps, isRunning }: StepTraceProps): React.JSX.Eleme
     </Box>
   );
 }
+
+/**
+ * Compact end-of-run summary — replaces the verbose StepTrace once the
+ * chain is terminal. A typical execute run produces 13+ outer step
+ * entries; on a 30-row terminal that pushes the result card + task grid
+ * + recent events off-screen, leaving the user staring at an apparently
+ * empty bottom of the screen.
+ *
+ * Renders one tally line plus any failed steps inline (the user always
+ * needs to see what failed). Skipped/aborted steps roll into the tally.
+ */
+export function CompactStepSummary({ steps }: { readonly steps: readonly LiveStep[] }): React.JSX.Element {
+  if (steps.length === 0) return <Text dimColor>No steps recorded.</Text>;
+  const completed = steps.filter((s) => s.status === 'completed').length;
+  const failed = steps.filter((s) => s.status === 'failed');
+  const aborted = steps.filter((s) => s.status === 'aborted').length;
+  const skipped = steps.filter((s) => s.status === 'skipped').length;
+  const totalMs = steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0);
+
+  const parts: string[] = [`${String(steps.length)} steps`];
+  parts.push(`${String(completed)} completed`);
+  if (failed.length > 0) parts.push(`${String(failed.length)} failed`);
+  if (aborted > 0) parts.push(`${String(aborted)} aborted`);
+  if (skipped > 0) parts.push(`${String(skipped)} skipped`);
+  if (totalMs > 0) parts.push(durationLabel(totalMs));
+
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text color={failed.length > 0 ? inkColors.error : inkColors.success} bold>
+          {failed.length > 0 ? glyphs.cross : glyphs.phaseDone}
+        </Text>
+        <Text>{`  ${parts.join(`  ${glyphs.inlineDot}  `)}`}</Text>
+      </Box>
+      {failed.map((step, i) => (
+        <Box key={`f-${String(i)}`} paddingLeft={2}>
+          <Text color={inkColors.error} bold>
+            {glyphs.cross}
+          </Text>
+          <Text>{`  ${step.name}`}</Text>
+          {step.errorMessage ? <Text color={inkColors.error}>{`  ${glyphs.emDash} ${step.errorMessage}`}</Text> : null}
+        </Box>
+      ))}
+    </Box>
+  );
+}

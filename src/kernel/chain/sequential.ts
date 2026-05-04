@@ -1,6 +1,6 @@
 import { Result } from 'typescript-result';
 
-import type { ChainTraceEntry, ElementResult, OnTraceCallback } from './element.ts';
+import type { ChainTraceEntry, ElementResult, OnCtxUpdateCallback, OnTraceCallback } from './element.ts';
 import { Element, skippedEntry } from './element.ts';
 
 /**
@@ -28,7 +28,8 @@ export class Sequential<TCtx> extends Element<TCtx> {
   protected override async run(
     ctx: TCtx,
     signal?: AbortSignal,
-    onTrace?: OnTraceCallback
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
   ): Promise<ElementResult<TCtx>> {
     const trace: ChainTraceEntry[] = [];
     let currentCtx = ctx;
@@ -61,8 +62,9 @@ export class Sequential<TCtx> extends Element<TCtx> {
         });
       }
 
-      // Forward onTrace so the child's leaf entries surface progressively.
-      const childResult = await child.execute(currentCtx, signal, onTrace);
+      // Forward onTrace + onCtxUpdate so the child's leaf entries (and the
+      // ctx values they produce) surface progressively to subscribers.
+      const childResult = await child.execute(currentCtx, signal, onTrace, onCtxUpdate);
       if (!childResult.ok) {
         trace.push(...childResult.error.trace);
         for (let j = i + 1; j < this.children.length; j++) {

@@ -10,7 +10,6 @@ import { Slug } from '@src/domain/values/slug.ts';
 import { TicketId } from '@src/domain/values/ticket-id.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
-import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { RefineSingleTicketUseCase } from './refine-single-ticket.ts';
 
 const T0 = '2026-04-29T14:15:22.000Z' as IsoTimestamp;
@@ -52,14 +51,14 @@ describe('RefineSingleTicketUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'must do X' } }],
     });
-    const prompts = new FakePromptBuilderPort();
     const logger = new FakeLoggerPort();
-    const uc = new RefineSingleTicketUseCase(ai, prompts, logger);
+    const uc = new RefineSingleTicketUseCase(ai, logger);
 
     const result = await uc.execute({
       sprint: newSprint(),
       ticket: pendingTicket(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
     });
 
     expect(result.ok).toBe(true);
@@ -69,21 +68,22 @@ describe('RefineSingleTicketUseCase', () => {
     expect(result.value.rawAiOutput).toBe('must do X');
   });
 
-  it('passes the built prompt to the AI session', async () => {
+  it('hands the AI a wrapper that points at the prompt file', async () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
-    const prompts = new FakePromptBuilderPort();
-    const uc = new RefineSingleTicketUseCase(ai, prompts, new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
     const ticket = pendingTicket();
-    await uc.execute({ sprint: newSprint(), ticket, cwd: cwd() });
+    await uc.execute({
+      sprint: newSprint(),
+      ticket,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-xyz.md',
+    });
 
-    expect(prompts.refineCalls).toHaveLength(1);
-    expect(prompts.refineCalls[0]?.ticket.id).toBe(ticket.id);
     expect(ai.captured).toHaveLength(1);
-    expect(ai.captured[0]?.prompt).toContain('refine:');
-    expect(ai.captured[0]?.prompt).toContain(ticket.id);
+    expect(ai.captured[0]?.prompt).toContain('/tmp/sprints/a/contexts/refine-xyz.md');
     expect(ai.captured[0]?.options.cwd).toBe(cwd());
   });
 
@@ -97,9 +97,14 @@ describe('RefineSingleTicketUseCase', () => {
       { ref: 'unrelated', requirements: 'ignored' },
     ]);
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'ok', result: { output: reply } }] });
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
-    const result = await uc.execute({ sprint: newSprint(), ticket: t, cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket: t,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -113,9 +118,14 @@ describe('RefineSingleTicketUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'The app must do X.' } }],
     });
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
-    const result = await uc.execute({ sprint: newSprint(), ticket: pendingTicket(), cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket: pendingTicket(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -129,9 +139,14 @@ describe('RefineSingleTicketUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: '' } }],
     });
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
-    const result = await uc.execute({ sprint: newSprint(), ticket: pendingTicket(), cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket: pendingTicket(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -144,9 +159,14 @@ describe('RefineSingleTicketUseCase', () => {
     if (!approved.ok) throw new Error('precondition failed');
 
     const ai = new FakeAiSessionPort();
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
-    const result = await uc.execute({ sprint: newSprint(), ticket: approved.value, cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket: approved.value,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -159,27 +179,17 @@ describe('RefineSingleTicketUseCase', () => {
     expect(ai.captured).toHaveLength(0);
   });
 
-  it('propagates a StorageError surfaced by the prompt builder', async () => {
-    const failure = new StorageError({ subCode: 'io', message: 'template missing' });
-    const ai = new FakeAiSessionPort();
-    const prompts = new FakePromptBuilderPort({ failWith: failure });
-    const uc = new RefineSingleTicketUseCase(ai, prompts, new FakeLoggerPort());
-
-    const result = await uc.execute({ sprint: newSprint(), ticket: pendingTicket(), cwd: cwd() });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('storage-error');
-    }
-    expect(ai.captured).toHaveLength(0);
-  });
-
   it('propagates an AI session failure', async () => {
     const failure = new StorageError({ subCode: 'io', message: 'spawn failed' });
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'error', error: failure }] });
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
 
-    const result = await uc.execute({ sprint: newSprint(), ticket: pendingTicket(), cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket: pendingTicket(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -191,13 +201,14 @@ describe('RefineSingleTicketUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new RefineSingleTicketUseCase(ai, new FakeLoggerPort());
     const ac = new AbortController();
 
     await uc.execute({
       sprint: newSprint(),
       ticket: pendingTicket(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
       abortSignal: ac.signal,
     });
 
@@ -211,10 +222,15 @@ describe('RefineSingleTicketUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
     const logger = new FakeLoggerPort();
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), logger);
+    const uc = new RefineSingleTicketUseCase(ai, logger);
 
     const ticket = pendingTicket();
-    await uc.execute({ sprint: newSprint(), ticket, cwd: cwd() });
+    await uc.execute({
+      sprint: newSprint(),
+      ticket,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     const refining = logger.entries.find((e) => e.message.startsWith('refining ticket'));
     expect(refining).toBeDefined();
@@ -227,10 +243,15 @@ describe('RefineSingleTicketUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
     const logger = new FakeLoggerPort();
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), logger);
+    const uc = new RefineSingleTicketUseCase(ai, logger);
 
     const ticket = pendingTicket();
-    const result = await uc.execute({ sprint: newSprint(), ticket, cwd: cwd() });
+    const result = await uc.execute({
+      sprint: newSprint(),
+      ticket,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
     expect(result.ok).toBe(true);
 
     const successEntry = logger.entries.find((e) => e.level === 'success' && e.message.startsWith('refined ticket'));
@@ -243,12 +264,13 @@ describe('RefineSingleTicketUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
     const logger = new FakeLoggerPort();
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), logger);
+    const uc = new RefineSingleTicketUseCase(ai, logger);
 
     const result = await uc.execute({
       sprint: newSprint(),
       ticket: pendingTicket(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
       reviewBeforeApprove: () => Promise.resolve(false),
     });
     expect(result.ok).toBe(true);
@@ -269,9 +291,14 @@ describe('RefineSingleTicketUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'reqs' } }],
     });
     const logger = new FakeLoggerPort();
-    const uc = new RefineSingleTicketUseCase(ai, new FakePromptBuilderPort(), logger);
+    const uc = new RefineSingleTicketUseCase(ai, logger);
 
-    await uc.execute({ sprint: newSprint(), ticket: long.value, cwd: cwd() });
+    await uc.execute({
+      sprint: newSprint(),
+      ticket: long.value,
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/refine-x.md',
+    });
 
     const refining = logger.entries.find((e) => e.message.startsWith('refining ticket'));
     expect(refining).toBeDefined();

@@ -27,8 +27,6 @@ export interface FakeExternalPortOptions {
   readonly uncommitted?: boolean;
   /** Outcomes for `runCheckScript`, FIFO. Defaults to one passing run. */
   readonly checkScriptOutcomes?: readonly CheckScriptResult[];
-  /** Outcomes for `autoCommit`, FIFO. Defaults to one ok. */
-  readonly autoCommitOutcomes?: readonly Result<void, StorageError>[];
   /** Outcomes for `stashChanges`, FIFO. Defaults to one ok. */
   readonly stashOutcomes?: readonly Result<void, StorageError>[];
   /** Outcomes for `hardResetWorkingTree`, FIFO. Defaults to one ok. */
@@ -37,6 +35,13 @@ export interface FakeExternalPortOptions {
   readonly verifyBranchOutcomes?: readonly boolean[];
   /** Outcomes for `createPullRequest`, FIFO. Defaults to one stub URL. */
   readonly createPullRequestOutcomes?: readonly Result<CreatePullRequestOutput, StorageError>[];
+  /** Outcomes for `createAndCheckoutBranch`, FIFO. Defaults to ok. */
+  readonly createAndCheckoutBranchOutcomes?: readonly Result<void, StorageError>[];
+  /**
+   * Outcomes for `commitChanges`, FIFO. Defaults to a stub success returning
+   * a deterministic SHA derived from the call index.
+   */
+  readonly commitChangesOutcomes?: readonly Result<string, StorageError>[];
 }
 
 export interface CapturedCheckScript {
@@ -46,45 +51,54 @@ export interface CapturedCheckScript {
   readonly timeout?: number;
 }
 
-export interface CapturedAutoCommit {
+export interface CapturedStash {
   readonly projectPath: AbsolutePath;
   readonly message: string;
 }
 
-export interface CapturedStash {
+export interface CapturedCreateBranch {
+  readonly projectPath: AbsolutePath;
+  readonly branchName: string;
+}
+
+export interface CapturedCommit {
   readonly projectPath: AbsolutePath;
   readonly message: string;
 }
 
 export class FakeExternalPort implements ExternalPort {
   readonly checkScriptCalls: CapturedCheckScript[] = [];
-  readonly autoCommitCalls: CapturedAutoCommit[] = [];
   readonly stashCalls: CapturedStash[] = [];
   readonly hardResetCalls: AbsolutePath[] = [];
   readonly verifyBranchCalls: { projectPath: AbsolutePath; expected: string }[] = [];
   readonly createPullRequestCalls: CreatePullRequestInput[] = [];
+  readonly createAndCheckoutBranchCalls: CapturedCreateBranch[] = [];
+  readonly commitChangesCalls: CapturedCommit[] = [];
 
   private readonly branchOk: boolean;
   private readonly currentBranch: string;
   private readonly uncommitted: boolean;
   private readonly checkScriptOutcomes: CheckScriptResult[];
-  private readonly autoCommitOutcomes: Result<void, StorageError>[];
   private readonly stashOutcomes: Result<void, StorageError>[];
   private readonly hardResetOutcomes: Result<void, StorageError>[];
   private readonly verifyBranchOutcomes: boolean[];
   private readonly createPullRequestOutcomes: Result<CreatePullRequestOutput, StorageError>[];
+  private readonly createAndCheckoutBranchOutcomes: Result<void, StorageError>[];
+  private readonly commitChangesOutcomes: Result<string, StorageError>[];
 
   constructor(opts?: FakeExternalPortOptions) {
     this.branchOk = opts?.branchOk ?? true;
     this.currentBranch = opts?.currentBranch ?? 'main';
     this.uncommitted = opts?.uncommitted ?? false;
     this.checkScriptOutcomes = opts?.checkScriptOutcomes === undefined ? [] : [...opts.checkScriptOutcomes];
-    this.autoCommitOutcomes = opts?.autoCommitOutcomes === undefined ? [] : [...opts.autoCommitOutcomes];
     this.stashOutcomes = opts?.stashOutcomes === undefined ? [] : [...opts.stashOutcomes];
     this.hardResetOutcomes = opts?.hardResetOutcomes === undefined ? [] : [...opts.hardResetOutcomes];
     this.verifyBranchOutcomes = opts?.verifyBranchOutcomes === undefined ? [] : [...opts.verifyBranchOutcomes];
     this.createPullRequestOutcomes =
       opts?.createPullRequestOutcomes === undefined ? [] : [...opts.createPullRequestOutcomes];
+    this.createAndCheckoutBranchOutcomes =
+      opts?.createAndCheckoutBranchOutcomes === undefined ? [] : [...opts.createAndCheckoutBranchOutcomes];
+    this.commitChangesOutcomes = opts?.commitChangesOutcomes === undefined ? [] : [...opts.commitChangesOutcomes];
   }
 
   // --- Issue tracker ---
@@ -162,13 +176,9 @@ export class FakeExternalPort implements ExternalPort {
     return Promise.resolve(next ?? Result.ok());
   }
 
-  createAndCheckoutBranch(): Promise<Result<void, StorageError>> {
-    return Promise.resolve(Result.ok());
-  }
-
-  autoCommit(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
-    this.autoCommitCalls.push({ projectPath, message });
-    const next = this.autoCommitOutcomes.shift();
+  createAndCheckoutBranch(projectPath: AbsolutePath, branchName: string): Promise<Result<void, StorageError>> {
+    this.createAndCheckoutBranchCalls.push({ projectPath, branchName });
+    const next = this.createAndCheckoutBranchOutcomes.shift();
     return Promise.resolve(next ?? Result.ok());
   }
 
@@ -176,6 +186,15 @@ export class FakeExternalPort implements ExternalPort {
     this.stashCalls.push({ projectPath, message });
     const next = this.stashOutcomes.shift();
     return Promise.resolve(next ?? Result.ok());
+  }
+
+  commitChanges(projectPath: AbsolutePath, message: string): Promise<Result<string, StorageError>> {
+    this.commitChangesCalls.push({ projectPath, message });
+    const next = this.commitChangesOutcomes.shift();
+    if (next !== undefined) return Promise.resolve(next);
+    // Default: deterministic stub SHA so tests can assert without scripting.
+    const stub = `fakecommit${String(this.commitChangesCalls.length).padStart(4, '0')}`;
+    return Promise.resolve(Result.ok(stub));
   }
 
   // --- Pull / merge requests ---

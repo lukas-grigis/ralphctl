@@ -55,6 +55,12 @@ export function FeedbackPromptLoop({ descriptor, sessionManager, runnerStatus }:
     const { sprintId, cwd } = fields;
 
     void (async () => {
+      // Bring the completed session to the foreground before prompting so the
+      // editor renders over the session whose tasks it belongs to, not over
+      // whichever session the user happens to be tabbed to. PromptHost is
+      // mounted globally, so without this the prompt can appear on top of an
+      // unrelated running session and look like a flow violation.
+      sessionManager.foreground(descriptor.id);
       const prompt = await getPrompt();
       const deps = await getSharedDeps();
       let iter = 0;
@@ -65,7 +71,7 @@ export function FeedbackPromptLoop({ descriptor, sessionManager, runnerStatus }:
         let text: string | null;
         try {
           text = await prompt.editor({
-            message: `Provide feedback for the AI to apply (round ${String(iter)}) — empty submit to finish · Ctrl+D submit · Esc cancel`,
+            message: `Sprint ${sprintId} — provide feedback for the AI to apply (round ${String(iter)}) — empty submit to finish · Ctrl+D submit · Esc cancel`,
           });
         } catch (err) {
           if (err instanceof PromptCancelledError) break;
@@ -75,7 +81,7 @@ export function FeedbackPromptLoop({ descriptor, sessionManager, runnerStatus }:
         const label = `feedback ${sprintId}#${String(iter)}`;
         const id = sessionManager.start<FeedbackCtx>({
           label,
-          element: createFeedbackFlow(deps, { sprintId: fields.sprintId as never, cwd: cwd as never }),
+          element: createFeedbackFlow(deps),
           initialCtx: {
             sprintId: fields.sprintId as never,
             cwd: cwd as never,
@@ -125,8 +131,13 @@ export function FeedbackPromptLoop({ descriptor, sessionManager, runnerStatus }:
         const closer = new CloseSprintUseCase(deps.sprintRepo);
         const closed = await closer.execute({ id: fields.sprintId as never, now: IsoTimestamp.now() });
         if (closed.ok) {
+          // Tag with the execute session id so the line lands in the
+          // execute view's per-session events tail. Without this, the
+          // log fires outside any chain ALS scope and `useLoggerEvents`
+          // filters it out, leaving the post-completion tail empty.
           deps.logger.success(`sprint ${fields.sprintId} closed automatically — all tasks done`, {
             sprintId: fields.sprintId,
+            sessionId: descriptor.id,
           });
         }
         // Failures are silent — auto-close is a best-effort convenience.

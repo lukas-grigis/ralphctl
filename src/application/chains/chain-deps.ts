@@ -29,7 +29,10 @@ import type { LoggerPort } from '@src/business/ports/logger-port.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import type { PromptPort } from '@src/business/ports/prompt-port.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
+import type { SignalHandlerPort } from '@src/business/ports/signal-handler-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import type { SessionFolderBuilderPort } from '@src/business/ports/session-folder-builder-port.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
 import type { ProjectRepository } from '@src/domain/repositories/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repositories/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repositories/task-repository.ts';
@@ -67,11 +70,39 @@ export interface ChainSharedDeps {
    */
   readonly signalBus: SignalBusPort;
   /**
-   * Global rate-limit coordinator. The per-task chain's
-   * `wait-for-rate-limit` leaf awaits `coordinator.waitUntilResumed()`
-   * before launching the AI session; `ExecuteSingleTaskUseCase` calls
-   * `coordinator.pause(reason)` when a spawn returns a 429 hint so other
-   * in-flight tasks throttle in lock-step.
+   * Global rate-limit coordinator. `ExecuteSingleTaskUseCase` calls
+   * `coordinator.pause(reason)` when a spawn returns a 429 hint and
+   * `resume()` once the cooldown elapses; the coordinator's events
+   * bridge to `SignalBusPort` so the dashboard's `RateLimitBanner`
+   * reflects pause/resume state.
    */
   readonly rateLimitCoordinator: RateLimitCoordinator;
+  /**
+   * Per-task context-file writer. Every chain that spawns an AI session
+   * runs through the `render-prompt-to-file` leaf, which uses this port
+   * to write a rich markdown context file under
+   * `<sprintDir>/contexts/<flow>-<id>.md` and stamps the absolute path
+   * on the chain context for the downstream spawn leaf. Narrow port
+   * (one method) so we keep the layered architecture without inflating
+   * to a generic filesystem port.
+   */
+  readonly writeContextFile: WriteContextFilePort;
+  /**
+   * Materialises per-unit sandbox folders under
+   * `<sprintDir>/{refinement,ideation,planning,execution}/`. Refine /
+   * ideate / plan / per-task chains spawn AI sessions inside these
+   * folders so the agent never touches the user's real repos by
+   * accident (with the deliberate exception of execution where the
+   * generator runs in `task.projectPath`). Consumed by
+   * `buildRefinementUnitLeaf`, `buildPlanningFolderLeaf`, and
+   * `buildExecutionUnitLeaf`.
+   */
+  readonly sessionFolderBuilder: SessionFolderBuilderPort;
+  /**
+   * Durable signal persistence. Wired into `EvaluateTaskUseCase` so
+   * each evaluator round writes its `EvaluationSignal` to
+   * `execution/<unit-slug>/evaluation.md`. Best-effort — handler
+   * failures log a warning and do not abort the chain.
+   */
+  readonly signalHandler: SignalHandlerPort;
 }

@@ -33,22 +33,18 @@ export type FlowInputs =
   | {
       readonly flow: 'refine';
       readonly sprintId: SprintId;
-      readonly cwd: AbsolutePath;
       readonly pendingTickets: readonly Ticket[];
       /**
        * When true, run Claude with stdio: 'inherit' for each ticket
        * (Claude Code UI takes over the terminal); refined requirements
-       * are read back from per-ticket JSON files. Defaults to true on
-       * TTY contexts.
+       * are read back from `<unit-root>/requirements.json`. Defaults to
+       * true on TTY contexts.
        */
       readonly interactive?: boolean;
-      /** Absolute base dir for per-ticket interactive output files. */
-      readonly refinementOutputDir?: string;
     }
   | {
       readonly flow: 'plan';
       readonly sprintId: SprintId;
-      readonly cwd: AbsolutePath;
       readonly interactive?: boolean;
       readonly outputFilePath?: string;
     }
@@ -97,17 +93,20 @@ export type FlowInputs =
 export function startFlowSession(deps: SharedDeps, sessionManager: SessionManagerPort, inputs: FlowInputs): SessionId {
   switch (inputs.flow) {
     case 'refine': {
-      const { sprintId, cwd, pendingTickets, interactive, refinementOutputDir } = inputs;
+      const { sprintId, pendingTickets, interactive } = inputs;
       // Refine drives a per-ticket interactive Claude conversation —
       // backgrounding it would orphan a session awaiting user input.
       // Single-instance per sprint: a second click while the first run
       // is live lands the user on the existing session.
+      //
+      // No `cwd` from the launcher — refine runs inside a per-ticket
+      // sandbox materialised by the chain's `build-refinement-unit`
+      // leaf. Refine is implementation-agnostic and never reaches into
+      // user repos.
       const factoryOpts = {
         sprintId,
-        cwd,
         pendingTickets,
         ...(interactive !== undefined ? { interactive } : {}),
-        ...(refinementOutputDir !== undefined ? { refinementOutputDir } : {}),
         // Hand the runInteractive helper to the chain so per-ticket leaves
         // can pause Ink + exit alt-screen + spawn Claude with stdio:inherit.
         runInTerminal: runInteractive,
@@ -115,21 +114,20 @@ export function startFlowSession(deps: SharedDeps, sessionManager: SessionManage
       const opts: SessionManagerStartOptions<RefineCtx> = {
         label: `refine ${sprintId}`,
         element: createRefineFlow(deps, factoryOpts),
-        initialCtx: { sprintId, cwd, ...(interactive !== undefined ? { interactive } : {}) },
+        initialCtx: { sprintId, ...(interactive !== undefined ? { interactive } : {}) },
         detachable: false,
         dedupeKey: `refine:${String(sprintId)}`,
       };
       return sessionManager.start(opts);
     }
     case 'plan': {
-      const { sprintId, cwd, interactive, outputFilePath } = inputs;
+      const { sprintId, interactive, outputFilePath } = inputs;
       // Plan drives an interactive AI session — single-instance per sprint,
       // foreground-only. Repo selection happens INSIDE the chain via the
-      // `persist-repo-selection` leaf; the launcher's `cwd` is just a
-      // bootstrap default.
+      // `persist-repo-selection` leaf; the AI session cwd is the per-sprint
+      // sandbox stamped by the chain's `build-plan-workspace` leaf.
       const factoryOpts = {
         sprintId,
-        cwd,
         ...(interactive !== undefined ? { interactive } : {}),
         ...(outputFilePath !== undefined ? { outputFilePath } : {}),
         runInTerminal: runInteractive,
@@ -137,7 +135,7 @@ export function startFlowSession(deps: SharedDeps, sessionManager: SessionManage
       const opts: SessionManagerStartOptions<PlanCtx> = {
         label: `plan ${sprintId}`,
         element: createPlanFlow(deps, factoryOpts),
-        initialCtx: { sprintId, cwd },
+        initialCtx: { sprintId },
         detachable: false,
         dedupeKey: `plan:${String(sprintId)}`,
       };
@@ -149,7 +147,7 @@ export function startFlowSession(deps: SharedDeps, sessionManager: SessionManage
       // per sprint, foreground-only.
       const opts: SessionManagerStartOptions<IdeateCtx> = {
         label: `ideate ${sprintId}`,
-        element: createIdeateFlow(deps, { sprintId, cwd, projectName, ideaText }),
+        element: createIdeateFlow(deps),
         initialCtx: { sprintId, cwd, projectName, ideaText },
         detachable: false,
         dedupeKey: `ideate:${String(sprintId)}`,
@@ -161,10 +159,16 @@ export function startFlowSession(deps: SharedDeps, sessionManager: SessionManage
       // Execute CAN be backgrounded (long-running task fan-out, no inline
       // prompts) but is still single-instance per sprint — two parallel
       // runs would race on the same task state.
+      //
+      // Seed `expectedBranch` from the persisted sprint branch (resume
+      // case). When `sprint.branch === null`, the chain's `resolve-branch`
+      // leaf prompts the user inside the chain — the launcher itself
+      // doesn't prompt.
+      const expectedBranch = sprint.branch ?? '';
       const opts: SessionManagerStartOptions<ExecuteCtx> = {
         label: `execute ${sprintId}`,
-        element: createExecuteFlow(deps, { sprintId, cwd, expectedBranch: '', sprint, tasks }),
-        initialCtx: { sprintId, cwd, expectedBranch: '' },
+        element: createExecuteFlow(deps, { sprintId, cwd, expectedBranch, sprint, tasks }),
+        initialCtx: { sprintId, cwd, expectedBranch },
         dedupeKey: `execute:${String(sprintId)}`,
       };
       return sessionManager.start(opts);
@@ -173,7 +177,7 @@ export function startFlowSession(deps: SharedDeps, sessionManager: SessionManage
       const { sprintId, cwd, feedbackText } = inputs;
       const opts: SessionManagerStartOptions<FeedbackCtx> = {
         label: `feedback ${sprintId}#1`,
-        element: createFeedbackFlow(deps, { sprintId, cwd }),
+        element: createFeedbackFlow(deps),
         initialCtx: { sprintId, cwd, feedbackText, iteration: 1 },
         dedupeKey: `feedback:${String(sprintId)}`,
       };

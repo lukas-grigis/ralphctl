@@ -3,11 +3,16 @@
  *
  * Builds the plan chain via {@link createPlanFlow} and streams it through
  * {@link SessionManagerPort}.
+ *
+ * The AI session's working directory is NOT supplied by the caller — the
+ * chain's `build-plan-workspace` leaf materialises a sandbox under
+ * `<sprintDir>/workspaces/plan/` and stamps it onto the chain context.
+ * Affected repos are exposed to the AI via `--add-dir` (Claude) or via
+ * the read-only mirror inside the sandbox (Copilot).
  */
 import type { Command } from 'commander';
 
 import { createPlanFlow, type PlanCtx } from '@src/application/chains/plan/plan-flow.ts';
-import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { SharedDeps } from '@src/application/bootstrap/shared-deps.ts';
 import { printError } from '@src/application/cli/command-runner.ts';
@@ -16,7 +21,6 @@ import { streamSession } from '@src/application/cli/stream-session.ts';
 
 interface SprintPlanFlags {
   readonly sprint: string;
-  readonly cwd?: string;
   /** When true, force headless mode regardless of TTY — for CI / non-interactive contexts. */
   readonly auto?: boolean;
 }
@@ -26,7 +30,6 @@ export function attachSprintPlan(group: Command, deps: SharedDeps): void {
     .command('plan')
     .description('generate tasks from approved tickets')
     .requiredOption('--sprint <id>', 'sprint id')
-    .option('--cwd <abs>', 'working directory for the AI session', process.cwd())
     .option('--auto', 'run headless — Claude decides what a human would have answered (CI / batch mode)')
     .action(async (opts: SprintPlanFlags) => {
       const code = await runSprintPlan(deps, opts);
@@ -40,11 +43,6 @@ async function runSprintPlan(deps: SharedDeps, opts: SprintPlanFlags): Promise<E
     printError(deps, sprintId.error);
     return EXIT_ERROR;
   }
-  const cwd = AbsolutePath.parse(opts.cwd ?? process.cwd());
-  if (!cwd.ok) {
-    printError(deps, cwd.error);
-    return EXIT_ERROR;
-  }
 
   // Default: interactive on a TTY, headless otherwise. `--auto` forces
   // headless even on a TTY.
@@ -55,7 +53,6 @@ async function runSprintPlan(deps: SharedDeps, opts: SprintPlanFlags): Promise<E
 
   const flow = createPlanFlow(deps, {
     sprintId: sprintId.value,
-    cwd: cwd.value,
     interactive,
     ...(outputFilePath !== undefined ? { outputFilePath } : {}),
   });
@@ -64,6 +61,6 @@ async function runSprintPlan(deps: SharedDeps, opts: SprintPlanFlags): Promise<E
     sessionManager: deps.sessionManager,
     label: `plan ${sprintId.value}`,
     element: flow,
-    initialCtx: { sprintId: sprintId.value, cwd: cwd.value },
+    initialCtx: { sprintId: sprintId.value },
   });
 }

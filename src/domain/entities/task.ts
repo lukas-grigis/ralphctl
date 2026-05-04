@@ -62,6 +62,7 @@ export class Task {
   readonly evaluationFile: string | undefined;
   readonly extraDimensions: readonly string[] | undefined;
   readonly blockedReason: string | undefined;
+  readonly commitSha: string | undefined;
 
   private constructor(props: {
     id: TaskId;
@@ -82,6 +83,7 @@ export class Task {
     evaluationFile: string | undefined;
     extraDimensions: readonly string[] | undefined;
     blockedReason: string | undefined;
+    commitSha: string | undefined;
   }) {
     this.id = props.id;
     this.name = props.name;
@@ -101,6 +103,7 @@ export class Task {
     this.evaluationFile = props.evaluationFile;
     this.extraDimensions = props.extraDimensions;
     this.blockedReason = props.blockedReason;
+    this.commitSha = props.commitSha;
   }
 
   static create(input: TaskCreateInput): Result<Task, ValidationError> {
@@ -147,6 +150,7 @@ export class Task {
         evaluationFile: undefined,
         extraDimensions: input.extraDimensions === undefined ? undefined : [...input.extraDimensions],
         blockedReason: undefined,
+        commitSha: undefined,
       })
     );
   }
@@ -239,6 +243,31 @@ export class Task {
   }
 
   /**
+   * Reset a stale `in_progress` task back to `todo`. Used by `executeFlow`
+   * at sprint-start to recover from a prior run that was killed/interrupted
+   * after `mark-in-progress` ran but before the task settled — without this,
+   * the task panel shows phantom `IN PROGRESS` pills on the next launch.
+   *
+   * Idempotent on `todo`. Rejected from `done` (a finished task cannot
+   * regress) and from `blocked` (use `unblock()` to make the intent
+   * explicit).
+   */
+  resetToTodo(): Result<Task, InvalidStateError> {
+    if (this.status === 'todo') return Result.ok(this);
+    if (this.status !== 'in_progress') {
+      return Result.error(
+        new InvalidStateError({
+          entity: 'task',
+          currentState: this.status,
+          attemptedAction: 'reset-to-todo',
+          hint: 'Only `in_progress` tasks can be reset to todo.',
+        })
+      );
+    }
+    return Result.ok(this.with({ status: 'todo' }));
+  }
+
+  /**
    * Apply an in-place edit to the task's mutable fields. Locked once the
    * task starts running — only `todo` tasks can be edited so we don't
    * silently rewrite the contract under an in-flight or completed task.
@@ -317,6 +346,7 @@ export class Task {
         evaluationFile: this.evaluationFile,
         extraDimensions: nextExtraDimensions,
         blockedReason: this.blockedReason,
+        commitSha: this.commitSha,
       })
     );
   }
@@ -334,6 +364,17 @@ export class Task {
       evaluationStatus: input.status,
       evaluationFile: input.file,
     });
+  }
+
+  /**
+   * Record the harness commit that captured the work for this task. Called
+   * by the per-task chain's `commit-task` leaf after `git add -A && git
+   * commit`. Idempotent — recording the same SHA twice produces an
+   * equivalent task. Allowed at any time so the chain can persist commits
+   * regardless of status.
+   */
+  recordCommit(sha: string): Task {
+    return this.with({ commitSha: sha });
   }
 
   // ───────────────────────── dependencies ─────────────────────────
@@ -355,6 +396,7 @@ export class Task {
       evaluationStatus: EvaluationStatus | undefined;
       evaluationFile: string | undefined;
       blockedReason: string | undefined;
+      commitSha: string | undefined;
     }>
   ): Task {
     return new Task({
@@ -376,6 +418,7 @@ export class Task {
       evaluationFile: 'evaluationFile' in partial ? partial.evaluationFile : this.evaluationFile,
       extraDimensions: this.extraDimensions,
       blockedReason: 'blockedReason' in partial ? partial.blockedReason : this.blockedReason,
+      commitSha: 'commitSha' in partial ? partial.commitSha : this.commitSha,
     });
   }
 }

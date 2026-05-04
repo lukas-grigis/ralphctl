@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from 'ink-testing-library';
-import { StepTrace, type LiveStep } from './step-trace.tsx';
+import { StepTrace, CompactStepSummary, type LiveStep } from './step-trace.tsx';
 
 afterEach(() => {
   cleanup();
@@ -48,5 +48,62 @@ describe('StepTrace', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('bad-step');
     expect(frame).toContain('something went wrong');
+  });
+});
+
+describe('CompactStepSummary', () => {
+  it('renders "No steps recorded" when steps is empty', () => {
+    const { lastFrame } = render(<CompactStepSummary steps={[]} />);
+    expect(lastFrame()).toContain('No steps recorded');
+  });
+
+  it('renders the success glyph + tally when all steps completed', () => {
+    const steps: LiveStep[] = [step('load-sprint'), step('assert-active'), step('link-skills')];
+    const { lastFrame } = render(<CompactStepSummary steps={steps} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('3 steps');
+    expect(frame).toContain('3 completed');
+    // No failed steps, so no cross / error lines beyond the tally glyph.
+    expect(frame).not.toContain('failed');
+  });
+
+  it('renders the cross glyph + lists each failed step inline with its errorMessage', () => {
+    const steps: LiveStep[] = [
+      step('load-sprint'),
+      { name: 'assert-active', status: 'failed', durationMs: 5, errorMessage: 'sprint not active' },
+    ];
+    const { lastFrame } = render(<CompactStepSummary steps={steps} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('1 failed');
+    expect(frame).toContain('assert-active');
+    expect(frame).toContain('sprint not active');
+  });
+
+  it('tally includes aborted and skipped counts when present', () => {
+    const steps: LiveStep[] = [
+      step('load-sprint'),
+      { name: 'do-work', status: 'aborted', durationMs: 2, errorMessage: undefined },
+      { name: 'save-sprint', status: 'skipped', durationMs: 0, errorMessage: undefined },
+    ];
+    const { lastFrame } = render(<CompactStepSummary steps={steps} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('1 aborted');
+    expect(frame).toContain('1 skipped');
+  });
+
+  it('renders a duration label when totalMs > 0 and omits it when totalMs === 0', () => {
+    const stepsWithDuration: LiveStep[] = [
+      { name: 'load-sprint', status: 'completed', durationMs: 1500, errorMessage: undefined },
+    ];
+    const { lastFrame: withDuration } = render(<CompactStepSummary steps={stepsWithDuration} />);
+    expect(withDuration()).toContain('1.5s');
+
+    const stepsNoDuration: LiveStep[] = [
+      { name: 'load-sprint', status: 'completed', durationMs: 0, errorMessage: undefined },
+    ];
+    const { lastFrame: noDuration } = render(<CompactStepSummary steps={stepsNoDuration} />);
+    const noDurationFrame = noDuration() ?? '';
+    // Duration label must NOT appear when totalMs is 0.
+    expect(noDurationFrame).not.toMatch(/\d+ms|\d+\.\d+s/);
   });
 });

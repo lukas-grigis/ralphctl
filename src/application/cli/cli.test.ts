@@ -365,6 +365,7 @@ describe('CLI commands', () => {
       // Spy on the real parser by overriding it via deps.
       const fakeParser: SignalParserPort = {
         parse: () => onboardSignals,
+        parseWithDiagnostics: () => ({ signals: onboardSignals, diagnostics: [] }),
       };
       const onboardDeps = { ...customDeps, signalParser: fakeParser };
 
@@ -615,13 +616,13 @@ describe('CLI commands', () => {
         'sprint'
       );
       await deps.sprintRepo.save(sprint);
-      const { result, io } = await captureIo(() => runSprintRefine(deps, { sprint: sprint.id, cwd: '/tmp' }));
+      const { result, io } = await captureIo(() => runSprintRefine(deps, { sprint: sprint.id }));
       expect(result).toBe(EXIT_SUCCESS);
       expect(io.stdout).toContain('No pending tickets');
     });
 
     it('fails on invalid sprint id', async () => {
-      const { result } = await captureIo(() => runSprintRefine(deps, { sprint: 'not-a-sprint', cwd: '/tmp' }));
+      const { result } = await captureIo(() => runSprintRefine(deps, { sprint: 'not-a-sprint' }));
       expect(result).toBe(EXIT_ERROR);
     });
 
@@ -629,7 +630,6 @@ describe('CLI commands', () => {
       const { result } = await captureIo(() =>
         runSprintRefine(deps, {
           sprint: '20260101-000000-missing',
-          cwd: '/tmp',
         })
       );
       expect(result).toBe(EXIT_ERROR);
@@ -668,7 +668,8 @@ describe('CLI commands', () => {
         Sprint.create({ name: 'A', slug: slug('a'), now: IsoTimestamp.now(), projectName: asProjectName('demo') }),
         'sprint'
       );
-      const branched = unwrap(sprint.setBranch('ralphctl/test'), 'branch');
+      const activated = unwrap(sprint.activate(IsoTimestamp.now()), 'activate');
+      const branched = unwrap(activated.setBranch('ralphctl/test'), 'branch');
       await customDeps.sprintRepo.save(branched);
 
       const { result } = await captureIo(() =>

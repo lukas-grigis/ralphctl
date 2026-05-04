@@ -34,18 +34,10 @@ import type { Element } from '@src/kernel/chain/element.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import type { OnboardRepoProposals } from '@src/business/usecases/onboard/onboard-repo.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
-import {
-  confirmContextFileLeaf,
-  confirmSetupScriptLeaf,
-  confirmStartAiLeaf,
-  confirmVerifyScriptLeaf,
-  detectExistingFilesLeaf,
-  loadProjectLeaf,
-  resolveRepoLeaf,
-  runOnboardAiLeaf,
-  saveRepoScriptsLeaf,
-  writeContextFileLeaf,
-} from './leaves.ts';
+import { loadProjectLeaf, resolveRepoLeaf, detectExistingFilesLeaf } from './onboard-load-leaves.ts';
+import { confirmStartAiLeaf, runOnboardAiLeaf } from './onboard-ai-leaves.ts';
+import { confirmSetupScriptLeaf, confirmVerifyScriptLeaf, confirmContextFileLeaf } from './onboard-confirm-leaves.ts';
+import { writeContextFileLeaf, saveRepoScriptsLeaf } from './onboard-persist-leaves.ts';
 
 /**
  * Chain context for the onboard flow. Inputs come from the launcher;

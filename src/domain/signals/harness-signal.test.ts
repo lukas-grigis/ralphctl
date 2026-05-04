@@ -80,18 +80,20 @@ describe('HarnessSignal — discriminated union', () => {
 
   it('narrows EvaluationSignal and surfaces status + dimensions', () => {
     const dimensions: DimensionScore[] = [
-      { dimension: 'correctness', passed: true, finding: 'looks fine' },
-      { dimension: 'safety', passed: false, finding: 'missing guard' },
+      { dimension: 'correctness', score: 5, passed: true, finding: 'looks fine' },
+      { dimension: 'safety', score: 2, passed: false, finding: 'missing guard' },
     ];
     const signal: EvaluationSignal = {
       type: 'evaluation',
       status: 'failed',
       dimensions,
+      overallScore: 3.5,
       critique: 'rewrite the guard',
       timestamp: NOW,
     };
     expect(describeSignal(signal)).toBe('failed');
     expect(signal.dimensions).toHaveLength(2);
+    expect(signal.overallScore).toBe(3.5);
     expect(signal.critique).toBe('rewrite the guard');
   });
 
@@ -200,7 +202,7 @@ describe('HarnessSignal — discriminated union', () => {
   it('handles every variant in a single mixed array', () => {
     const signals: HarnessSignal[] = [
       { type: 'progress', summary: 's', timestamp: NOW },
-      { type: 'evaluation', status: 'passed', dimensions: [], timestamp: NOW },
+      { type: 'evaluation', status: 'passed', dimensions: [], overallScore: undefined, timestamp: NOW },
       { type: 'task-complete', timestamp: NOW },
       { type: 'task-verified', output: 'o', timestamp: NOW },
       { type: 'task-blocked', reason: 'r', timestamp: NOW },

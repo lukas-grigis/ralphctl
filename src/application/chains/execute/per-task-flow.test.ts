@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import type { AiSessionPort, SessionResult } from '@src/business/ports/ai-session-port.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import type { HarnessSignal } from '@src/domain/signals/harness-signal.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
+import { FakeExternalPort } from '@src/business/_test-fakes/fake-external-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
+import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { FakeSignalBusPort } from '@src/business/_test-fakes/fake-signal-bus-port.ts';
+import { FakeSessionFolderBuilderPort } from '@src/business/_test-fakes/fake-session-folder-builder-port.ts';
+import { FakeWriteContextFilePort } from '@src/business/_test-fakes/fake-write-context-file-port.ts';
 import { RateLimitCoordinator } from '@src/kernel/algorithms/rate-limit-coordinator.ts';
 import { abs, makeSprint, makeTask } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
@@ -19,7 +23,7 @@ const taskCompleteSignal: HarnessSignal = {
 };
 
 describe('createPerTaskFlow', () => {
-  it('runs branch-preflight → mark-in-progress → wait-for-rate-limit → execute-task → post-task-check → recover-dirty-tree → evaluate-task → mark-done', async () => {
+  it('runs branch-preflight → mark-in-progress → render-prompt-to-file → execute-task → post-task-check → evaluate-task → mark-done', async () => {
     const sprint = makeSprint();
     const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
     const deps = createTestDeps({
@@ -53,6 +57,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -66,22 +71,44 @@ describe('createPerTaskFlow', () => {
     // Outer order — note retry decorates execute-task with #attempt-1.
     expect(stepNames).toContain('branch-preflight');
     expect(stepNames).toContain('mark-in-progress');
-    expect(stepNames).toContain('wait-for-rate-limit');
+    expect(stepNames).toContain('render-prompt-to-file');
     expect(stepNames).toContain('execute-task');
     expect(stepNames).toContain('post-task-check');
-    expect(stepNames).toContain('recover-dirty-tree');
+    // build-execution-unit lays down the per-task contract pack
+    // (refined requirements, full task plan, dimensions, prior
+    // evaluations) immediately before the evaluator round runs.
+    expect(stepNames).toContain('build-execution-unit');
     expect(stepNames).toContain('evaluate-task');
+    expect(stepNames).toContain('commit-task');
     expect(stepNames).toContain('mark-done');
+    // recover-dirty-tree is intentionally absent — auto-committing leftover
+    // changes hid them from the evaluator's `git status` check, which now
+    // catches them as a Completeness failure instead.
+    expect(stepNames).not.toContain('recover-dirty-tree');
+    // wait-for-dependencies and wait-for-rate-limit are gone — sequential
+    // execution makes both unnecessary (no siblings to gate against).
+    expect(stepNames).not.toContain('wait-for-dependencies');
+    expect(stepNames).not.toContain('wait-for-rate-limit');
 
     // Sequence assertions for the headline path.
+    // Staged validation gates: cheap post-task-check runs before the expensive
+    // AI evaluator (Anthropic harness-design pattern). Reordering this fence
+    // is a contract change — update the trace assertion deliberately.
     const idx = (n: string): number => stepNames.indexOf(n);
     expect(idx('branch-preflight')).toBeLessThan(idx('mark-in-progress'));
-    expect(idx('mark-in-progress')).toBeLessThan(idx('wait-for-rate-limit'));
-    expect(idx('wait-for-rate-limit')).toBeLessThan(idx('execute-task'));
+    expect(idx('mark-in-progress')).toBeLessThan(idx('render-prompt-to-file'));
+    expect(idx('render-prompt-to-file')).toBeLessThan(idx('execute-task'));
     expect(idx('execute-task')).toBeLessThan(idx('post-task-check'));
-    expect(idx('post-task-check')).toBeLessThan(idx('recover-dirty-tree'));
-    expect(idx('recover-dirty-tree')).toBeLessThan(idx('evaluate-task'));
-    expect(idx('evaluate-task')).toBeLessThan(idx('mark-done'));
+    // build-execution-unit + evaluate-task are wrapped together in
+    // an OnError-Sequential so they're adjacent in the trace, with
+    // build coming first to lay down the contract pack the evaluator
+    // reads.
+    expect(idx('post-task-check')).toBeLessThan(idx('build-execution-unit'));
+    expect(idx('build-execution-unit')).toBeLessThan(idx('evaluate-task'));
+    // commit-task sits AFTER the evaluator (so the evaluator's git status
+    // sees the dirty tree as designed) and BEFORE mark-done.
+    expect(idx('evaluate-task')).toBeLessThan(idx('commit-task'));
+    expect(idx('commit-task')).toBeLessThan(idx('mark-done'));
 
     // Task should be marked done after a successful execute-task.
     const reread = await deps.taskRepo.findById(sprint.id, task.id);
@@ -124,6 +151,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -150,6 +178,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: 'main',
     });
@@ -164,9 +193,9 @@ describe('createPerTaskFlow', () => {
     // Downstream leaves still emit trace entries (kept honest) — they
     // simply no-op when `taskBlocked` is set.
     expect(stepNames).toContain('mark-in-progress');
+    expect(stepNames).toContain('render-prompt-to-file');
     expect(stepNames).toContain('execute-task');
     expect(stepNames).toContain('post-task-check');
-    expect(stepNames).toContain('recover-dirty-tree');
     expect(stepNames).toContain('evaluate-task');
     expect(stepNames).toContain('mark-done');
 
@@ -200,7 +229,7 @@ describe('createPerTaskFlow', () => {
             {
               type: 'evaluation',
               status: 'failed',
-              dimensions: [{ dimension: 'safety', passed: false, finding: 'leak' }],
+              dimensions: [{ dimension: 'safety', score: 2 as const, passed: false, finding: 'leak' }],
               critique: 'fix the leak',
               timestamp: '2026-04-29T12:00:00Z' as never,
             },
@@ -225,6 +254,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -263,6 +293,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -327,6 +358,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -337,9 +369,9 @@ describe('createPerTaskFlow', () => {
 
     const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
     // execute-task ran (and aborted), then the OnError fallback's
-    // mark-blocked leaf transitioned the task and short-circuited downstream.
+    // mark-cancelled leaf transitioned the task and short-circuited downstream.
     expect(stepNames).toContain('execute-task');
-    expect(stepNames).toContain('mark-blocked');
+    expect(stepNames).toContain('mark-cancelled');
     // Downstream leaves still emit trace entries (kept honest) but no-op.
     expect(stepNames).toContain('post-task-check');
     expect(stepNames).toContain('mark-done');
@@ -350,13 +382,88 @@ describe('createPerTaskFlow', () => {
     expect(reread.value.blockedReason).toBe('cancelled by user');
   });
 
-  it('leaves the task in_progress when the evaluator explicitly fails', async () => {
+  it('on user abort during the evaluator round: propagates `aborted`, does NOT mark the task done', async () => {
+    // Regression: the evaluator-leaf OnError used to catch ALL errors, so a
+    // Ctrl+C / SessionManager.kill mid-evaluator silently fell through to
+    // mark-done and the task was reported complete despite the user
+    // cancelling it. The catchIf must exclude `code: 'aborted'`.
     const sprint = makeSprint();
     const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
 
-    // No task-complete signal AND evaluator returns `failed` — the
-    // evaluator has caught a real regression so the task is left
-    // in_progress for human review.
+    class AbortKernelError extends Error {
+      readonly code = 'aborted';
+      constructor() {
+        super('cancelled by user');
+        this.name = 'AbortKernelError';
+      }
+    }
+    // Generator succeeds; evaluator's spawn aborts.
+    let spawnCount = 0;
+    const partiallyAbortingAi: AiSessionPort = {
+      spawnHeadless(): Promise<Result<SessionResult, DomainError>> {
+        spawnCount += 1;
+        if (spawnCount === 1) {
+          return Promise.resolve(Result.ok({ output: 'generator-done' }));
+        }
+        return Promise.reject(new AbortKernelError());
+      },
+      spawnWithRetry(): Promise<Result<SessionResult, DomainError>> {
+        spawnCount += 1;
+        if (spawnCount === 1) {
+          return Promise.resolve(Result.ok({ output: 'generator-done' }));
+        }
+        return Promise.reject(new AbortKernelError());
+      },
+      spawnInteractive(): Promise<Result<void, DomainError>> {
+        return Promise.resolve(Result.error(new StorageError({ subCode: 'io', message: 'unused' })));
+      },
+      resumeSession(): Promise<Result<SessionResult, DomainError>> {
+        return Promise.reject(new AbortKernelError());
+      },
+      ensureReady(): Promise<void> {
+        return Promise.resolve();
+      },
+      getProviderName: () => 'claude',
+      getProviderDisplayName: () => 'Claude',
+      getSpawnEnv: () => ({}),
+    };
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      overrides: { aiSession: partiallyAbortingAi },
+      signalParser: { results: [[taskCompleteSignal]] },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    // Chain returns an aborted error — NOT Result.ok — because the
+    // evaluator's catchIf no longer swallows `aborted`.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error.code).toBe('aborted');
+
+    // Task did NOT advance to done (mark-done never ran).
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).not.toBe('done');
+  });
+
+  it('marks the task done even when the evaluator explicitly fails — preserves evaluationStatus', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+
+    // No task-complete signal AND evaluator returns `failed`. commit-task
+    // and mark-done always run; the evaluation verdict is preserved on
+    // the entity for the feedback loop to consume.
     const deps = createTestDeps({
       sprints: [sprint],
       tasks: [[sprint.id, [task]]],
@@ -388,18 +495,19 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
 
-    // The chain still completes (evaluator never blocks; mark-done
-    // is a no-op when the evaluator flagged a real regression).
+    // The chain completes; commit-task and mark-done always run.
     expect(result.ok).toBe(true);
 
     const reread = await deps.taskRepo.findById(sprint.id, task.id);
     if (!reread.ok) throw new Error('expected task');
-    // Task remains in_progress because the evaluator failed.
-    expect(reread.value.status).toBe('in_progress');
+    // Task is marked done; evaluationStatus preserved for feedback loop.
+    expect(reread.value.status).toBe('done');
+    expect(reread.value.evaluationStatus).toBe('failed');
   });
 
   it('marks the task done when the AI omits <task-complete> but the evaluator passes', async () => {
@@ -442,6 +550,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -479,6 +588,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -489,66 +599,6 @@ describe('createPerTaskFlow', () => {
     if (!reread.ok) throw new Error('expected task');
     expect(reread.value.status).toBe('done');
     expect(reread.value.evaluated).toBe(false);
-  });
-
-  it('wait-for-rate-limit holds off the AI spawn until the coordinator resumes', async () => {
-    const sprint = makeSprint();
-    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
-
-    // Pause the coordinator BEFORE the chain starts. The wait-for-rate-limit
-    // leaf must await `waitUntilResumed()` and only let execute-task fire
-    // after we resume.
-    const coordinator = new RateLimitCoordinator();
-    coordinator.pause('upstream 429');
-
-    const ai = new FakeAiSessionPort({
-      outcomes: [
-        { kind: 'ok', result: { output: 'done' } }, // execute-task
-        { kind: 'ok', result: { output: 'evaluated' } }, // evaluator
-      ],
-    });
-
-    const deps = createTestDeps({
-      sprints: [sprint],
-      tasks: [[sprint.id, [task]]],
-      signalParser: {
-        results: [
-          [taskCompleteSignal],
-          [
-            {
-              type: 'evaluation',
-              status: 'passed',
-              dimensions: [],
-              critique: '',
-              timestamp: '2026-04-29T12:00:00Z' as never,
-            },
-          ],
-        ],
-      },
-      overrides: { aiSession: ai, rateLimitCoordinator: coordinator },
-    });
-
-    const flow = createPerTaskFlow(deps, { task, sprint });
-    const promise = flow.execute({
-      sprintId: sprint.id,
-      sprint,
-      task,
-      cwd: abs('/tmp/demo-repo'),
-      expectedBranch: '',
-    });
-
-    // Yield several microtasks so wait-for-rate-limit definitely parks
-    // on the coordinator. The AI session must NOT have spawned yet.
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    expect(ai.captured).toHaveLength(0);
-
-    // Resume — wait-for-rate-limit unblocks and the rest of the chain runs.
-    coordinator.resume();
-    const result = await promise;
-
-    expect(result.ok).toBe(true);
-    // Now execute-task has fired (one spawn for execute, one for evaluator).
-    expect(ai.captured.length).toBeGreaterThanOrEqual(1);
   });
 
   it('use case calls coordinator.pause when the spawn surfaces a rate-limit hint', async () => {
@@ -579,6 +629,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -635,6 +686,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -655,6 +707,318 @@ describe('createPerTaskFlow', () => {
       expect(e.sprintId).toBe(sprint.id);
       expect(e.taskId).toBe(task.id);
     }
+  });
+
+  it('render-prompt-to-file: writes the rendered execute prompt under contexts/execute-<task-id>.md', async () => {
+    // The render-prompt-to-file leaf calls prompts.buildExecutePrompt
+    // (which substitutes the full task body inline) and writes the
+    // result to disk. The downstream execute-task leaf then hands the
+    // AI a thin wrapper pointing at that file.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const writer = new FakeWriteContextFilePort();
+    const prompts = new FakePromptBuilderPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } },
+          { kind: 'ok', result: { output: 'evaluated' } },
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { writeContextFile: writer, prompts },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+    expect(result.ok).toBe(true);
+
+    // The write went to a path under sprintDir/execution/<unit-slug>/prompt.md.
+    expect(writer.writes.length).toBeGreaterThanOrEqual(1);
+    const written = writer.writes[0];
+    expect(written?.path).toMatch(/\/execution\/[^/]+\/prompt\.md$/);
+
+    // The prompt builder was called with the task + sprint — the rendered
+    // prompt was written to disk. The execute-task leaf hands the AI a
+    // thin wrapper pointing at that file (the prompt is the file body).
+    expect(prompts.executeCalls).toHaveLength(1);
+    expect(prompts.executeCalls[0]?.task.id).toBe(task.id);
+  });
+
+  it('render-prompt-to-file: skips writing when the task was already marked blocked upstream', async () => {
+    // Branch preflight failure must short-circuit every downstream
+    // leaf — including write-task-context. A blocked task has nothing
+    // to execute, so writing a context file is wasted IO.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const writer = new FakeWriteContextFilePort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      external: { branchOk: false, currentBranch: 'wrong-branch' },
+      overrides: { writeContextFile: writer },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: 'main',
+    });
+    expect(result.ok).toBe(true);
+
+    // No writes — the task was blocked at preflight.
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it('build-execution-unit failure absorbed by OnError, task continues to mark-done', async () => {
+    // The OnError wrapper around the evaluator pack catches unit-build
+    // failures (disk full, EPERM, ...) so they don't gate task
+    // completion — the task still proceeds to `done`. The evaluator
+    // simply runs without addDirs, falling back to current behaviour.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const failure = new StorageError({ subCode: 'io', message: 'no disk space' });
+    const sessionFolderBuilder = new FakeSessionFolderBuilderPort({ failWith: failure });
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task
+          // Note: evaluator does NOT spawn — the unit build
+          // failure trips the OnError fallback BEFORE reaching the
+          // evaluator. With evaluator disabled by the swallow, only
+          // execute-task spawns.
+        ],
+      },
+      signalParser: {
+        results: [[taskCompleteSignal]],
+      },
+      overrides: { sessionFolderBuilder },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    // Chain still resolves OK — workspace failure is swallowed.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    expect(stepNames).toContain('build-execution-unit');
+    expect(stepNames).toContain('evaluate-task-noop');
+    expect(stepNames).toContain('mark-done');
+
+    // Task is done despite the workspace build failure.
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('done');
+    // Evaluator did not run, so `evaluated` stays false.
+    expect(reread.value.evaluated).toBe(false);
+  });
+
+  it('Copilot path: evaluator cwd is the workspace root (mirror lives there)', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        providerName: 'copilot',
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task (cwd = task.projectPath)
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluate-task (cwd = workspace root on Copilot)
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(true);
+
+    // The fake folder builder returns root = `/tmp/ralphctl-fake-
+    // units/<sprint-id>/execution/<unit-slug>`. The Copilot path uses
+    // that as the evaluator session cwd. The generator's cwd is
+    // unaffected.
+    const ai = deps.aiSession as FakeAiSessionPort;
+    const generatorCwd = String(ai.captured[0]?.options.cwd);
+    const evaluatorCwd = String(ai.captured[1]?.options.cwd);
+    expect(generatorCwd).toBe('/tmp/demo-repo');
+    expect(evaluatorCwd).toContain('/execution/');
+    // Copilot's evaluator does NOT receive --add-dir args (no equivalent flag).
+    expect(ai.captured[1]?.options.args).toBeUndefined();
+  });
+
+  it('Claude path: evaluator receives the workspace root via --add-dir', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        providerName: 'claude',
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluate-task
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(true);
+
+    const ai = deps.aiSession as FakeAiSessionPort;
+    // The generator runs in the real repo with no --add-dir (it does not
+    // need the workspace).
+    expect(String(ai.captured[0]?.options.cwd)).toBe('/tmp/demo-repo');
+    expect(ai.captured[0]?.options.args).toBeUndefined();
+    // The evaluator runs in the real repo too (Claude does read-only
+    // checks against the actual code) but with a --add-dir flag exposing
+    // the per-execution-unit contract pack.
+    expect(String(ai.captured[1]?.options.cwd)).toBe('/tmp/demo-repo');
+    expect(ai.captured[1]?.options.args).toBeDefined();
+    expect(ai.captured[1]?.options.args?.[0]).toBe('--add-dir');
+    expect(ai.captured[1]?.options.args?.[1]).toContain('/execution/');
+  });
+
+  it('refreshExecutionUnit called once per evaluator round (multi-round loop)', async () => {
+    // The per-task chain wires `refreshWorkspace` so each evaluator
+    // round picks up the freshest sibling state.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const sessionFolderBuilder = new FakeSessionFolderBuilderPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      evaluationIterations: 3,
+      overrides: { sessionFolderBuilder },
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'initial' } }, // execute-task
+          { kind: 'ok', result: { output: 'eval-1-failed' } }, // evaluator round 1
+          { kind: 'ok', result: { output: 'fix' } }, // generator fix
+          { kind: 'ok', result: { output: 'eval-2-passed' } }, // evaluator round 2
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'failed',
+              dimensions: [{ dimension: 'safety', score: 2 as const, passed: false, finding: 'leak' }],
+              critique: 'fix the leak',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: 'lgtm',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(true);
+    // Two evaluator rounds → two refresh calls. The initial
+    // `buildExecutionUnit` ran ONCE before the loop.
+    expect(sessionFolderBuilder.executionCalls).toHaveLength(1);
+    expect(sessionFolderBuilder.refreshCalls).toHaveLength(2);
   });
 
   it('persists status=done via taskRepo.update on the success path', async () => {
@@ -694,6 +1058,7 @@ describe('createPerTaskFlow', () => {
       sprintId: sprint.id,
       sprint,
       task,
+      tasks: [task],
       cwd: abs('/tmp/demo-repo'),
       expectedBranch: '',
     });
@@ -701,6 +1066,306 @@ describe('createPerTaskFlow', () => {
 
     const reread = await deps.taskRepo.findById(sprint.id, task.id);
     if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('done');
+  });
+
+  it('commit-task: commits the dirty tree and persists the SHA on the task entity', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do the thing', projectPath: '/tmp/demo-repo' });
+    const external = new FakeExternalPort({ uncommitted: true });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluate-task
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Trace contains commit-task between evaluate-task and mark-done.
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    expect(stepNames).toContain('commit-task');
+    const idx = (n: string): number => stepNames.indexOf(n);
+    expect(idx('evaluate-task')).toBeLessThan(idx('commit-task'));
+    expect(idx('commit-task')).toBeLessThan(idx('mark-done'));
+
+    // commitChanges was invoked once with the formatted message.
+    expect(external.commitChangesCalls).toHaveLength(1);
+    const call = external.commitChangesCalls[0];
+    expect(call?.message).toMatch(/^task\([0-9a-f]{1,8}\): do the thing$/);
+
+    // SHA persisted on the task aggregate (default fake SHA = `fakecommit0001`).
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.commitSha).toBe('fakecommit0001');
+    expect(reread.value.status).toBe('done');
+  });
+
+  it('commit-task: skips when the task was blocked upstream (preflight failure → no commit)', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const external = new FakeExternalPort({
+      branchOk: false,
+      currentBranch: 'wrong-branch',
+      uncommitted: true,
+    });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: 'main',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Leaf still ran (trace stays honest) but no commit fired.
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    expect(stepNames).toContain('commit-task');
+    expect(external.commitChangesCalls).toHaveLength(0);
+
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('blocked');
+    expect(reread.value.commitSha).toBeUndefined();
+  });
+
+  it('commit-task: commits even when the evaluator flagged a failed regression — evaluation verdict preserved', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const external = new FakeExternalPort({ uncommitted: true });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'incomplete' } }, // execute-task
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluate-task
+        ],
+      },
+      signalParser: {
+        results: [
+          [],
+          [
+            {
+              type: 'evaluation',
+              status: 'failed',
+              dimensions: [],
+              critique: 'incomplete',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+    expect(result.ok).toBe(true);
+
+    // commit-task always runs now; evaluator verdict is preserved on the entity.
+    expect(external.commitChangesCalls).toHaveLength(1);
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('done');
+    expect(reread.value.evaluationStatus).toBe('failed');
+  });
+
+  it('commit-task: skips when noCommit: true is set on the per-task ctx', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const external = new FakeExternalPort({ uncommitted: true });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } },
+          { kind: 'ok', result: { output: 'evaluated' } },
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+      noCommit: true,
+    });
+    expect(result.ok).toBe(true);
+
+    expect(external.commitChangesCalls).toHaveLength(0);
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.commitSha).toBeUndefined();
+    expect(reread.value.status).toBe('done');
+  });
+
+  it('commit-task: skips when the working tree is clean (no commit, no SHA)', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    // Default `uncommitted: false` — clean tree.
+    const external = new FakeExternalPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } },
+          { kind: 'ok', result: { output: 'evaluated' } },
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+    expect(result.ok).toBe(true);
+
+    expect(external.commitChangesCalls).toHaveLength(0);
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.commitSha).toBeUndefined();
+    expect(reread.value.status).toBe('done');
+  });
+
+  it('commit-task: commit failure does not abort the chain — mark-done still runs', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    const external = new FakeExternalPort({
+      uncommitted: true,
+      commitChangesOutcomes: [Result.error(new StorageError({ subCode: 'io', message: 'please tell me who you are' }))],
+    });
+    const logger = new FakeLoggerPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } },
+          { kind: 'ok', result: { output: 'evaluated' } },
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external, logger },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+    expect(result.ok).toBe(true);
+
+    // Warning logged, no SHA persisted, but the task still flips to done.
+    const warnEntry = logger.entries.find((e) => e.level === 'warn' && e.message.includes('commit-task'));
+    expect(warnEntry).toBeDefined();
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.commitSha).toBeUndefined();
     expect(reread.value.status).toBe('done');
   });
 });

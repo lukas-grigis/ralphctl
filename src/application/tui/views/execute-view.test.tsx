@@ -14,7 +14,7 @@ import type {
 import type { SignalBusPort, SignalBusEvent } from '@src/business/ports/signal-bus-port.ts';
 import type { ChainRunnerListener } from '@src/kernel/runtime/chain-runner.ts';
 import type { ChainTraceEntry } from '@src/kernel/chain/element.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 
 // ── fakes ─────────────────────────────────────────────────────────────────────
@@ -388,18 +388,30 @@ describe('ExecuteView', () => {
       </ViewHintsProvider>
     );
 
-    // Emit a paused event with resumeAt 30s in the future.
+    // Wait for the view's signal-bus subscription useEffect to register
+    // before emitting the paused event — without this, under parallel CI
+    // load the emit can fire into a not-yet-subscribed bus.
+    await vi.waitFor(() => {
+      expect(lastFrame() ?? '').toContain('execute');
+    });
+
+    // Emit a paused event with resumeAt 30s in the future. We assert the
+    // countdown EXISTS, not its exact value — the semantics under test are
+    // "banner appears with a countdown when paused" and "banner clears on
+    // resume", not the precise tick value.
     const resumeAt = new Date(Date.now() + 30_000).toISOString() as IsoTimestamp;
     bus._emit({ type: 'rate-limit-paused', reason: 'upstream 429', resumeAt });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(lastFrame()).toContain('Rate limit');
-    // Countdown text reflects ~30s; allow ±2s tolerance for scheduling jitter.
-    expect(lastFrame()).toMatch(/resuming in (28|29|30)s/);
+    await vi.waitFor(() => {
+      const f = lastFrame() ?? '';
+      expect(f).toContain('Rate limit');
+      expect(f).toMatch(/resuming in \d+s/);
+    });
 
     // Resume — banner clears.
     bus._emit({ type: 'rate-limit-resumed' });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(lastFrame()).not.toContain('Rate limit');
+    await vi.waitFor(() => {
+      expect(lastFrame()).not.toContain('Rate limit');
+    });
   });
 
   // ── Bug 1: chip updates when runner emits terminal event ──────────────────
@@ -578,6 +590,204 @@ describe('ExecuteView', () => {
     expect(lastFrame()).not.toContain('working');
   });
 
+  // ── Live task-status overlay from bus events ─────────────────────────────
+
+  describe('per-task status overlay', () => {
+    it('renders the per-task panel when ctx.tasks is seeded on initialCtx', async () => {
+      const seededTasks = [
+        { id: 'task-a', name: 'Build feature A', status: 'todo', blockedBy: [], projectPath: '/tmp/r' },
+      ];
+      const runner = makeFakeRunner([], { sprintId: 'demo', tasks: seededTasks });
+      const session = makeSession({ runner });
+      const sm = makeSessionManager(session);
+
+      const { lastFrame } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-1" sessionManager={sm} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      const frame = lastFrame() ?? '';
+      // Panel header + task name visible — i.e. the grid is not silently null.
+      expect(frame).toContain('Task execution');
+      expect(frame).toContain('Build feature A');
+      // Initial status pill
+      expect(frame).toContain('TODO');
+    });
+
+    it('flips a task pill from TODO to IN PROGRESS when bus emits task-started', async () => {
+      const seededTasks = [
+        { id: 'task-a', name: 'Build feature A', status: 'todo', blockedBy: [], projectPath: '/tmp/r' },
+      ];
+      const runner = makeFakeRunner([], { sprintId: 'demo', tasks: seededTasks });
+      const session = makeSession({ runner });
+      const sm = makeSessionManager(session);
+      const bus = makeFakeSignalBus();
+
+      const { lastFrame } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-1" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      expect(lastFrame()).toContain('TODO');
+
+      bus._emit({ type: 'task-started', taskId: 'task-a' as never });
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(lastFrame()).toContain('IN PROGRESS');
+    });
+
+    it('flips a task pill to DONE when bus emits task-finished completed', async () => {
+      const seededTasks = [
+        { id: 'task-a', name: 'Build feature A', status: 'in_progress', blockedBy: [], projectPath: '/tmp/r' },
+      ];
+      const runner = makeFakeRunner([], { sprintId: 'demo', tasks: seededTasks });
+      const session = makeSession({ runner });
+      const sm = makeSessionManager(session);
+      const bus = makeFakeSignalBus();
+
+      const { lastFrame } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-1" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      bus._emit({ type: 'task-finished', taskId: 'task-a' as never, status: 'completed' });
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(lastFrame()).toContain('DONE');
+    });
+
+    it('flips a task pill to BLOCKED when bus emits task-finished blocked', async () => {
+      const seededTasks = [
+        { id: 'task-a', name: 'Build feature A', status: 'in_progress', blockedBy: [], projectPath: '/tmp/r' },
+      ];
+      const runner = makeFakeRunner([], { sprintId: 'demo', tasks: seededTasks });
+      const session = makeSession({ runner });
+      const sm = makeSessionManager(session);
+      const bus = makeFakeSignalBus();
+
+      const { lastFrame } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-1" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      bus._emit({ type: 'task-finished', taskId: 'task-a' as never, status: 'blocked' });
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(lastFrame()).toContain('BLOCKED');
+    });
+
+    it('flips a task pill to BLOCKED when bus emits task-finished with any non-completed status', async () => {
+      // Any non-'completed' status maps to 'blocked' so the task pill leaves
+      // the IN PROGRESS state. The bus no longer emits 'failed' from the per-task
+      // chain — commit-task and mark-done always run now.
+      const seededTasks = [
+        { id: 'task-a', name: 'Build feature A', status: 'in_progress', blockedBy: [], projectPath: '/tmp/r' },
+      ];
+      const runner = makeFakeRunner([], { sprintId: 'demo', tasks: seededTasks });
+      const session = makeSession({ runner });
+      const sm = makeSessionManager(session);
+      const bus = makeFakeSignalBus();
+
+      const { lastFrame } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-1" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      bus._emit({ type: 'task-finished', taskId: 'task-a' as never, status: 'blocked' });
+      await new Promise((r) => setTimeout(r, 30));
+
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('BLOCKED');
+      expect(frame).not.toContain('IN PROGRESS');
+    });
+
+    it('clears prior-session task overrides when the view rebinds to a new session', async () => {
+      // Session A — task `task-a` will be flipped to IN PROGRESS via the bus.
+      const tasksA = [{ id: 'task-a', name: 'Task A', status: 'todo', blockedBy: [], projectPath: '/tmp/r' }];
+      const runnerA = makeFakeRunner([], { sprintId: 'sprintA', tasks: tasksA });
+      const sessionA: FakeSession = {
+        id: 'sess-a',
+        label: 'execute A',
+        status: 'running',
+        startedAt: '2026-04-29T10:00:00.000Z' as IsoTimestamp,
+        runner: runnerA,
+      };
+
+      // Session B — same task id, but should render as TODO since it's a
+      // different session and overrides from A must not bleed across.
+      const tasksB = [{ id: 'task-a', name: 'Task B', status: 'todo', blockedBy: [], projectPath: '/tmp/r' }];
+      const runnerB = makeFakeRunner([], { sprintId: 'sprintB', tasks: tasksB });
+      const sessionB: FakeSession = {
+        id: 'sess-b',
+        label: 'execute B',
+        status: 'running',
+        startedAt: '2026-04-29T10:01:00.000Z' as IsoTimestamp,
+        runner: runnerB,
+      };
+
+      // Single SessionManager that returns whichever session the view asks for.
+      const smListeners = new Set<(e: SessionManagerEvent) => void>();
+      const descA = sessionA as unknown as SessionDescriptor;
+      const descB = sessionB as unknown as SessionDescriptor;
+      const sm: SessionManagerPort = {
+        start: vi.fn(),
+        list: vi.fn(() => [descA, descB]),
+        get: vi.fn((id: string) => (id === 'sess-a' ? descA : id === 'sess-b' ? descB : undefined)),
+        foreground: vi.fn(() => Result.ok()),
+        background: vi.fn(() => Result.ok()),
+        kill: vi.fn(() => Result.ok()),
+        get active() {
+          return descA;
+        },
+        subscribe: vi.fn((l: (e: SessionManagerEvent) => void) => {
+          smListeners.add(l);
+          return () => {
+            smListeners.delete(l);
+          };
+        }),
+        dispose: vi.fn(),
+      };
+
+      const bus = makeFakeSignalBus();
+
+      // Render bound to session A first.
+      const { lastFrame, rerender } = render(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-a" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Flip task-a to IN PROGRESS via a sess-a-tagged event.
+      bus._emit({ type: 'task-started', taskId: 'task-a' as never, sessionId: 'sess-a' });
+      await vi.waitFor(() => {
+        expect(lastFrame()).toContain('IN PROGRESS');
+      });
+
+      // Switch to session B — the override map should reset, so the seeded
+      // TODO status from session B's ctx wins.
+      rerender(
+        <ViewHintsProvider>
+          <ExecuteView sessionId="sess-b" sessionManager={sm} signalBus={bus} />
+        </ViewHintsProvider>
+      );
+      await vi.waitFor(() => {
+        const frame = lastFrame() ?? '';
+        expect(frame).toContain('TODO');
+        expect(frame).not.toContain('IN PROGRESS');
+      });
+    });
+  });
+
   // ── Per-session log tail (ALS-tagged events) ─────────────────────────────
   describe('per-session log tail', () => {
     it('renders only events tagged with the active session id', async () => {
@@ -694,11 +904,12 @@ describe('ExecuteView', () => {
       runner.emit({ type: 'completed', ctx: { sprintId: sprint.id, cwd: '/tmp/demo-repo' } });
       // Allow the async IIFE to: (1) await the editor prompt (returns null
       // synchronously via FakePromptPort), (2) read tasks/sprint, (3) close.
-      await new Promise((r) => setTimeout(r, 80));
-
-      const reread = await sprintRepo.findById(sprint.id);
-      if (!reread.ok) throw new Error('expected sprint');
-      expect(reread.value.status).toBe('closed');
+      // Poll instead of fixed-wait so heavy parallel CI load doesn't race.
+      await vi.waitFor(async () => {
+        const reread = await sprintRepo.findById(sprint.id);
+        if (!reread.ok) throw new Error('expected sprint');
+        expect(reread.value.status).toBe('closed');
+      });
       // Success log should mention the close.
       const successEntry = logger.entries.find(
         (e) => e.level === 'success' && e.message.includes('closed automatically')

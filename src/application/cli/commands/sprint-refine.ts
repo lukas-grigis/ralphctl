@@ -11,7 +11,6 @@ import * as c from 'colorette';
 
 import { createRefineFlow, type RefineCtx } from '@src/application/chains/refine/refine-flow.ts';
 import { Result } from '@src/domain/result.ts';
-import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { SharedDeps } from '@src/application/bootstrap/shared-deps.ts';
 import { printError } from '@src/application/cli/command-runner.ts';
@@ -20,7 +19,6 @@ import { streamSession } from '@src/application/cli/stream-session.ts';
 
 interface SprintRefineFlags {
   readonly sprint: string;
-  readonly cwd?: string;
   /** When true, force headless mode regardless of TTY — for CI / non-interactive contexts. */
   readonly auto?: boolean;
 }
@@ -30,7 +28,6 @@ export function attachSprintRefine(group: Command, deps: SharedDeps): void {
     .command('refine')
     .description('clarify ticket requirements via AI (per-ticket HITL)')
     .requiredOption('--sprint <id>', 'sprint id')
-    .option('--cwd <abs>', 'working directory for the AI session', process.cwd())
     .option('--auto', 'run headless — Claude decides what a human would have answered (CI / batch mode)')
     .action(async (opts: SprintRefineFlags) => {
       const code = await runSprintRefine(deps, opts);
@@ -42,11 +39,6 @@ export async function runSprintRefine(deps: SharedDeps, opts: SprintRefineFlags)
   const sprintId = SprintId.parse(opts.sprint);
   if (!sprintId.ok) {
     printError(deps, sprintId.error);
-    return EXIT_ERROR;
-  }
-  const cwd = AbsolutePath.parse(opts.cwd ?? process.cwd());
-  if (!cwd.ok) {
-    printError(deps, cwd.error);
     return EXIT_ERROR;
   }
 
@@ -69,15 +61,11 @@ export async function runSprintRefine(deps: SharedDeps, opts: SprintRefineFlags)
   // have answered" mode).
   const ttyInteractive = process.stdout.isTTY && process.env['RALPHCTL_NO_TUI'] !== '1';
   const interactive = opts.auto === true ? false : ttyInteractive;
-  const sprintDir = String(deps.storage.sprintDir(sprintId.value));
-  const refinementOutputDir = `${sprintDir}/refinement`;
 
   const flow = createRefineFlow(deps, {
     sprintId: sprintId.value,
-    cwd: cwd.value,
     pendingTickets,
     interactive,
-    refinementOutputDir,
   });
   void Result; // typescript-result imported for clarity in adjacent files
 
@@ -85,6 +73,6 @@ export async function runSprintRefine(deps: SharedDeps, opts: SprintRefineFlags)
     sessionManager: deps.sessionManager,
     label: `refine ${sprintId.value}`,
     element: flow,
-    initialCtx: { sprintId: sprintId.value, cwd: cwd.value, interactive },
+    initialCtx: { sprintId: sprintId.value, interactive },
   });
 }

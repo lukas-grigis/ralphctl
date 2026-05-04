@@ -35,7 +35,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && rm -rf dist/prompts dist/skills && mkdir -p dist/prompts dist/skills && cp src/integration/ai/prompts/templates/*.md dist/prompts/ && cp -R src/integration/ai/skills/default dist/skills/default",
+    "build": "tsup && node scripts/build-assets.mjs",
     "prepublishOnly": "pnpm build",
     "dev": "tsx src/application/cli/entrypoint.ts",
     "lint": "eslint .",

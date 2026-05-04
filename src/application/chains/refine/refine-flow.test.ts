@@ -2,19 +2,17 @@
  * Step-order integration test for the refine chain. Locks the trace
  * shape on happy + failure paths so the chain definition cannot drift
  * silently.
- *
- * Legacy intent: src/business/pipelines/*.test.ts step-order + failure path coverage
  */
 import { describe, expect, it } from 'vitest';
 
-import { abs, makeSprint, makeTicket } from '@src/application/_test-fakes/fixtures.ts';
+import { FakeSessionFolderBuilderPort } from '@src/business/_test-fakes/fake-session-folder-builder-port.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
+import { makeSprint, makeTicket } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { createRefineFlow } from './refine-flow.ts';
 
-const CWD = abs('/tmp/refine-test');
-
 describe('createRefineFlow', () => {
-  it('runs load-sprint → assert-draft → link-skills → refine-tickets → unlink-skills', async () => {
+  it('runs load-sprint → assert-draft → refine-tickets (per-ticket: stage-ticket → build-refinement-unit → link-skills → render-prompt-to-file → refine-<id> → unlink-skills → save-after-<id> → export-sprint-requirements)', async () => {
     const sprint0 = makeSprint();
     const ticket = makeTicket({ title: 'A' });
     const sprint1 = sprint0.addTicket(ticket);
@@ -29,11 +27,10 @@ describe('createRefineFlow', () => {
 
     const flow = createRefineFlow(deps, {
       sprintId: sprint1.value.id,
-      cwd: CWD,
       pendingTickets: sprint1.value.tickets,
     });
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: sprint1.value.id });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -41,14 +38,17 @@ describe('createRefineFlow', () => {
     expect(result.value.trace.map((t) => t.stepName)).toStrictEqual([
       'load-sprint',
       'assert-draft',
+      'stage-ticket',
+      'build-refinement-unit',
       'link-skills',
+      'render-prompt-to-file',
       `refine-${ticket.id}`,
-      `save-after-${ticket.id}`,
       'unlink-skills',
+      `save-after-${ticket.id}`,
+      'export-sprint-requirements',
     ]);
     for (const entry of result.value.trace) expect(entry.status).toBe('completed');
 
-    // Sprint should have been persisted with the approved ticket.
     const reread = await deps.sprintRepo.findById(sprint1.value.id);
     if (!reread.ok) throw new Error('expected sprint after run');
     const updated = reread.value.ticketById(ticket.id);
@@ -56,7 +56,6 @@ describe('createRefineFlow', () => {
   });
 
   it('step short-circuit: mid-chain failure marks remaining steps as "skipped"', async () => {
-    // assert-draft fails → refine-tickets is skipped.
     const sprint0 = makeSprint();
     const activated = sprint0.activate(sprint0.createdAt);
     if (!activated.ok) throw new Error('precondition failed');
@@ -64,11 +63,10 @@ describe('createRefineFlow', () => {
     const deps = createTestDeps({ sprints: [activated.value] });
     const flow = createRefineFlow(deps, {
       sprintId: activated.value.id,
-      cwd: CWD,
       pendingTickets: [],
     });
 
-    const result = await flow.execute({ sprintId: activated.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: activated.value.id });
     expect(result.ok).toBe(false);
     if (result.ok) return;
 
@@ -88,14 +86,13 @@ describe('createRefineFlow', () => {
     const deps = createTestDeps({ sprints: [sprint1.value] });
     const flow = createRefineFlow(deps, {
       sprintId: sprint1.value.id,
-      cwd: CWD,
       pendingTickets: sprint1.value.tickets,
     });
 
     const ac = new AbortController();
     ac.abort();
 
-    const result = await flow.execute({ sprintId: sprint1.value.id, cwd: CWD }, ac.signal);
+    const result = await flow.execute({ sprintId: sprint1.value.id }, ac.signal);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error.code).toBe('aborted');
@@ -104,7 +101,6 @@ describe('createRefineFlow', () => {
 
   it('short-circuits at assert-draft when the sprint is not draft', async () => {
     const sprint0 = makeSprint();
-    // Activate the sprint to break the precondition.
     const activated = sprint0.activate(sprint0.createdAt);
     if (!activated.ok) throw new Error('precondition failed');
 
@@ -112,23 +108,57 @@ describe('createRefineFlow', () => {
 
     const flow = createRefineFlow(deps, {
       sprintId: activated.value.id,
-      cwd: CWD,
       pendingTickets: [],
     });
 
-    const result = await flow.execute({ sprintId: activated.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: activated.value.id });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error.code).toBe('invalid-state');
     const trace = result.error.trace.map((t) => t.stepName);
-    // load-sprint completed, assert-draft failed, the rest skipped.
     expect(trace.slice(0, 2)).toStrictEqual(['load-sprint', 'assert-draft']);
     expect(result.error.trace[1]?.status).toBe('failed');
-    expect(trace.slice(2)).toStrictEqual(['link-skills', 'refine-tickets', 'unlink-skills']);
+    expect(trace.slice(2)).toStrictEqual(['refine-tickets']);
     for (const entry of result.error.trace.slice(2)) {
       expect(entry.status).toBe('skipped');
     }
+  });
+
+  it('aborts when the session-folder builder fails for the first ticket', async () => {
+    const sprint0 = makeSprint();
+    const ticket = makeTicket({ title: 'A' });
+    const sprint1 = sprint0.addTicket(ticket);
+    if (!sprint1.ok) throw new Error(sprint1.error.message);
+
+    const failure = new StorageError({ subCode: 'io', message: 'cannot create unit folder' });
+    const sessionFolderBuilder = new FakeSessionFolderBuilderPort({ failWith: failure });
+    const deps = createTestDeps({
+      sprints: [sprint1.value],
+      overrides: { sessionFolderBuilder },
+    });
+
+    const flow = createRefineFlow(deps, {
+      sprintId: sprint1.value.id,
+      pendingTickets: sprint1.value.tickets,
+    });
+
+    const result = await flow.execute({ sprintId: sprint1.value.id });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error.message).toBe('cannot create unit folder');
+
+    const trace = result.error.trace.map((t) => t.stepName);
+    // Build-refinement-unit fails inside the per-ticket chain → link-skills,
+    // render, refine-<id>, unlink-skills, save-after-<id> all skipped.
+    expect(trace.slice(0, 4)).toStrictEqual(['load-sprint', 'assert-draft', 'stage-ticket', 'build-refinement-unit']);
+    expect(result.error.trace[3]?.status).toBe('failed');
+    for (const entry of result.error.trace.slice(4)) {
+      expect(entry.status).toBe('skipped');
+    }
+    const linkEntry = result.error.trace.find((t) => t.stepName === 'link-skills');
+    expect(linkEntry?.status).toBe('skipped');
   });
 
   it('short-circuits inside refine-tickets when the AI session fails for the first ticket', async () => {
@@ -154,26 +184,17 @@ describe('createRefineFlow', () => {
 
     const flow = createRefineFlow(deps, {
       sprintId: withBoth.value.id,
-      cwd: CWD,
       pendingTickets: withBoth.value.tickets,
     });
 
-    const result = await flow.execute({ sprintId: withBoth.value.id, cwd: CWD });
+    const result = await flow.execute({ sprintId: withBoth.value.id });
     expect(result.ok).toBe(false);
     if (result.ok) return;
 
     const stepNames = result.error.trace.map((t) => t.stepName);
-    // The first refine-<id> failed, save-after-<id> is skipped, the
-    // second per-ticket sub-chain is also skipped.
     expect(stepNames).toContain('load-sprint');
     expect(stepNames).toContain('assert-draft');
-    expect(stepNames).toContain('link-skills');
     expect(stepNames).toContain(`refine-${t1.id}`);
-    expect(stepNames).toContain(`save-after-${t1.id}`);
-    // unlink-skills is in the trace as a skipped tail step (Sequential
-    // skips remaining children after a failure earlier in the chain).
-    const unlinkEntry = result.error.trace.find((t) => t.stepName === 'unlink-skills');
-    expect(unlinkEntry?.status).toBe('skipped');
     const lastRunningStep = result.error.trace.find((t) => t.stepName === `refine-${t1.id}`);
     expect(lastRunningStep?.status).toBe('failed');
   });

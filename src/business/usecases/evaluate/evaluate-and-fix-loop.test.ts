@@ -13,11 +13,14 @@ import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
+import { Result } from '@src/domain/result.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { FakeAiSessionPort, type ScriptedSpawnOutcome } from '@src/business/_test-fakes/fake-ai-session-port.ts';
 import { FakeExternalPort } from '@src/business/_test-fakes/fake-external-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
 import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { FakeSignalParserPort } from '@src/business/_test-fakes/fake-signal-parser-port.ts';
+import { FakeWriteContextFilePort } from '@src/business/_test-fakes/fake-write-context-file-port.ts';
 import { ExecuteSingleTaskUseCase } from '@src/business/usecases/execute/execute-single-task.ts';
 import { PostTaskCheckUseCase } from '@src/business/usecases/execute/post-task-check.ts';
 import { EvaluateTaskUseCase } from './evaluate-task.ts';
@@ -65,7 +68,8 @@ function passSignal(): EvaluationSignal {
   return {
     type: 'evaluation',
     status: 'passed',
-    dimensions: [{ dimension: 'correctness', passed: true, finding: 'ok' }],
+    dimensions: [{ dimension: 'correctness', score: 5 as const, passed: true, finding: 'ok' }],
+    overallScore: 5,
     timestamp: T0,
   };
 }
@@ -74,7 +78,8 @@ function failSignal(failedDims: readonly string[] = ['safety']): EvaluationSigna
   return {
     type: 'evaluation',
     status: 'failed',
-    dimensions: failedDims.map((d) => ({ dimension: d, passed: false, finding: 'x' })),
+    dimensions: failedDims.map((d) => ({ dimension: d, score: 2 as const, passed: false, finding: 'x' })),
+    overallScore: 2,
     critique: 'fix it',
     timestamp: T0,
   };
@@ -115,6 +120,7 @@ function buildLoop(opts: {
   ai: FakeAiSessionPort;
   parser: FakeSignalParserPort;
   prompts: FakePromptBuilderPort;
+  writeContextFile: FakeWriteContextFilePort;
   external: FakeExternalPort;
   logger: FakeLoggerPort;
 } {
@@ -155,16 +161,25 @@ function buildLoop(opts: {
   });
 
   const prompts = new FakePromptBuilderPort();
+  const writeContextFile = new FakeWriteContextFilePort();
   const external = new FakeExternalPort();
   const logger = new FakeLoggerPort();
 
-  const evaluator = new EvaluateTaskUseCase(ai, prompts, parser, logger);
-  const generator = new ExecuteSingleTaskUseCase(ai, prompts, parser, logger);
+  const evaluator = new EvaluateTaskUseCase(ai, parser, logger);
+  const generator = new ExecuteSingleTaskUseCase(ai, parser, logger);
   const checkRunner = new PostTaskCheckUseCase(external, logger);
 
-  const loop = new EvaluateAndFixLoopUseCase(reader, evaluator, generator, checkRunner, logger);
+  const loop = new EvaluateAndFixLoopUseCase(
+    reader,
+    evaluator,
+    generator,
+    checkRunner,
+    prompts,
+    writeContextFile,
+    logger
+  );
 
-  return { loop, ai, parser, prompts, external, logger };
+  return { loop, ai, parser, prompts, writeContextFile, external, logger };
 }
 
 describe('EvaluateAndFixLoopUseCase', () => {
@@ -175,6 +190,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -199,6 +216,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -220,6 +239,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -241,6 +262,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -266,6 +289,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -287,6 +312,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -307,6 +334,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -333,6 +362,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
       resumeSessionId: 'initial-gen',
     });
 
@@ -356,6 +387,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -373,6 +406,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -391,6 +426,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
       checkScript: 'pnpm test',
     });
 
@@ -412,6 +449,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -430,6 +469,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task,
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     const roundComplete = logger.entries.find((e) => e.message.startsWith('evaluator round complete'));
@@ -455,6 +496,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);
@@ -463,6 +506,149 @@ describe('EvaluateAndFixLoopUseCase', () => {
     expect(result.value.finalSignal?.status).toBe('failed');
     // Cap dropped to 1 mid-loop — no generator fix attempt.
     expect(ai.captured).toHaveLength(1);
+  });
+
+  it('forwards addDirs to the evaluator on every round', async () => {
+    const { loop, ai } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    const result = await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      addDirs: [path('/tmp/sprints/a/workspaces/evaluate')],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Spawn 0 = evaluator round 1, spawn 1 = generator fix, spawn 2 = evaluator round 2.
+    // Both evaluator spawns must carry the --add-dir args.
+    expect(ai.captured[0]?.options.args).toStrictEqual(['--add-dir', '/tmp/sprints/a/workspaces/evaluate']);
+    expect(ai.captured[2]?.options.args).toStrictEqual(['--add-dir', '/tmp/sprints/a/workspaces/evaluate']);
+    // The generator (fix) spawn does NOT carry the evaluator's add-dir
+    // — it runs in the real repo, not the workspace.
+    expect(ai.captured[1]?.options.args).toBeUndefined();
+  });
+
+  it('uses evaluateSessionCwd as the evaluator cwd when set; generator continues to use input.cwd', async () => {
+    // Copilot path: the evaluator spawns inside the workspace mirror,
+    // not the real repo. The generator (fix) still spawns in the real
+    // repo (input.cwd) because it's editing actual files.
+    const { loop, ai } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateSessionCwd: path('/tmp/sprints/a/workspaces/evaluate'),
+    });
+
+    expect(String(ai.captured[0]?.options.cwd)).toBe('/tmp/sprints/a/workspaces/evaluate');
+    expect(String(ai.captured[1]?.options.cwd)).toBe('/repos/demo');
+    expect(String(ai.captured[2]?.options.cwd)).toBe('/tmp/sprints/a/workspaces/evaluate');
+  });
+
+  it('falls back to input.cwd when evaluateSessionCwd is undefined (Claude path / standalone evaluate)', async () => {
+    const { loop, ai } = buildLoop({
+      iterations: 1,
+      evalSignals: [[passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+    });
+
+    expect(String(ai.captured[0]?.options.cwd)).toBe('/repos/demo');
+  });
+
+  it('forwards evaluateWorkspaceDir to the prompt builder so the contract-files section renders', async () => {
+    const { loop, prompts } = buildLoop({
+      iterations: 1,
+      evalSignals: [[passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
+    });
+
+    expect(prompts.evaluateCalls).toHaveLength(1);
+    // FakePromptBuilderPort captures the input bag verbatim — the
+    // workspace dir survives the trip through the loop.
+    expect(prompts.evaluateCalls[0]?.evaluateWorkspaceDir).toBe('/tmp/sprints/a/workspaces/evaluate');
+  });
+
+  it('calls refreshWorkspace at the top of every round (including round 1)', async () => {
+    let calls = 0;
+    const refreshWorkspace = (): Promise<Result<void, StorageError>> => {
+      calls += 1;
+      return Promise.resolve(Result.ok(undefined));
+    };
+
+    const { loop } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      refreshWorkspace,
+    });
+
+    // Two evaluator rounds → two refresh calls (round 1 included).
+    expect(calls).toBe(2);
+  });
+
+  it('refreshWorkspace error does NOT block the round: log+continue with stale snapshot', async () => {
+    // Best-effort refresh — a disk-full / EPERM during refresh just
+    // means the AI sees a slightly-stale snapshot, which beats aborting
+    // the round outright.
+    const refreshWorkspace = (): Promise<Result<void, StorageError>> =>
+      Promise.resolve(Result.error(new StorageError({ subCode: 'io', message: 'EPERM during refresh' })));
+
+    const { loop, ai, logger } = buildLoop({
+      iterations: 1,
+      evalSignals: [[passSignal()]],
+    });
+
+    const result = await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      refreshWorkspace,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The evaluator still ran — round count is 1.
+    expect(result.value.rounds).toBe(1);
+    expect(ai.captured).toHaveLength(1);
+    // The refresh failure surfaces as a warning so the user can see it,
+    // but the loop did not abort.
+    expect(logger.hasMessage('warn', 'refresh evaluate workspace')).toBe(true);
   });
 
   it('honors a config raise mid-loop (re-read picks up the new ceiling)', async () => {
@@ -483,6 +669,8 @@ describe('EvaluateAndFixLoopUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
     });
 
     expect(result.ok).toBe(true);

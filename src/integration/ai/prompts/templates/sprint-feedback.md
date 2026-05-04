@@ -17,6 +17,8 @@ something entirely new (create a file, add a feature, tweak a script), do exactl
 
 {{COMPLETED_TASKS}}
 
+Feedback can ask for changes entirely unrelated to the tasks above — the task list is provided as codebase orientation, not as a constraint on what feedback may request.
+
 ## User Feedback — Implement this
 
 <task-specification>
@@ -55,6 +57,7 @@ interpretation and proceed.
   the underlying invariant or constraint directly instead.
 - **Must commit** — Create a git commit before signaling completion. Uncommitted changes leave the sprint branch dirty
   and block sprint close.
+- **Empty feedback** — If the feedback block is empty, signal `<task-blocked>No feedback provided</task-blocked>` rather than applying no change.
 
 </constraints>
 

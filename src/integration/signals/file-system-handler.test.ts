@@ -106,44 +106,59 @@ describe('FileSystemSignalHandler', () => {
     expect(lines[1]).toContain('second');
   });
 
-  it('writes evaluation full critique to evaluations/<task>.md and a summary to progress.md', async () => {
+  it('writes evaluation full critique to execution/<unit>/evaluation.md and a summary to progress.md', async () => {
     const signal: HarnessSignal = {
       type: 'evaluation',
       status: 'failed',
-      dimensions: [{ dimension: 'correctness', passed: false, finding: 'missing null guard' }],
+      dimensions: [{ dimension: 'correctness', score: 2, passed: false, finding: 'missing null guard' }],
+      overallScore: 2,
       critique: 'The implementation does not handle null input.',
       timestamp: NOW,
     };
-    const r = await handler.handle(signal, { sprintId: SPRINT_ID, taskId: TASK_ID });
+    const r = await handler.handle(signal, {
+      sprintId: SPRINT_ID,
+      taskId: TASK_ID,
+      taskName: 'Sample Task',
+    });
     expect(r.ok).toBe(true);
 
-    const sidecar = await readFile(join(paths.sprintDir(SPRINT_ID), 'evaluations', `${TASK_ID}.md`), 'utf-8');
+    const sidecar = await readFile(
+      join(paths.sprintDir(SPRINT_ID), 'execution', `${TASK_ID}-sample-task`, 'evaluation.md'),
+      'utf-8'
+    );
     expect(sidecar).toContain('# Evaluation — failed');
-    expect(sidecar).toContain('**correctness**: FAIL');
+    expect(sidecar).toContain('**correctness** (score 2/5): FAIL');
+    expect(sidecar).toContain('Overall score: 2/5');
     expect(sidecar).toContain('The implementation does not handle null input.');
 
     const progress = await readFile(join(paths.sprintDir(SPRINT_ID), 'progress.md'), 'utf-8');
     expect(progress).toContain('**Evaluation:** failed');
+    expect(progress).toContain('score 2/5');
   });
 
   it('overwrites the evaluation sidecar on subsequent calls (atomic per-task)', async () => {
     const first: HarnessSignal = {
       type: 'evaluation',
       status: 'failed',
-      dimensions: [],
+      dimensions: [{ dimension: 'correctness', score: 1, passed: false, finding: 'broken' }],
+      overallScore: 1,
       critique: 'first run',
       timestamp: NOW,
     };
     const second: HarnessSignal = {
       type: 'evaluation',
       status: 'passed',
-      dimensions: [],
+      dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: 'all good' }],
+      overallScore: 5,
       timestamp: NOW,
     };
-    await handler.handle(first, { sprintId: SPRINT_ID, taskId: TASK_ID });
-    await handler.handle(second, { sprintId: SPRINT_ID, taskId: TASK_ID });
+    await handler.handle(first, { sprintId: SPRINT_ID, taskId: TASK_ID, taskName: 'Sample Task' });
+    await handler.handle(second, { sprintId: SPRINT_ID, taskId: TASK_ID, taskName: 'Sample Task' });
 
-    const sidecar = await readFile(join(paths.sprintDir(SPRINT_ID), 'evaluations', `${TASK_ID}.md`), 'utf-8');
+    const sidecar = await readFile(
+      join(paths.sprintDir(SPRINT_ID), 'execution', `${TASK_ID}-sample-task`, 'evaluation.md'),
+      'utf-8'
+    );
     expect(sidecar).toContain('# Evaluation — passed');
     expect(sidecar).not.toContain('first run');
   });
@@ -156,6 +171,20 @@ describe('FileSystemSignalHandler', () => {
       timestamp: NOW,
     };
     const r = await handler.handle(signal, { sprintId: SPRINT_ID });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe('storage-error');
+    }
+  });
+
+  it('returns an error when an evaluation signal arrives without taskName', async () => {
+    const signal: HarnessSignal = {
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [],
+      timestamp: NOW,
+    };
+    const r = await handler.handle(signal, { sprintId: SPRINT_ID, taskId: TASK_ID });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error.code).toBe('storage-error');

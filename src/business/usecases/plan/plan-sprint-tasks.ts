@@ -12,25 +12,31 @@
  *    writes the final tasks JSON to `outputFilePath`; harness reads
  *    after exit.
  *
+ * The full plan prompt is written to disk by the upstream
+ * `render-prompt-to-file` chain leaf. This use case receives the path,
+ * builds a thin wrapper via {@link renderFileHandoffWrapper}, and spawns.
+ *
  * Single-responsibility on purpose. Saving the new tasks, cleaning up
  * abandoned ones, and re-ordering by dependencies are chain-layer
  * concerns — this class only owns the AI round-trip + parse. The parser
  * lives in {@link ./task-list-parser.ts} so this file stays focused on
  * orchestration.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
+import { ParseError } from '@src/domain/errors/parse-error.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session-port.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
-import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
+import { buildAdditionalCwdArgs } from '@src/business/usecases/_shared/add-dir-args.ts';
+import { renderFileHandoffWrapper } from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
 import { parseTaskList } from './task-list-parser.ts';
 
 /** Inputs to {@link PlanSprintTasksUseCase}. */
@@ -41,6 +47,18 @@ export interface PlanSprintTasksInput {
   readonly existingTasks: readonly Task[];
   /** Working directory for the AI session. */
   readonly cwd: AbsolutePath;
+  /**
+   * Absolute path to the plan prompt file produced by the upstream
+   * `render-prompt-to-file` leaf. Required — the wrapper the AI
+   * receives points at this path.
+   */
+  readonly promptFilePath: string;
+  /**
+   * Optional absolute path the AI session adapter writes a `session.md`
+   * audit record to. Set by the upstream `build-planning-folder` leaf
+   * to `<planningFolderRoot>/session.md`. Best-effort.
+   */
+  readonly sessionMdPath?: AbsolutePath;
   /**
    * Extra repo paths the AI session should be able to read from. The
    * launcher picks these via a multi-select prompt and persists the
@@ -71,7 +89,6 @@ export interface PlanSprintTasksOutput {
 export class PlanSprintTasksUseCase {
   constructor(
     private readonly ai: AiSessionPort,
-    private readonly prompts: PromptBuilderPort,
     private readonly logger: LoggerPort
   ) {}
 
@@ -109,33 +126,34 @@ export class PlanSprintTasksUseCase {
       );
     }
 
-    const promptResult = await this.prompts.buildPlanPrompt({
-      sprint: input.sprint,
-      existingTasks: input.existingTasks,
-      ...(interactive && input.outputFilePath !== undefined ? { outputFilePath: input.outputFilePath } : {}),
-    });
-    if (!promptResult.ok) return Result.error(promptResult.error);
-
     log.info(`planning tasks for sprint ${String(input.sprint.id)}`, {
       tickets: input.sprint.tickets.length,
       replan: input.existingTasks.length > 0,
       mode: interactive ? 'interactive' : 'headless',
     });
 
+    // The full plan prompt is on disk at `input.promptFilePath`. Hand
+    // the AI a thin wrapper pointing at it.
+    const wrapper = renderFileHandoffWrapper(input.promptFilePath);
+
     if (interactive) {
-      return this.runInteractive(input, promptResult.value, log);
+      return this.runInteractive(input, wrapper, log);
     }
 
     const extraArgs = buildAdditionalCwdArgs(input.additionalRepoPaths);
-    const sessionResult = await this.ai.spawnHeadless(promptResult.value, {
+    const sessionResult = await this.ai.spawnHeadless(wrapper, {
       cwd: input.cwd,
       ...(extraArgs.length > 0 ? { args: extraArgs } : {}),
       ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+      ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
     });
     if (!sessionResult.ok) return Result.error(sessionResult.error);
 
     const parsed = parseTaskList(sessionResult.value.output);
     if (!parsed.ok) return Result.error(parsed.error);
+
+    const guard = validateTasksAgainstSprint(parsed.value, input.sprint);
+    if (!guard.ok) return Result.error(guard.error);
 
     log.success(`planned ${String(parsed.value.length)} tasks for sprint ${String(input.sprint.id)}`);
     return Result.ok({
@@ -144,47 +162,35 @@ export class PlanSprintTasksUseCase {
     });
   }
 
-  // The full prompt is stashed in `planning-context.md` next to the
-  // output file; Claude is bootstrapped with a one-liner pointing at
-  // it so the chat history doesn't fill with the whole spec before the
-  // user sees any response.
+  // The full plan prompt is at `input.promptFilePath` (already on disk
+  // via the chain's `render-prompt-to-file` leaf). Claude is bootstrapped
+  // with the file-handoff wrapper so the chat history doesn't fill with
+  // the whole spec before the user sees any response.
   private async runInteractive(
     input: PlanSprintTasksInput,
-    prompt: string,
+    wrapper: string,
     log: ReturnType<LoggerPort['child']>
   ): Promise<Result<PlanSprintTasksOutput, DomainError>> {
     const handover = input.runInTerminal ?? (async <T>(fn: () => Promise<T>): Promise<T> => fn());
 
-    const outputPath = input.outputFilePath ?? '';
-    const contextDir = dirname(outputPath);
-    const contextPath = `${contextDir}/planning-context.md`;
-    try {
-      await mkdir(contextDir, { recursive: true });
-      await writeFile(contextPath, prompt, 'utf-8');
-    } catch (err) {
-      return Result.error(
-        new StorageError({
-          subCode: 'io',
-          message: `interactive plan: failed to write context file at ${contextPath}: ${err instanceof Error ? err.message : String(err)}`,
-          path: contextPath,
-          cause: err,
-        })
-      );
-    }
-
-    // `--add-dir` roots: the planning context dir (so Claude can read
-    // the handoff file and write tasks.json under acceptEdits without
+    // `--add-dir` roots: the prompt file's directory (so Claude can read
+    // the handoff target and write tasks.json under acceptEdits without
     // prompting), plus every repo the user picked at launch (so
     // exploration reads land in pre-allowed paths).
-    const extraArgs = [...buildAdditionalCwdArgs(input.additionalRepoPaths), '--add-dir', contextDir];
-
-    const bootstrap = `I need help planning tasks for sprint "${input.sprint.name}". The full context — sprint metadata, ticket requirements, repos, output schema — is in \`${contextPath}\`. Please read that file now and follow the instructions to generate the task list.`;
+    const promptDir = dirname(input.promptFilePath);
+    const outputDir = input.outputFilePath !== undefined ? dirname(input.outputFilePath) : promptDir;
+    const repoArgs = buildAdditionalCwdArgs(input.additionalRepoPaths);
+    const extraArgs = [...repoArgs, '--add-dir', promptDir];
+    if (outputDir !== promptDir) {
+      extraArgs.push('--add-dir', outputDir);
+    }
 
     const spawnResult = await handover(() =>
-      this.ai.spawnInteractive(bootstrap, {
+      this.ai.spawnInteractive(wrapper, {
         cwd: input.cwd,
         ...(extraArgs.length > 0 ? { args: extraArgs } : {}),
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+        ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
       })
     );
     if (!spawnResult.ok) return Result.error(spawnResult.error);
@@ -222,6 +228,9 @@ export class PlanSprintTasksUseCase {
     const parsed = parseTaskList(raw);
     if (!parsed.ok) return Result.error(parsed.error);
 
+    const guard = validateTasksAgainstSprint(parsed.value, input.sprint);
+    if (!guard.ok) return Result.error(guard.error);
+
     log.success(`planned ${String(parsed.value.length)} tasks for sprint ${String(input.sprint.id)}`);
     return Result.ok({
       tasks: parsed.value,
@@ -231,20 +240,51 @@ export class PlanSprintTasksUseCase {
 }
 
 /**
- * Translate a list of additional repo paths into Claude-CLI's
- * `--add-dir <path>` flag pairs. Returns `[]` when the input is empty
- * so callers can spread without injecting an empty `args` field.
+ * Cross-reference parsed tasks against the sprint they belong to. The parser
+ * is sprint-unaware on purpose — it only checks shape and value-object
+ * validity. These checks close the gap between "JSON parsed" and "AI emitted
+ * something the rest of the pipeline can use":
  *
- * Provider-specific knob — Copilot's CLI uses inherited cwd only and
- * doesn't accept additional roots, so passing extraArgs to Copilot is
- * a no-op (the Copilot adapter filters unknown flags). Keeping the
- * flag-build inside the use case is fine for now; if a third provider
- * appears with different syntax, push this through the AI session port
- * as `additionalCwds: AbsolutePath[]` and let each adapter render.
+ *  - Empty list — `[]` parses fine but means the AI ran the prompt and gave
+ *    up. Surface it here so the failure is at parse time, not later in
+ *    `assert-tasks-not-empty` deep inside `executeFlow`.
+ *  - `projectPath` outside the sprint's affected repos — would spawn the AI
+ *    in an unrelated directory or throw ENOENT mid-execute.
+ *  - `ticketId` outside the sprint's tickets — would orphan the task and
+ *    break refinement / progress views that key off the ticketId.
  */
-function buildAdditionalCwdArgs(paths: readonly AbsolutePath[] | undefined): readonly string[] {
-  if (paths === undefined || paths.length === 0) return [];
-  const args: string[] = [];
-  for (const p of paths) args.push('--add-dir', String(p));
-  return args;
+function validateTasksAgainstSprint(tasks: readonly Task[], sprint: Sprint): Result<void, ParseError> {
+  if (tasks.length === 0) {
+    return Result.error(
+      new ParseError({
+        subCode: 'schema-mismatch',
+        message: 'AI emitted an empty task list. The model produced JSON `[]`. Inspect the session log; rerun.',
+      })
+    );
+  }
+
+  const validRepoPaths = new Set(sprint.affectedRepositories.map((p) => String(p)));
+  const validTicketIds = new Set(sprint.tickets.map((t) => String(t.id)));
+
+  for (const [i, task] of tasks.entries()) {
+    const path = String(task.projectPath);
+    if (!validRepoPaths.has(path)) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `task[${String(i)}] projectPath '${path}' is not one of the sprint's affected repositories. Allowed: ${[...validRepoPaths].join(', ')}`,
+        })
+      );
+    }
+    if (task.ticketId !== undefined && !validTicketIds.has(String(task.ticketId))) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `task[${String(i)}] ticketId '${String(task.ticketId)}' does not match any sprint ticket. Allowed: ${[...validTicketIds].join(', ')}`,
+        })
+      );
+    }
+  }
+
+  return Result.ok(undefined);
 }

@@ -24,9 +24,10 @@ export class FakePromptBuilderPort implements PromptBuilderPort {
   readonly refineCalls: { ticket: Ticket }[] = [];
   readonly planCalls: { sprint: Sprint; existingTasks: readonly Task[] }[] = [];
   readonly ideateCalls: { sprint: Sprint; ideaText: string }[] = [];
-  readonly executeCalls: { task: Task; sprint: Sprint }[] = [];
-  readonly evaluateCalls: { task: Task; sprint: Sprint; previousCritique?: string }[] = [];
-  readonly feedbackCalls: { sprint: Sprint; feedbackText: string }[] = [];
+  readonly executeCalls: { task: Task; sprint: Sprint; checkScript?: string }[] = [];
+  readonly evaluateCalls: { task: Task; sprint: Sprint; previousCritique?: string; evaluateWorkspaceDir?: string }[] =
+    [];
+  readonly feedbackCalls: { sprint: Sprint; feedbackText: string; completedTasks: readonly Task[] }[] = [];
   readonly onboardCalls: BuildOnboardPromptInput[] = [];
 
   constructor(private readonly opts: FakePromptBuilderOptions = {}) {}
@@ -53,7 +54,11 @@ export class FakePromptBuilderPort implements PromptBuilderPort {
     return Promise.resolve(Result.ok(`ideate:${input.sprint.id}:${input.ideaText}`));
   }
 
-  buildExecutePrompt(input: { task: Task; sprint: Sprint }): Promise<Result<string, StorageError>> {
+  buildExecutePrompt(input: {
+    task: Task;
+    sprint: Sprint;
+    checkScript?: string;
+  }): Promise<Result<string, StorageError>> {
     this.executeCalls.push(input);
     if (this.opts.failWith) return Promise.resolve(Result.error(this.opts.failWith));
     return Promise.resolve(Result.ok(`execute:${input.task.id}`));
@@ -63,16 +68,23 @@ export class FakePromptBuilderPort implements PromptBuilderPort {
     task: Task;
     sprint: Sprint;
     previousCritique?: string;
+    evaluateWorkspaceDir?: string;
   }): Promise<Result<string, StorageError>> {
     this.evaluateCalls.push(input);
     if (this.opts.failWith) return Promise.resolve(Result.error(this.opts.failWith));
     return Promise.resolve(Result.ok(`evaluate:${input.task.id}`));
   }
 
-  buildFeedbackPrompt(input: { sprint: Sprint; feedbackText: string }): Promise<Result<string, StorageError>> {
+  buildFeedbackPrompt(input: {
+    sprint: Sprint;
+    feedbackText: string;
+    completedTasks: readonly Task[];
+  }): Promise<Result<string, StorageError>> {
     this.feedbackCalls.push(input);
     if (this.opts.failWith) return Promise.resolve(Result.error(this.opts.failWith));
-    return Promise.resolve(Result.ok(`feedback:${input.sprint.id}:${input.feedbackText}`));
+    return Promise.resolve(
+      Result.ok(`feedback:${input.sprint.id}:${input.feedbackText}:done=${String(input.completedTasks.length)}`)
+    );
   }
 
   buildOnboardPrompt(input: BuildOnboardPromptInput): Promise<Result<string, StorageError>> {

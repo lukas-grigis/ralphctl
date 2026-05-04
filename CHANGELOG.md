@@ -5,32 +5,69 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-## [0.6.0] - 2026-05-01
+## [0.6.0] - 2026-05-04
 
 ### Added
 
-- 5-module Clean Architecture (kernel / domain / business / integration / application) with strict ESLint
+- **5-module Clean Architecture** (kernel / domain / business / integration / application) with strict ESLint
   layer fences
-- Kernel chain framework: Element / Leaf / Sequential / Parallel / Retry / OnError + ChainRunner runtime
-- Multi-chain SessionManager — N chains run concurrently; Tab cycles, Ctrl+1..9 jumps;
+- **Kernel chain framework** — Element / Leaf / Sequential / Retry / OnError + ChainRunner runtime; five
+  primitives, no concurrent fan-out (a `forEachItem`-shaped primitive is deferred until a second consumer
+  materialises)
+- **Multi-chain SessionManager** — N chains run concurrently; Tab cycles, Ctrl+1..9 jumps;
   foreground/background detaches without killing
-- Chain definitions: refine, plan, ideate, execute, evaluate, feedback, **create-pr** (new),
+- **Chain definitions:** refine, plan, ideate, execute, evaluate, feedback, **create-pr** (new),
   **onboard** (extended interview mode — setup + verify + CLAUDE.md + skill suggestions)
-- Persistent banner across all views; help overlay as modal takeover; prompt transcript above active prompt
-- Pipeline map on home with bright "Next step" quick-action; tiered browse menu
-  (Sprint / Ticket / Task / Project drill-ins)
+- **Sandbox workspaces for refine / plan / evaluator** — refine and plan AI sessions run in dedicated
+  `<sprintDir>/workspaces/{refine,plan}/` sandboxes instead of hijacking the user's first repo. Affected
+  repos are exposed via `--add-dir` (Claude) or mirrored under `workspaces/<phase>/repos/` (Copilot). The
+  evaluator (and its fix-loop) gets a `<sprintDir>/workspaces/evaluate/` contract pack with refined
+  requirements, full task plan, project context, dimension definitions, and prior sibling task evaluations —
+  refreshed per round. Workspaces persist as durable debugging artefacts.
+- `WorkspaceBuilderPort` (`src/business/ports/workspace-builder-port.ts`) with four methods:
+  `buildRefineWorkspace`, `buildPlanWorkspace`, `buildEvaluateWorkspace`, `refreshEvaluateWorkspace`;
+  `FileWorkspaceBuilderAdapter` is the implementation
+- New chain leaves: `build-refine-workspace`, `build-plan-workspace`, `build-evaluate-workspace`
+- `render-prompt-to-file` leaf — renders the full prompt template with all placeholders filled, asserts no
+  `{{TOKEN}}` remains, writes to `<sprintDir>/contexts/<flow>-<id>.md`, and hands the AI a thin wrapper
+  pointing at that file. Inserted into execute (per-task), feedback, and other AI-spawning flows.
+- `WriteContextFilePort` (`src/business/ports/write-context-file-port.ts`) + `FileWriteContextFileAdapter`
+  (`src/integration/persistence/file-write-context-file-adapter.ts`) — dedicated port for writing context
+  files to the sprint working directory; replaces the ad-hoc file writes previously embedded in use cases
+- `resolve-branch` leaf in `executeFlow` — prompts keep / auto / custom on first run when no branch is set,
+  validates, persists via `Sprint.setBranch()`, and creates the branch in every unique `task.projectPath`;
+  skips silently on resume
+- `dirty-tree-preflight` leaf in `executeFlow` — detects uncommitted changes before check scripts run;
+  user chooses stash / hard-reset / cancel
+- `summarise-execution` leaf in `executeFlow` — emits a structured completion summary after `unlink-skills`
+- `detect-existing-files` + `confirm-start-ai` leaves in `onboardFlow` — inspect the repo for a prior
+  project context file and confirm with the user before launching the AI inventory session
+- `load-tasks` step in `feedbackFlow` — loads the completed task list so the AI receives full context
+- **Dependency-aware execute dashboard** — `<TaskExecutionList />` renders depth-indented per-task cards
+  (status pill, activity line, depends-on line, blocked reason); `dag-depth.ts` provides the shared
+  topological BFS ordering; `<TaskExecutionGrid />` is a thin wrapper that adds the section header
+- `onCtxUpdate` callback on `Element.execute` — `ChainRunner` exposes live `.ctx` between steps so the
+  TUI execute view can populate the task list without waiting for the chain to settle. All four primitives
+  (Leaf, Sequential, Retry, OnError) thread the callback transparently
+- `Task.resetToTodo()` — resets a stale `in_progress` task back to `todo`; used by the
+  `reset-stale-in-progress` leaf in `executeFlow` to recover tasks left open by a prior crash
+- **Per-phase skills bundles** — `BundledSkillsCopier` installs the union of `default/` and `<phase>/`
+  (refine / plan / exec) into `<cwd>/.claude/skills/`. Project-authored skills always win — same-named
+  bundled skills are skipped at install and never removed at uninstall. Per-cwd install manifest tracks
+  only what was copied so uninstall doesn't `rm -rf` the user's tree
 - `mark-blocked` task status with reason
 - Multi-round evaluator fix loop with plateau detection
 - Live config read per task settlement
 - Progressive chain trace (subscribers receive `step` events as they happen)
+- Persistent banner across all views; help overlay as modal takeover; prompt transcript above active prompt
+- Pipeline map on home with bright "Next step" quick-action; tiered browse menu
+  (Sprint / Ticket / Task / Project drill-ins)
 - Schema-driven settings panel
 - Doctor view + onboarding-status check + log path surfacing
 - Shell tab-completion (bash / zsh / fish) with COMP\_\* intercept
 - `sprint progress` (with health folded in) + `sprint requirements` + `sprint context` exports
-- Repository.setupScript + onboardedAt fields; Sprint.pullRequestUrl
-- Storage layout: ~/.ralphctl/{config,data,cache,logs,backups}/
+- `Repository.setupScript` + `onboardedAt` fields; `Sprint.pullRequestUrl`
+- Storage layout: `~/.ralphctl/{config,data,cache,logs,backups}/`
 - First-launch wizard — bare `ralphctl` on a fresh install routes the user straight to project-add with
   a welcome card; non-TTY surfaces a friendly hint instead of help noise
 - Legacy-layout detector at boot — refuses to start on a 0.5.x `~/.ralphctl/` and prints back-up
@@ -38,17 +75,38 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Read version from package.json at build time (was hardcoded)
+- Read version from `package.json` at build time (was hardcoded)
 - Repository interfaces moved to domain layer; service ports stay in business
-- Per-aggregate repositories (SprintRepository / ProjectRepository / TaskRepository) replace the
-  monolithic PersistencePort
+- Per-aggregate repositories (`SprintRepository` / `ProjectRepository` / `TaskRepository`) replace the
+  monolithic `PersistencePort`
+- **Execute flow runs strictly sequentially** — `executeFlow` uses a `Sequential` of topologically-ordered
+  per-task chains; tasks execute one at a time in dependency order
+- **Execute prompt consolidated** — task data is inlined in the rendered prompt file; the legacy two-file
+  split (task context + prompt) is gone, `WriteTaskContextUseCase` removed
+- CLI `--branch <name>` flag split into `--branch` (boolean, auto-generate `ralphctl/<sprint-id>`) and
+  `--branch-name <name>` (custom name); both pre-seed `sprint.branch` so the `resolve-branch` leaf skips
+  its prompt
+- Evaluator `OnError` passes through `code: 'aborted'` — Ctrl+C mid-evaluator no longer swallows the
+  cancel and silently marks the task done
+- `EvaluateAndFixLoopUseCase` accepts optional `addDirs`, `evaluateSessionCwd`, `evaluateWorkspaceDir`,
+  and `refreshWorkspace` — the standalone `sprint evaluate` chain leaves them undefined and runs unchanged
+- Plan task-id parser accepts placeholder strings; the harness mints the real `TaskId` and resolves
+  `blockedBy` through a placeholder→id map. Eliminates "task id must be 8 lowercase hex characters" and
+  "depends on unknown task" errors when the AI emits friendly local ids
+- Plan / ideate downstream guards — task `projectPath` and `ticketId` are validated against the sprint's
+  affected repositories and tickets at parse time; empty task lists error at parse time
+
+### Fixed
+
+- **Plan no longer drops `.claude/skills/` into the user's first repo** — the `repos[0] ?? opts.cwd` bug
+  is fixed; skills now land in the sandbox workspace
 
 ### Removed
 
-- Legacy 4-module src/ layout
+- Legacy 4-module `src/` layout
 - Pipeline framework (replaced by kernel chain framework)
-- Daemon process registry + sprint list-runs/attach/stop/why (intentional cut)
-- sprint insights, agents-md linter, version-check, completion handlers (legacy)
+- Daemon process registry + `sprint list-runs` / `attach` / `stop` / `why` (intentional cut)
+- `sprint insights`, agents-md linter, version-check, completion handlers (legacy)
 
 ### Breaking
 

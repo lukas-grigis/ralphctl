@@ -9,7 +9,7 @@ import type {
 } from '@src/application/runtime/session-manager-port.ts';
 import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { ChainRunner } from '@src/kernel/runtime/chain-runner.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { clearCachedStack } from '@src/application/tui/runtime/router-stack-cache.ts';
 
 // The router caches the stack at module level so it survives the

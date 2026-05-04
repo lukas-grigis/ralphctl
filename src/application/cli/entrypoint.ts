@@ -16,6 +16,7 @@ import { getSharedDeps } from '@src/application/bootstrap/get-shared-deps.ts';
 import type { SharedDeps } from '@src/application/bootstrap/shared-deps.ts';
 import { isFirstLaunch } from '@src/application/runtime/first-launch.ts';
 import { detectLegacyLayout } from '@src/application/runtime/legacy-detector.ts';
+import { verifyDistAssets } from '@src/integration/ai/dist-asset-manifest.ts';
 import { mountInkApp } from '@src/application/tui/runtime/mount.tsx';
 import { handleCompletionRequest } from './completion/handle.ts';
 import { attachCompletion } from './commands/completion-install.ts';
@@ -161,6 +162,16 @@ export async function main(argv: readonly string[]): Promise<ExitCode> {
     const legacy = await detectLegacyLayout();
     if (legacy.isLegacy) {
       process.stderr.write(`error: ${legacy.hint}\n`);
+      return EXIT_ERROR;
+    }
+    // Bundled-mode integrity check. No-op in dev — verifyDistAssets returns
+    // ok immediately when `manifest.json` is absent next to the running
+    // module (the dev signal). When bundled, a missing or corrupt asset
+    // tree fails fast with a clear repair hint instead of letting prompt
+    // builds silently emit empty templates.
+    const distOk = await verifyDistAssets();
+    if (!distOk.ok) {
+      process.stderr.write(`error: ${distOk.error.message}\n`);
       return EXIT_ERROR;
     }
   }

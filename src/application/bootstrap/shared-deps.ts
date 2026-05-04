@@ -33,6 +33,8 @@ import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import type { SessionFolderBuilderPort } from '@src/business/ports/session-folder-builder-port.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
 import type { PromptPort } from '@src/business/ports/prompt-port.ts';
 import type { ProjectRepository } from '@src/domain/repositories/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repositories/sprint-repository.ts';
@@ -42,8 +44,7 @@ import { TextPromptBuilderAdapter } from '@src/integration/ai/prompts/prompt-bui
 import { FileTemplateLoader } from '@src/integration/ai/prompts/template-loader.ts';
 import { ProviderAiSessionAdapter } from '@src/integration/ai/session/provider-ai-session-adapter.ts';
 import { NodeProcessRunner } from '@src/integration/ai/session/process-runner.ts';
-import { FileSessionSkillsLinker, type SessionSkillsLinker } from '@src/integration/ai/skills/session-skills-linker.ts';
-import { FileSkillsSyncer, type SkillsSyncer } from '@src/integration/ai/skills/skills-syncer.ts';
+import { type BundledSkillsCopier, FileBundledSkillsCopier } from '@src/integration/ai/skills/bundled-skills-copier.ts';
 import { CheckScriptRunner, DEFAULT_CHECK_TIMEOUT_MS } from '@src/integration/external/check-script-runner.ts';
 import { DefaultExternalAdapter } from '@src/integration/external/external-adapter.ts';
 import { GitOperations } from '@src/integration/external/git-operations.ts';
@@ -58,6 +59,8 @@ import { FileLocker } from '@src/integration/persistence/file-locker.ts';
 import { FileProjectRepository } from '@src/integration/persistence/file-project-repository.ts';
 import { FileSprintRepository } from '@src/integration/persistence/file-sprint-repository.ts';
 import { FileTaskRepository } from '@src/integration/persistence/file-task-repository.ts';
+import { FileWriteContextFileAdapter } from '@src/integration/persistence/file-write-context-file-adapter.ts';
+import { FileSessionFolderBuilderAdapter } from '@src/integration/persistence/session-folder-builder-adapter.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import { InMemorySignalBus } from '@src/integration/signals/bus.ts';
 import { FileSystemSignalHandler } from '@src/integration/signals/file-system-handler.ts';
@@ -97,8 +100,13 @@ export interface SharedDeps {
    */
   readonly liveConfig: LiveConfigReader;
   readonly storage: StoragePaths;
-  readonly skillsSyncer: SkillsSyncer;
-  readonly skillsLinker: SessionSkillsLinker;
+  /**
+   * Skills lifecycle. The chain layer's `linkSkillsLeaf` / `unlinkSkillsLeaf`
+   * brackets each AI session phase with `install(cwd)` / `uninstall(cwd)`,
+   * so the bundled defaults land under `<cwd>/.claude/skills/` for the
+   * duration of the spawn and disappear on teardown.
+   */
+  readonly skillsLinker: BundledSkillsCopier;
   readonly sessionId: string;
   /**
    * Multi-chain registry. The CLI / TUI shutdown path must call
@@ -112,14 +120,31 @@ export interface SharedDeps {
    */
   readonly prompt: PromptPort;
   /**
-   * Global rate-limit coordinator shared by every per-task chain. The
-   * chain's `wait-for-rate-limit` leaf awaits this before launching its
-   * AI session; `ExecuteSingleTaskUseCase` pauses it when a spawn returns
-   * a 429 hint so the rest of the parallel fan-out throttles in lock-step.
-   * State changes broadcast on the signal bus via the listener wired
-   * inside this composition root.
+   * Global rate-limit coordinator. `ExecuteSingleTaskUseCase` calls
+   * `pause(reason)` when a spawn returns a 429 hint and `resume()` once
+   * the cooldown elapses; the coordinator's events bridge to
+   * `SignalBusPort` so the dashboard's `RateLimitBanner` renders the
+   * pause/resume state. With sequential task execution there are no
+   * siblings to throttle, but the in-task retry-via-resume path still
+   * relies on the coordinator's pause+resume signalling.
    */
   readonly rateLimitCoordinator: RateLimitCoordinator;
+  /**
+   * Writes per-task markdown context files under
+   * `<sprintDir>/contexts/<task-id>.md`. The execute chain's
+   * `write-task-context` leaf renders the body and hands the absolute
+   * path to `ExecuteSingleTaskUseCase`.
+   */
+  readonly writeContextFile: WriteContextFilePort;
+  /**
+   * Materialises per-unit sandbox folders under
+   * `<sprintDir>/{refinement,ideation,planning,execution}/`. Refine /
+   * ideate / plan / per-task chains spawn AI sessions inside these
+   * folders so the agent never edits the user's real repos by accident
+   * (with the deliberate exception of execution where the generator
+   * runs in `task.projectPath`).
+   */
+  readonly sessionFolderBuilder: SessionFolderBuilderPort;
 }
 
 /** Console sink selector — chooses how user-facing log lines render. */
@@ -142,11 +167,12 @@ export interface SharedDepsOverrides {
   readonly taskRepo?: TaskRepository;
   readonly configStore?: ConfigStorePort;
   readonly liveConfig?: LiveConfigReader;
-  readonly skillsSyncer?: SkillsSyncer;
-  readonly skillsLinker?: SessionSkillsLinker;
+  readonly skillsLinker?: BundledSkillsCopier;
   readonly sessionManager?: SessionManagerPort;
   readonly prompt?: PromptPort;
   readonly rateLimitCoordinator?: RateLimitCoordinator;
+  readonly writeContextFile?: WriteContextFilePort;
+  readonly sessionFolderBuilder?: SessionFolderBuilderPort;
 }
 
 /**
@@ -229,6 +255,8 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
   const sprintRepo = overrides.sprintRepo ?? new FileSprintRepository(storage, fileLocker, logger);
   const projectRepo = overrides.projectRepo ?? new FileProjectRepository(storage, fileLocker);
   const taskRepo = overrides.taskRepo ?? new FileTaskRepository(storage, fileLocker);
+  const writeContextFile = overrides.writeContextFile ?? new FileWriteContextFileAdapter();
+  const sessionFolderBuilder = overrides.sessionFolderBuilder ?? new FileSessionFolderBuilderAdapter(storage, logger);
   const configStore = overrides.configStore ?? new FileConfigStore(storage, fileLocker);
   const liveConfig = overrides.liveConfig ?? new FileLiveConfigReader(configStore);
 
@@ -258,6 +286,10 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
     overrides.aiSession ??
     new ProviderAiSessionAdapter({
       process: new NodeProcessRunner(),
+      // Logger threaded in so session.md write failures surface as warns
+      // through the same FanOutLogger every other adapter uses; absent
+      // logger means audit failures vanish silently.
+      logger,
       // Lazy provider resolution — read fresh on first session spawn so
       // mid-process provider changes via the settings panel apply
       // without a restart. Defaults to 'claude' when the user has not
@@ -291,9 +323,9 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
   const prompts = overrides.prompts ?? new TextPromptBuilderAdapter(new FileTemplateLoader());
 
   // ── Skills ───────────────────────────────────────────────────────
-  const skillsSyncer = overrides.skillsSyncer ?? new FileSkillsSyncer({ cacheDir: storage.cacheDir });
-  const skillsLinker =
-    overrides.skillsLinker ?? new FileSessionSkillsLinker({ cacheSkillsDir: skillsSyncer.cacheSkillsDir });
+  // Copy bundled defaults into <sessionDir>/.claude/skills/ on phase
+  // entry; rm -rf on phase exit. No cache, no symlinks.
+  const skillsLinker = overrides.skillsLinker ?? new FileBundledSkillsCopier();
 
   // ── Session manager ──────────────────────────────────────────────
   // Multi-chain registry. One SessionManager per composition. Use
@@ -303,16 +335,11 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
   const sessionManager = overrides.sessionManager ?? new SessionManager();
 
   // ── Rate-limit coordinator ────────────────────────────────────────
-  // Global pause / resume primitive shared across every in-flight
-  // per-task chain. ExecuteSingleTaskUseCase calls `pause()` when a spawn
-  // returns a 429 hint; the per-task chain's `wait-for-rate-limit` leaf
-  // awaits `waitUntilResumed()` before launching its own AI session so
-  // the whole parallel fan-out throttles in lock-step.
-  //
-  // Bridge state changes to the signal bus so the live dashboard's
-  // RateLimitBanner reacts uniformly whether the pause came from the
-  // adapter's per-spawn retry loop (already wired above) or from the
-  // use case at the chain layer.
+  // Global pause / resume primitive used by `ExecuteSingleTaskUseCase`
+  // for in-task pause+resume on 429 hits. With sequential task
+  // execution there are no siblings to throttle, but the coordinator's
+  // events still bridge to the signal bus so the dashboard's
+  // RateLimitBanner renders the pause/resume state.
   const rateLimitCoordinator = overrides.rateLimitCoordinator ?? new RateLimitCoordinator();
   rateLimitCoordinator.subscribe((event) => {
     if (event.type === 'paused') {
@@ -357,11 +384,12 @@ export async function createSharedDeps(overrides: SharedDepsOverrides = {}): Pro
     configStore,
     liveConfig,
     storage,
-    skillsSyncer,
     skillsLinker,
     sessionId,
     sessionManager,
     prompt,
     rateLimitCoordinator,
+    writeContextFile,
+    sessionFolderBuilder,
   };
 }

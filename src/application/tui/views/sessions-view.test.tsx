@@ -7,7 +7,7 @@ import type {
   SessionDescriptor,
   SessionManagerEvent,
 } from '@src/application/runtime/session-manager-port.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { ChainRunner } from '@src/kernel/runtime/chain-runner.ts';
 import { RouterProvider } from './router-context.ts';

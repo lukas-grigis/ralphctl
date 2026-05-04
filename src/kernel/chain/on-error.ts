@@ -1,6 +1,6 @@
 import { Result } from 'typescript-result';
 
-import type { ChainTraceEntry, ElementResult, KernelError, OnTraceCallback } from './element.ts';
+import type { ChainTraceEntry, ElementResult, KernelError, OnCtxUpdateCallback, OnTraceCallback } from './element.ts';
 import { Element } from './element.ts';
 
 /** Configuration for an {@link OnError}. */
@@ -41,16 +41,17 @@ export class OnError<TCtx> extends Element<TCtx> {
   protected override async run(
     ctx: TCtx,
     signal?: AbortSignal,
-    onTrace?: OnTraceCallback
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
   ): Promise<ElementResult<TCtx>> {
-    const childResult = await this.child.execute(ctx, signal, onTrace);
+    const childResult = await this.child.execute(ctx, signal, onTrace, onCtxUpdate);
     if (childResult.ok) return childResult;
 
     const matches = this.config.catchIf ? this.config.catchIf(childResult.error.error) : true;
     if (!matches) return childResult;
 
     const trace: ChainTraceEntry[] = [...childResult.error.trace];
-    const fallbackResult = await this.config.fallback.execute(ctx, signal, onTrace);
+    const fallbackResult = await this.config.fallback.execute(ctx, signal, onTrace, onCtxUpdate);
     if (fallbackResult.ok) {
       trace.push(...fallbackResult.value.trace);
       return Result.ok({ ctx: fallbackResult.value.ctx, trace });

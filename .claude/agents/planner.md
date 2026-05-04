@@ -147,7 +147,7 @@ When creating a task breakdown:
 When planning work on ralphctl, respect the five-module Clean Architecture in `CLAUDE.md` and
 `.claude/docs/ARCHITECTURE.md`. Everything lives under `src/`:
 
-- **Kernel** (`src/kernel/`) — chain framework (`Element`, `Leaf`, `Sequential`, `Parallel`, `Retry`, `OnError`)
+- **Kernel** (`src/kernel/`) — chain framework (`Element`, `Leaf`, `Sequential`, `Retry`, `OnError`)
   - pure algorithms. Zero IO, zero domain knowledge.
 - **Domain** (`src/domain/`) — entities, value objects, repository interfaces (`domain/repositories/`), errors,
   signals, `result.ts`. Pure, zero IO.

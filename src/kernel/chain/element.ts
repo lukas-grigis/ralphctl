@@ -41,6 +41,23 @@ export type ChainTrace = readonly ChainTraceEntry[];
  */
 export type OnTraceCallback = (entry: ChainTraceEntry) => void;
 
+/**
+ * Optional progressive-ctx callback. Implementations call this whenever the
+ * element produces a fresh context value — after each successful leaf body,
+ * after each successful Sequential child, after a Retry attempt succeeds,
+ * after an OnError fallback succeeds, etc.
+ *
+ * Subscribers (the {@link ChainRunner}) use this to keep `runner.ctx` live
+ * during a run instead of frozen at the initial value until the chain
+ * settles. UIs that read `runner.ctx` mid-flight (e.g. the live execute
+ * dashboard's per-task panel reading `ctx.tasks`) get the freshest value
+ * the framework has.
+ *
+ * Failure paths do NOT call `onCtxUpdate` — only successful transitions
+ * produce a new ctx worth surfacing.
+ */
+export type OnCtxUpdateCallback<TCtx> = (ctx: TCtx) => void;
+
 /** Successful element execution: new context plus the trace up to this point. */
 export interface ElementSuccess<TCtx> {
   readonly ctx: TCtx;
@@ -121,7 +138,12 @@ export abstract class Element<TCtx> {
    * entries onto fresh objects and stores fresh objects in its own
    * trace).
    */
-  public async execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTraceCallback): Promise<ElementResult<TCtx>> {
+  public async execute(
+    ctx: TCtx,
+    signal?: AbortSignal,
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
+  ): Promise<ElementResult<TCtx>> {
     let emittedCount = 0;
     const wrappedOnTrace: OnTraceCallback | undefined = onTrace
       ? (entry) => {
@@ -146,7 +168,7 @@ export abstract class Element<TCtx> {
 
     let result: ElementResult<TCtx>;
     try {
-      result = await this.run(ctx, signal, wrappedOnTrace);
+      result = await this.run(ctx, signal, wrappedOnTrace, onCtxUpdate);
     } catch (err) {
       const kernelError = toKernelError(err);
       const entry: ChainTraceEntry = {
@@ -183,7 +205,12 @@ export abstract class Element<TCtx> {
    * synthesise trace entries themselves (e.g. composite skipped/aborted
    * entries) MUST also call `onTrace` for those entries.
    */
-  protected abstract run(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTraceCallback): Promise<ElementResult<TCtx>>;
+  protected abstract run(
+    ctx: TCtx,
+    signal?: AbortSignal,
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
+  ): Promise<ElementResult<TCtx>>;
 
   /**
    * Helper for leaf-style elements: time the body, build a single-entry
@@ -201,7 +228,8 @@ export abstract class Element<TCtx> {
   protected async runLeaf(
     body: () => Promise<Result<TCtx, KernelError>>,
     signal?: AbortSignal,
-    onTrace?: OnTraceCallback
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
   ): Promise<ElementResult<TCtx>> {
     const start = performance.now();
     let result: Result<TCtx, KernelError>;
@@ -247,6 +275,11 @@ export abstract class Element<TCtx> {
         status: 'completed' as const,
         durationMs,
       };
+      // ctx-update fires BEFORE the trace event so subscribers handling
+      // the step event see the freshest ctx via runner.ctx — otherwise
+      // the subscriber reads the stale value and the live UI lags one
+      // step behind.
+      onCtxUpdate?.(successCtx);
       onTrace?.(entry);
       return Result.ok({
         ctx: successCtx,

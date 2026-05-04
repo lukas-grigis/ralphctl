@@ -4,42 +4,41 @@ import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/errors/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { abs } from '@src/application/_test-fakes/fixtures.ts';
-import { linkSkillsLeaf, type LinkSkillsCtx, type SessionSkillsLinkerLike } from './link-skills.ts';
+import { linkSkillsLeaf, type LinkSkillsCtx, type SessionSkillsLinkerLike, type SkillsPhase } from './link-skills.ts';
 
 class RecordingLinker implements SessionSkillsLinkerLike {
-  readonly linkCalls: { sessionDir: AbsolutePath; skills: readonly string[] }[] = [];
-  readonly unlinkCalls: AbsolutePath[] = [];
+  readonly installCalls: { readonly cwd: AbsolutePath; readonly phase: SkillsPhase }[] = [];
+  readonly uninstallCalls: AbsolutePath[] = [];
 
-  link(sessionDir: AbsolutePath, skills: readonly string[]): Promise<Result<void, StorageError>> {
-    this.linkCalls.push({ sessionDir, skills });
+  install(sessionDir: AbsolutePath, phase: SkillsPhase): Promise<Result<void, StorageError>> {
+    this.installCalls.push({ cwd: sessionDir, phase });
     return Promise.resolve(Result.ok());
   }
-  unlink(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
-    this.unlinkCalls.push(sessionDir);
+  uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
+    this.uninstallCalls.push(sessionDir);
     return Promise.resolve(Result.ok());
   }
 }
 
 describe('linkSkillsLeaf', () => {
-  it('forwards the cwd and configured skill names to the linker', async () => {
+  it('forwards the cwd and phase to the linker on install', async () => {
     const linker = new RecordingLinker();
-    const leaf = linkSkillsLeaf<LinkSkillsCtx>({ skillsLinker: linker }, { skills: ['planner', 'reviewer'] });
+    const leaf = linkSkillsLeaf<LinkSkillsCtx>({ skillsLinker: linker }, { phase: 'refine' });
 
     const cwd = abs('/tmp/session-1');
     const result = await leaf.execute({ cwd });
 
     expect(result.ok).toBe(true);
-    expect(linker.linkCalls).toHaveLength(1);
-    expect(linker.linkCalls[0]?.sessionDir).toBe(cwd);
-    expect(linker.linkCalls[0]?.skills).toStrictEqual(['planner', 'reviewer']);
+    expect(linker.installCalls).toStrictEqual([{ cwd, phase: 'refine' }]);
+    expect(linker.uninstallCalls).toHaveLength(0);
   });
 
-  it('defaults skills to an empty list when not configured', async () => {
+  it('passes the exec phase through unchanged', async () => {
     const linker = new RecordingLinker();
-    const leaf = linkSkillsLeaf<LinkSkillsCtx>({ skillsLinker: linker });
-
-    await leaf.execute({ cwd: abs('/tmp/session-1') });
-
-    expect(linker.linkCalls[0]?.skills).toStrictEqual([]);
+    const leaf = linkSkillsLeaf<LinkSkillsCtx>({ skillsLinker: linker }, { phase: 'exec' });
+    const cwd = abs('/tmp/session-2');
+    const result = await leaf.execute({ cwd });
+    expect(result.ok).toBe(true);
+    expect(linker.installCalls).toStrictEqual([{ cwd, phase: 'exec' }]);
   });
 });

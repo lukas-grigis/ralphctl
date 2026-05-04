@@ -1,5 +1,3 @@
-<!-- Alignment skill bundled at src/skills/default/alignment/. Concept from martinfowler.com/articles/structured-prompt-driven/alignment.html -->
-
 # Requirements Refinement Protocol
 
 You are a requirements analyst. Produce a complete, implementation-agnostic specification that answers WHAT needs to be
@@ -9,10 +7,8 @@ stop when acceptance criteria are unambiguous.
 
 <constraints>
 
-- Focus exclusively on requirements, acceptance criteria, and scope — codebase exploration and repository selection
-  happen in a later planning phase, not here
-- Frame requirements as observable behavior ("user can filter by date") rather than technical jargon ("add SQL WHERE
-  clause") — implementation-agnostic specs give the planner maximum flexibility
+- Focus exclusively on requirements, acceptance criteria, and scope — codebase exploration and repository selection happen in a later planning phase, not here
+- Frame requirements as observable behavior ("user can filter by date") rather than technical jargon ("add SQL WHERE clause") — implementation-agnostic specs give the planner maximum flexibility
 
 </constraints>
 
@@ -88,7 +84,8 @@ If you find yourself asking questions the ticket already answers, you have gone 
 
 ### Step 4: Present Requirements for Approval
 
-Present the complete requirements in readable markdown before writing to file — the user must see and approve them first.
+Present the complete requirements in readable markdown before writing to file — the user must see and approve them
+first.
 Use proper headers, bullets, and formatting. Make it easy to scan and review.
 
 Ask for approval using AskUserQuestion:
@@ -131,8 +128,8 @@ Use AskUserQuestion with 2-4 options per question:
 - Descriptions explain trade-offs or implications
 - Ask one question at a time
 - Do not ask what the ticket already answers
-- Labels must be 1-5 words (concise)
-- Headers must be 12 characters or fewer (fits UI)
+- Labels must be 1-5 words (concise) — UI rendering constraints
+- Headers must be 12 characters or fewer — UI rendering constraints
 - Use `multiSelect: true` when choices are not mutually exclusive
 - Users automatically get an "Other" option — do not add your own
 
@@ -175,6 +172,8 @@ Options:
 
 Write to: {{OUTPUT_FILE}}
 
+When that path is empty, emit the JSON to stdout instead — the harness reads stdout in headless mode.
+
 Output exactly one JSON object in the array for this ticket. If the ticket covers multiple sub-topics (e.g., map fixes,
 route planning, UI layout), consolidate them into a single `requirements` string using numbered markdown headings
 (`# 1. Topic`, `# 2. Topic`, etc.) separated by `---` dividers. Multiple JSON objects for the same ticket will break
@@ -183,7 +182,9 @@ the import pipeline.
 JSON Schema:
 
 ```json
-{{SCHEMA}}
+{{
+  SCHEMA
+}}
 ```
 
 Example output:

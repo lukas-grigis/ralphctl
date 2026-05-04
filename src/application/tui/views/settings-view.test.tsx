@@ -6,7 +6,7 @@ import { RouterProvider } from './router-context.ts';
 import { ViewHintsProvider } from './view-hints-context.tsx';
 import { setSharedDeps, resetSharedDeps } from '@src/application/bootstrap/get-shared-deps.ts';
 import type { SharedDeps } from '@src/application/bootstrap/shared-deps.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import type { Config } from '@src/application/config/config.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 

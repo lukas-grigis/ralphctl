@@ -10,6 +10,19 @@
  *  - `buildTasksFromEntries(entries)` — assumes the array is already
  *    extracted; validates and constructs `Task`s.
  *
+ * Two-pass construction so the AI can use arbitrary placeholder strings
+ * (`"1"`, `"auth-setup"`) for `id` and reference them in `blockedBy`:
+ *
+ *  1. Pre-allocate a real {@link TaskId} for every entry. If the entry has
+ *     a non-empty string `id`, record `placeholder → realTaskId`. Duplicate
+ *     placeholders are a parse error.
+ *  2. Build each `Task` with its pre-allocated id and resolve every
+ *     `blockedBy` reference via the placeholder map. Unknown placeholder
+ *     references and self-references are parse errors.
+ *
+ * Entries without an `id` field still get a real TaskId — they just can't
+ * be referenced by other tasks.
+ *
  * No I/O, no logging — pure functions returning `Result`.
  */
 import { Task } from '@src/domain/entities/task.ts';
@@ -87,26 +100,62 @@ function extractJson(rawOutput: string): string | null {
 export function buildTasksFromEntries(
   entries: readonly unknown[]
 ): Result<readonly Task[], ParseError | ValidationError> {
-  const tasks: Task[] = [];
+  // Pass 1 — pre-allocate a real TaskId for every entry and build the
+  // placeholder map. The AI's `id` field is just a local label used by
+  // `blockedBy`; the harness owns the real ids.
+  const allocated: { readonly entry: RawTaskEntry; readonly id: TaskId; readonly placeholder: string | null }[] = [];
+  const placeholderMap = new Map<string, TaskId>();
+
   for (let i = 0; i < entries.length; i++) {
-    const built = buildOneTask(entries[i], i);
+    const raw = entries[i];
+    if (typeof raw !== 'object' || raw === null) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `task entry [${String(i)}] is not an object`,
+        })
+      );
+    }
+    const entry = raw as RawTaskEntry;
+    const placeholder = typeof entry.id === 'string' && entry.id.length > 0 ? entry.id : null;
+
+    if (placeholder !== null && placeholderMap.has(placeholder)) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `duplicate placeholder id '${placeholder}' at task[${String(i)}]`,
+          hint: "Each task's `id` must be unique within the array — it's used only to resolve `blockedBy` references.",
+        })
+      );
+    }
+
+    const taskId = TaskId.generate();
+    if (placeholder !== null) {
+      placeholderMap.set(placeholder, taskId);
+    }
+    allocated.push({ entry, id: taskId, placeholder });
+  }
+
+  // Pass 2 — build each Task with its pre-allocated id and resolve
+  // `blockedBy` placeholders.
+  const tasks: Task[] = [];
+  for (let i = 0; i < allocated.length; i++) {
+    const slot = allocated[i];
+    if (slot === undefined) continue;
+    const built = buildOneTask(slot.entry, i, slot.id, slot.placeholder, placeholderMap);
     if (!built.ok) return Result.error(built.error);
     tasks.push(built.value);
   }
   return Result.ok(tasks);
 }
 
-function buildOneTask(entryUnknown: unknown, index: number): Result<Task, ParseError | ValidationError> {
-  if (typeof entryUnknown !== 'object' || entryUnknown === null) {
-    return Result.error(
-      new ParseError({
-        subCode: 'schema-mismatch',
-        message: `task entry [${String(index)}] is not an object`,
-      })
-    );
-  }
-  const entry = entryUnknown as RawTaskEntry;
-
+function buildOneTask(
+  entry: RawTaskEntry,
+  index: number,
+  id: TaskId,
+  placeholder: string | null,
+  placeholderMap: ReadonlyMap<string, TaskId>
+): Result<Task, ParseError | ValidationError> {
   const name = typeof entry.name === 'string' ? entry.name : '';
   if (name.length === 0) {
     return Result.error(
@@ -151,7 +200,7 @@ function buildOneTask(entryUnknown: unknown, index: number): Result<Task, ParseE
     ticketId = r.value;
   }
 
-  const blockedByResult = parseBlockedBy(entry.blockedBy, index);
+  const blockedByResult = resolveBlockedBy(entry.blockedBy, index, placeholder, placeholderMap);
   if (!blockedByResult.ok) return Result.error(blockedByResult.error);
 
   let extraDimensions: readonly string[] | undefined;
@@ -164,6 +213,7 @@ function buildOneTask(entryUnknown: unknown, index: number): Result<Task, ParseE
   const description = typeof entry.description === 'string' ? entry.description : undefined;
 
   return Task.create({
+    id,
     name,
     ...(description !== undefined ? { description } : {}),
     steps: stepsResult.value,
@@ -176,10 +226,18 @@ function buildOneTask(entryUnknown: unknown, index: number): Result<Task, ParseE
   });
 }
 
-function parseBlockedBy(
+/**
+ * Resolve every `blockedBy` placeholder string to a real {@link TaskId} via
+ * `placeholderMap`. The strings are arbitrary labels — the AI may use
+ * `"1"`, `"auth-setup"`, or even an 8-hex-by-coincidence value; we never
+ * try to validate them as TaskIds.
+ */
+function resolveBlockedBy(
   raw: unknown,
-  index: number
-): Result<readonly TaskId[] | undefined, ParseError | ValidationError> {
+  index: number,
+  selfPlaceholder: string | null,
+  placeholderMap: ReadonlyMap<string, TaskId>
+): Result<readonly TaskId[] | undefined, ParseError> {
   if (raw === undefined) return Result.ok(undefined);
   if (!Array.isArray(raw)) {
     return Result.error(
@@ -191,7 +249,7 @@ function parseBlockedBy(
   }
   const ids: TaskId[] = [];
   for (const dep of raw) {
-    if (typeof dep !== 'string') {
+    if (typeof dep !== 'string' || dep.length === 0) {
       return Result.error(
         new ParseError({
           subCode: 'schema-mismatch',
@@ -199,9 +257,26 @@ function parseBlockedBy(
         })
       );
     }
-    const r = TaskId.parse(dep);
-    if (!r.ok) return Result.error(r.error);
-    ids.push(r.value);
+    if (selfPlaceholder !== null && dep === selfPlaceholder) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `task[${String(index)}] references itself in blockedBy ('${dep}')`,
+          hint: 'A task cannot depend on itself; remove the self-reference.',
+        })
+      );
+    }
+    const resolved = placeholderMap.get(dep);
+    if (resolved === undefined) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `task[${String(index)}].blockedBy references unknown placeholder '${dep}'; declare it as another task's 'id' field`,
+          hint: 'Every `blockedBy` entry must match the `id` of another task in this array.',
+        })
+      );
+    }
+    ids.push(resolved);
   }
   return Result.ok(ids);
 }

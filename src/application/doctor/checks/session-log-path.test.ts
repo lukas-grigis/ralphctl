@@ -20,6 +20,15 @@ function makeStorage(): StoragePaths {
     sprintDir: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x'),
     sprintFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/sprint.json'),
     tasksFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/tasks.json'),
+    progressFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/progress.md'),
+    requirementsAggregateFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/requirements.md'),
+    feedbackFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/feedback.md'),
+    refinementUnitDir: (_id, slug) =>
+      AbsolutePath.trustString(`/tmp/ralphctl-doctor/data/sprints/x/refinement/${slug}`),
+    ideationUnitDir: (_id, slug) => AbsolutePath.trustString(`/tmp/ralphctl-doctor/data/sprints/x/ideation/${slug}`),
+    planningDir: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/planning'),
+    executionUnitDir: (_id, slug) => AbsolutePath.trustString(`/tmp/ralphctl-doctor/data/sprints/x/execution/${slug}`),
+    doneCriteriaFile: () => AbsolutePath.trustString('/tmp/ralphctl-doctor/data/sprints/x/done-criteria.md'),
   };
 }
 

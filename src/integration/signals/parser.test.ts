@@ -79,26 +79,28 @@ describe('SignalParser', () => {
       const ev = out[0] as EvaluationSignal;
       expect(ev.status).toBe('passed');
       expect(ev.dimensions).toStrictEqual([]);
+      expect(ev.overallScore).toBeUndefined();
     });
 
-    it('attaches dimensions to a passed evaluation', () => {
+    it('attaches dimensions to a passed evaluation with numeric scores', () => {
       const raw = [
-        '**Correctness**: PASS — all assertions pass',
-        '**Completeness**: PASS — all requirements covered',
+        '**Correctness** (score 1-5): 5 — all assertions pass',
+        '**Completeness** (score 1-5): 4 — all requirements covered',
         '<evaluation-passed>',
       ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
       const ev = out[0] as EvaluationSignal;
       expect(ev.status).toBe('passed');
       expect(ev.dimensions).toStrictEqual([
-        { dimension: 'correctness', passed: true, finding: 'all assertions pass' },
-        { dimension: 'completeness', passed: true, finding: 'all requirements covered' },
+        { dimension: 'correctness', score: 5, passed: true, finding: 'all assertions pass' },
+        { dimension: 'completeness', score: 4, passed: true, finding: 'all requirements covered' },
       ]);
+      expect(ev.overallScore).toBe(4.5);
     });
 
     it('parses <evaluation-failed> with critique + dimensions', () => {
       const raw = [
-        '**Correctness**: FAIL — missing null check',
+        '**Correctness** (score 1-5): 2 — missing null check',
         '<evaluation-failed>The implementation is missing error handling.</evaluation-failed>',
       ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
@@ -106,6 +108,8 @@ describe('SignalParser', () => {
       expect(ev.status).toBe('failed');
       expect(ev.critique).toBe('The implementation is missing error handling.');
       expect(ev.dimensions).toHaveLength(1);
+      expect(ev.dimensions[0]!.score).toBe(2);
+      expect(ev.dimensions[0]!.passed).toBe(false);
     });
 
     it('marks <evaluation-failed> with no dimensions as malformed', () => {
@@ -117,23 +121,45 @@ describe('SignalParser', () => {
     });
 
     it('emits a failed evaluation when only dimension lines are present', () => {
-      const raw = ['**Correctness**: FAIL — missing validation', '**Completeness**: PASS — covered'].join('\n');
+      const raw = [
+        '**Correctness** (score 1-5): 1 — missing validation',
+        '**Completeness** (score 1-5): 5 — covered',
+      ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
       const ev = out[0] as EvaluationSignal;
       expect(ev.status).toBe('failed');
       expect(ev.dimensions).toHaveLength(2);
       expect(ev.critique).toBeUndefined();
+      // score 1 fails, score 5 passes — overall mean is 3
+      expect(ev.overallScore).toBe(3);
+    });
+
+    it('derives passed=true for scores 4 and 5, passed=false for scores 1–3', () => {
+      const raw = [
+        '**Correctness** (score 1-5): 5 — excellent',
+        '**Completeness** (score 1-5): 4 — solid',
+        '**Safety** (score 1-5): 3 — adequate but gaps',
+        '**Consistency** (score 1-5): 1 — violations',
+        '<evaluation-failed>x</evaluation-failed>',
+      ].join('\n');
+      const out = parseWithFixedTime(new SignalParser(), raw);
+      const ev = out[0] as EvaluationSignal;
+      const passMask = ev.dimensions.map((d) => d.passed);
+      expect(passMask).toStrictEqual([true, true, false, false]);
     });
 
     it('lowercases dimension names and dedupes by first occurrence', () => {
-      const raw = ['**CORRECTNESS**: PASS — first', '**correctness**: FAIL — duplicate', '<evaluation-passed>'].join(
-        '\n'
-      );
+      const raw = [
+        '**CORRECTNESS** (score 1-5): 5 — first',
+        '**correctness** (score 1-5): 1 — duplicate',
+        '<evaluation-passed>',
+      ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
       const ev = out[0] as EvaluationSignal;
       expect(ev.dimensions).toHaveLength(1);
       expect(ev.dimensions[0]).toStrictEqual({
         dimension: 'correctness',
+        score: 5,
         passed: true,
         finding: 'first',
       });
@@ -142,10 +168,19 @@ describe('SignalParser', () => {
     it('accepts em-dash and hyphen separators in dimension lines', () => {
       const out = parseWithFixedTime(
         new SignalParser(),
-        '**Safety**: FAIL - hyphen sep\n<evaluation-failed>x</evaluation-failed>'
+        '**Safety** (score 1-5): 2 - hyphen sep\n<evaluation-failed>x</evaluation-failed>'
       );
       const ev = out[0] as EvaluationSignal;
       expect(ev.dimensions[0]!.finding).toBe('hyphen sep');
+    });
+
+    it('silently skips dimension lines that lack the (score N) annotation — treated as malformed output', () => {
+      // Old PASS/FAIL format without scores is no longer accepted.
+      const raw = ['**Correctness**: PASS — old format without score', '<evaluation-passed>'].join('\n');
+      const out = parseWithFixedTime(new SignalParser(), raw);
+      const ev = out[0] as EvaluationSignal;
+      // The old-format dimension line produces zero parsed dimensions.
+      expect(ev.dimensions).toHaveLength(0);
     });
 
     it('passed wins when both <evaluation-passed> and <evaluation-failed> are present', () => {
@@ -160,13 +195,32 @@ describe('SignalParser', () => {
 
     it('parses planner-emitted extra dimensions alongside floor dimensions', () => {
       const raw = [
-        '**Correctness**: PASS — all good',
-        '**Performance**: FAIL — p99 regressed by 40ms',
+        '**Correctness** (score 1-5): 5 — all good',
+        '**Performance** (score 1-5): 2 — p99 regressed by 40ms',
         '<evaluation-failed>perf budget exceeded</evaluation-failed>',
       ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
       const ev = out[0] as EvaluationSignal;
       expect(ev.dimensions.map((d) => d.dimension)).toStrictEqual(['correctness', 'performance']);
+    });
+
+    it('computes overallScore as the mean of dimension scores rounded to 1 decimal', () => {
+      const raw = [
+        '**Correctness** (score 1-5): 5 — ok',
+        '**Completeness** (score 1-5): 4 — ok',
+        '**Safety** (score 1-5): 3 — ok',
+        '<evaluation-failed>x</evaluation-failed>',
+      ].join('\n');
+      const out = parseWithFixedTime(new SignalParser(), raw);
+      const ev = out[0] as EvaluationSignal;
+      // (5 + 4 + 3) / 3 = 4.0
+      expect(ev.overallScore).toBe(4);
+    });
+
+    it('omits overallScore when there are no dimensions', () => {
+      const out = parseWithFixedTime(new SignalParser(), '<evaluation-passed>');
+      const ev = out[0] as EvaluationSignal;
+      expect(ev.overallScore).toBeUndefined();
     });
   });
 
@@ -394,15 +448,25 @@ describe('SignalParser', () => {
   });
 
   describe('stray dimension lines', () => {
-    // Ported from afe771f9~1:src/integration/signals/parser.test.ts
-    // The parser is line-shaped: a bold **Name**: PASS/FAIL line anywhere in
-    // the output is captured as a dimension, even outside a formal evaluation
-    // block. This causes a dimension-driven failed evaluation with no critique.
-    it('captures a stray bold-text dimension line as a dimension (line-shaped capture)', () => {
+    it('does NOT capture old-format **Name**: PASS/FAIL lines — they lack the score annotation', () => {
+      // The new parser requires `**Name** (score 1-5): N — finding`.
+      // Old-format lines (no score annotation) are silently skipped so
+      // legacy evaluator output with `**Correctness**: PASS — finding`
+      // is treated as zero dimensions (malformed) rather than a false positive.
       const out = parseWithFixedTime(new SignalParser(), '**Note**: PASS — pre-flight check ran cleanly');
       const evalSignals = out.filter((s) => s.type === 'evaluation');
+      expect(evalSignals).toHaveLength(0);
+    });
+
+    it('captures a stray scored dimension line as a dimension (line-shaped capture)', () => {
+      // The score-annotated format IS captured even outside a formal envelope.
+      const out = parseWithFixedTime(
+        new SignalParser(),
+        '**Correctness** (score 1-5): 4 — pre-flight check ran cleanly'
+      );
+      const evalSignals = out.filter((s) => s.type === 'evaluation');
       expect(evalSignals).toHaveLength(1);
-      expect(evalSignals[0]!.dimensions[0]).toMatchObject({ dimension: 'note', passed: true });
+      expect(evalSignals[0]!.dimensions[0]).toMatchObject({ dimension: 'correctness', score: 4, passed: true });
     });
   });
 
@@ -440,7 +504,7 @@ describe('SignalParser', () => {
       const raw = [
         '<task-verified>tests pass</task-verified>',
         '<task-complete>',
-        '**Correctness**: FAIL — missing null guard',
+        '**Correctness** (score 1-5): 2 — missing null guard',
         '<evaluation-failed>missing null guard on line 42</evaluation-failed>',
       ].join('\n');
       const out = parseWithFixedTime(new SignalParser(), raw);
@@ -510,6 +574,74 @@ describe('SignalParser', () => {
       const b = parseWithFixedTime(parser, '<progress>two</progress>');
       expect((a[0] as ProgressSignal).summary).toBe('one');
       expect((b[0] as ProgressSignal).summary).toBe('two');
+    });
+  });
+
+  describe('parseWithDiagnostics — silently-dropped malformed output', () => {
+    it('emits an unclosed-tag diagnostic for a bare opening <progress>', () => {
+      const parser = new SignalParser();
+      const out = parser.parseWithDiagnostics('<progress>truncated mid-stream', { now: FIXED_NOW });
+      expect(out.signals).toStrictEqual([]);
+      expect(out.diagnostics).toHaveLength(1);
+      const d = out.diagnostics[0]!;
+      expect(d.kind).toBe('unclosed-tag');
+      if (d.kind !== 'unclosed-tag') return;
+      expect(d.tag).toBe('progress');
+      expect(d.index).toBe(0);
+      expect(d.sample).toContain('progress');
+    });
+
+    it('emits one diagnostic per surplus open when multiple opens lack closes', () => {
+      const parser = new SignalParser();
+      // Two opens, one close → one surplus open → one diagnostic.
+      const raw = '<note>matched</note>\n<note>dangling';
+      const out = parser.parseWithDiagnostics(raw, { now: FIXED_NOW });
+      expect(out.signals).toHaveLength(1);
+      const noteDiagnostics = out.diagnostics.filter((d) => d.kind === 'unclosed-tag' && d.tag === 'note');
+      expect(noteDiagnostics).toHaveLength(1);
+    });
+
+    it('emits a malformed-dimension diagnostic for old PASS/FAIL format', () => {
+      const parser = new SignalParser();
+      const out = parser.parseWithDiagnostics('**Correctness**: PASS — old format without score annotation', {
+        now: FIXED_NOW,
+      });
+      const malformed = out.diagnostics.filter((d) => d.kind === 'malformed-dimension');
+      expect(malformed).toHaveLength(1);
+      expect(malformed[0]!.sample).toContain('Correctness');
+    });
+
+    it('emits NO diagnostic for a well-formed <progress>foo</progress>', () => {
+      const parser = new SignalParser();
+      const out = parser.parseWithDiagnostics('<progress>step done</progress>', { now: FIXED_NOW });
+      expect(out.signals).toHaveLength(1);
+      expect(out.diagnostics).toStrictEqual([]);
+    });
+
+    it('emits NO diagnostic for a well-formed scored dimension line', () => {
+      const parser = new SignalParser();
+      const out = parser.parseWithDiagnostics('**Correctness** (score 1-5): 5 — all good\n<evaluation-passed>', {
+        now: FIXED_NOW,
+      });
+      expect(out.diagnostics).toStrictEqual([]);
+    });
+
+    it('clips the sample to ~80 chars and collapses internal whitespace', () => {
+      const parser = new SignalParser();
+      const longTail = 'x'.repeat(200);
+      const out = parser.parseWithDiagnostics(`<progress>${longTail}`, { now: FIXED_NOW });
+      const d = out.diagnostics[0]!;
+      expect(d.sample.length).toBeLessThanOrEqual(80);
+    });
+
+    it('parse() return shape is unchanged on malformed input — still readonly HarnessSignal[]', () => {
+      const parser = new SignalParser();
+      const raw = '<progress>truncated\n**Correctness**: PASS — old format';
+      const result = parser.parse(raw, { now: FIXED_NOW });
+      // The return must be array-shaped; diagnostics live on the new method only.
+      expect(Array.isArray(result)).toBe(true);
+      // No accidental wrapping.
+      expect(result).toStrictEqual([]);
     });
   });
 });
