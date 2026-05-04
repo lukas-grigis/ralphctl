@@ -205,17 +205,16 @@ describe('TicketAddView', () => {
         </ViewHintsProvider>
       </RouterProvider>
     );
-    // Wait for both confirm calls — first run answers Yes, second answers No.
-    // vi.waitFor retries until the mock accumulates the expected call count
-    // instead of relying on a fixed setTimeout delay that races under load.
+    // Wait for both confirm calls AND the post-second-add success frame in one
+    // condition so the assertion can't race the React render cycle on slower
+    // CI runners (mock-call-count tripped before the success card had rendered).
     await vi.waitFor(
       () => {
         expect(fakePrompt.confirmMock).toHaveBeenCalledTimes(2);
+        expect(lastFrame() ?? '').toContain('Ticket added');
       },
-      { timeout: 1500, interval: 16 }
+      { timeout: 2000, interval: 16 }
     );
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('Ticket added');
   });
 
   it('calls router.reset to Home on Enter after success', async () => {
