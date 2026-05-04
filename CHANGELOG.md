@@ -7,6 +7,19 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-05-04
+
+Hotfix on top of 0.6.1. The previous bundles silently no-op'd when invoked through the npm-installed
+`ralphctl` shim — so `npm i -g ralphctl && ralphctl --version` exited 0 with no output.
+
+### Fixed
+
+- `entrypoint.ts#shouldAutoInvoke` no longer rejects symlinked bins. The basename allowlist
+  (`cli.mjs` / `entrypoint.ts`) skipped `main()` when `process.argv[1]` was the npm-global
+  `<prefix>/bin/ralphctl` symlink. Replaced with the canonical "am I the entry module?" check —
+  resolve `argv[1]` through `realpathSync` and compare against `import.meta.url`. Added an e2e
+  regression that spawns `dist/cli.mjs` through a renamed symlink and asserts on the version output.
+
 ## [0.6.1] - 2026-05-04
 
 Quality follow-up to 0.6.0 — bumps the build chain to TypeScript 6, lifts a runtime patch on `zod`, and
