@@ -60,7 +60,7 @@ ralphctl is a five-module Clean Architecture under `src/`:
 kernel < domain < business < integration < application
 ```
 
-- **`kernel/`** — chain framework (`Element`, `Leaf`, `Sequential`, `Parallel`, `Retry`, `OnError`) + pure algorithms
+- **`kernel/`** — chain framework (`Element`, `Leaf`, `Sequential`, `Retry`, `OnError`) + pure algorithms
   (mutex queue, rate-limit coordinator, signal micro-batcher, dependency reorder). Zero IO, zero domain knowledge.
 - **`domain/`** — entities (Sprint, Project, Task, Ticket, Repository), value objects (SprintId, AbsolutePath,
   IsoTimestamp, Slug, ProjectName, …), repository INTERFACES (`ProjectRepository`, `SprintRepository`,
@@ -110,17 +110,16 @@ import { Sequential } from '../../../kernel/chain/sequential.ts';
 import { Leaf } from '../../../kernel/chain/leaf.ts';
 import { Retry } from '../../../kernel/chain/retry.ts';
 import { OnError } from '../../../kernel/chain/on-error.ts';
-import { Parallel } from '../../../kernel/chain/parallel.ts';
 ```
 
 - `Element<TCtx>` — base interface; everything implements it
 - `Leaf` — the only seam to use cases (adapts `useCase.execute(input)` into `element.execute(ctx)`)
 - `Sequential` — runs children in order, threading the context; first error aborts the rest
-- `Parallel` — fan-out with concurrency cap and `failureMode: 'fail-fast' | 'collect-all'`
 - `Retry` — wrap an element in a retry policy keyed on `retryOn(error)`
 - `OnError` — catch errors that match `catchIf` and run a `fallback` element
 
-There is **no** `Conditional` element. Branching belongs inside a use case or in a sub-chain selected by the caller.
+There are **no** `Conditional` or `Parallel` primitives. Branching belongs inside a use case or in a sub-chain
+selected by the caller. Every workflow runs strictly sequentially through a `Sequential`.
 
 Multi-chain runtime: every chain launch goes through `SessionManager.start({ element, initialCtx, label })` from
 `src/application/runtime/session-manager.ts`. Do not call `chain.execute()` directly from a command/view.

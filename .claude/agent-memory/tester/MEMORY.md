@@ -7,6 +7,19 @@
 - **Location:** Colocated `*.test.ts` files — main tree under `src/`, new tree under `src/`
 - **Commands:** `pnpm test`, `pnpm test:watch`, `pnpm test:coverage`
 
+### Coverage configuration (A2 — 2026-05-04)
+
+- `@vitest/coverage-v8` v4.1.5 already installed; `test:coverage` script already existed.
+- `vitest.config.ts` now has `coverage.include` (golden-path modules only), `coverage.reportOnFailure: true`
+  (so the report prints even when a pre-existing test is red), and `coverage.thresholds`.
+- Measured numbers (full suite minus the pre-existing `cli.test.ts` failure):
+  statements 86.52% · branches 73.85% · functions 95.92% · lines 90.61%
+- Thresholds set: lines 80, branches 68, functions 80, statements 80.
+  Branches floor is 68 (5 pp below measured) because branches are the weakest metric.
+  All others hit the quality-sprint goal of 80% directly since measured coverage exceeds it.
+- Pre-existing failure: `cli.test.ts > sprint create-pr > creates a PR via the chain ...` exits 1 —
+  threshold gate passes; the failure is unrelated to coverage.
+
 ## Architecture Migration
 
 The active codebase is migrating from `src/` (legacy) to `src/` (Clean Architecture). Both trees have tests.
@@ -129,9 +142,95 @@ if (process.platform === 'win32') return;
 - `AbsolutePath.trustString()` bypasses the VO validator for test paths (use only when you own the value)
 - Domain entity creation via static factory: `Task.create({...})` returns `Result<Task, ValidationError>`
 
+### Chain leaf unit tests (2026-05-04)
+
+Four leaves directly unit-tested in `src/application/chains/leaves/`:
+
+- `build-execution-unit.test.ts` — FakeSessionFolderBuilderPort + FakeAiSessionPort; asserts on `executionCalls`,
+  `priorEvaluations` map (only non-empty evaluated tasks), all 4 ctx fields stamped, guard failures, custom name.
+- `build-planning-folder.test.ts` — same fake pair; asserts on `planningCalls`, claude vs copilot `addDirs`
+  difference, cwd === planningFolderRoot, path sub-strings (session.md, tasks.json), guard failure.
+- `build-refinement-unit.test.ts` — asserts on `refinementCalls`, title-derived slug appears in unit root path,
+  all 4 ctx fields stamped, two guard failures (sprint, currentTicket), custom name.
+- `export-sprint-requirements.test.ts` — FakeWriteContextFilePort; sets `RALPHCTL_ROOT` in beforeEach (resolveStoragePaths reads env at call time); asserts path contains sprint id + "requirements.json", JSON content (only approved tickets), ctx identity (output is identity), custom name, sprintId-from-ctx vs sprint.id distinction.
+
+**Key pattern**: `Sprint.addTicket()` returns `Result<Sprint, ...>` — must unwrap with `if (!r.ok) throw r.error; sprint = r.value`.
+
 ## Gotchas
 
 - **`afterEach` import**: Only import if used — `@typescript-eslint/no-unused-vars` will fail lint
 - **`src/` uses `import type` for type-only imports** — enforced by lint
 - **No barrel files** — imports always point to source modules directly
 - **`// Ported from afe771f9~1:src/...`** comment convention marks tests backported from legacy
+- **`Leaf.input()` throws are caught by `runLeaf`**: the framework catches the throw from `input()` and wraps it in
+  `Result.error` — the promise resolves, it does NOT reject. Use `result.ok === false` assertions, NOT `rejects.toThrow`.
+- **`resolveStoragePaths()` inside a leaf execute body**: it reads `process.env.RALPHCTL_ROOT` at call time (not import
+  time). Set the env var in `beforeEach`/`afterEach` — no vitest setup file needed for leaves that call it inline.
+- **`Sprint.recordCheckRun(repo, at)`** returns a plain `Sprint` (no `Result` wrapper); `setBranch` and `setAffectedRepositories` return `Result<Sprint, InvalidStateError>`.
+
+### Template registry fence (2026-05-04)
+
+`src/integration/ai/prompts/template-registry.test.ts` — 3 tests catching all three drift modes:
+
+- `every .md file in templates/ is registered in TEMPLATE_NAMES` — `readdirSync` stems vs `Object.values(TEMPLATE_NAMES)`
+- `every TEMPLATE_NAMES entry resolves to an existing .md file` — set-membership check
+- `every TEMPLATE_NAMES key is loaded by at least one source file` — regex `TEMPLATE_NAMES\.<key>(?![A-Za-z0-9_])` across all non-test `.ts` files in `prompts/` (word-boundary suffix prevents prefix-collision false-positive accepts)
+
+**Key design decisions:**
+
+- `TEMPLATE_NAMES` lives in `prompt-template-names.ts`; loads are split across `prompt-builder-adapter.ts` + `prompt-partials-loader.ts` — scan the entire `prompts/` directory (all non-test `.ts`) to cover all consumers automatically.
+- Word-boundary regex (`(?![A-Za-z0-9_])`) prevents `plan` matching inside `planInteractive` — pure `String.includes` fails here.
+- Removed the orphan `plan` key from `TEMPLATE_NAMES` (it was a dead alias for `planCommon`); updated the assertion in `prompt-builder-adapter.test.ts` from `TEMPLATE_NAMES.plan` to `TEMPLATE_NAMES.planCommon`.
+
+**Vitest lint rules to observe:**
+
+- `vitest/valid-expect` — `expect()` takes at most 1 argument; no Jest-style `expect(val, 'message')`.
+- `vitest/prefer-strict-equal` — use `toStrictEqual()` not `toEqual()` for array/object assertions.
+
+### E2E golden paths (2026-05-04)
+
+`src/_e2e/refine-plan-golden.e2e.test.tsx` — 2 tests covering refine + plan back-to-back:
+
+- **refine-flow**: draft sprint with 2 pending tickets, scripted AI output (raw text fallback path), asserts every
+  ticket `requirementStatus === 'approved'` after the chain, pins full step trace including both per-ticket sub-chains
+  (each ticket contributes 8 steps inside `refine-tickets`).
+- **plan-flow**: post-refine sprint (all tickets approved, built with `makeApprovedTicket()`), single-repo project
+  (`makeProject()` → `/tmp/demo-repo`), 3-task linear dep chain in AI output (task-a → task-b → task-c). Asserts
+  tasks persisted, `blockedBy` cross-references resolve to real `TaskId`s, `affectedRepositories` set, trace pinned.
+
+**Key design decisions:**
+
+- Does NOT mount the TUI (`bootExecuteScenario` pattern not used) — runs chains directly via `createTestDeps` +
+  `flow.execute()`. Cleaner and faster; TUI rendering is tested by the execute golden path.
+- `persist-repo-selection` short-circuits the checkbox prompt for single-repo projects — no `FakePromptPort` needed.
+- `confirm-replan` and `confirm-task-list` skipped when `interactive` is not set (both check `if (!input.interactive)`).
+- Tasks in AI JSON must use `projectPath: "/tmp/demo-repo"` — `validateTasksAgainstSprint` enforces projectPath ∈ `affectedRepositories`.
+- `parseRequirementsJson` falls back to raw text as requirements body — plain string AI output works for refine tests.
+- The snapshot-existing-tasks leaf dynamically imports `storage-paths.ts` and reads `RALPHCTL_ROOT` at call time;
+  the snapshot is best-effort (silently skipped when the file doesn't exist), so no env-var setup is needed.
+
+### E2E execute golden-path artefacts (2026-05-04)
+
+`src/_e2e/execute-golden-artefacts.e2e.test.tsx` — 3 focused `it(...)` cases complementing `golden-path.e2e.test.tsx`:
+
+- **commit-task SHA**: `external: { uncommitted: true }` makes `hasUncommittedChanges()` return true for both the dirty-tree preflight AND `commit-task`. Must also queue `promptPort.queueSelect('continue')` on a `FakePromptPort` passed as the `prompt` option — otherwise `dirty-tree-preflight` fires a select prompt that throws in the no-queue fake. Asserts `task.commitSha` matches `/^fakecommit/` and `ext.commitChangesCalls[0].message` matches `/^task\(/`.
+- **`evaluations/<task-id>.md` with `(score N/5)`**: Overrides `signalHandler` with a real `FileSystemSignalHandler(resolveStoragePaths())`. Must pre-create the execution unit directory with `mkdir(..., { recursive: true })` so the handler can write. Signal includes `DimensionScore` with `score: 5`. Asserts file content contains `(score 5/5)`, `Overall score: 5/5`, and `# Evaluation — passed`.
+- **`done-criteria.md` round-trip**: Pre-writes via `renderDoneCriteria([task])` + `writeFile(paths.doneCriteriaFile(sprint.id), ...)`. Enables `evaluationIterations: 1` so the evaluate-task leaf reads it via `readDoneCriteriaBullet`. Asserts runner reaches `completed` and file is unchanged after execute.
+
+**Key pitfall**: `dirty-tree-preflight` runs at the outer execute flow level (before per-task chains) and calls `hasUncommittedChanges` on every unique task `projectPath`. Setting `external.uncommitted: true` triggers it. Always queue a `FakePromptPort` select answer when the sprint has tasks with an uncommitted tree.
+
+**Key pitfall**: `FileSystemSignalHandler` uses `resolveStoragePaths()` (reads `RALPHCTL_ROOT` from env) to compute the evaluation file path — independent of `FakeSessionFolderBuilderPort.evaluationMdPath`. The handler path is `executionUnitDir(sprintId, unitSlug(taskId, taskName)) + '/evaluation.md'`.
+
+### Prompt completeness smoke tests (2026-05-04)
+
+`src/integration/ai/prompts/prompt-completeness.smoke.test.ts` (extended, 22 tests total):
+
+- All 7 public builder methods tested with real templates from disk via `FileTemplateLoader`.
+- Asserts `/\{\{[A-Z_]+\}\}/g` matches nothing after substitution.
+- **8 new tests added** covering optional-field branches not previously exercised:
+  - `buildRefinePrompt` — pre-fetched `issueContext` text (wraps in `<context>` block)
+  - `buildExecutePrompt` — with `checkScript` (fenced shell block rendered); sprint with `branch` set (BRANCH_LINE populated); sprint with `checkRanAt` stamped (ENVIRONMENT_STATUS shows timestamp not "Not run.")
+  - `buildEvaluatePrompt` — with `evaluateWorkspaceDir` (Contract files section rendered)
+  - `buildFeedbackPrompt` — sprint without a branch (BRANCH_SECTION collapses to empty string)
+  - `buildPlanPrompt` — sprint with `affectedRepositories` set (repos in CONTEXT block)
+  - `buildIdeatePrompt` — sprint with `affectedRepositories` set (non-empty REPOSITORIES block)

@@ -64,8 +64,8 @@ ralphctl handles the rest.
                                      with you      from specs    each task
 ```
 
-- **Dependency-ordered execution** — tasks run in the right sequence, one per repo at a time, with parallel execution
-  where possible
+- **Dependency-ordered execution** — tasks run strictly one at a time in topological order; the evaluator's read-only
+  `git status` check catches dirty trees so work doesn't compound on a broken state
 - **Generator-evaluator cycle** — an independent AI reviewer checks each task against its spec; if it fails, the
   generator gets feedback and iterates
 - **Context persistence** — sprint state, progress history, and task context survive across sessions; interrupted work
@@ -118,7 +118,8 @@ ralphctl sprint start
 - **Coordinate across repositories** — one sprint can span multiple repos with automatic dependency tracking
 - **Branch per sprint** — optional shared branch across every affected repo, with `sprint close --create-pr` to open
   pull requests when you're done
-- **Run tasks in parallel** — one per repo, with rate-limit backoff and automatic session resume
+- **Recover from rate limits** — automatic session resume across rate-limit pauses keeps the in-flight task's full
+  context when the provider restarts
 - **Separate the what from the how** — AI clarifies requirements first, then generates implementation tasks, with human
   approval gates
 - **Pick up where you left off** — full state persistence across sessions; interrupted work resumes automatically

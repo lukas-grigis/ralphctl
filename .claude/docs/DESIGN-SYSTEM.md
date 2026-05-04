@@ -163,17 +163,19 @@ Specialised components owned exclusively by `ExecuteView`. Don't import them fro
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `HeaderHeartbeat`    | Braille spinner next to the `[RUNNING]` chip — persistent "alive" indicator at 120ms per frame. |
 | `StepTrace`          | Outer chain trace list (load-sprint, assert-active, …). Filters out `task-*` entries.           |
-| `TaskExecutionGrid`  | DAG-ordered per-task card grid. One card per task with status pill, activity line, deps line.   |
+| `TaskExecutionGrid`  | Thin wrapper — renders `<TaskExecutionList />` under a section header.                          |
+| `TaskExecutionList`  | Dependency-aware per-task card list. Depth-indented via `dag-depth.ts`. Status pill + activity. |
 | `RecentEventsTail`   | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                           |
 | `FeedbackPromptLoop` | Post-execute feedback loop + sprint auto-close. Renders `null`; side-effect only.               |
 | `FlowContextLine`    | Dim flow descriptor line below the header (e.g. "Sprint workflow — execute · sprint-id").       |
 | `nextStepsForFlow`   | Helper function: maps `(label, terminalStatus, steps)` → contextual next-step CTA items.        |
 | `ctx-helpers.ts`     | Duck-typed ctx extractors: `getTaskList`, `buildTaskNameLookup`, `getExecuteCtxFields`.         |
+| `dag-depth.ts`       | Pure depth helpers (`computeDepths`, `sortByDepth`). Used by `TaskExecutionList`.               |
+| `task-grid-item.ts`  | `TaskGridItem` interface + `activityFromSignal` helper.                                         |
 
-**`TaskExecutionGrid` DAG ordering:** topological BFS assigns each task a depth
-(`0` = root, `1+max(deps.depth)` for dependents). Tasks are sorted ascending by depth, then by id
-within each layer, so roots appear first and dependents appear below them — indented by
-`spacing.indent * depth`. Cycles fall back to insertion order (no crash).
+**DAG depth ordering:** topological BFS assigns each task a depth (`0` = root, `1 + max(deps.depth)` for
+dependents). Tasks are sorted ascending by depth, then by id within each layer. Cycles fall back to
+insertion order (no crash). Lives in `dag-depth.ts`.
 
 ### 4.3 Prompt family (`src/integration/ui/prompts/`)
 

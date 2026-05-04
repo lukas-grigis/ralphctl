@@ -19,19 +19,23 @@ docs is the silent failure mode that erodes the whole system.
 
 ralphctl maintains five spec documents that the team and other agents treat as ground truth:
 
-| Doc                             | Purpose                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `CLAUDE.md`                     | Top-of-mind constraints, common mistakes, workflow surface, version                  |
-| `.claude/docs/REQUIREMENTS.md`  | Testable acceptance criteria — the architectural fence                               |
-| `.claude/docs/ARCHITECTURE.md`  | Module layout, data models, storage, errors, exit codes                              |
-| `.claude/docs/KERNEL-DESIGN.md` | Chain framework reference (Element / Leaf / Sequential / Parallel / Retry / OnError) |
-| `.claude/docs/DESIGN-SYSTEM.md` | TUI tokens, components, copy rules, anti-patterns                                    |
+| Doc                             | Purpose                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `CLAUDE.md`                     | Top-of-mind constraints, common mistakes, workflow surface, version       |
+| `.claude/docs/REQUIREMENTS.md`  | Testable acceptance criteria — the architectural fence                    |
+| `.claude/docs/ARCHITECTURE.md`  | Module layout, data models, storage, errors, exit codes                   |
+| `.claude/docs/KERNEL-DESIGN.md` | Chain framework reference (Element / Leaf / Sequential / Retry / OnError) |
+| `.claude/docs/DESIGN-SYSTEM.md` | TUI tokens, components, copy rules, anti-patterns                         |
 
 When code ships and these docs aren't updated alongside, the project starts lying to its future self and to every
 agent that reads them. Your job is to keep doc and code in lockstep — proactively after a meaningful diff lands,
 or on demand when someone asks "is this still accurate?"
 
 ## What you read first
+
+> **Note:** `.claude/docs/REQUIREMENTS.md` is no longer auto-imported into Claude sessions (see CLAUDE.md header).
+> When you start a docs-keeper run, explicitly `Read` it — it is your primary working surface and won't be in context
+> by default. Same goes for `DESIGN-SYSTEM.md` and `MANUAL-TEST-PLAYBOOK.md` if your audit touches the TUI or release flow.
 
 Before editing anything:
 
@@ -54,7 +58,7 @@ definitions` table need an entry.
   `business/usecases/` map need updates.
 - A new entity field, value object, or signal variant was added → `ARCHITECTURE.md § Data Models` and
   `§ Harness Signals` table.
-- A new kernel primitive was proposed → it should NOT exist (six concepts only); push back via the docs and the
+- A new kernel primitive was proposed → it should NOT exist (five concepts only); push back via the docs and the
   reviewer / planner. Otherwise update `KERNEL-DESIGN.md` thoroughly.
 - A constraint in `CLAUDE.md § Architecture Constraints` no longer matches the code → update or delete the bullet
   (and explain why in the commit).

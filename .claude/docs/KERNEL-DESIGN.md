@@ -11,8 +11,9 @@ to a typical "pipeline" abstraction — chains are declarative, composable, and 
 
 Design constraints:
 
-- **Small surface area.** Six concepts total. Conditionals are deliberately omitted — branching belongs
-  inside a use case or inside a chain selected by the caller.
+- **Small surface area.** Five concepts total. Conditionals and concurrent fan-out are deliberately omitted —
+  branching belongs inside a use case or inside a chain selected by the caller, and every workflow runs strictly
+  sequentially.
 - **Pure TypeScript, zero deps.** Lives in `kernel/`, importable by everything below `application/`.
 - **Result-typed.** Every element returns `Result<TCtx, DomainError>`. No throws at the framework
   boundary.
@@ -29,9 +30,8 @@ interface Element<TCtx> {
 }
 ```
 
-That is the entire interface. Sequential, Parallel, Retry, OnError, and Leaf all implement it. A chain
-is an Element. A sub-chain is just an Element passed where another Element would be — composition is
-implicit.
+That is the entire interface. Sequential, Retry, OnError, and Leaf all implement it. A chain is an
+Element. A sub-chain is just an Element passed where another Element would be — composition is implicit.
 
 ## Leaf — the business seam
 
@@ -55,7 +55,7 @@ elements.
 new Sequential('refine', [
   loadSprint,
   assertDraft,
-  refinePerTicket, // ← itself a Sequential or Parallel; composite is just "an Element"
+  refinePerTicket, // ← itself a Sequential; composite is just "an Element"
   exportRequirements,
 ]);
 ```
@@ -68,27 +68,8 @@ Semantics:
 - Aborts immediately on `signal.aborted`.
 - Emits one trace entry per child element.
 
-## Parallel — fan-out + join
-
-```ts
-new Parallel(
-  'execute-tasks',
-  tasks.map((t) => taskChain(t)),
-  {
-    concurrency: 4,
-    failureMode: 'fail-fast' | 'collect-all',
-  }
-);
-```
-
-Semantics:
-
-- Runs child elements concurrently with the configured concurrency cap.
-- `fail-fast` — first error aborts siblings via the shared abort signal.
-- `collect-all` — every child runs to completion; the result aggregates errors.
-- Context merging: each child receives the same input context; results are merged via a caller-supplied
-  reducer (`(ctxs: TCtx[]) => TCtx`). For task fan-out, the reducer typically aggregates per-task
-  outcomes into a summary.
+`executeFlow` uses a `Sequential` of bridge leaves to iterate per-task chains in topological order;
+there is no concurrent fan-out primitive.
 
 ## Retry — policy decorator
 
@@ -150,14 +131,19 @@ This is the architectural fence: every chain definition has an integration test 
 
 ### Progressive emission
 
-`Element.execute(ctx, signal?, onTrace?)` accepts an optional `onTrace(entry)` callback. Each
-implementation calls it as steps complete (Leaf — once per use-case call; Sequential / Parallel —
-once per child; Retry — once per attempt; OnError — once for the child plus once for the fallback if
-invoked). The final returned `ChainTrace` array is the union of those emissions; subscribers via
-`ChainRunner.subscribe(...)` receive `step` events live as the chain runs, so live UIs (the TUI
-execute view, sessions stream) render the trace as it grows instead of waiting for the chain to
-settle. Late subscribers added after a terminal state still receive a synthetic replay of every
-step entry plus the matching terminal event, so UI re-attach is lossless.
+`Element.execute(ctx, signal?, onTrace?, onCtxUpdate?)` accepts two optional callbacks. Each
+implementation calls them as steps complete:
+
+- `onTrace(entry)` — Leaf once per use-case call; Sequential once per child; Retry once per attempt;
+  OnError once for the child plus once for the fallback if invoked. The final returned `ChainTrace`
+  array is the union of those emissions; subscribers via `ChainRunner.subscribe(...)` receive `step`
+  events live as the chain runs, so live UIs render the trace as it grows.
+- `onCtxUpdate(ctx)` — Leaf calls this after each successful output merge so `ChainRunner.ctx` stays
+  current between steps. Only successful transitions call it; failure paths do not. The TUI execute
+  view reads `runner.ctx` to populate the task-list panel without waiting for the chain to settle.
+
+Late subscribers added after a terminal state still receive a synthetic replay of every step entry
+plus the matching terminal event, so UI re-attach is lossless.
 
 ## Examples
 
@@ -218,6 +204,12 @@ const perTask = new Sequential('per-task', [
   }),
 ]);
 
+// Linearise tasks via topological sort over `task.blockedBy` and feed
+// the result into a Sequential so they run strictly one at a time.
+const orderedTasks = topologicalReorder(
+  tasks.map((t) => ({ item: t, id: String(t.id), blockedBy: t.blockedBy.map(String) }))
+);
+
 new Sequential('execute', [
   new Leaf('load-sprint', loadSprintUseCase, {
     /* … */
@@ -228,17 +220,10 @@ new Sequential('execute', [
   new Leaf('run-check-scripts', runCheckScriptsUseCase, {
     /* … */
   }),
-  new Parallel(
+  new Sequential(
     'execute-tasks',
-    tasks.map(() => perTask),
-    {
-      concurrency: 4,
-      failureMode: 'collect-all',
-    }
+    orderedTasks.map(() => perTask)
   ),
-  new Leaf('feedback-loop', feedbackLoopUseCase, {
-    /* … */
-  }),
 ]);
 ```
 
@@ -247,13 +232,14 @@ new Sequential('execute', [
 - `Element` is an abstract class with a final `execute()` that handles tracing + abort wiring; subclasses
   override a protected `run()`. This avoids every implementation re-implementing the boilerplate.
 - Each element class lives in its own file under `kernel/chain/`:
-  `element.ts`, `leaf.ts`, `sequential.ts`, `parallel.ts`, `retry.ts`, `on-error.ts`. No barrel.
+  `element.ts`, `leaf.ts`, `sequential.ts`, `retry.ts`, `on-error.ts`. No barrel.
 - Tests in sibling `*.test.ts` files. A failing test must precisely identify which element broke.
 
 ## What is **not** in the kernel
 
 - Use cases (those are `business/`).
 - Chain definitions (those are `application/chains/`).
-- Provider-specific orchestration (rate-limiting coordinator, mutex queue) — those are
-  algorithmic primitives in `kernel/algorithms/`, used by Parallel via configuration but not part of the
-  chain framework itself.
+- Provider-specific orchestration (rate-limiting coordinator, mutex queue, dependency reorder) — those are
+  algorithmic primitives in `kernel/algorithms/`, consumed by chain factories at construction time
+  (e.g. `executeFlow` calls `topologicalReorder` to linearise tasks) but not part of the chain framework
+  itself.

@@ -173,6 +173,10 @@ process.exit(); // Should exit with appropriate code
 
 ## ralphctl-specific review checks
 
+> **Note:** `.claude/docs/REQUIREMENTS.md` (acceptance-criteria checklist) is not auto-imported. When a review needs
+> to verify chain step traces or tick acceptance criteria for shipped behaviour, explicitly `Read` it — it is the
+> testable fence the project leans on and won't be in your baseline context.
+
 ralphctl uses a five-module Clean Architecture under `src/`. Watch for these violations:
 
 - **Layering** — `kernel < domain < business < integration < application`. Both `kernel/` and `domain/` must stay
@@ -189,9 +193,10 @@ ralphctl uses a five-module Clean Architecture under `src/`. Watch for these vio
 - **No barrels** — every import points at a specific source file. Reject any new `index.ts` that re-exports siblings.
 - **Step-order tests** — every chain factory has an integration test asserting `trace.map(s => s.stepName)` for happy
   - failure paths. If a PR changes a chain's step order, the corresponding test must change too.
-- **No new conditional primitives** — the kernel has six concepts: `Element`, `Leaf`, `Sequential`, `Parallel`,
-  `Retry`, `OnError`. If a PR adds a `Conditional` (or anything similar), it needs a documented justification —
-  branching belongs inside a use case or in a sub-chain selected by the caller.
+- **No new kernel primitives** — the kernel has five concepts: `Element`, `Leaf`, `Sequential`, `Retry`, `OnError`.
+  There is no `Parallel` and no `Conditional`. If a PR adds either, it needs a documented justification —
+  branching belongs inside a use case or in a sub-chain selected by the caller; fan-out runs strictly
+  sequentially through a `Sequential`.
 - **No `@inquirer/prompts`** — all prompts go through `getPrompt()`. `InkPromptAdapter` is the only implementation.
 
 ## What I Don't Do
