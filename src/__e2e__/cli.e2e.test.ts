@@ -12,7 +12,7 @@
  * without a preceding manual build step.
  */
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -156,5 +156,34 @@ describe('CLI e2e smoke (built dist/cli.mjs)', () => {
     expect(r.status).not.toBe(0);
     // Commander emits "unknown command" to stderr by default.
     expect((r.stderr + r.stdout).toLowerCase()).toMatch(/unknown command|invalid|error/);
+  });
+
+  // Regression for the 0.6.0 / 0.6.1 entrypoint bug. `shouldAutoInvoke()`
+  // was basename-gated to `cli.mjs` / `entrypoint.ts`, so when npm linked
+  // `<prefix>/bin/ralphctl` → `dist/cli.mjs`, `process.argv[1]` was the
+  // shim path and the basename check rejected it — `main()` never ran and
+  // `ralphctl --version` exited 0 with no output.
+  it('runs main() when invoked via a renamed symlink (npm bin install path)', () => {
+    const linkPath = join(tmpRoot, 'ralphctl-bin-shim');
+    if (existsSync(linkPath)) rmSync(linkPath, { force: true });
+    symlinkSync(CLI_PATH, linkPath);
+    const parentEnv = { ...process.env };
+    delete parentEnv['VITEST'];
+    delete parentEnv['VITEST_POOL_ID'];
+    delete parentEnv['VITEST_WORKER_ID'];
+    const result = spawnSync(process.execPath, [linkPath, '--version'], {
+      encoding: 'utf-8',
+      env: {
+        ...parentEnv,
+        RALPHCTL_ROOT: tmpRoot,
+        RALPHCTL_NO_TUI: '1',
+        RALPHCTL_JSON: '1',
+        NO_COLOR: '1',
+        CI: '1',
+      },
+      timeout: 20_000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });

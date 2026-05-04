@@ -10,6 +10,8 @@
  * now, the entrypoint prints help. Non-TTY / piped invocations always
  * pick the plain-text path.
  */
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 
 import { getSharedDeps } from '@src/application/bootstrap/get-shared-deps.ts';
@@ -249,20 +251,22 @@ function serialiseError(err: unknown): Record<string, unknown> {
 // `import.meta.url` against the process entry so tests that import this
 // module don't trigger a top-level CLI dispatch.
 //
-// When running under tsx, `process.argv[1]` is the source `.ts` file
-// (`entrypoint.ts`). When bundled via tsup, the entry is `dist/cli.mjs`
-// (the file name comes from `tsup.config.ts`'s `entry: { cli: ... }`).
-// Match either form, plus a generic `cli.{mjs,js}` for npm-installed
-// invocations under `node_modules/.bin/`.
+// Resolve `process.argv[1]` through realpath so symlinked bins (npm's
+// global install pattern — `<prefix>/bin/ralphctl` → `dist/cli.mjs`)
+// resolve back to this module. Compare against `import.meta.url` to
+// confirm we're the entry point. The earlier basename allowlist
+// (`entrypoint.ts` / `cli.mjs`) silently skipped main() when invoked
+// via the `ralphctl` shim, so 0.6.0 / 0.6.1 ran as no-ops on a fresh
+// `npm i -g ralphctl`.
 function shouldAutoInvoke(): boolean {
   if (process.env['VITEST'] !== undefined) return false;
   const entry = process.argv[1];
   if (entry === undefined) return false;
-  const base = entry.split('/').pop() ?? '';
-  // Accept `entrypoint.{ts,mjs,js}` (dev / direct invocation) and
-  // `cli.{mjs,js}` (the bundled binary name configured by tsup).
-  if (!/^(entrypoint|cli)\.(ts|mjs|js)$/.test(base)) return false;
-  return true;
+  try {
+    return pathToFileURL(realpathSync(entry)).href === import.meta.url;
+  } catch {
+    return false;
+  }
 }
 
 if (shouldAutoInvoke()) {
