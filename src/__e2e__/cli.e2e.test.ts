@@ -7,12 +7,9 @@
  * directly with a wired `SharedDeps`, these tests exercise the full bundled
  * artefact — the exact bytes published to npm.
  *
- * Opt-in: this suite is gated behind `RALPHCTL_E2E=1` because each spawn
- * costs ~250-500ms on a warm cache. `pnpm test` runs unit tests only;
- * `RALPHCTL_E2E=1 pnpm test` runs both.
- *
- * Pre-requisite: `pnpm build` must have produced `dist/cli.mjs`. Run
- * `pnpm build` once before invoking the suite.
+ * Auto-build: if `dist/cli.mjs` is missing when the suite starts, `beforeAll`
+ * runs `pnpm build` synchronously so `pnpm test` works on a fresh checkout
+ * without a preceding manual build step.
  */
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -20,7 +17,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const SUITE_ENABLED = process.env['RALPHCTL_E2E'] === '1';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const CLI_PATH = join(REPO_ROOT, 'dist', 'cli.mjs');
 
@@ -60,12 +56,22 @@ function runCli(args: readonly string[], extraEnv: NodeJS.ProcessEnv = {}): RunR
   };
 }
 
-describe.skipIf(!SUITE_ENABLED)('CLI e2e smoke (RALPHCTL_E2E=1)', () => {
+describe('CLI e2e smoke (built dist/cli.mjs)', () => {
   let tmpRoot: string;
 
   beforeAll(() => {
     if (!existsSync(CLI_PATH)) {
-      throw new Error(`dist/cli.mjs not found at ${CLI_PATH}. Run \`pnpm build\` first.`);
+      const build = spawnSync('pnpm', ['build'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf-8',
+        timeout: 60_000,
+      });
+      if (build.status !== 0) {
+        throw new Error(`pnpm build failed (status ${String(build.status ?? -1)}):\n${build.stdout}\n${build.stderr}`);
+      }
+      if (!existsSync(CLI_PATH)) {
+        throw new Error(`pnpm build completed but dist/cli.mjs is still missing at ${CLI_PATH}.`);
+      }
     }
     tmpRoot = mkdtempSync(join(tmpdir(), 'ralphctl-e2e-'));
   });
