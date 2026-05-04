@@ -5,6 +5,26 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.6.1] - 2026-05-04
+
+Quality follow-up to 0.6.0 — bumps the build chain to TypeScript 6, lifts a runtime patch on `zod`, and
+deflakes a CI race in the ticket-add view test that intermittently failed on slower runners.
+
+### Changed
+
+- `pnpm update --latest` — TypeScript 5.9.3 → 6.0.3, `zod` 4.3.6 → 4.4.3, `typescript-eslint` 8.59.0 →
+  8.59.2, `eslint` 10.2.1 → 10.3.0, `knip` 6.9.0 → 6.11.0, `globals` 17.5.0 → 17.6.0
+- `tsconfig.json` — drop the now-deprecated `baseUrl` and root `paths` at `./` (TS 6 promoted the
+  `baseUrl` deprecation to a hard error; `paths` resolves relative to `tsconfig.json` since TS 5.0)
+
+### Fixed
+
+- `ticket-add-view` test no longer races the React render cycle on CI. The frame-text assertion is now
+  folded into the same `vi.waitFor` that watches the confirm-mock count, closing the gap that let CI
+  snapshot a `Starting…` frame before the second-add success card had rendered.
+
 ## [0.6.0] - 2026-05-04
 
 ### Added
