@@ -63,6 +63,35 @@ describe('resolveStoragePaths', () => {
     expect(paths.tasksFile(FIXTURE_SPRINT)).toBe(join(paths.sprintsDir, FIXTURE_SPRINT, 'tasks.json'));
   });
 
+  it('formats per-unit folder paths under <sprintDir>/{refinement,ideation,planning,execution}/', () => {
+    const root = uniqueRoot();
+    const paths = resolveStoragePaths({ root });
+    const sprintDir = paths.sprintDir(FIXTURE_SPRINT);
+    expect(paths.refinementUnitDir(FIXTURE_SPRINT, 'tk1-foo')).toBe(join(sprintDir, 'refinement', 'tk1-foo'));
+    expect(paths.ideationUnitDir(FIXTURE_SPRINT, 'tk1-foo')).toBe(join(sprintDir, 'ideation', 'tk1-foo'));
+    expect(paths.planningDir(FIXTURE_SPRINT)).toBe(join(sprintDir, 'planning'));
+    expect(paths.executionUnitDir(FIXTURE_SPRINT, 'task1-bar')).toBe(join(sprintDir, 'execution', 'task1-bar'));
+  });
+
+  it('formats sprint root files', () => {
+    const root = uniqueRoot();
+    const paths = resolveStoragePaths({ root });
+    const sprintDir = paths.sprintDir(FIXTURE_SPRINT);
+    expect(paths.progressFile(FIXTURE_SPRINT)).toBe(join(sprintDir, 'progress.md'));
+    expect(paths.requirementsAggregateFile(FIXTURE_SPRINT)).toBe(join(sprintDir, 'requirements.json'));
+    expect(paths.feedbackFile(FIXTURE_SPRINT)).toBe(join(sprintDir, 'feedback.md'));
+  });
+
+  it('does not perform I/O for per-unit path resolution', async () => {
+    const root = uniqueRoot();
+    const paths = resolveStoragePaths({ root });
+    paths.refinementUnitDir(FIXTURE_SPRINT, 'tk1');
+    paths.executionUnitDir(FIXTURE_SPRINT, 'task1');
+    paths.planningDir(FIXTURE_SPRINT);
+    // Resolution alone must not materialise any directory.
+    await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('RALPHCTL_ROOT with trailing slash: trailing slash is preserved in root as-is (not stripped)', () => {
     // Document: the function does not strip trailing slashes. The env value is
     // trusted via trustString. Callers wanting normalisation must strip before setting.

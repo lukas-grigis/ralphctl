@@ -1,6 +1,6 @@
 import { Result } from 'typescript-result';
 
-import type { ElementResult, KernelError, OnTraceCallback } from './element.ts';
+import type { ElementResult, KernelError, OnCtxUpdateCallback, OnTraceCallback } from './element.ts';
 import { Element } from './element.ts';
 
 /**
@@ -38,7 +38,12 @@ export class Leaf<TCtx, UInput, UOutput> extends Element<TCtx> {
     this.config = config;
   }
 
-  protected override run(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTraceCallback): Promise<ElementResult<TCtx>> {
+  protected override run(
+    ctx: TCtx,
+    signal?: AbortSignal,
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
+  ): Promise<ElementResult<TCtx>> {
     return this.runLeaf(
       async () => {
         const input = this.config.input(ctx);
@@ -50,7 +55,8 @@ export class Leaf<TCtx, UInput, UOutput> extends Element<TCtx> {
         return Result.ok(this.config.output(ctx, output)) as Result<TCtx, KernelError>;
       },
       signal,
-      onTrace
+      onTrace,
+      onCtxUpdate
     );
   }
 }

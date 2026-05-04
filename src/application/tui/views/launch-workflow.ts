@@ -100,17 +100,17 @@ async function buildRefineInputs(deps: SharedDeps, router: RouterApi): Promise<F
   const sprint = sprintResult.value;
   const pendingTickets = sprint.tickets.filter((t) => t.requirementStatus === 'pending');
   if (pendingTickets.length === 0) throw new Error('No pending tickets to refine');
-  const cwd = await resolveCwd(deps);
+  // No `cwd` from the launcher — the chain's `build-refinement-unit`
+  // leaf materialises a sandbox under `<sprintDir>/refinement/<unit>/`
+  // and stamps `ctx.cwd` so every AI session lives inside it. Per-ticket
+  // output (`requirements.json`) and the rendered prompt (`prompt.md`)
+  // both land inside the same unit folder — see refine-flow.ts.
+  //
   // Default to interactive on a TTY — that's the 0.5.0 behaviour the
   // user expects (full Claude Code UI per ticket). Non-TTY (CI / piped
   // / RALPHCTL_NO_TUI) falls back to headless automatically.
   const interactive = process.stdout.isTTY && process.env['RALPHCTL_NO_TUI'] !== '1';
-  // Per-ticket output files live under the sprint's storage directory:
-  // <sprintDir>/refinement/<ticketId>/requirements.json. Mirrors the
-  // ARCHITECTURE.md storage layout.
-  const sprintDir = String(deps.storage.sprintDir(sprintId));
-  const refinementOutputDir = `${sprintDir}/refinement`;
-  return { flow: 'refine', sprintId, cwd, pendingTickets, interactive, refinementOutputDir };
+  return { flow: 'refine', sprintId, pendingTickets, interactive };
 }
 
 async function buildPlanInputs(deps: SharedDeps, router: RouterApi): Promise<FlowInputs | null> {
@@ -123,12 +123,12 @@ async function buildPlanInputs(deps: SharedDeps, router: RouterApi): Promise<Flo
     throw new Error('All tickets must be approved before planning. Run Refine first.');
   }
 
-  // Repo selection now happens INSIDE the plan chain via the
+  // Repo selection happens INSIDE the plan chain via the
   // `persist-repo-selection` leaf — it loads the project, prompts (or
   // skips for single-repo projects), and writes the result onto
-  // `sprint.affectedRepositories`. The launcher just resolves a sane
-  // initial cwd (overridden by the chain once selection lands).
-  const cwd = await resolveCwd(deps);
+  // `sprint.affectedRepositories`. The AI session's cwd is the per-sprint
+  // sandbox stamped by the chain's `build-plan-workspace` leaf — the
+  // launcher does not supply one.
 
   // Default to interactive on a TTY; CI / piped falls back to headless.
   // The output file path only matters in interactive mode (headless
@@ -139,7 +139,6 @@ async function buildPlanInputs(deps: SharedDeps, router: RouterApi): Promise<Flo
   return {
     flow: 'plan',
     sprintId,
-    cwd,
     interactive,
     ...(interactive ? { outputFilePath: `${sprintDir}/planning/tasks.json` } : {}),
   };

@@ -50,12 +50,7 @@ async function runSprintIdeate(deps: SharedDeps, opts: SprintIdeateFlags): Promi
     return EXIT_ERROR;
   }
 
-  const flow = createIdeateFlow(deps, {
-    sprintId: sprintId.value,
-    cwd: cwd.value,
-    projectName: projectName.value,
-    ideaText: opts.idea,
-  });
+  const flow = createIdeateFlow(deps);
 
   return streamSession<IdeateCtx>({
     sessionManager: deps.sessionManager,

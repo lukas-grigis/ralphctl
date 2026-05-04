@@ -6,7 +6,7 @@
  * These helpers duck-type the ctx shapes the view cares about.
  */
 
-import type { TaskGridItem } from './task-execution-grid.tsx';
+import type { TaskGridItem } from './task-grid-item.ts';
 
 /**
  * Extract the full task list from the runner's chain context. Returns an

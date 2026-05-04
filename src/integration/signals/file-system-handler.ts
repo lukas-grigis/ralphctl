@@ -1,19 +1,19 @@
 /**
  * `FileSystemSignalHandler` — concrete `SignalHandlerPort` implementation.
  *
- * Routes parsed harness signals to durable filesystem destinations under
- * the new storage layout:
+ * Routes parsed harness signals to durable filesystem destinations:
  *
  *  - `progress` / `note` / `task-blocked` → append timestamped markdown
  *    line to `<sprintDir>/progress.md` (under file lock to prevent
  *    concurrent corruption when parallel tasks emit simultaneously).
- *  - `evaluation` → write full critique to
- *    `<sprintDir>/evaluations/<task-id>.md` (overwrite per task) AND
- *    append a one-line summary to `progress.md`.
+ *  - `evaluation` → write full critique to the per-task execution unit's
+ *    `evaluation.md` (`<sprintDir>/execution/<unit-slug>/evaluation.md`)
+ *    and append a one-line summary to `progress.md`. Requires `taskId`
+ *    plus `taskName` in the meta so the unit slug can be derived.
  *  - `task-verified` / `task-complete` → no durable write (use case layer
  *    owns task lifecycle in `tasks.json`).
- *  - `check-script-discovery` / `agents-md-proposal` → setup-time only,
- *    consumed inline by the caller.
+ *  - `check-script-discovery` / `agents-md-proposal` etc → setup-time
+ *    only, consumed inline by the caller.
  *
  * All writes are append-only or atomic-overwrite — a crash mid-write
  * leaves prior entries intact (resumability invariant).
@@ -21,22 +21,23 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { SignalHandlerPort } from '@src/business/ports/signal-handler-port.ts';
+import type { SignalHandlerMeta, SignalHandlerPort } from '@src/business/ports/signal-handler-port.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signals/harness-signal.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
-import type { TaskId } from '@src/domain/values/task-id.ts';
 import { FileLocker } from '@src/integration/persistence/file-locker.ts';
 import type { StoragePaths } from '@src/integration/persistence/storage-paths.ts';
+import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 
 function progressPath(paths: StoragePaths, sprintId: SprintId): AbsolutePath {
-  return AbsolutePath.trustString(join(paths.sprintDir(sprintId), 'progress.md'));
+  return paths.progressFile(sprintId);
 }
 
-function evaluationPath(paths: StoragePaths, sprintId: SprintId, taskId: TaskId): AbsolutePath {
-  return AbsolutePath.trustString(join(paths.sprintDir(sprintId), 'evaluations', `${taskId}.md`));
+function evaluationPath(paths: StoragePaths, sprintId: SprintId, taskId: string, taskName: string): AbsolutePath {
+  const slug = unitSlug(taskId, taskName);
+  return AbsolutePath.trustString(join(paths.executionUnitDir(sprintId, slug), 'evaluation.md'));
 }
 
 async function appendLine(path: AbsolutePath, line: string): Promise<Result<void, StorageError>> {
@@ -82,41 +83,47 @@ export class FileSystemSignalHandler implements SignalHandlerPort {
     private readonly fileLocker: FileLocker = new FileLocker()
   ) {}
 
-  async handle(
-    signal: HarnessSignal,
-    ctx: { readonly sprintId: SprintId; readonly taskId?: TaskId }
-  ): Promise<Result<void, StorageError>> {
+  async handle(signal: HarnessSignal, meta: SignalHandlerMeta): Promise<Result<void, StorageError>> {
     switch (signal.type) {
       case 'progress':
-        return this.appendProgress(ctx.sprintId, formatProgress(signal.timestamp, signal.summary, signal.files));
+        return this.appendProgress(meta.sprintId, formatProgress(signal.timestamp, signal.summary, signal.files));
 
       case 'note':
-        return this.appendProgress(ctx.sprintId, formatProgress(signal.timestamp, `**Note:** ${signal.text}`));
+        return this.appendProgress(meta.sprintId, formatProgress(signal.timestamp, `**Note:** ${signal.text}`));
 
       case 'task-blocked':
         return this.appendProgress(
-          ctx.sprintId,
+          meta.sprintId,
           formatProgress(signal.timestamp, `**Task Blocked:** ${signal.reason}`)
         );
 
       case 'evaluation': {
-        if (ctx.taskId === undefined) {
+        if (meta.taskId === undefined) {
           return Result.error(
             new StorageError({
               subCode: 'io',
-              message: 'evaluation signal requires taskId in context',
+              message: 'evaluation signal requires taskId in meta',
             })
           );
         }
-        const file = evaluationPath(this.paths, ctx.sprintId, ctx.taskId);
+        if (meta.taskName === undefined) {
+          return Result.error(
+            new StorageError({
+              subCode: 'io',
+              message: 'evaluation signal requires taskName in meta to derive the execution unit slug',
+            })
+          );
+        }
+        const file = evaluationPath(this.paths, meta.sprintId, String(meta.taskId), meta.taskName);
         const body = renderEvaluationBody(signal);
         const w = await writeText(file, body);
         if (!w.ok) return w;
+        const scoreSuffix = signal.overallScore !== undefined ? `, score ${String(signal.overallScore)}/5` : '';
         return this.appendProgress(
-          ctx.sprintId,
+          meta.sprintId,
           formatProgress(
             signal.timestamp,
-            `**Evaluation:** ${signal.status} (${String(signal.dimensions.length)} dimension(s))`
+            `**Evaluation:** ${signal.status}${scoreSuffix} (${String(signal.dimensions.length)} dimension(s))`
           )
         );
       }
@@ -158,7 +165,13 @@ function formatProgress(timestamp: string, message: string, files?: readonly str
 
 function renderEvaluationBody(signal: {
   readonly status: 'passed' | 'failed' | 'malformed';
-  readonly dimensions: readonly { readonly dimension: string; readonly passed: boolean; readonly finding: string }[];
+  readonly dimensions: readonly {
+    readonly dimension: string;
+    readonly score?: number;
+    readonly passed: boolean;
+    readonly finding: string;
+  }[];
+  readonly overallScore?: number;
   readonly critique?: string;
   readonly timestamp: string;
 }): string {
@@ -166,13 +179,17 @@ function renderEvaluationBody(signal: {
   lines.push(`# Evaluation — ${signal.status}`);
   lines.push('');
   lines.push(`Recorded: ${signal.timestamp}`);
+  if (signal.overallScore !== undefined) {
+    lines.push(`Overall score: ${String(signal.overallScore)}/5`);
+  }
   lines.push('');
   if (signal.dimensions.length > 0) {
     lines.push('## Dimensions');
     lines.push('');
     for (const d of signal.dimensions) {
       const verdict = d.passed ? 'PASS' : 'FAIL';
-      lines.push(`- **${d.dimension}**: ${verdict} — ${d.finding}`);
+      const scoreLabel = d.score !== undefined ? ` (score ${String(d.score)}/5)` : '';
+      lines.push(`- **${d.dimension}**${scoreLabel}: ${verdict} — ${d.finding}`);
     }
     lines.push('');
   }

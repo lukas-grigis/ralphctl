@@ -17,11 +17,9 @@
  *  - `hasUncommittedChanges` returns `false` on non-git repos.
  *  - `getChangedFilesSince` validates the baseline against a hex-SHA
  *    pattern and returns `[]` for malformed values — never throws.
- *  - `autoCommit` honours pre-commit hooks (no `--no-verify`).
- *  - `autoCommit` emits `Result.error(StorageError({ subCode: 'no-changes',
+ *  - `stashChanges` emits `Result.error(StorageError({ subCode: 'no-changes',
  *    message: 'no changes' }))` when the repo is clean — callers detect
- *    the clean-tree no-op via `subCode === 'no-changes'` (the harness's
- *    we used to compare the message string, which was fragile).
+ *    the clean-tree no-op via `subCode === 'no-changes'`.
  */
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
@@ -197,44 +195,62 @@ export class GitOperations {
   }
 
   /**
-   * Stage all changes and create a commit. Honours pre-commit hooks (no
-   * `--no-verify`).
+   * Stage every change in the working tree (including untracked files) and
+   * create a commit with the supplied message. Returns the new HEAD SHA.
    *
-   * Returns `Result.error(StorageError({ subCode: 'no-changes', message:
-   * 'no changes' }))` when the working tree is clean — callers detect the
-   * clean-tree no-op via `subCode === 'no-changes'` (e.g. the dirty-tree
-   * fence treats a clean tree as a no-op).
+   *  - `Result.error(StorageError({ subCode: 'no-changes' }))` — the tree was
+   *    already clean before staging. Callers treat this as a no-op.
+   *  - `Result.error(StorageError({ subCode: 'io' }))` — `git add` /
+   *    `git commit` / `git rev-parse HEAD` failed for any other reason.
+   *
+   * Safety: the message is passed through `git`'s argv (no shell), so
+   * special characters (quotes, dollar signs, backticks, newlines) are
+   * preserved verbatim without expansion. Defensively truncated to
+   * 200 characters by the caller — this method does not enforce a length.
    */
-  autoCommit(cwd: AbsolutePath, message: string): Promise<Result<void, StorageError>> {
-    if (!this.hasUncommittedChanges(cwd)) {
-      return Promise.resolve(Result.error(new StorageError({ subCode: 'no-changes', message: 'no changes' })));
-    }
+  commitChanges(cwd: AbsolutePath, message: string): Promise<Result<string, StorageError>> {
+    return Promise.resolve(this.commitChangesSync(cwd, message));
+  }
 
+  private commitChangesSync(cwd: AbsolutePath, message: string): Result<string, StorageError> {
+    if (!this.hasUncommittedChanges(cwd)) {
+      return Result.error(new StorageError({ subCode: 'no-changes', message: 'no changes to commit' }));
+    }
     const add = this.git.run({ cwd, args: ['add', '-A'] });
     if (add.exitCode !== 0) {
-      return Promise.resolve(
-        Result.error(
-          new StorageError({
-            subCode: 'io',
-            message: `failed to stage changes: ${(add.stderr || add.stdout).trim()}`,
-          })
-        )
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `failed to stage changes: ${(add.stderr || add.stdout).trim()}`,
+        })
       );
     }
-
+    // `git add -A` may have promoted untracked files but the index could
+    // still be empty (e.g. files were ignored). Re-check before commit so
+    // we surface a `no-changes` rather than a confusing "nothing to commit"
+    // failure.
+    if (!this.hasUncommittedChanges(cwd)) {
+      return Result.error(new StorageError({ subCode: 'no-changes', message: 'no changes staged after git add' }));
+    }
     const commit = this.git.run({ cwd, args: ['commit', '-m', message] });
     if (commit.exitCode !== 0) {
-      return Promise.resolve(
-        Result.error(
-          new StorageError({
-            subCode: 'io',
-            message: `failed to commit: ${(commit.stderr || commit.stdout).trim()}`,
-          })
-        )
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `failed to commit changes: ${(commit.stderr || commit.stdout).trim()}`,
+        })
       );
     }
-
-    return Promise.resolve(Result.ok(undefined));
+    const headSha = this.getHeadSha(cwd);
+    if (headSha === null) {
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: 'commit succeeded but failed to resolve new HEAD SHA',
+        })
+      );
+    }
+    return Result.ok(headSha);
   }
 
   /**

@@ -10,7 +10,6 @@ import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
-import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { FakeSignalBusPort } from '@src/business/_test-fakes/fake-signal-bus-port.ts';
 import { FakeSignalParserPort } from '@src/business/_test-fakes/fake-signal-parser-port.ts';
 import { RateLimitCoordinator } from '@src/kernel/algorithms/rate-limit-coordinator.ts';
@@ -62,6 +61,9 @@ function completeSignal(): TaskCompleteSignal {
   return { type: 'task-complete', timestamp: T0 };
 }
 
+/** Canonical context-file path used by every test in this file. */
+const CONTEXT_FILE = '/tmp/sprints/a/contexts/task.md';
+
 function blockedSignal(reason = 'unsafe'): TaskBlockedSignal {
   return { type: 'task-blocked', reason, timestamp: T0 };
 }
@@ -72,12 +74,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'ok', sessionId: 'sess-1' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -92,12 +95,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'no signals here' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -113,12 +117,13 @@ describe('ExecuteSingleTaskUseCase', () => {
     const parser = new FakeSignalParserPort({
       results: [[blockedSignal('missing creds')]],
     });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -134,17 +139,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       message: 'spawn failed: 429 too many requests',
     });
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'error', error }] });
-    const uc = new ExecuteSingleTaskUseCase(
-      ai,
-      new FakePromptBuilderPort(),
-      new FakeSignalParserPort(),
-      new FakeLoggerPort()
-    );
+    const uc = new ExecuteSingleTaskUseCase(ai, new FakeSignalParserPort(), new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -160,17 +161,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       message: 'spawn failed: ENOENT',
     });
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'error', error }] });
-    const uc = new ExecuteSingleTaskUseCase(
-      ai,
-      new FakePromptBuilderPort(),
-      new FakeSignalParserPort(),
-      new FakeLoggerPort()
-    );
+    const uc = new ExecuteSingleTaskUseCase(ai, new FakeSignalParserPort(), new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(false);
@@ -179,33 +176,18 @@ describe('ExecuteSingleTaskUseCase', () => {
     }
   });
 
-  it('propagates a prompt-builder failure', async () => {
-    const failure = new StorageError({ subCode: 'io', message: 'template missing' });
-    const prompts = new FakePromptBuilderPort({ failWith: failure });
-    const ai = new FakeAiSessionPort();
-    const uc = new ExecuteSingleTaskUseCase(ai, prompts, new FakeSignalParserPort(), new FakeLoggerPort());
-
-    const result = await uc.execute({
-      task: aTask(),
-      sprint: aSprint(),
-      cwd: path('/repos/demo'),
-    });
-
-    expect(result.ok).toBe(false);
-    expect(ai.captured).toHaveLength(0);
-  });
-
   it('uses resumeSession when resumeSessionId is provided', async () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'resumed', sessionId: 'after' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
       resumeSessionId: 'old-session',
     });
 
@@ -219,13 +201,14 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: '' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
     const ac = new AbortController();
 
     await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
       abortSignal: ac.signal,
     });
 
@@ -238,12 +221,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: '' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -260,12 +244,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'blocked twice' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[block1, block2]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -283,12 +268,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'verified and done' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[verified, completeSignal()]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -304,12 +290,13 @@ describe('ExecuteSingleTaskUseCase', () => {
       outcomes: [{ kind: 'ok', result: { output: 'done without verify' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -324,7 +311,7 @@ describe('ExecuteSingleTaskUseCase', () => {
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
     const logger = new FakeLoggerPort();
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, logger);
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, logger);
 
     const task = aTask({ name: 'wire up the auth middleware' });
 
@@ -332,6 +319,7 @@ describe('ExecuteSingleTaskUseCase', () => {
       task,
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     const executing = logger.entries.find((e) => e.message.startsWith('executing task '));
@@ -347,12 +335,13 @@ describe('ExecuteSingleTaskUseCase', () => {
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
     const logger = new FakeLoggerPort();
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, logger);
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, logger);
 
     await uc.execute({
       task: aTask({ name: longName }),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     const executing = logger.entries.find((e) => e.message.startsWith('executing task '));
@@ -379,12 +368,13 @@ describe('ExecuteSingleTaskUseCase', () => {
     const parser = new FakeSignalParserPort({
       results: [[note, verified, completeSignal()]],
     });
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -403,7 +393,7 @@ describe('ExecuteSingleTaskUseCase', () => {
       results: [[note, verified, completeSignal()]],
     });
     const bus = new FakeSignalBusPort();
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort(), bus);
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort(), bus);
 
     const sprint = aSprint();
     const task = aTask();
@@ -411,6 +401,7 @@ describe('ExecuteSingleTaskUseCase', () => {
       task,
       sprint,
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -438,7 +429,6 @@ describe('ExecuteSingleTaskUseCase', () => {
     const coordinator = new RateLimitCoordinator();
     const uc = new ExecuteSingleTaskUseCase(
       ai,
-      new FakePromptBuilderPort(),
       new FakeSignalParserPort(),
       new FakeLoggerPort(),
       undefined,
@@ -449,6 +439,7 @@ describe('ExecuteSingleTaskUseCase', () => {
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);
@@ -463,12 +454,13 @@ describe('ExecuteSingleTaskUseCase', () => {
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
     // No bus, no coordinator — verifies the use case stays optional-friendly.
-    const uc = new ExecuteSingleTaskUseCase(ai, new FakePromptBuilderPort(), parser, new FakeLoggerPort());
+    const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
 
     const result = await uc.execute({
       task: aTask(),
       sprint: aSprint(),
       cwd: path('/repos/demo'),
+      promptFilePath: CONTEXT_FILE,
     });
 
     expect(result.ok).toBe(true);

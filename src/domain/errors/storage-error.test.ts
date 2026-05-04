@@ -18,8 +18,8 @@ describe('StorageError', () => {
   });
 
   it('supports the "no-changes" sub-code distinct from "io"', () => {
-    // Callers (e.g. recover-dirty-tree) detect a clean-tree autoCommit
-    // via this discriminator instead of message-string matching.
+    // Callers (e.g. stashChanges on an already-clean tree) detect the
+    // no-op via this discriminator instead of message-string matching.
     const err = new StorageError({ subCode: 'no-changes', message: 'no changes' });
     expect(err.subCode).toBe('no-changes');
     expect(err.code).toBe('storage-error');

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
+import { waitForFrame } from '@src/application/tui/_test/wait-for-frame.ts';
 import { HomeView } from './home-view.tsx';
 import { RouterProvider } from './router-context.ts';
 import { ViewHintsProvider } from './view-hints-context.tsx';
@@ -16,7 +17,7 @@ import { Sprint } from '@src/domain/entities/sprint.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 import type { SessionManagerPort } from '@src/application/runtime/session-manager-port.ts';
 
@@ -370,7 +371,80 @@ describe('HomeView', () => {
         </ViewHintsProvider>
       </RouterProvider>
     );
-    await new Promise((r) => setTimeout(r, 80));
+    await waitForFrame(lastFrame, (f) => f.includes('Pipeline Sprint'), {
+      reason: 'expected home view to render sprint name "Pipeline Sprint"',
+    });
     expect(lastFrame()).toContain('Pipeline Sprint');
+  });
+
+  it('treats an orphaned sprint reference as "no current sprint" (no Add Ticket suggestion)', async () => {
+    // Config points to a sprint that no longer exists in the repo. The
+    // summary line shows "No current sprint set" and the pipeline map
+    // should suggest Create Sprint, NOT Add Ticket — Add Ticket is
+    // unreachable when there's no current sprint.
+    setSharedDeps({
+      configStore: {
+        load: vi.fn(() => Promise.resolve(Result.ok({ ...CONFIG_DEFAULTS, currentSprint: '20240101-000000-stale' }))),
+        save: vi.fn(),
+      },
+      sprintRepo: {
+        findById: vi.fn(() => Promise.resolve(Result.error(new Error('not found')))),
+        list: vi.fn(() => Promise.resolve(Result.ok([]))),
+        save: vi.fn(),
+        remove: vi.fn(),
+      },
+      taskRepo: {
+        findBySprintId: vi.fn(() => Promise.resolve(Result.ok([]))),
+        findById: vi.fn(),
+        update: vi.fn(),
+        saveAll: vi.fn(),
+      },
+      projectRepo: {
+        // Loader only reads projects.length; one stub entry is enough to
+        // exercise the hasProjects=true branch without constructing a full Project.
+        list: vi.fn(() => Promise.resolve(Result.ok([{} as never]))),
+        findByName: vi.fn(),
+        save: vi.fn(),
+        remove: vi.fn(),
+      },
+      prompt: {
+        select: vi.fn(),
+        confirm: vi.fn(),
+        input: vi.fn(),
+        checkbox: vi.fn(),
+        editor: vi.fn(),
+        fileBrowser: vi.fn(),
+      },
+      sessionManager: {
+        start: vi.fn(),
+        list: vi.fn(() => []),
+        get: vi.fn(),
+        foreground: vi.fn(() => Result.ok()),
+        background: vi.fn(() => Result.ok()),
+        kill: vi.fn(() => Result.ok()),
+        get active() {
+          return null;
+        },
+        subscribe: vi.fn(() => () => undefined),
+        dispose: vi.fn(),
+      },
+    } as unknown as SharedDeps);
+
+    const router = makeRouter();
+    const sm = makeSessionManager();
+    const { lastFrame } = render(
+      <RouterProvider value={router}>
+        <ViewHintsProvider>
+          <HomeView sessionManager={sm} />
+        </ViewHintsProvider>
+      </RouterProvider>
+    );
+    await waitForFrame(lastFrame, (f) => f.includes('No current sprint set'), {
+      reason: 'expected home view to render "No current sprint set" for orphaned sprint reference',
+    });
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('No current sprint set');
+    expect(frame).not.toContain('Add Ticket');
+    expect(frame).toContain('Create Sprint');
   });
 });

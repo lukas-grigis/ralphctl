@@ -12,7 +12,7 @@ import { Sprint } from '@src/domain/entities/sprint.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 
 function makeSlug(s: string) {
@@ -121,10 +121,11 @@ describe('TaskListView', () => {
         </ViewHintsProvider>
       </RouterProvider>
     );
-    await new Promise((r) => setTimeout(r, 20));
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('Implement auth');
-    expect(frame).toContain('Write tests');
+    await vi.waitFor(() => {
+      const frame = lastFrame() ?? '';
+      expect(frame).toContain('Implement auth');
+      expect(frame).toContain('Write tests');
+    });
   });
 
   it('shows empty state when no tasks', async () => {

@@ -40,7 +40,7 @@ Focus: Clarify WHAT needs to be built (implementation-agnostic)
    - No remaining ambiguity about what the feature should do — two developers reading these requirements would build
      the same observable behavior
 
-   If the idea description already answers all of these, skip directly to Step 4.
+   If the idea description already answers all of these, skip directly to Step 4 — state "All clarifying questions answered by the description" so the user knows the interview was intentionally skipped.
 
 4. **Present requirements** — Show the complete refined requirements in readable markdown, then ask for approval using
    AskUserQuestion:
@@ -135,6 +135,8 @@ Focus: Determine HOW to implement the approved requirements
 The user pre-selected these repositories for exploration:
 
 {{REPOSITORIES}}
+
+These repositories were selected by the user before this session started — do not ask the user to confirm or change them; surface observations only.
 
 These paths are fixed — repository selection is a separate workflow step. If a critical repository seems missing,
 mention it as an observation.

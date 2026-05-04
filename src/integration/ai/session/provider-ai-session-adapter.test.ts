@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RateLimitError } from '@src/domain/errors/rate-limit-error.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { SessionOptions } from '@src/business/ports/ai-session-port.ts';
+import type { LoggerPort } from '@src/business/ports/logger-port.ts';
 import { FakeProcessRunner } from '@src/integration/_test-fakes/fake-process-runner.ts';
 import { claudeAdapter } from '@src/integration/ai/providers/claude-adapter.ts';
 import { copilotAdapter } from '@src/integration/ai/providers/copilot-adapter.ts';
@@ -279,5 +283,193 @@ describe('ProviderAiSessionAdapter.spawnWithRetry', () => {
     }
     // Single spawn attempt — second iteration cancels before re-spawn.
     expect(proc.calls.length).toBe(1);
+  });
+});
+
+describe('ProviderAiSessionAdapter — session.md audit', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = join(tmpdir(), `ralphctl-session-md-adapter-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`);
+    await mkdir(dir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function silentLogger(): LoggerPort & { warns: { msg: string; ctx?: unknown }[] } {
+    const warns: { msg: string; ctx?: unknown }[] = [];
+    const noop = (): void => undefined;
+    const stub: LoggerPort & { warns: typeof warns } = {
+      warns,
+      log: noop,
+      debug: noop,
+      info: noop,
+      success: noop,
+      warn: (msg, ctx) => warns.push({ msg, ctx }),
+      error: noop,
+      child: () => stub,
+      time: () => noop,
+    };
+    return stub;
+  }
+
+  it('writes a session.md start record before headless spawn (provider, cwd, flags, prompt body)', async () => {
+    const proc = new FakeProcessRunner().enqueue({
+      stdout: JSON.stringify({ result: 'ok', session_id: 'sess-x', model: 'claude-opus-4-7' }),
+    });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+    });
+    const r = await adapter.spawnHeadless('hello agent', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+    });
+    expect(r.ok).toBe(true);
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('provider: claude');
+    expect(body).toContain(`cwd: ${dir}`);
+    expect(body).toMatch(/flags: \[/);
+    // Headless flags include `-p` and the JSON output mode marker.
+    expect(body).toContain('-p');
+    expect(body).toContain('--output-format');
+    expect(body).toContain('## Prompt\n\nhello agent');
+  });
+
+  it('rewrites the session.md frontmatter with model + sessionId + exitCode after headless success', async () => {
+    const proc = new FakeProcessRunner().enqueue({
+      stdout: JSON.stringify({ result: 'ok', session_id: 'sess-final', model: 'claude-opus-4-7' }),
+    });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+    });
+    const r = await adapter.spawnHeadless('hello', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+    });
+    expect(r.ok).toBe(true);
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('finished:');
+    expect(body).toContain('exitCode: 0');
+    expect(body).toContain('sessionId: sess-final');
+    expect(body).toContain('model: claude-opus-4-7');
+    // Prompt body preserved across the start → finish round trip.
+    expect(body).toContain('## Prompt\n\nhello');
+  });
+
+  it('records exitCode 1 on a non-zero spawn but still writes session.md', async () => {
+    const proc = new FakeProcessRunner().enqueue({
+      stderr: 'segfault',
+      exitCode: 139,
+    });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+    });
+    const r = await adapter.spawnHeadless('go', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+    });
+    expect(r.ok).toBe(false);
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('exitCode: 1');
+    expect(body).toContain('## Prompt\n\ngo');
+  });
+
+  it('logs a warn but does not fail the spawn when session.md write fails', async () => {
+    const proc = new FakeProcessRunner().enqueue({
+      stdout: JSON.stringify({ result: 'ok' }),
+    });
+    const logger = silentLogger();
+    // Path is inside a directory we never create — but writeSessionStart
+    // calls mkdir(recursive) so it succeeds. Force a failure by pointing
+    // at a path under an existing FILE (not dir).
+    const blockerFile = join(dir, 'blocker');
+    await (await import('node:fs/promises')).writeFile(blockerFile, 'block');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+      logger,
+    });
+    const r = await adapter.spawnHeadless('go', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(join(blockerFile, 'session.md')),
+    });
+    expect(r.ok).toBe(true);
+    // Adapter never throws on audit failure; the warn surfaces it.
+    expect(logger.warns.some((w) => w.msg.includes('failed to write session.md'))).toBe(true);
+  });
+
+  it('omits session.md writes entirely when sessionMdPath is not provided', async () => {
+    const proc = new FakeProcessRunner().enqueue({ stdout: JSON.stringify({ result: 'ok' }) });
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve('claude'),
+      process: proc,
+    });
+    const r = await adapter.spawnHeadless('p', { cwd: AbsolutePath.trustString(dir) });
+    expect(r.ok).toBe(true);
+    const path = join(dir, 'session.md');
+    await expect(readFile(path, 'utf-8')).rejects.toThrow();
+  });
+
+  it('records the resume session id in flags when resuming a prior session', async () => {
+    const proc = new FakeProcessRunner().enqueue({
+      stdout: JSON.stringify({ result: 'ok', session_id: 'sess-y' }),
+    });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve(claudeAdapter),
+      process: proc,
+    });
+    const r = await adapter.resumeSession('00000000-0000-0000-0000-000000000001', 'p', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+    });
+    expect(r.ok).toBe(true);
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('--resume');
+    expect(body).toContain('00000000-0000-0000-0000-000000000001');
+  });
+
+  it('captures the sessionId at start when resumeSessionId is provided', async () => {
+    const proc = new FakeProcessRunner().enqueue({ stdout: JSON.stringify({ result: 'ok' }) });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve(claudeAdapter),
+      process: proc,
+    });
+    const r = await adapter.spawnHeadless('p', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+      resumeSessionId: '00000000-0000-0000-0000-000000000002',
+    });
+    expect(r.ok).toBe(true);
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('sessionId: 00000000-0000-0000-0000-000000000002');
+  });
+
+  // Sanity check that the copilot path goes through the same audit
+  // hook — provider-specific flag rendering is delegated to the
+  // adapter, so this test just asserts the file appears.
+  it('writes session.md for the copilot provider', async () => {
+    const proc = new FakeProcessRunner().enqueue({ stdout: '' });
+    const path = join(dir, 'session.md');
+    const adapter = new ProviderAiSessionAdapter({
+      getProvider: () => Promise.resolve(copilotAdapter),
+      process: proc,
+    });
+    await adapter.spawnHeadless('p', {
+      cwd: AbsolutePath.trustString(dir),
+      sessionMdPath: AbsolutePath.trustString(path),
+    });
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('provider: copilot');
+    expect(body).toContain('## Prompt\n\np');
   });
 });

@@ -11,7 +11,7 @@ import { Sprint } from '@src/domain/entities/sprint.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 
 function makeRouter() {
@@ -205,12 +205,17 @@ describe('TicketAddView', () => {
         </ViewHintsProvider>
       </RouterProvider>
     );
-    // Allow both runs to complete
-    await new Promise((r) => setTimeout(r, 400));
+    // Wait for both confirm calls — first run answers Yes, second answers No.
+    // vi.waitFor retries until the mock accumulates the expected call count
+    // instead of relying on a fixed setTimeout delay that races under load.
+    await vi.waitFor(
+      () => {
+        expect(fakePrompt.confirmMock).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 1500, interval: 16 }
+    );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Ticket added');
-    // Two confirm calls — one per run
-    expect(fakePrompt.confirmMock).toHaveBeenCalledTimes(2);
   });
 
   it('calls router.reset to Home on Enter after success', async () => {

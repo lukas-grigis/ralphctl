@@ -12,7 +12,7 @@
  *  - `lock`            — file-lock contention or stale lock
  *  - `parse`           — JSON parse failure on persisted blob
  *  - `schema-mismatch` — JSON parsed but failed Zod schema validation
- *  - `no-changes`      — semantically a no-op (e.g. autoCommit on a clean
+ *  - `no-changes`      — semantically a no-op (e.g. stashChanges on a clean
  *                        tree) — distinct so callers can detect it without
  *                        relying on a brittle message-string match.
  *

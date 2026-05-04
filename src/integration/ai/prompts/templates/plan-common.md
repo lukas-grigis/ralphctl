@@ -47,7 +47,7 @@ more than they save.
 
 **Do split when:**
 
-- Two chunks can run in parallel (different `projectPath`, or independent files with no shared contract)
+- Two chunks are independent (different `projectPath`, or independent files with no shared contract)
 - A clean, verifiable boundary exists partway through (e.g. schema + migration land first, then consumer wiring — the
   schema is independently testable and unblocks parallel consumers)
 - The change spans multiple repositories — one task per repo, connected via `blockedBy`
@@ -103,14 +103,15 @@ the evaluator will attempt visual verification using Playwright or browser tools
 2. **Merge create+use** — Keep "create X" and "use X" in one task — except when a stable contract makes them
    independently testable (e.g. schema + migration lands first, consumer wiring lands after)
 3. **Let scope drive task count** — do not aim for a specific number. Fewer, larger coherent tasks beat many
-   micro-tasks; split only when parallelism or a clean boundary justifies it
+   micro-tasks; split only when a clean boundary justifies it
 4. **Merge serial chains** — If tasks only make sense when run in sequence, fold them into one task
 
 ### Anti-Patterns
 
 - Separate tasks for "create utility" and "integrate utility" — always merge create+use
 - One task per file modification — group by logical change, not by file
-- Tasks that are "blocked by" the previous task for trivial reasons — false chains kill parallelism
+- Tasks that are "blocked by" the previous task for trivial reasons — false chains create artificial ordering and
+  obscure the real dependency structure
 - Micro-refactoring tasks (add directive, remove import, etc.) — fold into the task that needs them
 
 ## Non-Overlapping File Ownership
@@ -134,8 +135,8 @@ Tasks execute in dependency order — foundations before dependents.
 ### Guidelines
 
 1. **Foundation first** — Shared utilities, types, schemas before anything that uses them
-2. **Declare all dependencies** — Use `blockedBy` to enforce order. Do not rely on array position alone.
-3. **Maximize parallelism** — Only add `blockedBy` when there is a real code dependency
+2. **Declare all dependencies** — Use `blockedBy` to enforce order; reference each blocker by its `id` placeholder (any unique string). Do not rely on array position alone.
+3. **Avoid false dependencies** — Only add `blockedBy` when there is a real code dependency
 4. **Validate the DAG** — No cycles; earlier tasks cannot depend on later ones
 
 **Dependency test**: For each `blockedBy` entry, ask: "Does this task literally use code produced by the blocker?" If

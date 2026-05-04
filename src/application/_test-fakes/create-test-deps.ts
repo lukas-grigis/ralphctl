@@ -29,6 +29,11 @@ import {
   FakeSignalParserPort,
   type FakeSignalParserOptions,
 } from '@src/business/_test-fakes/fake-signal-parser-port.ts';
+import {
+  FakeSessionFolderBuilderPort,
+  type FakeSessionFolderBuilderOptions,
+} from '@src/business/_test-fakes/fake-session-folder-builder-port.ts';
+import { FakeWriteContextFilePort } from '@src/business/_test-fakes/fake-write-context-file-port.ts';
 import { InMemoryProjectRepository } from '@src/business/_test-fakes/in-memory-project-repository.ts';
 import { InMemorySprintRepository } from '@src/business/_test-fakes/in-memory-sprint-repository.ts';
 import { InMemoryTaskRepository } from '@src/business/_test-fakes/in-memory-task-repository.ts';
@@ -40,6 +45,8 @@ import type { PromptPort } from '@src/business/ports/prompt-port.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
 import type { SignalHandlerPort } from '@src/business/ports/signal-handler-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import type { SessionFolderBuilderPort } from '@src/business/ports/session-folder-builder-port.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
 import { RateLimitCoordinator } from '@src/kernel/algorithms/rate-limit-coordinator.ts';
 import type { Project } from '@src/domain/entities/project.ts';
 import type { Sprint } from '@src/domain/entities/sprint.ts';
@@ -76,16 +83,18 @@ export interface TestDeps {
   readonly prompt: PromptPort;
   readonly signalBus: SignalBusPort;
   readonly rateLimitCoordinator: RateLimitCoordinator;
+  readonly writeContextFile: WriteContextFilePort;
+  readonly sessionFolderBuilder: SessionFolderBuilderPort;
 }
 
 /**
- * The chain layer only calls `link(sessionDir, names)` and
- * `unlink(sessionDir)` on the skills linker — fake those two methods
+ * The chain layer only calls `install(sessionDir, phase)` and
+ * `uninstall(sessionDir)` on the skills linker — fake those two methods
  * inline rather than depending on the integration adapter.
  */
 export interface TestSkillsLinker {
-  link(sessionDir: string, skills: readonly string[]): Promise<Result<void, never>>;
-  unlink(sessionDir: string): Promise<Result<void, never>>;
+  install(sessionDir: string, phase: 'refine' | 'plan' | 'exec'): Promise<Result<void, never>>;
+  uninstall(sessionDir: string): Promise<Result<void, never>>;
 }
 
 export interface TestDepsOptions {
@@ -95,6 +104,7 @@ export interface TestDepsOptions {
   readonly aiSession?: FakeAiSessionPortOptions;
   readonly external?: FakeExternalPortOptions;
   readonly signalParser?: FakeSignalParserOptions;
+  readonly sessionFolderBuilder?: FakeSessionFolderBuilderOptions;
   readonly evaluationIterations?: number;
 
   // Per-port overrides — when set, replaces the fake entirely.
@@ -108,10 +118,10 @@ export interface TestDepsOptions {
 }
 
 class NoopSkillsLinker implements TestSkillsLinker {
-  link(): Promise<Result<void, never>> {
+  install(): Promise<Result<void, never>> {
     return Promise.resolve(Result.ok());
   }
-  unlink(): Promise<Result<void, never>> {
+  uninstall(): Promise<Result<void, never>> {
     return Promise.resolve(Result.ok());
   }
 }
@@ -165,6 +175,9 @@ export function createTestDeps(opts: TestDepsOptions = {}): TestDeps {
   const prompt = opts.overrides?.prompt ?? opts.prompt ?? new FakePromptPort();
   const signalBus = opts.overrides?.signalBus ?? new FakeSignalBusPort();
   const rateLimitCoordinator = opts.overrides?.rateLimitCoordinator ?? new RateLimitCoordinator();
+  const writeContextFile = opts.overrides?.writeContextFile ?? new FakeWriteContextFilePort();
+  const sessionFolderBuilder =
+    opts.overrides?.sessionFolderBuilder ?? new FakeSessionFolderBuilderPort(opts.sessionFolderBuilder);
 
   return {
     sprintRepo,
@@ -182,5 +195,7 @@ export function createTestDeps(opts: TestDepsOptions = {}): TestDeps {
     prompt,
     signalBus,
     rateLimitCoordinator,
+    writeContextFile,
+    sessionFolderBuilder,
   };
 }

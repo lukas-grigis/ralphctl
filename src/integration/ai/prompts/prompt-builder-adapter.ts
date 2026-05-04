@@ -1,50 +1,34 @@
+import { join } from 'node:path';
+
 import type { BuildOnboardPromptInput, PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/business/usecases/plan/plan-schema.ts';
-import { REFINED_REQUIREMENTS_JSON_SCHEMA } from '@src/business/usecases/refine/refinement-schema.ts';
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import type { Ticket } from '@src/domain/entities/ticket.ts';
-import { StorageError } from '@src/domain/errors/storage-error.ts';
+import type { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
-import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { detectProjectTooling } from '@src/integration/external/project-tooling.ts';
-import { substitute } from './placeholder-substitution.ts';
+import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
+import { assertFullySubstituted, substitute } from './placeholder-substitution.ts';
+import { CHECK_GATE_EXAMPLE, loadHarnessAndSignals, loadPlannerPartials } from './prompt-partials-loader.ts';
+import {
+  collectAffectedRepoPaths,
+  renderCheckScriptSection,
+  renderCompletedTasks,
+  renderDoneCriteriaSection,
+  renderEvaluateWorkspaceSection,
+  renderExistingAgentsMd,
+  renderIssueContextSection,
+  renderPlanContext,
+  renderRepositories,
+  renderTicket,
+} from './prompt-renderers.ts';
+import { TEMPLATE_NAMES } from './prompt-template-names.ts';
 import type { TemplateLoader } from './template-loader.ts';
 
-/**
- * Mapping from each `PromptBuilderPort` method to its source `.md`
- * template. Re-exported so tests + tooling can verify the wiring without
- * reaching into private fields.
- */
-export const TEMPLATE_NAMES = {
-  refine: 'ticket-refine',
-  plan: 'plan-common',
-  // Outer plan templates — picked by `interactive` flag at build time.
-  planInteractive: 'plan-interactive',
-  planAuto: 'plan-auto',
-  // Shared partials embedded by the planner.
-  planCommon: 'plan-common',
-  planCommonExamples: 'plan-common-examples',
-  harnessContext: 'harness-context',
-  validationChecklist: 'validation-checklist',
-  signalsPlanning: 'signals-planning',
-  ideate: 'ideate',
-  ideateAuto: 'ideate-auto',
-  execute: 'task-execution',
-  evaluate: 'task-evaluation',
-  feedback: 'sprint-feedback',
-  onboard: 'repo-onboard',
-} as const;
-
-/**
- * Neutral, ecosystem-agnostic check-gate example. Pre-expanded inside
- * the planner partials so generated `steps` / `verificationCriteria`
- * examples don't leak Node-specific commands (`pnpm test`) to prompts
- * that run in Python / Go / Rust / Java / mixed repos. Downstream
- * projects supply the real command via `{{PROJECT_TOOLING}}` at runtime.
- */
-const CHECK_GATE_EXAMPLE =
-  "Run the project's check gate — all pass (omit this step when the project has no check script)";
+// Re-exported so tests + tooling can import TEMPLATE_NAMES from this file
+// without knowing about the internal split.
+export { TEMPLATE_NAMES };
 
 /**
  * `TextPromptBuilderAdapter` — implements {@link PromptBuilderPort} on top
@@ -53,13 +37,15 @@ const CHECK_GATE_EXAMPLE =
  * Each builder method:
  *  1. Loads the right template via the injected loader.
  *  2. Constructs a placeholder map from the typed input bag.
- *  3. Calls `substitute` and returns `Result.ok(prompt)` — never throws.
+ *  3. Calls `substitute`, then `assertFullySubstituted` — fail-loud on
+ *     any leftover `{{TOKEN}}` so a missing field surfaces as a typed
+ *     error instead of silently leaking a literal placeholder to Claude.
+ *  4. Returns `Result.ok(prompt)` on success.
  *
- * Adapters intentionally only fill the placeholders they can derive from
- * the input bag. The substitution layer is fail-soft: unknown
- * placeholders are left intact so a future enrichment step (e.g. a
- * "tooling section" producer) can layer additional substitution on top
- * without forcing the port to grow.
+ * The fail-loud assertion is non-negotiable — the harness's contract is
+ * "every prompt is fully filled out before reaching the AI." A regression
+ * here is a production-visible bug; the assertion makes it a test-time
+ * one instead.
  */
 export class TextPromptBuilderAdapter implements PromptBuilderPort {
   constructor(private readonly loader: TemplateLoader) {}
@@ -71,22 +57,19 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
   }): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.refine);
     if (!tpl.ok) return Result.error(tpl.error);
-    return Result.ok(
-      substitute(tpl.value, {
-        TICKET: renderTicket(input.ticket),
-        // Prefer the caller-supplied (pre-fetched) issue context; fall
-        // back to the bare-link rendering when no fetch was performed
-        // (no link, fetch failed, or fetch turned up empty).
-        ISSUE_CONTEXT: renderIssueContextSection(input.ticket, input.issueContext),
-        // Interactive mode pins the output file; headless mode leaves it
-        // empty so the prompt's "Write to: " line still parses.
-        OUTPUT_FILE: input.outputFilePath ?? '',
-        // The schema is what tells Claude how to format the JSON it
-        // writes (or emits to stdout). Without this the AI invents a
-        // shape and the parser falls back to the raw-body path.
-        SCHEMA: REFINED_REQUIREMENTS_JSON_SCHEMA,
-      })
-    );
+    const rendered = substitute(tpl.value, {
+      TICKET: renderTicket(input.ticket),
+      // Prefer the caller-supplied (pre-fetched) issue context; fall
+      // back to the bare-link rendering when no fetch was performed
+      // (no link, fetch failed, or fetch turned up empty).
+      ISSUE_CONTEXT: renderIssueContextSection(input.ticket, input.issueContext),
+      // Interactive mode pins the output file; headless mode leaves it
+      // empty so the prompt's "Write to: " line still parses.
+      OUTPUT_FILE: input.outputFilePath ?? '',
+    });
+    const fence = assertFullySubstituted(rendered, 'buildRefinePrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
   async buildPlanPrompt(input: {
@@ -110,7 +93,7 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     const tooling = await detectProjectTooling(repoPaths);
 
     // The four planner partials Claude expects to see embedded.
-    const partialsResult = await this.loadPlannerPartials(tooling.rendered);
+    const partialsResult = await loadPlannerPartials(this.loader, tooling.rendered);
     if (!partialsResult.ok) return Result.error(partialsResult.error);
     const { harness, common, validation, signals } = partialsResult.value;
 
@@ -127,82 +110,66 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
       CHECK_GATE_EXAMPLE,
       CONTEXT: context,
       SCHEMA: TASK_IMPORT_JSON_SCHEMA,
+      OUTPUT_FILE: input.outputFilePath ?? '',
     };
-    if (interactive) {
-      subs['OUTPUT_FILE'] = input.outputFilePath ?? '';
-    }
 
-    return Result.ok(substitute(outerTpl.value, subs));
-  }
-
-  /**
-   * Load the four planner partials and pre-substitute their inner
-   * placeholders so they drop cleanly into the outer plan template. The
-   * `plan-common.md` partial nests `{{PLAN_COMMON_EXAMPLES}}`,
-   * `{{PROJECT_TOOLING}}` and `{{CHECK_GATE_EXAMPLE}}` — those have to be
-   * resolved before `COMMON` is itself substituted into the outer
-   * template, otherwise we get unresolved tokens reaching the AI.
-   */
-  private async loadPlannerPartials(
-    projectToolingSection: string
-  ): Promise<Result<{ harness: string; common: string; validation: string; signals: string }, StorageError>> {
-    const [harness, planCommon, planExamples, validation, signals] = await Promise.all([
-      this.loader.load(TEMPLATE_NAMES.harnessContext),
-      this.loader.load(TEMPLATE_NAMES.planCommon),
-      this.loader.load(TEMPLATE_NAMES.planCommonExamples),
-      this.loader.load(TEMPLATE_NAMES.validationChecklist),
-      this.loader.load(TEMPLATE_NAMES.signalsPlanning),
-    ]);
-    for (const r of [harness, planCommon, planExamples, validation, signals]) {
-      if (!r.ok) return Result.error(r.error);
-    }
-    if (!harness.ok || !planCommon.ok || !planExamples.ok || !validation.ok || !signals.ok) {
-      return Result.error(
-        new StorageError({ subCode: 'io', message: 'failed to load planner partials (defensive guard)' })
-      );
-    }
-    // The examples partial has its own {{CHECK_GATE_EXAMPLE}} marker.
-    // `substitute` is a single regex pass, so any placeholder inside an
-    // injected value is NOT re-scanned. Pre-substitute the examples
-    // before they land in plan-common, otherwise the outer prompt emits
-    // a literal {{CHECK_GATE_EXAMPLE}} to Claude.
-    const examplesResolved = substitute(planExamples.value, { CHECK_GATE_EXAMPLE });
-    const common = substitute(planCommon.value, {
-      PLAN_COMMON_EXAMPLES: examplesResolved,
-      PROJECT_TOOLING: projectToolingSection,
-      CHECK_GATE_EXAMPLE,
-    });
-    return Result.ok({
-      harness: harness.value,
-      common,
-      validation: validation.value,
-      signals: signals.value,
-    });
+    const rendered = substitute(outerTpl.value, subs);
+    const fence = assertFullySubstituted(rendered, 'buildPlanPrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
   async buildIdeatePrompt(input: { sprint: Sprint; ideaText: string }): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.ideate);
     if (!tpl.ok) return Result.error(tpl.error);
+
+    // Ideate is "refine + plan in one shot" — the AI is expected to emit
+    // a `<ticket>` block and a planner-shaped `<tasks>` array. The
+    // template embeds the same partials as the planner: harness context,
+    // plan-common (with examples + check-gate pre-substituted),
+    // validation checklist, and the planning signal vocabulary.
+    //
+    // PROJECT_TOOLING is rendered union-wise across affected repos so
+    // the planner sees the full tooling picture, mirroring buildPlanPrompt.
+    const repoPaths = collectAffectedRepoPaths(input.sprint);
+    const tooling = await detectProjectTooling(repoPaths);
+
+    const partialsResult = await loadPlannerPartials(this.loader, tooling.rendered);
+    if (!partialsResult.ok) return Result.error(partialsResult.error);
+    const { harness, common, validation, signals } = partialsResult.value;
+
     const repositories = renderRepositories(input.sprint);
-    return Result.ok(
-      substitute(tpl.value, {
-        IDEA_TITLE: input.sprint.name,
-        IDEA_DESCRIPTION: input.ideaText,
-        PROJECT_NAME: String(input.sprint.projectName),
-        REPOSITORIES: repositories,
-        // Outer-composition placeholders — left empty.
-        HARNESS_CONTEXT: '',
-        COMMON: '',
-        VALIDATION: '',
-        SIGNALS: '',
-        CHECK_GATE_EXAMPLE: '',
-        OUTPUT_FILE: '',
-        SCHEMA: '',
-      })
-    );
+    const rendered = substitute(tpl.value, {
+      IDEA_TITLE: input.sprint.name,
+      IDEA_DESCRIPTION: input.ideaText,
+      PROJECT_NAME: String(input.sprint.projectName),
+      REPOSITORIES: repositories,
+      HARNESS_CONTEXT: harness,
+      COMMON: common,
+      VALIDATION: validation,
+      SIGNALS: signals,
+      CHECK_GATE_EXAMPLE,
+      // Ideate currently runs headless — the AI emits the JSON in a
+      // `<tasks>` block on stdout instead of writing to a file. If
+      // interactive mode lands later, thread an `outputFilePath` opt
+      // through and substitute it here.
+      OUTPUT_FILE: '',
+      // Ideate's task array shape is identical to the planner's; no
+      // need to invent a parallel schema. The `<ticket>` block lives
+      // outside the JSON and is parsed via regex (see
+      // `IdeateAndPlanUseCase.extractTicketParts`).
+      SCHEMA: TASK_IMPORT_JSON_SCHEMA,
+    });
+    const fence = assertFullySubstituted(rendered, 'buildIdeatePrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
-  async buildExecutePrompt(input: { task: Task; sprint: Sprint }): Promise<Result<string, StorageError>> {
+  async buildExecutePrompt(input: {
+    task: Task;
+    sprint: Sprint;
+    checkScript?: string;
+  }): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.execute);
     if (!tpl.ok) return Result.error(tpl.error);
 
@@ -210,29 +177,95 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     // execution always targets exactly one repo.
     const tooling = await detectProjectTooling([input.task.projectPath]);
 
-    return Result.ok(
-      substitute(tpl.value, {
-        // Task-execution prompt expects HARNESS_CONTEXT/SIGNALS as
-        // upstream-built partials and PROGRESS_FILE/CONTEXT_FILE/etc.
-        // as caller-controlled paths.
-        HARNESS_CONTEXT: '',
-        SIGNALS: '',
-        PROGRESS_FILE: '',
-        CONTEXT_FILE: '',
-        COMMIT_STEP: '',
-        COMMIT_CONSTRAINT: '',
-        PROJECT_TOOLING: tooling.rendered,
-      })
-    );
+    // Load the harness-context + task-signals partials so the prompt
+    // describes the full signal vocabulary the AI is expected to emit.
+    const harnessAndSignals = await loadHarnessAndSignals(this.loader, 'task');
+    if (!harnessAndSignals.ok) return Result.error(harnessAndSignals.error);
+
+    // Progress file path — constructed from the sprint directory so the
+    // agent can read accumulated task learnings from prior runs. Uses the
+    // same resolveStoragePaths() helper that the signal handler uses to
+    // write entries, so read and write always land on the same file.
+    const storagePaths = resolveStoragePaths();
+    const progressFile = join(storagePaths.sprintDir(input.sprint.id), 'progress.md');
+
+    // Inline task-body sections — conditional renderers omit the slot
+    // entirely when the source field is empty so the prompt doesn't
+    // sprout orphan headers.
+    const desc =
+      input.task.description !== undefined && input.task.description.trim().length > 0
+        ? `## Description\n\n${input.task.description.trim()}`
+        : '';
+    const steps =
+      input.task.steps.length > 0
+        ? `## Implementation Steps\n\n${input.task.steps.map((s, i) => `${String(i + 1)}. ${s}`).join('\n')}`
+        : '';
+    const criteria =
+      input.task.verificationCriteria.length > 0
+        ? `## Verification Criteria\n\n${input.task.verificationCriteria.map((c) => `- ${c}`).join('\n')}`
+        : '';
+    const branchLine = input.sprint.branch !== null ? `**Branch:** \`${input.sprint.branch}\`` : '';
+
+    // Check Script section is always rendered — the "no script
+    // configured" case is load-bearing, telling the AI not to chase a
+    // missing command. The chain layer threads the resolved per-repo
+    // `checkScript` through `PerTaskCtx.checkScript`; when present we
+    // embed the actual command so the agent can run it as part of
+    // verification. When absent the section reads as an explicit
+    // "no check script configured" — never the old "see docs" boilerplate.
+    const checkScriptSection = renderCheckScriptSection(input.checkScript);
+
+    const checkRanAtForRepo = input.sprint.checkRanAt.get(input.task.projectPath);
+    const environmentStatus =
+      checkRanAtForRepo !== undefined
+        ? `Pre-task environment check passed at ${String(checkRanAtForRepo)}.`
+        : 'Not run.';
+
+    const rendered = substitute(tpl.value, {
+      TASK_NAME: input.task.name,
+      TASK_ID: String(input.task.id),
+      PROJECT_PATH: String(input.task.projectPath),
+      BRANCH_LINE: branchLine,
+      TASK_DESCRIPTION_SECTION: desc,
+      TASK_STEPS_SECTION: steps,
+      VERIFICATION_CRITERIA_SECTION: criteria,
+      CHECK_SCRIPT_SECTION: checkScriptSection,
+      ENVIRONMENT_STATUS: environmentStatus,
+      PROGRESS_FILE: progressFile,
+      HARNESS_CONTEXT: harnessAndSignals.value.harness,
+      SIGNALS: harnessAndSignals.value.signals,
+      // Outer-composition placeholders — empty by default; reserved for
+      // future provider-specific commit / commit-constraint sections.
+      COMMIT_STEP: '',
+      COMMIT_CONSTRAINT: '',
+      PROJECT_TOOLING: tooling.rendered,
+    });
+    const fence = assertFullySubstituted(rendered, 'buildExecutePrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
   async buildEvaluatePrompt(input: {
     task: Task;
     sprint: Sprint;
     previousCritique?: string;
+    evaluateWorkspaceDir?: string;
+    doneCriteriaBullet?: string;
   }): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.evaluate);
     if (!tpl.ok) return Result.error(tpl.error);
+
+    // The evaluator template references three partials. An empty
+    // substitution silently emits a stray `{{HARNESS_CONTEXT}}` /
+    // `{{SIGNALS}}` to the AI — `<evaluation-passed>` / `<evaluation-failed>`
+    // never get described, the parser flags the output malformed, and the
+    // task stays stuck in_progress.
+    const harnessAndSignals = await loadHarnessAndSignals(this.loader, 'evaluation');
+    if (!harnessAndSignals.ok) return Result.error(harnessAndSignals.error);
+
+    // Project tooling is detected from the task's projectPath — the
+    // evaluator runs in the same repo as the generator did.
+    const tooling = await detectProjectTooling([input.task.projectPath]);
 
     const desc = input.task.description ? `\n**Description:** ${input.task.description}` : '';
     const steps =
@@ -245,175 +278,82 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
         : '';
     const checkSection = input.previousCritique ? `\n\n**Previous Critique:**\n\n${input.previousCritique}` : '';
 
-    return Result.ok(
-      substitute(tpl.value, {
-        TASK_NAME: input.task.name,
-        TASK_DESCRIPTION_SECTION: desc,
-        TASK_STEPS_SECTION: steps,
-        VERIFICATION_CRITERIA_SECTION: criteria,
-        PROJECT_PATH: input.task.projectPath,
-        CHECK_SCRIPT_SECTION: checkSection,
-        // Outer-composition placeholders — empty.
-        HARNESS_CONTEXT: '',
-        SIGNALS: '',
-        PROJECT_TOOLING: '',
-        EXTRA_DIMENSIONS_SECTION: '',
-        EXTRA_DIMENSIONS_PASS_BAR: '',
-        EXTRA_DIMENSIONS_ASSESSMENT_PASS: '',
-        EXTRA_DIMENSIONS_ASSESSMENT_MIXED: '',
-      })
-    );
+    const rendered = substitute(tpl.value, {
+      TASK_NAME: input.task.name,
+      TASK_DESCRIPTION_SECTION: desc,
+      TASK_STEPS_SECTION: steps,
+      VERIFICATION_CRITERIA_SECTION: criteria,
+      PROJECT_PATH: input.task.projectPath,
+      CHECK_SCRIPT_SECTION: checkSection,
+      HARNESS_CONTEXT: harnessAndSignals.value.harness,
+      SIGNALS: harnessAndSignals.value.signals,
+      PROJECT_TOOLING: tooling.rendered,
+      // Workspace contract section — when the per-task chain mounted
+      // an evaluate workspace, embed a pointer so the evaluator reads
+      // upstream artefacts (refined requirements, full task plan,
+      // dimension definitions, prior sibling evaluations). Empty
+      // string when no workspace (standalone `sprint evaluate`).
+      EVALUATE_WORKSPACE: renderEvaluateWorkspaceSection(input.evaluateWorkspaceDir),
+      // Per-task done-criteria bullet — the single line from
+      // `done-criteria.md` that names the success criterion for THIS
+      // task. Renders a `## Per-task done criteria` section when
+      // present; collapses to '' when absent (no workspace / legacy
+      // sprint / standalone evaluate).
+      DONE_CRITERIA_SECTION: renderDoneCriteriaSection(input.doneCriteriaBullet),
+      // Extra-dimension blocks are conditionally rendered upstream
+      // (the planner emits them per-task). Empty default = floor-only.
+      EXTRA_DIMENSIONS_SECTION: '',
+      EXTRA_DIMENSIONS_PASS_BAR: '',
+      EXTRA_DIMENSIONS_ASSESSMENT_PASS: '',
+      EXTRA_DIMENSIONS_ASSESSMENT_MIXED: '',
+    });
+    const fence = assertFullySubstituted(rendered, 'buildEvaluatePrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
-  async buildFeedbackPrompt(input: { sprint: Sprint; feedbackText: string }): Promise<Result<string, StorageError>> {
+  async buildFeedbackPrompt(input: {
+    sprint: Sprint;
+    feedbackText: string;
+    completedTasks: readonly Task[];
+  }): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.feedback);
     if (!tpl.ok) return Result.error(tpl.error);
+
+    // Feedback applies code changes (same vocabulary as task execution),
+    // so we wire the task signal partial. Without these substitutions
+    // the agent sees stray `{{HARNESS_CONTEXT}}` / `{{SIGNALS}}` and
+    // doesn't know how to signal `<task-verified>` / `<task-complete>`.
+    const harnessAndSignals = await loadHarnessAndSignals(this.loader, 'task');
+    if (!harnessAndSignals.ok) return Result.error(harnessAndSignals.error);
+
     const branchSection = input.sprint.branch ? `\n**Branch:** ${input.sprint.branch}\n` : '';
-    return Result.ok(
-      substitute(tpl.value, {
-        SPRINT_NAME: input.sprint.name,
-        BRANCH_SECTION: branchSection,
-        COMPLETED_TASKS: '',
-        FEEDBACK: input.feedbackText,
-        HARNESS_CONTEXT: '',
-        SIGNALS: '',
-      })
-    );
+    const rendered = substitute(tpl.value, {
+      SPRINT_NAME: input.sprint.name,
+      BRANCH_SECTION: branchSection,
+      COMPLETED_TASKS: renderCompletedTasks(input.completedTasks),
+      FEEDBACK: input.feedbackText,
+      HARNESS_CONTEXT: harnessAndSignals.value.harness,
+      SIGNALS: harnessAndSignals.value.signals,
+    });
+    const fence = assertFullySubstituted(rendered, 'buildFeedbackPrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
 
   async buildOnboardPrompt(input: BuildOnboardPromptInput): Promise<Result<string, StorageError>> {
     const tpl = await this.loader.load(TEMPLATE_NAMES.onboard);
     if (!tpl.ok) return Result.error(tpl.error);
-    return Result.ok(
-      substitute(tpl.value, {
-        REPO_PATH: input.repoPath,
-        FILE_NAME: input.fileName,
-        MODE: input.mode,
-        PROJECT_TYPE: input.projectType,
-        CHECK_SCRIPT_SUGGESTION: input.checkScriptSuggestion ?? '',
-        EXISTING_AGENTS_MD: renderExistingAgentsMd(input.existingAgentsMd),
-      })
-    );
+    const rendered = substitute(tpl.value, {
+      REPO_PATH: input.repoPath,
+      FILE_NAME: input.fileName,
+      MODE: input.mode,
+      PROJECT_TYPE: input.projectType,
+      CHECK_SCRIPT_SUGGESTION: input.checkScriptSuggestion ?? '',
+      EXISTING_AGENTS_MD: renderExistingAgentsMd(input.existingAgentsMd),
+    });
+    const fence = assertFullySubstituted(rendered, 'buildOnboardPrompt');
+    if (!fence.ok) return Result.error(fence.error);
+    return Result.ok(rendered);
   }
-}
-
-// ───────────────────────── pure renderers ─────────────────────────
-
-function renderTicket(ticket: Ticket): string {
-  // Project is sprint-level context after sprint-per-project — we no longer
-  // re-state it per ticket. The refine prompt is implementation-agnostic
-  // and doesn't need to know which project the ticket lives in.
-  const lines: string[] = [`**Title:** ${ticket.title}`, `**ID:** ${ticket.id}`];
-  if (ticket.link !== undefined) lines.push(`**Link:** ${ticket.link}`);
-  if (ticket.description !== undefined) {
-    lines.push('', '**Description:**', '', ticket.description);
-  }
-  return lines.join('\n');
-}
-
-function renderIssueContext(ticket: Ticket): string {
-  // Mirror the legacy convention: when the ticket carries an upstream
-  // link, emit a canonical <context>...</context> wrapper so downstream
-  // prompt readers can spot it. No link → empty section.
-  return ticket.link === undefined ? '' : `<context>\n\nUpstream issue: ${ticket.link}\n\n</context>`;
-}
-
-/**
- * Pick the right `<context>...</context>` block for the prompt:
- *  - Caller-supplied `issueContext` (the chain leaf pre-fetched via
- *    `ExternalPort.fetchIssue` + `formatIssueContext`) → wrap as-is.
- *  - Otherwise fall back to the bare-link rendering (or empty when no link).
- */
-function renderIssueContextSection(ticket: Ticket, issueContext: string | undefined): string {
-  if (issueContext !== undefined && issueContext.trim().length > 0) {
-    return `<context>\n\n${issueContext.trim()}\n\n</context>`;
-  }
-  return renderIssueContext(ticket);
-}
-
-function renderRepositories(sprint: Sprint): string {
-  // Sprint-per-project: repos live on the sprint, not on individual
-  // tickets. `sprint plan` records the user's selection via
-  // `Sprint.setAffectedRepositories`; the ideate flow reads it directly.
-  if (sprint.affectedRepositories.length === 0) return '(no repositories selected)';
-  return sprint.affectedRepositories.map((p) => `- ${String(p)}`).join('\n');
-}
-
-/**
- * Render the optional existing-AGENTS.md slot. The prompt expects either
- * a fenced block describing the prior body, or an empty string when the
- * onboarding mode is `bootstrap` (no prior file).
- */
-function renderExistingAgentsMd(body: string | undefined): string {
-  if (body === undefined) return '';
-  const trimmed = body.trim();
-  if (trimmed.length === 0) return '';
-  return ['**Existing project context file body:**', '', '```markdown', trimmed, '```'].join('\n');
-}
-
-/**
- * Sprint-level affected repos — `sprint plan` records the user's
- * selection on the sprint aggregate. The planner inspects this set
- * when populating `{{PROJECT_TOOLING}}`.
- */
-function collectAffectedRepoPaths(sprint: Sprint): readonly AbsolutePath[] {
-  return sprint.affectedRepositories;
-}
-
-/**
- * Render the plan prompt's `{{CONTEXT}}` block — sprint identity,
- * project, sprint-level repos, tickets with their refined requirements,
- * and the prior task set when this is a replan. Without this Claude has
- * nothing to plan against.
- */
-function renderPlanContext(sprint: Sprint, existingTasks: readonly Task[]): string {
-  const lines: string[] = [];
-  lines.push(`# Sprint: ${sprint.name}`);
-  lines.push('', `Sprint ID: ${String(sprint.id)}`);
-  lines.push('', `Project: ${String(sprint.projectName)}`);
-
-  // Sprint-level affected repos. After sprint-per-project, the user's
-  // checkbox selection is recorded on the sprint aggregate (not per
-  // ticket), so the planner reads them directly here.
-  if (sprint.affectedRepositories.length > 0) {
-    lines.push('', '## Repositories');
-    for (const r of sprint.affectedRepositories) lines.push(`- ${String(r)}`);
-  }
-
-  if (sprint.tickets.length === 0) {
-    lines.push('', '_No tickets on this sprint._');
-    return lines.join('\n');
-  }
-
-  // Tickets — refined requirements are what the planner reads. Anything
-  // still pending should already have been blocked upstream, but we
-  // render it conservatively so a partial run is still legible.
-  lines.push('', '## Tickets');
-  for (const t of sprint.tickets) {
-    lines.push('', `### [${String(t.id)}] ${t.title}`);
-    if (t.description !== undefined && t.description.length > 0) {
-      lines.push('', `**Description:** ${t.description}`);
-    }
-    if (t.link !== undefined) lines.push('', `**Link:** ${t.link}`);
-    lines.push('', `**Requirement status:** ${t.requirementStatus}`);
-    if (t.requirements !== undefined && t.requirements.trim().length > 0) {
-      lines.push('', '**Requirements:**', '', t.requirements.trim());
-    }
-  }
-
-  // Existing tasks (replan signal). The planner is told its output
-  // REPLACES this list — the harness saves the new array atomically.
-  if (existingTasks.length > 0) {
-    lines.push('', '## Existing Tasks (will be replaced)');
-    for (const task of existingTasks) {
-      lines.push('', `### ${task.name}`);
-      lines.push(`- id: ${String(task.id)}`);
-      if (task.description !== undefined) lines.push(`- description: ${task.description}`);
-      if (task.ticketId !== undefined) lines.push(`- ticketId: ${String(task.ticketId)}`);
-      lines.push(`- projectPath: ${String(task.projectPath)}`);
-      lines.push(`- status: ${task.status}`);
-    }
-  }
-
-  return lines.join('\n');
 }

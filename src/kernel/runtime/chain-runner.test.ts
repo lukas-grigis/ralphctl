@@ -4,7 +4,6 @@ import { Result } from 'typescript-result';
 import type { ElementResult, KernelError, OnTraceCallback } from '@src/kernel/chain/element.ts';
 import { Element } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
-import { Parallel } from '@src/kernel/chain/parallel.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 
 import type { ChainRunnerEvent } from './chain-runner.ts';
@@ -247,6 +246,71 @@ describe('ChainRunner', () => {
     expect(runner.trace).toStrictEqual([]);
   });
 
+  it('live ctx: runner.ctx updates progressively as each step settles', async () => {
+    // Capture runner.ctx at the moment each step event is emitted.
+    // Without live-ctx tracking, runner.ctx stays at the initial value
+    // until the chain settles — this test fails on that regression.
+    // Uses real Leaf so we exercise the actual onCtxUpdate plumbing.
+    const incLeaf = (name: string): Leaf<Ctx, Ctx, Ctx> =>
+      new Leaf<Ctx, Ctx, Ctx>(name, {
+        useCase: { execute: async (input) => Promise.resolve(Result.ok({ value: input.value + 1 })) },
+        input: (ctx) => ctx,
+        output: (_ctx, out) => out,
+      });
+    const chain = new Sequential<Ctx>('flow', [incLeaf('a'), incLeaf('b'), incLeaf('c')]);
+    const runner = new ChainRunner({ id: 'rCtx', element: chain, initialCtx: { value: 0 } });
+
+    const ctxAtEmission: number[] = [];
+    runner.subscribe((e) => {
+      if (e.type === 'step' && e.entry.status === 'completed') {
+        ctxAtEmission.push(runner.ctx.value);
+      }
+    });
+
+    await runner.start();
+
+    expect(ctxAtEmission).toStrictEqual([1, 2, 3]);
+    expect(runner.ctx).toStrictEqual({ value: 3 });
+  });
+
+  it('live ctx: failed run leaves currentCtx at the last successful threading', async () => {
+    // a → b (fails) → c. ctx visible during failure should be the post-a value.
+    const incLeaf = (name: string): Leaf<Ctx, Ctx, Ctx> =>
+      new Leaf<Ctx, Ctx, Ctx>(name, {
+        useCase: { execute: async (input) => Promise.resolve(Result.ok({ value: input.value + 1 })) },
+        input: (ctx) => ctx,
+        output: (_ctx, out) => out,
+      });
+    const failLeaf = new Leaf<Ctx, Ctx, Ctx>('b', {
+      useCase: {
+        execute: async () =>
+          Promise.resolve(Result.error({ code: 'boom', message: 'fail' }) as Result<Ctx, KernelError>),
+      },
+      input: (ctx) => ctx,
+      output: (_ctx, out) => out,
+    });
+    const chain = new Sequential<Ctx>('flow', [incLeaf('a'), failLeaf, incLeaf('c')]);
+    const runner = new ChainRunner({ id: 'rCtxFail', element: chain, initialCtx: { value: 0 } });
+
+    let ctxAfterA = -1;
+    let ctxAtFailed = -1;
+    runner.subscribe((e) => {
+      if (e.type === 'step' && e.entry.stepName === 'a') {
+        ctxAfterA = runner.ctx.value;
+      }
+      if (e.type === 'failed') {
+        ctxAtFailed = runner.ctx.value;
+      }
+    });
+
+    await runner.start();
+
+    expect(ctxAfterA).toBe(1);
+    // Failure leaves ctx at the last successful threading (Sequential
+    // returns the failed result without overwriting currentCtx).
+    expect(ctxAtFailed).toBe(1);
+  });
+
   it('progressive emission: step events fire as each child completes, before terminal', async () => {
     // Subscribe BEFORE start; record both event order and the live trace
     // length at each step emission. With progressive emission, the trace
@@ -333,13 +397,13 @@ describe('ChainRunner', () => {
     expect(stepNames).toStrictEqual(['a', 'b']);
   });
 
-  it('regression: nested Sequential→Parallel→bridge-leaf→inner-Sequential failure transitions runner to failed', async () => {
-    // Mirrors the executeFlow shape: an outer Sequential whose Parallel
-    // step contains a bridge Leaf that runs an inner Sequential. When the
-    // inner Sequential fails synchronously (e.g. mark-in-progress on an
-    // already-in_progress task before Fix A landed), the runner MUST still
-    // settle into 'failed' — otherwise SessionManager dedup keeps the
-    // record at 'running' forever and traps the user.
+  it('regression: nested Sequential→bridge-leaf→inner-Sequential failure transitions runner to failed', async () => {
+    // Mirrors the executeFlow shape: an outer Sequential whose `execute-tasks`
+    // step is itself a Sequential of bridge leaves, each running an inner
+    // per-task Sequential. When the inner Sequential fails synchronously
+    // (e.g. mark-in-progress on an already-in_progress task), the runner
+    // MUST still settle into 'failed' — otherwise SessionManager dedup keeps
+    // the record at 'running' forever and traps the user.
     const innerErr: KernelError = { code: 'invalid-state', message: 'task already in_progress' };
     const innerChain = new Sequential<Ctx>('per-task', [new IncStep('preflight'), new FailStep('mark', innerErr)]);
 
@@ -355,13 +419,13 @@ describe('ChainRunner', () => {
       output: (ctx) => ctx,
     });
 
-    const parallel = new Parallel<Ctx>('execute-tasks', [bridge], {
-      concurrency: 4,
-      failureMode: 'collect-all',
-      reduce: (cs) => cs[cs.length - 1] ?? { value: 0 },
-    });
+    const executeTasks = new Sequential<Ctx>('execute-tasks', [bridge]);
 
-    const outer = new Sequential<Ctx>('execute', [new IncStep('link-skills'), parallel, new IncStep('unlink-skills')]);
+    const outer = new Sequential<Ctx>('execute', [
+      new IncStep('link-skills'),
+      executeTasks,
+      new IncStep('unlink-skills'),
+    ]);
 
     const runner = new ChainRunner({ id: 'rF', element: outer, initialCtx: { value: 0 } });
     const events: ChainRunnerEvent<Ctx>[] = [];

@@ -129,7 +129,20 @@ export class OnboardRepoUseCase {
     const rawOutput = sessionResult.value.output;
     const signals = this.parser.parse(rawOutput);
 
-    const proposals = extractProposals(signals, fileName, rawOutput);
+    const rawProposals = extractProposals(signals, fileName, rawOutput);
+
+    // Adopt-mode safety net. The prompt instructs the AI to emit the
+    // existing prose verbatim with additions appended, but a misbehaving
+    // model can still drop or reformat it. When that happens, prepend
+    // the user's original body to whatever the AI emitted so the editor
+    // shows a merged body the user can prune — never a silently
+    // overwritten file. The check is whitespace-tolerant so a benign
+    // reflow (line-break differences) doesn't trigger the merge.
+    const proposals =
+      input.mode === 'adopt' && input.existingAgentsMd !== undefined && rawProposals.contextFileContent !== null
+        ? mergeAdoptProposalIfProseLost(rawProposals, input.existingAgentsMd, log)
+        : rawProposals;
+
     log.info('onboarding proposals extracted', {
       hasContextFile: proposals.contextFileContent !== null,
       hasSetupScript: proposals.setupScript !== null,
@@ -139,6 +152,49 @@ export class OnboardRepoUseCase {
 
     return Result.ok(proposals);
   }
+}
+
+/**
+ * Whitespace-tolerant containment check. We consider the original prose
+ * "preserved" when it appears in the proposal as a contiguous span
+ * after normalising consecutive whitespace to single spaces. Tolerant
+ * of benign reformatting; strict enough to catch summarisation,
+ * paraphrasing, or omission.
+ */
+function preservesOriginalProse(original: string, proposal: string): boolean {
+  const normalize = (s: string): string => s.replace(/\s+/g, ' ').trim();
+  const o = normalize(original);
+  if (o.length === 0) return true;
+  return normalize(proposal).includes(o);
+}
+
+/**
+ * When the AI's adopt-mode body silently drops the user's prose, fold
+ * the original back in at the top with a marker comment that surfaces
+ * the merge to the user during `confirm-context-file` review. The user
+ * keeps full editorial control — they see both bodies side-by-side in
+ * the editor and can prune duplicate sections themselves.
+ */
+function mergeAdoptProposalIfProseLost(
+  proposals: OnboardRepoProposals,
+  existing: string,
+  log: LoggerPort
+): OnboardRepoProposals {
+  const proposal = proposals.contextFileContent;
+  if (proposal === null) return proposals;
+  if (preservesOriginalProse(existing, proposal)) return proposals;
+  log.warn(
+    'adopt-mode proposal did not preserve existing prose verbatim — prepending the original body so the user can review the merge',
+    { proposalLength: proposal.length, existingLength: existing.length }
+  );
+  const merged = [
+    existing.trimEnd(),
+    '',
+    '<!-- ralphctl: AI proposed additions follow. The original body above was preserved by the harness because the proposal did not include it verbatim. Review and prune duplicates. -->',
+    '',
+    proposal.trimStart(),
+  ].join('\n');
+  return { ...proposals, contextFileContent: merged };
 }
 
 /**

@@ -13,7 +13,7 @@ function evalSignal(
   return {
     type: 'evaluation',
     status,
-    dimensions: dims.map((d) => ({ ...d, finding: 'x' })),
+    dimensions: dims.map((d) => ({ ...d, score: d.passed ? (5 as const) : (2 as const), finding: 'x' })),
     timestamp: T,
   };
 }

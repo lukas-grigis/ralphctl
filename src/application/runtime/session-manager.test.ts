@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 
 import { NotFoundError } from '@src/domain/errors/not-found-error.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';

@@ -99,22 +99,73 @@ export interface PromptBuilderPort {
   /** Build the ideation prompt — quick path that combines refine + plan from a free-form idea. */
   buildIdeatePrompt(input: { sprint: Sprint; ideaText: string }): Promise<Result<string, StorageError>>;
 
-  /** Build the per-task execution prompt — issued to the generator agent. */
-  buildExecutePrompt(input: { task: Task; sprint: Sprint }): Promise<Result<string, StorageError>>;
+  /**
+   * Build the per-task execution prompt — issued to the generator agent.
+   *
+   * The template embeds the full task body inline (name, description,
+   * implementation steps, verification criteria, branch, check script,
+   * environment status). The chain layer renders this prompt to a file
+   * under `<sprintDir>/contexts/execute-<task-id>.md` and hands the AI
+   * a thin wrapper that points at it — the prompt the AI reads is the
+   * file body, not the wrapper.
+   *
+   * `checkScript` — when supplied, the prompt embeds the actual command
+   * the harness will run as the post-task gate. When omitted, the prompt
+   * states explicitly that no check script is configured for this repo
+   * so the agent doesn't chase a missing command.
+   */
+  buildExecutePrompt(input: {
+    task: Task;
+    sprint: Sprint;
+    checkScript?: string;
+  }): Promise<Result<string, StorageError>>;
 
   /**
    * Build the evaluator prompt — issued to an autonomous reviewer after a
    * task settles. `previousCritique` is non-empty on retry rounds so the
    * evaluator can grade against the prior round.
+   *
+   * `evaluateWorkspaceDir` is the absolute path of the per-task evaluate
+   * workspace (set by the per-task chain after `buildEvaluateWorkspace`
+   * lands its contract pack on disk). When set, the rendered prompt
+   * includes a `Contract files` section pointing the AI at upstream
+   * artefacts (`requirements/`, `tasks.md`, `dimensions.md`,
+   * `evaluations/`, `project-context.md`). When unset, the section
+   * collapses — used by the standalone `sprint evaluate` chain which
+   * has no workspace.
    */
   buildEvaluatePrompt(input: {
     task: Task;
     sprint: Sprint;
     previousCritique?: string;
+    evaluateWorkspaceDir?: string;
+    /**
+     * The single `done-criteria.md` bullet for this task — e.g.
+     * `- **Task name** (\`<id>\`) — <criteria>`. When supplied the
+     * evaluator prompt renders a `## Per-task done criteria` section
+     * with the bullet so the AI has a stable, explicit definition of
+     * "done" without re-deriving it from the specification each round.
+     * Collapses to an empty string when absent (legacy sprint / no
+     * workspace / standalone `sprint evaluate`).
+     */
+    doneCriteriaBullet?: string;
   }): Promise<Result<string, StorageError>>;
 
-  /** Build the end-of-sprint feedback prompt — implements user-supplied feedback as a follow-up pass. */
-  buildFeedbackPrompt(input: { sprint: Sprint; feedbackText: string }): Promise<Result<string, StorageError>>;
+  /**
+   * Build the end-of-sprint feedback prompt — implements user-supplied
+   * feedback as a follow-up pass.
+   *
+   * `completedTasks` is the set of done tasks the harness has already
+   * shipped on this sprint. The prompt renders them as context-only — the
+   * AI's authoritative instruction is the feedback text. Pass an empty
+   * array when the chain has nothing to offer (the prompt renders a
+   * "no tasks completed" placeholder so the section doesn't collapse).
+   */
+  buildFeedbackPrompt(input: {
+    sprint: Sprint;
+    feedbackText: string;
+    completedTasks: readonly Task[];
+  }): Promise<Result<string, StorageError>>;
 
   /**
    * Build the repo-onboarding prompt — drives a one-shot AI inventory pass

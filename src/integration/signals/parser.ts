@@ -10,11 +10,16 @@
  * inner content is dropped silently. Timestamps are injected via `opts.now`
  * so tests can pin time deterministically.
  */
-import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import type {
+  ParseWithDiagnosticsResult,
+  SignalParseDiagnostic,
+  SignalParserPort,
+} from '@src/business/ports/signal-parser-port.ts';
 import {
   type AgentsMdProposalSignal,
   type CheckScriptDiscoverySignal,
   type DimensionScore,
+  type DimensionScoreValue,
   type EvaluationSignal,
   type HarnessSignal,
   type NoteSignal,
@@ -62,7 +67,10 @@ function buildPatterns(): {
     setupScript: /<setup-script>([\s\S]*?)<\/setup-script>/g,
     verifyScript: /<verify-script>([\s\S]*?)<\/verify-script>/g,
     skillSuggestions: /<skill-suggestions>([\s\S]*?)<\/skill-suggestions>/g,
-    dimension: /\*\*([A-Za-z][A-Za-z0-9]{2,29})\*\*\s*:\s*(PASS|FAIL)\s*(?:—|-)\s*(.+)/gi,
+    // Format: `**Name** (score 1-5): N — finding`
+    // The annotation label `(score 1-5)` is literal; N is the numeric score.
+    // Group 1: dimension name, Group 2: score digit (1–5), Group 3: finding text.
+    dimension: /\*\*([A-Za-z][A-Za-z0-9 ]{0,38})\*\*\s+\(score\s+1-5\)\s*:\s*([1-5])\s*(?:—|-)\s*(.+)/gi,
   };
 }
 
@@ -85,10 +93,26 @@ function isDangerousCommand(command: string): boolean {
 }
 
 /**
+ * Compute the mean of all dimension scores, rounded to one decimal place.
+ * Returns `undefined` when the list is empty.
+ */
+function computeOverallScore(scores: readonly DimensionScore[]): number | undefined {
+  if (scores.length === 0) return undefined;
+  const total = scores.reduce((sum, d) => sum + d.score, 0);
+  return Math.round((total / scores.length) * 10) / 10;
+}
+
+/**
  * Find every dimension line in the input, lowercase the name, and dedupe
  * by first occurrence. The lowercase-at-the-boundary discipline is the
  * reason this adapter exists — the domain treats `EvaluationDimension` as
  * free-form text.
+ *
+ * The new format is `**Name** (score 1-5): N — finding`.
+ * Group 1 = name, Group 2 = numeric score, Group 3 = finding.
+ * Lines that do not include the score annotation are silently skipped — the
+ * evaluator prompt makes the annotation mandatory, so omitting it is a
+ * malformed output.
  */
 function parseDimensionScores(output: string, dimensionRe: RegExp): DimensionScore[] {
   const scores: DimensionScore[] = [];
@@ -97,15 +121,19 @@ function parseDimensionScores(output: string, dimensionRe: RegExp): DimensionSco
   let match: RegExpExecArray | null;
   while ((match = dimensionRe.exec(output)) !== null) {
     const rawName = match[1];
-    const verdict = match[2];
+    const rawScore = match[2];
     const finding = match[3];
-    if (rawName === undefined || verdict === undefined || finding === undefined) continue;
-    const name = rawName.toLowerCase();
+    if (rawName === undefined || rawScore === undefined || finding === undefined) continue;
+    const name = rawName.trim().toLowerCase();
     if (seen.has(name)) continue;
     seen.add(name);
+    const scoreNum = parseInt(rawScore, 10);
+    if (scoreNum < 1 || scoreNum > 5) continue;
+    const score = scoreNum as DimensionScoreValue;
     scores.push({
       dimension: name,
-      passed: verdict.toUpperCase() === 'PASS',
+      score,
+      passed: score >= 4,
       finding: finding.trim(),
     });
   }
@@ -121,9 +149,102 @@ interface IndexedSignal {
   readonly signal: HarnessSignal;
 }
 
+/**
+ * Tags whose closing form must balance their opening form. Imbalanced opens
+ * yield {@link SignalParseDiagnostic} `unclosed-tag` entries — the parser's
+ * silent drop is observable without changing the signal vocabulary.
+ *
+ * `evaluation-passed` and `task-complete` are intentionally absent — they are
+ * marker tags with no closing form by design.
+ */
+const CLOSED_TAGS: readonly string[] = [
+  'progress',
+  'evaluation-failed',
+  'task-verified',
+  'task-blocked',
+  'note',
+  'check-script',
+  'agents-md',
+  'setup-script',
+  'verify-script',
+  'skill-suggestions',
+];
+
+const SAMPLE_MAX = 80;
+
+function clipSample(raw: string, index: number): string {
+  const slice = raw.slice(index, index + SAMPLE_MAX);
+  return slice.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Detect every opening tag in {@link CLOSED_TAGS} that has no matching close.
+ * For each surplus open we emit one diagnostic anchored at the unmatched
+ * opening tag's source index.
+ */
+function collectUnclosedTagDiagnostics(raw: string): SignalParseDiagnostic[] {
+  const diagnostics: SignalParseDiagnostic[] = [];
+  for (const tag of CLOSED_TAGS) {
+    const openRe = new RegExp(`<${tag}>`, 'g');
+    const closeRe = new RegExp(`</${tag}>`, 'g');
+    const opens: number[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = openRe.exec(raw)) !== null) opens.push(m.index);
+    let closeCount = 0;
+    while (closeRe.exec(raw) !== null) closeCount += 1;
+    const surplus = opens.length - closeCount;
+    if (surplus <= 0) continue;
+    // Take the LAST `surplus` opens — earlier opens are the ones that
+    // matched their closers; the trailing ones are the dangling spans.
+    const unmatched = opens.slice(opens.length - surplus);
+    for (const index of unmatched) {
+      diagnostics.push({
+        kind: 'unclosed-tag',
+        tag,
+        sample: clipSample(raw, index),
+        index,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+/**
+ * Detect lines that *look like* attempted dimension declarations but don't
+ * match the strict score-annotated regex. Surfaces evaluator prompt drift —
+ * `**Correctness**: PASS — finding` (old PASS/FAIL format) and similar
+ * variants no longer parse, but they used to, and a silent drop is exactly
+ * how regression looks from the outside.
+ */
+function collectMalformedDimensionDiagnostics(raw: string, strictDimensionRe: RegExp): SignalParseDiagnostic[] {
+  // Match anything starting with `**…**` at line start (allowing leading
+  // whitespace). We then re-test the FULL strict regex against the same
+  // line — if it doesn't match, we have drift.
+  const looksLikeDimensionRe = /^[ \t]*\*\*[^*\n]+\*\*[^\n]*/gm;
+  const diagnostics: SignalParseDiagnostic[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = looksLikeDimensionRe.exec(raw)) !== null) {
+    const line = m[0];
+    // Build a fresh strict regex per line — sharing `lastIndex` across
+    // RE_strict.test() calls would skip alternate lines.
+    const strict = new RegExp(strictDimensionRe.source, strictDimensionRe.flags.replace('g', ''));
+    if (strict.test(line)) continue;
+    diagnostics.push({
+      kind: 'malformed-dimension',
+      sample: clipSample(raw, m.index),
+      index: m.index,
+    });
+  }
+  return diagnostics;
+}
+
 export class SignalParser implements SignalParserPort {
   parse(rawOutput: string, opts?: { readonly now: IsoTimestamp }): readonly HarnessSignal[] {
-    if (rawOutput.length === 0) return [];
+    return this.parseWithDiagnostics(rawOutput, opts).signals;
+  }
+
+  parseWithDiagnostics(rawOutput: string, opts?: { readonly now: IsoTimestamp }): ParseWithDiagnosticsResult {
+    if (rawOutput.length === 0) return { signals: [], diagnostics: [] };
 
     const timestamp = opts?.now ?? IsoTimestamp.now();
     const patterns = buildPatterns();
@@ -142,12 +263,14 @@ export class SignalParser implements SignalParserPort {
     // both appear (mirrors legacy precedence). Dimensions parsed once and
     // attached to whichever variant emits.
     const dimensions = parseDimensionScores(rawOutput, patterns.dimension);
+    const overallScore = computeOverallScore(dimensions);
     const passedMatch = patterns.evaluationPassed.exec(rawOutput);
     if (passedMatch !== null) {
       const sig: EvaluationSignal = {
         type: 'evaluation',
         status: 'passed',
         dimensions,
+        ...(overallScore !== undefined ? { overallScore } : {}),
         timestamp,
       };
       collected.push({ index: passedMatch.index, signal: sig });
@@ -158,7 +281,14 @@ export class SignalParser implements SignalParserPort {
         const status = dimensions.length > 0 ? 'failed' : 'malformed';
         const sig: EvaluationSignal =
           status === 'failed'
-            ? { type: 'evaluation', status, dimensions, critique, timestamp }
+            ? {
+                type: 'evaluation',
+                status,
+                dimensions,
+                ...(overallScore !== undefined ? { overallScore } : {}),
+                critique,
+                timestamp,
+              }
             : { type: 'evaluation', status, dimensions, timestamp };
         collected.push({ index: failedMatch.index, signal: sig });
       } else if (dimensions.length > 0) {
@@ -172,6 +302,7 @@ export class SignalParser implements SignalParserPort {
           type: 'evaluation',
           status: 'failed',
           dimensions,
+          ...(overallScore !== undefined ? { overallScore } : {}),
           timestamp,
         };
         collected.push({ index: idx, signal: sig });
@@ -285,7 +416,21 @@ export class SignalParser implements SignalParserPort {
     // Stable sort by source index so the dashboard sees the timeline as it
     // actually appeared in the AI output.
     collected.sort((a, b) => a.index - b.index);
-    return collected.map((c) => c.signal);
+
+    // Diagnostics — observation only, never enforcement. The strict-regex
+    // dimension parser above is unchanged; this pass independently scans for
+    // the two highest-leverage drift signatures so silently-dropped output
+    // becomes visible in logs and on the dashboard.
+    const diagnostics: SignalParseDiagnostic[] = [
+      ...collectUnclosedTagDiagnostics(rawOutput),
+      ...collectMalformedDimensionDiagnostics(rawOutput, patterns.dimension),
+    ];
+    diagnostics.sort((a, b) => a.index - b.index);
+
+    return {
+      signals: collected.map((c) => c.signal),
+      diagnostics,
+    };
   }
 }
 

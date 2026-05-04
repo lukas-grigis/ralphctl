@@ -11,7 +11,7 @@ import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 import type { SessionManagerPort, SessionManagerEvent } from '@src/application/runtime/session-manager-port.ts';
 

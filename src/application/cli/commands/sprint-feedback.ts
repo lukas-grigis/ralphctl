@@ -55,10 +55,7 @@ async function runSprintFeedback(deps: SharedDeps, opts: SprintFeedbackFlags): P
   }
   const iteration = Math.max(1, Number.parseInt(opts.iteration ?? '1', 10) || 1);
 
-  const flow = createFeedbackFlow(deps, {
-    sprintId: sprintId.value,
-    cwd: cwd.value,
-  });
+  const flow = createFeedbackFlow(deps);
 
   return streamSession<FeedbackCtx>({
     sessionManager: deps.sessionManager,

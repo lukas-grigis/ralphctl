@@ -10,7 +10,7 @@ import { Sprint } from '@src/domain/entities/sprint.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 
 function makeRouter() {
   return {

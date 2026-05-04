@@ -11,7 +11,7 @@ import type {
   SessionManagerEvent,
 } from '@src/application/runtime/session-manager-port.ts';
 import type { ChainRunnerListener } from '@src/kernel/runtime/chain-runner.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import type { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 
 function makeFakeRunner(ctx: Record<string, unknown> = Object.create(null) as Record<string, unknown>) {
@@ -49,13 +49,18 @@ function makeDescriptor(overrides: Partial<SessionDescriptor> = {}): SessionDesc
   } as unknown as SessionDescriptor;
 }
 
-function makeSessionManager(): SessionManagerPort & { _emit(e: SessionManagerEvent): void } {
+function makeSessionManager(): SessionManagerPort & {
+  _emit(e: SessionManagerEvent): void;
+  foregroundMock: ReturnType<typeof vi.fn>;
+} {
   const listeners = new Set<(e: SessionManagerEvent) => void>();
+  const foregroundMock = vi.fn(() => Result.ok());
   return {
     start: vi.fn(() => 'feedback-session'),
     list: vi.fn(() => []),
     get: vi.fn(() => undefined),
-    foreground: vi.fn(() => Result.ok()),
+    foreground: foregroundMock,
+    foregroundMock,
     background: vi.fn(() => Result.ok()),
     kill: vi.fn(() => Result.ok()),
     get active() {
@@ -120,5 +125,23 @@ describe('FeedbackPromptLoop', () => {
     render(<FeedbackPromptLoop descriptor={descriptor} sessionManager={sm} runnerStatus="failed" />);
     await new Promise((r) => setTimeout(r, 30));
     expect(promptPort.editorMock).not.toHaveBeenCalled();
+  });
+
+  it('foregrounds the completing session and tags the prompt with the sprint id', async () => {
+    const promptPort = new FakePromptPort();
+    promptPort.queueEditor(null); // empty submit → terminate loop after one round
+    setSharedDeps({ prompt: promptPort } as unknown as SharedDeps);
+    const sm = makeSessionManager();
+    const ctx = { sprintId: '20260504-060307-test', cwd: '/tmp/proj' } as unknown as Record<string, unknown>;
+    const descriptor = makeDescriptor({
+      id: 'sess-A',
+      runner: makeFakeRunner(ctx) as unknown as SessionDescriptor['runner'],
+    });
+    render(<FeedbackPromptLoop descriptor={descriptor} sessionManager={sm} runnerStatus="completed" />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sm.foregroundMock).toHaveBeenCalledWith('sess-A');
+    expect(promptPort.editorMock).toHaveBeenCalledTimes(1);
+    const call = promptPort.editorMock.mock.calls[0]?.[0] as { message: string } | undefined;
+    expect(call?.message).toContain('20260504-060307-test');
   });
 });

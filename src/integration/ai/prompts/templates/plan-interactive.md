@@ -26,7 +26,25 @@ Before planning, understand the codebase:
 
 ### Step 2: Review Ticket Requirements
 
-Each ticket should have refined requirements from Phase 1 (Requirements Refinement):
+The canonical, user-approved requirements for this sprint are staged
+inside your working directory at `./requirements.json`. Read that file
+directly — it is the single source of truth.
+
+Schema:
+
+```json
+{
+  "sprintId": "...",
+  "sprintName": "...",
+  "generatedAt": "<ISO timestamp>",
+  "tickets": [{ "ticketId": "...", "title": "...", "requirements": "<markdown body>" }]
+}
+```
+
+Only tickets the user approved during refinement are present. Tickets
+that were skipped or rejected do not appear and must not be planned for.
+
+For each entry:
 
 1. **Read the requirements** — Understand WHAT needs to be built
 2. **Note constraints** — Business rules, acceptance criteria, scope boundaries from refinement
@@ -75,8 +93,7 @@ before the plan is finalized.
    3. Run the project's check/test/build gate — all pass
    ```
 
-2. **Show the dependency graph** — Make it obvious which tasks run in parallel vs sequentially, and why each dependency
-   exists:
+2. **Show the dependency graph** — Make the dependency structure obvious, and explain why each dependency exists:
 
    ```
    Dependency graph:
@@ -110,6 +127,7 @@ If you encounter issues that prevent planning, communicate clearly:
 - **Inaccessible repository** — Tell the user and ask if they want to proceed without it
 - **Contradictory requirements** — Present the conflict and ask the user to resolve it
 - **Missing context** — Ask the user using AskUserQuestion before proceeding with assumptions
+- **No approved tickets** — Read `./requirements.json`; if it contains no entries, signal `<planning-blocked>No approved tickets to plan for</planning-blocked>`
 
 ### Step 7: Pre-Output Checklist
 
@@ -137,6 +155,9 @@ Repositories have been pre-selected by the user. Only create tasks targeting the
 each task in its `projectPath` directory, so tasks targeting unlisted repos would fail.
 
 - **Use listed paths** — each task's `projectPath` must be one of the repository paths shown in the Sprint Context
+
+  Tasks targeting unlisted `projectPath` values fail at execution time — the harness executes each task inside its declared directory.
+
 - **One repo per task** — if a ticket spans multiple repos, create separate tasks per repo with proper dependencies
 - **Stay within scope** — tasks for repositories not listed in the Sprint Context cannot be executed
 
@@ -150,11 +171,13 @@ Use this exact JSON Schema:
 {{SCHEMA}}
 ```
 
-**Dependencies**: Give tasks an `id` field, then reference those IDs in `blockedBy`:
+**Dependencies**: Give each task an `id` field — any unique placeholder string — and reference earlier tasks via `blockedBy`:
 
-- Each task can have an optional `id` field (e.g., `"id": "1"` or `"id": "auth-setup"`)
-- Reference earlier tasks by ID: `"blockedBy": ["1"]` or `"blockedBy": ["auth-setup"]`
-- Dependencies must reference tasks that appear earlier in the array
+- `id` is a placeholder local to this output (e.g. `"1"`, `"auth-setup"`, `"add-validation"`). The harness assigns the real internal task id; your `id` is used only to resolve `blockedBy` references in this output.
+- Reference earlier tasks by their placeholder: `"blockedBy": ["1"]` or `"blockedBy": ["auth-setup"]`.
+- Every entry in `blockedBy` must match the `id` of an earlier task in the same array.
+- Placeholders must be unique across the array.
+- Dependencies must reference tasks that appear earlier in the array (no forward refs, no cycles).
 
 ### Example Well-Formed Task
 

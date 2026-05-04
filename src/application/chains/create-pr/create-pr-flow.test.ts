@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { FakeExternalPort } from '@src/business/_test-fakes/fake-external-port.ts';
-import { abs, makeApprovedTicket, makeSprint } from '@src/application/_test-fakes/fixtures.ts';
+import { abs, makeApprovedTicket, makeSprint, T0 } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { createCreatePrFlow } from './create-pr-flow.ts';
 
@@ -16,6 +16,7 @@ const CWD = abs('/tmp/create-pr-test');
 
 const HAPPY_PATH_STEPS = [
   'load-sprint',
+  'assert-active',
   'assert-has-branch',
   'derive-pr-content',
   'create-pull-request',
@@ -23,12 +24,14 @@ const HAPPY_PATH_STEPS = [
 ];
 
 describe('createCreatePrFlow', () => {
-  it('runs load-sprint → assert-has-branch → derive-pr-content → create-pull-request → record-pr-url', async () => {
+  it('runs load-sprint → assert-active → assert-has-branch → derive-pr-content → create-pull-request → record-pr-url', async () => {
     const sprintBase = makeSprint({ name: 'Demo Sprint' });
     const ticket = makeApprovedTicket({ title: 'Add login' });
     const withTicket = sprintBase.addTicket(ticket);
     if (!withTicket.ok) throw withTicket.error;
-    const branched = withTicket.value.setBranch('ralphctl/test');
+    const activated = withTicket.value.activate(T0);
+    if (!activated.ok) throw activated.error;
+    const branched = activated.value.setBranch('ralphctl/test');
     if (!branched.ok) throw branched.error;
 
     const external = new FakeExternalPort({
@@ -68,7 +71,9 @@ describe('createCreatePrFlow', () => {
 
   it('uses caller-provided title/body when set', async () => {
     const sprintBase = makeSprint();
-    const branched = sprintBase.setBranch('ralphctl/x');
+    const activated = sprintBase.activate(T0);
+    if (!activated.ok) throw activated.error;
+    const branched = activated.value.setBranch('ralphctl/x');
     if (!branched.ok) throw branched.error;
 
     const external = new FakeExternalPort({
@@ -101,8 +106,41 @@ describe('createCreatePrFlow', () => {
     expect(call?.draft).toBe(true);
   });
 
+  it('short-circuits at assert-active when sprint is not active', async () => {
+    const sprint = makeSprint(); // draft status, with a branch
+    const branched = sprint.setBranch('ralphctl/z');
+    if (!branched.ok) throw branched.error;
+    const deps = createTestDeps({ sprints: [branched.value] });
+
+    const flow = createCreatePrFlow(deps, {
+      sprintId: branched.value.id,
+      cwd: CWD,
+      base: 'main',
+      draft: false,
+    });
+
+    const result = await flow.execute({
+      sprintId: branched.value.id,
+      cwd: CWD,
+      base: 'main',
+      draft: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error.code).toBe('invalid-state');
+
+    expect(result.error.trace[1]?.stepName).toBe('assert-active');
+    expect(result.error.trace[1]?.status).toBe('failed');
+    expect(result.error.trace).toHaveLength(HAPPY_PATH_STEPS.length);
+    expect(result.error.trace[0]?.status).toBe('completed');
+    for (const entry of result.error.trace.slice(2)) expect(entry.status).toBe('skipped');
+  });
+
   it('short-circuits at assert-has-branch when sprint has no branch', async () => {
-    const sprint = makeSprint(); // no branch
+    const sprintBase = makeSprint(); // no branch
+    const activated = sprintBase.activate(T0);
+    if (!activated.ok) throw activated.error;
+    const sprint = activated.value;
     const deps = createTestDeps({ sprints: [sprint] });
 
     const flow = createCreatePrFlow(deps, {
@@ -125,13 +163,16 @@ describe('createCreatePrFlow', () => {
     const stepNames = result.error.trace.map((t) => t.stepName);
     expect(stepNames).toStrictEqual(HAPPY_PATH_STEPS);
     expect(result.error.trace[0]?.status).toBe('completed');
-    expect(result.error.trace[1]?.status).toBe('failed');
-    for (const entry of result.error.trace.slice(2)) expect(entry.status).toBe('skipped');
+    expect(result.error.trace[1]?.status).toBe('completed');
+    expect(result.error.trace[2]?.status).toBe('failed');
+    for (const entry of result.error.trace.slice(3)) expect(entry.status).toBe('skipped');
   });
 
   it('propagates ExternalPort failures and skips record-pr-url', async () => {
     const sprintBase = makeSprint();
-    const branched = sprintBase.setBranch('ralphctl/y');
+    const activated = sprintBase.activate(T0);
+    if (!activated.ok) throw activated.error;
+    const branched = activated.value.setBranch('ralphctl/y');
     if (!branched.ok) throw branched.error;
 
     const external = new FakeExternalPort({

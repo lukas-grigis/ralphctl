@@ -161,13 +161,26 @@ export class ChainRunner<TCtx> {
       this.emit({ type: 'step', entry });
     };
 
+    // Live ctx tracker: each leaf calls onCtxUpdate after applying its
+    // output transformer; Sequential threads ctx through to the next
+    // child; Retry / OnError forward ctx from a successful attempt /
+    // fallback. Mirroring those updates into `currentCtx` keeps
+    // `runner.ctx` live during the run
+    // (instead of frozen at the initial value until completion), so UIs
+    // reading `runner.ctx` mid-flight (e.g. the live execute view's
+    // per-task panel) see fresh data without needing the launcher to
+    // pre-seed every consumed field on initialCtx.
+    const onCtxUpdate = (ctx: TCtx): void => {
+      this.currentCtx = ctx;
+    };
+
     // Tag every `logger.info(...)` / `signalBus.emit(...)` call made during
     // this chain run with the runner's id. See `session-context.ts` for the
     // ALS contract — adapters (`InkSink`, `InMemorySignalBus`) read from
     // `currentSessionId()` and stamp the event so the live TUI can filter
     // by descriptor.id without bleeding events between concurrent sessions.
     const result = await runWithSession(this.id, () =>
-      this.element.execute(this.currentCtx, this.abortController.signal, onTrace)
+      this.element.execute(this.currentCtx, this.abortController.signal, onTrace, onCtxUpdate)
     );
 
     // Settle the trace to the result's trace (it's the canonical, ordered

@@ -11,7 +11,7 @@ import { Project } from '@src/domain/entities/project.ts';
 import { Repository } from '@src/domain/entities/repository.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { NotFoundError } from '@src/domain/errors/not-found-error.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
 

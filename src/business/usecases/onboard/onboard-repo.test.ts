@@ -245,6 +245,124 @@ describe('OnboardRepoUseCase', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.setupScript).toBe('pnpm install');
   });
+
+  // The dirty-tree-of-context-files bug. In `adopt` mode the prompt tells
+  // the AI to emit existing prose verbatim with additions appended, but a
+  // misbehaving model can still drop or paraphrase it. The use case folds
+  // the original back in as a safety net so the editor shows a merged
+  // body the user can prune — never a silent overwrite.
+  describe('adopt-mode prose preservation', () => {
+    it('passes through unchanged when the AI proposal contains the existing prose verbatim', async () => {
+      const existing = '# Demo\n\nOriginal one-paragraph context.\n';
+      const proposal = `${existing}\n## Testing\n- pnpm test\n`;
+      const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'ok', result: { output: 'raw' } }] });
+      const prompts = new FakePromptBuilderPort();
+      const parser = new FakeSignalParserPort({
+        results: [[{ type: 'agents-md-proposal', content: proposal, timestamp: NOW }]],
+      });
+      const uc = new OnboardRepoUseCase(ai, prompts, parser, new FakeLoggerPort());
+
+      const project = makeProject();
+      const result = await uc.execute({
+        project,
+        repo: firstRepo(project),
+        cwd: path('/tmp/repo'),
+        mode: 'adopt',
+        aiProvider: 'claude',
+        existingAgentsMd: existing,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.contextFileContent).toBe(proposal);
+    });
+
+    it('tolerates benign whitespace reformatting (line-break differences) without merging', async () => {
+      const existing = '# Demo\n\nOriginal one-paragraph context.\n';
+      // Same prose, same words, but condensed to a single line.
+      const proposal = '# Demo Original one-paragraph context.\n\n## Testing\n- pnpm test\n';
+      const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'ok', result: { output: 'raw' } }] });
+      const prompts = new FakePromptBuilderPort();
+      const parser = new FakeSignalParserPort({
+        results: [[{ type: 'agents-md-proposal', content: proposal, timestamp: NOW }]],
+      });
+      const uc = new OnboardRepoUseCase(ai, prompts, parser, new FakeLoggerPort());
+
+      const project = makeProject();
+      const result = await uc.execute({
+        project,
+        repo: firstRepo(project),
+        cwd: path('/tmp/repo'),
+        mode: 'adopt',
+        aiProvider: 'claude',
+        existingAgentsMd: existing,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.contextFileContent).toBe(proposal);
+    });
+
+    it('prepends the original prose when the AI body drops it (paraphrased away)', async () => {
+      const existing = '# Demo\n\nOriginal one-paragraph context that the user authored carefully.\n';
+      // AI rewrote the prose — the original sentence no longer appears.
+      const proposal = '# Demo\n\nA different rewritten description.\n\n## Testing\n- pnpm test\n';
+      const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'ok', result: { output: 'raw' } }] });
+      const prompts = new FakePromptBuilderPort();
+      const parser = new FakeSignalParserPort({
+        results: [[{ type: 'agents-md-proposal', content: proposal, timestamp: NOW }]],
+      });
+      const logger = new FakeLoggerPort();
+      const uc = new OnboardRepoUseCase(ai, prompts, parser, logger);
+
+      const project = makeProject();
+      const result = await uc.execute({
+        project,
+        repo: firstRepo(project),
+        cwd: path('/tmp/repo'),
+        mode: 'adopt',
+        aiProvider: 'claude',
+        existingAgentsMd: existing,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const merged = result.value.contextFileContent ?? '';
+      // Original prose appears verbatim at the top.
+      expect(merged.startsWith('# Demo\n\nOriginal one-paragraph context that the user authored carefully.')).toBe(
+        true
+      );
+      // AI proposal is included below.
+      expect(merged).toContain('A different rewritten description.');
+      // The marker comment surfaces the merge to the user.
+      expect(merged).toContain('ralphctl: AI proposed additions follow');
+      // A warn-level entry was logged.
+      expect(logger.hasMessage('warn', 'did not preserve existing prose')).toBe(true);
+    });
+
+    it('does not run the safety net in bootstrap mode (no existing prose to preserve)', async () => {
+      const proposal = '# Demo\n\nFresh body.\n';
+      const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'ok', result: { output: 'raw' } }] });
+      const prompts = new FakePromptBuilderPort();
+      const parser = new FakeSignalParserPort({
+        results: [[{ type: 'agents-md-proposal', content: proposal, timestamp: NOW }]],
+      });
+      const uc = new OnboardRepoUseCase(ai, prompts, parser, new FakeLoggerPort());
+
+      const project = makeProject();
+      const result = await uc.execute({
+        project,
+        repo: firstRepo(project),
+        cwd: path('/tmp/repo'),
+        mode: 'bootstrap',
+        aiProvider: 'claude',
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.contextFileContent).toBe(proposal);
+    });
+  });
 });
 
 describe('contextFilePathFor', () => {

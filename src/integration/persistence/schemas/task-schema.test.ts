@@ -107,6 +107,30 @@ describe('task-schema', () => {
     expect(back.value.extraDimensions).toStrictEqual(['Performance', 'Security']);
   });
 
+  it('round-trips a task with a recorded commit SHA', () => {
+    const t = makeTask();
+    const inProgress = t.markInProgress();
+    if (!inProgress.ok) throw inProgress.error;
+    const done = inProgress.value.markDone();
+    if (!done.ok) throw done.error;
+    const committed = done.value.recordCommit('abc123def4567890');
+    expect(committed.commitSha).toBe('abc123def4567890');
+    const json = fromTask(committed);
+    expect(json.commitSha).toBe('abc123def4567890');
+    const back = toTask(taskJsonSchema.parse(json));
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.commitSha).toBe('abc123def4567890');
+    // Status, evaluation, and other fields survive the round-trip too.
+    expect(back.value.status).toBe('done');
+  });
+
+  it('omits commitSha from serialised JSON when absent (forward compat)', () => {
+    const t = makeTask();
+    const json = fromTask(t);
+    expect(Object.prototype.hasOwnProperty.call(json, 'commitSha')).toBe(false);
+  });
+
   it('round-trips a blocked task with reason', () => {
     const t = makeTask();
     const blockedR = t.markBlocked('wrong branch');

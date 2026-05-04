@@ -3,10 +3,10 @@
  * `gh`/`glab`, issue trackers, and per-repo check-script execution.
  *
  * Methods that mutate filesystem state (`hardResetWorkingTree`,
- * `createAndCheckoutBranch`, `autoCommit`) return
+ * `createAndCheckoutBranch`, `stashChanges`) return
  * `Promise<Result<void, StorageError>>` — they can fail in ways the
  * harness must surface to the caller (missing git identity, dirty index,
- * pre-commit hook rejection, etc.).
+ * etc.).
  *
  * Pure-read methods (`hasUncommittedChanges`, `getCurrentBranch`,
  * `verifyBranch`, `getHeadSha`, `getChangedFilesSince`,
@@ -129,14 +129,6 @@ export interface ExternalPort {
   createAndCheckoutBranch(projectPath: AbsolutePath, branchName: string): Promise<Result<void, StorageError>>;
 
   /**
-   * Stage all changes and create a commit with the given message. Used by
-   * the `recover-dirty-tree` fence to commit leftover agent changes when a
-   * task settles with an unclean tree. Callers treat failures as
-   * non-blocking.
-   */
-  autoCommit(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>>;
-
-  /**
    * `git stash push -u -m <message>` — preserves uncommitted + untracked
    * changes so a clean working tree can be guaranteed before sprint start.
    *
@@ -149,6 +141,22 @@ export interface ExternalPort {
    * stash message to the user so they can find it again later.
    */
   stashChanges(projectPath: AbsolutePath, message: string): Promise<Result<void, StorageError>>;
+
+  /**
+   * Stage every change in the working tree (`git add -A`) and create a
+   * commit with the supplied message. Resolves to the new HEAD SHA on
+   * success.
+   *
+   *  - `Result.error(StorageError({ subCode: 'no-changes' }))` — the tree
+   *    was clean; nothing to commit. Callers treat this as a no-op.
+   *  - `Result.error(StorageError({ subCode: 'io' }))` — the underlying
+   *    git invocation failed.
+   *
+   * The message is passed through `git`'s argv (no shell), so special
+   * characters are preserved verbatim. Callers should defensively
+   * truncate / sanitise long messages before invoking.
+   */
+  commitChanges(projectPath: AbsolutePath, message: string): Promise<Result<string, StorageError>>;
 
   // --- Pull / merge requests ---
 

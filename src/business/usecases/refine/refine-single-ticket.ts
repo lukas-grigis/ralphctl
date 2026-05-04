@@ -18,11 +18,16 @@
  *    Restoring the alt-screen and clearing Ink during the session is
  *    handled by `runInteractive` upstream.
  *
+ * The full refine prompt is written to disk by the upstream
+ * `render-prompt-to-file` chain leaf. This use case receives the path,
+ * calls {@link renderFileHandoffWrapper} to build the short bootstrap
+ * Claude reads first, and spawns the AI session.
+ *
  * Single-responsibility on purpose: looping over the sprint's pending
  * tickets, persistence, and per-ticket UI confirmation are chain-layer
  * concerns. This class only owns the AI round-trip + entity transition.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import type { Sprint } from '@src/domain/entities/sprint.ts';
@@ -34,7 +39,7 @@ import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session-port.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
-import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
+import { renderFileHandoffWrapper } from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
 
 /** Inputs to {@link RefineSingleTicketUseCase}. */
 export interface RefineSingleTicketInput {
@@ -44,6 +49,20 @@ export interface RefineSingleTicketInput {
   readonly ticket: Ticket;
   /** Working directory for the AI session. */
   readonly cwd: AbsolutePath;
+  /**
+   * Absolute path to the per-ticket refinement prompt file produced by
+   * the upstream `render-prompt-to-file` leaf. Required — the wrapper
+   * the AI receives points at this path.
+   */
+  readonly promptFilePath: string;
+  /**
+   * Optional absolute path the AI session adapter writes a `session.md`
+   * audit record to (provider, model, cwd, flags, exit code, full
+   * prompt). Set by the upstream `build-refinement-unit` leaf to
+   * `<refinementUnitRoot>/session.md`. Best-effort — write failures
+   * never fail the spawn.
+   */
+  readonly sessionMdPath?: AbsolutePath;
   /**
    * When true, runs Claude with stdio: 'inherit' — the user has a live
    * conversation with Claude, and final requirements are read from
@@ -64,13 +83,6 @@ export interface RefineSingleTicketInput {
    * mode does not need it.
    */
   readonly runInTerminal?: <T>(fn: () => Promise<T>) => Promise<T>;
-  /**
-   * Optional pre-fetched issue context (ExternalPort.formatIssueContext
-   * output). When provided, the prompt builder injects it instead of
-   * the bare-link rendering — Claude sees the actual issue body +
-   * comments, not just the URL.
-   */
-  readonly issueContext?: string;
   /**
    * Optional human-in-the-loop review hook. Called AFTER the AI session
    * finishes and the parsed requirements are extracted, BEFORE the
@@ -108,7 +120,6 @@ export interface RefineSingleTicketOutput {
 export class RefineSingleTicketUseCase {
   constructor(
     private readonly ai: AiSessionPort,
-    private readonly prompts: PromptBuilderPort,
     private readonly logger: LoggerPort
   ) {}
 
@@ -140,35 +151,31 @@ export class RefineSingleTicketUseCase {
       );
     }
 
-    const promptResult = await this.prompts.buildRefinePrompt({
-      ticket: input.ticket,
-      ...(interactive && input.outputFilePath !== undefined ? { outputFilePath: input.outputFilePath } : {}),
-      ...(input.issueContext !== undefined && input.issueContext.length > 0
-        ? { issueContext: input.issueContext }
-        : {}),
-    });
-    if (!promptResult.ok) return Result.error(promptResult.error);
+    // The full prompt is on disk at `input.promptFilePath`. Hand the AI
+    // a thin wrapper pointing at it.
+    const wrapper = renderFileHandoffWrapper(input.promptFilePath);
 
     log.info(`refining ticket ${String(input.ticket.id)}${formatTitleSuffix(input.ticket.title)}`, {
       mode: interactive ? 'interactive' : 'headless',
     });
 
     if (interactive) {
-      return this.runInteractive(input, promptResult.value, log);
+      return this.runInteractive(input, wrapper, log);
     }
-    return this.runHeadless(input, promptResult.value, log);
+    return this.runHeadless(input, wrapper, log);
   }
 
   // ── headless (stdout-parsing path) ───────────────────────────────────
 
   private async runHeadless(
     input: RefineSingleTicketInput,
-    prompt: string,
+    wrapper: string,
     log: ReturnType<LoggerPort['child']>
   ): Promise<Result<RefineSingleTicketOutput, DomainError>> {
-    const sessionResult = await this.ai.spawnHeadless(prompt, {
+    const sessionResult = await this.ai.spawnHeadless(wrapper, {
       cwd: input.cwd,
       ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+      ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
     });
     if (!sessionResult.ok) return Result.error(sessionResult.error);
 
@@ -183,63 +190,48 @@ export class RefineSingleTicketUseCase {
 
   // ── interactive (Claude Code UI + read-back from file) ───────────────
   //
-  // The full prompt is stashed in `refine-context.md` next to the output
-  // file; Claude is bootstrapped with a one-liner pointing at it. The
-  // chat history stays clean — Claude reads the context file as its
-  // first action instead of having ~200 lines of spec scroll past
-  // before it responds.
+  // The full prompt is at `input.promptFilePath` (already on disk via the
+  // chain's `render-prompt-to-file` leaf). Claude is bootstrapped with
+  // the file-handoff wrapper. The chat history stays clean — Claude reads
+  // the file as its first action instead of having ~200 lines of spec
+  // scroll past before it responds.
 
   private async runInteractive(
     input: RefineSingleTicketInput,
-    prompt: string,
+    wrapper: string,
     log: ReturnType<LoggerPort['child']>
   ): Promise<Result<RefineSingleTicketOutput, DomainError>> {
     // The runInTerminal handover is required when Ink is mounted; in
     // non-Ink contexts (CLI, tests) callers can pass a passthrough.
     const handover = input.runInTerminal ?? (async <T>(fn: () => Promise<T>): Promise<T> => fn());
 
-    // Write the full prompt to refine-context.md alongside the output
-    // file. Claude's spawnInteractive bootstrap message tells it to
-    // read this file. The directory was already pre-created by the
-    // chain leaf; mkdir again here for safety in non-chain callers.
-    const outputPath = input.outputFilePath ?? '';
-    const contextDir = dirname(outputPath);
-    const contextPath = `${contextDir}/refine-context.md`;
-    try {
-      await mkdir(contextDir, { recursive: true });
-      await writeFile(contextPath, prompt, 'utf-8');
-    } catch (err) {
-      return Result.error(
-        new StorageError({
-          subCode: 'io',
-          message: `interactive refine: failed to write context file at ${contextPath}: ${err instanceof Error ? err.message : String(err)}`,
-          path: contextPath,
-          cause: err,
-        })
-      );
+    // Claude needs read/write access to both:
+    //  - the prompt file's directory (to read the wrapper target), and
+    //  - the output file's directory (to write the requirements JSON).
+    // Add both as `--add-dir` roots so acceptEdits permissions don't
+    // prompt on every read/write under the harness's data root.
+    const promptDir = dirname(input.promptFilePath);
+    const outputDir = input.outputFilePath !== undefined ? dirname(input.outputFilePath) : promptDir;
+    const addDirArgs: string[] = ['--add-dir', promptDir];
+    if (outputDir !== promptDir) {
+      addDirArgs.push('--add-dir', outputDir);
     }
 
-    // Short bootstrap: Claude's first turn reads the context file and
-    // proceeds. Pass the context dir as `--add-dir` so Claude's
-    // acceptEdits permission mode auto-allows reads/writes inside it
-    // (no per-file prompt for the handoff and the output JSON). Bash /
-    // WebFetch / etc still prompt — that's intentional, the user is at
-    // the keyboard.
-    const bootstrap = `I need help refining the requirements for "${input.ticket.title}". The full context is in \`${contextPath}\`. Please read that file now and follow the instructions to help refine the ticket requirements.`;
-
     const spawnResult = await handover(() =>
-      this.ai.spawnInteractive(bootstrap, {
+      this.ai.spawnInteractive(wrapper, {
         cwd: input.cwd,
-        args: ['--add-dir', contextDir],
+        args: addDirArgs,
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+        ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
       })
     );
     if (!spawnResult.ok) return Result.error(spawnResult.error);
 
-    // The AI was instructed (via the {{OUTPUT_FILE}} placeholder) to
-    // write the refined requirements JSON to outputFilePath. Read it.
-    // (`interactive: true` is gated above to require outputFilePath, so
-    // this is non-empty by construction — narrow with a runtime check.)
+    // The AI was instructed (via the {{OUTPUT_FILE}} placeholder in the
+    // prompt file) to write the refined requirements JSON to
+    // outputFilePath. Read it. (`interactive: true` is gated above to
+    // require outputFilePath, so this is non-empty by construction —
+    // narrow with a runtime check.)
     const path = input.outputFilePath ?? '';
     if (path === '') {
       return Result.error(

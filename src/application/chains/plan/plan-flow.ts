@@ -4,8 +4,10 @@
  * Steps (happy path):
  *
  *   load-sprint → assert-draft → assert-all-tickets-approved →
- *     persist-repo-selection → load-existing-tasks → confirm-replan →
- *     plan-tasks → reorder-tasks → confirm-task-list → save-tasks
+ *     persist-repo-selection → load-existing-tasks → snapshot-existing-tasks →
+ *     build-planning-folder → link-skills → confirm-replan →
+ *     render-prompt-to-file → plan-tasks → reorder-tasks → confirm-task-list →
+ *     save-tasks → unlink-skills
  *
  * The use case (`PlanSprintTasksUseCase`) re-checks the same
  * preconditions internally, but the chain still surfaces them as
@@ -14,15 +16,44 @@
  *
  * `persist-repo-selection` runs the repo-pick checkbox UI inside the
  * chain (single-repo projects skip the prompt) and writes the result
- * onto `sprint.affectedRepositories`. Downstream `plan-tasks` then
- * sources `cwd` and `--add-dir` paths directly from the sprint.
+ * onto `sprint.affectedRepositories`. Downstream `build-plan-workspace`
+ * then reads those repos and stamps `ctx.cwd` (the sandbox root) and
+ * `ctx.planAddDirs` (the affected-repo paths to surface as `--add-dir`
+ * to Claude; Copilot mirrors them inside the sandbox instead).
  *
- * No skills link/unlink in this chain — planning reads code rather
- * than writing it, so the bundled skills add nothing. The bracket
- * stays on `executeFlow` where it earns its keep.
+ * `build-plan-workspace` materialises a sandbox under
+ * `<sprintDir>/workspaces/plan/` and pre-stages contract files
+ * (per-ticket refined requirements, sprint metadata, provider-native
+ * context file). The AI session spawns inside this sandbox rather than
+ * the user's first repo so `.claude/skills/` and any AI write-tool side
+ * effects never touch tracked files. Affected repos remain readable via
+ * `--add-dir` (Claude) or the read-only mirror under
+ * `<root>/repos/<basename>/` (Copilot). Existing tasks (when re-planning)
+ * are inlined into `prompt.md` itself by the prompt builder — no
+ * separate sidecar file.
+ *
+ * `link-skills` runs AFTER `build-plan-workspace` so the bundled-skill
+ * tree lands inside the workspace's `.claude/skills/` rather than the
+ * user's repo. The repo-pick prompt that runs above this point is a
+ * pure UI prompt — it doesn't consume bundled skills, so deferring the
+ * skills install is safe.
+ *
+ * `render-prompt-to-file` writes the FULL plan prompt (sprint context,
+ * tickets with refined requirements, existing tasks for replan,
+ * harness context, signal vocabulary, schema) directly into the
+ * planning unit folder at `<sprintDir>/planning/prompt.md` so the
+ * sandbox stays self-contained — the prompt sits next to `session.md`,
+ * `tasks.json`, the provider-native context file, and the
+ * `.claude/skills/` overlay. Mirrors the refine flow's per-unit layout.
+ * The downstream `plan-tasks` leaf hands the AI a thin wrapper pointing
+ * at that file.
+ *
+ * `unlink-skills` is the very last leaf so a save-tasks failure still
+ * cleans up. Plan uses its own `'plan'` phase folder on top of
+ * `default/` — see the skills lifecycle bullet in CLAUDE.md.
  */
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 
 import type { Project } from '@src/domain/entities/project.ts';
@@ -31,28 +62,62 @@ import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
 import { PlanSprintTasksUseCase } from '@src/business/usecases/plan/plan-sprint-tasks.ts';
 import type { Task } from '@src/domain/entities/task.ts';
-import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import type { AbsolutePath as AbsolutePathVO } from '@src/domain/values/absolute-path.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { Element } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
+import { assertDraftLeaf } from '@src/application/chains/leaves/assert-draft.ts';
+import { buildPlanningFolderLeaf } from '@src/application/chains/leaves/build-planning-folder.ts';
+import { linkSkillsLeaf } from '@src/application/chains/leaves/link-skills.ts';
 import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
 import { loadTasksLeaf } from '@src/application/chains/leaves/load-tasks.ts';
+import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
 import { reorderTasksLeaf } from '@src/application/chains/leaves/reorder-tasks.ts';
 import { saveTasksLeaf } from '@src/application/chains/leaves/save-tasks.ts';
+import { unlinkSkillsLeaf } from '@src/application/chains/leaves/unlink-skills.ts';
 
 export interface PlanCtx {
   readonly sprintId: SprintId;
-  readonly cwd: AbsolutePath;
   readonly sprint?: Sprint;
   /** Pre-existing tasks loaded by `load-existing-tasks`; replaced by `plan-tasks`. */
   readonly tasks?: readonly Task[];
+  /**
+   * Sandbox workspace root. Set by the `build-plan-workspace` leaf
+   * during the chain run — callers do NOT pass this as initial input.
+   * Downstream leaves (skills install, AI session spawn, …) read from
+   * here so every IO lands inside the sandbox rather than the user's
+   * repo.
+   */
+  readonly cwd?: AbsolutePath;
+  /**
+   * Affected-repo paths to forward to the AI session as `--add-dir`
+   * flags (Claude only). Set by the `build-plan-workspace` leaf;
+   * empty for Copilot, which has the repos mirrored inside the
+   * sandbox under `<root>/repos/<basename>/` instead.
+   */
+  readonly planAddDirs?: readonly AbsolutePath[];
+  /**
+   * Resolved plan prompt file path. Set by `render-prompt-to-file`;
+   * consumed by `plan-tasks`.
+   */
+  readonly promptFilePath?: AbsolutePathVO;
+  /**
+   * Per-sprint planning folder root. Set by `build-planning-folder`.
+   */
+  readonly planningFolderRoot?: AbsolutePath;
+  /**
+   * Audit `session.md` path under the planning folder. Set by
+   * `build-planning-folder`; consumed by `plan-tasks` to pass into
+   * the AI session adapter as `SessionOptions.sessionMdPath`.
+   */
+  readonly planningSessionMdPath?: AbsolutePath;
 }
 
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
-  readonly cwd: AbsolutePath;
   /**
    * When true, run Claude with stdio: 'inherit' and read tasks JSON
    * from `outputFilePath`. Defaults to false (headless / stdout parse).
@@ -67,23 +132,72 @@ export interface CreatePlanFlowOpts {
 export function createPlanFlow(
   deps: Pick<
     ChainSharedDeps,
-    'sprintRepo' | 'projectRepo' | 'taskRepo' | 'aiSession' | 'prompts' | 'logger' | 'prompt'
+    | 'sprintRepo'
+    | 'projectRepo'
+    | 'taskRepo'
+    | 'aiSession'
+    | 'prompts'
+    | 'logger'
+    | 'prompt'
+    | 'skillsLinker'
+    | 'writeContextFile'
+    | 'sessionFolderBuilder'
   >,
   opts: CreatePlanFlowOpts
 ): Element<PlanCtx> {
-  const planUseCase = new PlanSprintTasksUseCase(deps.aiSession, deps.prompts, deps.logger);
+  const planUseCase = new PlanSprintTasksUseCase(deps.aiSession, deps.logger);
+
+  const renderPromptStep = renderPromptToFileLeaf<PlanCtx>(
+    { writeContextFile: deps.writeContextFile },
+    {
+      flowName: 'plan',
+      identifier: () => '',
+      // Drop the prompt directly inside the planning unit folder so the
+      // sandbox is self-contained (mirrors refine's `prompt.md` layout).
+      // `build-planning-folder` runs upstream and stamps
+      // `planningFolderRoot` onto ctx.
+      path: (ctx) => {
+        if (!ctx.planningFolderRoot) {
+          throw new Error('render-prompt-to-file: ctx.planningFolderRoot must be set by build-planning-folder');
+        }
+        return AbsolutePath.trustString(join(String(ctx.planningFolderRoot), 'prompt.md'));
+      },
+      buildPrompt: (ctx) => {
+        if (!ctx.sprint) {
+          // Programmer error — the upstream `load-sprint` leaf must
+          // have run by now. Throw rather than return Result.error so
+          // the failure surfaces with a stack trace instead of being
+          // routed through the placeholder-fence error path.
+          throw new Error('render-prompt-to-file: ctx.sprint must be loaded first');
+        }
+        return deps.prompts.buildPlanPrompt({
+          sprint: ctx.sprint,
+          existingTasks: ctx.tasks ?? [],
+          ...(opts.outputFilePath !== undefined ? { outputFilePath: opts.outputFilePath } : {}),
+        });
+      },
+    }
+  );
 
   return new Sequential<PlanCtx>('plan', [
     loadSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
-    assertDraftLeaf(),
+    assertDraftLeaf<PlanCtx>('plan'),
     assertAllTicketsApprovedLeaf(),
     persistRepoSelectionLeaf(deps),
     loadTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }, 'load-existing-tasks'),
+    snapshotExistingTasksLeaf(deps),
+    buildPlanningFolderLeaf<PlanCtx>({
+      sessionFolderBuilder: deps.sessionFolderBuilder,
+      aiSession: deps.aiSession,
+    }),
+    linkSkillsLeaf<PlanCtx>({ skillsLinker: deps.skillsLinker }, { phase: 'plan' }),
     confirmReplanLeaf(deps, opts),
+    renderPromptStep,
     planTasksLeaf(planUseCase, opts),
     reorderTasksLeaf<PlanCtx>(),
     confirmTaskListLeaf(deps, opts),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
+    unlinkSkillsLeaf<PlanCtx>({ skillsLinker: deps.skillsLinker }),
   ]);
 }
 
@@ -200,6 +314,8 @@ function planTasksLeaf(useCase: PlanSprintTasksUseCase, opts: CreatePlanFlowOpts
       readonly existingTasks: readonly Task[];
       readonly cwd: AbsolutePath;
       readonly additionalRepoPaths: readonly AbsolutePath[];
+      readonly promptFilePath: AbsolutePathVO;
+      readonly sessionMdPath?: AbsolutePath;
     },
     readonly Task[]
   >('plan-tasks', {
@@ -217,10 +333,12 @@ function planTasksLeaf(useCase: PlanSprintTasksUseCase, opts: CreatePlanFlowOpts
           sprint: input.sprint,
           existingTasks: input.existingTasks,
           cwd: input.cwd,
+          promptFilePath: String(input.promptFilePath),
           ...(opts.interactive === true ? { interactive: true } : {}),
           ...(opts.outputFilePath !== undefined ? { outputFilePath: opts.outputFilePath } : {}),
           ...(opts.runInTerminal !== undefined ? { runInTerminal: opts.runInTerminal } : {}),
           ...(input.additionalRepoPaths.length > 0 ? { additionalRepoPaths: input.additionalRepoPaths } : {}),
+          ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
         });
         if (!result.ok) return Result.error(result.error);
         return Result.ok(result.value.tasks);
@@ -228,42 +346,22 @@ function planTasksLeaf(useCase: PlanSprintTasksUseCase, opts: CreatePlanFlowOpts
     },
     input: (ctx) => {
       if (!ctx.sprint) throw new Error('plan-tasks: ctx.sprint must be loaded');
-      // First repo on the sprint becomes the canonical cwd; the rest
-      // become `--add-dir` flags. `persist-repo-selection` guarantees
-      // there is at least one entry; if it's empty (legacy / migrated
-      // sprint with no plan yet) fall back to the chain's launch cwd.
-      const repos = ctx.sprint.affectedRepositories;
-      const cwd = repos[0] ?? opts.cwd;
-      const additionalRepoPaths = repos.slice(1);
-      return { sprint: ctx.sprint, existingTasks: ctx.tasks ?? [], cwd, additionalRepoPaths };
+      if (!ctx.promptFilePath) throw new Error('plan-tasks: ctx.promptFilePath must be set by render-prompt-to-file');
+      if (!ctx.cwd) throw new Error('plan-tasks: ctx.cwd must be set by build-planning-folder');
+      // The sandbox workspace is the canonical cwd; affected repos are
+      // exposed via `--add-dir` (Claude) or mirrored inside the
+      // sandbox (Copilot) — the workspace leaf populates `planAddDirs`
+      // accordingly.
+      return {
+        sprint: ctx.sprint,
+        existingTasks: ctx.tasks ?? [],
+        cwd: ctx.cwd,
+        additionalRepoPaths: ctx.planAddDirs ?? [],
+        promptFilePath: ctx.promptFilePath,
+        ...(ctx.planningSessionMdPath !== undefined ? { sessionMdPath: ctx.planningSessionMdPath } : {}),
+      };
     },
     output: (ctx, tasks) => ({ ...ctx, tasks }),
-  });
-}
-
-function assertDraftLeaf(): Element<PlanCtx> {
-  return new Leaf<PlanCtx, { readonly sprint: Sprint }, void>('assert-draft', {
-    useCase: {
-      async execute(input) {
-        if (input.sprint.status !== 'draft') {
-          return Promise.resolve(
-            Result.error(
-              new InvalidStateError({
-                entity: 'sprint',
-                currentState: input.sprint.status,
-                attemptedAction: 'plan',
-              })
-            )
-          );
-        }
-        return Promise.resolve(Result.ok(undefined));
-      },
-    },
-    input: (ctx) => {
-      if (!ctx.sprint) throw new Error('assert-draft: ctx.sprint must be loaded first');
-      return { sprint: ctx.sprint };
-    },
-    output: (ctx) => ctx,
   });
 }
 
@@ -277,8 +375,8 @@ function assertDraftLeaf(): Element<PlanCtx> {
  * `projectRepo.findByName(sprint.projectName)`, calls
  * `sprint.setAffectedRepositories(...)`, and writes the updated sprint
  * back through `sprintRepo.save`. The mutated sprint is also threaded
- * onto `ctx.sprint` so downstream leaves (`plan-tasks`) see the new
- * `affectedRepositories` without re-loading.
+ * onto `ctx.sprint` so downstream leaves (`build-plan-workspace`,
+ * `plan-tasks`) see the new `affectedRepositories` without re-loading.
  */
 function persistRepoSelectionLeaf(
   deps: Pick<ChainSharedDeps, 'sprintRepo' | 'projectRepo' | 'prompt' | 'logger'>
@@ -382,6 +480,41 @@ async function pickAffectedRepos(
   }
 
   return Result.ok(parsed);
+}
+
+/**
+ * `snapshot-existing-tasks` — when re-planning a sprint that already has
+ * tasks on disk, copy the canonical `<sprintDir>/tasks.json` to
+ * `<sprintDir>/planning/tasks-snapshot-<ISO>.json` so the prior plan
+ * survives even when the AI replaces it. No-op on first plan (no
+ * canonical file exists yet) and on read errors (snapshotting is
+ * best-effort observability — do not block the chain).
+ */
+function snapshotExistingTasksLeaf(deps: Pick<ChainSharedDeps, 'logger'>): Element<PlanCtx> {
+  return new Leaf<PlanCtx, { readonly sprintId: SprintId }, void>('snapshot-existing-tasks', {
+    useCase: {
+      async execute(input) {
+        const storage = (await import('@src/integration/persistence/storage-paths.ts')).resolveStoragePaths();
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const canonical = storage.tasksFile(input.sprintId);
+        const planning = storage.planningDir(input.sprintId);
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const snapshot = path.join(planning, `tasks-snapshot-${stamp}.json`);
+        try {
+          const body = await fs.readFile(canonical, 'utf-8');
+          await fs.mkdir(planning, { recursive: true });
+          await fs.writeFile(snapshot, body, { encoding: 'utf-8', mode: 0o600 });
+          deps.logger.info('plan: snapshotted existing tasks before replan', { snapshot });
+        } catch {
+          // No canonical file (first plan) or read error — best-effort, skip.
+        }
+        return Result.ok(undefined);
+      },
+    },
+    input: (ctx) => ({ sprintId: ctx.sprintId }),
+    output: (ctx) => ctx,
+  });
 }
 
 function assertAllTicketsApprovedLeaf(): Element<PlanCtx> {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { substitute } from './placeholder-substitution.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
+import { assertFullySubstituted, substitute } from './placeholder-substitution.ts';
 
 describe('substitute', () => {
   it('replaces a single placeholder', () => {
@@ -52,5 +53,42 @@ describe('substitute', () => {
 
   it('handles values with multiline content', () => {
     expect(substitute('=== {{BODY}} ===', { BODY: 'line1\nline2' })).toBe('=== line1\nline2 ===');
+  });
+});
+
+describe('assertFullySubstituted', () => {
+  it('returns ok when no placeholders remain', () => {
+    const r = assertFullySubstituted('Hello, world!', 'test');
+    expect(r.ok).toBe(true);
+  });
+
+  it('returns ok on the empty string', () => {
+    const r = assertFullySubstituted('', 'test');
+    expect(r.ok).toBe(true);
+  });
+
+  it('returns ok when only lowercase tokens are present (those are not placeholders)', () => {
+    const r = assertFullySubstituted('contains {{lowercase}} and {{has-dash}}', 'test');
+    expect(r.ok).toBe(true);
+  });
+
+  it('returns an error listing every unresolved placeholder', () => {
+    const r = assertFullySubstituted('Hi {{NAME}} from {{PLACE}}', 'buildSomething');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBeInstanceOf(StorageError);
+    expect(r.error.subCode).toBe('parse');
+    expect(r.error.message).toContain('buildSomething');
+    expect(r.error.message).toContain('{{NAME}}');
+    expect(r.error.message).toContain('{{PLACE}}');
+  });
+
+  it('deduplicates repeated placeholder names in the error message', () => {
+    const r = assertFullySubstituted('{{X}} {{X}} {{X}}', 'test');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    // Count occurrences of `{{X}}` in the message — should appear once.
+    const count = (r.error.message.match(/\{\{X\}\}/g) ?? []).length;
+    expect(count).toBe(1);
   });
 });

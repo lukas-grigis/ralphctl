@@ -47,6 +47,22 @@ export interface SessionOptions {
    * machinery as Ctrl+C).
    */
   readonly abortSignal?: AbortSignal;
+  /**
+   * When set, the adapter writes a `session.md` audit record at this
+   * absolute path bracketing the spawn:
+   *
+   *  - **Before spawn:** YAML frontmatter (`provider`, `model: pending`,
+   *    `cwd`, `flags`, `started`) followed by a `## Prompt` section
+   *    containing the full prompt body.
+   *  - **After spawn:** the frontmatter is rewritten with `model`,
+   *    `sessionId`, `finished`, and `exitCode` (when available).
+   *
+   * Best-effort: write failures log a warn through the adapter's
+   * `LoggerPort` but never fail the spawn itself. Chain leaves stamp
+   * the path on the chain context (per-unit folder layout) and pass it
+   * through here.
+   */
+  readonly sessionMdPath?: AbsolutePath;
 }
 
 /** Result from a headless AI session. */

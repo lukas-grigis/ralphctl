@@ -1,6 +1,6 @@
 import { Result } from 'typescript-result';
 
-import type { ChainTraceEntry, ElementResult, KernelError, OnTraceCallback } from './element.ts';
+import type { ChainTraceEntry, ElementResult, KernelError, OnCtxUpdateCallback, OnTraceCallback } from './element.ts';
 import { Element } from './element.ts';
 
 export type RetryBackoff = 'fixed' | 'exponential';
@@ -50,7 +50,8 @@ export class Retry<TCtx> extends Element<TCtx> {
   protected override async run(
     ctx: TCtx,
     signal?: AbortSignal,
-    onTrace?: OnTraceCallback
+    onTrace?: OnTraceCallback,
+    onCtxUpdate?: OnCtxUpdateCallback<TCtx>
   ): Promise<ElementResult<TCtx>> {
     const trace: ChainTraceEntry[] = [];
     let lastError: KernelError | null = null;
@@ -77,7 +78,7 @@ export class Retry<TCtx> extends Element<TCtx> {
           }
         : undefined;
 
-      const result = await this.child.execute(ctx, signal, attemptOnTrace);
+      const result = await this.child.execute(ctx, signal, attemptOnTrace, onCtxUpdate);
       const childTrace = result.ok ? result.value.trace : result.error.trace;
       // Re-label the child's own trace entries with the attempt suffix so
       // the trace clearly shows which attempt produced which entry.

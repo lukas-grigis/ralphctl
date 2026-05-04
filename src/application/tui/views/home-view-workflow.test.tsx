@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
-import { render } from 'ink-testing-library';
+import { cleanup, render } from 'ink-testing-library';
 import { HomeView } from './home-view.tsx';
 import { RouterProvider } from './router-context.ts';
 import { ViewHintsProvider } from './view-hints-context.tsx';
@@ -22,12 +22,31 @@ import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 import { FakePromptPort } from '@src/application/_test-fakes/fake-prompt-port.ts';
 import type { SessionManagerPort, SessionId } from '@src/application/runtime/session-manager-port.ts';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Wait for the home view to render its initial pipeline-map. We poll the
+ * frame for the quick-action cursor `▸` (always present once the layout
+ * paints) instead of a fixed `setTimeout(...)` — fixed waits race under
+ * heavy parallel CI load.
+ */
+async function awaitInitialRender(lastFrame: () => string | undefined): Promise<void> {
+  await vi.waitFor(() => {
+    const f = lastFrame() ?? '';
+    expect(f).toContain('▸');
+  });
+  // Drain the microtask/macrotask queues so Ink's useInput subscription is
+  // fully active before the caller sends a keystroke. Without this drain, the
+  // Enter keypress lands before PipelineMap's handler is registered and is
+  // silently dropped (same technique as pipeline-map.test.tsx's flush()).
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+}
 
 function makeRouter() {
   return {
@@ -196,6 +215,10 @@ function makeSharedDepsStub(opts: {
 
 describe('HomeView — workflow launchers', () => {
   afterEach(() => {
+    // Tear down the Ink render tree first — multiple renders accumulating
+    // across cases caused stdin races where a previous render's listener
+    // swallowed the keystroke under test.
+    cleanup();
     resetSharedDeps();
     vi.restoreAllMocks();
   });
@@ -210,7 +233,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -218,12 +241,12 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    // Wait for data load — quick-action row (row 0) is pre-selected
-    await new Promise((r) => setTimeout(r, 80));
+    await awaitInitialRender(lastFrame);
     stdin.write('\r'); // Enter on "Refine Requirements" quick action
-    await new Promise((r) => setTimeout(r, 80));
+    await vi.waitFor(() => {
+      expect(sessionStartMock).toHaveBeenCalledTimes(1);
+    });
 
-    expect(sessionStartMock).toHaveBeenCalledTimes(1);
     const call = sessionStartMock.mock.calls[0] as [{ label: string; initialCtx: { sprintId: string } }];
     expect(call[0].label).toContain('refine');
     expect(call[0].initialCtx.sprintId).toBe(sprint.id);
@@ -241,7 +264,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -249,11 +272,11 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    await new Promise((r) => setTimeout(r, 80));
+    await awaitInitialRender(lastFrame);
     stdin.write('\r');
-    await new Promise((r) => setTimeout(r, 80));
-
-    expect(sessionStartMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(sessionStartMock).toHaveBeenCalledTimes(1);
+    });
     const call = sessionStartMock.mock.calls[0] as [{ label: string }];
     expect(call[0].label).toContain('plan');
     expect(router.push).toHaveBeenCalledWith({ id: 'execute' });
@@ -270,7 +293,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -278,12 +301,21 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    await new Promise((r) => setTimeout(r, 80));
+    // Wait for the no-sprint pipeline-map to finish loading (the "Create
+    // Sprint" quick-action label is what makes Enter meaningful). Without
+    // this, under heavy parallel CI load the stdin.write fires into a
+    // half-rendered tree and the test races.
+    await vi.waitFor(() => {
+      expect(lastFrame() ?? '').toContain('Create Sprint');
+    });
+    // Drain event queues so Ink's useInput is fully registered before keystroke.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
     stdin.write('\r'); // Enter on "Create Sprint" quick action
-    await new Promise((r) => setTimeout(r, 30));
-
-    // Quick action for no-sprint context is sprint.create → router push
-    expect(router.push).toHaveBeenCalledWith({ id: 'sprint-create' });
+    await vi.waitFor(() => {
+      // Quick action for no-sprint context is sprint.create → router push
+      expect(router.push).toHaveBeenCalledWith({ id: 'sprint-create' });
+    });
     expect(sessionStartMock).not.toHaveBeenCalled();
   });
 
@@ -299,7 +331,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -307,7 +339,7 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    await new Promise((r) => setTimeout(r, 80));
+    await awaitInitialRender(lastFrame);
     // Navigate to Execute phase's quick action — this requires the pipeline
     // snapshot to have "start" as the next step. With a draft sprint + tasks
     // but no approved tickets, the plan phase is "active" → its action is
@@ -319,13 +351,13 @@ describe('HomeView — workflow launchers', () => {
     stdin.write('\x1B[B'); // down to row 2 (Plan)
     stdin.write('\x1B[B'); // down to row 3 (Execute)
     stdin.write('\r'); // Enter → drill-in to execute view (if status is active/done)
-    await new Promise((r) => setTimeout(r, 80));
-
-    // With draft status + tasks the execute drill-in returns the execute view
-    // (status is active since tasks > 0 and sprint is draft with tasks).
-    // The phase status would be 'active' → drill-in returns { id: 'execute' }.
-    // But the router push would only happen if sprintId is set.
-    expect(router.push).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      // With draft status + tasks the execute drill-in returns the execute view
+      // (status is active since tasks > 0 and sprint is draft with tasks).
+      // The phase status would be 'active' → drill-in returns { id: 'execute' }.
+      // But the router push would only happen if sprintId is set.
+      expect(router.push).toHaveBeenCalled();
+    });
   });
 
   it('defers router.push("execute") until launchWorkflow resolves with a sessionId', async () => {
@@ -343,7 +375,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -351,14 +383,14 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    await new Promise((r) => setTimeout(r, 80));
+    await awaitInitialRender(lastFrame);
     stdin.write('\r'); // Enter on the Refine quick action
-    await new Promise((r) => setTimeout(r, 80));
-
-    // Both calls must have happened, and order must be:
-    // sessionManager.start (inside launchWorkflow) → router.push('execute').
-    expect(sessionStartMock).toHaveBeenCalledTimes(1);
-    expect(router.push).toHaveBeenCalledWith({ id: 'execute' });
+    await vi.waitFor(() => {
+      // Both calls must have happened, and order must be:
+      // sessionManager.start (inside launchWorkflow) → router.push('execute').
+      expect(sessionStartMock).toHaveBeenCalledTimes(1);
+      expect(router.push).toHaveBeenCalledWith({ id: 'execute' });
+    });
 
     const startOrder = sessionStartMock.mock.invocationCallOrder[0] ?? 0;
     const executePushIdx = router.push.mock.calls.findIndex(
@@ -382,7 +414,7 @@ describe('HomeView — workflow launchers', () => {
 
     const router = makeRouter();
     const sm = makeSessionManagerProp();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
@@ -390,13 +422,16 @@ describe('HomeView — workflow launchers', () => {
       </RouterProvider>
     );
 
-    await new Promise((r) => setTimeout(r, 80));
+    await awaitInitialRender(lastFrame);
     // Navigate down to the Refine phase row (1) and press Enter — this
     // dispatches a launchChain action with no sprint, which routes through
     // launchWorkflow → loadCurrentSprintIdOrPrompt → confirm:false → null.
     stdin.write('\x1B[B'); // down to row 1 (Refine)
     stdin.write('\r');
-    await new Promise((r) => setTimeout(r, 80));
+    // Give the launchWorkflow promise time to resolve to null before we
+    // assert it didn't fire side effects. vi.waitFor wouldn't help here
+    // because the assertions are negative — there's nothing to wait for.
+    await new Promise((r) => setTimeout(r, 100));
 
     expect(sessionStartMock).not.toHaveBeenCalled();
     // Critically: no `execute` push. (Other pushes — e.g. sprint-create on

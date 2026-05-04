@@ -16,7 +16,7 @@ import { Sprint } from '@src/domain/entities/sprint.ts';
 import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
-import { Result } from 'typescript-result';
+import { Result } from '@src/domain/result.ts';
 import { CONFIG_DEFAULTS } from '@src/application/config/config-defaults.ts';
 import type { SessionManagerPort } from '@src/application/runtime/session-manager-port.ts';
 
@@ -289,17 +289,30 @@ describe('HomeView — pipeline-map rendered', () => {
   it('pressing Enter on the quick action navigates to project-add when no projects', async () => {
     const router = makeRouter();
     const sm = makeSessionManager();
-    const { stdin } = render(
+    const { stdin, lastFrame } = render(
       <RouterProvider value={router}>
         <ViewHintsProvider>
           <HomeView sessionManager={sm} />
         </ViewHintsProvider>
       </RouterProvider>
     );
-    await new Promise((r) => setTimeout(r, 80));
+    // Wait for the pipeline map to finish rendering with the cursor on the
+    // quick-action row. `▸` only appears once the cursor has been initialized
+    // AND the PipelineMap's useInput handler is registered.
+    await vi.waitFor(() => {
+      const f = lastFrame() ?? '';
+      expect(f).toContain('Add Project');
+      expect(f).toContain('▸');
+    });
+    // Drain the microtask/macrotask queues so Ink's useInput subscription is
+    // fully active before we send the keystroke (same technique used in
+    // pipeline-map.test.tsx's flush() helper).
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
     stdin.write('\r'); // Enter on "Add Project" quick action
-    await new Promise((r) => setTimeout(r, 20));
-    expect(router.push).toHaveBeenCalledWith({ id: 'project-add' });
+    await vi.waitFor(() => {
+      expect(router.push).toHaveBeenCalledWith({ id: 'project-add' });
+    });
   });
 
   it('shows "Create Sprint" quick action when projects exist but no sprint', async () => {

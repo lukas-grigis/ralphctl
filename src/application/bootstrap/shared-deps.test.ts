@@ -52,7 +52,6 @@ describe('createSharedDeps', () => {
     expect(deps.taskRepo).toBeDefined();
     expect(deps.configStore).toBeDefined();
     expect(deps.liveConfig).toBeDefined();
-    expect(deps.skillsSyncer).toBeDefined();
     expect(deps.skillsLinker).toBeDefined();
     expect(deps.storage).toBe(storage);
     expect(deps.sessionId).toMatch(/^[a-z0-9]{8}$/);

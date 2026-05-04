@@ -2,10 +2,19 @@
  * `ExecuteSingleTaskUseCase` — drive ONE task end-to-end via the AI session
  * and return its outcome plus every parsed signal (in emission order).
  *
- * Single-responsibility: build the prompt, spawn (or resume) the AI,
- * parse signals, classify the outcome. Persistence (status updates, sidecar
- * writes) and orchestration (rate-limit pause/resume, retries, parallel
- * scheduling) are chain-layer concerns and live elsewhere.
+ * Single-responsibility: hand the AI a thin wrapper pointing at the
+ * pre-rendered prompt file, parse signals, classify the outcome.
+ * Persistence (status updates, sidecar writes) and orchestration
+ * (rate-limit pause/resume, retries, parallel scheduling) are
+ * chain-layer concerns and live elsewhere.
+ *
+ * The chain layer's `render-prompt-to-file` leaf renders the full
+ * execute prompt to `<sprintDir>/contexts/execute-<task-id>.md` and
+ * threads the absolute path onto the chain context. This use case
+ * receives that path, calls {@link renderFileHandoffWrapper} to build
+ * the short bootstrap message Claude reads first, and spawns the AI
+ * session. Claude then reads the file as its first action and follows
+ * the protocol embedded inside it.
  *
  * Outcome classification rules:
  *  - `task-blocked` signal present → `'blocked'`.
@@ -35,9 +44,9 @@ import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { AiSessionPort } from '@src/business/ports/ai-session-port.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
-import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
+import { renderFileHandoffWrapper } from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
 import type { RateLimitCoordinator } from '@src/kernel/algorithms/rate-limit-coordinator.ts';
 
 /** Possible outcomes of a single-task execution attempt. */
@@ -48,8 +57,21 @@ export interface ExecuteSingleTaskInput {
   readonly sprint: Sprint;
   /** Working directory for the AI session — typically `task.projectPath`. */
   readonly cwd: AbsolutePath;
+  /**
+   * Absolute path to the per-task markdown prompt file produced by the
+   * upstream `render-prompt-to-file` leaf. Required — the wrapper the
+   * AI receives points at this path.
+   */
+  readonly promptFilePath: string;
   /** Provider session id to resume on rate-limit recovery. */
   readonly resumeSessionId?: string;
+  /**
+   * Optional absolute path the AI session adapter writes a `session.md`
+   * audit record to. Set per execution round to a `session-N.md` under
+   * the per-task execution unit folder. Best-effort — write failures
+   * never fail the spawn.
+   */
+  readonly sessionMdPath?: AbsolutePath;
   /** Optional cooperative cancellation. */
   readonly abortSignal?: AbortSignal;
 }
@@ -82,7 +104,6 @@ function looksRateLimited(err: DomainError): boolean {
 export class ExecuteSingleTaskUseCase {
   constructor(
     private readonly ai: AiSessionPort,
-    private readonly prompts: PromptBuilderPort,
     private readonly parser: SignalParserPort,
     private readonly logger: LoggerPort,
     /**
@@ -95,11 +116,13 @@ export class ExecuteSingleTaskUseCase {
     private readonly signalBus?: SignalBusPort,
     /**
      * Optional. When provided and the spawn returns a rate-limit hint,
-     * the use case calls `coordinator.pause(reason, resumeAt)` so other
-     * in-flight per-task chains gate at the `wait-for-rate-limit` leaf
-     * before launching their own AI sessions. Caller (chain) is
-     * responsible for `coordinator.resume()` after the retry budget
-     * settles.
+     * the use case calls `coordinator.pause(reason, resumeAt)`. The
+     * coordinator's pause / resume events bridge to `SignalBusPort` so
+     * the dashboard's `RateLimitBanner` reflects state. With sequential
+     * task execution there are no siblings to throttle, so this is
+     * primarily an observability hook — the chain's
+     * `Retry(retryOn: 'rate-limited')` owns actual recovery via session
+     * resume.
      */
     private readonly rateLimitCoordinator?: RateLimitCoordinator
   ) {}
@@ -111,11 +134,10 @@ export class ExecuteSingleTaskUseCase {
       projectPath: input.cwd,
     });
 
-    const promptResult = await this.prompts.buildExecutePrompt({
-      task: input.task,
-      sprint: input.sprint,
-    });
-    if (!promptResult.ok) return Result.error(promptResult.error);
+    // The full prompt is on disk at `input.promptFilePath`. Hand the AI
+    // a thin wrapper pointing at it — the AI reads the file as its
+    // first action.
+    const wrapper = renderFileHandoffWrapper(input.promptFilePath);
 
     log.info(`executing task ${String(input.task.id)}${formatNameSuffix(input.task.name)}`);
 
@@ -123,20 +145,22 @@ export class ExecuteSingleTaskUseCase {
       cwd: input.cwd,
       ...(input.resumeSessionId !== undefined ? { resumeSessionId: input.resumeSessionId } : {}),
       ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+      ...(input.sessionMdPath !== undefined ? { sessionMdPath: input.sessionMdPath } : {}),
     };
 
     const sessionResult =
       input.resumeSessionId !== undefined
-        ? await this.ai.resumeSession(input.resumeSessionId, promptResult.value, sessionOptions)
-        : await this.ai.spawnHeadless(promptResult.value, sessionOptions);
+        ? await this.ai.resumeSession(input.resumeSessionId, wrapper, sessionOptions)
+        : await this.ai.spawnHeadless(wrapper, sessionOptions);
 
     if (!sessionResult.ok) {
       if (looksRateLimited(sessionResult.error)) {
         log.warn('rate-limited spawn', { message: sessionResult.error.message });
-        // Pause the global coordinator so other in-flight per-task chains
-        // gate at the `wait-for-rate-limit` leaf before launching their
-        // own AI sessions. The chain's Retry on `code: 'rate-limited'`
-        // owns the resume side once the kernel-level retry settles.
+        // Pause the global coordinator so its events bridge onto the signal
+        // bus and the dashboard's RateLimitBanner reflects the pause. With
+        // sequential task execution this is primarily an observability hook
+        // — the chain's Retry on `code: 'rate-limited'` owns actual recovery
+        // via session resume on the same task.
         this.rateLimitCoordinator?.pause(sessionResult.error.message);
         return Result.ok({
           outcome: 'rate-limited',
@@ -148,7 +172,23 @@ export class ExecuteSingleTaskUseCase {
       return Result.error(sessionResult.error);
     }
 
-    const signals = this.parser.parse(sessionResult.value.output, { now: IsoTimestamp.now() });
+    const { signals, diagnostics } = this.parser.parseWithDiagnostics(sessionResult.value.output, {
+      now: IsoTimestamp.now(),
+    });
+
+    // Surface silently-dropped malformed AI output. Each diagnostic is logged
+    // at warn so post-hoc debugging via the JSONL trace is `tail -f` rather
+    // than diffing AI output against signals. The bus event vocabulary is a
+    // closed discriminated union (signal / rate-limit-* / task-*) and adding
+    // a `signal-parse-diagnostic` variant would ripple through every
+    // consumer's exhaustive switch — out of scope. Logs only.
+    for (const d of diagnostics) {
+      log.warn('signal parse diagnostic', {
+        kind: d.kind,
+        sample: d.sample,
+        taskId: input.task.id,
+      });
+    }
 
     // Live observability: forward every parsed signal to the bus so the
     // execute view's "Recent events" panel renders `<progress>`, `<note>`,

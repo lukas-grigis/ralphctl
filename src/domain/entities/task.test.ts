@@ -267,6 +267,48 @@ describe('Task.unblock', () => {
   });
 });
 
+describe('Task.resetToTodo', () => {
+  it('resets an in_progress task back to todo', () => {
+    const ipR = freshTask().markInProgress();
+    if (!ipR.ok) throw new Error('precondition failed');
+    const r = ipR.value.resetToTodo();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('todo');
+  });
+
+  it('is idempotent on todo (no-op, returns same instance)', () => {
+    const t = freshTask();
+    const r = t.resetToTodo();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('todo');
+  });
+
+  it('refuses to reset a done task', () => {
+    const ipR = freshTask().markInProgress();
+    if (!ipR.ok) throw new Error('precondition failed');
+    const doneR = ipR.value.markDone();
+    if (!doneR.ok) throw new Error('precondition failed');
+    const r = doneR.value.resetToTodo();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe('invalid-state');
+      expect(r.error.attemptedAction).toBe('reset-to-todo');
+    }
+  });
+
+  it('refuses to reset a blocked task (use unblock for that)', () => {
+    const blockedR = freshTask().markBlocked('temp');
+    if (!blockedR.ok) throw new Error('precondition failed');
+    const r = blockedR.value.resetToTodo();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.attemptedAction).toBe('reset-to-todo');
+    }
+  });
+});
+
 describe('Task.recordVerification', () => {
   it('sets verified + output regardless of status', () => {
     const todo = freshTask();

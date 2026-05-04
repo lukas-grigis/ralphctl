@@ -72,4 +72,91 @@ describe('task-list-parser', () => {
       expect(result.error.code).toBe('parse-error');
     });
   });
+
+  describe('placeholder ids and blockedBy resolution', () => {
+    it('resolves numeric placeholder ids ("1" / "2") to real task ids', () => {
+      const result = buildTasksFromEntries([
+        entry({ id: '1', name: 'first' }),
+        entry({ id: '2', name: 'second', blockedBy: ['1'] }),
+      ]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value).toHaveLength(2);
+      expect(result.value[1]?.blockedBy).toHaveLength(1);
+      expect(result.value[1]?.blockedBy[0]).toBe(result.value[0]?.id);
+    });
+
+    it('resolves kebab-case placeholder ids', () => {
+      const result = buildTasksFromEntries([
+        entry({ id: 'auth-setup', name: 'set up auth' }),
+        entry({ id: 'wire-routes', name: 'wire routes', blockedBy: ['auth-setup'] }),
+      ]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value[1]?.blockedBy[0]).toBe(result.value[0]?.id);
+    });
+
+    it('resolves 8-hex-by-coincidence placeholders via the placeholder map (not TaskId.parse)', () => {
+      // Even though "a1b2c3d4" passes the TaskId regex, we still treat it
+      // as an opaque placeholder and remap it to the freshly minted id.
+      const result = buildTasksFromEntries([
+        entry({ id: 'a1b2c3d4', name: 'first' }),
+        entry({ id: 'deadbeef', name: 'second', blockedBy: ['a1b2c3d4'] }),
+      ]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value[1]?.blockedBy[0]).toBe(result.value[0]?.id);
+      // The real ids are freshly generated — they are not the placeholders.
+      expect(result.value[0]?.id).not.toBe('a1b2c3d4');
+      expect(result.value[1]?.id).not.toBe('deadbeef');
+    });
+
+    it('rejects blockedBy references to unknown placeholders', () => {
+      const result = buildTasksFromEntries([entry({ id: '1', name: 'first', blockedBy: ['nonexistent'] })]);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('parse-error');
+      expect(result.error.message).toContain('unknown placeholder');
+      expect(result.error.message).toContain('nonexistent');
+    });
+
+    it('rejects duplicate placeholder ids', () => {
+      const result = buildTasksFromEntries([entry({ id: '1', name: 'first' }), entry({ id: '1', name: 'second' })]);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('parse-error');
+      expect(result.error.message).toContain('duplicate placeholder');
+      expect(result.error.message).toContain("'1'");
+    });
+
+    it('rejects self-references in blockedBy', () => {
+      const result = buildTasksFromEntries([entry({ id: 'x', name: 'self', blockedBy: ['x'] })]);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('parse-error');
+      expect(result.error.message).toContain('references itself');
+    });
+
+    it('parses entries with no `id` field — they just cannot be referenced', () => {
+      const result = buildTasksFromEntries([entry({ name: 'no-id-task' })]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value).toHaveLength(1);
+      // A real TaskId was minted for the entry even without a placeholder.
+      expect(result.value[0]?.id).toMatch(/^[0-9a-f]{8}$/);
+    });
+
+    it('mints a fresh TaskId for every entry (placeholders never leak into the entity)', () => {
+      const result = buildTasksFromEntries([
+        entry({ id: '1', name: 'first' }),
+        entry({ id: 'auth-setup', name: 'second' }),
+      ]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value[0]?.id).not.toBe('1');
+      expect(result.value[0]?.id).toMatch(/^[0-9a-f]{8}$/);
+      expect(result.value[1]?.id).not.toBe('auth-setup');
+      expect(result.value[1]?.id).toMatch(/^[0-9a-f]{8}$/);
+    });
+  });
 });

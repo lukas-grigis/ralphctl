@@ -8,19 +8,19 @@ import { type LinkSkillsCtx, type SessionSkillsLinkerLike } from './link-skills.
 import { unlinkSkillsLeaf } from './unlink-skills.ts';
 
 class RecordingLinker implements SessionSkillsLinkerLike {
-  readonly unlinkCalls: AbsolutePath[] = [];
+  readonly uninstallCalls: AbsolutePath[] = [];
 
-  link(): Promise<Result<void, StorageError>> {
+  install(): Promise<Result<void, StorageError>> {
     return Promise.resolve(Result.ok());
   }
-  unlink(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
-    this.unlinkCalls.push(sessionDir);
+  uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>> {
+    this.uninstallCalls.push(sessionDir);
     return Promise.resolve(Result.ok());
   }
 }
 
 describe('unlinkSkillsLeaf', () => {
-  it('forwards the cwd to the linker.unlink call', async () => {
+  it('forwards the cwd to the linker.uninstall call', async () => {
     const linker = new RecordingLinker();
     const leaf = unlinkSkillsLeaf<LinkSkillsCtx>({ skillsLinker: linker });
 
@@ -28,6 +28,6 @@ describe('unlinkSkillsLeaf', () => {
     const result = await leaf.execute({ cwd });
 
     expect(result.ok).toBe(true);
-    expect(linker.unlinkCalls).toStrictEqual([cwd]);
+    expect(linker.uninstallCalls).toStrictEqual([cwd]);
   });
 });

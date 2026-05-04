@@ -10,7 +10,6 @@ import { ProjectName } from '@src/domain/values/project-name.ts';
 import { Slug } from '@src/domain/values/slug.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
 import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
-import { FakePromptBuilderPort } from '@src/business/_test-fakes/fake-prompt-builder-port.ts';
 import { IdeateAndPlanUseCase } from './ideate-and-plan.ts';
 
 const T0 = '2026-04-29T14:15:22.000Z' as IsoTimestamp;
@@ -107,13 +106,14 @@ describe('IdeateAndPlanUseCase', () => {
         },
       ],
     });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: newDraftSprint(),
       ideaText: 'idea text',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(true);
@@ -131,13 +131,14 @@ describe('IdeateAndPlanUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: buildOutput({}) } }],
     });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: newDraftSprint(),
       ideaText: longIdea,
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(true);
@@ -153,13 +154,14 @@ describe('IdeateAndPlanUseCase', () => {
     if (!active.ok) throw new Error('precondition failed');
 
     const ai = new FakeAiSessionPort();
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: active.value,
       ideaText: 'x',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(false);
@@ -172,7 +174,7 @@ describe('IdeateAndPlanUseCase', () => {
     expect(ai.captured).toHaveLength(0);
   });
 
-  it('passes the idea text through to the prompt builder', async () => {
+  it('hands the AI a wrapper that points at the prompt file', async () => {
     const ai = new FakeAiSessionPort({
       outcomes: [
         {
@@ -181,31 +183,32 @@ describe('IdeateAndPlanUseCase', () => {
         },
       ],
     });
-    const prompts = new FakePromptBuilderPort();
-    const uc = new IdeateAndPlanUseCase(ai, prompts, new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     await uc.execute({
       sprint: newDraftSprint(),
       ideaText: 'fixed-idea',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
-    expect(prompts.ideateCalls).toHaveLength(1);
-    expect(prompts.ideateCalls[0]?.ideaText).toBe('fixed-idea');
+    expect(ai.captured).toHaveLength(1);
+    expect(ai.captured[0]?.prompt).toContain('/tmp/sprints/a/contexts/ideate.md');
   });
 
   it('returns ParseError when neither <tasks> nor a bare array is present', async () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: '<ticket><title>x</title></ticket>' } }],
     });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: newDraftSprint(),
       ideaText: 'x',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(false);
@@ -218,13 +221,14 @@ describe('IdeateAndPlanUseCase', () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: '<tasks>not json</tasks>' } }],
     });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: newDraftSprint(),
       ideaText: 'x',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(false);
@@ -236,18 +240,130 @@ describe('IdeateAndPlanUseCase', () => {
   it('propagates an AI session failure', async () => {
     const failure = new StorageError({ subCode: 'io', message: 'spawn failed' });
     const ai = new FakeAiSessionPort({ outcomes: [{ kind: 'error', error: failure }] });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
 
     const result = await uc.execute({
       sprint: newDraftSprint(),
       ideaText: 'x',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('storage-error');
+    }
+  });
+
+  it('rejects a task whose projectPath is not one of the project repositories', async () => {
+    // The AI is given the project's repositories in the prompt; it must not
+    // emit a path outside that set. Surface the failure at parse time so
+    // the user sees the allowed list, not a downstream ENOENT.
+    const ai = new FakeAiSessionPort({
+      outcomes: [
+        {
+          kind: 'ok',
+          result: {
+            output: buildOutput({
+              ticketTitle: 't',
+              requirements: 'r',
+              tasks: [{ ...TASK_ENTRY, projectPath: '/repos/elsewhere' }],
+            }),
+          },
+        },
+      ],
+    });
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
+
+    const result = await uc.execute({
+      sprint: newDraftSprint(),
+      ideaText: 'x',
+      project: newProject(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain("not one of the project's repositories");
+        expect(result.error.message).toContain('/repos/elsewhere');
+        expect(result.error.message).toContain(PROJECT_PATH);
+      }
+    }
+  });
+
+  it('rejects a task with an explicit ticketId that does not match the ideated ticket', async () => {
+    // The new ticket created by ideate is the only valid ticketId — any
+    // explicit AI-emitted ticketId that differs is a typo / hallucination.
+    const ai = new FakeAiSessionPort({
+      outcomes: [
+        {
+          kind: 'ok',
+          result: {
+            output: buildOutput({
+              ticketTitle: 't',
+              requirements: 'r',
+              tasks: [{ ...TASK_ENTRY, ticketId: 'deadbeef' }],
+            }),
+          },
+        },
+      ],
+    });
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
+
+    const result = await uc.execute({
+      sprint: newDraftSprint(),
+      ideaText: 'x',
+      project: newProject(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain('does not match the ideated ticket');
+        expect(result.error.message).toContain('deadbeef');
+      }
+    }
+  });
+
+  it('rejects an empty task list with ParseError', async () => {
+    // `[]` is valid JSON but useless — fail loudly so the user knows the
+    // AI gave up rather than silently moving to a sprint with no tasks.
+    const ai = new FakeAiSessionPort({
+      outcomes: [
+        {
+          kind: 'ok',
+          result: {
+            output: buildOutput({ ticketTitle: 't', requirements: 'r', tasks: [] }),
+          },
+        },
+      ],
+    });
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
+
+    const result = await uc.execute({
+      sprint: newDraftSprint(),
+      ideaText: 'x',
+      project: newProject(),
+      cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('parse-error');
+      if (result.error.code === 'parse-error') {
+        expect(result.error.subCode).toBe('schema-mismatch');
+        expect(result.error.message).toContain('empty task list');
+      }
     }
   });
 
@@ -260,7 +376,7 @@ describe('IdeateAndPlanUseCase', () => {
         },
       ],
     });
-    const uc = new IdeateAndPlanUseCase(ai, new FakePromptBuilderPort(), new FakeLoggerPort());
+    const uc = new IdeateAndPlanUseCase(ai, new FakeLoggerPort());
     const ac = new AbortController();
 
     await uc.execute({
@@ -268,6 +384,7 @@ describe('IdeateAndPlanUseCase', () => {
       ideaText: 'x',
       project: newProject(),
       cwd: cwd(),
+      promptFilePath: '/tmp/sprints/a/contexts/ideate.md',
       abortSignal: ac.signal,
     });
 

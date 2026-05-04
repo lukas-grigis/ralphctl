@@ -1,9 +1,10 @@
 /**
  * `gitIdentityCheck` — confirms `user.name` and `user.email` are set.
  *
- * Missing identity is a `warn` (not `fail`): it only matters when the
- * harness creates auto-commits via `recover-dirty-tree`. CI runners
- * routinely have it unset, and we don't want to red-flag those.
+ * Missing identity is a `warn` (not `fail`): the harness itself never
+ * commits, but agents the harness spawns will need an identity to land
+ * their own commits. CI runners routinely have it unset, so we don't
+ * red-flag those — the warning is enough.
  */
 import { spawnSync } from 'node:child_process';
 
