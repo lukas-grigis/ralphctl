@@ -106,7 +106,12 @@ describe('FileSystemSignalHandler', () => {
     expect(lines[1]).toContain('second');
   });
 
-  it('writes evaluation full critique to execution/<unit>/evaluation.md and a summary to progress.md', async () => {
+  it('appends an evaluation summary to progress.md without writing the full critique sidecar', async () => {
+    // The full critique is persisted by `EvaluateAndFixLoopUseCase`
+    // under `rounds/<N>/evaluator/evaluation.md` — this handler only
+    // emits a one-line summary into the sprint timeline. Asserting the
+    // sidecar is intentionally absent prevents a regression that would
+    // re-introduce the dual-write path.
     const signal: HarnessSignal = {
       type: 'evaluation',
       status: 'failed',
@@ -122,45 +127,15 @@ describe('FileSystemSignalHandler', () => {
     });
     expect(r.ok).toBe(true);
 
-    const sidecar = await readFile(
-      join(paths.sprintDir(SPRINT_ID), 'execution', `${TASK_ID}-sample-task`, 'evaluation.md'),
-      'utf-8'
-    );
-    expect(sidecar).toContain('# Evaluation — failed');
-    expect(sidecar).toContain('**correctness** (score 2/5): FAIL');
-    expect(sidecar).toContain('Overall score: 2/5');
-    expect(sidecar).toContain('The implementation does not handle null input.');
+    // No sidecar — the loop owns critique persistence now.
+    await expect(
+      readFile(join(paths.sprintDir(SPRINT_ID), 'execution', `${TASK_ID}-sample-task`, 'evaluation.md'), 'utf-8')
+    ).rejects.toMatchObject({ code: 'ENOENT' });
 
     const progress = await readFile(join(paths.sprintDir(SPRINT_ID), 'progress.md'), 'utf-8');
     expect(progress).toContain('**Evaluation:** failed');
     expect(progress).toContain('score 2/5');
-  });
-
-  it('overwrites the evaluation sidecar on subsequent calls (atomic per-task)', async () => {
-    const first: HarnessSignal = {
-      type: 'evaluation',
-      status: 'failed',
-      dimensions: [{ dimension: 'correctness', score: 1, passed: false, finding: 'broken' }],
-      overallScore: 1,
-      critique: 'first run',
-      timestamp: NOW,
-    };
-    const second: HarnessSignal = {
-      type: 'evaluation',
-      status: 'passed',
-      dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: 'all good' }],
-      overallScore: 5,
-      timestamp: NOW,
-    };
-    await handler.handle(first, { sprintId: SPRINT_ID, taskId: TASK_ID, taskName: 'Sample Task' });
-    await handler.handle(second, { sprintId: SPRINT_ID, taskId: TASK_ID, taskName: 'Sample Task' });
-
-    const sidecar = await readFile(
-      join(paths.sprintDir(SPRINT_ID), 'execution', `${TASK_ID}-sample-task`, 'evaluation.md'),
-      'utf-8'
-    );
-    expect(sidecar).toContain('# Evaluation — passed');
-    expect(sidecar).not.toContain('first run');
+    expect(progress).toContain('1 dimension(s)');
   });
 
   it('returns an error when an evaluation signal arrives without taskId', async () => {

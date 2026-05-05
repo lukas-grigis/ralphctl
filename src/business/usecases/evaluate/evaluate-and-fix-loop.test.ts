@@ -651,6 +651,66 @@ describe('EvaluateAndFixLoopUseCase', () => {
     expect(logger.hasMessage('warn', 'refresh evaluate workspace')).toBe(true);
   });
 
+  it('writes the per-round verdict to rounds/<N>/evaluator/evaluation.md and updates latest-evaluation.md', async () => {
+    const { loop, writeContextFile } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
+    });
+
+    const writePaths = writeContextFile.writes.map((w) => String(w.path));
+    // Per-round prompt + verdict for both rounds.
+    expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/prompt.md');
+    expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/evaluation.md');
+    expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/2/evaluator/prompt.md');
+    expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/2/evaluator/evaluation.md');
+    // latest-evaluation.md is updated after every round.
+    const latestWrites = writeContextFile.writes.filter(
+      (w) => String(w.path) === '/tmp/sprints/a/workspaces/evaluate/latest-evaluation.md'
+    );
+    expect(latestWrites).toHaveLength(2);
+    // The most recent latest write is round 2's body.
+    expect(latestWrites[1]?.content).toBe('eval-1');
+  });
+
+  it('threads `round` into nextSessionMdPath so generator/evaluator audits land per-round', async () => {
+    const calls: { kind: string; round: number }[] = [];
+    const nextSessionMdPath = (kind: 'generator' | 'evaluator', round: number): Promise<undefined> => {
+      calls.push({ kind, round });
+      return Promise.resolve(undefined);
+    };
+
+    const { loop } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      nextSessionMdPath,
+    });
+
+    // Round 1 evaluator → generator fix (round 2 in the upcoming sense)
+    // → round 2 evaluator.
+    expect(calls).toStrictEqual([
+      { kind: 'evaluator', round: 1 },
+      { kind: 'generator', round: 2 },
+      { kind: 'evaluator', round: 2 },
+    ]);
+  });
+
   it('honors a config raise mid-loop (re-read picks up the new ceiling)', async () => {
     // Round 1: cap=1, evaluator fails. After the fail check, cap is
     // raised to 3, so a fix attempt + round 2 should run.
