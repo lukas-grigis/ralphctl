@@ -15,9 +15,10 @@
  *
  * Re-runs are allowed: every invocation creates a fresh
  * `<sprintDir>/execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/`
- * folder so prior verdicts are preserved as durable history. The latest
- * verdict still wins for `Task.evaluationFile` via a copy at
- * `<unit>/latest-evaluation.md`.
+ * folder so prior verdicts are preserved as durable history. Each
+ * standalone-round path is unique by ISO, so `Task.evaluationFile` is
+ * stamped to the verdict file inside the current run's folder — no
+ * pointer-file indirection needed.
  *
  * `render-prompt-to-file` writes the evaluator prompt to the standalone
  * round's `prompt.md`. The downstream `evaluate-task` leaf hands the AI
@@ -47,7 +48,7 @@ import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
 import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
 import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
-import { latestEvaluationPath, standaloneRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
+import { standaloneRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 
 export interface EvaluateCtx {
@@ -64,6 +65,14 @@ export interface EvaluateCtx {
    * consumed by `evaluate-task`.
    */
   readonly promptFilePath?: AbsolutePath;
+  /**
+   * Relative path (under the sprint dir) of the verdict file this run
+   * wrote on disk — `execution/<unit-slug>/rounds/standalone-<ISO>/
+   * evaluator/evaluation.md`. Stamped by `evaluate-task` and read by
+   * `persist-evaluation` so the recorded `Task.evaluationFile`
+   * reliably points at a file that exists.
+   */
+  readonly evaluationFile?: string;
 }
 
 export function createEvaluateFlow(
@@ -146,7 +155,7 @@ export function createEvaluateFlow(
     assertActiveLeaf<EvaluateCtx>('evaluate'),
     loadTaskLeaf(deps),
     renderPromptStep,
-    evaluateTaskLeaf(deps, useCase, standaloneEvaluatorDir),
+    evaluateTaskLeaf(deps, useCase, iso),
     persistEvaluationLeaf(deps),
   ]);
 }
@@ -167,7 +176,7 @@ function loadTaskLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<Evaluate
 function evaluateTaskLeaf(
   deps: Pick<ChainSharedDeps, 'writeContextFile' | 'logger'>,
   useCase: EvaluateTaskUseCase,
-  standaloneEvaluatorDir: (sprintId: SprintId, task: Task) => string
+  iso: string
 ): Element<EvaluateCtx> {
   return new Leaf<
     EvaluateCtx,
@@ -177,20 +186,25 @@ function evaluateTaskLeaf(
       readonly cwd: AbsolutePath;
       readonly promptFilePath?: AbsolutePath;
     },
-    { readonly outcome?: EvaluationOutcome; readonly fullCritique?: string }
+    {
+      readonly outcome?: EvaluationOutcome;
+      readonly fullCritique?: string;
+      readonly evaluationFile?: string;
+    }
   >('evaluate-task', {
     useCase: {
       async execute(input) {
         if (!input.promptFilePath) {
           throw new Error('evaluate-task: ctx.promptFilePath must be set by render-prompt-to-file');
         }
-        // Route every per-spawn artefact (session.md, evaluation.md,
-        // and a copy at the unit's `latest-evaluation.md`) under the
-        // standalone-round folder this chain run owns. The AI session
-        // adapter mkdir's the parent of `sessionMdPath`, and
+        // Route every per-spawn artefact (session.md, evaluation.md)
+        // under the standalone-round folder this chain run owns. The AI
+        // session adapter mkdir's the parent of `sessionMdPath`, and
         // `WriteContextFilePort.write` mkdir's its parent — no explicit
         // mkdir needed here.
-        const evaluatorDir = standaloneEvaluatorDir(input.sprint.id, input.task);
+        const slug = unitSlug(String(input.task.id), input.task.name);
+        const unitRoot = String(resolveStoragePaths().executionUnitDir(input.sprint.id, slug));
+        const evaluatorDir = join(standaloneRoundDir(unitRoot, iso), 'evaluator');
         const sessionMdPath = AbsolutePath.trustString(join(evaluatorDir, 'session.md'));
         const result = await useCase.execute({
           sprint: input.sprint,
@@ -201,11 +215,12 @@ function evaluateTaskLeaf(
         });
         if (!result.ok) return Result.error(result.error);
 
-        // Per-round verdict + latest-evaluation copy — both best-effort.
-        // "Evaluator never blocks": the Task entity carries the critique in
-        // memory already (returned in `result.value.fullCritique`), so a
-        // write failure here is observable warn-level noise but doesn't
-        // fail the chain.
+        // Per-round verdict — best-effort. "Evaluator never blocks":
+        // the Task entity carries the critique in memory already
+        // (returned in `result.value.fullCritique`), so a write failure
+        // here is observable warn-level noise but doesn't fail the
+        // chain. The relative path is plumbed through ctx so
+        // `persist-evaluation` records the same path that was written.
         const verdictPath = AbsolutePath.trustString(join(evaluatorDir, 'evaluation.md'));
         const verdictWritten = await deps.writeContextFile.write(verdictPath, result.value.fullCritique);
         if (!verdictWritten.ok) {
@@ -217,21 +232,12 @@ function evaluateTaskLeaf(
           });
         }
 
-        const storage = resolveStoragePaths();
-        const slug = unitSlug(String(input.task.id), input.task.name);
-        const unitRoot = String(storage.executionUnitDir(input.sprint.id, slug));
-        const latestPath = AbsolutePath.trustString(latestEvaluationPath(unitRoot));
-        const latestWritten = await deps.writeContextFile.write(latestPath, result.value.fullCritique);
-        if (!latestWritten.ok) {
-          deps.logger.warn('failed to persist standalone latest-evaluation copy', {
-            sprintId: String(input.sprint.id),
-            taskId: String(input.task.id),
-            path: String(latestPath),
-            error: latestWritten.error.message,
-          });
-        }
-
-        return Result.ok({ outcome: result.value.outcome, fullCritique: result.value.fullCritique });
+        const evaluationFile = `execution/${slug}/rounds/standalone-${iso}/evaluator/evaluation.md`;
+        return Result.ok({
+          outcome: result.value.outcome,
+          fullCritique: result.value.fullCritique,
+          evaluationFile,
+        });
       },
     },
     input: (ctx) => {
@@ -251,6 +257,7 @@ function evaluateTaskLeaf(
             ...ctx,
             evaluationOutcome: out.outcome,
             evaluationCritique: out.fullCritique ?? '',
+            ...(out.evaluationFile !== undefined ? { evaluationFile: out.evaluationFile } : {}),
           },
   });
 }
@@ -261,8 +268,10 @@ const MAX_PREVIEW_CHARS = 2000;
  * Persist the evaluator outcome on the Task aggregate. Records the
  * preview (≤2000 chars) plus the resolved verdict. The full critique is
  * persisted under `execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/
- * evaluation.md` (and copied to `latest-evaluation.md`) by the upstream
- * evaluate-task leaf — `Task.evaluationFile` points at the stable copy.
+ * evaluation.md` by the upstream evaluate-task leaf, which also stamps
+ * the relative path of that file onto `ctx.evaluationFile` so this leaf
+ * records the exact path that was written — no path duplication, no
+ * drift between writer and recorder.
  */
 function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element<EvaluateCtx> {
   return new Leaf<
@@ -272,6 +281,7 @@ function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element
       readonly task: Task;
       readonly outcome?: EvaluationOutcome;
       readonly critique: string;
+      readonly evaluationFile?: string;
     },
     void
   >('persist-evaluation', {
@@ -280,15 +290,13 @@ function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element
         if (input.outcome === undefined) {
           throw new Error('persist-evaluation: ctx.evaluationOutcome must be set');
         }
-        // Resolve the relative path the same way the upstream
-        // `evaluate-task` leaf resolves the on-disk write target — keyed
-        // on `unitSlug(taskId, taskName)` — so the recorded
-        // `Task.evaluationFile` reliably points at the file that exists.
-        const slug = unitSlug(String(input.task.id), input.task.name);
+        if (input.evaluationFile === undefined) {
+          throw new Error('persist-evaluation: ctx.evaluationFile must be set by evaluate-task');
+        }
         const recorded = input.task.recordEvaluation({
           status: input.outcome,
           output: input.critique.slice(0, MAX_PREVIEW_CHARS),
-          file: `execution/${slug}/latest-evaluation.md`,
+          file: input.evaluationFile,
         });
         return deps.taskRepo.update(input.sprintId, recorded);
       },
@@ -300,6 +308,7 @@ function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element
         task: ctx.task,
         ...(ctx.evaluationOutcome !== undefined ? { outcome: ctx.evaluationOutcome } : {}),
         critique: ctx.evaluationCritique ?? '',
+        ...(ctx.evaluationFile !== undefined ? { evaluationFile: ctx.evaluationFile } : {}),
       };
     },
     output: (ctx) => ctx,

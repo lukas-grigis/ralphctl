@@ -114,19 +114,19 @@ describe('e2e: execute golden-path artefacts', () => {
     });
   });
 
-  // ── 2. rounds/<N>/evaluator/evaluation.md + latest-evaluation.md ─────────
+  // ── 2. rounds/<N>/evaluator/evaluation.md ────────────────────────────────
 
   describe('evaluation artefact', () => {
-    it('writes rounds/1/evaluator/evaluation.md and latest-evaluation.md with the full critique', async () => {
+    it('writes rounds/1/evaluator/evaluation.md with the full critique and stamps that path on Task.evaluationFile', async () => {
       const sprint = makeArtefactSprint('eval');
       const task = makeTask({ name: 'eval-task', order: 1, projectPath: '/tmp/artefact-repo' });
 
-      // Compute the expected per-round + latest paths.
+      // Compute the expected per-round path. Each round path is unique,
+      // so the path itself is the canonical reference — no pointer file.
       const paths = resolveStoragePaths();
       const slug = unitSlug(String(task.id), task.name);
       const unitRoot = String(paths.executionUnitDir(sprint.id, slug));
       const round1VerdictPath = join(unitRoot, 'rounds', '1', 'evaluator', 'evaluation.md');
-      const latestPath = join(unitRoot, 'latest-evaluation.md');
       const progressPath = join(String(paths.sprintDir(sprint.id)), 'progress.md');
 
       // Use the real FileSystemSignalHandler so the per-task progress
@@ -134,8 +134,8 @@ describe('e2e: execute golden-path artefacts', () => {
       // builder adapter so the loop's `evaluateWorkspaceDir` resolves
       // to the actual `<sprintDir>/execution/<unit>/` path the test
       // asserts on. Use the real WriteContextFile adapter so the
-      // loop's per-round verdict + latest-evaluation.md writes hit
-      // disk (the default Fake just captures the calls).
+      // loop's per-round verdict writes hit disk (the default Fake
+      // just captures the calls).
       const signalHandler = new FileSystemSignalHandler(paths);
       const sessionFolderBuilder = new FileSessionFolderBuilderAdapter(paths);
       const writeContextFile = new FileWriteContextFileAdapter();
@@ -176,15 +176,12 @@ describe('e2e: execute golden-path artefacts', () => {
       if (!persisted.ok) throw new Error('taskRepo.findById failed');
       expect(persisted.value.status).toBe('done');
       expect(persisted.value.evaluationStatus).toBe('passed');
-      // `evaluationFile` points at the stable latest-evaluation.md pointer.
-      expect(persisted.value.evaluationFile).toContain('latest-evaluation.md');
+      // `evaluationFile` points at the FINAL round's verdict (round 1 here).
+      expect(persisted.value.evaluationFile).toBe(`execution/${slug}/rounds/1/evaluator/evaluation.md`);
 
-      // The loop wrote the full critique to the per-round file AND to the
-      // stable latest-evaluation.md pointer.
+      // The loop wrote the full critique to the per-round file.
       const round1Body = await readFile(round1VerdictPath, 'utf-8');
       expect(round1Body).toContain('eval round 1 raw critique body');
-      const latestBody = await readFile(latestPath, 'utf-8');
-      expect(latestBody).toBe(round1Body);
 
       // The signal handler still appends the one-line summary to
       // progress.md so the sprint timeline shows the verdict.

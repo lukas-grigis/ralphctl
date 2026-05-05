@@ -121,22 +121,4 @@ describe('buildExecutionUnit — prior-evaluations directory', () => {
     // The legacy `evaluations/` folder must NOT exist.
     await expect(stat(join(unitRoot, 'evaluations'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
-
-  it('latestEvaluationMdPath points at <unit>/latest-evaluation.md', async () => {
-    const sprint = makeSprint();
-    const task = makeTask({ name: 'current task', projectPath: '/tmp' });
-
-    const storage = resolveStoragePaths();
-    const result = await buildExecutionUnit(storage, {
-      sprint,
-      tasks: [task],
-      task,
-      aiProvider: 'claude',
-      priorEvaluations: new Map(),
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(String(result.value.latestEvaluationMdPath)).toBe(join(String(result.value.root), 'latest-evaluation.md'));
-  });
 });

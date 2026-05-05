@@ -62,7 +62,7 @@
  * the surrounding chain frame so `mark-done` still runs. (See the
  * `OnError(catchIf: () => true)` wrapper below.)
  */
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { Result } from '@src/domain/result.ts';
 import { evaluatorRoundDir, generatorRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
@@ -152,13 +152,6 @@ export interface PerTaskCtx {
    * real `task.projectPath`.
    */
   readonly executionSessionCwd?: AbsolutePath;
-  /**
-   * `<executionUnitRoot>/latest-evaluation.md` — stable pointer to the
-   * most recent evaluator critique. Stamped on `Task.evaluationFile` after
-   * each successful round; the per-round `rounds/<N>/evaluator/evaluation.md`
-   * artefacts remain on disk as the durable history.
-   */
-  readonly executionLatestEvaluationMdPath?: AbsolutePath;
   /**
    * Full sprint task list. Used by `build-execution-unit` to derive
    * `priorEvaluations` and to populate `tasks.md` / `tasks.json` inside
@@ -445,6 +438,10 @@ function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx>
   // first attempt's audit body. Naming scheme: attempt 1 keeps the
   // documented happy-path filename; attempts 2+ get an `-attempt-N`
   // suffix so every retry's audit pack survives on disk.
+  //
+  // Safe because `createPerTaskFlow` is invoked per-task and the leaf
+  // instance is never shared across runs — a future refactor that
+  // memoises leaves across tasks would re-introduce the bug.
   let attempt = 0;
 
   return new Leaf<
@@ -678,7 +675,6 @@ function evaluateLoopLeaf(
       readonly executionUnitRoot?: AbsolutePath;
       readonly executionAddDirs?: readonly AbsolutePath[];
       readonly executionSessionCwd?: AbsolutePath;
-      readonly executionLatestEvaluationMdPath?: AbsolutePath;
     },
     { readonly evaluation?: EvaluateAndFixLoopOutput; readonly task: Task }
   >('evaluate-task', {
@@ -687,15 +683,14 @@ function evaluateLoopLeaf(
         if (input.taskBlocked) {
           return Result.ok({ task: input.task });
         }
-        // Read the per-task bullet from the execution unit's done-criteria.md.
-        // Best-effort — returns '' when absent or unreadable.
-        const doneCriteriaBullet =
-          input.executionUnitRoot !== undefined
-            ? await readDoneCriteriaBullet(
-                join(String(input.executionUnitRoot), 'done-criteria.md'),
-                String(input.task.id)
-              )
-            : '';
+        // No execution unit → the build leaf was swallowed by OnError
+        // upstream. The loop's contract requires an evaluate workspace
+        // for archival writes, so skip the loop entirely rather than
+        // invoking it without a target. The task still proceeds to
+        // mark-done; `evaluated` stays false so consumers can tell.
+        if (input.executionUnitRoot === undefined) {
+          return Result.ok({ task: input.task });
+        }
         // Programmer-error guard — the upstream `render-prompt-to-file`
         // leaf must have set this. The fix-and-reeval loop re-spawns
         // the generator, which needs the same execute-prompt file path.
@@ -705,64 +700,57 @@ function evaluateLoopLeaf(
             message: 'evaluate-task: promptFilePath is missing — render-prompt-to-file must run first',
           });
         }
-        // The render-prompt-to-file leaf already wrote the execute prompt
-        // under `<sprintDir>/contexts/`; derive the directory from the
-        // stamped path so the chain doesn't re-resolve storage paths.
-        const contextsDir = AbsolutePath.trustString(dirname(String(input.promptFilePath)));
+        const unitRoot = input.executionUnitRoot;
 
-        // Build a `refreshWorkspace` closure when an evaluate workspace
-        // was mounted upstream. The closure recomputes `priorEvaluations`
-        // from the live task list each call so a sibling that finishes
-        // mid-sprint surfaces in the next round's contract pack. When
-        // the workspace wasn't mounted (e.g. `build-evaluate-workspace`
-        // failed and the OnError wrapper is about to swallow this leaf
-        // anyway, or the standalone evaluate chain), refresh is a no-op
-        // and the loop skips it. The workspace root is captured by
-        // value — refresh works against the root that was already laid
-        // down, which is the contract for `refreshEvaluateWorkspace`.
-        const unitMounted = input.executionUnitRoot !== undefined;
-        const refreshWorkspace = unitMounted
-          ? async (): Promise<Result<void, DomainError>> => {
-              await deps.aiSession.ensureReady();
-              const aiProvider = deps.aiSession.getProviderName();
-              const priorEvaluations = collectPriorEvaluations(input.tasks);
-              return deps.sessionFolderBuilder.refreshExecutionUnit({
-                sprint: input.sprint,
-                tasks: input.tasks,
-                task: input.task,
-                aiProvider,
-                priorEvaluations,
-              });
-            }
-          : undefined;
+        // Read the per-task bullet from the execution unit's done-criteria.md.
+        // Best-effort — returns '' when absent or unreadable.
+        const doneCriteriaBullet = await readDoneCriteriaBullet(
+          join(String(unitRoot), 'done-criteria.md'),
+          String(input.task.id)
+        );
+
+        // `refreshWorkspace` recomputes `priorEvaluations` from the live
+        // task list each call so a sibling that finishes mid-sprint
+        // surfaces in the next round's contract pack. The workspace
+        // root is captured by value — refresh works against the root
+        // that was already laid down.
+        const refreshWorkspace = async (): Promise<Result<void, DomainError>> => {
+          await deps.aiSession.ensureReady();
+          const aiProvider = deps.aiSession.getProviderName();
+          const priorEvaluations = collectPriorEvaluations(input.tasks);
+          return deps.sessionFolderBuilder.refreshExecutionUnit({
+            sprint: input.sprint,
+            tasks: input.tasks,
+            task: input.task,
+            aiProvider,
+            priorEvaluations,
+          });
+        };
 
         // Per-spawn `session.md` audit path provider for the multi-round
         // loop. Each round routes its own audit under
         // `rounds/<round>/{generator,evaluator}/session.md` so the user
-        // can audit every round and every kind independently. When no
-        // unit folder was materialised (build failed) the closure
-        // returns undefined and audit is skipped.
-        const unitRoot = input.executionUnitRoot;
-        const nextSessionMdPath = unitRoot
-          ? (kind: 'generator' | 'evaluator', round: number): Promise<AbsolutePath | undefined> => {
-              const dir = kind === 'generator' ? generatorRoundDir : evaluatorRoundDir;
-              return Promise.resolve(AbsolutePath.trustString(join(dir(String(unitRoot), round), 'session.md')));
-            }
-          : undefined;
+        // can audit every round and every kind independently.
+        const nextSessionMdPath = (
+          kind: 'generator' | 'evaluator',
+          round: number
+        ): Promise<AbsolutePath | undefined> => {
+          const dir = kind === 'generator' ? generatorRoundDir : evaluatorRoundDir;
+          return Promise.resolve(AbsolutePath.trustString(join(dir(String(unitRoot), round), 'session.md')));
+        };
 
         const result = await loop.execute({
           task: input.task,
           sprint: input.sprint,
           cwd: input.cwd,
           executePromptFilePath: String(input.promptFilePath),
-          contextsDir,
+          evaluateWorkspaceDir: String(unitRoot),
+          refreshWorkspace,
+          nextSessionMdPath,
           ...(input.checkScript !== undefined ? { checkScript: input.checkScript } : {}),
           ...(input.resumeSessionId !== undefined ? { resumeSessionId: input.resumeSessionId } : {}),
           ...(input.executionAddDirs !== undefined ? { addDirs: input.executionAddDirs } : {}),
           ...(input.executionSessionCwd !== undefined ? { evaluateSessionCwd: input.executionSessionCwd } : {}),
-          ...(input.executionUnitRoot !== undefined ? { evaluateWorkspaceDir: String(input.executionUnitRoot) } : {}),
-          ...(refreshWorkspace !== undefined ? { refreshWorkspace } : {}),
-          ...(nextSessionMdPath !== undefined ? { nextSessionMdPath } : {}),
           ...(doneCriteriaBullet.length > 0 ? { doneCriteriaBullet } : {}),
         });
         if (!result.ok) return Result.error(result.error);
@@ -771,17 +759,19 @@ function evaluateLoopLeaf(
         // evaluator was disabled (rounds === 0) — the task entity's
         // `evaluated` flag stays false so consumers can tell.
         if (result.value.rounds > 0 && result.value.finalSignal !== null) {
-          // Evaluation file lives at `execution/<unit-slug>/latest-evaluation.md`.
-          // Persist the absolute path stamped by the build leaf when present;
-          // fall back to a best-effort relative path keyed on the task id
-          // when no unit was mounted (e.g. standalone evaluate chain).
+          // The verdict file lives at the FINAL round's per-round path —
+          // each round path is unique, so the highest N is unambiguously
+          // the most recent verdict. Recorded as a relative path under
+          // the sprint dir (`execution/<slug>/rounds/<N>/evaluator/
+          // evaluation.md`) so the value is portable across moved data
+          // dirs and machines.
+          const finalRound = result.value.rounds;
+          const slug = unitSlug(String(input.task.id), input.task.name);
+          const file = `execution/${slug}/rounds/${String(finalRound)}/evaluator/evaluation.md`;
           const recorded = input.task.recordEvaluation({
             status: result.value.finalSignal.status,
             output: result.value.finalCritique.slice(0, MAX_PREVIEW_CHARS),
-            file:
-              input.executionLatestEvaluationMdPath !== undefined
-                ? String(input.executionLatestEvaluationMdPath)
-                : `execution/${String(input.task.id)}/latest-evaluation.md`,
+            file,
           });
           const saved = await deps.taskRepo.update(input.sprintId, recorded);
           if (!saved.ok) return Result.error(saved.error);
@@ -803,9 +793,6 @@ function evaluateLoopLeaf(
       ...(ctx.executionUnitRoot !== undefined ? { executionUnitRoot: ctx.executionUnitRoot } : {}),
       ...(ctx.executionAddDirs !== undefined ? { executionAddDirs: ctx.executionAddDirs } : {}),
       ...(ctx.executionSessionCwd !== undefined ? { executionSessionCwd: ctx.executionSessionCwd } : {}),
-      ...(ctx.executionLatestEvaluationMdPath !== undefined
-        ? { executionLatestEvaluationMdPath: ctx.executionLatestEvaluationMdPath }
-        : {}),
     }),
     // Push the recorded task back onto the context so the downstream
     // `mark-done` leaf carries the evaluation forward when it flips

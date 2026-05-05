@@ -82,15 +82,6 @@ export interface ExecutionUnitPaths {
    * `<root>/repo/`.
    */
   readonly sessionCwd: AbsolutePath;
-  /**
-   * `<root>/latest-evaluation.md` — stable pointer to the most recent
-   * evaluator critique. Updated by the evaluate-and-fix loop after every
-   * round (a copy of `rounds/<N>/evaluator/evaluation.md`). Stamped on
-   * `Task.evaluationFile` so consumers always have a single, canonical
-   * place to read the latest verdict; the `rounds/<N>/evaluator/…`
-   * artefacts remain the durable per-round history.
-   */
-  readonly latestEvaluationMdPath: AbsolutePath;
 }
 
 export interface SessionFolderBuilderPort {

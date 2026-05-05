@@ -38,15 +38,6 @@ export function evaluatorRoundDir(unitRoot: string, round: number): string {
 }
 
 /**
- * Stable pointer to the most recent verdict: `<unitRoot>/latest-evaluation.md`.
- * `Task.evaluationFile` references this path (relative to the sprint dir) so
- * the latest critique is always reachable without inspecting per-round folders.
- */
-export function latestEvaluationPath(unitRoot: string): string {
-  return join(unitRoot, 'latest-evaluation.md');
-}
-
-/**
  * Per-invocation folder for the standalone `sprint evaluate` command:
  * `<unitRoot>/rounds/standalone-<iso>/`. Each invocation lays down a
  * fresh, distinct artefact pack alongside its prior siblings.

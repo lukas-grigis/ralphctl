@@ -20,8 +20,9 @@
  *     - `rounds/<N>/generator/session.md` — generator (re-)spawn audit
  *     - `rounds/<N>/evaluator/{prompt.md, evaluation.md, session.md}` — per-round evaluator artefacts
  *     - `rounds/standalone-<ISO>/evaluator/…` — out-of-band `sprint evaluate` runs
- *     - `latest-evaluation.md` — copy of the most recent round's verdict; canonical
- *       path stamped on `Task.evaluationFile` (a stable pointer, not a round-specific file)
+ *     - `Task.evaluationFile` is stamped to point at the FINAL round's
+ *       `rounds/<N>/evaluator/evaluation.md` — each round path is unique,
+ *       so the highest N is unambiguously the most recent verdict.
  *
  *   Copilot only (mirrored at build time):
  *     - `repo/` — mirror of `task.projectPath`
@@ -39,7 +40,6 @@ import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { TaskId } from '@src/domain/values/task-id.ts';
-import { latestEvaluationPath } from '@src/kernel/algorithms/execution-round-paths.ts';
 import type { StoragePaths } from '@src/integration/persistence/storage-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 import {
@@ -55,8 +55,8 @@ import {
 /**
  * Integration-local helper for the per-task `prior-evaluations/` folder.
  * The round-aware helpers (`roundDir`, `generatorRoundDir`,
- * `evaluatorRoundDir`, `latestEvaluationPath`, `standaloneRoundDir`) live
- * in `@src/kernel/algorithms/execution-round-paths.ts` so the business
+ * `evaluatorRoundDir`, `standaloneRoundDir`) live in
+ * `@src/kernel/algorithms/execution-round-paths.ts` so the business
  * layer can use them without importing from integration.
  */
 export function priorEvaluationsDir(unitRoot: string): string {
@@ -387,7 +387,6 @@ export async function buildExecutionUnit(
     root,
     addDirs,
     sessionCwd,
-    latestEvaluationMdPath: AbsolutePath.trustString(latestEvaluationPath(root)),
   });
 }
 

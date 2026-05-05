@@ -191,7 +191,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -217,7 +217,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -240,7 +240,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -263,7 +263,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -290,7 +290,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -313,7 +313,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -335,7 +335,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -363,7 +363,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       resumeSessionId: 'initial-gen',
     });
 
@@ -388,7 +388,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -407,7 +407,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -427,7 +427,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       checkScript: 'pnpm test',
     });
 
@@ -450,7 +450,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -470,7 +470,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     const roundComplete = logger.entries.find((e) => e.message.startsWith('evaluator round complete'));
@@ -497,7 +497,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);
@@ -519,7 +519,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       addDirs: [path('/tmp/sprints/a/workspaces/evaluate')],
     });
 
@@ -548,7 +548,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       evaluateSessionCwd: path('/tmp/sprints/a/workspaces/evaluate'),
     });
 
@@ -568,7 +568,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(String(ai.captured[0]?.options.cwd)).toBe('/repos/demo');
@@ -585,7 +585,6 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
       evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
@@ -612,7 +611,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       refreshWorkspace,
     });
 
@@ -637,7 +636,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       refreshWorkspace,
     });
 
@@ -651,7 +650,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
     expect(logger.hasMessage('warn', 'refresh evaluate workspace')).toBe(true);
   });
 
-  it('writes the per-round verdict to rounds/<N>/evaluator/evaluation.md and updates latest-evaluation.md', async () => {
+  it('writes the per-round verdict to rounds/<N>/evaluator/evaluation.md (one file per round, no pointer)', async () => {
     const { loop, writeContextFile } = buildLoop({
       iterations: 3,
       evalSignals: [[failSignal()], [passSignal()]],
@@ -662,30 +661,27 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
       evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     const writePaths = writeContextFile.writes.map((w) => String(w.path));
-    // Per-round prompt + verdict for both rounds.
+    // Per-round prompt + verdict for both rounds — each round path is unique,
+    // so the highest-N verdict is unambiguously the most recent.
     expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/prompt.md');
     expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/evaluation.md');
     expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/2/evaluator/prompt.md');
     expect(writePaths).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/2/evaluator/evaluation.md');
-    // latest-evaluation.md is updated after every round.
-    const latestWrites = writeContextFile.writes.filter(
-      (w) => String(w.path) === '/tmp/sprints/a/workspaces/evaluate/latest-evaluation.md'
-    );
-    expect(latestWrites).toHaveLength(2);
-    // The most recent latest write is round 2's body.
-    expect(latestWrites[1]?.content).toBe('eval-1');
+    // No `latest-evaluation.md` pointer file is written — the per-round
+    // path itself is the canonical reference.
+    expect(writePaths).not.toContain('/tmp/sprints/a/workspaces/evaluate/latest-evaluation.md');
   });
 
-  it('hands the round-2 generator a critique-aware wrapper pointing at rounds/1/evaluator/evaluation.md', async () => {
-    // The fix-round resume must reference the prior round's verdict on
-    // disk so the generator reads the critique BEFORE re-reading the
-    // spec. Without this the resumed session never sees the evaluator's
-    // findings.
+  it('hands the round-2 generator a critique-aware wrapper that inlines the round-1 verdict body', async () => {
+    // The fix-round resume must include the prior round's verdict so the
+    // generator reads the critique BEFORE re-reading the spec. The
+    // critique is inlined in the wrapper turn rather than handed off
+    // via a file pointer — bounded body, already in memory, no extra
+    // tool round-trip.
     const { loop, ai } = buildLoop({
       iterations: 3,
       evalSignals: [[failSignal()], [passSignal()]],
@@ -696,44 +692,17 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
       evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
-    // Spawn 1 = generator fix; the wrapper text is captured as the
-    // `prompt` passed into the spawn. The fix wrapper embeds both the
-    // critique path and the spec path.
+    // Spawn 1 = round 1→2 fix attempt. The wrapper inlines the round-1
+    // evaluator stdout (`eval-0` per buildLoop's canonical script) and
+    // references the spec by path; it identifies itself as a fix round.
     const fixPrompt = ai.captured[1]?.prompt ?? '';
-    expect(fixPrompt).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/evaluation.md');
+    expect(fixPrompt).toContain('eval-0');
+    expect(fixPrompt).toContain('<evaluator-critique>');
     expect(fixPrompt).toContain('/tmp/sprints/a/contexts/execute-task.md');
-    // It identifies itself as a fix round so the generator picks the
-    // critique-first reading order.
     expect(fixPrompt.toLowerCase()).toContain('fix round');
-  });
-
-  it('does NOT pass fixContext when no evaluate workspace is mounted (defensive)', async () => {
-    // Standalone evaluate / no workspace → the loop has nowhere to
-    // point the generator at, so fall back to the plain wrapper. The
-    // fix branch only fires on iterations >= 2, so we exercise the
-    // multi-round path without `evaluateWorkspaceDir`.
-    const { loop, ai } = buildLoop({
-      iterations: 3,
-      evalSignals: [[failSignal()], [passSignal()]],
-    });
-
-    await loop.execute({
-      task: aTask(),
-      sprint: aSprint(),
-      cwd: path('/repos/demo'),
-      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
-      // intentionally no evaluateWorkspaceDir
-    });
-
-    const fixPrompt = ai.captured[1]?.prompt ?? '';
-    // The plain wrapper does NOT reference a critique file path.
-    expect(fixPrompt.toLowerCase()).not.toContain('fix round');
-    expect(fixPrompt).not.toContain('evaluation.md');
   });
 
   it('threads `round` into nextSessionMdPath so generator/evaluator audits land per-round', async () => {
@@ -753,7 +722,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
       nextSessionMdPath,
     });
 
@@ -785,7 +754,7 @@ describe('EvaluateAndFixLoopUseCase', () => {
       sprint: aSprint(),
       cwd: path('/repos/demo'),
       executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
-      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
     });
 
     expect(result.ok).toBe(true);

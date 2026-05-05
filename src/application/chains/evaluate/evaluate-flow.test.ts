@@ -171,16 +171,16 @@ describe('createEvaluateFlow', () => {
     ]);
     // A fresh AI spawn fires — the chain no longer short-circuits.
     expect(aiSession.captured).toHaveLength(1);
-    // Three writes routed via WriteContextFilePort: the rendered prompt
-    // for the standalone round, the per-round evaluation.md verdict, and
-    // the unit's stable latest-evaluation.md copy.
-    expect(writeContextFile.writes).toHaveLength(3);
+    // Two writes routed via WriteContextFilePort: the rendered prompt
+    // and the per-round evaluation.md verdict — both under the
+    // standalone-round folder. Each round path is unique, so no
+    // pointer file is needed.
+    expect(writeContextFile.writes).toHaveLength(2);
     const writtenPaths = writeContextFile.writes.map((w) => String(w.path));
     expect(writtenPaths).toStrictEqual(
       expect.arrayContaining([
         expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/prompt\.md$/),
         expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/evaluation\.md$/),
-        expect.stringMatching(/\/execution\/[^/]+\/latest-evaluation\.md$/),
       ])
     );
   });
@@ -271,12 +271,13 @@ describe('createEvaluateFlow', () => {
     expect(folder1).not.toBe(folder2);
   });
 
-  it('persists Task.evaluationFile as execution/<unit-slug>/latest-evaluation.md', async () => {
-    // The persisted relative path must use the unit slug
-    // (`<id>-<name-slug>`), not the bare task id — the slug is what the
-    // upstream evaluate-task leaf actually wrote to disk. With a name
-    // that produces a non-trivial slug, this catches the prior regression
-    // where the recorded path resolved to a non-existent file.
+  it('persists Task.evaluationFile as execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/evaluation.md', async () => {
+    // The persisted relative path must point at the verdict file the
+    // upstream evaluate-task leaf actually wrote — keyed on the unit
+    // slug (`<id>-<name-slug>`) and the standalone round's ISO. Each
+    // standalone-round path is unique, so the recorded value
+    // unambiguously locates THIS run's verdict — no pointer-file
+    // indirection, no stale references after a re-run.
     const sprint = activateSprint(makeSprint());
     const explicitId = taskId('abc123');
     const task = makeTask({ id: explicitId, name: 'My Cool Feature' });
@@ -297,16 +298,17 @@ describe('createEvaluateFlow', () => {
 
     const slug = unitSlug(String(task.id), task.name);
     expect(slug).toBe('abc123-my-cool-feature');
-    expect(reread.value.evaluationFile).toBe(`execution/${slug}/latest-evaluation.md`);
+    expect(reread.value.evaluationFile).toMatch(
+      new RegExp(`^execution/${slug}/rounds/standalone-[^/]+/evaluator/evaluation\\.md$`)
+    );
   });
 
   it('standalone evaluate write failures warn and never block the chain', async () => {
-    // Inject a fake writer that fails specifically on the verdict +
-    // latest-evaluation paths but lets the prompt write succeed. The
-    // chain must complete (Result.ok) and emit warn-level diagnostics
-    // referencing the failed paths — durable history is best-effort,
-    // and the in-memory critique still flows downstream to
-    // persist-evaluation.
+    // Inject a fake writer that fails specifically on the verdict path
+    // but lets the prompt write succeed. The chain must complete
+    // (Result.ok) and emit a warn-level diagnostic referencing the
+    // failed path — durable history is best-effort, and the in-memory
+    // critique still flows downstream to persist-evaluation.
     const sprint = activateSprint(makeSprint());
     const task = makeTask({ name: 'do thing' });
 
@@ -315,7 +317,7 @@ describe('createEvaluateFlow', () => {
       write(path, content) {
         this.writes.push({ path, content });
         const p = String(path);
-        if (p.endsWith('/evaluation.md') || p.endsWith('/latest-evaluation.md')) {
+        if (p.endsWith('/evaluation.md')) {
           return Promise.resolve(
             Result.error(new StorageError({ subCode: 'io', message: 'EACCES simulated', path: p }))
           );
@@ -338,13 +340,13 @@ describe('createEvaluateFlow', () => {
 
     expect(result.ok).toBe(true);
 
-    // At least one warn log references one of the failed paths.
+    // At least one warn log references the failed evaluation.md path.
     const warns = logger.entries.filter((e) => e.level === 'warn');
     expect(warns.length).toBeGreaterThanOrEqual(1);
     const warnedPaths = warns
       .map((w) => (typeof w.context['path'] === 'string' ? w.context['path'] : ''))
       .filter((p) => p.length > 0);
-    expect(warnedPaths.some((p) => p.endsWith('/evaluation.md') || p.endsWith('/latest-evaluation.md'))).toBe(true);
+    expect(warnedPaths.some((p) => p.endsWith('/evaluation.md'))).toBe(true);
 
     // Persist-evaluation still ran with the in-memory critique.
     const reread = await deps.taskRepo.findById(sprint.id, task.id);
