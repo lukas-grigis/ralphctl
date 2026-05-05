@@ -90,11 +90,14 @@ export function createEvaluateFlow(
 ): Element<EvaluateCtx> {
   const useCase = new EvaluateTaskUseCase(deps.aiSession, deps.signalParser, deps.logger, deps.signalHandler);
 
-  // One ISO per chain factory call → one folder per `sprint evaluate <task>`
-  // invocation. Two same-process invocations land in distinct folders.
-  // Computed eagerly so `render-prompt-to-file` and `evaluate-task` resolve
-  // to the same path within this run.
-  const iso = String(IsoTimestamp.now()).replace(/[:.]/g, '-');
+  // One folder-token per chain factory call → one folder per
+  // `sprint evaluate <task>` invocation. The token is `<ISO>-<rand4>`
+  // — millisecond ISO plus a 4-char random suffix so two same-process
+  // invocations within the same millisecond can't collide on the same
+  // `rounds/standalone-<token>/` folder. Computed eagerly so
+  // `render-prompt-to-file` and `evaluate-task` resolve to the same path
+  // within this run.
+  const iso = `${String(IsoTimestamp.now()).replace(/[:.]/g, '-')}-${randomSuffix()}`;
 
   /**
    * Resolve the standalone-round evaluator folder for this invocation.
@@ -313,4 +316,21 @@ function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element
     },
     output: (ctx) => ctx,
   });
+}
+
+/**
+ * 4-char alphanumeric suffix appended to the standalone-round token so
+ * two same-process `sprint evaluate <task>` invocations within the same
+ * millisecond land in distinct folders. Uses lower-case alphanumerics
+ * for filesystem-safety; collision odds at 36^4 ≈ 1 in 1.7M per
+ * collision-window are well below the noise floor for human-driven
+ * evaluator runs.
+ */
+function randomSuffix(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < 4; i += 1) {
+    out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return out;
 }

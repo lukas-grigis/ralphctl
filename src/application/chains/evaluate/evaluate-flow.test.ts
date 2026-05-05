@@ -221,11 +221,11 @@ describe('createEvaluateFlow', () => {
   });
 
   it('two same-process invocations land in distinct rounds/standalone-<ISO>/ folders', async () => {
-    // Module-level ISO caching previously made back-to-back evaluates of
-    // the same (sprint, task) collide on the same standalone-round folder
-    // — the second run silently overwrote the first. The fix scopes the
-    // ISO to a single chain-factory call so each `createEvaluateFlow(...)`
-    // invocation gets a fresh folder.
+    // Each `createEvaluateFlow(...)` call captures its own folder token
+    // (`<ISO>-<rand4>`). The 4-char random suffix means two back-to-back
+    // factory calls land in distinct folders even within the same
+    // millisecond — no `setTimeout` needed in this test, no race in
+    // production.
     const sprint = activateSprint(makeSprint());
     const task = makeTask({ name: 'do thing' });
 
@@ -243,11 +243,6 @@ describe('createEvaluateFlow', () => {
 
     const result1 = await flow1.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
     expect(result1.ok).toBe(true);
-
-    // Tiny delay ensures `IsoTimestamp.now()`'s millisecond precision
-    // produces a distinct value on the second factory call. Keeps the
-    // test deterministic without faking the clock.
-    await new Promise((r) => setTimeout(r, 5));
 
     const aiSession2 = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'evaluator output 2' } }],
