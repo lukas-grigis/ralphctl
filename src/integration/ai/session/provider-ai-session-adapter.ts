@@ -28,10 +28,11 @@
  * audit "where Claude was started, why, and with what permissions"
  * without reading code. Writes are best-effort: a write failure logs
  * a warn through the injected `LoggerPort` and the spawn proceeds
- * unchanged. For execution rounds the chain leaf rotates through
- * `session-1.md`, `session-2.md`, …  via {@link nextSessionPath}; for
- * single-shot AI rounds (refine / plan / ideate / feedback / evaluate)
- * a single `session.md` per unit folder is overwritten on re-run.
+ * unchanged. For execution rounds the chain leaf routes audits through
+ * round-aware paths (`rounds/<N>/{generator,evaluator}/session.md`) so
+ * each round's audit lives independently; for single-shot AI rounds
+ * (refine / plan / ideate / feedback / standalone evaluate) a single
+ * `session.md` per unit folder is overwritten on re-run.
  */
 import { RateLimitError } from '@src/domain/errors/rate-limit-error.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';

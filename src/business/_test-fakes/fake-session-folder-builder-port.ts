@@ -134,7 +134,7 @@ export class FakeSessionFolderBuilderPort implements SessionFolderBuilderPort {
         root,
         addDirs: isCopilot ? [] : [root],
         sessionCwd: isCopilot ? root : input.task.projectPath,
-        evaluationMdPath: this.path(input.sprint.id, 'execution', slug, 'evaluation.md'),
+        latestEvaluationMdPath: this.path(input.sprint.id, 'execution', slug, 'latest-evaluation.md'),
       })
     );
   }

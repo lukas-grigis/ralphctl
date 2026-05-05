@@ -34,7 +34,7 @@ export interface BuildExecutionUnitCtx {
   readonly executionUnitRoot?: AbsolutePath;
   readonly executionAddDirs?: readonly AbsolutePath[];
   readonly executionSessionCwd?: AbsolutePath;
-  readonly executionEvaluationMdPath?: AbsolutePath;
+  readonly executionLatestEvaluationMdPath?: AbsolutePath;
 }
 
 export interface BuildExecutionUnitLeafDeps {
@@ -58,7 +58,7 @@ export function buildExecutionUnitLeaf<TCtx extends BuildExecutionUnitCtx>(
       readonly root: AbsolutePath;
       readonly addDirs: readonly AbsolutePath[];
       readonly sessionCwd: AbsolutePath;
-      readonly evaluationMdPath: AbsolutePath;
+      readonly latestEvaluationMdPath: AbsolutePath;
     }
   >(name, {
     useCase: {
@@ -68,7 +68,7 @@ export function buildExecutionUnitLeaf<TCtx extends BuildExecutionUnitCtx>(
             readonly root: AbsolutePath;
             readonly addDirs: readonly AbsolutePath[];
             readonly sessionCwd: AbsolutePath;
-            readonly evaluationMdPath: AbsolutePath;
+            readonly latestEvaluationMdPath: AbsolutePath;
           },
           DomainError
         >
@@ -104,7 +104,7 @@ export function buildExecutionUnitLeaf<TCtx extends BuildExecutionUnitCtx>(
       executionUnitRoot: out.root,
       executionAddDirs: out.addDirs,
       executionSessionCwd: out.sessionCwd,
-      executionEvaluationMdPath: out.evaluationMdPath,
+      executionLatestEvaluationMdPath: out.latestEvaluationMdPath,
     }),
   });
 }

@@ -4,9 +4,9 @@
  *
  * Mirrors the same `mkdir -p` + `writeFile` pattern used by
  * {@link FileSystemSignalHandler} so per-task context files land alongside
- * `progress.md` and `evaluations/<task-id>.md` under the same
- * `<sprintDir>/` tree with consistent permissions (0o600 — user-only,
- * matches the project context file conventions).
+ * `progress.md` under the same `<sprintDir>/` tree with consistent
+ * permissions (0o600 — user-only, matches the project context file
+ * conventions).
  *
  * Failures wrap the underlying `NodeJS.ErrnoException` in a
  * `StorageError(subCode: 'io')` carrying the path so callers can route

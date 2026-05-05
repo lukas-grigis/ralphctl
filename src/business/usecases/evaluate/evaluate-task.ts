@@ -66,7 +66,11 @@ export interface EvaluateTaskOutput {
   readonly outcome: EvaluationOutcome;
   /** The evaluation signal — synthesised as malformed when none was emitted. */
   readonly signal: EvaluationSignal;
-  /** Raw evaluator stdout — chain persists this to `evaluations/<taskId>.md`. */
+  /**
+   * Raw evaluator stdout — the chain layer persists this under
+   * `rounds/<N>/evaluator/evaluation.md` (per-round) and
+   * `latest-evaluation.md` (stable pointer). This use case stays IO-free.
+   */
   readonly fullCritique: string;
 }
 

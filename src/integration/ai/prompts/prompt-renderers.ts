@@ -98,7 +98,7 @@ export function renderEvaluateWorkspaceSection(workspaceDir: string | undefined)
     '- `tasks.md` / `tasks.json` — the full task plan, for cross-task consistency checks',
     "- `project-context.md` — the project's CLAUDE.md / .github/copilot-instructions.md (when present in the target repo)",
     '- `dimensions.md` — the four floor dimensions plus any extra dimensions the planner emitted on this task',
-    '- `evaluations/<task-id>.md` — prior task evaluations from earlier in this sprint (the quality bar so far)',
+    '- `prior-evaluations/<task-id>.md` — prior sibling task evaluations from earlier in this sprint (the quality bar so far)',
   ].join('\n');
 }
 

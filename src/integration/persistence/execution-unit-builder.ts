@@ -14,13 +14,17 @@
  *     - `tasks.md` — full task plan as markdown
  *     - `tasks.json` — machine-readable task list
  *     - `project-context.md` — copy of the target repo's context file
- *     - `evaluations/<task-id>.md` — prior evaluation critiques
+ *     - `prior-evaluations/<task-id>.md` — prior sibling evaluation critiques
+ *
+ *   Per-round (written by the evaluate-and-fix loop, never by this module):
+ *     - `rounds/<N>/generator/session.md` — generator (re-)spawn audit
+ *     - `rounds/<N>/evaluator/{prompt.md, evaluation.md, session.md}` — per-round evaluator artefacts
+ *     - `rounds/standalone-<ISO>/evaluator/…` — out-of-band `sprint evaluate` runs
+ *     - `latest-evaluation.md` — copy of the most recent round's verdict; canonical
+ *       path stamped on `Task.evaluationFile` (a stable pointer, not a round-specific file)
  *
  *   Copilot only (mirrored at build time):
  *     - `repo/` — mirror of `task.projectPath`
- *
- * Note: `evaluation.md` (the live evaluator output sink) is NOT written
- * here — `ProviderAiSessionAdapter` writes it per-round.
  */
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -44,6 +48,42 @@ import {
   writeContextFile,
   writeFileSafe,
 } from '@src/integration/persistence/session-folder-helpers.ts';
+
+// ─────────────────────── round-aware path helpers ────────────────────────
+
+/**
+ * Pure string helpers that compute the canonical sub-paths inside an
+ * execution unit folder. Centralising them here means callers (chain
+ * leaves, the evaluate-and-fix loop, tests) never hand-roll `join` on
+ * the layout — a future folder rename is a single edit.
+ *
+ * All helpers return plain `string`s; callers wrap with
+ * `AbsolutePath.trustString` only at the boundary where the value is
+ * surfaced as a domain value.
+ */
+export function roundDir(unitRoot: string, round: number): string {
+  return join(unitRoot, 'rounds', String(round));
+}
+
+export function generatorRoundDir(unitRoot: string, round: number): string {
+  return join(roundDir(unitRoot, round), 'generator');
+}
+
+export function evaluatorRoundDir(unitRoot: string, round: number): string {
+  return join(roundDir(unitRoot, round), 'evaluator');
+}
+
+export function priorEvaluationsDir(unitRoot: string): string {
+  return join(unitRoot, 'prior-evaluations');
+}
+
+export function latestEvaluationPath(unitRoot: string): string {
+  return join(unitRoot, 'latest-evaluation.md');
+}
+
+export function standaloneRoundDir(unitRoot: string, iso: string): string {
+  return join(unitRoot, 'rounds', `standalone-${iso}`);
+}
 
 // ──────────────────────── evaluation rubric ──────────────────────────────
 
@@ -267,23 +307,23 @@ export async function writeExecutionVolatile(args: {
   const projectCtxFile = await writeFileSafe(join(args.root, 'project-context.md'), projectContext);
   if (!projectCtxFile.ok) return Result.error(projectCtxFile.error);
 
-  const evaluationsDir = join(args.root, 'evaluations');
+  const priorEvaluationsDirPath = priorEvaluationsDir(args.root);
   try {
-    await rm(evaluationsDir, { recursive: true, force: true });
+    await rm(priorEvaluationsDirPath, { recursive: true, force: true });
   } catch (err) {
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `failed to clear ${evaluationsDir}: ${err instanceof Error ? err.message : String(err)}`,
-        path: evaluationsDir,
+        message: `failed to clear ${priorEvaluationsDirPath}: ${err instanceof Error ? err.message : String(err)}`,
+        path: priorEvaluationsDirPath,
         cause: err,
       })
     );
   }
-  const ensureEvals = await ensureDirSafe(evaluationsDir);
+  const ensureEvals = await ensureDirSafe(priorEvaluationsDirPath);
   if (!ensureEvals.ok) return Result.error(ensureEvals.error);
   for (const [taskId, body] of args.priorEvaluations) {
-    const w = await writeFileSafe(join(evaluationsDir, `${taskId}.md`), body);
+    const w = await writeFileSafe(join(priorEvaluationsDirPath, `${taskId}.md`), body);
     if (!w.ok) return Result.error(w.error);
   }
   return Result.ok();
@@ -341,7 +381,7 @@ export async function buildExecutionUnit(
     }
   }
 
-  // Volatile: task.md, tasks.md, tasks.json, project-context.md, evaluations/.
+  // Volatile: task.md, tasks.md, tasks.json, project-context.md, prior-evaluations/.
   const volatile = await writeExecutionVolatile({
     root,
     sprint: input.sprint,
@@ -369,7 +409,7 @@ export async function buildExecutionUnit(
     root,
     addDirs,
     sessionCwd,
-    evaluationMdPath: AbsolutePath.trustString(join(root, 'evaluation.md')),
+    latestEvaluationMdPath: AbsolutePath.trustString(latestEvaluationPath(root)),
   });
 }
 
