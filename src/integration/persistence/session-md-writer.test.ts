@@ -1,9 +1,9 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { nextSessionPath, writeSessionFinish, writeSessionStart } from './session-md-writer.ts';
+import { writeSessionFinish, writeSessionStart } from './session-md-writer.ts';
 
 let dir: string;
 
@@ -132,33 +132,5 @@ describe('writeSessionFinish', () => {
     await writeSessionFinish({ path, finished: '2026-05-04T10:01:00Z', exitCode: null });
     const body = await readFile(path, 'utf-8');
     expect(body).toContain('exitCode: null');
-  });
-});
-
-describe('nextSessionPath', () => {
-  it('returns session-1.md when the dir is empty', async () => {
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-1.md'));
-  });
-
-  it('returns session-1.md when the dir does not exist', async () => {
-    const missing = join(dir, 'does-not-exist');
-    const p = await nextSessionPath(missing);
-    expect(p).toBe(join(missing, 'session-1.md'));
-  });
-
-  it('increments past existing session-N.md files', async () => {
-    await writeFile(join(dir, 'session-1.md'), 'a');
-    await writeFile(join(dir, 'session-2.md'), 'b');
-    await writeFile(join(dir, 'session-5.md'), 'c'); // skipped numbers tolerated
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-6.md'));
-  });
-
-  it('ignores files that do not match the session pattern', async () => {
-    await writeFile(join(dir, 'random.md'), 'x');
-    await writeFile(join(dir, 'session.md'), 'y'); // no number — ignored
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-1.md'));
   });
 });

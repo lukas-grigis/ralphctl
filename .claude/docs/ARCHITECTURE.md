@@ -310,10 +310,11 @@ factory passes `SessionOptions.sessionMdPath`, the adapter brackets the spawn wi
 (provider / cwd / flags / prompt body) before the child boots and `writeSessionFinish` (model / sessionId / exitCode)
 after it settles. Writes are best-effort: any filesystem failure logs a warn through the adapter's `LoggerPort` and
 is otherwise swallowed so audit emission never fails a spawn. Path construction lives in the chain leaves — refine /
-plan / ideate stamp a single `<unit-root>/session.md` (overwritten on re-run); the per-task chain rotates through
-`session-N.md` via `nextSessionPath` so each execute attempt and each evaluator round get distinct files; standalone
-`sprint evaluate` writes `<sprintDir>/evaluations/session-<task-id>.md`; feedback writes
-`<sprintDir>/feedback/session-<iteration>.md`.
+plan / ideate stamp a single `<unit-root>/session.md` (overwritten on re-run); the per-task chain routes each
+generator and evaluator spawn into `rounds/<N>/{generator,evaluator}/session.md` via the `generatorRoundDir` /
+`evaluatorRoundDir` helpers (`src/integration/persistence/execution-unit-builder.ts`) so every execute attempt and
+each evaluator round get distinct files; standalone `sprint evaluate` writes
+`<sprintDir>/evaluations/session-<task-id>.md`; feedback writes `<sprintDir>/feedback/session-<iteration>.md`.
 
 `sprint requirements [--output <path>]` and `sprint context [--output <path>]` are markdown **exports**, not state.
 They default to the caller's `cwd` (`./<sprintId>-requirements.md` / `./<sprintId>-context.md`) and accept any
