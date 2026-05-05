@@ -6,7 +6,8 @@
  * Steps (happy path):
  *
  *   branch-preflight → mark-in-progress → render-prompt-to-file →
- *     execute-task → post-task-check → evaluate-task → mark-done
+ *     build-execution-unit → execute-task → post-task-check →
+ *     evaluate-task → commit-task → mark-done
  *
  * The chain does NOT auto-commit a dirty tree after the generator. The
  * evaluator runs `git status` as part of its read-only checks and treats
@@ -251,26 +252,36 @@ export function createPerTaskFlow(
     fallback: markCancelledFallbackLeaf(deps),
   });
 
-  // The evaluator pack: `build-evaluate-workspace` lays down the per-task
-  // contract files, then `evaluate-task` runs the multi-round loop and
-  // reads them via the workspace root. Wrap BOTH together so a workspace
-  // builder failure (disk full, EPERM, ...) ALSO doesn't block task
-  // completion — the task should still proceed to `mark-done`. The
-  // existing "evaluator never gates mark-done" contract extends to the
-  // workspace setup that feeds it. User-initiated cancellation
-  // (`code: 'aborted'`) propagates so Ctrl+C mid-evaluator doesn't
-  // silently fall through to mark-done.
-  const buildEvalWorkspaceStep = buildExecutionUnitLeaf<PerTaskCtx>({
-    sessionFolderBuilder: deps.sessionFolderBuilder,
-    aiSession: deps.aiSession,
-  });
-  const evaluatorAsLeaf = new OnError<PerTaskCtx>(
-    new Sequential<PerTaskCtx>('evaluate', [buildEvalWorkspaceStep, evaluateLoopLeaf(deps, evaluateLoop)]),
+  // The evaluator pack is split across two outer-Sequential steps:
+  //
+  //   1. `buildEvalWorkspaceStep` lays down the per-task contract files
+  //      BEFORE `execute-task` runs so the initial generator's
+  //      `session.md` audit lands in `rounds/1/generator/`.
+  //   2. `evaluateLoopStep` runs the multi-round loop AFTER the
+  //      `post-task-check` gate, reading the contract files via the
+  //      workspace root and writing per-round artefacts under
+  //      `rounds/<N>/{generator,evaluator}/`.
+  //
+  // Each step has its OWN OnError wrap so a builder failure (disk full,
+  // EPERM, …) OR an evaluator failure ALSO doesn't block task completion
+  // — the task should still proceed to `mark-done`. User-initiated
+  // cancellation (`code: 'aborted'`) propagates so Ctrl+C mid-evaluator
+  // doesn't silently fall through to mark-done.
+  const buildEvalWorkspaceStep = new OnError<PerTaskCtx>(
+    buildExecutionUnitLeaf<PerTaskCtx>({
+      sessionFolderBuilder: deps.sessionFolderBuilder,
+      aiSession: deps.aiSession,
+    }),
     {
       catchIf: (err) => err.code !== 'aborted',
-      fallback: noopLeaf<PerTaskCtx>('evaluate-task-noop'),
+      fallback: noopLeaf<PerTaskCtx>('build-execution-unit-noop'),
     }
   );
+
+  const evaluateLoopStep = new OnError<PerTaskCtx>(evaluateLoopLeaf(deps, evaluateLoop), {
+    catchIf: (err) => err.code !== 'aborted',
+    fallback: noopLeaf<PerTaskCtx>('evaluate-task-noop'),
+  });
 
   // Conditionally include post-task-check only when a check script is
   // configured. Tasks with no check script (e.g. polyglot subdirs) skip
@@ -306,9 +317,10 @@ export function createPerTaskFlow(
     branchPreflightStep,
     markInProgressLeaf(deps),
     renderPromptStep,
+    buildEvalWorkspaceStep,
     executeTaskStep,
     postTaskStep,
-    evaluatorAsLeaf,
+    evaluateLoopStep,
     commitTaskLeaf(deps),
     markDoneLeaf(deps),
   ]);

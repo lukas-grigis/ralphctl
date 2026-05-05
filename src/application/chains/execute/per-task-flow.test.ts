@@ -97,14 +97,14 @@ describe('createPerTaskFlow', () => {
     const idx = (n: string): number => stepNames.indexOf(n);
     expect(idx('branch-preflight')).toBeLessThan(idx('mark-in-progress'));
     expect(idx('mark-in-progress')).toBeLessThan(idx('render-prompt-to-file'));
-    expect(idx('render-prompt-to-file')).toBeLessThan(idx('execute-task'));
+    expect(idx('render-prompt-to-file')).toBeLessThan(idx('build-execution-unit'));
+    // build-execution-unit MUST run BEFORE execute-task so the initial
+    // generator's `session.md` audit lands in `rounds/1/generator/`.
+    // Reordering this is a contract change — the round-aware audit
+    // layout depends on it.
+    expect(idx('build-execution-unit')).toBeLessThan(idx('execute-task'));
     expect(idx('execute-task')).toBeLessThan(idx('post-task-check'));
-    // build-execution-unit + evaluate-task are wrapped together in
-    // an OnError-Sequential so they're adjacent in the trace, with
-    // build coming first to lay down the contract pack the evaluator
-    // reads.
-    expect(idx('post-task-check')).toBeLessThan(idx('build-execution-unit'));
-    expect(idx('build-execution-unit')).toBeLessThan(idx('evaluate-task'));
+    expect(idx('post-task-check')).toBeLessThan(idx('evaluate-task'));
     // commit-task sits AFTER the evaluator (so the evaluator's git status
     // sees the dirty tree as designed) and BEFORE mark-done.
     expect(idx('evaluate-task')).toBeLessThan(idx('commit-task'));
@@ -797,10 +797,11 @@ describe('createPerTaskFlow', () => {
   });
 
   it('build-execution-unit failure absorbed by OnError, task continues to mark-done', async () => {
-    // The OnError wrapper around the evaluator pack catches unit-build
-    // failures (disk full, EPERM, ...) so they don't gate task
-    // completion — the task still proceeds to `done`. The evaluator
-    // simply runs without addDirs, falling back to current behaviour.
+    // build-execution-unit has its own OnError wrap so a builder failure
+    // (disk full, EPERM, ...) does NOT gate task completion — the task
+    // still proceeds to `done`. The evaluator runs without an
+    // executionUnitRoot in ctx (no unit was materialised), which is the
+    // standalone-evaluate fallback path.
     const sprint = makeSprint();
     const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
     const failure = new StorageError({ subCode: 'io', message: 'no disk space' });
@@ -812,14 +813,22 @@ describe('createPerTaskFlow', () => {
       aiSession: {
         outcomes: [
           { kind: 'ok', result: { output: 'done' } }, // execute-task
-          // Note: evaluator does NOT spawn — the unit build
-          // failure trips the OnError fallback BEFORE reaching the
-          // evaluator. With evaluator disabled by the swallow, only
-          // execute-task spawns.
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluator (no unit, no addDirs)
         ],
       },
       signalParser: {
-        results: [[taskCompleteSignal]],
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
       },
       overrides: { sessionFolderBuilder },
     });
@@ -838,16 +847,15 @@ describe('createPerTaskFlow', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    // The OnError fallback's noop step records the swallowed failure.
     expect(stepNames).toContain('build-execution-unit');
-    expect(stepNames).toContain('evaluate-task-noop');
+    expect(stepNames).toContain('build-execution-unit-noop');
     expect(stepNames).toContain('mark-done');
 
     // Task is done despite the workspace build failure.
     const reread = await deps.taskRepo.findById(sprint.id, task.id);
     if (!reread.ok) throw new Error('expected task');
     expect(reread.value.status).toBe('done');
-    // Evaluator did not run, so `evaluated` stays false.
-    expect(reread.value.evaluated).toBe(false);
   });
 
   it('Copilot path: evaluator cwd is the workspace root (mirror lives there)', async () => {
