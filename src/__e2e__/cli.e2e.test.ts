@@ -7,9 +7,10 @@
  * directly with a wired `SharedDeps`, these tests exercise the full bundled
  * artefact — the exact bytes published to npm.
  *
- * Auto-build: if `dist/cli.mjs` is missing when the suite starts, `beforeAll`
- * runs `pnpm build` synchronously so `pnpm test` works on a fresh checkout
- * without a preceding manual build step.
+ * Auto-build: `beforeAll` always runs `pnpm build` synchronously so the suite
+ * exercises the current source — not a stale `dist/cli.mjs` left over from
+ * an earlier branch. The build is ~1s and the reliability win is worth it
+ * (tests against a stale bundle masquerade as code regressions).
  */
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
@@ -60,21 +61,19 @@ describe('CLI e2e smoke (built dist/cli.mjs)', () => {
   let tmpRoot: string;
 
   beforeAll(() => {
+    const build = spawnSync('pnpm', ['build'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf-8',
+      timeout: 60_000,
+    });
+    if (build.status !== 0) {
+      throw new Error(`pnpm build failed (status ${String(build.status ?? -1)}):\n${build.stdout}\n${build.stderr}`);
+    }
     if (!existsSync(CLI_PATH)) {
-      const build = spawnSync('pnpm', ['build'], {
-        cwd: REPO_ROOT,
-        encoding: 'utf-8',
-        timeout: 60_000,
-      });
-      if (build.status !== 0) {
-        throw new Error(`pnpm build failed (status ${String(build.status ?? -1)}):\n${build.stdout}\n${build.stderr}`);
-      }
-      if (!existsSync(CLI_PATH)) {
-        throw new Error(`pnpm build completed but dist/cli.mjs is still missing at ${CLI_PATH}.`);
-      }
+      throw new Error(`pnpm build completed but dist/cli.mjs is still missing at ${CLI_PATH}.`);
     }
     tmpRoot = mkdtempSync(join(tmpdir(), 'ralphctl-e2e-'));
-  });
+  }, 60_000);
 
   afterAll(() => {
     rmSync(tmpRoot, { recursive: true, force: true });
