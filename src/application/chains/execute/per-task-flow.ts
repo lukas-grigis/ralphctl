@@ -65,7 +65,11 @@
 import { join } from 'node:path';
 
 import { Result } from '@src/domain/result.ts';
-import { evaluatorRoundDir, generatorRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
+import {
+  evaluatorRoundDir,
+  evaluatorVerdictSprintRelative,
+  generatorRoundDir,
+} from '@src/kernel/algorithms/execution-round-paths.ts';
 import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 
 import { BranchPreflightUseCase } from '@src/business/usecases/execute/branch-preflight.ts';
@@ -761,13 +765,12 @@ function evaluateLoopLeaf(
         if (result.value.rounds > 0 && result.value.finalSignal !== null) {
           // The verdict file lives at the FINAL round's per-round path —
           // each round path is unique, so the highest N is unambiguously
-          // the most recent verdict. Recorded as a relative path under
-          // the sprint dir (`execution/<slug>/rounds/<N>/evaluator/
-          // evaluation.md`) so the value is portable across moved data
-          // dirs and machines.
+          // the most recent verdict. The kernel helper centralises the
+          // relative-path layout so this and the standalone-evaluate
+          // chain don't drift on a future folder rename.
           const finalRound = result.value.rounds;
           const slug = unitSlug(String(input.task.id), input.task.name);
-          const file = `execution/${slug}/rounds/${String(finalRound)}/evaluator/evaluation.md`;
+          const file = evaluatorVerdictSprintRelative(slug, finalRound);
           const recorded = input.task.recordEvaluation({
             status: result.value.finalSignal.status,
             output: result.value.finalCritique.slice(0, MAX_PREVIEW_CHARS),

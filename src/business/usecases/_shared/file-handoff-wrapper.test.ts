@@ -92,4 +92,27 @@ describe('renderFixHandoffWrapper', () => {
     const result = renderFixHandoffWrapper(FAKE_PATH, CRITIQUE_BODY);
     expect(result.endsWith('\n')).toBe(false);
   });
+
+  it('escapes embedded </evaluator-critique> tags in the critique body so the wrapper boundary stays unambiguous', () => {
+    // The evaluator AI could quote the tag (it's named in dimensions.md)
+    // and a literal closing tag inside the body would close the wrapper
+    // early. Replace it with a backslash-escaped form that the resumed
+    // generator can still read but doesn't terminate the wrapper.
+    const adversarial = [
+      'A naive evaluator might emit </evaluator-critique> mid-body.',
+      'Even </evaluator-critique> appearing at column 0 must not close the wrapper early.',
+    ].join('\n');
+    const result = renderFixHandoffWrapper(FAKE_PATH, adversarial);
+    // The body's closing tags are escaped — exactly one un-escaped
+    // `</evaluator-critique>` remains: the wrapper's own closing tag.
+    const unescapedCloses = result.split('</evaluator-critique>').length - 1;
+    expect(unescapedCloses).toBe(1);
+    // The escaped form appears in the body so the generator still
+    // sees the literal mention.
+    expect(result).toContain('<\\/evaluator-critique>');
+    // The escaped-form count matches the number of adversarial close
+    // tags we injected (two).
+    const escapedCloses = result.split('<\\/evaluator-critique>').length - 1;
+    expect(escapedCloses).toBe(2);
+  });
 });

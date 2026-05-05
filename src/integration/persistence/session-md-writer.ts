@@ -50,6 +50,13 @@ export interface SessionFinishArgs {
   readonly exitCode: number | null;
   /** New session id assigned by the provider, when surfaced. */
   readonly sessionId?: string;
+  /**
+   * Resolved model identifier from the provider, when surfaced. Merged
+   * into the frontmatter at finish time — the start half doesn't know
+   * the model for headless spawns where the runner picks it. Optional
+   * because interactive spawns don't surface a model identifier.
+   */
+  readonly model?: string;
 }
 
 const FRONTMATTER_DELIM = '---';
@@ -151,6 +158,7 @@ export async function writeSessionFinish(args: SessionFinishArgs): Promise<Resul
       finished: args.finished,
       exitCode: args.exitCode,
       sessionId: args.sessionId,
+      model: args.model,
     });
     return writeFileSafe(args.path, `${fm}\n\n## Prompt\n\n_(no prompt recorded — session finish without start)_\n`);
   }
@@ -160,6 +168,7 @@ export async function writeSessionFinish(args: SessionFinishArgs): Promise<Resul
   merged['finished'] = args.finished;
   merged['exitCode'] = args.exitCode;
   if (args.sessionId !== undefined) merged['sessionId'] = args.sessionId;
+  if (args.model !== undefined) merged['model'] = args.model;
 
   const fm = renderFrontmatter(merged);
   const content = `${fm}\n\n${body}`;

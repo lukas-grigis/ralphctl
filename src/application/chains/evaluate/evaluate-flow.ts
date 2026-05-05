@@ -28,6 +28,7 @@
  * resolves successfully so the surrounding chain can continue. The
  * `persist-evaluation` step records the verdict on the task entity.
  */
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 import { Result } from '@src/domain/result.ts';
@@ -48,7 +49,10 @@ import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
 import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
 import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
-import { standaloneRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
+import {
+  standaloneEvaluatorVerdictSprintRelative,
+  standaloneRoundDir,
+} from '@src/kernel/algorithms/execution-round-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 
 export interface EvaluateCtx {
@@ -92,12 +96,15 @@ export function createEvaluateFlow(
 
   // One folder-token per chain factory call → one folder per
   // `sprint evaluate <task>` invocation. The token is `<ISO>-<rand4>`
-  // — millisecond ISO plus a 4-char random suffix so two same-process
-  // invocations within the same millisecond can't collide on the same
-  // `rounds/standalone-<token>/` folder. Computed eagerly so
-  // `render-prompt-to-file` and `evaluate-task` resolve to the same path
-  // within this run.
-  const iso = `${String(IsoTimestamp.now()).replace(/[:.]/g, '-')}-${randomSuffix()}`;
+  // — millisecond ISO plus a 4-hex-char random suffix so two
+  // same-process invocations within the same millisecond can't collide
+  // on the same `rounds/standalone-<token>/` folder. Computed eagerly
+  // so `render-prompt-to-file` and `evaluate-task` resolve to the same
+  // path within this run. Suffix entropy is 16⁴ ≈ 65k — collision odds
+  // are well below the noise floor for human-driven evaluator runs and
+  // `randomBytes` keeps us off `Math.random` for consistency with the
+  // rest of the codebase.
+  const iso = `${String(IsoTimestamp.now()).replace(/[:.]/g, '-')}-${randomBytes(2).toString('hex')}`;
 
   /**
    * Resolve the standalone-round evaluator folder for this invocation.
@@ -235,7 +242,7 @@ function evaluateTaskLeaf(
           });
         }
 
-        const evaluationFile = `execution/${slug}/rounds/standalone-${iso}/evaluator/evaluation.md`;
+        const evaluationFile = standaloneEvaluatorVerdictSprintRelative(slug, iso);
         return Result.ok({
           outcome: result.value.outcome,
           fullCritique: result.value.fullCritique,
@@ -316,21 +323,4 @@ function persistEvaluationLeaf(deps: Pick<ChainSharedDeps, 'taskRepo'>): Element
     },
     output: (ctx) => ctx,
   });
-}
-
-/**
- * 4-char alphanumeric suffix appended to the standalone-round token so
- * two same-process `sprint evaluate <task>` invocations within the same
- * millisecond land in distinct folders. Uses lower-case alphanumerics
- * for filesystem-safety; collision odds at 36^4 ≈ 1 in 1.7M per
- * collision-window are well below the noise floor for human-driven
- * evaluator runs.
- */
-function randomSuffix(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < 4; i += 1) {
-    out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-  }
-  return out;
 }

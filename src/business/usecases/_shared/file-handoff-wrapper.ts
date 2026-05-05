@@ -39,9 +39,17 @@ export function renderFileHandoffWrapper(promptFilePath: string): string {
  * `rounds/<N>/evaluator/evaluation.md` remains for archival, written by
  * the surrounding loop.
  *
+ * **Delimiter safety.** The critique body is an AI emission and could
+ * theoretically contain a literal `</evaluator-critique>` (the tag is
+ * named in `dimensions.md` and the evaluator may quote it). We escape
+ * any embedded closing tag in the inlined body so the resumed generator
+ * can locate the wrapper boundary unambiguously even when the critique
+ * mentions the tag verbatim.
+ *
  * Pure string. No IO.
  */
 export function renderFixHandoffWrapper(promptFilePath: string, critique: string): string {
+  const safeCritique = critique.replace(/<\/evaluator-critique>/g, '<\\/evaluator-critique>');
   return [
     'You are an agent under the ralphctl harness — resuming on a fix round.',
     '',
@@ -49,7 +57,7 @@ export function renderFixHandoffWrapper(promptFilePath: string, critique: string
     'Its critique follows verbatim — read it FIRST, before doing anything else:',
     '',
     '<evaluator-critique>',
-    critique,
+    safeCritique,
     '</evaluator-critique>',
     '',
     `Then re-read the task spec at \`${promptFilePath}\` to refresh the success criteria.`,

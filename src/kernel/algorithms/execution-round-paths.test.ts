@@ -2,7 +2,14 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { evaluatorRoundDir, generatorRoundDir, roundDir, standaloneRoundDir } from './execution-round-paths.ts';
+import {
+  evaluatorRoundDir,
+  evaluatorVerdictSprintRelative,
+  generatorRoundDir,
+  roundDir,
+  standaloneEvaluatorVerdictSprintRelative,
+  standaloneRoundDir,
+} from './execution-round-paths.ts';
 
 const UNIT_ROOT = '/tmp/sprint/execution/task-001-do-the-thing';
 
@@ -29,6 +36,23 @@ describe('execution-round-paths', () => {
     it('joins unitRoot with rounds/standalone-<iso>', () => {
       const iso = '2026-05-05T12-34-56-789Z';
       expect(standaloneRoundDir(UNIT_ROOT, iso)).toBe(join(UNIT_ROOT, 'rounds', `standalone-${iso}`));
+    });
+  });
+
+  describe('evaluatorVerdictSprintRelative', () => {
+    it('builds execution/<slug>/rounds/<round>/evaluator/evaluation.md', () => {
+      expect(evaluatorVerdictSprintRelative('abc123-do-thing', 2)).toBe(
+        join('execution', 'abc123-do-thing', 'rounds', '2', 'evaluator', 'evaluation.md')
+      );
+    });
+  });
+
+  describe('standaloneEvaluatorVerdictSprintRelative', () => {
+    it('builds execution/<slug>/rounds/standalone-<iso>/evaluator/evaluation.md', () => {
+      const iso = '2026-05-05T12-34-56-789Z-abcd';
+      expect(standaloneEvaluatorVerdictSprintRelative('abc123-do-thing', iso)).toBe(
+        join('execution', 'abc123-do-thing', 'rounds', `standalone-${iso}`, 'evaluator', 'evaluation.md')
+      );
     });
   });
 });
