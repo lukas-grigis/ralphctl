@@ -29,7 +29,7 @@ function activateSprint(draft: ReturnType<typeof makeSprint>) {
 }
 
 describe('createEvaluateFlow', () => {
-  it('runs load-sprint → assert-active → load-task → check-already-evaluated → render-prompt-to-file → evaluate-task → persist-evaluation', async () => {
+  it('runs load-sprint → assert-active → load-task → render-prompt-to-file → evaluate-task → persist-evaluation', async () => {
     const sprint = activateSprint(makeSprint());
     const task = makeTask({ name: 'do thing' });
     const deps = createTestDeps({
@@ -54,7 +54,6 @@ describe('createEvaluateFlow', () => {
       'load-sprint',
       'assert-active',
       'load-task',
-      'check-already-evaluated',
       'render-prompt-to-file',
       'evaluate-task',
       'persist-evaluation',
@@ -120,24 +119,29 @@ describe('createEvaluateFlow', () => {
     expect(result.error.trace.some((t) => t.status === 'aborted')).toBe(true);
   });
 
-  it('short-circuits as a successful no-op when the task is already evaluated', async () => {
+  it('re-runs end-to-end when the task is already evaluated (re-runs are allowed)', async () => {
     // The evaluator never blocks (REQUIREMENTS.md). Re-running
     // `sprint evaluate <task>` on a task that already has a recorded
-    // verdict must complete successfully, not return an error. Every
-    // downstream leaf no-ops so the trace stays honest.
+    // verdict must complete successfully — and now runs the AI spawn
+    // again so a stale verdict can be refreshed. Each invocation lays
+    // down a fresh `rounds/standalone-<ISO>/` so prior verdicts persist
+    // as durable history.
     const sprint = activateSprint(makeSprint());
     const task0 = makeTask({ name: 'do thing' });
     const evaluated = task0.recordEvaluation({
       status: 'passed',
       output: 'prior critique',
-      file: 'evaluations/x.md',
+      file: 'execution/x/latest-evaluation.md',
     });
 
-    const aiSession = new FakeAiSessionPort();
+    const aiSession = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'fresh evaluator output' } }],
+    });
     const writeContextFile = new FakeWriteContextFilePort();
     const deps = createTestDeps({
       sprints: [sprint],
       tasks: [[sprint.id, [evaluated]]],
+      signalParser: { results: [[passSignal]] },
       overrides: { aiSession, writeContextFile },
     });
 
@@ -151,31 +155,21 @@ describe('createEvaluateFlow', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Every step in the chain still ran (as a no-op for downstream
-    // leaves) so the trace remains the canonical step order.
     expect(result.value.trace.map((t) => t.stepName)).toStrictEqual([
       'load-sprint',
       'assert-active',
       'load-task',
-      'check-already-evaluated',
       'render-prompt-to-file',
       'evaluate-task',
       'persist-evaluation',
     ]);
-    // The task's recorded evaluation must be untouched — re-running
-    // shouldn't overwrite a prior verdict with a fresh spawn we never
-    // actually performed.
-    const reread = await deps.taskRepo.findById(sprint.id, evaluated.id);
-    if (!reread.ok) throw new Error('expected task');
-    expect(reread.value.evaluated).toBe(true);
-    expect(reread.value.evaluationStatus).toBe('passed');
-    expect(reread.value.evaluationOutput).toBe('prior critique');
-
-    // No AI spawn fired — the chain skipped evaluate-task as a no-op.
-    expect(aiSession.captured).toHaveLength(0);
-    // No prompt file was rendered — render-prompt-to-file honours the
-    // skip flag too.
-    expect(writeContextFile.writes).toHaveLength(0);
+    // A fresh AI spawn fires — the chain no longer short-circuits.
+    expect(aiSession.captured).toHaveLength(1);
+    // Prompt file was rendered to the standalone-round folder.
+    expect(writeContextFile.writes).toHaveLength(1);
+    expect(String(writeContextFile.writes[0]?.path)).toMatch(
+      /\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/prompt\.md$/
+    );
   });
 
   it('fails on assert-active when sprint is not active (draft)', async () => {
