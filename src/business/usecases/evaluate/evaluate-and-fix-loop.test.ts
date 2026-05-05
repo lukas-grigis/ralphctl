@@ -681,6 +681,61 @@ describe('EvaluateAndFixLoopUseCase', () => {
     expect(latestWrites[1]?.content).toBe('eval-1');
   });
 
+  it('hands the round-2 generator a critique-aware wrapper pointing at rounds/1/evaluator/evaluation.md', async () => {
+    // The fix-round resume must reference the prior round's verdict on
+    // disk so the generator reads the critique BEFORE re-reading the
+    // spec. Without this the resumed session never sees the evaluator's
+    // findings.
+    const { loop, ai } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      evaluateWorkspaceDir: '/tmp/sprints/a/workspaces/evaluate',
+    });
+
+    // Spawn 1 = generator fix; the wrapper text is captured as the
+    // `prompt` passed into the spawn. The fix wrapper embeds both the
+    // critique path and the spec path.
+    const fixPrompt = ai.captured[1]?.prompt ?? '';
+    expect(fixPrompt).toContain('/tmp/sprints/a/workspaces/evaluate/rounds/1/evaluator/evaluation.md');
+    expect(fixPrompt).toContain('/tmp/sprints/a/contexts/execute-task.md');
+    // It identifies itself as a fix round so the generator picks the
+    // critique-first reading order.
+    expect(fixPrompt.toLowerCase()).toContain('fix round');
+  });
+
+  it('does NOT pass fixContext when no evaluate workspace is mounted (defensive)', async () => {
+    // Standalone evaluate / no workspace → the loop has nowhere to
+    // point the generator at, so fall back to the plain wrapper. The
+    // fix branch only fires on iterations >= 2, so we exercise the
+    // multi-round path without `evaluateWorkspaceDir`.
+    const { loop, ai } = buildLoop({
+      iterations: 3,
+      evalSignals: [[failSignal()], [passSignal()]],
+    });
+
+    await loop.execute({
+      task: aTask(),
+      sprint: aSprint(),
+      cwd: path('/repos/demo'),
+      executePromptFilePath: '/tmp/sprints/a/contexts/execute-task.md',
+      contextsDir: path('/tmp/sprints/a/contexts'),
+      // intentionally no evaluateWorkspaceDir
+    });
+
+    const fixPrompt = ai.captured[1]?.prompt ?? '';
+    // The plain wrapper does NOT reference a critique file path.
+    expect(fixPrompt.toLowerCase()).not.toContain('fix round');
+    expect(fixPrompt).not.toContain('evaluation.md');
+  });
+
   it('threads `round` into nextSessionMdPath so generator/evaluator audits land per-round', async () => {
     const calls: { kind: string; round: number }[] = [];
     const nextSessionMdPath = (kind: 'generator' | 'evaluator', round: number): Promise<undefined> => {

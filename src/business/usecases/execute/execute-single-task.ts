@@ -46,7 +46,10 @@ import type { AiSessionPort } from '@src/business/ports/ai-session-port.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
 import type { SignalBusPort } from '@src/business/ports/signal-bus-port.ts';
 import type { SignalParserPort } from '@src/business/ports/signal-parser-port.ts';
-import { renderFileHandoffWrapper } from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
+import {
+  renderFileHandoffWrapper,
+  renderFixHandoffWrapper,
+} from '@src/business/usecases/_shared/file-handoff-wrapper.ts';
 import type { RateLimitCoordinator } from '@src/kernel/algorithms/rate-limit-coordinator.ts';
 
 /** Possible outcomes of a single-task execution attempt. */
@@ -67,11 +70,25 @@ export interface ExecuteSingleTaskInput {
   readonly resumeSessionId?: string;
   /**
    * Optional absolute path the AI session adapter writes a `session.md`
-   * audit record to. Set per execution round to a `session-N.md` under
-   * the per-task execution unit folder. Best-effort — write failures
-   * never fail the spawn.
+   * audit record to. Set per execution round to a `session.md` under
+   * the per-task execution unit folder's `rounds/<N>/{generator,evaluator}/`
+   * subtree. Best-effort — write failures never fail the spawn.
    */
   readonly sessionMdPath?: AbsolutePath;
+  /**
+   * Optional fix-round context. When set, the use case hands the AI a
+   * critique-aware wrapper (`renderFixHandoffWrapper`) pointing at the
+   * prior round's evaluator verdict so the resumed generator reads the
+   * critique FIRST, then re-reads the spec, then addresses every flagged
+   * dimension. When undefined, the standard `renderFileHandoffWrapper`
+   * is used — the spec-only first-round contract.
+   *
+   * Orthogonal to `resumeSessionId`: the resume id drives spawn vs
+   * resume; `fixContext` drives wrapper choice. A fix round typically
+   * has both; they're decoupled so a future use case can ship either
+   * independently.
+   */
+  readonly fixContext?: { readonly critiqueFilePath: string };
   /** Optional cooperative cancellation. */
   readonly abortSignal?: AbortSignal;
 }
@@ -136,8 +153,13 @@ export class ExecuteSingleTaskUseCase {
 
     // The full prompt is on disk at `input.promptFilePath`. Hand the AI
     // a thin wrapper pointing at it — the AI reads the file as its
-    // first action.
-    const wrapper = renderFileHandoffWrapper(input.promptFilePath);
+    // first action. On a fix round (`fixContext` set), use the
+    // critique-aware variant so the resumed generator reads the prior
+    // round's verdict before re-reading the spec.
+    const wrapper =
+      input.fixContext !== undefined
+        ? renderFixHandoffWrapper(input.promptFilePath, input.fixContext.critiqueFilePath)
+        : renderFileHandoffWrapper(input.promptFilePath);
 
     log.info(`executing task ${String(input.task.id)}${formatNameSuffix(input.task.name)}`);
 

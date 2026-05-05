@@ -39,9 +39,10 @@
  *
  * The generator's prompt at the chain-supplied
  * `executePromptFilePath` is rendered once by the
- * `render-prompt-to-file` leaf and reused across fix rounds (Claude
- * resumes via `--resume <session-id>` so the original file body
- * remains in scope).
+ * `render-prompt-to-file` leaf and reused across fix rounds. On round
+ * `>= 2` the loop additionally hands the generator a critique-aware
+ * wrapper pointing at `rounds/<N-1>/evaluator/evaluation.md` so the
+ * fix attempt can read the verdict before re-reading the spec.
  *
  * **Never blocks** — the loop **always** returns `Result.ok(...)`. A
  * failed / malformed / plateau outcome is signalled via the structured
@@ -382,14 +383,22 @@ export class EvaluateAndFixLoopUseCase {
       // ── Generator fix round ─────────────────────────────────────
       // The generator resumes the same session, so the original
       // execute prompt file at `input.executePromptFilePath` is
-      // already in scope. No re-render needed. The next round's
-      // index is `round + 1` — `nextSessionMdPath` is keyed on it
-      // so the generator's audit lands in `rounds/<round + 1>/generator/`.
+      // already in scope. The fix wrapper is critique-aware: it
+      // points at the prior round's `evaluation.md` so the generator
+      // re-reads the verdict before re-reading the spec. The next
+      // round's index is `round + 1`; the critique under review was
+      // produced THIS round at `rounds/<round>/evaluator/evaluation.md`.
       log.info('resuming generator with critique', { round });
       const fixRound = round + 1;
       const generatorSessionMdPath = input.nextSessionMdPath
         ? await input.nextSessionMdPath('generator', fixRound)
         : undefined;
+      const fixContext =
+        input.evaluateWorkspaceDir !== undefined
+          ? {
+              critiqueFilePath: join(evaluatorRoundDirInline(input.evaluateWorkspaceDir, round), 'evaluation.md'),
+            }
+          : undefined;
       const fixResult = await this.generator.execute({
         task: input.task,
         sprint: input.sprint,
@@ -397,6 +406,7 @@ export class EvaluateAndFixLoopUseCase {
         promptFilePath: input.executePromptFilePath,
         ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
         ...(generatorSessionMdPath !== undefined ? { sessionMdPath: generatorSessionMdPath } : {}),
+        ...(fixContext !== undefined ? { fixContext } : {}),
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
       });
       if (!fixResult.ok) return Result.error(fixResult.error);
