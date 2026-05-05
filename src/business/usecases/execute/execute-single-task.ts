@@ -77,7 +77,7 @@ export interface ExecuteSingleTaskInput {
   readonly sessionMdPath?: AbsolutePath;
   /**
    * Optional fix-round context. When set, the use case hands the AI a
-   * critique-aware wrapper (`renderFixHandoffWrapper`) pointing at the
+   * critique-aware wrapper (`renderFixHandoffWrapper`) that inlines the
    * prior round's evaluator verdict so the resumed generator reads the
    * critique FIRST, then re-reads the spec, then addresses every flagged
    * dimension. When undefined, the standard `renderFileHandoffWrapper`
@@ -88,7 +88,7 @@ export interface ExecuteSingleTaskInput {
    * has both; they're decoupled so a future use case can ship either
    * independently.
    */
-  readonly fixContext?: { readonly critiqueFilePath: string };
+  readonly fixContext?: { readonly critique: string };
   /** Optional cooperative cancellation. */
   readonly abortSignal?: AbortSignal;
 }
@@ -158,7 +158,7 @@ export class ExecuteSingleTaskUseCase {
     // round's verdict before re-reading the spec.
     const wrapper =
       input.fixContext !== undefined
-        ? renderFixHandoffWrapper(input.promptFilePath, input.fixContext.critiqueFilePath)
+        ? renderFixHandoffWrapper(input.promptFilePath, input.fixContext.critique)
         : renderFileHandoffWrapper(input.promptFilePath);
 
     log.info(`executing task ${String(input.task.id)}${formatNameSuffix(input.task.name)}`);

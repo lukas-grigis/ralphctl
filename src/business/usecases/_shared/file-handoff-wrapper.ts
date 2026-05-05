@@ -31,20 +31,26 @@ export function renderFileHandoffWrapper(promptFilePath: string): string {
  * The evaluator runs in a separate AI session, so its critique is NOT in
  * the generator's chat history; without an explicit pointer the resumed
  * generator never sees the verdict and the fix attempt is a blind retry.
- * This wrapper hands the generator the on-disk path of the prior round's
- * evaluation.md and instructs it to read the verdict FIRST, then
- * re-read the spec, then address every flagged dimension without
- * regressing the passed ones — the read-critique-first contract.
+ * This wrapper inlines the verdict body directly in the resume turn so
+ * the generator reads it without a tool round-trip — the critique is
+ * bounded (a few KB) and already lives in memory at the call site, so a
+ * file-handoff buys nothing here and adds two failure modes (file
+ * missing / unreadable). The on-disk copy at
+ * `rounds/<N>/evaluator/evaluation.md` remains for archival, written by
+ * the surrounding loop.
  *
- * Pure string. No IO. The chain layer is responsible for ensuring the
- * file at `critiqueFilePath` exists before the generator spawns.
+ * Pure string. No IO.
  */
-export function renderFixHandoffWrapper(promptFilePath: string, critiqueFilePath: string): string {
+export function renderFixHandoffWrapper(promptFilePath: string, critique: string): string {
   return [
     'You are an agent under the ralphctl harness — resuming on a fix round.',
     '',
-    `Read the evaluator critique at \`${critiqueFilePath}\` FIRST.`,
-    'It lists which evaluation dimensions failed in the previous round and why.',
+    'The evaluator from the previous round flagged the work as not yet complete.',
+    'Its critique follows verbatim — read it FIRST, before doing anything else:',
+    '',
+    '<evaluator-critique>',
+    critique,
+    '</evaluator-critique>',
     '',
     `Then re-read the task spec at \`${promptFilePath}\` to refresh the success criteria.`,
     '',

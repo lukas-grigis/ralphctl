@@ -448,13 +448,13 @@ describe('ExecuteSingleTaskUseCase', () => {
     expect(coordinator.isPaused()).toBe(true);
   });
 
-  it('uses the critique-aware wrapper when fixContext is set; references both paths', async () => {
+  it('uses the critique-aware wrapper when fixContext is set; inlines the critique body', async () => {
     const ai = new FakeAiSessionPort({
       outcomes: [{ kind: 'ok', result: { output: 'fix done', sessionId: 'after-fix' } }],
     });
     const parser = new FakeSignalParserPort({ results: [[completeSignal()]] });
     const uc = new ExecuteSingleTaskUseCase(ai, parser, new FakeLoggerPort());
-    const critiquePath = '/tmp/sprints/a/execution/abc-task/rounds/1/evaluator/evaluation.md';
+    const critique = '# Evaluation — failed\n\n- correctness: FAIL — null branch returns undefined';
 
     await uc.execute({
       task: aTask(),
@@ -462,11 +462,14 @@ describe('ExecuteSingleTaskUseCase', () => {
       cwd: path('/repos/demo'),
       promptFilePath: CONTEXT_FILE,
       resumeSessionId: 'session-before-fix',
-      fixContext: { critiqueFilePath: critiquePath },
+      fixContext: { critique },
     });
 
     const wrapper = ai.captured[0]?.prompt ?? '';
-    expect(wrapper).toContain(critiquePath);
+    // Critique body is inlined verbatim, wrapped in <evaluator-critique> tags.
+    expect(wrapper).toContain(critique);
+    expect(wrapper).toContain('<evaluator-critique>');
+    expect(wrapper).toContain('</evaluator-critique>');
     expect(wrapper).toContain(CONTEXT_FILE);
     // The critique-aware wrapper identifies itself.
     expect(wrapper.toLowerCase()).toContain('fix round');
@@ -490,7 +493,7 @@ describe('ExecuteSingleTaskUseCase', () => {
     expect(wrapper).toContain(CONTEXT_FILE);
     // The plain wrapper does NOT reference any critique.
     expect(wrapper.toLowerCase()).not.toContain('fix round');
-    expect(wrapper).not.toContain('evaluation.md');
+    expect(wrapper).not.toContain('<evaluator-critique>');
   });
 
   it('does not emit signals or call coordinator when neither is provided', async () => {
