@@ -638,6 +638,75 @@ describe('createPerTaskFlow', () => {
     expect(coordinator.isPaused()).toBe(true);
   });
 
+  it('retry preserves the initial generator audit at session.md and routes the retry to session-attempt-2.md', async () => {
+    // The Retry(maxAttempts: 2, retryOn: 'rate-limited') decorator
+    // re-invokes execute-task on the same leaf instance. Without a
+    // per-leaf attempt counter the second attempt would overwrite
+    // `rounds/1/generator/session.md` and lose the first attempt's
+    // audit body. The fix keeps attempt 1 at the documented filename
+    // and routes attempt 2 to `session-attempt-2.md`.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+
+    const rl = new StorageError({ subCode: 'io', message: 'spawn failed: 429 too many requests' });
+    const ai = new FakeAiSessionPort({
+      outcomes: [
+        // Attempt 1: rate-limited spawn → use case classifies as
+        // 'rate-limited' → execute-task converts to a kernel error →
+        // Retry fires another attempt.
+        { kind: 'error', error: rl },
+        // Attempt 2: ok, signals carry task-complete so the chain
+        // proceeds.
+        { kind: 'ok', result: { output: 'done' } },
+        // Evaluator spawn (post-task-check passes by default).
+        { kind: 'ok', result: { output: 'evaluated' } },
+      ],
+    });
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { aiSession: ai },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+    });
+
+    expect(result.ok).toBe(true);
+
+    // Spawns 1 + 2 are the generator (attempt 1 then retry); spawn 3 is
+    // the evaluator. The audit paths must point to the round-1 generator
+    // folder, with attempt 1 keeping the bare `session.md` filename and
+    // attempt 2 routed to `session-attempt-2.md`.
+    expect(ai.captured.length).toBeGreaterThanOrEqual(2);
+    const path1 = String(ai.captured[0]?.options.sessionMdPath ?? '');
+    const path2 = String(ai.captured[1]?.options.sessionMdPath ?? '');
+    expect(path1).toMatch(/\/rounds\/1\/generator\/session\.md$/);
+    expect(path2).toMatch(/\/rounds\/1\/generator\/session-attempt-2\.md$/);
+    expect(path1).not.toBe(path2);
+  });
+
   it('use case forwards every parsed signal to the signal bus during execute-task', async () => {
     const sprint = makeSprint();
     const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });

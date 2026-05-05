@@ -438,6 +438,15 @@ function markInProgressLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signalBus'
 }
 
 function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx> {
+  // Closure-scoped attempt counter: increments each time the leaf runs.
+  // The surrounding `Retry(maxAttempts: 2, retryOn: 'rate-limited')`
+  // re-invokes execute() against the same leaf instance, which would
+  // otherwise overwrite `rounds/1/generator/session.md` and lose the
+  // first attempt's audit body. Naming scheme: attempt 1 keeps the
+  // documented happy-path filename; attempts 2+ get an `-attempt-N`
+  // suffix so every retry's audit pack survives on disk.
+  let attempt = 0;
+
   return new Leaf<
     PerTaskCtx,
     {
@@ -467,18 +476,23 @@ function executeTaskLeaf(useCase: ExecuteSingleTaskUseCase): Element<PerTaskCtx>
             message: 'execute-task: promptFilePath is missing — render-prompt-to-file must run first',
           });
         }
+        attempt += 1;
         // Per-spawn `session.md` audit path. The initial generator
         // spawn is always round 1 — it lands at
         // `<unit>/rounds/1/generator/session.md` so the audit history
         // is round-aware from the very first attempt. Subsequent
         // generator (re-)spawns from the evaluate-and-fix loop go to
-        // `rounds/<round>/generator/session.md`. Best-effort: if the
-        // unit folder wasn't materialised (build leaf failed and the
-        // OnError above is about to swallow the result anyway), audit
-        // is silently skipped.
+        // `rounds/<round>/generator/session.md`. Retries from the
+        // surrounding `Retry` decorator land at
+        // `rounds/1/generator/session-attempt-<N>.md` so the first
+        // attempt's audit body is preserved across rate-limit retries.
+        // Best-effort: if the unit folder wasn't materialised (build
+        // leaf failed and the OnError above is about to swallow the
+        // result anyway), audit is silently skipped.
+        const filename = attempt === 1 ? 'session.md' : `session-attempt-${String(attempt)}.md`;
         const sessionMdPath =
           input.executionUnitRoot !== undefined
-            ? AbsolutePath.trustString(join(generatorRoundDir(String(input.executionUnitRoot), 1), 'session.md'))
+            ? AbsolutePath.trustString(join(generatorRoundDir(String(input.executionUnitRoot), 1), filename))
             : undefined;
         const result = await useCase.execute({
           sprint: input.sprint,
