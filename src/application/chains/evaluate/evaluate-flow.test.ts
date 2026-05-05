@@ -3,8 +3,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { EvaluationSignal } from '@src/domain/signals/harness-signal.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
+import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
 import { FakeWriteContextFilePort } from '@src/business/_test-fakes/fake-write-context-file-port.ts';
-import { T0, abs, makeSprint, makeTask } from '@src/application/_test-fakes/fixtures.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
+import { Result } from '@src/domain/result.ts';
+import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
+import { T0, abs, makeSprint, makeTask, taskId } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { createEvaluateFlow } from './evaluate-flow.ts';
 
@@ -165,10 +171,17 @@ describe('createEvaluateFlow', () => {
     ]);
     // A fresh AI spawn fires — the chain no longer short-circuits.
     expect(aiSession.captured).toHaveLength(1);
-    // Prompt file was rendered to the standalone-round folder.
-    expect(writeContextFile.writes).toHaveLength(1);
-    expect(String(writeContextFile.writes[0]?.path)).toMatch(
-      /\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/prompt\.md$/
+    // Three writes routed via WriteContextFilePort: the rendered prompt
+    // for the standalone round, the per-round evaluation.md verdict, and
+    // the unit's stable latest-evaluation.md copy.
+    expect(writeContextFile.writes).toHaveLength(3);
+    const writtenPaths = writeContextFile.writes.map((w) => String(w.path));
+    expect(writtenPaths).toStrictEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/prompt\.md$/),
+        expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/evaluation\.md$/),
+        expect.stringMatching(/\/execution\/[^/]+\/latest-evaluation\.md$/),
+      ])
     );
   });
 
@@ -206,4 +219,150 @@ describe('createEvaluateFlow', () => {
     // The error code must identify the state violation.
     expect(result.error.error.code).toBe('invalid-state');
   });
+
+  it('two same-process invocations land in distinct rounds/standalone-<ISO>/ folders', async () => {
+    // Module-level ISO caching previously made back-to-back evaluates of
+    // the same (sprint, task) collide on the same standalone-round folder
+    // — the second run silently overwrote the first. The fix scopes the
+    // ISO to a single chain-factory call so each `createEvaluateFlow(...)`
+    // invocation gets a fresh folder.
+    const sprint = activateSprint(makeSprint());
+    const task = makeTask({ name: 'do thing' });
+
+    const aiSession1 = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'evaluator output 1' } }],
+    });
+    const writer1 = new FakeWriteContextFilePort();
+    const deps1 = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      signalParser: { results: [[passSignal]] },
+      overrides: { aiSession: aiSession1, writeContextFile: writer1 },
+    });
+    const flow1 = createEvaluateFlow(deps1);
+
+    const result1 = await flow1.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result1.ok).toBe(true);
+
+    // Tiny delay ensures `IsoTimestamp.now()`'s millisecond precision
+    // produces a distinct value on the second factory call. Keeps the
+    // test deterministic without faking the clock.
+    await new Promise((r) => setTimeout(r, 5));
+
+    const aiSession2 = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'evaluator output 2' } }],
+    });
+    const writer2 = new FakeWriteContextFilePort();
+    const deps2 = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      signalParser: { results: [[passSignal]] },
+      overrides: { aiSession: aiSession2, writeContextFile: writer2 },
+    });
+    const flow2 = createEvaluateFlow(deps2);
+
+    const result2 = await flow2.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result2.ok).toBe(true);
+
+    const folder1 = extractStandaloneFolder(writer1.writes.map((w) => String(w.path)));
+    const folder2 = extractStandaloneFolder(writer2.writes.map((w) => String(w.path)));
+    expect(folder1).toBeDefined();
+    expect(folder2).toBeDefined();
+    expect(folder1).not.toBe(folder2);
+  });
+
+  it('persists Task.evaluationFile as execution/<unit-slug>/latest-evaluation.md', async () => {
+    // The persisted relative path must use the unit slug
+    // (`<id>-<name-slug>`), not the bare task id — the slug is what the
+    // upstream evaluate-task leaf actually wrote to disk. With a name
+    // that produces a non-trivial slug, this catches the prior regression
+    // where the recorded path resolved to a non-existent file.
+    const sprint = activateSprint(makeSprint());
+    const explicitId = taskId('abc123');
+    const task = makeTask({ id: explicitId, name: 'My Cool Feature' });
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: { outcomes: [{ kind: 'ok', result: { output: 'evaluator output' } }] },
+      signalParser: { results: [[passSignal]] },
+    });
+
+    const flow = createEvaluateFlow(deps);
+    const result = await flow.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result.ok).toBe(true);
+
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+
+    const slug = unitSlug(String(task.id), task.name);
+    expect(slug).toBe('abc123-my-cool-feature');
+    expect(reread.value.evaluationFile).toBe(`execution/${slug}/latest-evaluation.md`);
+  });
+
+  it('standalone evaluate write failures warn and never block the chain', async () => {
+    // Inject a fake writer that fails specifically on the verdict +
+    // latest-evaluation paths but lets the prompt write succeed. The
+    // chain must complete (Result.ok) and emit warn-level diagnostics
+    // referencing the failed paths — durable history is best-effort,
+    // and the in-memory critique still flows downstream to
+    // persist-evaluation.
+    const sprint = activateSprint(makeSprint());
+    const task = makeTask({ name: 'do thing' });
+
+    const writer: WriteContextFilePort = {
+      writes: [] as { path: AbsolutePath; content: string }[],
+      write(path, content) {
+        this.writes.push({ path, content });
+        const p = String(path);
+        if (p.endsWith('/evaluation.md') || p.endsWith('/latest-evaluation.md')) {
+          return Promise.resolve(
+            Result.error(new StorageError({ subCode: 'io', message: 'EACCES simulated', path: p }))
+          );
+        }
+        return Promise.resolve(Result.ok());
+      },
+    } as WriteContextFilePort & { writes: { path: AbsolutePath; content: string }[] };
+
+    const logger = new FakeLoggerPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: { outcomes: [{ kind: 'ok', result: { output: 'evaluator output' } }] },
+      signalParser: { results: [[passSignal]] },
+      overrides: { writeContextFile: writer, logger },
+    });
+
+    const flow = createEvaluateFlow(deps);
+    const result = await flow.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+
+    expect(result.ok).toBe(true);
+
+    // At least one warn log references one of the failed paths.
+    const warns = logger.entries.filter((e) => e.level === 'warn');
+    expect(warns.length).toBeGreaterThanOrEqual(1);
+    const warnedPaths = warns
+      .map((w) => (typeof w.context['path'] === 'string' ? w.context['path'] : ''))
+      .filter((p) => p.length > 0);
+    expect(warnedPaths.some((p) => p.endsWith('/evaluation.md') || p.endsWith('/latest-evaluation.md'))).toBe(true);
+
+    // Persist-evaluation still ran with the in-memory critique.
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.evaluated).toBe(true);
+  });
 });
+
+/**
+ * Extract the `rounds/standalone-<iso>/` segment from any of the per-run
+ * write paths. Returns `undefined` when no path matches, which the test
+ * assertion catches.
+ */
+function extractStandaloneFolder(paths: readonly string[]): string | undefined {
+  const re = /\/(rounds\/standalone-[^/]+)\//;
+  for (const p of paths) {
+    const m = re.exec(p);
+    if (m && typeof m[1] === 'string') return m[1];
+  }
+  return undefined;
+}
