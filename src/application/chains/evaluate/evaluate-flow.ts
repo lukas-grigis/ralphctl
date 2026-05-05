@@ -47,7 +47,7 @@ import { loadSprintLeaf } from '@src/application/chains/leaves/load-sprint.ts';
 import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
 import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
-import { latestEvaluationPath, standaloneRoundDir } from '@src/integration/persistence/execution-unit-builder.ts';
+import { latestEvaluationPath, standaloneRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
 

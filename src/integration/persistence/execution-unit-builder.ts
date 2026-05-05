@@ -39,6 +39,7 @@ import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { TaskId } from '@src/domain/values/task-id.ts';
+import { latestEvaluationPath } from '@src/kernel/algorithms/execution-round-paths.ts';
 import type { StoragePaths } from '@src/integration/persistence/storage-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 import {
@@ -52,37 +53,14 @@ import {
 // ─────────────────────── round-aware path helpers ────────────────────────
 
 /**
- * Pure string helpers that compute the canonical sub-paths inside an
- * execution unit folder. Centralising them here means callers (chain
- * leaves, the evaluate-and-fix loop, tests) never hand-roll `join` on
- * the layout — a future folder rename is a single edit.
- *
- * All helpers return plain `string`s; callers wrap with
- * `AbsolutePath.trustString` only at the boundary where the value is
- * surfaced as a domain value.
+ * Integration-local helper for the per-task `prior-evaluations/` folder.
+ * The round-aware helpers (`roundDir`, `generatorRoundDir`,
+ * `evaluatorRoundDir`, `latestEvaluationPath`, `standaloneRoundDir`) live
+ * in `@src/kernel/algorithms/execution-round-paths.ts` so the business
+ * layer can use them without importing from integration.
  */
-export function roundDir(unitRoot: string, round: number): string {
-  return join(unitRoot, 'rounds', String(round));
-}
-
-export function generatorRoundDir(unitRoot: string, round: number): string {
-  return join(roundDir(unitRoot, round), 'generator');
-}
-
-export function evaluatorRoundDir(unitRoot: string, round: number): string {
-  return join(roundDir(unitRoot, round), 'evaluator');
-}
-
 export function priorEvaluationsDir(unitRoot: string): string {
   return join(unitRoot, 'prior-evaluations');
-}
-
-export function latestEvaluationPath(unitRoot: string): string {
-  return join(unitRoot, 'latest-evaluation.md');
-}
-
-export function standaloneRoundDir(unitRoot: string, iso: string): string {
-  return join(unitRoot, 'rounds', `standalone-${iso}`);
 }
 
 // ──────────────────────── evaluation rubric ──────────────────────────────

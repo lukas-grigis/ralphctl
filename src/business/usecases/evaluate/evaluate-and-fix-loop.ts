@@ -60,6 +60,7 @@ import { Result } from '@src/domain/result.ts';
 import type { EvaluationSignal } from '@src/domain/signals/harness-signal.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { AbsolutePath as AbsolutePathVO } from '@src/domain/values/absolute-path.ts';
+import { evaluatorRoundDir, latestEvaluationPath } from '@src/kernel/algorithms/execution-round-paths.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
@@ -68,21 +69,6 @@ import type { PostTaskCheckUseCase } from '@src/business/usecases/execute/post-t
 import type { EvaluateTaskUseCase } from './evaluate-task.ts';
 import { type EvaluationOutcome } from './evaluate-task.ts';
 import { dimensionsEqual } from './plateau-detection.ts';
-
-/**
- * Pure path helpers — the loop knows the per-round layout under an
- * execution unit folder. Mirror of the integration-layer helpers in
- * `src/integration/persistence/execution-unit-builder.ts`; kept inline
- * here so the business layer doesn't import from integration. Both
- * sites must agree on the layout.
- */
-function evaluatorRoundDirInline(workspaceDir: string, round: number): string {
-  return join(workspaceDir, 'rounds', String(round), 'evaluator');
-}
-
-function latestEvaluationPathInline(workspaceDir: string): string {
-  return join(workspaceDir, 'latest-evaluation.md');
-}
 
 /**
  * Narrow shape this use case needs from a live-config provider — only the
@@ -282,7 +268,7 @@ export class EvaluateAndFixLoopUseCase {
       //    write somewhere meaningful.
       const evaluatorPromptPath = AbsolutePathVO.trustString(
         input.evaluateWorkspaceDir !== undefined
-          ? join(evaluatorRoundDirInline(input.evaluateWorkspaceDir, round), 'prompt.md')
+          ? join(evaluatorRoundDir(input.evaluateWorkspaceDir, round), 'prompt.md')
           : join(String(input.contextsDir), `evaluate-${String(input.task.id)}.md`)
       );
 
@@ -326,7 +312,7 @@ export class EvaluateAndFixLoopUseCase {
       //    object regardless). Skipped when no workspace is mounted.
       if (input.evaluateWorkspaceDir !== undefined) {
         const verdictPath = AbsolutePathVO.trustString(
-          join(evaluatorRoundDirInline(input.evaluateWorkspaceDir, round), 'evaluation.md')
+          join(evaluatorRoundDir(input.evaluateWorkspaceDir, round), 'evaluation.md')
         );
         const verdictWritten = await this.writeContextFile.write(verdictPath, fullCritique);
         if (!verdictWritten.ok) {
@@ -335,7 +321,7 @@ export class EvaluateAndFixLoopUseCase {
             error: verdictWritten.error.message,
           });
         }
-        const latestPath = AbsolutePathVO.trustString(latestEvaluationPathInline(input.evaluateWorkspaceDir));
+        const latestPath = AbsolutePathVO.trustString(latestEvaluationPath(input.evaluateWorkspaceDir));
         const latestWritten = await this.writeContextFile.write(latestPath, fullCritique);
         if (!latestWritten.ok) {
           log.warn('failed to update latest-evaluation.md pointer', {
@@ -396,7 +382,7 @@ export class EvaluateAndFixLoopUseCase {
       const fixContext =
         input.evaluateWorkspaceDir !== undefined
           ? {
-              critiqueFilePath: join(evaluatorRoundDirInline(input.evaluateWorkspaceDir, round), 'evaluation.md'),
+              critiqueFilePath: join(evaluatorRoundDir(input.evaluateWorkspaceDir, round), 'evaluation.md'),
             }
           : undefined;
       const fixResult = await this.generator.execute({

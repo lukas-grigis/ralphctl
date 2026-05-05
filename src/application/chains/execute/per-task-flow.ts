@@ -65,7 +65,7 @@
 import { dirname, join } from 'node:path';
 
 import { Result } from '@src/domain/result.ts';
-import { evaluatorRoundDir, generatorRoundDir } from '@src/integration/persistence/execution-unit-builder.ts';
+import { evaluatorRoundDir, generatorRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
 import { readDoneCriteriaBullet } from '@src/integration/persistence/done-criteria-reader.ts';
 
 import { BranchPreflightUseCase } from '@src/business/usecases/execute/branch-preflight.ts';
