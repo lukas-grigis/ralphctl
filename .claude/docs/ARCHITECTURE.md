@@ -205,10 +205,9 @@ chains/
 │   │                               unlink-skills → summarise-execution
 │   └── per-task-flow.ts          ← per-task: branch-preflight (OnError → mark-blocked) →
 │                                   mark-in-progress → render-prompt-to-file →
+│                                   build-execution-unit (OnError → noop) →
 │                                   execute-task (Retry on rate-limit) → post-task-check →
-│                                   build-execution-unit → evaluate-task
-│                                   (build + loop wrapped in OnError catch-all except aborted) →
-│                                   commit-task → mark-done
+│                                   evaluate-task (OnError → noop) → commit-task → mark-done
 ├── evaluate/evaluate-flow.ts     ← load-sprint → assert-active → load-task →
 │                                   check-already-evaluated → render-prompt-to-file →
 │                                   evaluate-task → persist-evaluation
@@ -225,6 +224,14 @@ chains/
 CLI commands and TUI views invoke chain factories (`createXxxFlow(deps, opts)`) and launch via
 `SessionManager.start({ element, initialCtx, label })` — never `chain.execute()` directly. An ESLint
 `no-restricted-imports` fence prevents direct use-case imports from CLI commands and TUI views.
+
+**Split OnError fallbacks (per-task).** `build-execution-unit` and `evaluate-task` are wrapped in **two
+independent** `OnError` decorators, each with `catchIf: err => err.code !== 'aborted'` and a `noopLeaf`
+fallback (`per-task-flow.ts`). A builder failure (disk full, EPERM…) is absorbed and the chain proceeds:
+`execute-task` runs against `task.projectPath` as usual, and `evaluate-task` runs the multi-round loop
+**without** `ctx.executionUnitRoot` — `EvaluateAndFixLoopUseCase` handles the missing root gracefully, so
+the per-task chain still settles to `mark-done`. User-initiated cancellation (`code: 'aborted'`)
+propagates through both wraps so Ctrl+C mid-evaluator doesn't silently fall through to `mark-done`.
 
 Per-pipeline step traces are the architectural fence: each `<name>-flow.test.ts` asserts
 `trace.map(s => s.stepName)` on happy + failure paths, locking step order. Step-order regressions break the build.
