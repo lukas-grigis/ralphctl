@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from 'ink-testing-library';
-import { StepTrace, CompactStepSummary, type LiveStep } from './step-trace.tsx';
+import { StepTrace, CompactStepSummary, MAX_RENDERED_STEPS, type LiveStep } from './step-trace.tsx';
 
 afterEach(() => {
   cleanup();
@@ -48,6 +48,38 @@ describe('StepTrace', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('bad-step');
     expect(frame).toContain('something went wrong');
+  });
+
+  it('caps rendered rows when steps exceed MAX_RENDERED_STEPS and shows an elision row', () => {
+    // Drive Ink with a large step list — without the cap this would render
+    // thousands of <Box> children and (combined with re-render heartbeats)
+    // OOM Node on long-running sprints. The cap keeps the parent's child
+    // count bounded.
+    const total = 5000;
+    const steps: LiveStep[] = Array.from({ length: total }, (_, i) => step(`step-${String(i)}`, 'completed', 10));
+    const { lastFrame } = render(<StepTrace steps={steps} isRunning={false} />);
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain(`… ${String(total - MAX_RENDERED_STEPS)} earlier steps`);
+    // The earliest non-elided step is at index `total - MAX_RENDERED_STEPS`.
+    expect(frame).toContain(`step-${String(total - MAX_RENDERED_STEPS)}`);
+    expect(frame).toContain(`step-${String(total - 1)}`);
+    // Anything older than the visible window is gone.
+    expect(frame).not.toContain('step-0 ');
+    expect(frame).not.toContain(`step-${String(total - MAX_RENDERED_STEPS - 1)} `);
+
+    // Defensive bound on rendered rows: elision line + visible steps.
+    const lines = frame.split('\n').filter((line) => line.trim().length > 0);
+    expect(lines.length).toBeLessThanOrEqual(MAX_RENDERED_STEPS + 1);
+  });
+
+  it('renders all rows when steps fit under MAX_RENDERED_STEPS without an elision row', () => {
+    const steps: LiveStep[] = Array.from({ length: 10 }, (_, i) => step(`step-${String(i)}`));
+    const { lastFrame } = render(<StepTrace steps={steps} isRunning={false} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).not.toContain('earlier steps');
+    expect(frame).toContain('step-0');
+    expect(frame).toContain('step-9');
   });
 });
 

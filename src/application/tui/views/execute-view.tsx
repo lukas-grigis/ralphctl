@@ -78,6 +78,15 @@ function isTaskStep(name: string): boolean {
   return /^task-[a-zA-Z0-9_-]+$/.test(name);
 }
 
+// Cap accumulated step state. A long `sprint start` (200+ tasks × ~10 inner
+// leaves each) would otherwise grow `steps` into the thousands; combined with
+// the 80–120 ms spinner heartbeats, Ink's per-render `[...childNodes].reverse()`
+// allocates a fresh array per tick and OOMs the process. Safe because each
+// leaf's "started" / "settled" pair fires synchronously inside one
+// `Element.execute()` settle, so by the time the head is evicted nothing
+// in the discarded prefix is still in-flight for the findIndex match below.
+const MAX_LIVE_STEPS = 200;
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -182,12 +191,14 @@ export function ExecuteView({ sessionId, sessionManager, signalBus }: Props): Re
             durationMs: entry.durationMs,
             errorMessage: entry.error?.message,
           };
+          let next: LiveStep[];
           if (idx >= 0) {
-            const next = [...prev];
+            next = [...prev];
             next[idx] = settled;
-            return next;
+          } else {
+            next = [...prev, settled];
           }
-          return [...prev, settled];
+          return next.length > MAX_LIVE_STEPS ? next.slice(-MAX_LIVE_STEPS) : next;
         });
         // Rate-limit heuristic fallback when no signalBus is wired.
         if (signalBus === undefined || signalBus === null) {

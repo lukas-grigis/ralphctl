@@ -76,15 +76,24 @@ function stepGlyph(status: ChainTraceEntry['status'] | undefined, spinnerFrame: 
   );
 }
 
+// Cap visible rows so a long-running chain (hundreds of per-task leaves)
+// can't grow the parent <Box>'s childNodes into the thousands. Ink calls
+// `[...childNodes].reverse()` per render; with a 90 ms spinner heartbeat
+// driving re-renders, an unbounded child list thrashes the heap to OOM.
+export const MAX_RENDERED_STEPS = 50;
+
 export function StepTrace({ steps, isRunning }: StepTraceProps): React.JSX.Element {
   const spinnerFrame = useSpinnerFrame();
   if (steps.length === 0) {
     if (isRunning) return <Spinner label="Starting…" />;
     return <Text dimColor>No steps recorded.</Text>;
   }
+  const visible = steps.length > MAX_RENDERED_STEPS ? steps.slice(-MAX_RENDERED_STEPS) : steps;
+  const elided = steps.length - visible.length;
   return (
     <Box flexDirection="column">
-      {steps.map((step, i) => (
+      {elided > 0 ? <Text dimColor>{`… ${String(elided)} earlier steps`}</Text> : null}
+      {visible.map((step, i) => (
         <Box key={i}>
           {stepGlyph(step.status, spinnerFrame)}
           <Text bold={step.status === undefined}>{`  ${step.name}`}</Text>
