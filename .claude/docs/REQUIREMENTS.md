@@ -242,9 +242,9 @@ confirm-setup-script → confirm-verify-script → confirm-context-file → writ
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks short-circuit the rest of the per-task chain via `taskBlocked`; the outer Sequential continues
       with the next task
-- [ ] `checkScript` runs at sprint start (per repo, idempotent via `sprint.checkRanAt`)
-- [ ] `checkScript` runs after every task completion as a post-task gate
-- [ ] Task not marked done if check gate fails
+- [x] `checkScript` runs at sprint start (per repo, idempotent via `sprint.checkRanAt`)
+- [x] `checkScript` runs after every task completion as a post-task gate
+- [x] Task not marked done if check gate fails
 - [ ] Rate-limited tasks auto-resume via session ID through `Retry(retryOn: 'rate-limited')`; `RateLimitCoordinator`
       bridges pause/resume to the signal bus for the dashboard's `RateLimitBanner`
 

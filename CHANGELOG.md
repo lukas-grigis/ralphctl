@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sprint-start green baseline** — `check-scripts-sprint-start` now iterates `sprint.affectedRepositories`,
+  runs each repo's configured `checkScript` exactly once, and stamps `Sprint.checkRanAt[repoPath]`. The
+  first red exit hard-aborts the chain naming the failing repo; the per-task prompt's
+  `{{ENVIRONMENT_STATUS}}` slot now renders "Pre-task environment check passed at <ISO>" instead of
+  "Not run.".
+- **Per-task verification gate** — `PostTaskCheckUseCase` now returns `Result.error(CheckFailedError)`
+  on a non-zero exit. The per-task chain wraps it in `OnError(catchIf: code === 'check-failed')` and
+  transitions the task to `'blocked'` (reason: "post-task check failed") instead of letting `mark-done`
+  proceed.
+- **Spawn-level errors degrade gracefully** — both check gates wrap the inner leaf in a soft `OnError`
+  that absorbs anything except `aborted` and the gate's own hard error code, so a missing binary /
+  EPERM doesn't strand a sprint or a task.
+
 ## [0.6.2] - 2026-05-04
 
 Hotfix on top of 0.6.1. The previous bundles silently no-op'd when invoked through the npm-installed
