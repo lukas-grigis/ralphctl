@@ -93,7 +93,7 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   - Claude uses a model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku); Copilot uses the same model (no control).
   - Evaluator grades four floor dimensions (Correctness / Completeness / Safety / Consistency) plus optional
     `extraDimensions` emitted per-task by the planner.
-  - Full critique persists to `<sprintDir>/evaluations/<taskId>.md`; `tasks.json` keeps a 2000-char preview + status.
+  - Full critique persists per-round to `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`; `Task.evaluationFile` points at the final round's file; `tasks.json` keeps a 2000-char preview on `Task.evaluationOutput`.
   - Evaluator **never blocks** — evaluator spawn / parse failures are wrapped in
     `OnError(catchIf: err => err.code !== 'aborted', fallback: noop)` in the per-task chain, so the task always
     proceeds to `done` (or `blocked` via `markBlocked` when branch-preflight fails) and the chain continues.

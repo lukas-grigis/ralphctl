@@ -34,8 +34,8 @@ done; when a behaviour regresses, untick it.
 - [ ] Harness signals — see [ARCHITECTURE.md § Harness Signals](./ARCHITECTURE.md). Acceptance: union
       exhaustiveness enforced via `const _exhaustive: never = signal`; unrecognised signals log a warning and
       continue.
-- [ ] Harness-owned output writes — `progress.md`, `evaluations/<taskId>.md`, `tasks.json` are written by the
-      harness, never by the AI. Append-only, file-locked via `FileLocker`.
+- [ ] Harness-owned output writes — `progress.md`, `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`,
+      `tasks.json` are written by the harness, never by the AI. Append-only, file-locked via `FileLocker`.
 - [ ] Logger sinks (`PlainTextSink` / `JsonLogger` / `InkSink` / `JsonlSink` / `FanOutLogger`) — see
       [ARCHITECTURE.md § Composition root](./ARCHITECTURE.md). Acceptance: console + JSONL receive identical
       streams; `RALPHCTL_LOG_LEVEL` filters everywhere; `VITEST=1` silences info / warn.
@@ -263,7 +263,8 @@ code === 'check-failed')` wrap)
 - [ ] `createEvaluateFlow` (standalone factory) runs ONE round per invocation; the multi-round loop is
       `EvaluateAndFixLoopUseCase` inside the per-task chain only
 - [ ] Evaluator **never blocks** — task always proceeds to `done` (or `blocked` via mark-blocked when branch-preflight
-      fails), even on `failed` / `malformed` outcomes; full critique persists to `evaluations/<taskId>.md`
+      fails), even on `failed` / `malformed` outcomes; full critique persists per-round to
+      `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`; `Task.evaluationFile` points at the final round
 - [ ] `--no-evaluate` flag skips evaluation for a single run
 - [ ] Session/interactive mode disables evaluation
 - [ ] `evaluationOutput` truncated to 2000 chars before persisting on the `Task` entity

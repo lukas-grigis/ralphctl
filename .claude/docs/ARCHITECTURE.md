@@ -321,8 +321,9 @@ is otherwise swallowed so audit emission never fails a spawn. Path construction 
 plan / ideate stamp a single `<unit-root>/session.md` (overwritten on re-run); the per-task chain routes each
 generator and evaluator spawn into `rounds/<N>/{generator,evaluator}/session.md` via the `generatorRoundDir` /
 `evaluatorRoundDir` helpers (`src/integration/persistence/execution-unit-builder.ts`) so every execute attempt and
-each evaluator round get distinct files; standalone `sprint evaluate` writes
-`<sprintDir>/evaluations/session-<task-id>.md`; feedback writes `<sprintDir>/feedback/session-<iteration>.md`.
+each evaluator round get distinct files; standalone `sprint evaluate` writes into
+`<sprintDir>/execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/` (one folder per invocation, ISO-stamped so
+prior verdicts are preserved as durable history); feedback writes `<sprintDir>/feedback/session-<iteration>.md`.
 
 `sprint requirements [--output <path>]` and `sprint context [--output <path>]` are markdown **exports**, not state.
 They default to the caller's `cwd` (`./<sprintId>-requirements.md` / `./<sprintId>-context.md`) and accept any
@@ -366,19 +367,19 @@ Fixed discriminated union in `src/domain/signals/harness-signal.ts`. Adding a va
 every `switch` on `HarnessSignal['type']` is exhaustiveness-checked by the compiler via
 `const _exhaustive: never = signal`.
 
-| Signal                       | Parsed from                                                        | Durable handler                                                                              |
-| ---------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `ProgressSignal`             | `<progress><summary>…</summary>…</progress>`                       | Append to `progress.md`                                                                      |
-| `EvaluationSignal`           | `<evaluation-passed>` / `<evaluation-failed>…</evaluation-failed>` | Sidecar (`evaluations/<task-id>.md`) + `tasks.json` preview                                  |
-| `TaskCompleteSignal`         | `<task-complete>`                                                  | None (per-task chain owns task lifecycle)                                                    |
-| `TaskVerifiedSignal`         | `<task-verified>output</task-verified>`                            | None (use case sets `verified` on the task entity)                                           |
-| `TaskBlockedSignal`          | `<task-blocked>reason</task-blocked>`                              | Record blocker in `progress.md`                                                              |
-| `NoteSignal`                 | `<note>text</note>`                                                | Append to `progress.md`                                                                      |
-| `CheckScriptDiscoverySignal` | `<check-script>command</check-script>`                             | None — consumed inline by setup flow (`project add` / `project repo add`)                    |
-| `AgentsMdProposalSignal`     | `<agents-md>…</agents-md>`                                         | None — consumed inline by `project onboard`; harness writes the provider-native file         |
-| `SetupScriptSignal`          | `<setup-script>command</setup-script>`                             | None — consumed inline by `project onboard`; persisted on `Repository.setupScript`           |
-| `VerifyScriptSignal`         | `<verify-script>command</verify-script>`                           | None — consumed inline by `project onboard`; persisted on `Repository.checkScript`           |
-| `SkillSuggestionsSignal`     | `<skill-suggestions>name1, name2, …</skill-suggestions>`           | None — consumed inline by `project onboard`; user-accepted subset linked via the skills port |
+| Signal                       | Parsed from                                                        | Durable handler                                                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProgressSignal`             | `<progress><summary>…</summary>…</progress>`                       | Append to `progress.md`                                                                                                                                                                                  |
+| `EvaluationSignal`           | `<evaluation-passed>` / `<evaluation-failed>…</evaluation-failed>` | `tasks.json` preview update (`Task.evaluationOutput` 2000-char truncation); full critique written per-round by `EvaluateAndFixLoopUseCase` to `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md` |
+| `TaskCompleteSignal`         | `<task-complete>`                                                  | None (per-task chain owns task lifecycle)                                                                                                                                                                |
+| `TaskVerifiedSignal`         | `<task-verified>output</task-verified>`                            | None (use case sets `verified` on the task entity)                                                                                                                                                       |
+| `TaskBlockedSignal`          | `<task-blocked>reason</task-blocked>`                              | Record blocker in `progress.md`                                                                                                                                                                          |
+| `NoteSignal`                 | `<note>text</note>`                                                | Append to `progress.md`                                                                                                                                                                                  |
+| `CheckScriptDiscoverySignal` | `<check-script>command</check-script>`                             | None — consumed inline by setup flow (`project add` / `project repo add`)                                                                                                                                |
+| `AgentsMdProposalSignal`     | `<agents-md>…</agents-md>`                                         | None — consumed inline by `project onboard`; harness writes the provider-native file                                                                                                                     |
+| `SetupScriptSignal`          | `<setup-script>command</setup-script>`                             | None — consumed inline by `project onboard`; persisted on `Repository.setupScript`                                                                                                                       |
+| `VerifyScriptSignal`         | `<verify-script>command</verify-script>`                           | None — consumed inline by `project onboard`; persisted on `Repository.checkScript`                                                                                                                       |
+| `SkillSuggestionsSignal`     | `<skill-suggestions>name1, name2, …</skill-suggestions>`           | None — consumed inline by `project onboard`; user-accepted subset linked via the skills port                                                                                                             |
 
 Plus synthetic bus events emitted by the per-task chain (not parsed from AI output): `rate-limit-paused`,
 `rate-limit-resumed`, `task-started`, `task-finished`. The `InMemorySignalBus` micro-batches emissions at ~16ms
