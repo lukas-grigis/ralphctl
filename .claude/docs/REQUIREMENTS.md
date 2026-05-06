@@ -34,8 +34,8 @@ done; when a behaviour regresses, untick it.
 - [ ] Harness signals — see [ARCHITECTURE.md § Harness Signals](./ARCHITECTURE.md). Acceptance: union
       exhaustiveness enforced via `const _exhaustive: never = signal`; unrecognised signals log a warning and
       continue.
-- [ ] Harness-owned output writes — `progress.md`, `evaluations/<taskId>.md`, `tasks.json` are written by the
-      harness, never by the AI. Append-only, file-locked via `FileLocker`.
+- [ ] Harness-owned output writes — `progress.md`, `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`,
+      `tasks.json` are written by the harness, never by the AI. Append-only, file-locked via `FileLocker`.
 - [ ] Logger sinks (`PlainTextSink` / `JsonLogger` / `InkSink` / `JsonlSink` / `FanOutLogger`) — see
       [ARCHITECTURE.md § Composition root](./ARCHITECTURE.md). Acceptance: console + JSONL receive identical
       streams; `RALPHCTL_LOG_LEVEL` filters everywhere; `VITEST=1` silences info / warn.
@@ -242,12 +242,14 @@ confirm-setup-script → confirm-verify-script → confirm-context-file → writ
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks short-circuit the rest of the per-task chain via `taskBlocked`; the outer Sequential continues
       with the next task
-- [x] `setupScript` runs at sprint start (per repo, audit-stamped on `sprint.setupRanAt`); first red exit
-      hard-aborts the chain naming the failing repo
-- [x] Per-task `checkScript` is auto-sourced from each repo's `Repository.checkScript` via the
+- [ ] `setupScript` runs at sprint start (per repo, audit-stamped on `sprint.setupRanAt`); any setup
+      failure (non-zero exit or spawn-level error — missing binary / EPERM / ENOENT) hard-aborts the chain
+      naming the failing repo. Repos already stamped on `setupRanAt` are skipped on resume so the chain
+      reaches per-task fan-out without re-running setup.
+- [ ] Per-task `checkScript` is auto-sourced from each repo's `Repository.checkScript` via the
       `resolve-check-scripts` leaf; `--check-script` (CLI) overrides for every task when set
-- [x] `checkScript` runs after every task completion as a post-task gate
-- [x] Task not marked done if check gate fails (transitions to `blocked` via the inner `OnError(catchIf:
+- [ ] `checkScript` runs after every task completion as a post-task gate
+- [ ] Task not marked done if check gate fails (transitions to `blocked` via the inner `OnError(catchIf:
 code === 'check-failed')` wrap)
 - [ ] Rate-limited tasks auto-resume via session ID through `Retry(retryOn: 'rate-limited')`; `RateLimitCoordinator`
       bridges pause/resume to the signal bus for the dashboard's `RateLimitBanner`
@@ -263,7 +265,8 @@ code === 'check-failed')` wrap)
 - [ ] `createEvaluateFlow` (standalone factory) runs ONE round per invocation; the multi-round loop is
       `EvaluateAndFixLoopUseCase` inside the per-task chain only
 - [ ] Evaluator **never blocks** — task always proceeds to `done` (or `blocked` via mark-blocked when branch-preflight
-      fails), even on `failed` / `malformed` outcomes; full critique persists to `evaluations/<taskId>.md`
+      fails), even on `failed` / `malformed` outcomes; full critique persists per-round to
+      `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`; `Task.evaluationFile` points at the final round
 - [ ] `--no-evaluate` flag skips evaluation for a single run
 - [ ] Session/interactive mode disables evaluation
 - [ ] `evaluationOutput` truncated to 2000 chars before persisting on the `Task` entity

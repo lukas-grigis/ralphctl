@@ -89,13 +89,14 @@ import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { TaskId } from '@src/domain/values/task-id.ts';
-import type { Element, KernelError } from '@src/kernel/chain/element.ts';
+import type { Element } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
 import { OnError } from '@src/kernel/chain/on-error.ts';
 import { Retry } from '@src/kernel/chain/retry.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
 import { buildExecutionUnitLeaf } from '@src/application/chains/leaves/build-execution-unit.ts';
+import { noopLeaf } from '@src/application/chains/leaves/noop-leaf.ts';
 import { renderPromptToFileLeaf } from '@src/application/chains/leaves/render-prompt-to-file.ts';
 import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
@@ -158,8 +159,8 @@ export interface PerTaskCtx {
   readonly executionSessionCwd?: AbsolutePath;
   /**
    * Full sprint task list. Used by `build-execution-unit` to derive
-   * `priorEvaluations` and to populate `tasks.md` / `tasks.json` inside
-   * the unit folder. Stamped onto the ctx by the outer `executeFlow`'s
+   * `priorEvaluations` and to populate `tasks.md` inside the unit
+   * folder. Stamped onto the ctx by the outer `executeFlow`'s
    * `load-tasks` leaf via the per-task chain construction; we expose
    * it on the per-task ctx so the build leaf can read it without
    * threading a separate input.
@@ -964,22 +965,5 @@ function commitTaskLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'external' | 'l
       noCommit: ctx.noCommit === true,
     }),
     output: (ctx, task) => ({ ...ctx, task }),
-  });
-}
-
-/**
- * Identity leaf — used as an `OnError` fallback so an evaluator failure
- * resolves the chain step with the original context. The evaluator
- * never blocks task completion (REQUIREMENTS.md).
- */
-function noopLeaf<TCtx>(name: string): Element<TCtx> {
-  return new Leaf<TCtx, TCtx, TCtx>(name, {
-    useCase: {
-      execute(input) {
-        return Promise.resolve(Result.ok(input)) as Promise<Result<TCtx, KernelError>>;
-      },
-    },
-    input: (ctx) => ctx,
-    output: (_, ctx) => ctx,
   });
 }

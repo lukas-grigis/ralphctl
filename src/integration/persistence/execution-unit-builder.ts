@@ -11,10 +11,11 @@
  *
  *   Volatile (overwritten by both `buildExecutionUnit` and `refreshExecutionUnit`):
  *     - `task.md` — the single task under review
- *     - `tasks.md` — full task plan as markdown
- *     - `tasks.json` — machine-readable task list
+ *     - `tasks.md` — full task plan as markdown; sibling evaluator output
+ *       (the 2000-char preview from `Task.evaluationOutput`) is rendered
+ *       inline under each completed task as a `### Evaluator output` block,
+ *       so the evaluator gets cross-task verdicts next to the task body.
  *     - `project-context.md` — copy of the target repo's context file
- *     - `prior-evaluations/<task-id>.md` — prior sibling evaluation critiques
  *
  *   Per-round (written by the evaluate-and-fix loop, never by this module):
  *     - `rounds/<N>/generator/session.md` — generator (re-)spawn audit
@@ -27,7 +28,7 @@
  *   Copilot only (mirrored at build time):
  *     - `repo/` — mirror of `task.projectPath`
  */
-import { readFile, rm } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AiProvider } from '@src/business/ports/ai-session-port.ts';
@@ -36,7 +37,7 @@ import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import type { Ticket } from '@src/domain/entities/ticket.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
-import { StorageError } from '@src/domain/errors/storage-error.ts';
+import type { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import type { TaskId } from '@src/domain/values/task-id.ts';
@@ -50,18 +51,10 @@ import {
   writeFileSafe,
 } from '@src/integration/persistence/session-folder-helpers.ts';
 
-// ─────────────────────── round-aware path helpers ────────────────────────
-
-/**
- * Integration-local helper for the per-task `prior-evaluations/` folder.
- * The round-aware helpers (`roundDir`, `generatorRoundDir`,
- * `evaluatorRoundDir`, `standaloneRoundDir`) live in
- * `@src/kernel/algorithms/execution-round-paths.ts` so the business
- * layer can use them without importing from integration.
- */
-export function priorEvaluationsDir(unitRoot: string): string {
-  return join(unitRoot, 'prior-evaluations');
-}
+// The round-aware helpers (`roundDir`, `generatorRoundDir`,
+// `evaluatorRoundDir`, `standaloneRoundDir`) live in
+// `@src/kernel/algorithms/execution-round-paths.ts` so the business
+// layer can use them without importing from integration.
 
 // ──────────────────────── evaluation rubric ──────────────────────────────
 
@@ -150,9 +143,12 @@ function renderTaskInput(task: Task): string {
 
 /**
  * Render `tasks.md` — the full task plan as one markdown section per
- * task, sorted by `order`.
+ * task, sorted by `order`. When `priorEvaluations` carries an entry for
+ * a task, its body (the 2000-char `Task.evaluationOutput` preview) is
+ * rendered inline as a fenced block under a `### Evaluator output`
+ * heading. Tasks without a prior evaluation get no heading — no stub.
  */
-function renderTasksList(tasks: readonly Task[]): string {
+function renderTasksList(tasks: readonly Task[], priorEvaluations: ReadonlyMap<TaskId, string>): string {
   const ordered = [...tasks].sort((a, b) => a.order - b.order);
   const lines: string[] = ['# Task plan', ''];
   for (const t of ordered) {
@@ -175,6 +171,10 @@ function renderTasksList(tasks: readonly Task[]): string {
       lines.push('### Verification criteria', '');
       for (const c of t.verificationCriteria) lines.push(`- ${c}`);
       lines.push('');
+    }
+    const priorEval = priorEvaluations.get(t.id);
+    if (priorEval !== undefined && priorEval.length > 0) {
+      lines.push('### Evaluator output', '', '```text', priorEval, '```', '');
     }
   }
   return lines.join('\n');
@@ -233,33 +233,14 @@ async function readProjectContext(repoPath: AbsolutePath, provider: AiProvider):
   }
 }
 
-/**
- * Stable, JSON-friendly snapshot of a task list.
- */
-function serialiseTasks(tasks: readonly Task[]): readonly Record<string, unknown>[] {
-  return [...tasks]
-    .sort((a, b) => a.order - b.order)
-    .map((t) => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      steps: t.steps,
-      verificationCriteria: t.verificationCriteria,
-      status: t.status,
-      order: t.order,
-      ticketId: t.ticketId,
-      blockedBy: t.blockedBy,
-      projectPath: t.projectPath,
-      extraDimensions: t.extraDimensions,
-    }));
-}
-
 // ────────────────────────── volatile writer ───────────────────────────────
 
 /**
  * Write (or overwrite) the volatile per-task files inside an execution unit
  * folder. Called by both `buildExecutionUnit` (initial build) and
- * `refreshExecutionUnit` (between evaluator rounds).
+ * `refreshExecutionUnit` (between evaluator rounds). Sibling evaluator
+ * output (`priorEvaluations`) is rendered inline inside `tasks.md` —
+ * there is no separate per-unit `prior-evaluations/` directory.
  */
 export async function writeExecutionVolatile(args: {
   root: AbsolutePath;
@@ -272,38 +253,13 @@ export async function writeExecutionVolatile(args: {
   const taskMd = await writeFileSafe(join(args.root, 'task.md'), renderTaskInput(args.task));
   if (!taskMd.ok) return Result.error(taskMd.error);
 
-  const tasksMd = await writeFileSafe(join(args.root, 'tasks.md'), renderTasksList(args.tasks));
+  const tasksMd = await writeFileSafe(join(args.root, 'tasks.md'), renderTasksList(args.tasks, args.priorEvaluations));
   if (!tasksMd.ok) return Result.error(tasksMd.error);
-
-  const tasksJson = await writeFileSafe(
-    join(args.root, 'tasks.json'),
-    JSON.stringify(serialiseTasks(args.tasks), null, 2)
-  );
-  if (!tasksJson.ok) return Result.error(tasksJson.error);
 
   const projectContext = await readProjectContext(args.task.projectPath, args.aiProvider);
   const projectCtxFile = await writeFileSafe(join(args.root, 'project-context.md'), projectContext);
   if (!projectCtxFile.ok) return Result.error(projectCtxFile.error);
 
-  const priorEvaluationsDirPath = priorEvaluationsDir(args.root);
-  try {
-    await rm(priorEvaluationsDirPath, { recursive: true, force: true });
-  } catch (err) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `failed to clear ${priorEvaluationsDirPath}: ${err instanceof Error ? err.message : String(err)}`,
-        path: priorEvaluationsDirPath,
-        cause: err,
-      })
-    );
-  }
-  const ensureEvals = await ensureDirSafe(priorEvaluationsDirPath);
-  if (!ensureEvals.ok) return Result.error(ensureEvals.error);
-  for (const [taskId, body] of args.priorEvaluations) {
-    const w = await writeFileSafe(join(priorEvaluationsDirPath, `${taskId}.md`), body);
-    if (!w.ok) return Result.error(w.error);
-  }
   return Result.ok();
 }
 
@@ -359,7 +315,7 @@ export async function buildExecutionUnit(
     }
   }
 
-  // Volatile: task.md, tasks.md, tasks.json, project-context.md, prior-evaluations/.
+  // Volatile: task.md, tasks.md (with sibling evaluator output rendered inline), project-context.md.
   const volatile = await writeExecutionVolatile({
     root,
     sprint: input.sprint,

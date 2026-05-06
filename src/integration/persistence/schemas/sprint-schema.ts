@@ -45,7 +45,13 @@ export const sprintJsonSchema = z.object({
   // to `[]` on a fresh draft sprint, populated post-plan).
   affectedRepositories: z.array(z.string()),
   // `Map<AbsolutePath, IsoTimestamp>` — serialised as a plain object map.
-  setupRanAt: z.record(z.string(), z.string()),
+  // Backwards-compat: v0.6.2 wrote this audit map under the legacy key
+  // `checkRanAt` and may not have emitted any key at all on older drafts.
+  // `.optional().default({})` accepts both shapes; Zod silently strips the
+  // legacy `checkRanAt` payload on the next save (a stale audit trail under
+  // the wrong key has no migration value — the worst case is one extra
+  // setup run on first resume).
+  setupRanAt: z.record(z.string(), z.string()).optional().default({}),
   tickets: z.array(ticketJsonSchema),
 });
 

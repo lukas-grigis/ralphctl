@@ -129,10 +129,10 @@ export interface PromptBuilderPort {
    * workspace (set by the per-task chain after `buildEvaluateWorkspace`
    * lands its contract pack on disk). When set, the rendered prompt
    * includes a `Contract files` section pointing the AI at upstream
-   * artefacts (`requirements/`, `tasks.md`, `dimensions.md`,
-   * `prior-evaluations/`, `project-context.md`). When unset, the section
-   * collapses — used by the standalone `sprint evaluate` chain which
-   * has no workspace.
+   * artefacts (`requirements/`, `tasks.md` with sibling evaluator output
+   * rendered inline, `dimensions.md`, `project-context.md`). When unset,
+   * the section collapses — used by the standalone `sprint evaluate`
+   * chain which has no workspace.
    */
   buildEvaluatePrompt(input: {
     task: Task;

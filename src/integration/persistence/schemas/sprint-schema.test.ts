@@ -194,4 +194,43 @@ describe('sprint-schema', () => {
     if (!back.ok) return;
     expect(back.value.pullRequestUrl).toBeNull();
   });
+
+  it('loads legacy v0.6.2 sprint.json with checkRanAt instead of setupRanAt', () => {
+    // v0.6.2 wrote the audit map under the legacy key `checkRanAt`. On the
+    // next save we drop the legacy key and emit `setupRanAt: {}` — Zod
+    // silently strips unknown keys, so a stale audit trail under the wrong
+    // key is forfeit (worst case: one extra setup run on first resume).
+    const original = makeDraftSprint();
+    const legacy = { ...fromSprint(original) } as Record<string, unknown>;
+    delete legacy['setupRanAt'];
+    legacy['checkRanAt'] = {};
+    const parsed = sprintJsonSchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const back = toSprint(parsed.data);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.setupRanAt.size).toBe(0);
+
+    // Round-trip: re-emitted JSON carries `setupRanAt: {}` and no
+    // `checkRanAt` key, so the next save self-cleans.
+    const reEmitted = fromSprint(back.value) as unknown as Record<string, unknown>;
+    expect(reEmitted['setupRanAt']).toStrictEqual({});
+    expect(reEmitted).not.toHaveProperty('checkRanAt');
+  });
+
+  it('loads legacy sprint.json with no audit-map key at all (defaults to empty)', () => {
+    // Some older drafts may have predated the audit map entirely. The
+    // schema must accept the absence and default to an empty Map.
+    const original = makeDraftSprint();
+    const legacy = { ...fromSprint(original) } as Record<string, unknown>;
+    delete legacy['setupRanAt'];
+    const parsed = sprintJsonSchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const back = toSprint(parsed.data);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.setupRanAt.size).toBe(0);
+  });
 });
