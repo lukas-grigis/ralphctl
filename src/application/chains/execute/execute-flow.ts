@@ -66,11 +66,13 @@ import {
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
-import type { Element } from '@src/kernel/chain/element.ts';
+import type { Element, KernelError } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
+import { OnError } from '@src/kernel/chain/on-error.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import { topologicalReorder } from '@src/kernel/algorithms/dependency-reorder.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
 import { assertActiveLeaf } from '@src/application/chains/leaves/assert-active.ts';
@@ -140,6 +142,7 @@ export function createExecuteFlow(
   deps: Pick<
     ChainSharedDeps,
     | 'sprintRepo'
+    | 'projectRepo'
     | 'taskRepo'
     | 'aiSession'
     | 'prompts'
@@ -202,10 +205,23 @@ export function createExecuteFlow(
   // Initializer phase: environment SETUP that must succeed before any task
   // runs. Grouped separately from the CONTRACT validation above (assert-*)
   // and from the execution phase (link-skills → execute-tasks).
+  //
+  // The sprint-start check leaf is wrapped in an `OnError` that absorbs
+  // SPAWN-LEVEL errors (missing binary, EPERM, …) but lets:
+  //   - `aborted` (user-initiated cancel) propagate, and
+  //   - `invalid-state` (a real red baseline) propagate
+  // through unchanged. Only those two reach the outer chain and stop
+  // it; transient environment hiccups degrade to a noop so a sprint
+  // isn't stranded by a flaky CI shell. The trace surfaces
+  // `check-scripts-sprint-start-noop` when the soft path fires so a
+  // post-mortem can tell why no checks ran.
   const initializeStep = new Sequential<ExecuteCtx>('initialize', [
     resolveBranchLeaf(deps),
     dirtyTreePreflightLeaf(deps, opts),
-    checkScriptsSprintStartLeaf(deps),
+    new OnError<ExecuteCtx>(checkScriptsSprintStartLeaf(deps), {
+      catchIf: (err) => err.code !== 'aborted' && err.code !== 'invalid-state',
+      fallback: noopLeafExec<ExecuteCtx>('check-scripts-sprint-start-noop'),
+    }),
   ]);
 
   return new Sequential<ExecuteCtx>('execute', [
@@ -519,9 +535,15 @@ function bridgePerTaskChain(
         // when the repo read fails.
         const fresh = await taskRepo.findBySprintId(input.sprintId);
         const liveTasks = fresh.ok ? fresh.value : (input.tasks ?? opts.tasks);
+        // Prefer the freshly-stamped sprint from ctx (the sprint-start
+        // check leaf updates `checkRanAt` and threads it forward). Fall
+        // back to the factory-time snapshot when ctx hasn't been
+        // populated yet — load-sprint always runs first, so this is
+        // belt-and-suspenders.
+        const liveSprint = input.sprint ?? opts.sprint;
         const innerCtx: PerTaskCtx = {
           sprintId: input.sprintId,
-          sprint: opts.sprint,
+          sprint: liveSprint,
           task,
           tasks: liveTasks,
           cwd: task.projectPath,
@@ -670,38 +692,100 @@ function assertTasksAcyclicLeaf(sortResult: ReturnType<typeof topologicalReorder
 }
 
 /**
- * Sprint-start check execution — runs the project check script once
- * before any tasks fan out, surfacing a hard failure if the baseline
- * environment is broken. Skipped when no check script is configured.
+ * Sprint-start green baseline. Walks `sprint.affectedRepositories`,
+ * looks up each path's `Repository` on the sprint's `Project`, and
+ * runs that repo's `checkScript` exactly once. The first red exit
+ * hard-aborts the chain via `InvalidStateError({ currentState:
+ * 'check-failed' })` (the outer `OnError` lets that error code
+ * propagate so the sprint stops cleanly with a "fix the baseline
+ * first" message naming the failing repo). Repos without a
+ * `checkScript` configured are skipped silently.
+ *
+ * On success, stamps `Sprint.checkRanAt[repoPath] = now` for each
+ * repo and threads the updated sprint forward via the leaf output so
+ * the per-task bridge sees populated `checkRanAt` and the prompt
+ * builder can render `Pre-task environment check passed at <ISO>`
+ * instead of `Not run.`.
+ *
+ * Stale paths (a repo that was on `affectedRepositories` at plan time
+ * but has since been removed from the project) are silently skipped —
+ * same policy as `resolve-branch` which also tolerates partial repo
+ * state.
+ *
+ * Spawn-level errors (missing binary, EPERM, …) propagate as whatever
+ * the `ExternalPort` adapter throws; the outer `OnError` (in the
+ * `initializeStep` Sequential) absorbs them so a flaky environment
+ * doesn't strand the sprint.
  */
-function checkScriptsSprintStartLeaf(deps: Pick<ChainSharedDeps, 'external'>): Element<ExecuteCtx> {
-  return new Leaf<ExecuteCtx, { readonly cwd: AbsolutePath; readonly checkScript?: string }, void>(
-    'check-scripts-sprint-start',
-    {
-      useCase: {
-        async execute(input) {
-          if (input.checkScript === undefined || input.checkScript.length === 0) {
-            return Promise.resolve(Result.ok(undefined));
-          }
-          const r = await deps.external.runCheckScript(input.cwd, input.checkScript, 'sprint-start');
-          if (!r.passed) {
+function checkScriptsSprintStartLeaf(deps: Pick<ChainSharedDeps, 'external' | 'projectRepo'>): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprint: Sprint }, Sprint>('check-scripts-sprint-start', {
+    useCase: {
+      async execute(input) {
+        const repoPaths = input.sprint.affectedRepositories;
+        // Empty `affectedRepositories` (e.g. direct-task path that
+        // never ran `sprint plan`) — nothing to verify, leave the
+        // sprint untouched.
+        if (repoPaths.length === 0) {
+          return Result.ok(input.sprint);
+        }
+
+        // Look up the project once so we can resolve each affected
+        // path to its configured `checkScript` / `checkTimeout`.
+        const projectResult = await deps.projectRepo.findByName(input.sprint.projectName);
+        if (!projectResult.ok) return Result.error(projectResult.error);
+        const project = projectResult.value;
+
+        let updated = input.sprint;
+        for (const repoPath of repoPaths) {
+          const repo = project.repositories.find((r) => r.path === repoPath);
+          if (repo === undefined) continue; // stale: repo removed post-plan
+          if (repo.checkScript === undefined || repo.checkScript.length === 0) continue;
+          const result = await deps.external.runCheckScript(
+            repoPath,
+            repo.checkScript,
+            'sprint-start',
+            repo.checkTimeout
+          );
+          if (!result.passed) {
             return Result.error(
               new InvalidStateError({
                 entity: 'sprint',
                 currentState: 'check-failed',
                 attemptedAction: 'execute',
-                message: 'sprint-start check script failed',
+                message: `sprint-start check script failed in ${String(repoPath)}`,
+                hint: 'Fix the failing check script before starting execution.',
               })
             );
           }
-          return Result.ok(undefined);
-        },
+          updated = updated.recordCheckRun(repoPath, IsoTimestamp.now());
+        }
+        return Result.ok(updated);
       },
-      input: (ctx) => ({
-        cwd: ctx.cwd,
-        ...(ctx.checkScript !== undefined ? { checkScript: ctx.checkScript } : {}),
-      }),
-      output: (ctx) => ctx,
-    }
-  );
+    },
+    input: (ctx) => {
+      if (!ctx.sprint) throw new Error('check-scripts-sprint-start: ctx.sprint must be loaded first');
+      return { sprint: ctx.sprint };
+    },
+    // Thread the (possibly stamped) sprint forward — every per-task
+    // bridge reads `ctx.sprint`, and the prompt builder reads
+    // `sprint.checkRanAt` to decide whether to render "passed at <ISO>"
+    // vs "Not run.".
+    output: (ctx, sprint) => ({ ...ctx, sprint }),
+  });
+}
+
+/**
+ * Identity leaf — local to execute-flow so the sprint-start `OnError`
+ * fallback has a typed noop without pulling per-task-flow's helper.
+ */
+function noopLeafExec<TCtx>(name: string): Element<TCtx> {
+  return new Leaf<TCtx, TCtx, TCtx>(name, {
+    useCase: {
+      execute(input) {
+        return Promise.resolve(Result.ok(input)) as Promise<Result<TCtx, KernelError>>;
+      },
+    },
+    input: (ctx) => ctx,
+    output: (_, ctx) => ctx,
+  });
 }
