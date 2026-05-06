@@ -7,7 +7,8 @@
  *     assert-tasks-not-empty → assert-tasks-blocked-by-resolvable →
  *     assert-tasks-acyclic →
  *     [initialize]:
- *       resolve-branch → dirty-tree-preflight → setup-scripts-sprint-start →
+ *       resolve-branch → dirty-tree-preflight → resolve-check-scripts →
+ *       setup-scripts-sprint-start →
  *     link-skills →
  *     execute-tasks (Sequential of topologically-ordered per-task chains) →
  *     unlink-skills → summarise-execution
@@ -21,13 +22,13 @@
  *
  * ## Initializer phase (`Sequential('initialize', [...])`)
  *
- * The three SETUP leaves — `resolve-branch`, `dirty-tree-preflight`, and
- * `setup-scripts-sprint-start` — are grouped into an inner Sequential named
- * `'initialize'`. This separates CONTRACT validation (the `assert-*` leaves
- * above) from environment SETUP (the initializer) from execution (the
- * per-task fan-out). Because `Sequential` flattens child traces, the
- * `'initialize'` name itself does NOT appear as a trace entry; the three
- * leaf names surface flatly just as they did before. The grouping is purely
+ * The four SETUP leaves — `resolve-branch`, `dirty-tree-preflight`,
+ * `resolve-check-scripts`, and `setup-scripts-sprint-start` — are grouped
+ * into an inner Sequential named `'initialize'`. This separates CONTRACT
+ * validation (the `assert-*` leaves above) from environment SETUP (the
+ * initializer) from execution (the per-task fan-out). Because `Sequential`
+ * flattens child traces, the `'initialize'` name itself does NOT appear as
+ * a trace entry; the four leaf names surface flatly. The grouping is purely
  * structural: it makes the chain definition self-documenting and keeps the
  * phase separation explicit for future additions.
  *
