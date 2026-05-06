@@ -3,12 +3,22 @@
  * task settles. Returns a structured result the chain layer uses to decide
  * whether to mark the task done.
  *
+ * Hard-failure contract: when the script exits non-zero, the use case
+ * surfaces a {@link CheckFailedError} via `Result.error` so the chain's
+ * outer `OnError(catchIf: code === 'check-failed', fallback: markBlocked)`
+ * can transition the task to `'blocked'` instead of letting `mark-done`
+ * proceed. Spawn-level errors (missing binary, EPERM, …) propagate as
+ * whatever the `ExternalPort` adapter throws — usually `StorageError` —
+ * and are absorbed by the chain's outer (soft) `OnError` wrap so a flaky
+ * environment doesn't strand a whole task.
+ *
  * Skip optimisation: when the caller passes `changedFilesSinceBaseline` and
  * the list is empty, the gate short-circuits with `skipped: true`. A task
  * that left no artefacts cannot have broken anything, and shaving the check
  * (typically a multi-minute install + lint + test) on those tasks compounds
  * across long sprints.
  */
+import { CheckFailedError } from '@src/domain/errors/check-failed-error.ts';
 import type { DomainError } from '@src/domain/errors/domain-error.ts';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
@@ -59,11 +69,12 @@ export class PostTaskCheckUseCase {
     );
 
     if (!result.passed) {
-      log.warn('post-task check failed');
+      log.warn('post-task check failed', { output: result.output });
+      return Result.error(new CheckFailedError({ output: result.output }));
     }
 
     return Result.ok({
-      passed: result.passed,
+      passed: true,
       output: result.output,
       skipped: false,
     });

@@ -31,7 +31,7 @@ describe('PostTaskCheckUseCase', () => {
     expect(external.checkScriptCalls[0]?.phase).toBe('post-task');
   });
 
-  it('reports failed when the check script fails', async () => {
+  it('returns Result.error(CheckFailedError) when the check script fails', async () => {
     const external = new FakeExternalPort({
       checkScriptOutcomes: [{ passed: false, output: '3 tests failing' }],
     });
@@ -43,10 +43,14 @@ describe('PostTaskCheckUseCase', () => {
       checkScript: 'pnpm test',
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.passed).toBe(false);
-    expect(result.value.output).toBe('3 tests failing');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('check-failed');
+    // The captured stdout/stderr round-trips on the error.
+    if (result.error.code === 'check-failed') {
+      expect(result.error.output).toBe('3 tests failing');
+    }
+    // The use case still warns through the logger so progress.md captures it.
     expect(logger.hasMessage('warn', 'post-task check failed')).toBe(true);
   });
 
