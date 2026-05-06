@@ -229,7 +229,7 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
 - Asserts `/\{\{[A-Z_]+\}\}/g` matches nothing after substitution.
 - **8 new tests added** covering optional-field branches not previously exercised:
   - `buildRefinePrompt` — pre-fetched `issueContext` text (wraps in `<context>` block)
-  - `buildExecutePrompt` — with `checkScript` (fenced shell block rendered); sprint with `branch` set (BRANCH_LINE populated); sprint with `checkRanAt` stamped (ENVIRONMENT_STATUS shows timestamp not "Not run.")
+  - `buildExecutePrompt` — with `checkScript` (fenced shell block rendered); sprint with `branch` set (BRANCH_LINE populated); sprint with `setupRanAt` stamped (ENVIRONMENT_STATUS shows timestamp not "Not run.")
   - `buildEvaluatePrompt` — with `evaluateWorkspaceDir` (Contract files section rendered)
   - `buildFeedbackPrompt` — sprint without a branch (BRANCH_SECTION collapses to empty string)
   - `buildPlanPrompt` — sprint with `affectedRepositories` set (repos in CONTEXT block)

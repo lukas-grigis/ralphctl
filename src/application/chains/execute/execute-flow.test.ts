@@ -259,7 +259,11 @@ describe('createExecuteFlow', () => {
       expect(result.error.error.message).toContain(repoPath);
     });
 
-    it('soft-degrades on a spawn-level error (e.g. missing binary): noop in trace, chain continues', async () => {
+    it('hard-aborts on a spawn-level setup error (e.g. missing binary)', async () => {
+      // Spawn errors (ENOENT / EPERM / missing binary) must abort the chain
+      // identically to a non-zero exit. A broken baseline environment
+      // surfaces as `InvalidStateError({ currentState: 'setup-failed' })`
+      // naming the failing repo so the user can fix it before retrying.
       const repoPath = '/tmp/demo-repo';
       const { sprint } = setupActive({ branch: 'ralphctl/setup-spawn', affectedRepoPath: repoPath });
       const project = buildProject(repoPath, 'pnpm install');
@@ -281,6 +285,155 @@ describe('createExecuteFlow', () => {
         projects: [project],
         tasks: [[sprint.id, [task]]],
         overrides: { external: throwingExternal },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-spawn',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-spawn',
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      const trace = result.error.trace.map((t) => t.stepName);
+      const failed = result.error.trace.find((t) => t.status === 'failed');
+      expect(failed?.stepName).toBe('setup-scripts-sprint-start');
+      expect(result.error.error.code).toBe('invalid-state');
+      // Error message names the failing repo and the underlying cause.
+      expect(result.error.error.message).toContain(repoPath);
+      expect(result.error.error.message).toContain('ENOENT');
+      // No per-task bridge ran — tasks must NOT have started.
+      expect(trace.some((n) => n.startsWith('task-'))).toBe(false);
+      // No soft-fallback step in the trace — the wrap was removed.
+      expect(trace).not.toContain('setup-scripts-sprint-start-noop');
+      expect(trace).not.toContain('setup-scripts-sprint-start-degraded');
+    });
+
+    it('skips repos already stamped on sprint.setupRanAt (resume case)', async () => {
+      // Resume scenario: a prior `sprint start` ran setup successfully,
+      // got killed mid-task, and the user re-runs. The sprint already
+      // carries a `setupRanAt` stamp for the affected repo; the leaf
+      // must NOT re-invoke the setup script.
+      const repoPath = '/tmp/demo-repo';
+      const { sprint: freshSprint } = setupActive({ branch: 'ralphctl/setup-resume', affectedRepoPath: repoPath });
+      const stampedSprint = freshSprint.recordSetupRun(abs(repoPath), '2026-05-06T08:00:00.000Z' as never);
+      const project = buildProject(repoPath, 'pnpm install');
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+      const external = new FakeExternalPort();
+
+      const deps = createTestDeps({
+        sprints: [stampedSprint],
+        projects: [project],
+        tasks: [[stampedSprint.id, [task]]],
+        overrides: { external },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: stampedSprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-resume',
+        tasks: [task],
+        sprint: stampedSprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: stampedSprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-resume',
+      });
+
+      expect(result.ok).toBe(true);
+      // The stamped repo is skipped — no setup script invocations.
+      expect(external.setupScriptCalls).toHaveLength(0);
+      // Existing stamp is preserved (no re-stamping; no entity churn).
+      const reread = await deps.sprintRepo.findById(stampedSprint.id);
+      expect(reread.ok).toBe(true);
+      if (reread.ok) {
+        expect(reread.value.setupRanAt.get(abs(repoPath))).toBe('2026-05-06T08:00:00.000Z');
+      }
+      if (!result.ok) return;
+      // The leaf still appears in the trace as a completed step (skip
+      // is silent at the per-repo level, not the leaf level).
+      const trace = result.value.trace.map((t) => t.stepName);
+      expect(trace).toContain('setup-scripts-sprint-start');
+    });
+
+    it('runs setup for un-stamped repos when only some repos in affectedRepositories carry stamps', async () => {
+      // Mixed case: two repos, one already stamped, one fresh. The leaf
+      // must skip the stamped one and call the setup script exactly once
+      // for the fresh repo.
+      const stampedPath = '/tmp/demo-repo-stamped';
+      const freshPath = '/tmp/demo-repo-fresh';
+      const sprint0 = makeSprint();
+      const ticket = makeApprovedTicket();
+      const withTicket = sprint0.addTicket(ticket);
+      if (!withTicket.ok) throw new Error('precondition');
+      const activated = withTicket.value.activate(sprint0.createdAt);
+      if (!activated.ok) throw new Error('precondition');
+      const branched = activated.value.setBranch('ralphctl/setup-mixed');
+      if (!branched.ok) throw new Error('precondition');
+      const affected = branched.value.setAffectedRepositories([abs(stampedPath), abs(freshPath)]);
+      if (!affected.ok) throw new Error('precondition');
+      const sprint = affected.value.recordSetupRun(abs(stampedPath), '2026-05-06T08:00:00.000Z' as never);
+
+      // Build a project carrying both repos with setup scripts.
+      const stampedRepo = Repository.create({
+        path: abs(stampedPath),
+        name: 'stamped-repo',
+        setupScript: 'pnpm install',
+      });
+      if (!stampedRepo.ok) throw new Error('precondition: stamped repo');
+      const freshRepo = Repository.create({
+        path: abs(freshPath),
+        name: 'fresh-repo',
+        setupScript: 'pnpm install',
+      });
+      if (!freshRepo.ok) throw new Error('precondition: fresh repo');
+      const projectName = ProjectName.parse('demo');
+      if (!projectName.ok) throw new Error('precondition: project name');
+      const project = Project.create({
+        name: projectName.value,
+        displayName: 'Demo',
+        repositories: [stampedRepo.value, freshRepo.value],
+      });
+      if (!project.ok) throw new Error('precondition: project');
+
+      const task = makeTask({ name: 'do work', projectPath: freshPath });
+      const external = new FakeExternalPort({ setupScriptOutcomes: [{ passed: true, output: '' }] });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project.value],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
         aiSession: {
           outcomes: [
             { kind: 'ok', result: { output: 'done' } },
@@ -306,7 +459,7 @@ describe('createExecuteFlow', () => {
       const flow = createExecuteFlow(deps, {
         sprintId: sprint.id,
         cwd: CWD,
-        expectedBranch: 'ralphctl/setup-spawn',
+        expectedBranch: 'ralphctl/setup-mixed',
         tasks: [task],
         sprint,
       });
@@ -314,17 +467,13 @@ describe('createExecuteFlow', () => {
       const result = await flow.execute({
         sprintId: sprint.id,
         cwd: CWD,
-        expectedBranch: 'ralphctl/setup-spawn',
+        expectedBranch: 'ralphctl/setup-mixed',
       });
 
-      // Chain still resolves OK — spawn error swallowed by the outer OnError.
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      const trace = result.value.trace.map((t) => t.stepName);
-      // The OnError fallback's noop step records the swallow.
-      expect(trace).toContain('setup-scripts-sprint-start-noop');
-      // The per-task bridge ran (Sequential flattens; bridges surface as `task-<id>`).
-      expect(trace.some((n) => n.startsWith('task-'))).toBe(true);
+      // Setup ran exactly once — for the un-stamped repo only.
+      expect(external.setupScriptCalls).toHaveLength(1);
+      expect(String(external.setupScriptCalls[0]?.projectPath)).toBe(freshPath);
     });
 
     it('skips repos without a setupScript and short-circuits cleanly when affectedRepositories is empty', async () => {

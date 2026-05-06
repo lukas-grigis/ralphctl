@@ -67,9 +67,8 @@ import {
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
-import type { Element, KernelError } from '@src/kernel/chain/element.ts';
+import type { Element } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
-import { OnError } from '@src/kernel/chain/on-error.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import { topologicalReorder } from '@src/kernel/algorithms/dependency-reorder.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
@@ -237,29 +236,25 @@ export function createExecuteFlow(
   //     once per affected repo so Claude departs from a deterministic
   //     baseline
   //
-  // `resolve-check-scripts` runs BEFORE the setup leaf so even if
-  // setup's outer `OnError` swallows a spawn-level error, the per-task
-  // gate still has its check-script map. (See the user-stated design:
-  // setup ≠ check; setup is the one-shot baseline, check is the
-  // step-to-step gate so follow-up tasks can succeed.)
+  // `resolve-check-scripts` runs BEFORE the setup leaf so the per-task
+  // gate's check-script map is populated before the setup script can
+  // hard-abort the chain. (See the user-stated design: setup ≠ check;
+  // setup is the one-shot baseline, check is the step-to-step gate so
+  // follow-up tasks can succeed.)
   //
-  // The sprint-start setup leaf is wrapped in an `OnError` that absorbs
-  // SPAWN-LEVEL errors (missing binary, EPERM, …) but lets:
-  //   - `aborted` (user-initiated cancel) propagate, and
-  //   - `invalid-state` (a real red baseline) propagate
-  // through unchanged. Only those two reach the outer chain and stop
-  // it; transient environment hiccups degrade to a noop so a sprint
-  // isn't stranded by a flaky CI shell. The trace surfaces
-  // `setup-scripts-sprint-start-noop` when the soft path fires so a
-  // post-mortem can tell why no setup scripts ran.
+  // The sprint-start setup leaf is intentionally NOT wrapped in an
+  // `OnError`. Both red exits and spawn-level errors (missing binary,
+  // EPERM, ENOENT, etc.) surface as
+  // `InvalidStateError({ currentState: 'setup-failed' })` from the leaf
+  // and abort the chain naming the failing repo. A broken environment
+  // baseline must fail loudly — papering over it with a soft fallback
+  // means task fan-out runs on top of a half-installed dependency tree
+  // and every downstream check is suspect.
   const initializeStep = new Sequential<ExecuteCtx>('initialize', [
     resolveBranchLeaf(deps),
     dirtyTreePreflightLeaf(deps, opts),
     resolveCheckScriptsLeaf(deps),
-    new OnError<ExecuteCtx>(setupScriptsSprintStartLeaf(deps), {
-      catchIf: (err) => err.code !== 'aborted' && err.code !== 'invalid-state',
-      fallback: noopLeafExec<ExecuteCtx>('setup-scripts-sprint-start-noop'),
-    }),
+    setupScriptsSprintStartLeaf(deps),
   ]);
 
   return new Sequential<ExecuteCtx>('execute', [
@@ -745,10 +740,9 @@ function assertTasksAcyclicLeaf(sortResult: ReturnType<typeof topologicalReorder
  * the user having to pass `--check-script` to `sprint start`.
  *
  * Distinct leaf (rather than a side-effect of `setup-scripts-sprint-start`)
- * because this read is pure and must succeed even when setup spawns are
- * shaky: running it FIRST means a flaky setup script that gets
- * absorbed by the soft `OnError` still leaves a populated
- * `ctx.checkScripts` for the per-task gate.
+ * because this read is pure and must succeed before the setup leaf can
+ * hard-abort: running it FIRST keeps `ctx.checkScripts` populated for
+ * the per-task gate even on sprints that bail out at sprint-start setup.
  *
  * Soft-fails on missing project / missing repo / unset `checkScript`:
  * the affected repo simply doesn't appear in the output map. An empty
@@ -803,14 +797,19 @@ function resolveCheckScriptsLeaf(deps: Pick<ChainSharedDeps, 'projectRepo' | 'lo
  * Behaviour:
  *  - Repos with no `setupScript` configured are skipped silently (same
  *    policy as the per-task gate's no-`checkScript` skip).
+ *  - Repos already stamped on `sprint.setupRanAt` are skipped silently
+ *    (resume case — setup already ran successfully on a prior launch).
  *  - Empty `sprint.affectedRepositories` short-circuits cleanly.
- *  - On the first failing setup script, the leaf returns
- *    `InvalidStateError({ currentState: 'setup-failed' })` and the chain
- *    aborts before any task runs — a broken baseline environment must
- *    not be papered over by the per-task gate.
+ *  - On the first failing setup script — exit non-zero OR a spawn-level
+ *    error (missing binary, EPERM, ENOENT, …) — the leaf returns
+ *    `InvalidStateError({ currentState: 'setup-failed' })` naming the
+ *    failing repo and the chain aborts before any task runs. A broken
+ *    baseline environment must fail loudly so the user fixes setup
+ *    rather than letting task fan-out run on a half-installed tree.
  *  - On success, `sprint.recordSetupRun(repoPath, now)` audit-stamps the
  *    sprint entity (persisted via the sprint repo) so the per-task
- *    prompt builder can surface "Setup script ran at <ISO>." to the AI.
+ *    prompt builder can surface "Setup script ran at <ISO>." to the AI
+ *    and so resumes skip already-stamped repos on the next launch.
  *
  * Project-repo lookup: `setupScript` lives on the `Repository` entity
  * inside the sprint's `Project`. We load the project once and resolve
@@ -818,13 +817,6 @@ function resolveCheckScriptsLeaf(deps: Pick<ChainSharedDeps, 'projectRepo' | 'lo
  * project (rare — usually means the user removed the project after
  * planning) skips the phase silently rather than failing — the user can
  * fix it without re-planning.
- *
- * Spawn-level errors (missing binary, EPERM, …) propagate as whatever
- * the `ExternalPort` adapter throws; the outer `OnError` (in the
- * `initializeStep` Sequential) absorbs them via the
- * `setup-scripts-sprint-start-noop` fallback so a flaky environment
- * doesn't strand the sprint. Real `setup-failed` (`code: 'invalid-state'`)
- * propagates so the user sees the failing repo by name.
  */
 function setupScriptsSprintStartLeaf(
   deps: Pick<ChainSharedDeps, 'external' | 'projectRepo' | 'sprintRepo' | 'logger'>
@@ -851,6 +843,16 @@ function setupScriptsSprintStartLeaf(
           let sprint = input.sprint;
           const now = IsoTimestamp.trustString(new Date().toISOString());
           for (const repoPath of repoPaths) {
+            // Resume: a prior launch already ran setup successfully for
+            // this repo. Preserve the stamp and skip — no re-run, no
+            // re-stamp, no log noise (debug only).
+            if (input.sprint.setupRanAt.has(repoPath)) {
+              const stampedAt = input.sprint.setupRanAt.get(repoPath);
+              deps.logger.debug(
+                `setup-scripts-sprint-start: skipping ${String(repoPath)} — already stamped at ${String(stampedAt)}`
+              );
+              continue;
+            }
             const repo = project.value.repositories.find((r) => r.path === repoPath);
             if (repo === undefined) {
               // Sprint references a repo that no longer exists on the
@@ -862,8 +864,26 @@ function setupScriptsSprintStartLeaf(
             if (script === undefined || script.length === 0) {
               continue; // No setup script for this repo — skip.
             }
-            const r = await deps.external.runSetupScript(repoPath, script, repo.checkTimeout);
-            if (!r.passed) {
+            // Wrap the spawn so a thrown rejection (ENOENT / EPERM and
+            // friends — adapters that bypass the normal `passed: false`
+            // conversion) surfaces as the same `setup-failed` invalid-
+            // state error as a non-zero exit. Either way, a broken
+            // baseline must abort the chain naming the failing repo.
+            let outcome;
+            try {
+              outcome = await deps.external.runSetupScript(repoPath, script, repo.checkTimeout);
+            } catch (err) {
+              return Result.error(
+                new InvalidStateError({
+                  entity: 'sprint',
+                  currentState: 'setup-failed',
+                  attemptedAction: 'execute',
+                  message: `sprint-start setup script failed in ${String(repoPath)}: ${err instanceof Error ? err.message : String(err)}`,
+                  hint: 'Fix the setup script (configured via `project onboard` / `project repo add`) and retry. Setup runs once at sprint start; the per-task `checkScript` is a separate gate.',
+                })
+              );
+            }
+            if (!outcome.passed) {
               return Result.error(
                 new InvalidStateError({
                   entity: 'sprint',
@@ -897,20 +917,4 @@ function setupScriptsSprintStartLeaf(
       output: (ctx) => ctx,
     }
   );
-}
-
-/**
- * Identity leaf — local to execute-flow so the sprint-start `OnError`
- * fallback has a typed noop without pulling per-task-flow's helper.
- */
-function noopLeafExec<TCtx>(name: string): Element<TCtx> {
-  return new Leaf<TCtx, TCtx, TCtx>(name, {
-    useCase: {
-      execute(input) {
-        return Promise.resolve(Result.ok(input)) as Promise<Result<TCtx, KernelError>>;
-      },
-    },
-    input: (ctx) => ctx,
-    output: (_, ctx) => ctx,
-  });
 }

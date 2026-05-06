@@ -242,12 +242,14 @@ confirm-setup-script → confirm-verify-script → confirm-context-file → writ
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks short-circuit the rest of the per-task chain via `taskBlocked`; the outer Sequential continues
       with the next task
-- [x] `setupScript` runs at sprint start (per repo, audit-stamped on `sprint.setupRanAt`); first red exit
-      hard-aborts the chain naming the failing repo
-- [x] Per-task `checkScript` is auto-sourced from each repo's `Repository.checkScript` via the
+- [ ] `setupScript` runs at sprint start (per repo, audit-stamped on `sprint.setupRanAt`); any setup
+      failure (non-zero exit or spawn-level error — missing binary / EPERM / ENOENT) hard-aborts the chain
+      naming the failing repo. Repos already stamped on `setupRanAt` are skipped on resume so the chain
+      reaches per-task fan-out without re-running setup.
+- [ ] Per-task `checkScript` is auto-sourced from each repo's `Repository.checkScript` via the
       `resolve-check-scripts` leaf; `--check-script` (CLI) overrides for every task when set
-- [x] `checkScript` runs after every task completion as a post-task gate
-- [x] Task not marked done if check gate fails (transitions to `blocked` via the inner `OnError(catchIf:
+- [ ] `checkScript` runs after every task completion as a post-task gate
+- [ ] Task not marked done if check gate fails (transitions to `blocked` via the inner `OnError(catchIf:
 code === 'check-failed')` wrap)
 - [ ] Rate-limited tasks auto-resume via session ID through `Retry(retryOn: 'rate-limited')`; `RateLimitCoordinator`
       bridges pause/resume to the signal bus for the dashboard's `RateLimitBanner`

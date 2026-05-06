@@ -339,8 +339,10 @@ and the mutators that are not obvious from the field names.
 - **`Repository`** (`repository.ts`) — identified by `AbsolutePath`; carries `setupScript`, `checkScript`,
   `checkTimeout`, `onboardedAt`. Mutators: `markOnboarded(now)`, `clearOnboarded()`, `withSetupScript(script)`.
   `setupScript` runs **once** at sprint start (`setup-scripts-sprint-start` chain leaf, via
-  `ExternalPort.runSetupScript`) and a non-zero exit hard-aborts before any task runs. `checkScript` is the
-  per-task verification gate run after every AI task and inside the feedback loop — auto-sourced by the
+  `ExternalPort.runSetupScript`) and any failure (non-zero exit OR spawn-level error) hard-aborts the chain
+  naming the failing repo before any task runs. The leaf skips repos already stamped on `Sprint.setupRanAt`
+  so resumes don't re-run setup. `checkScript` is the per-task verification gate run after every AI task
+  and inside the feedback loop — auto-sourced by the
   `resolve-check-scripts` chain leaf, which walks the sprint's project at sprint start and stuffs each
   affected repo's configured script into `ctx.checkScripts` so the per-task bridge can fire the gate
   without the user passing `--check-script`. The CLI flag overrides the auto-source globally when set.

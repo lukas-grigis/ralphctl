@@ -73,10 +73,12 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   share the runner)
 - **`setupScript` ≠ `checkScript`** — two distinct lifecycle hooks on every `Repository`. `setupScript` is the
   one-shot "prepare the env" command (e.g. `pnpm install`); it runs once per affected repo at sprint start, in the
-  `setup-scripts-sprint-start` chain leaf, and a non-zero exit hard-aborts before any task runs. `checkScript` is the
-  per-task verification gate; it runs after every AI task and inside the feedback loop. Both are collected during
-  `project onboard` and persisted on the `Repository` entity. Don't conflate them — a passing setup does not imply
-  the codebase compiles, and a passing check does not imply the env was prepared.
+  `setup-scripts-sprint-start` chain leaf, and any setup failure (non-zero exit OR spawn-level error — missing binary,
+  EPERM, ENOENT) hard-aborts the chain naming the failing repo before any task runs. The leaf skips repos already
+  stamped on `Sprint.setupRanAt` so resumes are fast. `checkScript` is the per-task verification gate; it runs after
+  every AI task and inside the feedback loop. Both are collected during `project onboard` and persisted on the
+  `Repository` entity. Don't conflate them — a passing setup does not imply the codebase compiles, and a passing
+  check does not imply the env was prepared.
 - **Post-task gate** — the per-task chain runs the configured `checkScript` after every AI task; the task is not marked
   done if the gate fails (see `business/usecases/execute/post-task-check.ts`). The script is auto-sourced from each
   repo's `Repository.checkScript` by the `resolve-check-scripts` chain leaf (run at sprint start); `sprint start

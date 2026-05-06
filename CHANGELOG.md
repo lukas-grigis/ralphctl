@@ -11,10 +11,14 @@ to [Semantic Versioning](https://semver.org/).
 
 - **Setup ≠ check.** Sprint start now runs each repo's configured `setupScript` (the deterministic
   baseline so Claude departs reliably) via the renamed `setup-scripts-sprint-start` chain leaf,
-  iterating `sprint.affectedRepositories` and stamping `Sprint.setupRanAt[repoPath]`. The first red
-  exit hard-aborts the chain naming the failing repo. The per-task prompt's `{{ENVIRONMENT_STATUS}}`
-  slot renders "Setup script ran at <ISO>" instead of the old "Pre-task environment check passed at"
-  string.
+  iterating `sprint.affectedRepositories` and stamping `Sprint.setupRanAt[repoPath]`. Any setup
+  failure — non-zero exit OR spawn-level error (missing binary, EPERM, ENOENT, …) — hard-aborts
+  the chain as `InvalidStateError({ currentState: 'setup-failed' })` naming the failing repo. The
+  per-task prompt's `{{ENVIRONMENT_STATUS}}` slot renders "Setup script ran at <ISO>" instead of
+  the old "Pre-task environment check passed at" string.
+- **Sprint resume skips already-stamped repos.** The `setup-scripts-sprint-start` leaf no-ops per
+  repo when `Sprint.setupRanAt[repoPath]` already carries a timestamp, so a sprint killed mid-run
+  reaches the per-task fan-out without re-running setup. The existing stamp is preserved.
 - **Per-task `checkScript` is auto-sourced.** A new `resolve-check-scripts` chain leaf (runs in the
   initialize phase before setup) walks the sprint's project once and populates `ctx.checkScripts`
   with each affected repo's configured `Repository.checkScript`. The per-task bridge seeds the gate
@@ -29,10 +33,14 @@ to [Semantic Versioning](https://semver.org/).
   `Result.error(CheckFailedError)` on a non-zero exit. The per-task chain wraps it in
   `OnError(catchIf: code === 'check-failed')` and transitions the task to `'blocked'` (reason:
   "post-task check failed") instead of letting `mark-done` proceed.
-- **Spawn-level errors degrade gracefully.** Both gates wrap the inner leaf in a soft `OnError` that
-  absorbs anything except `aborted` and the gate's own hard error code, so a missing binary / EPERM
-  doesn't strand a sprint or a task. `resolve-check-scripts` runs BEFORE the soft-wrapped setup so
-  the per-task gate keeps its check-script map even when setup degrades.
+- **Per-task spawn-level errors degrade gracefully.** The post-task `checkScript` gate, the
+  execution-unit builder, and the evaluator each wrap their inner leaf in a soft `OnError` that
+  absorbs anything except `aborted` and the gate's own hard error code, so a missing binary /
+  EPERM doesn't strand a task. `resolve-check-scripts` runs before the setup leaf so the per-task
+  gate keeps its check-script map even when sprint-start setup hard-aborts.
+- **Legacy `sprint.json` files load.** Sprint files written by v0.6.2 (carrying `checkRanAt: {}`
+  with no `setupRanAt` key) parse successfully; the legacy key is silently dropped on the next
+  save, so the file self-cleans without a migration step.
 
 ## [0.6.2] - 2026-05-04
 
