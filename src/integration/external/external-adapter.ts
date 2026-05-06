@@ -46,7 +46,19 @@ export class DefaultExternalAdapter implements ExternalPort {
     return this.issues.format(issue);
   }
 
-  // --- Check script execution -----------------------------------------
+  // --- Setup / check script execution ---------------------------------
+
+  async runSetupScript(projectPath: AbsolutePath, script: string, timeout?: number): Promise<CheckScriptResult> {
+    // Setup scripts run once per affected repo at sprint start. We
+    // delegate to the same runner as `runCheckScript` — the underlying
+    // mechanism (shell command, capture, return passed/output) is
+    // identical — but tag the lifecycle event as `'setup'` so user
+    // scripts branching on `RALPHCTL_LIFECYCLE_EVENT` can tell setup
+    // from a per-task check.
+    const r = await this.checkScripts.run(projectPath, script, 'setup', timeout);
+    if (r.ok) return r.value;
+    return { passed: false, output: `[setup-script error: ${r.error.message}]` };
+  }
 
   async runCheckScript(
     projectPath: AbsolutePath,

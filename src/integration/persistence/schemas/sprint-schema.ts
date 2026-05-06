@@ -45,7 +45,7 @@ export const sprintJsonSchema = z.object({
   // to `[]` on a fresh draft sprint, populated post-plan).
   affectedRepositories: z.array(z.string()),
   // `Map<AbsolutePath, IsoTimestamp>` — serialised as a plain object map.
-  checkRanAt: z.record(z.string(), z.string()),
+  setupRanAt: z.record(z.string(), z.string()),
   tickets: z.array(ticketJsonSchema),
 });
 
@@ -77,9 +77,9 @@ export function toSprint(parsed: SprintJson): Result<Sprint, StorageError> {
     tickets.push(r.value);
   }
 
-  const checkRanAt = new Map<AbsolutePath, IsoTimestamp>();
-  for (const [k, v] of Object.entries(parsed.checkRanAt)) {
-    checkRanAt.set(AbsolutePath.trustString(k), IsoTimestamp.trustString(v));
+  const setupRanAt = new Map<AbsolutePath, IsoTimestamp>();
+  for (const [k, v] of Object.entries(parsed.setupRanAt)) {
+    setupRanAt.set(AbsolutePath.trustString(k), IsoTimestamp.trustString(v));
   }
 
   const created = Sprint.create({
@@ -119,11 +119,11 @@ export function toSprint(parsed: SprintJson): Result<Sprint, StorageError> {
     if (r.ok) s = r.value;
   }
 
-  // Apply check stamps after lifecycle so a closed sprint still preserves
+  // Apply setup stamps after lifecycle so a closed sprint still preserves
   // any persisted entries (defensive — closed sprints normally have empty
-  // checkRanAt because `close()` clears them).
-  for (const [path, at] of checkRanAt) {
-    s = s.recordCheckRun(path, at);
+  // setupRanAt because `close()` clears them).
+  for (const [path, at] of setupRanAt) {
+    s = s.recordSetupRun(path, at);
   }
 
   if (parsed.branch !== null) {
@@ -147,9 +147,9 @@ export function toSprint(parsed: SprintJson): Result<Sprint, StorageError> {
 
 /** Reverse direction — Sprint entity → JSON-shaped object. */
 export function fromSprint(sprint: Sprint): SprintJson {
-  const checkRanAt: Record<string, string> = {};
-  for (const [k, v] of sprint.checkRanAt) {
-    checkRanAt[k] = v;
+  const setupRanAt: Record<string, string> = {};
+  for (const [k, v] of sprint.setupRanAt) {
+    setupRanAt[k] = v;
   }
   return {
     id: sprint.id,
@@ -162,7 +162,7 @@ export function fromSprint(sprint: Sprint): SprintJson {
     pullRequestUrl: sprint.pullRequestUrl,
     projectName: sprint.projectName,
     affectedRepositories: [...sprint.affectedRepositories],
-    checkRanAt,
+    setupRanAt,
     tickets: sprint.tickets.map(fromTicket),
   };
 }

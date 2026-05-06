@@ -392,12 +392,14 @@ describe('TextPromptBuilderAdapter — execute', () => {
     expect(r.value).not.toContain('See the project documentation');
   });
 
-  it('renders "Pre-task environment check passed at <ISO>" when sprint.checkRanAt has an entry for task.projectPath', async () => {
-    // Regression guard: the sprint-start green baseline leaf stamps
-    // `Sprint.checkRanAt[repoPath] = now` for each repo whose
-    // checkScript passed. The execute prompt must surface that
+  it('renders "Setup script ran at <ISO>" when sprint.setupRanAt has an entry for task.projectPath', async () => {
+    // Regression guard: the sprint-start setup leaf stamps
+    // `Sprint.setupRanAt[repoPath] = now` for each repo whose
+    // setupScript passed. The execute prompt must surface that
     // timestamp via {{ENVIRONMENT_STATUS}} so the agent knows the
-    // baseline was verified — not the old "Not run." string.
+    // env was prepared — not the old "Not run." string. The wording
+    // matters: "setup ran" ≠ "tests pass" — the per-task `checkScript`
+    // is the gate, not this stamp.
     const loader = new StubTemplateLoader({
       'task-execution': 'ENV:{{ENVIRONMENT_STATUS}}:END',
       'harness-context': 'H',
@@ -405,12 +407,12 @@ describe('TextPromptBuilderAdapter — execute', () => {
     });
     const adapter = new TextPromptBuilderAdapter(loader);
     const task = makeTask();
-    // Stamp checkRanAt for the same path the task points at.
-    const stamped = makeSprint().recordCheckRun(task.projectPath, '2026-05-05T10:00:00Z' as IsoTimestamp);
+    // Stamp setupRanAt for the same path the task points at.
+    const stamped = makeSprint().recordSetupRun(task.projectPath, '2026-05-05T10:00:00Z' as IsoTimestamp);
     const r = await adapter.buildExecutePrompt({ task, sprint: stamped });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value).toContain('Pre-task environment check passed at');
+    expect(r.value).toContain('Setup script ran at');
     expect(r.value).toContain('2026-05-05T10:00:00Z');
     expect(r.value).not.toContain('Not run.');
   });

@@ -200,7 +200,7 @@ chains/
 │   │                               reset-stale-in-progress → assert-tasks-not-empty →
 │   │                               assert-tasks-blocked-by-resolvable → assert-tasks-acyclic →
 │   │                               resolve-branch → dirty-tree-preflight →
-│   │                               check-scripts-sprint-start → link-skills → execute-tasks
+│   │                               setup-scripts-sprint-start → link-skills → execute-tasks
 │   │                               (Sequential of topologically-ordered per-task chains) →
 │   │                               unlink-skills → summarise-execution
 │   └── per-task-flow.ts          ← per-task: branch-preflight (OnError → mark-blocked) →
@@ -336,10 +336,15 @@ and the mutators that are not obvious from the field names.
 - **`Project`** (`project.ts`) — identified by branded `ProjectName` slug; owns `≥1 Repository` (unique by path).
 - **`Repository`** (`repository.ts`) — identified by `AbsolutePath`; carries `setupScript`, `checkScript`,
   `checkTimeout`, `onboardedAt`. Mutators: `markOnboarded(now)`, `clearOnboarded()`, `withSetupScript(script)`.
+  `setupScript` runs **once** at sprint start (`setup-scripts-sprint-start` chain leaf, via
+  `ExternalPort.runSetupScript`) and a non-zero exit hard-aborts before any task runs. `checkScript` is the
+  per-task verification gate run after every AI task and inside the feedback loop. Both share the same shell-runner
+  but are emitted at different lifecycle hooks; do not conflate them.
 - **`Sprint`** (`sprint.ts`) — identified by `SprintId` (`YYYYMMDD-HHmmss-<slug>`); lifecycle
   `draft → active → closed`; owns nested `Ticket[]`; carries `projectName`, `branch`, `pullRequestUrl`,
-  `affectedRepositories`, `checkRanAt`. Mutators: `rename(name)`, `clearBranch()`, `recordPullRequestUrl(url)`,
-  `setAffectedRepositories(paths)`.
+  `affectedRepositories`, `setupRanAt`. Mutators: `rename(name)`, `clearBranch()`, `recordPullRequestUrl(url)`,
+  `setAffectedRepositories(paths)`, `recordSetupRun(repo, at)`. `setupRanAt` is the audit map
+  (`Map<AbsolutePath, IsoTimestamp>`) of sprint-start setup-script runs; cleared on `close()`.
 - **`Ticket`** (`ticket.ts`) — nested in Sprint; identified by `TicketId`; `requirementStatus: pending → approved`
   set by `sprint refine`.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references

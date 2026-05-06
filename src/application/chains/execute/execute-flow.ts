@@ -7,7 +7,7 @@
  *     assert-tasks-not-empty → assert-tasks-blocked-by-resolvable →
  *     assert-tasks-acyclic →
  *     [initialize]:
- *       resolve-branch → dirty-tree-preflight → check-scripts-sprint-start →
+ *       resolve-branch → dirty-tree-preflight → setup-scripts-sprint-start →
  *     link-skills →
  *     execute-tasks (Sequential of topologically-ordered per-task chains) →
  *     unlink-skills → summarise-execution
@@ -22,7 +22,7 @@
  * ## Initializer phase (`Sequential('initialize', [...])`)
  *
  * The three SETUP leaves — `resolve-branch`, `dirty-tree-preflight`, and
- * `check-scripts-sprint-start` — are grouped into an inner Sequential named
+ * `setup-scripts-sprint-start` — are grouped into an inner Sequential named
  * `'initialize'`. This separates CONTRACT validation (the `assert-*` leaves
  * above) from environment SETUP (the initializer) from execution (the
  * per-task fan-out). Because `Sequential` flattens child traces, the
@@ -218,9 +218,9 @@ export function createExecuteFlow(
   const initializeStep = new Sequential<ExecuteCtx>('initialize', [
     resolveBranchLeaf(deps),
     dirtyTreePreflightLeaf(deps, opts),
-    new OnError<ExecuteCtx>(checkScriptsSprintStartLeaf(deps), {
+    new OnError<ExecuteCtx>(setupScriptsSprintStartLeaf(deps), {
       catchIf: (err) => err.code !== 'aborted' && err.code !== 'invalid-state',
-      fallback: noopLeafExec<ExecuteCtx>('check-scripts-sprint-start-noop'),
+      fallback: noopLeafExec<ExecuteCtx>('setup-scripts-sprint-start-noop'),
     }),
   ]);
 
@@ -536,7 +536,7 @@ function bridgePerTaskChain(
         const fresh = await taskRepo.findBySprintId(input.sprintId);
         const liveTasks = fresh.ok ? fresh.value : (input.tasks ?? opts.tasks);
         // Prefer the freshly-stamped sprint from ctx (the sprint-start
-        // check leaf updates `checkRanAt` and threads it forward). Fall
+        // setup leaf updates `setupRanAt` and threads it forward). Fall
         // back to the factory-time snapshot when ctx hasn't been
         // populated yet — load-sprint always runs first, so this is
         // belt-and-suspenders.
@@ -692,86 +692,109 @@ function assertTasksAcyclicLeaf(sortResult: ReturnType<typeof topologicalReorder
 }
 
 /**
- * Sprint-start green baseline. Walks `sprint.affectedRepositories`,
- * looks up each path's `Repository` on the sprint's `Project`, and
- * runs that repo's `checkScript` exactly once. The first red exit
- * hard-aborts the chain via `InvalidStateError({ currentState:
- * 'check-failed' })` (the outer `OnError` lets that error code
- * propagate so the sprint stops cleanly with a "fix the baseline
- * first" message naming the failing repo). Repos without a
- * `checkScript` configured are skipped silently.
+ * Sprint-start setup execution — runs the configured `setupScript` for
+ * every repo on `sprint.affectedRepositories` once before any tasks fan
+ * out. Setup is the one-shot "prepare the environment" hook (e.g. `pnpm
+ * install`) collected during `project onboard`; it is distinct from the
+ * per-task `checkScript` gate which lives in the per-task chain.
  *
- * On success, stamps `Sprint.checkRanAt[repoPath] = now` for each
- * repo and threads the updated sprint forward via the leaf output so
- * the per-task bridge sees populated `checkRanAt` and the prompt
- * builder can render `Pre-task environment check passed at <ISO>`
- * instead of `Not run.`.
+ * Behaviour:
+ *  - Repos with no `setupScript` configured are skipped silently (same
+ *    policy as the per-task gate's no-`checkScript` skip).
+ *  - Empty `sprint.affectedRepositories` short-circuits cleanly.
+ *  - On the first failing setup script, the leaf returns
+ *    `InvalidStateError({ currentState: 'setup-failed' })` and the chain
+ *    aborts before any task runs — a broken baseline environment must
+ *    not be papered over by the per-task gate.
+ *  - On success, `sprint.recordSetupRun(repoPath, now)` audit-stamps the
+ *    sprint entity (persisted via the sprint repo) so the per-task
+ *    prompt builder can surface "Setup script ran at <ISO>." to the AI.
  *
- * Stale paths (a repo that was on `affectedRepositories` at plan time
- * but has since been removed from the project) are silently skipped —
- * same policy as `resolve-branch` which also tolerates partial repo
- * state.
+ * Project-repo lookup: `setupScript` lives on the `Repository` entity
+ * inside the sprint's `Project`. We load the project once and resolve
+ * each affected path by walking `project.repositories`. A missing
+ * project (rare — usually means the user removed the project after
+ * planning) skips the phase silently rather than failing — the user can
+ * fix it without re-planning.
  *
  * Spawn-level errors (missing binary, EPERM, …) propagate as whatever
  * the `ExternalPort` adapter throws; the outer `OnError` (in the
- * `initializeStep` Sequential) absorbs them so a flaky environment
- * doesn't strand the sprint.
+ * `initializeStep` Sequential) absorbs them via the
+ * `setup-scripts-sprint-start-noop` fallback so a flaky environment
+ * doesn't strand the sprint. Real `setup-failed` (`code: 'invalid-state'`)
+ * propagates so the user sees the failing repo by name.
  */
-function checkScriptsSprintStartLeaf(deps: Pick<ChainSharedDeps, 'external' | 'projectRepo'>): Element<ExecuteCtx> {
-  return new Leaf<ExecuteCtx, { readonly sprint: Sprint }, Sprint>('check-scripts-sprint-start', {
-    useCase: {
-      async execute(input) {
-        const repoPaths = input.sprint.affectedRepositories;
-        // Empty `affectedRepositories` (e.g. direct-task path that
-        // never ran `sprint plan`) — nothing to verify, leave the
-        // sprint untouched.
-        if (repoPaths.length === 0) {
-          return Result.ok(input.sprint);
-        }
-
-        // Look up the project once so we can resolve each affected
-        // path to its configured `checkScript` / `checkTimeout`.
-        const projectResult = await deps.projectRepo.findByName(input.sprint.projectName);
-        if (!projectResult.ok) return Result.error(projectResult.error);
-        const project = projectResult.value;
-
-        let updated = input.sprint;
-        for (const repoPath of repoPaths) {
-          const repo = project.repositories.find((r) => r.path === repoPath);
-          if (repo === undefined) continue; // stale: repo removed post-plan
-          if (repo.checkScript === undefined || repo.checkScript.length === 0) continue;
-          const result = await deps.external.runCheckScript(
-            repoPath,
-            repo.checkScript,
-            'sprint-start',
-            repo.checkTimeout
-          );
-          if (!result.passed) {
-            return Result.error(
-              new InvalidStateError({
-                entity: 'sprint',
-                currentState: 'check-failed',
-                attemptedAction: 'execute',
-                message: `sprint-start check script failed in ${String(repoPath)}`,
-                hint: 'Fix the failing check script before starting execution.',
-              })
-            );
+function setupScriptsSprintStartLeaf(
+  deps: Pick<ChainSharedDeps, 'external' | 'projectRepo' | 'sprintRepo' | 'logger'>
+): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprintId: SprintId; readonly sprint: Sprint }, void>(
+    'setup-scripts-sprint-start',
+    {
+      useCase: {
+        async execute(input) {
+          const repoPaths = input.sprint.affectedRepositories;
+          if (repoPaths.length === 0) {
+            return Result.ok(undefined);
           }
-          updated = updated.recordCheckRun(repoPath, IsoTimestamp.now());
-        }
-        return Result.ok(updated);
+          const project = await deps.projectRepo.findByName(input.sprint.projectName);
+          if (!project.ok) {
+            // Missing project — skip silently and let the user repair the
+            // config without blocking. Logged so it's visible in the trace.
+            deps.logger.warn(
+              `setup-scripts-sprint-start: project ${String(input.sprint.projectName)} not found — skipping setup`,
+              { error: project.error.message }
+            );
+            return Result.ok(undefined);
+          }
+          let sprint = input.sprint;
+          const now = IsoTimestamp.trustString(new Date().toISOString());
+          for (const repoPath of repoPaths) {
+            const repo = project.value.repositories.find((r) => r.path === repoPath);
+            if (repo === undefined) {
+              // Sprint references a repo that no longer exists on the
+              // project — skip silently for the same "let the user fix
+              // config" reason as a missing project.
+              continue;
+            }
+            const script = repo.setupScript;
+            if (script === undefined || script.length === 0) {
+              continue; // No setup script for this repo — skip.
+            }
+            const r = await deps.external.runSetupScript(repoPath, script, repo.checkTimeout);
+            if (!r.passed) {
+              return Result.error(
+                new InvalidStateError({
+                  entity: 'sprint',
+                  currentState: 'setup-failed',
+                  attemptedAction: 'execute',
+                  message: `sprint-start setup script failed in ${String(repoPath)}`,
+                  hint: 'Fix the setup script (configured via `project onboard` / `project repo add`) and retry. Setup runs once at sprint start; the per-task `checkScript` is a separate gate.',
+                })
+              );
+            }
+            sprint = sprint.recordSetupRun(repoPath, now);
+          }
+          // Persist the audit stamps so the per-task prompt sees them.
+          // Best-effort: a save failure logs a warning but does not block
+          // sprint start — the setup actually ran successfully.
+          if (sprint !== input.sprint) {
+            const saved = await deps.sprintRepo.save(sprint);
+            if (!saved.ok) {
+              deps.logger.warn('setup-scripts-sprint-start: failed to persist setup audit stamps', {
+                error: saved.error.message,
+              });
+            }
+          }
+          return Result.ok(undefined);
+        },
       },
-    },
-    input: (ctx) => {
-      if (!ctx.sprint) throw new Error('check-scripts-sprint-start: ctx.sprint must be loaded first');
-      return { sprint: ctx.sprint };
-    },
-    // Thread the (possibly stamped) sprint forward — every per-task
-    // bridge reads `ctx.sprint`, and the prompt builder reads
-    // `sprint.checkRanAt` to decide whether to render "passed at <ISO>"
-    // vs "Not run.".
-    output: (ctx, sprint) => ({ ...ctx, sprint }),
-  });
+      input: (ctx) => {
+        if (!ctx.sprint) throw new Error('setup-scripts-sprint-start: ctx.sprint must be loaded first');
+        return { sprintId: ctx.sprintId, sprint: ctx.sprint };
+      },
+      output: (ctx) => ctx,
+    }
+  );
 }
 
 /**

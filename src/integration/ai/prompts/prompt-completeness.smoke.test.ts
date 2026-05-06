@@ -320,20 +320,21 @@ describe('prompt completeness — no unresolved {{PLACEHOLDER}} in rendered outp
     expect(r.value).toContain('ralphctl/sprint-a');
   });
 
-  it('execute — with checkRanAt populated (renders non-generic ENVIRONMENT_STATUS)', async () => {
-    // When the harness has already run the check script for a repo, it
-    // stamps `checkRanAt` on the sprint; the execute prompt renders the
+  it('execute — with setupRanAt populated (renders non-generic ENVIRONMENT_STATUS)', async () => {
+    // When the harness has already run the setup script for a repo, it
+    // stamps `setupRanAt` on the sprint; the execute prompt renders the
     // timestamp instead of the generic "Not run." fallback.
     const base = makeSprint();
-    const withCheck = base.recordCheckRun(path('/tmp/repo'), T0);
+    const withSetup = base.recordSetupRun(path('/tmp/repo'), T0);
     const r = await adapter.buildExecutePrompt({
       task: makeTask(),
-      sprint: withCheck,
+      sprint: withSetup,
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt(with-checkRanAt)');
+    assertNoUnresolvedPlaceholders(r.value, 'buildExecutePrompt(with-setupRanAt)');
     expect(r.value).toContain('2026-04-29T12:00:00Z');
+    expect(r.value).toContain('Setup script ran at');
     expect(r.value).not.toContain('Not run.');
   });
 
