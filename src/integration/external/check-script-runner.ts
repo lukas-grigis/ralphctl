@@ -34,7 +34,14 @@ import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 
-export type CheckScriptPhase = 'sprint-start' | 'post-task' | 'feedback';
+/**
+ * Phase tag for the underlying shell run. Mirrors the lifecycle hooks in
+ * {@link ExternalPort} plus the dedicated `'setup'` phase used by
+ * `runSetupScript` (sprint-start environment prep). Surfaces to user
+ * scripts via the `RALPHCTL_LIFECYCLE_EVENT` env var so a single shell
+ * command can branch on what phase invoked it.
+ */
+export type CheckScriptPhase = 'setup' | 'post-task' | 'feedback';
 
 export interface CheckScriptResult {
   readonly passed: boolean;

@@ -384,13 +384,20 @@ export class EvaluateAndFixLoopUseCase {
       }
 
       // ── Post-task check between rounds ──────────────────────────
+      // The check runner now surfaces a red script via
+      // `Result.error(CheckFailedError)` so the per-task chain's outer
+      // gate can block the task. Inside the fix-and-reevaluate loop we
+      // intentionally tolerate a red check — the next evaluator round
+      // will re-grade — so we treat `code: 'check-failed'` as a warning
+      // and keep iterating. Any other error (StorageError, etc.) is
+      // propagated.
       if (input.checkScript !== undefined && input.checkScript.length > 0) {
         const checkResult = await this.checkRunner.execute({
           projectPath: input.cwd,
           checkScript: input.checkScript,
         });
-        if (!checkResult.ok) return Result.error(checkResult.error);
-        if (!checkResult.value.passed) {
+        if (!checkResult.ok) {
+          if (checkResult.error.code !== 'check-failed') return Result.error(checkResult.error);
           log.warn('post-task check failed after fix attempt — re-evaluating anyway', { round });
         }
       }

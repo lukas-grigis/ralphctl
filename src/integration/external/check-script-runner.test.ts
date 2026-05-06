@@ -16,7 +16,7 @@ describe('CheckScriptRunner', () => {
   it('returns passed=true when the script exits zero', async () => {
     const cwd = await tmpAbs();
     const runner = new CheckScriptRunner();
-    const r = await runner.run(cwd, 'echo hello', 'sprint-start');
+    const r = await runner.run(cwd, 'echo hello', 'setup');
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.passed).toBe(true);
@@ -55,7 +55,7 @@ describe('CheckScriptRunner', () => {
     const cwd = await tmpAbs();
     const runner = new CheckScriptRunner();
     // 50ms timeout, script sleeps 5s — should be killed.
-    const r = await runner.run(cwd, 'sleep 5', 'sprint-start', 50);
+    const r = await runner.run(cwd, 'sleep 5', 'setup', 50);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.passed).toBe(false);
@@ -69,7 +69,7 @@ describe('CheckScriptRunner', () => {
     // Non-existent command — shell exits 127. Not a system error —
     // a missing tool is a config issue the harness should surface as a
     // failed gate, not a crash.
-    const r = await runner.run(cwd, 'definitely-not-a-real-binary-xyz', 'sprint-start');
+    const r = await runner.run(cwd, 'definitely-not-a-real-binary-xyz', 'setup');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.passed).toBe(false);
   });
@@ -83,7 +83,7 @@ describe('CheckScriptRunner', () => {
     const runner = new CheckScriptRunner();
     // Emit 2 MB via node (fs.writeSync is synchronous so bytes flush before exit).
     const script = 'node -e "const fs=require(\\"fs\\"); fs.writeSync(1, \\"x\\".repeat(2*1024*1024))"';
-    const r = await runner.run(cwd, script, 'sprint-start');
+    const r = await runner.run(cwd, script, 'setup');
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.passed).toBe(true);
@@ -97,7 +97,7 @@ describe('CheckScriptRunner', () => {
     if (process.platform === 'win32') return; // skip on Windows
     const cwd = await tmpAbs();
     const runner = new CheckScriptRunner();
-    const r = await runner.run(cwd, 'sleep 5', 'sprint-start', 100);
+    const r = await runner.run(cwd, 'sleep 5', 'setup', 100);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.passed).toBe(false);

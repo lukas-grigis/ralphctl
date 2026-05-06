@@ -7,7 +7,8 @@
  *     assert-tasks-not-empty → assert-tasks-blocked-by-resolvable →
  *     assert-tasks-acyclic →
  *     [initialize]:
- *       resolve-branch → dirty-tree-preflight → check-scripts-sprint-start →
+ *       resolve-branch → dirty-tree-preflight → resolve-check-scripts →
+ *       setup-scripts-sprint-start →
  *     link-skills →
  *     execute-tasks (Sequential of topologically-ordered per-task chains) →
  *     unlink-skills → summarise-execution
@@ -21,13 +22,13 @@
  *
  * ## Initializer phase (`Sequential('initialize', [...])`)
  *
- * The three SETUP leaves — `resolve-branch`, `dirty-tree-preflight`, and
- * `check-scripts-sprint-start` — are grouped into an inner Sequential named
- * `'initialize'`. This separates CONTRACT validation (the `assert-*` leaves
- * above) from environment SETUP (the initializer) from execution (the
- * per-task fan-out). Because `Sequential` flattens child traces, the
- * `'initialize'` name itself does NOT appear as a trace entry; the three
- * leaf names surface flatly just as they did before. The grouping is purely
+ * The four SETUP leaves — `resolve-branch`, `dirty-tree-preflight`,
+ * `resolve-check-scripts`, and `setup-scripts-sprint-start` — are grouped
+ * into an inner Sequential named `'initialize'`. This separates CONTRACT
+ * validation (the `assert-*` leaves above) from environment SETUP (the
+ * initializer) from execution (the per-task fan-out). Because `Sequential`
+ * flattens child traces, the `'initialize'` name itself does NOT appear as
+ * a trace entry; the four leaf names surface flatly. The grouping is purely
  * structural: it makes the chain definition self-documenting and keeps the
  * phase separation explicit for future additions.
  *
@@ -66,11 +67,13 @@ import {
 import type { Sprint } from '@src/domain/entities/sprint.ts';
 import type { Task } from '@src/domain/entities/task.ts';
 import { InvalidStateError } from '@src/domain/errors/invalid-state-error.ts';
-import type { Element } from '@src/kernel/chain/element.ts';
+import type { Element, KernelError } from '@src/kernel/chain/element.ts';
 import { Leaf } from '@src/kernel/chain/leaf.ts';
+import { OnError } from '@src/kernel/chain/on-error.ts';
 import { Sequential } from '@src/kernel/chain/sequential.ts';
 import { topologicalReorder } from '@src/kernel/algorithms/dependency-reorder.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { IsoTimestamp } from '@src/domain/values/iso-timestamp.ts';
 import type { SprintId } from '@src/domain/values/sprint-id.ts';
 import type { ChainSharedDeps } from '@src/application/chains/chain-deps.ts';
 import { assertActiveLeaf } from '@src/application/chains/leaves/assert-active.ts';
@@ -94,8 +97,29 @@ export interface ExecuteCtx {
    * propagates correctly.
    */
   readonly expectedBranch: string;
-  /** Resolved check script (per-repo lookup happens at the caller). */
+  /**
+   * Global override for the per-task check script. When set (typically
+   * via the CLI `--check-script` flag), this command runs as the
+   * post-task gate for EVERY task, regardless of which repo the task
+   * targets. When unset, the per-task bridge falls back to
+   * {@link checkScripts}`.get(task.projectPath)` — the repo's own
+   * configured `checkScript`.
+   */
   readonly checkScript?: string;
+  /**
+   * Per-repo check-script lookup, populated by the
+   * `resolve-check-scripts` leaf at sprint start by reading the sprint's
+   * project's `Repository.checkScript` for every entry on
+   * `sprint.affectedRepositories`. The per-task bridge uses this map to
+   * auto-source the post-task gate's command per-task; {@link checkScript}
+   * (the global override) wins when both are present.
+   *
+   * Stays undefined when the resolve leaf was skipped (missing project
+   * record, empty `affectedRepositories`, etc.) — downstream leaves
+   * tolerate the absence by falling back to {@link checkScript} or
+   * skipping the gate cleanly.
+   */
+  readonly checkScripts?: ReadonlyMap<AbsolutePath, string>;
   readonly sprint?: Sprint;
   readonly tasks?: readonly Task[];
   /** Outcome of the dirty-tree pre-flight (set by `dirty-tree-preflight`). */
@@ -140,6 +164,7 @@ export function createExecuteFlow(
   deps: Pick<
     ChainSharedDeps,
     | 'sprintRepo'
+    | 'projectRepo'
     | 'taskRepo'
     | 'aiSession'
     | 'prompts'
@@ -202,10 +227,39 @@ export function createExecuteFlow(
   // Initializer phase: environment SETUP that must succeed before any task
   // runs. Grouped separately from the CONTRACT validation above (assert-*)
   // and from the execution phase (link-skills → execute-tasks).
+  //
+  // Order:
+  //   - `resolve-branch` / `dirty-tree-preflight` — git plumbing
+  //   - `resolve-check-scripts` — pure project read; fills
+  //     `ctx.checkScripts` so the per-task bridge can auto-source the
+  //     post-task gate's command from each repo's own configuration
+  //   - `setup-scripts-sprint-start` — runs the configured `setupScript`
+  //     once per affected repo so Claude departs from a deterministic
+  //     baseline
+  //
+  // `resolve-check-scripts` runs BEFORE the setup leaf so even if
+  // setup's outer `OnError` swallows a spawn-level error, the per-task
+  // gate still has its check-script map. (See the user-stated design:
+  // setup ≠ check; setup is the one-shot baseline, check is the
+  // step-to-step gate so follow-up tasks can succeed.)
+  //
+  // The sprint-start setup leaf is wrapped in an `OnError` that absorbs
+  // SPAWN-LEVEL errors (missing binary, EPERM, …) but lets:
+  //   - `aborted` (user-initiated cancel) propagate, and
+  //   - `invalid-state` (a real red baseline) propagate
+  // through unchanged. Only those two reach the outer chain and stop
+  // it; transient environment hiccups degrade to a noop so a sprint
+  // isn't stranded by a flaky CI shell. The trace surfaces
+  // `setup-scripts-sprint-start-noop` when the soft path fires so a
+  // post-mortem can tell why no setup scripts ran.
   const initializeStep = new Sequential<ExecuteCtx>('initialize', [
     resolveBranchLeaf(deps),
     dirtyTreePreflightLeaf(deps, opts),
-    checkScriptsSprintStartLeaf(deps),
+    resolveCheckScriptsLeaf(deps),
+    new OnError<ExecuteCtx>(setupScriptsSprintStartLeaf(deps), {
+      catchIf: (err) => err.code !== 'aborted' && err.code !== 'invalid-state',
+      fallback: noopLeafExec<ExecuteCtx>('setup-scripts-sprint-start-noop'),
+    }),
   ]);
 
   return new Sequential<ExecuteCtx>('execute', [
@@ -519,14 +573,26 @@ function bridgePerTaskChain(
         // when the repo read fails.
         const fresh = await taskRepo.findBySprintId(input.sprintId);
         const liveTasks = fresh.ok ? fresh.value : (input.tasks ?? opts.tasks);
+        // Prefer the freshly-stamped sprint from ctx (the sprint-start
+        // setup leaf updates `setupRanAt` and threads it forward). Fall
+        // back to the factory-time snapshot when ctx hasn't been
+        // populated yet — load-sprint always runs first, so this is
+        // belt-and-suspenders.
+        const liveSprint = input.sprint ?? opts.sprint;
+        // Resolve the per-task check script. The CLI's `--check-script`
+        // global override (input.checkScript) wins; otherwise we fall
+        // back to the per-repo map populated by `resolve-check-scripts`
+        // at sprint start. When neither is set the gate skips silently
+        // — same policy as before this branch's auto-source.
+        const resolvedCheckScript = input.checkScript ?? input.checkScripts?.get(task.projectPath);
         const innerCtx: PerTaskCtx = {
           sprintId: input.sprintId,
-          sprint: opts.sprint,
+          sprint: liveSprint,
           task,
           tasks: liveTasks,
           cwd: task.projectPath,
           expectedBranch: input.expectedBranch,
-          ...(input.checkScript !== undefined ? { checkScript: input.checkScript } : {}),
+          ...(resolvedCheckScript !== undefined ? { checkScript: resolvedCheckScript } : {}),
           ...(input.noCommit === true ? { noCommit: true } : {}),
         };
         const innerResult = await inner.execute(innerCtx);
@@ -670,38 +736,181 @@ function assertTasksAcyclicLeaf(sortResult: ReturnType<typeof topologicalReorder
 }
 
 /**
- * Sprint-start check execution — runs the project check script once
- * before any tasks fan out, surfacing a hard failure if the baseline
- * environment is broken. Skipped when no check script is configured.
+ * Sprint-start check-script resolution — pure read. Walks
+ * `sprint.affectedRepositories`, looks each repo up on the sprint's
+ * project, and stuffs `Repository.checkScript` (when configured) into a
+ * `ReadonlyMap<AbsolutePath, string>` on `ctx.checkScripts`. The
+ * per-task bridge later seeds each per-task chain's `checkScript` from
+ * this map, so the post-task gate fires automatically per repo without
+ * the user having to pass `--check-script` to `sprint start`.
+ *
+ * Distinct leaf (rather than a side-effect of `setup-scripts-sprint-start`)
+ * because this read is pure and must succeed even when setup spawns are
+ * shaky: running it FIRST means a flaky setup script that gets
+ * absorbed by the soft `OnError` still leaves a populated
+ * `ctx.checkScripts` for the per-task gate.
+ *
+ * Soft-fails on missing project / missing repo / unset `checkScript`:
+ * the affected repo simply doesn't appear in the output map. An empty
+ * `affectedRepositories` short-circuits cleanly — many sprints (direct
+ * `task add` path) never run `sprint plan`, so this is the common case.
  */
-function checkScriptsSprintStartLeaf(deps: Pick<ChainSharedDeps, 'external'>): Element<ExecuteCtx> {
-  return new Leaf<ExecuteCtx, { readonly cwd: AbsolutePath; readonly checkScript?: string }, void>(
-    'check-scripts-sprint-start',
+function resolveCheckScriptsLeaf(deps: Pick<ChainSharedDeps, 'projectRepo' | 'logger'>): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprint: Sprint }, ReadonlyMap<AbsolutePath, string>>('resolve-check-scripts', {
+    useCase: {
+      async execute(input) {
+        const map = new Map<AbsolutePath, string>();
+        const repoPaths = input.sprint.affectedRepositories;
+        if (repoPaths.length === 0) {
+          return Result.ok(map);
+        }
+        const project = await deps.projectRepo.findByName(input.sprint.projectName);
+        if (!project.ok) {
+          // Same "let the user fix config without aborting" policy as
+          // `setup-scripts-sprint-start`. Logged so the trace shows why
+          // the per-task gates skipped.
+          deps.logger.warn(
+            `resolve-check-scripts: project ${String(input.sprint.projectName)} not found — per-task gate will skip`,
+            { error: project.error.message }
+          );
+          return Result.ok(map);
+        }
+        for (const repoPath of repoPaths) {
+          const repo = project.value.repositories.find((r) => r.path === repoPath);
+          if (repo === undefined) continue;
+          const script = repo.checkScript;
+          if (script === undefined || script.length === 0) continue;
+          map.set(repoPath, script);
+        }
+        return Result.ok(map);
+      },
+    },
+    input: (ctx) => {
+      if (!ctx.sprint) throw new Error('resolve-check-scripts: ctx.sprint must be loaded first');
+      return { sprint: ctx.sprint };
+    },
+    output: (ctx, checkScripts) => ({ ...ctx, checkScripts }),
+  });
+}
+
+/**
+ * Sprint-start setup execution — runs the configured `setupScript` for
+ * every repo on `sprint.affectedRepositories` once before any tasks fan
+ * out. Setup is the one-shot "prepare the environment" hook (e.g. `pnpm
+ * install`) collected during `project onboard`; it is distinct from the
+ * per-task `checkScript` gate which lives in the per-task chain.
+ *
+ * Behaviour:
+ *  - Repos with no `setupScript` configured are skipped silently (same
+ *    policy as the per-task gate's no-`checkScript` skip).
+ *  - Empty `sprint.affectedRepositories` short-circuits cleanly.
+ *  - On the first failing setup script, the leaf returns
+ *    `InvalidStateError({ currentState: 'setup-failed' })` and the chain
+ *    aborts before any task runs — a broken baseline environment must
+ *    not be papered over by the per-task gate.
+ *  - On success, `sprint.recordSetupRun(repoPath, now)` audit-stamps the
+ *    sprint entity (persisted via the sprint repo) so the per-task
+ *    prompt builder can surface "Setup script ran at <ISO>." to the AI.
+ *
+ * Project-repo lookup: `setupScript` lives on the `Repository` entity
+ * inside the sprint's `Project`. We load the project once and resolve
+ * each affected path by walking `project.repositories`. A missing
+ * project (rare — usually means the user removed the project after
+ * planning) skips the phase silently rather than failing — the user can
+ * fix it without re-planning.
+ *
+ * Spawn-level errors (missing binary, EPERM, …) propagate as whatever
+ * the `ExternalPort` adapter throws; the outer `OnError` (in the
+ * `initializeStep` Sequential) absorbs them via the
+ * `setup-scripts-sprint-start-noop` fallback so a flaky environment
+ * doesn't strand the sprint. Real `setup-failed` (`code: 'invalid-state'`)
+ * propagates so the user sees the failing repo by name.
+ */
+function setupScriptsSprintStartLeaf(
+  deps: Pick<ChainSharedDeps, 'external' | 'projectRepo' | 'sprintRepo' | 'logger'>
+): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprintId: SprintId; readonly sprint: Sprint }, void>(
+    'setup-scripts-sprint-start',
     {
       useCase: {
         async execute(input) {
-          if (input.checkScript === undefined || input.checkScript.length === 0) {
-            return Promise.resolve(Result.ok(undefined));
+          const repoPaths = input.sprint.affectedRepositories;
+          if (repoPaths.length === 0) {
+            return Result.ok(undefined);
           }
-          const r = await deps.external.runCheckScript(input.cwd, input.checkScript, 'sprint-start');
-          if (!r.passed) {
-            return Result.error(
-              new InvalidStateError({
-                entity: 'sprint',
-                currentState: 'check-failed',
-                attemptedAction: 'execute',
-                message: 'sprint-start check script failed',
-              })
+          const project = await deps.projectRepo.findByName(input.sprint.projectName);
+          if (!project.ok) {
+            // Missing project — skip silently and let the user repair the
+            // config without blocking. Logged so it's visible in the trace.
+            deps.logger.warn(
+              `setup-scripts-sprint-start: project ${String(input.sprint.projectName)} not found — skipping setup`,
+              { error: project.error.message }
             );
+            return Result.ok(undefined);
+          }
+          let sprint = input.sprint;
+          const now = IsoTimestamp.trustString(new Date().toISOString());
+          for (const repoPath of repoPaths) {
+            const repo = project.value.repositories.find((r) => r.path === repoPath);
+            if (repo === undefined) {
+              // Sprint references a repo that no longer exists on the
+              // project — skip silently for the same "let the user fix
+              // config" reason as a missing project.
+              continue;
+            }
+            const script = repo.setupScript;
+            if (script === undefined || script.length === 0) {
+              continue; // No setup script for this repo — skip.
+            }
+            const r = await deps.external.runSetupScript(repoPath, script, repo.checkTimeout);
+            if (!r.passed) {
+              return Result.error(
+                new InvalidStateError({
+                  entity: 'sprint',
+                  currentState: 'setup-failed',
+                  attemptedAction: 'execute',
+                  message: `sprint-start setup script failed in ${String(repoPath)}`,
+                  hint: 'Fix the setup script (configured via `project onboard` / `project repo add`) and retry. Setup runs once at sprint start; the per-task `checkScript` is a separate gate.',
+                })
+              );
+            }
+            sprint = sprint.recordSetupRun(repoPath, now);
+          }
+          // Persist the audit stamps so the per-task prompt sees them.
+          // Best-effort: a save failure logs a warning but does not block
+          // sprint start — the setup actually ran successfully.
+          if (sprint !== input.sprint) {
+            const saved = await deps.sprintRepo.save(sprint);
+            if (!saved.ok) {
+              deps.logger.warn('setup-scripts-sprint-start: failed to persist setup audit stamps', {
+                error: saved.error.message,
+              });
+            }
           }
           return Result.ok(undefined);
         },
       },
-      input: (ctx) => ({
-        cwd: ctx.cwd,
-        ...(ctx.checkScript !== undefined ? { checkScript: ctx.checkScript } : {}),
-      }),
+      input: (ctx) => {
+        if (!ctx.sprint) throw new Error('setup-scripts-sprint-start: ctx.sprint must be loaded first');
+        return { sprintId: ctx.sprintId, sprint: ctx.sprint };
+      },
       output: (ctx) => ctx,
     }
   );
+}
+
+/**
+ * Identity leaf — local to execute-flow so the sprint-start `OnError`
+ * fallback has a typed noop without pulling per-task-flow's helper.
+ */
+function noopLeafExec<TCtx>(name: string): Element<TCtx> {
+  return new Leaf<TCtx, TCtx, TCtx>(name, {
+    useCase: {
+      execute(input) {
+        return Promise.resolve(Result.ok(input)) as Promise<Result<TCtx, KernelError>>;
+      },
+    },
+    input: (ctx) => ctx,
+    output: (_, ctx) => ctx,
+  });
 }

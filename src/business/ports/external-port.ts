@@ -33,7 +33,7 @@ export interface CheckScriptResult {
 }
 
 /** Phase tag describing which lifecycle hook the check script was invoked from. */
-export type CheckScriptPhase = 'sprint-start' | 'post-task' | 'feedback';
+export type CheckScriptPhase = 'post-task' | 'feedback';
 
 /** Inputs for {@link ExternalPort.createPullRequest}. */
 export interface CreatePullRequestInput {
@@ -70,7 +70,18 @@ export interface ExternalPort {
   /** Format issue data as context for AI prompts. */
   formatIssueContext(issue: ExternalIssue): string;
 
-  // --- Check script execution ---
+  // --- Setup / check script execution ---
+
+  /**
+   * Run a one-shot environment setup script (e.g. `pnpm install`) in a
+   * project directory once at sprint start. Distinct from
+   * {@link ExternalPort.runCheckScript} — setup prepares the environment;
+   * check verifies the working tree after a task. They share the same
+   * underlying shell-execution machinery but are emitted at different
+   * lifecycle hooks. `timeout` overrides the default
+   * `RALPHCTL_SETUP_TIMEOUT_MS`.
+   */
+  runSetupScript(projectPath: AbsolutePath, script: string, timeout?: number): Promise<CheckScriptResult>;
 
   /**
    * Run a check / lifecycle script in a project directory.

@@ -215,11 +215,9 @@ export class TextPromptBuilderAdapter implements PromptBuilderPort {
     // "no check script configured" — never the old "see docs" boilerplate.
     const checkScriptSection = renderCheckScriptSection(input.checkScript);
 
-    const checkRanAtForRepo = input.sprint.checkRanAt.get(input.task.projectPath);
+    const setupRanAtForRepo = input.sprint.setupRanAt.get(input.task.projectPath);
     const environmentStatus =
-      checkRanAtForRepo !== undefined
-        ? `Pre-task environment check passed at ${String(checkRanAtForRepo)}.`
-        : 'Not run.';
+      setupRanAtForRepo !== undefined ? `Setup script ran at ${String(setupRanAtForRepo)}.` : 'Not run.';
 
     const rendered = substitute(tpl.value, {
       TASK_NAME: input.task.name,

@@ -44,7 +44,7 @@ describe('sprint-schema', () => {
     expect(back.value.status).toBe('draft');
     expect(back.value.tickets).toHaveLength(0);
     expect(back.value.branch).toBeNull();
-    expect(back.value.checkRanAt.size).toBe(0);
+    expect(back.value.setupRanAt.size).toBe(0);
     expect(String(back.value.projectName)).toBe('demo-project');
     expect(back.value.affectedRepositories).toStrictEqual([]);
   });
@@ -89,9 +89,9 @@ describe('sprint-schema', () => {
     expect(back.value.closedAt).toBe('2026-04-29T02:00:00.000Z');
   });
 
-  it('preserves checkRanAt entries', () => {
+  it('preserves setupRanAt entries', () => {
     const draft = makeDraftSprint();
-    const stamped = draft.recordCheckRun(
+    const stamped = draft.recordSetupRun(
       AbsolutePath.trustString('/repo/a'),
       IsoTimestamp.trustString('2026-04-29T03:00:00.000Z')
     );
@@ -99,8 +99,8 @@ describe('sprint-schema', () => {
     const back = toSprint(sprintJsonSchema.parse(json));
     expect(back.ok).toBe(true);
     if (!back.ok) return;
-    expect(back.value.checkRanAt.size).toBe(1);
-    expect(back.value.checkRanAt.get(AbsolutePath.trustString('/repo/a'))).toBe('2026-04-29T03:00:00.000Z');
+    expect(back.value.setupRanAt.size).toBe(1);
+    expect(back.value.setupRanAt.get(AbsolutePath.trustString('/repo/a'))).toBe('2026-04-29T03:00:00.000Z');
   });
 
   it('preserves branch when set', () => {
@@ -148,7 +148,7 @@ describe('sprint-schema', () => {
       closedAt: null,
       branch: null,
       pullRequestUrl: null,
-      checkRanAt: {},
+      setupRanAt: {},
       tickets: [
         {
           id: 'aaaaaaaa',

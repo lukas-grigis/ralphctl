@@ -309,6 +309,152 @@ describe('createPerTaskFlow', () => {
     expect(reread.value.evaluationStatus).toBeUndefined();
   });
 
+  it('post-task check fails (red script): inner OnError marks task blocked, downstream leaves no-op', async () => {
+    // The post-task gate is wrapped in two nested OnError decorators.
+    // The inner one catches `code: 'check-failed'` (the loud signal the
+    // PostTaskCheckUseCase now surfaces on a red exit) and runs the
+    // mark-blocked-check fallback. Downstream leaves still emit trace
+    // entries (kept honest) but no-op via `taskBlocked: true` — the
+    // task does NOT advance to `done`.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+    // checkScriptOutcomes: first run fails — that's the post-task gate.
+    const external = new FakeExternalPort({
+      checkScriptOutcomes: [{ passed: false, output: '3 tests failing' }],
+    });
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluator (no-op when blocked)
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+      checkScript: 'pnpm test',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    expect(stepNames).toContain('post-task-check');
+    // Inner OnError fallback fired.
+    expect(stepNames).toContain('mark-blocked-check');
+    // Outer (soft) noop must NOT fire — the inner wrap absorbed the error.
+    expect(stepNames).not.toContain('post-task-check-noop');
+    // Downstream leaves still emit trace entries (no-op via taskBlocked).
+    expect(stepNames).toContain('evaluate-task');
+    expect(stepNames).toContain('mark-done');
+
+    // Task is persisted as blocked with the post-task reason.
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('blocked');
+    expect(reread.value.blockedReason).toBe('post-task check failed');
+  });
+
+  it('post-task check spawn error (e.g. ENOENT): outer OnError swallows, task still completes', async () => {
+    // A spawn-level failure (missing binary, EPERM, …) surfaces from
+    // the ExternalPort as a thrown exception. The outer (soft) OnError
+    // wrap catches anything except `aborted` / `check-failed`, so the
+    // task still proceeds to `mark-done`. This preserves the
+    // "transient environment hiccup shouldn't strand a task" semantics
+    // while keeping `check-failed` a genuine block.
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });
+
+    // Custom external that throws ENOENT from runCheckScript — mimics
+    // the script binary missing or unreadable.
+    const baseExternal = new FakeExternalPort();
+    const throwingExternal = new Proxy(baseExternal, {
+      get(target, prop, receiver) {
+        if (prop === 'runCheckScript') {
+          return (): Promise<never> => Promise.reject(new Error('ENOENT: no such file or directory'));
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: {
+        outcomes: [
+          { kind: 'ok', result: { output: 'done' } }, // execute-task
+          { kind: 'ok', result: { output: 'evaluated' } }, // evaluator
+        ],
+      },
+      signalParser: {
+        results: [
+          [taskCompleteSignal],
+          [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [],
+              critique: '',
+              timestamp: '2026-04-29T12:00:00Z' as never,
+            },
+          ],
+        ],
+      },
+      overrides: { external: throwingExternal },
+    });
+
+    const flow = createPerTaskFlow(deps, { task, sprint });
+    const result = await flow.execute({
+      sprintId: sprint.id,
+      sprint,
+      task,
+      tasks: [task],
+      cwd: abs('/tmp/demo-repo'),
+      expectedBranch: '',
+      checkScript: 'pnpm test',
+    });
+
+    // Chain still resolves OK — spawn error swallowed by outer wrap.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const stepNames = result.value.trace.map((t) => t.stepName.replace(/#attempt-\d+$/, ''));
+    expect(stepNames).toContain('post-task-check');
+    // Outer noop fired; inner block fallback did NOT (no `check-failed` to catch).
+    expect(stepNames).toContain('post-task-check-noop');
+    expect(stepNames).not.toContain('mark-blocked-check');
+    expect(stepNames).toContain('mark-done');
+
+    // Task still flips to done — the spawn error didn't gate completion.
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.status).toBe('done');
+  });
+
   it('on user-initiated abort during execute-task: marks task blocked with reason "cancelled by user", short-circuits the rest of the chain', async () => {
     const sprint = makeSprint();
     const task = makeTask({ name: 'do thing', projectPath: '/tmp/demo-repo' });

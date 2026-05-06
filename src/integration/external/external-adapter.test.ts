@@ -59,9 +59,23 @@ describe('DefaultExternalAdapter (composition smoke)', () => {
 
   it('runCheckScript surfaces a real script result (echo passes)', async () => {
     const a = buildAdapter(new FakeGitRunner());
-    const r = await a.runCheckScript(AbsolutePath.trustString(process.cwd()), 'echo ok', 'sprint-start');
+    const r = await a.runCheckScript(AbsolutePath.trustString(process.cwd()), 'echo ok', 'post-task');
     expect(r.passed).toBe(true);
     expect(r.output).toContain('ok');
+  });
+
+  it('runSetupScript surfaces a real script result (echo passes)', async () => {
+    const a = buildAdapter(new FakeGitRunner());
+    const r = await a.runSetupScript(AbsolutePath.trustString(process.cwd()), 'echo prepared');
+    expect(r.passed).toBe(true);
+    expect(r.output).toContain('prepared');
+  });
+
+  it('runSetupScript exposes the lifecycle phase to the script via RALPHCTL_LIFECYCLE_EVENT', async () => {
+    const a = buildAdapter(new FakeGitRunner());
+    const r = await a.runSetupScript(AbsolutePath.trustString(process.cwd()), 'echo "$RALPHCTL_LIFECYCLE_EVENT"');
+    expect(r.passed).toBe(true);
+    expect(r.output).toContain('setup');
   });
 
   it('createPullRequest delegates to PullRequestRunner using the resolved remote', async () => {

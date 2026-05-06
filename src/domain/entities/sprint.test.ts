@@ -59,7 +59,7 @@ describe('Sprint.create', () => {
     expect(s.tickets).toStrictEqual([]);
     expect(s.activatedAt).toBeNull();
     expect(s.closedAt).toBeNull();
-    expect(s.checkRanAt.size).toBe(0);
+    expect(s.setupRanAt.size).toBe(0);
     expect(s.branch).toBeNull();
     expect(s.createdAt).toBe(T0);
     expect(s.id).toMatch(/^\d{8}-\d{6}-my-sprint$/);
@@ -136,18 +136,18 @@ describe('Sprint.activate', () => {
 });
 
 describe('Sprint.close', () => {
-  it('moves active → closed, stamps closedAt, and clears checkRanAt', () => {
+  it('moves active → closed, stamps closedAt, and clears setupRanAt', () => {
     const a = draft().activate(T1);
     if (!a.ok) throw new Error('precondition failed');
-    const stamped = a.value.recordCheckRun(path('/abs/repo'), T1);
-    expect(stamped.checkRanAt.size).toBe(1);
+    const stamped = a.value.recordSetupRun(path('/abs/repo'), T1);
+    expect(stamped.setupRanAt.size).toBe(1);
 
     const c = stamped.close(T2);
     expect(c.ok).toBe(true);
     if (!c.ok) return;
     expect(c.value.status).toBe('closed');
     expect(c.value.closedAt).toBe(T2);
-    expect(c.value.checkRanAt.size).toBe(0);
+    expect(c.value.setupRanAt.size).toBe(0);
   });
 
   it('refuses to close a draft', () => {
@@ -340,23 +340,23 @@ describe('Sprint.clearBranch', () => {
   });
 });
 
-describe('Sprint.recordCheckRun', () => {
+describe('Sprint.recordSetupRun', () => {
   it('stamps a repo with the timestamp', () => {
-    const s = draft().recordCheckRun(path('/abs/r'), T1);
-    expect(s.checkRanAt.get(path('/abs/r'))).toBe(T1);
+    const s = draft().recordSetupRun(path('/abs/r'), T1);
+    expect(s.setupRanAt.get(path('/abs/r'))).toBe(T1);
   });
 
   it('overwrites a prior entry for the same repo', () => {
-    const s1 = draft().recordCheckRun(path('/abs/r'), T1);
-    const s2 = s1.recordCheckRun(path('/abs/r'), T2);
-    expect(s2.checkRanAt.size).toBe(1);
-    expect(s2.checkRanAt.get(path('/abs/r'))).toBe(T2);
+    const s1 = draft().recordSetupRun(path('/abs/r'), T1);
+    const s2 = s1.recordSetupRun(path('/abs/r'), T2);
+    expect(s2.setupRanAt.size).toBe(1);
+    expect(s2.setupRanAt.get(path('/abs/r'))).toBe(T2);
   });
 
   it('does not mutate the original map', () => {
-    const s1 = draft().recordCheckRun(path('/abs/r'), T1);
-    s1.recordCheckRun(path('/abs/r'), T2);
-    expect(s1.checkRanAt.get(path('/abs/r'))).toBe(T1);
+    const s1 = draft().recordSetupRun(path('/abs/r'), T1);
+    s1.recordSetupRun(path('/abs/r'), T2);
+    expect(s1.setupRanAt.get(path('/abs/r'))).toBe(T1);
   });
 });
 

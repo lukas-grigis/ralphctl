@@ -38,7 +38,7 @@ export interface SprintCreateInput {
 /**
  * `Sprint` — aggregate root containing the tickets users add during the
  * `draft` phase. Once `activated`, ticket edits are locked. Once `closed`,
- * everything is locked and `checkRanAt` is cleared.
+ * everything is locked and `setupRanAt` is cleared.
  *
  * Mutators return new instances; the class is structurally immutable.
  * Lifecycle invariants live here, not at the use-case layer — the entity
@@ -52,7 +52,12 @@ export class Sprint {
   readonly activatedAt: IsoTimestamp | null;
   readonly closedAt: IsoTimestamp | null;
   readonly tickets: readonly Ticket[];
-  readonly checkRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
+  /**
+   * Audit trail of sprint-start setup-script runs, keyed by repo path.
+   * Filled in by the `setup-scripts-sprint-start` chain leaf. Cleared on
+   * sprint close so a re-opened sprint starts a fresh setup record.
+   */
+  readonly setupRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
   readonly branch: string | null;
   /**
    * Pull / merge request URL recorded after `sprint create-pr` runs.
@@ -81,7 +86,7 @@ export class Sprint {
     activatedAt: IsoTimestamp | null;
     closedAt: IsoTimestamp | null;
     tickets: readonly Ticket[];
-    checkRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
+    setupRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
     branch: string | null;
     pullRequestUrl: string | null;
     projectName: ProjectName;
@@ -94,7 +99,7 @@ export class Sprint {
     this.activatedAt = props.activatedAt;
     this.closedAt = props.closedAt;
     this.tickets = props.tickets;
-    this.checkRanAt = props.checkRanAt;
+    this.setupRanAt = props.setupRanAt;
     this.branch = props.branch;
     this.pullRequestUrl = props.pullRequestUrl;
     this.projectName = props.projectName;
@@ -122,7 +127,7 @@ export class Sprint {
         activatedAt: null,
         closedAt: null,
         tickets: [],
-        checkRanAt: new Map(),
+        setupRanAt: new Map(),
         branch: null,
         pullRequestUrl: null,
         projectName: input.projectName,
@@ -162,7 +167,7 @@ export class Sprint {
       this.with({
         status: 'closed',
         closedAt: now,
-        checkRanAt: new Map<AbsolutePath, IsoTimestamp>(),
+        setupRanAt: new Map<AbsolutePath, IsoTimestamp>(),
       })
     );
   }
@@ -202,7 +207,7 @@ export class Sprint {
         activatedAt: this.activatedAt,
         closedAt: this.closedAt,
         tickets: this.tickets,
-        checkRanAt: this.checkRanAt,
+        setupRanAt: this.setupRanAt,
         branch: this.branch,
         pullRequestUrl: this.pullRequestUrl,
         projectName: this.projectName,
@@ -306,13 +311,13 @@ export class Sprint {
   }
 
   /**
-   * Stamp a check-script run for one repo. Never fails — the harness owns
+   * Stamp a setup-script run for one repo. Never fails — the harness owns
    * this audit trail and the entity should not gate it.
    */
-  recordCheckRun(repo: AbsolutePath, at: IsoTimestamp): Sprint {
-    const next = new Map(this.checkRanAt);
+  recordSetupRun(repo: AbsolutePath, at: IsoTimestamp): Sprint {
+    const next = new Map(this.setupRanAt);
     next.set(repo, at);
-    return this.with({ checkRanAt: next });
+    return this.with({ setupRanAt: next });
   }
 
   /**
@@ -402,7 +407,7 @@ export class Sprint {
       activatedAt: IsoTimestamp | null;
       closedAt: IsoTimestamp | null;
       tickets: readonly Ticket[];
-      checkRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
+      setupRanAt: ReadonlyMap<AbsolutePath, IsoTimestamp>;
       branch: string | null;
       pullRequestUrl: string | null;
       affectedRepositories: readonly AbsolutePath[];
@@ -416,7 +421,7 @@ export class Sprint {
       activatedAt: 'activatedAt' in partial ? (partial.activatedAt ?? null) : this.activatedAt,
       closedAt: 'closedAt' in partial ? (partial.closedAt ?? null) : this.closedAt,
       tickets: partial.tickets ?? this.tickets,
-      checkRanAt: partial.checkRanAt ?? this.checkRanAt,
+      setupRanAt: partial.setupRanAt ?? this.setupRanAt,
       branch: 'branch' in partial ? (partial.branch ?? null) : this.branch,
       pullRequestUrl: 'pullRequestUrl' in partial ? (partial.pullRequestUrl ?? null) : this.pullRequestUrl,
       projectName: this.projectName,

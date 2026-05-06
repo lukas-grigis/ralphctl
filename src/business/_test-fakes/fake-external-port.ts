@@ -25,6 +25,8 @@ export interface FakeExternalPortOptions {
   readonly currentBranch?: string;
   /** When set, `hasUncommittedChanges` returns this — otherwise `false`. */
   readonly uncommitted?: boolean;
+  /** Outcomes for `runSetupScript`, FIFO. Defaults to one passing run. */
+  readonly setupScriptOutcomes?: readonly CheckScriptResult[];
   /** Outcomes for `runCheckScript`, FIFO. Defaults to one passing run. */
   readonly checkScriptOutcomes?: readonly CheckScriptResult[];
   /** Outcomes for `stashChanges`, FIFO. Defaults to one ok. */
@@ -42,6 +44,12 @@ export interface FakeExternalPortOptions {
    * a deterministic SHA derived from the call index.
    */
   readonly commitChangesOutcomes?: readonly Result<string, StorageError>[];
+}
+
+export interface CapturedSetupScript {
+  readonly projectPath: AbsolutePath;
+  readonly script: string;
+  readonly timeout?: number;
 }
 
 export interface CapturedCheckScript {
@@ -67,6 +75,7 @@ export interface CapturedCommit {
 }
 
 export class FakeExternalPort implements ExternalPort {
+  readonly setupScriptCalls: CapturedSetupScript[] = [];
   readonly checkScriptCalls: CapturedCheckScript[] = [];
   readonly stashCalls: CapturedStash[] = [];
   readonly hardResetCalls: AbsolutePath[] = [];
@@ -78,6 +87,7 @@ export class FakeExternalPort implements ExternalPort {
   private readonly branchOk: boolean;
   private readonly currentBranch: string;
   private readonly uncommitted: boolean;
+  private readonly setupScriptOutcomes: CheckScriptResult[];
   private readonly checkScriptOutcomes: CheckScriptResult[];
   private readonly stashOutcomes: Result<void, StorageError>[];
   private readonly hardResetOutcomes: Result<void, StorageError>[];
@@ -90,6 +100,7 @@ export class FakeExternalPort implements ExternalPort {
     this.branchOk = opts?.branchOk ?? true;
     this.currentBranch = opts?.currentBranch ?? 'main';
     this.uncommitted = opts?.uncommitted ?? false;
+    this.setupScriptOutcomes = opts?.setupScriptOutcomes === undefined ? [] : [...opts.setupScriptOutcomes];
     this.checkScriptOutcomes = opts?.checkScriptOutcomes === undefined ? [] : [...opts.checkScriptOutcomes];
     this.stashOutcomes = opts?.stashOutcomes === undefined ? [] : [...opts.stashOutcomes];
     this.hardResetOutcomes = opts?.hardResetOutcomes === undefined ? [] : [...opts.hardResetOutcomes];
@@ -111,7 +122,17 @@ export class FakeExternalPort implements ExternalPort {
     return '';
   }
 
-  // --- Check script ---
+  // --- Setup / check script ---
+
+  runSetupScript(projectPath: AbsolutePath, script: string, timeout?: number): Promise<CheckScriptResult> {
+    this.setupScriptCalls.push({
+      projectPath,
+      script,
+      ...(timeout !== undefined ? { timeout } : {}),
+    });
+    const next = this.setupScriptOutcomes.shift();
+    return Promise.resolve(next ?? { passed: true, output: '' });
+  }
 
   runCheckScript(
     projectPath: AbsolutePath,

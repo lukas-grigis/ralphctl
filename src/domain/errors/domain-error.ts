@@ -17,6 +17,7 @@
  * shape (`{ code, message, cause? }`) — the kernel layer can propagate
  * any `DomainError` without translation.
  */
+import type { CheckFailedError } from './check-failed-error.ts';
 import type { ConflictError } from './conflict-error.ts';
 import type { InvalidStateError } from './invalid-state-error.ts';
 import type { NotFoundError } from './not-found-error.ts';
@@ -32,4 +33,5 @@ export type DomainError =
   | NotFoundError
   | ParseError
   | RateLimitError
-  | StorageError;
+  | StorageError
+  | CheckFailedError;

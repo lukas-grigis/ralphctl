@@ -13,7 +13,7 @@ export interface CloseSprintInput {
 
 /**
  * `CloseSprintUseCase` — load an active sprint, close it via
- * {@link Sprint.close} (which clears `checkRanAt`), and persist.
+ * {@link Sprint.close} (which clears `setupRanAt`), and persist.
  */
 export class CloseSprintUseCase {
   constructor(private readonly sprints: SprintRepository) {}

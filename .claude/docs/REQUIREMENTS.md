@@ -97,8 +97,8 @@ save-sprint → save-tasks`
 - [ ] `createExecuteFlow(deps, opts)` returns an `Element<ExecuteCtx>`
 - [ ] Outer step trace: `load-sprint → assert-active → load-tasks → reset-stale-in-progress →
 assert-tasks-not-empty → assert-tasks-blocked-by-resolvable → assert-tasks-acyclic → resolve-branch →
-dirty-tree-preflight → check-scripts-sprint-start → link-skills → execute-tasks (Sequential) →
-unlink-skills → summarise-execution`
+dirty-tree-preflight → resolve-check-scripts → setup-scripts-sprint-start → link-skills →
+execute-tasks (Sequential) → unlink-skills → summarise-execution`
 - [ ] `execute-tasks` is a `Sequential` whose children are `createPerTaskFlow(deps, { task, sprint })` instances,
       one per runnable task in topological order
 - [ ] Tasks already in `done` / `blocked` are filtered out at construction time so resumed sprints skip them
@@ -242,9 +242,13 @@ confirm-setup-script → confirm-verify-script → confirm-context-file → writ
 - [ ] Completion signals parsed correctly
 - [ ] Blocked tasks short-circuit the rest of the per-task chain via `taskBlocked`; the outer Sequential continues
       with the next task
-- [ ] `checkScript` runs at sprint start (per repo, idempotent via `sprint.checkRanAt`)
-- [ ] `checkScript` runs after every task completion as a post-task gate
-- [ ] Task not marked done if check gate fails
+- [x] `setupScript` runs at sprint start (per repo, audit-stamped on `sprint.setupRanAt`); first red exit
+      hard-aborts the chain naming the failing repo
+- [x] Per-task `checkScript` is auto-sourced from each repo's `Repository.checkScript` via the
+      `resolve-check-scripts` leaf; `--check-script` (CLI) overrides for every task when set
+- [x] `checkScript` runs after every task completion as a post-task gate
+- [x] Task not marked done if check gate fails (transitions to `blocked` via the inner `OnError(catchIf:
+code === 'check-failed')` wrap)
 - [ ] Rate-limited tasks auto-resume via session ID through `Retry(retryOn: 'rate-limited')`; `RateLimitCoordinator`
       bridges pause/resume to the signal bus for the dashboard's `RateLimitBanner`
 

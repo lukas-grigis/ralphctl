@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { FakeExternalPort } from '@src/business/_test-fakes/fake-external-port.ts';
 import { FakePromptPort } from '@src/application/_test-fakes/fake-prompt-port.ts';
 import type { HarnessSignal } from '@src/domain/signals/harness-signal.ts';
+import { Project } from '@src/domain/entities/project.ts';
+import { Repository } from '@src/domain/entities/repository.ts';
+import { ProjectName } from '@src/domain/values/project-name.ts';
 import { abs, makeApprovedTicket, makeSprint, makeTask, taskId } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { createExecuteFlow } from './execute-flow.ts';
@@ -16,7 +19,7 @@ const taskCompleteSignal: HarnessSignal = {
 };
 
 describe('createExecuteFlow', () => {
-  it('runs load-sprint → assert-active → load-tasks → reset-stale-in-progress → assert-tasks-not-empty → assert-tasks-blocked-by-resolvable → assert-tasks-acyclic → [initialize: resolve-branch → dirty-tree-preflight → check-scripts-sprint-start] → link-skills → execute-tasks → unlink-skills → summarise-execution', async () => {
+  it('runs load-sprint → assert-active → load-tasks → reset-stale-in-progress → assert-tasks-not-empty → assert-tasks-blocked-by-resolvable → assert-tasks-acyclic → [initialize: resolve-branch → dirty-tree-preflight → resolve-check-scripts → setup-scripts-sprint-start] → link-skills → execute-tasks → unlink-skills → summarise-execution', async () => {
     const sprint0 = makeSprint();
     const ticket = makeApprovedTicket();
     const withTicket = sprint0.addTicket(ticket);
@@ -75,9 +78,10 @@ describe('createExecuteFlow', () => {
     // The kernel's Sequential flattens child traces: a nested Sequential's
     // own name never appears as a trace entry — only Leaf entries do.
     // So `'initialize'` (which wraps resolve-branch → dirty-tree-preflight →
-    // check-scripts-sprint-start) and `'execute-tasks'` (which wraps the
-    // per-task bridges) do NOT appear in headlineSteps; their children surface
-    // flatly in the same order as before.
+    // resolve-check-scripts → setup-scripts-sprint-start) and
+    // `'execute-tasks'` (which wraps the per-task bridges) do NOT appear in
+    // headlineSteps; their children surface flatly in the same order as
+    // before.
     const headlineSteps = [
       'load-sprint',
       'assert-active',
@@ -88,7 +92,8 @@ describe('createExecuteFlow', () => {
       'assert-tasks-acyclic',
       'resolve-branch',
       'dirty-tree-preflight',
-      'check-scripts-sprint-start',
+      'resolve-check-scripts',
+      'setup-scripts-sprint-start',
       'link-skills',
       'unlink-skills',
       'summarise-execution',
@@ -104,6 +109,456 @@ describe('createExecuteFlow', () => {
     expect(linkIdx).toBeGreaterThan(-1);
     expect(unlinkIdx).toBeGreaterThan(linkIdx);
     expect(trace.slice(linkIdx + 1, unlinkIdx)).toContain(`task-${task.id}`);
+  });
+
+  // ── sprint-start setup execution (REQ setup hook) ──────────────────
+
+  describe('setup-scripts-sprint-start', () => {
+    function buildProject(repoPath: string, setupScript: string | undefined): Project {
+      const repoCreate =
+        setupScript !== undefined
+          ? Repository.create({ path: abs(repoPath), name: 'demo-repo', setupScript })
+          : Repository.create({ path: abs(repoPath), name: 'demo-repo' });
+      if (!repoCreate.ok) throw new Error('precondition: repo');
+      const projectName = ProjectName.parse('demo');
+      if (!projectName.ok) throw new Error('precondition: project name');
+      const project = Project.create({
+        name: projectName.value,
+        displayName: 'Demo',
+        repositories: [repoCreate.value],
+      });
+      if (!project.ok) throw new Error('precondition: project');
+      return project.value;
+    }
+
+    function setupActive(opts: { branch: string; affectedRepoPath: string }): {
+      sprint: ReturnType<typeof makeSprint>;
+    } {
+      const sprint0 = makeSprint();
+      const ticket = makeApprovedTicket();
+      const withTicket = sprint0.addTicket(ticket);
+      if (!withTicket.ok) throw new Error('precondition');
+      const activated = withTicket.value.activate(sprint0.createdAt);
+      if (!activated.ok) throw new Error('precondition');
+      const branched = activated.value.setBranch(opts.branch);
+      if (!branched.ok) throw new Error('precondition');
+      const affected = branched.value.setAffectedRepositories([abs(opts.affectedRepoPath)]);
+      if (!affected.ok) throw new Error('precondition');
+      return { sprint: affected.value };
+    }
+
+    it("runs each affected repo's setupScript and stamps setupRanAt on success", async () => {
+      const repoPath = '/tmp/demo-repo';
+      const { sprint } = setupActive({ branch: 'ralphctl/setup-ok', affectedRepoPath: repoPath });
+      const project = buildProject(repoPath, 'pnpm install');
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+      const external = new FakeExternalPort({ setupScriptOutcomes: [{ passed: true, output: '' }] });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-ok',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-ok',
+      });
+
+      expect(result.ok).toBe(true);
+      // The repo's setup script ran exactly once during sprint-start.
+      expect(external.setupScriptCalls).toHaveLength(1);
+      expect(String(external.setupScriptCalls[0]?.projectPath)).toBe(repoPath);
+      expect(external.setupScriptCalls[0]?.script).toBe('pnpm install');
+
+      // setupRanAt is persisted on the on-disk sprint by the leaf so
+      // the per-task prompt builder can read it.
+      const reread = await deps.sprintRepo.findById(sprint.id);
+      expect(reread.ok).toBe(true);
+      if (reread.ok) {
+        expect(reread.value.setupRanAt.get(abs(repoPath))).toBeDefined();
+      }
+      if (!result.ok) return;
+      const trace = result.value.trace.map((t) => t.stepName);
+      expect(trace).toContain('setup-scripts-sprint-start');
+    });
+
+    it('hard-aborts when a repo setup script exits non-zero (red baseline)', async () => {
+      const repoPath = '/tmp/demo-repo';
+      const { sprint } = setupActive({ branch: 'ralphctl/setup-red', affectedRepoPath: repoPath });
+      const project = buildProject(repoPath, 'pnpm install');
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+      // Red baseline — setup script fails.
+      const external = new FakeExternalPort({
+        setupScriptOutcomes: [{ passed: false, output: 'install failing' }],
+      });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-red',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-red',
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      const trace = result.error.trace.map((t) => t.stepName);
+      const failed = result.error.trace.find((t) => t.status === 'failed');
+      // The leaf surfaces an `invalid-state` error which the OnError
+      // wrap explicitly LETS THROUGH (catchIf excludes invalid-state).
+      // The Sequential records the failed step and aborts the rest.
+      expect(failed?.stepName).toBe('setup-scripts-sprint-start');
+      expect(result.error.error.code).toBe('invalid-state');
+      // No per-task bridge ran — tasks must NOT have started.
+      expect(trace.some((n) => n.startsWith('task-'))).toBe(false);
+      // The error message names the failing repo.
+      expect(result.error.error.message).toContain(repoPath);
+    });
+
+    it('soft-degrades on a spawn-level error (e.g. missing binary): noop in trace, chain continues', async () => {
+      const repoPath = '/tmp/demo-repo';
+      const { sprint } = setupActive({ branch: 'ralphctl/setup-spawn', affectedRepoPath: repoPath });
+      const project = buildProject(repoPath, 'pnpm install');
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+
+      // External whose runSetupScript throws — mimics ENOENT / EPERM.
+      const baseExternal = new FakeExternalPort();
+      const throwingExternal = new Proxy(baseExternal, {
+        get(target, prop, receiver) {
+          if (prop === 'runSetupScript') {
+            return (): Promise<never> => Promise.reject(new Error('ENOENT: no such file or directory'));
+          }
+          return Reflect.get(target, prop, receiver) as unknown;
+        },
+      });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external: throwingExternal },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-spawn',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/setup-spawn',
+      });
+
+      // Chain still resolves OK — spawn error swallowed by the outer OnError.
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const trace = result.value.trace.map((t) => t.stepName);
+      // The OnError fallback's noop step records the swallow.
+      expect(trace).toContain('setup-scripts-sprint-start-noop');
+      // The per-task bridge ran (Sequential flattens; bridges surface as `task-<id>`).
+      expect(trace.some((n) => n.startsWith('task-'))).toBe(true);
+    });
+
+    it('skips repos without a setupScript and short-circuits cleanly when affectedRepositories is empty', async () => {
+      // Direct-task path: no `sprint plan` ran so affectedRepositories
+      // is empty. The leaf must still appear in the trace as a
+      // completed step (no-op) rather than crashing or trying to
+      // resolve a project that may not exist.
+      const sprint0 = makeSprint();
+      const ticket = makeApprovedTicket();
+      const withTicket = sprint0.addTicket(ticket);
+      if (!withTicket.ok) throw new Error('precondition');
+      const activated = withTicket.value.activate(sprint0.createdAt);
+      if (!activated.ok) throw new Error('precondition');
+      const branched = activated.value.setBranch('ralphctl/empty-affected');
+      if (!branched.ok) throw new Error('precondition');
+      const sprint = branched.value;
+      const task = makeTask({ name: 'do work', projectPath: '/tmp/demo-repo' });
+
+      const external = new FakeExternalPort();
+      const deps = createTestDeps({
+        sprints: [sprint],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/empty-affected',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/empty-affected',
+      });
+
+      expect(result.ok).toBe(true);
+      // No setup script invocations — the leaf short-circuited.
+      expect(external.setupScriptCalls).toHaveLength(0);
+    });
+  });
+
+  // ── per-task gate auto-source (resolve-check-scripts → bridge) ─────
+
+  describe('resolve-check-scripts', () => {
+    function buildProjectWithCheck(repoPath: string, checkScript: string | undefined): Project {
+      const repoCreate =
+        checkScript !== undefined
+          ? Repository.create({ path: abs(repoPath), name: 'demo-repo', checkScript })
+          : Repository.create({ path: abs(repoPath), name: 'demo-repo' });
+      if (!repoCreate.ok) throw new Error('precondition: repo');
+      const projectName = ProjectName.parse('demo');
+      if (!projectName.ok) throw new Error('precondition: project name');
+      const project = Project.create({
+        name: projectName.value,
+        displayName: 'Demo',
+        repositories: [repoCreate.value],
+      });
+      if (!project.ok) throw new Error('precondition: project');
+      return project.value;
+    }
+
+    function setupActive(opts: { branch: string; affectedRepoPath: string }): {
+      sprint: ReturnType<typeof makeSprint>;
+    } {
+      const sprint0 = makeSprint();
+      const ticket = makeApprovedTicket();
+      const withTicket = sprint0.addTicket(ticket);
+      if (!withTicket.ok) throw new Error('precondition');
+      const activated = withTicket.value.activate(sprint0.createdAt);
+      if (!activated.ok) throw new Error('precondition');
+      const branched = activated.value.setBranch(opts.branch);
+      if (!branched.ok) throw new Error('precondition');
+      const affected = branched.value.setAffectedRepositories([abs(opts.affectedRepoPath)]);
+      if (!affected.ok) throw new Error('precondition');
+      return { sprint: affected.value };
+    }
+
+    it('auto-sources `Repository.checkScript` so the per-task gate fires per repo without --check-script', async () => {
+      // Design intent: setup at sprint start = baseline; check per task =
+      // step-to-step gate. The per-task gate must fire automatically from
+      // each repo's `Repository.checkScript` without the user passing
+      // `--check-script` to `sprint start`.
+      const repoPath = '/tmp/demo-repo';
+      const { sprint } = setupActive({ branch: 'ralphctl/check-auto', affectedRepoPath: repoPath });
+      const project = buildProjectWithCheck(repoPath, 'pnpm test');
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+      const external = new FakeExternalPort({
+        // First call is the post-task gate (passes).
+        checkScriptOutcomes: [{ passed: true, output: 'OK' }],
+      });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      // No `checkScript` opt — auto-source must populate the gate.
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/check-auto',
+        tasks: [task],
+        sprint,
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/check-auto',
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      // The post-task gate fired with the repo's configured script.
+      expect(external.checkScriptCalls).toHaveLength(1);
+      expect(external.checkScriptCalls[0]?.script).toBe('pnpm test');
+      expect(external.checkScriptCalls[0]?.phase).toBe('post-task');
+      expect(String(external.checkScriptCalls[0]?.projectPath)).toBe(repoPath);
+
+      // resolve-check-scripts shows up in the trace before setup-scripts-sprint-start.
+      const trace = result.value.trace.map((t) => t.stepName);
+      const resolveIdx = trace.indexOf('resolve-check-scripts');
+      const setupIdx = trace.indexOf('setup-scripts-sprint-start');
+      expect(resolveIdx).toBeGreaterThan(-1);
+      expect(setupIdx).toBeGreaterThan(resolveIdx);
+    });
+
+    it('CLI --check-script (opts.checkScript) overrides the per-repo auto-source', async () => {
+      // Operator override: when the user passes `--check-script` to
+      // `sprint start`, that command runs as the post-task gate for
+      // every task regardless of the repo's own configured script.
+      const repoPath = '/tmp/demo-repo';
+      const { sprint } = setupActive({ branch: 'ralphctl/check-override', affectedRepoPath: repoPath });
+      const project = buildProjectWithCheck(repoPath, 'pnpm test'); // would normally fire
+      const task = makeTask({ name: 'do work', projectPath: repoPath });
+      const external = new FakeExternalPort({
+        checkScriptOutcomes: [{ passed: true, output: 'OK' }],
+      });
+
+      const deps = createTestDeps({
+        sprints: [sprint],
+        projects: [project],
+        tasks: [[sprint.id, [task]]],
+        overrides: { external },
+        aiSession: {
+          outcomes: [
+            { kind: 'ok', result: { output: 'done' } },
+            { kind: 'ok', result: { output: 'evaluated' } },
+          ],
+        },
+        signalParser: {
+          results: [
+            [taskCompleteSignal],
+            [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [],
+                critique: '',
+                timestamp: '2026-04-29T12:00:00Z' as never,
+              },
+            ],
+          ],
+        },
+      });
+
+      const flow = createExecuteFlow(deps, {
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/check-override',
+        tasks: [task],
+        sprint,
+        checkScript: 'override-check.sh',
+      });
+
+      const result = await flow.execute({
+        sprintId: sprint.id,
+        cwd: CWD,
+        expectedBranch: 'ralphctl/check-override',
+        checkScript: 'override-check.sh',
+      });
+
+      expect(result.ok).toBe(true);
+      // Override wins — the repo's `pnpm test` was NOT invoked.
+      expect(external.checkScriptCalls).toHaveLength(1);
+      expect(external.checkScriptCalls[0]?.script).toBe('override-check.sh');
+    });
   });
 
   it('fails at assert-active when the sprint is still draft', async () => {
@@ -238,12 +693,15 @@ describe('createExecuteFlow', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     // The new step landed in the trace between resolve-branch and
-    // check-scripts-sprint-start. Failure is the dirty-tree-preflight step
-    // itself; subsequent steps are kernel-skipped (status 'skipped').
+    // resolve-check-scripts / setup-scripts-sprint-start. Failure is
+    // the dirty-tree-preflight step itself; subsequent steps are
+    // kernel-skipped (status 'skipped').
     const failed = result.error.trace.find((t) => t.status === 'failed');
     expect(failed?.stepName).toBe('dirty-tree-preflight');
-    const checkSprintStart = result.error.trace.find((t) => t.stepName === 'check-scripts-sprint-start');
-    expect(checkSprintStart?.status).toBe('skipped');
+    const resolveCheckScripts = result.error.trace.find((t) => t.stepName === 'resolve-check-scripts');
+    expect(resolveCheckScripts?.status).toBe('skipped');
+    const setupSprintStart = result.error.trace.find((t) => t.stepName === 'setup-scripts-sprint-start');
+    expect(setupSprintStart?.status).toBe('skipped');
     const executeTasks = result.error.trace.find((t) => t.stepName === 'execute-tasks');
     expect(executeTasks?.status).toBe('skipped');
     // No stash / reset calls when the user cancelled.
