@@ -96,8 +96,29 @@ export interface ExecuteCtx {
    * propagates correctly.
    */
   readonly expectedBranch: string;
-  /** Resolved check script (per-repo lookup happens at the caller). */
+  /**
+   * Global override for the per-task check script. When set (typically
+   * via the CLI `--check-script` flag), this command runs as the
+   * post-task gate for EVERY task, regardless of which repo the task
+   * targets. When unset, the per-task bridge falls back to
+   * {@link checkScripts}`.get(task.projectPath)` — the repo's own
+   * configured `checkScript`.
+   */
   readonly checkScript?: string;
+  /**
+   * Per-repo check-script lookup, populated by the
+   * `resolve-check-scripts` leaf at sprint start by reading the sprint's
+   * project's `Repository.checkScript` for every entry on
+   * `sprint.affectedRepositories`. The per-task bridge uses this map to
+   * auto-source the post-task gate's command per-task; {@link checkScript}
+   * (the global override) wins when both are present.
+   *
+   * Stays undefined when the resolve leaf was skipped (missing project
+   * record, empty `affectedRepositories`, etc.) — downstream leaves
+   * tolerate the absence by falling back to {@link checkScript} or
+   * skipping the gate cleanly.
+   */
+  readonly checkScripts?: ReadonlyMap<AbsolutePath, string>;
   readonly sprint?: Sprint;
   readonly tasks?: readonly Task[];
   /** Outcome of the dirty-tree pre-flight (set by `dirty-tree-preflight`). */
@@ -206,18 +227,34 @@ export function createExecuteFlow(
   // runs. Grouped separately from the CONTRACT validation above (assert-*)
   // and from the execution phase (link-skills → execute-tasks).
   //
-  // The sprint-start check leaf is wrapped in an `OnError` that absorbs
+  // Order:
+  //   - `resolve-branch` / `dirty-tree-preflight` — git plumbing
+  //   - `resolve-check-scripts` — pure project read; fills
+  //     `ctx.checkScripts` so the per-task bridge can auto-source the
+  //     post-task gate's command from each repo's own configuration
+  //   - `setup-scripts-sprint-start` — runs the configured `setupScript`
+  //     once per affected repo so Claude departs from a deterministic
+  //     baseline
+  //
+  // `resolve-check-scripts` runs BEFORE the setup leaf so even if
+  // setup's outer `OnError` swallows a spawn-level error, the per-task
+  // gate still has its check-script map. (See the user-stated design:
+  // setup ≠ check; setup is the one-shot baseline, check is the
+  // step-to-step gate so follow-up tasks can succeed.)
+  //
+  // The sprint-start setup leaf is wrapped in an `OnError` that absorbs
   // SPAWN-LEVEL errors (missing binary, EPERM, …) but lets:
   //   - `aborted` (user-initiated cancel) propagate, and
   //   - `invalid-state` (a real red baseline) propagate
   // through unchanged. Only those two reach the outer chain and stop
   // it; transient environment hiccups degrade to a noop so a sprint
   // isn't stranded by a flaky CI shell. The trace surfaces
-  // `check-scripts-sprint-start-noop` when the soft path fires so a
-  // post-mortem can tell why no checks ran.
+  // `setup-scripts-sprint-start-noop` when the soft path fires so a
+  // post-mortem can tell why no setup scripts ran.
   const initializeStep = new Sequential<ExecuteCtx>('initialize', [
     resolveBranchLeaf(deps),
     dirtyTreePreflightLeaf(deps, opts),
+    resolveCheckScriptsLeaf(deps),
     new OnError<ExecuteCtx>(setupScriptsSprintStartLeaf(deps), {
       catchIf: (err) => err.code !== 'aborted' && err.code !== 'invalid-state',
       fallback: noopLeafExec<ExecuteCtx>('setup-scripts-sprint-start-noop'),
@@ -541,6 +578,12 @@ function bridgePerTaskChain(
         // populated yet — load-sprint always runs first, so this is
         // belt-and-suspenders.
         const liveSprint = input.sprint ?? opts.sprint;
+        // Resolve the per-task check script. The CLI's `--check-script`
+        // global override (input.checkScript) wins; otherwise we fall
+        // back to the per-repo map populated by `resolve-check-scripts`
+        // at sprint start. When neither is set the gate skips silently
+        // — same policy as before this branch's auto-source.
+        const resolvedCheckScript = input.checkScript ?? input.checkScripts?.get(task.projectPath);
         const innerCtx: PerTaskCtx = {
           sprintId: input.sprintId,
           sprint: liveSprint,
@@ -548,7 +591,7 @@ function bridgePerTaskChain(
           tasks: liveTasks,
           cwd: task.projectPath,
           expectedBranch: input.expectedBranch,
-          ...(input.checkScript !== undefined ? { checkScript: input.checkScript } : {}),
+          ...(resolvedCheckScript !== undefined ? { checkScript: resolvedCheckScript } : {}),
           ...(input.noCommit === true ? { noCommit: true } : {}),
         };
         const innerResult = await inner.execute(innerCtx);
@@ -688,6 +731,64 @@ function assertTasksAcyclicLeaf(sortResult: ReturnType<typeof topologicalReorder
     },
     input: () => undefined,
     output: (ctx) => ctx,
+  });
+}
+
+/**
+ * Sprint-start check-script resolution — pure read. Walks
+ * `sprint.affectedRepositories`, looks each repo up on the sprint's
+ * project, and stuffs `Repository.checkScript` (when configured) into a
+ * `ReadonlyMap<AbsolutePath, string>` on `ctx.checkScripts`. The
+ * per-task bridge later seeds each per-task chain's `checkScript` from
+ * this map, so the post-task gate fires automatically per repo without
+ * the user having to pass `--check-script` to `sprint start`.
+ *
+ * Distinct leaf (rather than a side-effect of `setup-scripts-sprint-start`)
+ * because this read is pure and must succeed even when setup spawns are
+ * shaky: running it FIRST means a flaky setup script that gets
+ * absorbed by the soft `OnError` still leaves a populated
+ * `ctx.checkScripts` for the per-task gate.
+ *
+ * Soft-fails on missing project / missing repo / unset `checkScript`:
+ * the affected repo simply doesn't appear in the output map. An empty
+ * `affectedRepositories` short-circuits cleanly — many sprints (direct
+ * `task add` path) never run `sprint plan`, so this is the common case.
+ */
+function resolveCheckScriptsLeaf(deps: Pick<ChainSharedDeps, 'projectRepo' | 'logger'>): Element<ExecuteCtx> {
+  return new Leaf<ExecuteCtx, { readonly sprint: Sprint }, ReadonlyMap<AbsolutePath, string>>('resolve-check-scripts', {
+    useCase: {
+      async execute(input) {
+        const map = new Map<AbsolutePath, string>();
+        const repoPaths = input.sprint.affectedRepositories;
+        if (repoPaths.length === 0) {
+          return Result.ok(map);
+        }
+        const project = await deps.projectRepo.findByName(input.sprint.projectName);
+        if (!project.ok) {
+          // Same "let the user fix config without aborting" policy as
+          // `setup-scripts-sprint-start`. Logged so the trace shows why
+          // the per-task gates skipped.
+          deps.logger.warn(
+            `resolve-check-scripts: project ${String(input.sprint.projectName)} not found — per-task gate will skip`,
+            { error: project.error.message }
+          );
+          return Result.ok(map);
+        }
+        for (const repoPath of repoPaths) {
+          const repo = project.value.repositories.find((r) => r.path === repoPath);
+          if (repo === undefined) continue;
+          const script = repo.checkScript;
+          if (script === undefined || script.length === 0) continue;
+          map.set(repoPath, script);
+        }
+        return Result.ok(map);
+      },
+    },
+    input: (ctx) => {
+      if (!ctx.sprint) throw new Error('resolve-check-scripts: ctx.sprint must be loaded first');
+      return { sprint: ctx.sprint };
+    },
+    output: (ctx, checkScripts) => ({ ...ctx, checkScripts }),
   });
 }
 

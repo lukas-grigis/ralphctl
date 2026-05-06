@@ -7,20 +7,30 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Setup ≠ check.** Sprint start now runs each repo's configured `setupScript` (the deterministic
+  baseline so Claude departs reliably) via the renamed `setup-scripts-sprint-start` chain leaf,
+  iterating `sprint.affectedRepositories` and stamping `Sprint.setupRanAt[repoPath]`. The first red
+  exit hard-aborts the chain naming the failing repo. The per-task prompt's `{{ENVIRONMENT_STATUS}}`
+  slot renders "Setup script ran at <ISO>" instead of the old "Pre-task environment check passed at"
+  string.
+- **Per-task `checkScript` is auto-sourced.** A new `resolve-check-scripts` chain leaf (runs in the
+  initialize phase before setup) walks the sprint's project once and populates `ctx.checkScripts`
+  with each affected repo's configured `Repository.checkScript`. The per-task bridge seeds the gate
+  per-task without the user passing `--check-script`. The CLI flag stays as a global override
+  (and its help text now says so).
+
 ### Fixed
 
-- **Sprint-start green baseline** — `check-scripts-sprint-start` now iterates `sprint.affectedRepositories`,
-  runs each repo's configured `checkScript` exactly once, and stamps `Sprint.checkRanAt[repoPath]`. The
-  first red exit hard-aborts the chain naming the failing repo; the per-task prompt's
-  `{{ENVIRONMENT_STATUS}}` slot now renders "Pre-task environment check passed at <ISO>" instead of
-  "Not run.".
-- **Per-task verification gate** — `PostTaskCheckUseCase` now returns `Result.error(CheckFailedError)`
-  on a non-zero exit. The per-task chain wraps it in `OnError(catchIf: code === 'check-failed')` and
-  transitions the task to `'blocked'` (reason: "post-task check failed") instead of letting `mark-done`
-  proceed.
-- **Spawn-level errors degrade gracefully** — both check gates wrap the inner leaf in a soft `OnError`
-  that absorbs anything except `aborted` and the gate's own hard error code, so a missing binary /
-  EPERM doesn't strand a sprint or a task.
+- **Per-task verification gate is a hard fence.** `PostTaskCheckUseCase` returns
+  `Result.error(CheckFailedError)` on a non-zero exit. The per-task chain wraps it in
+  `OnError(catchIf: code === 'check-failed')` and transitions the task to `'blocked'` (reason:
+  "post-task check failed") instead of letting `mark-done` proceed.
+- **Spawn-level errors degrade gracefully.** Both gates wrap the inner leaf in a soft `OnError` that
+  absorbs anything except `aborted` and the gate's own hard error code, so a missing binary / EPERM
+  doesn't strand a sprint or a task. `resolve-check-scripts` runs BEFORE the soft-wrapped setup so
+  the per-task gate keeps its check-script map even when setup degrades.
 
 ## [0.6.2] - 2026-05-04
 

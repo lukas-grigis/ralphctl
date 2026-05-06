@@ -78,7 +78,9 @@ Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm 
   `project onboard` and persisted on the `Repository` entity. Don't conflate them — a passing setup does not imply
   the codebase compiles, and a passing check does not imply the env was prepared.
 - **Post-task gate** — the per-task chain runs the configured `checkScript` after every AI task; the task is not marked
-  done if the gate fails (see `business/usecases/execute/post-task-check.ts`)
+  done if the gate fails (see `business/usecases/execute/post-task-check.ts`). The script is auto-sourced from each
+  repo's `Repository.checkScript` by the `resolve-check-scripts` chain leaf (run at sprint start); `sprint start
+--check-script <cmd>` overrides this for every task when set.
 - **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the
   choice; branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
   auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs

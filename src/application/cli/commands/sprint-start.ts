@@ -59,7 +59,10 @@ export function attachSprintStart(group: Command, deps: SharedDeps): void {
     .option('--cwd <abs>', 'working directory for AI sessions', process.cwd())
     .option('--branch', 'auto-generate sprint branch name (`ralphctl/<sprint-id>`)')
     .option('--branch-name <name>', 'use a custom branch name')
-    .option('--check-script <cmd>', 'sprint-start check script')
+    .option(
+      '--check-script <cmd>',
+      'override the post-task check script for every task (otherwise auto-sourced from each repo)'
+    )
     .option('--no-commit', 'do not auto-commit each task after the evaluator round')
     .action(async (opts: SprintStartFlags) => {
       const code = await runSprintStart(deps, opts);
