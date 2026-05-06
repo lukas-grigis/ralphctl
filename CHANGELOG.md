@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-05-06
+
 ### Changed
 
 - **Setup ≠ check.** Sprint start now runs each repo's configured `setupScript` (the deterministic
