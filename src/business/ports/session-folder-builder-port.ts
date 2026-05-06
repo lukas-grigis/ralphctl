@@ -20,10 +20,11 @@
  * `.claude/skills/` inside each folder at chain run time.
  *
  * **Refresh semantics:** `refreshExecutionUnit` overwrites only the
- * volatile per-task files (`task.md`, `tasks.md`, `tasks.json`,
- * `project-context.md`, `prior-evaluations/`). Static files written by
- * the initial `buildExecutionUnit` (`requirements/`, `dimensions.md`,
- * the root context file) are left untouched.
+ * volatile per-task files (`task.md`, `tasks.md`, `project-context.md`).
+ * Static files written by the initial `buildExecutionUnit`
+ * (`requirements/`, `dimensions.md`, the root context file) are left
+ * untouched. Sibling evaluator output is rendered inline inside
+ * `tasks.md` — there is no separate `prior-evaluations/` directory.
  */
 import type { AiProvider } from '@src/business/ports/ai-session-port.ts';
 import type { Sprint } from '@src/domain/entities/sprint.ts';
@@ -120,15 +121,21 @@ export interface SessionFolderBuilderPort {
   /**
    * Build a per-task execution unit folder. Writes both static files
    * (`requirements/`, `dimensions.md`, the root context file) and the
-   * volatile per-task files (`task.md`, `tasks.md`, `tasks.json`,
-   * `project-context.md`, `prior-evaluations/`). For Copilot, mirrors
-   * the task's `projectPath` into `<root>/repo/`.
+   * volatile per-task files (`task.md`, `tasks.md`, `project-context.md`).
+   * Sibling evaluator output (`priorEvaluations`) is rendered inline
+   * inside `tasks.md` rather than written to a separate directory.
+   * For Copilot, mirrors the task's `projectPath` into `<root>/repo/`.
    */
   buildExecutionUnit(input: {
     readonly sprint: Sprint;
     readonly tasks: readonly Task[];
     readonly task: Task;
     readonly aiProvider: AiProvider;
+    /**
+     * Sibling task verdicts (taskId → 2000-char preview from
+     * `Task.evaluationOutput`). Rendered inline inside `tasks.md`
+     * under each completed sibling's `### Evaluator output` block.
+     */
     readonly priorEvaluations: ReadonlyMap<TaskId, string>;
   }): Promise<Result<ExecutionUnitPaths, DomainError>>;
 
@@ -142,6 +149,7 @@ export interface SessionFolderBuilderPort {
     readonly tasks: readonly Task[];
     readonly task: Task;
     readonly aiProvider: AiProvider;
+    /** See {@link SessionFolderBuilderPort.buildExecutionUnit}. */
     readonly priorEvaluations: ReadonlyMap<TaskId, string>;
   }): Promise<Result<void, DomainError>>;
 }

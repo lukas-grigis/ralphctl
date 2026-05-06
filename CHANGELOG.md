@@ -20,6 +20,8 @@ to [Semantic Versioning](https://semver.org/).
   with each affected repo's configured `Repository.checkScript`. The per-task bridge seeds the gate
   per-task without the user passing `--check-script`. The CLI flag stays as a global override
   (and its help text now says so).
+- `execution/<unit-slug>/` slimmed: dropped per-unit `tasks.json` and `prior-evaluations/`; sibling
+  evaluator output now renders inline inside `tasks.md`.
 
 ### Fixed
 

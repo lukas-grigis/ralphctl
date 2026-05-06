@@ -158,8 +158,8 @@ export interface PerTaskCtx {
   readonly executionSessionCwd?: AbsolutePath;
   /**
    * Full sprint task list. Used by `build-execution-unit` to derive
-   * `priorEvaluations` and to populate `tasks.md` / `tasks.json` inside
-   * the unit folder. Stamped onto the ctx by the outer `executeFlow`'s
+   * `priorEvaluations` and to populate `tasks.md` inside the unit
+   * folder. Stamped onto the ctx by the outer `executeFlow`'s
    * `load-tasks` leaf via the per-task chain construction; we expose
    * it on the per-task ctx so the build leaf can read it without
    * threading a separate input.

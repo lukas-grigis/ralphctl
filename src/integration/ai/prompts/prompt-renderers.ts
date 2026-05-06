@@ -80,11 +80,12 @@ export function renderCheckScriptSection(checkScript: string | undefined): strin
 /**
  * Render the evaluator prompt's `{{EVALUATE_WORKSPACE}}` section. When
  * the per-task chain laid down an evaluate workspace (refined
- * requirements, full task plan, dimensions, project context, prior
- * evaluations), the section points the evaluator at the on-disk paths
- * so the AI reads them via its file-read tool — cheaper per round than
- * inlining everything into the prompt. When undefined (standalone
- * `sprint evaluate` with no workspace), the section collapses to ''.
+ * requirements, full task plan with sibling verdicts inlined,
+ * dimensions, project context), the section points the evaluator at the
+ * on-disk paths so the AI reads them via its file-read tool — cheaper
+ * per round than inlining everything into the prompt. When undefined
+ * (standalone `sprint evaluate` with no workspace), the section
+ * collapses to ''.
  */
 export function renderEvaluateWorkspaceSection(workspaceDir: string | undefined): string {
   if (workspaceDir === undefined || workspaceDir.trim().length === 0) return '';
@@ -95,10 +96,9 @@ export function renderEvaluateWorkspaceSection(workspaceDir: string | undefined)
     '',
     '- `task.md` — the current task being evaluated (description, steps, verification criteria, status)',
     '- `requirements/<ticket-id>.md` — the refined requirements + raw ticket text that motivated this task',
-    '- `tasks.md` / `tasks.json` — the full task plan, for cross-task consistency checks',
+    "- `tasks.md` — the full task plan, including any sibling tasks' evaluator output rendered inline where present (cross-task consistency + quality bar so far)",
     "- `project-context.md` — the project's CLAUDE.md / .github/copilot-instructions.md (when present in the target repo)",
     '- `dimensions.md` — the four floor dimensions plus any extra dimensions the planner emitted on this task',
-    '- `prior-evaluations/<task-id>.md` — prior sibling task evaluations from earlier in this sprint (the quality bar so far)',
   ].join('\n');
 }
 

@@ -1,6 +1,7 @@
 /**
  * `buildExecutionUnit` integration tests — covers the `done-criteria.md`
- * copy and the renamed `prior-evaluations/` subtree.
+ * copy and the inline rendering of sibling evaluator output inside
+ * `tasks.md`.
  *
  * `buildExecutionUnit` is an IO-heavy function — these tests write to a real
  * tmp directory. Each test gets its own isolated root via a unique prefix.
@@ -12,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { resolveStoragePaths, resetEnsureLayoutDirsCache } from '@src/integration/persistence/storage-paths.ts';
 import { makeSprint, makeTask } from '@src/application/_test-fakes/fixtures.ts';
-import { TaskId } from '@src/domain/values/task-id.ts';
 import { buildExecutionUnit } from './execution-unit-builder.ts';
 
 function uniqueRoot(): string {
@@ -92,33 +92,65 @@ describe('buildExecutionUnit — done-criteria.md', () => {
   });
 });
 
-describe('buildExecutionUnit — prior-evaluations directory', () => {
-  it('writes prior sibling critiques to <unit>/prior-evaluations/<task-id>.md (renamed from evaluations/)', async () => {
+describe('buildExecutionUnit — tasks.md inline prior evaluations', () => {
+  it('renders sibling evaluator output as a fenced ### Evaluator output block inside tasks.md', async () => {
     const sprint = makeSprint();
-    const task = makeTask({ name: 'current task', projectPath: '/tmp' });
-    const priorId = TaskId.trustString('aaaaaaaa');
+    // The current task is the one under review; the sibling carries the
+    // prior evaluation that should surface inside `tasks.md`.
+    const sibling = makeTask({ name: 'sibling task', projectPath: '/tmp', order: 1 });
+    const current = makeTask({ name: 'current task', projectPath: '/tmp', order: 2 });
     const priorBody = '# Prior critique\n\n- correctness PASS';
 
     const storage = resolveStoragePaths();
     const result = await buildExecutionUnit(storage, {
       sprint,
-      tasks: [task],
-      task,
+      tasks: [sibling, current],
+      task: current,
       aiProvider: 'claude',
-      priorEvaluations: new Map([[priorId, priorBody]]),
+      priorEvaluations: new Map([[sibling.id, priorBody]]),
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
     const unitRoot = String(result.value.root);
-    // The renamed folder receives prior siblings.
-    const priorPath = join(unitRoot, 'prior-evaluations', `${String(priorId)}.md`);
-    const body = await readFile(priorPath, 'utf-8');
-    expect(body).toContain('Prior critique');
-    expect(body).toContain('correctness PASS');
+    const tasksMd = await readFile(join(unitRoot, 'tasks.md'), 'utf-8');
+    // Sibling section carries the verdict heading + fenced body.
+    expect(tasksMd).toContain('## 1. sibling task');
+    expect(tasksMd).toContain('### Evaluator output');
+    expect(tasksMd).toContain('```text');
+    expect(tasksMd).toContain('Prior critique');
+    expect(tasksMd).toContain('correctness PASS');
 
-    // The legacy `evaluations/` folder must NOT exist.
-    await expect(stat(join(unitRoot, 'evaluations'))).rejects.toMatchObject({ code: 'ENOENT' });
+    // Per-unit tasks.json is gone — only the canonical sprint-root copy
+    // remains (untouched by this builder).
+    await expect(stat(join(unitRoot, 'tasks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    // Per-unit prior-evaluations/ directory is gone too.
+    await expect(stat(join(unitRoot, 'prior-evaluations'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('omits the ### Evaluator output heading for tasks without a prior evaluation', async () => {
+    const sprint = makeSprint();
+    const onlyTask = makeTask({ name: 'lonely task', projectPath: '/tmp' });
+
+    const storage = resolveStoragePaths();
+    const result = await buildExecutionUnit(storage, {
+      sprint,
+      tasks: [onlyTask],
+      task: onlyTask,
+      aiProvider: 'claude',
+      priorEvaluations: new Map(),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const unitRoot = String(result.value.root);
+    const tasksMd = await readFile(join(unitRoot, 'tasks.md'), 'utf-8');
+    expect(tasksMd).toContain('## 1. lonely task');
+    expect(tasksMd).not.toContain('### Evaluator output');
+
+    // Per-unit tasks.json is gone unconditionally.
+    await expect(stat(join(unitRoot, 'tasks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

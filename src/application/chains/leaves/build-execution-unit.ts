@@ -5,9 +5,10 @@
  *
  * The execution unit is the EVALUATOR'S cwd (or `--add-dir` mount,
  * for Claude). The generator session itself runs inside `task.projectPath`
- * — the unit folder only carries evaluator inputs (task.md, tasks plan,
- * project context, prior evaluations) plus the `evaluation.md` sink the
- * signal handler writes critiques to.
+ * — the unit folder only carries evaluator inputs (task.md, tasks plan
+ * with sibling evaluator output rendered inline in `tasks.md`, project
+ * context) plus the `evaluation.md` sink the signal handler writes
+ * critiques to.
  *
  * Position in the chain: AFTER `mark-in-progress` and BEFORE the
  * evaluator round runs. The per-task chain wraps this leaf together

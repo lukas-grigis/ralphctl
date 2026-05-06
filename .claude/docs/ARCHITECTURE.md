@@ -297,7 +297,7 @@ throw domain errors for bottom-of-the-stack failures — the use-case layer wrap
 │   │       ├── evaluation.md          ← evaluator critique (overwritten per round)
 │   │       ├── done-criteria.md       ← copy of sprint-level done-criteria.md; evaluator per-task reference
 │   │       └── (CLAUDE.md, .claude/skills/, repo/ for Copilot,
-│   │           requirements/, dimensions.md, tasks.md, tasks.json, project-context.md, evaluations/)
+│   │           requirements/, dimensions.md, tasks.md, project-context.md)
 │   └── insights/<sprint-id>.md
 ├── cache/                           ← transient, safe to delete
 │   └── prompts-compiled/            ← optional (skills are now copied per-session, not cached)
