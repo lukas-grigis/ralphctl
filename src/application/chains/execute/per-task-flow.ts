@@ -285,10 +285,34 @@ export function createPerTaskFlow(
     fallback: noopLeaf<PerTaskCtx>('evaluate-task-noop'),
   });
 
-  // Conditionally include post-task-check only when a check script is
-  // configured. Tasks with no check script (e.g. polyglot subdirs) skip
-  // the gate cleanly.
-  const postTaskStep = postTaskCheckLeaf(postCheck);
+  // Post-task check is the per-task verification gate — REQUIREMENTS.md.
+  // Wrapped in TWO nested OnError decorators:
+  //
+  //   1. Inner (hard gate): catches `code: 'check-failed'` (the use case
+  //      surfaces this when the script exits non-zero) and runs the
+  //      block-fallback so the task is marked `blocked` instead of
+  //      proceeding to `mark-done`. Sets `taskBlocked: true` so every
+  //      downstream leaf (evaluate-task, commit-task, mark-done) no-ops.
+  //
+  //   2. Outer (soft safety net): catches any OTHER error except
+  //      `aborted` (user cancellation must propagate) and `check-failed`
+  //      (already handled by the inner wrap). Spawn-level breakage —
+  //      missing binary, EPERM, etc. — degrades to a noop so a flaky
+  //      environment doesn't strand the task.
+  //
+  // Nesting order matters: inner-hard, outer-soft. Reversing would let
+  // the outer wrap absorb `check-failed` and silently fall through to
+  // mark-done — exactly the regression this fix addresses.
+  const postTaskStep = new OnError<PerTaskCtx>(
+    new OnError<PerTaskCtx>(postTaskCheckLeaf(postCheck), {
+      catchIf: (err) => err.code === 'check-failed',
+      fallback: postTaskCheckBlockedFallbackLeaf(deps),
+    }),
+    {
+      catchIf: (err) => err.code !== 'aborted' && err.code !== 'check-failed',
+      fallback: noopLeaf<PerTaskCtx>('post-task-check-noop'),
+    }
+  );
 
   // The render-prompt-to-file leaf writes the FULL execute prompt (with
   // task body, harness context, signal vocabulary, project tooling) to
@@ -382,6 +406,38 @@ function markBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signa
     // chain knows to short-circuit. Every downstream leaf checks the flag
     // and no-ops without doing any work — the chain trace still records
     // each step (kept honest) but no further side effects fire.
+    output: (ctx, task) => ({ ...ctx, task, taskBlocked: true }),
+  });
+}
+
+/**
+ * `post-task-check` `OnError` fallback. Reached when the inner check leaf
+ * returned `code: 'check-failed'` — i.e. the configured `checkScript`
+ * exited non-zero AFTER the AI session reported done. Transitions the
+ * task to `'blocked'` with a generic reason; the full failing output
+ * has already been logged at WARN level by `PostTaskCheckUseCase`
+ * (which the durable signal handler tees into `progress.md`), so no
+ * need to duplicate it on the entity. Sets `taskBlocked: true` so every
+ * downstream leaf (evaluate-task, commit-task, mark-done) no-ops.
+ *
+ * Distinct from `markBlockedFallbackLeaf` (branch preflight): different
+ * blocked reason and a separate trace step name (`mark-blocked-check`)
+ * so a sprint with both kinds of blocks is diagnosable from the trace
+ * alone.
+ */
+function postTaskCheckBlockedFallbackLeaf(deps: Pick<ChainSharedDeps, 'taskRepo' | 'signalBus'>): Element<PerTaskCtx> {
+  return new Leaf<PerTaskCtx, { readonly sprintId: SprintId; readonly task: Task }, Task>('mark-blocked-check', {
+    useCase: {
+      async execute(input) {
+        const transitioned = input.task.markBlocked('post-task check failed');
+        if (!transitioned.ok) return Result.error(transitioned.error);
+        const saved = await deps.taskRepo.update(input.sprintId, transitioned.value);
+        if (!saved.ok) return Result.error(saved.error);
+        deps.signalBus.emit({ type: 'task-finished', taskId: transitioned.value.id, status: 'blocked' });
+        return Result.ok(transitioned.value);
+      },
+    },
+    input: (ctx) => ({ sprintId: ctx.sprintId, task: ctx.task }),
     output: (ctx, task) => ({ ...ctx, task, taskBlocked: true }),
   });
 }
