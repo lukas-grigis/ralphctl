@@ -1,9 +1,10 @@
 /**
  * `SignalBusPort` — observable signal stream parallel to
  * `SignalHandlerPort`. Where the handler writes signals to durable storage
- * (progress.md, evaluations/, tasks.json), the bus broadcasts the same
- * signals + synthetic lifecycle events to in-memory subscribers (the live
- * TUI dashboard, log tails, etc.). Two sinks, one source.
+ * (progress.md summaries; the evaluator's full critique is persisted by
+ * `EvaluateAndFixLoopUseCase`), the bus broadcasts the same signals plus
+ * synthetic lifecycle events to in-memory subscribers (the live TUI
+ * dashboard, log tails, etc.). Two sinks, one source.
  *
  * Subscribers receive events in emission order. A failing listener does
  * NOT stall delivery to other listeners — adapters wrap each invocation

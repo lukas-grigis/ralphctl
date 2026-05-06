@@ -33,7 +33,7 @@ describe('buildExecutionUnitLeaf', () => {
       expect(call?.priorEvaluations.size).toBe(0);
     });
 
-    it('stamps the returned paths onto ctx as executionUnitRoot / executionAddDirs / executionSessionCwd / executionEvaluationMdPath', async () => {
+    it('stamps the returned paths onto ctx as executionUnitRoot / executionAddDirs / executionSessionCwd', async () => {
       const sessionFolderBuilder = new FakeSessionFolderBuilderPort({ rootPrefix: '/fake-units' });
       const aiSession = new FakeAiSessionPort({ providerName: 'claude' });
       const leaf = buildExecutionUnitLeaf<BuildExecutionUnitCtx>({ sessionFolderBuilder, aiSession });
@@ -50,7 +50,6 @@ describe('buildExecutionUnitLeaf', () => {
       expect(ctx.executionUnitRoot).toBeDefined();
       expect(ctx.executionAddDirs).toBeDefined();
       expect(ctx.executionSessionCwd).toBeDefined();
-      expect(ctx.executionEvaluationMdPath).toBeDefined();
     });
 
     it('preserves extra ctx fields on output', async () => {

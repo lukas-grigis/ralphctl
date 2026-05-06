@@ -8,7 +8,6 @@
  * (`createTestDeps`) covers business-port fakes; this layer adds the
  * presentation-only ports views read from `getSharedDeps()`.
  */
-import { FakeSessionFolderBuilderPort } from '@src/business/_test-fakes/fake-session-folder-builder-port.ts';
 import { Result } from '@src/domain/result.ts';
 import { InMemorySignalBus } from '@src/integration/signals/bus.ts';
 import { InMemoryLogEventBus } from '@src/integration/logging/log-event-bus.ts';
@@ -65,6 +64,9 @@ export function buildTuiDeps(opts: TuiDepsOptions = {}): TuiTestDeps {
     prompt: inner.prompt,
     rateLimitCoordinator: inner.rateLimitCoordinator,
     writeContextFile: inner.writeContextFile,
-    sessionFolderBuilder: new FakeSessionFolderBuilderPort(),
+    // Forward the inner sessionFolderBuilder so callers that pass an
+    // override (e.g. e2e tests using the real `FileSessionFolderBuilderAdapter`)
+    // see their port flow through to the SharedDeps graph.
+    sessionFolderBuilder: inner.sessionFolderBuilder,
   };
 }

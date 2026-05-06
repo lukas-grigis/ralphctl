@@ -22,14 +22,27 @@
  * on every loop tick so a settings-panel edit mid-execution applies to the
  * next round (REQ-12).
  *
- * **Prompt file rendering** — each evaluator round writes a fresh
- * evaluator prompt to `<sprintDir>/contexts/evaluate-<task-id>.md`,
- * overwriting the prior round's body so the AI always reads the
- * current critique. The generator's prompt at
- * `<sprintDir>/contexts/execute-<task-id>.md` is rendered once by the
- * chain layer's `render-prompt-to-file` leaf and reused across fix
- * rounds (Claude resumes via `--resume <session-id>` so the original
- * file body remains in scope).
+ * **Per-round on-disk layout** — `evaluateWorkspaceDir` is required;
+ * the loop writes one folder per round under
+ * `<workspace>/rounds/<N>/evaluator/`:
+ *
+ *   - `prompt.md` — the evaluator prompt rendered for THIS round.
+ *   - `evaluation.md` — the full critique (`fullCritique` from the
+ *     `EvaluateTaskUseCase` result), stamped after the round settles.
+ *   - `session.md` — the audit pack written by the AI session adapter.
+ *
+ * Generator (re-)spawns land their `session.md` audit at
+ * `rounds/<N>/generator/session.md`. Each round path is unique, so
+ * "the most recent verdict" is unambiguously the highest-N
+ * `evaluation.md`; the chain layer records that path on
+ * `Task.evaluationFile` directly — no pointer file is needed.
+ *
+ * The generator's prompt at the chain-supplied
+ * `executePromptFilePath` is rendered once by the
+ * `render-prompt-to-file` leaf and reused across fix rounds. On round
+ * `>= 2` the loop hands the generator a critique-aware wrapper that
+ * inlines the prior round's verdict body directly in the resume turn
+ * so the fix attempt reads the critique without a tool round-trip.
  *
  * **Never blocks** — the loop **always** returns `Result.ok(...)`. A
  * failed / malformed / plateau outcome is signalled via the structured
@@ -47,6 +60,7 @@ import { Result } from '@src/domain/result.ts';
 import type { EvaluationSignal } from '@src/domain/signals/harness-signal.ts';
 import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
 import { AbsolutePath as AbsolutePathVO } from '@src/domain/values/absolute-path.ts';
+import { evaluatorRoundDir } from '@src/kernel/algorithms/execution-round-paths.ts';
 import type { LoggerPort } from '@src/business/ports/logger-port.ts';
 import type { PromptBuilderPort } from '@src/business/ports/prompt-builder-port.ts';
 import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
@@ -79,12 +93,6 @@ export interface EvaluateAndFixLoopInput {
    */
   readonly executePromptFilePath: string;
   /**
-   * Absolute path to the sprint dir's contexts/ folder. The loop
-   * writes per-round evaluator prompts under
-   * `<contextsDir>/evaluate-<task-id>.md`, overwriting on each round.
-   */
-  readonly contextsDir: AbsolutePath;
-  /**
    * Resolved check script for the post-task gate after a generator fix
    * round. When omitted, the post-task gate is skipped between rounds.
    */
@@ -112,13 +120,21 @@ export interface EvaluateAndFixLoopInput {
    */
   readonly evaluateSessionCwd?: AbsolutePath;
   /**
-   * Absolute path of the evaluate workspace root, embedded into the
-   * evaluator prompt's `Contract files` section so the AI knows where
-   * to read upstream contracts (refined requirements, full task plan,
-   * dimension definitions, prior sibling evaluations). When undefined
-   * the section renders empty (standalone `sprint evaluate`).
+   * Absolute path of the evaluate workspace root. Two roles:
+   *  - Embedded into the evaluator prompt's `Contract files` section so
+   *    the AI knows where to read upstream contracts (refined
+   *    requirements, full task plan, dimension definitions, prior
+   *    sibling evaluations).
+   *  - Anchors the per-round on-disk artefact pack at
+   *    `<workspace>/rounds/<N>/evaluator/{prompt.md, evaluation.md,
+   *    session.md}` plus the stable `<workspace>/latest-evaluation.md`.
+   *
+   * Required: production callers (the per-task chain) always provide
+   * one. Callers that lack a workspace (build-execution-unit failed)
+   * must SKIP the loop entirely rather than invoke it with no
+   * archival target — the chain layer owns that decision.
    */
-  readonly evaluateWorkspaceDir?: string;
+  readonly evaluateWorkspaceDir: string;
   /**
    * The single `done-criteria.md` bullet for this task — e.g.
    * `- **Task name** (\`<id>\`) — <criteria>`. Threaded through to
@@ -139,17 +155,18 @@ export interface EvaluateAndFixLoopInput {
   /**
    * Optional per-spawn `session.md` path provider. The loop calls this
    * before each generator (`{ kind: 'generator' }`) and evaluator
-   * (`{ kind: 'evaluator' }`) spawn to obtain a fresh audit path; it
-   * threads the result into the spawn's `SessionOptions` so the AI
-   * session adapter brackets the spawn with `writeSessionStart` /
-   * `writeSessionFinish`. Returning `undefined` skips the audit for
-   * that round. Implementations typically use {@link nextSessionPath}
-   * over the per-task execution unit root.
+   * (`{ kind: 'evaluator' }`) spawn to obtain an audit path keyed on
+   * `round`; it threads the result into the spawn's `SessionOptions`
+   * so the AI session adapter brackets the spawn with
+   * `writeSessionStart` / `writeSessionFinish`. Returning `undefined`
+   * skips the audit for that round. The chain layer's implementation
+   * routes `'evaluator'` to `rounds/<round>/evaluator/session.md` and
+   * `'generator'` to `rounds/<round>/generator/session.md`.
    *
    * Lives in `business/` so the use case stays IO-free; the chain
    * leaf injects an integration-side closure.
    */
-  readonly nextSessionMdPath?: (kind: 'generator' | 'evaluator') => Promise<AbsolutePath | undefined>;
+  readonly nextSessionMdPath?: (kind: 'generator' | 'evaluator', round: number) => Promise<AbsolutePath | undefined>;
   readonly abortSignal?: AbortSignal;
 }
 
@@ -202,12 +219,6 @@ export class EvaluateAndFixLoopUseCase {
       });
     }
 
-    const evaluatorPromptPath = AbsolutePathVO.trustString(
-      input.evaluateWorkspaceDir !== undefined
-        ? join(input.evaluateWorkspaceDir, 'evaluator-prompt.md')
-        : join(String(input.contextsDir), `evaluate-${String(input.task.id)}.md`)
-    );
-
     const history: EvaluationRound[] = [];
     let previousSignal: EvaluationSignal | undefined;
     let previousCritique: string | undefined;
@@ -250,14 +261,23 @@ export class EvaluateAndFixLoopUseCase {
         }
       }
 
+      // ── Per-round evaluator paths.
+      //    Each round's prompt + verdict + session.md live under
+      //    `<workspace>/rounds/<round>/evaluator/` so artefacts persist
+      //    independently. The workspace is contractually required —
+      //    callers that don't have one must skip the loop.
+      const evaluatorPromptPath = AbsolutePathVO.trustString(
+        join(evaluatorRoundDir(input.evaluateWorkspaceDir, round), 'prompt.md')
+      );
+
       // ── Render the evaluator prompt to file (per-round; the
       //    `previousCritique` slot changes between rounds). Overwriting
       //    is intentional — the AI reads the FRESH version each time.
       const evalPromptResult = await this.prompts.buildEvaluatePrompt({
         task: input.task,
         sprint: input.sprint,
+        evaluateWorkspaceDir: input.evaluateWorkspaceDir,
         ...(previousCritique !== undefined ? { previousCritique } : {}),
-        ...(input.evaluateWorkspaceDir !== undefined ? { evaluateWorkspaceDir: input.evaluateWorkspaceDir } : {}),
         ...(input.doneCriteriaBullet !== undefined ? { doneCriteriaBullet: input.doneCriteriaBullet } : {}),
       });
       if (!evalPromptResult.ok) return Result.error(evalPromptResult.error);
@@ -266,7 +286,9 @@ export class EvaluateAndFixLoopUseCase {
 
       // ── Evaluator round ─────────────────────────────────────────
       const evaluatorCwd = input.evaluateSessionCwd ?? input.cwd;
-      const evaluatorSessionMdPath = input.nextSessionMdPath ? await input.nextSessionMdPath('evaluator') : undefined;
+      const evaluatorSessionMdPath = input.nextSessionMdPath
+        ? await input.nextSessionMdPath('evaluator', round)
+        : undefined;
       const evalResult = await this.evaluator.execute({
         task: input.task,
         sprint: input.sprint,
@@ -280,6 +302,23 @@ export class EvaluateAndFixLoopUseCase {
 
       const { outcome, signal, fullCritique } = evalResult.value;
       history.push({ round, outcome, signal, critique: fullCritique });
+
+      // ── Persist the verdict to disk under the per-round folder.
+      //    Each round gets its own unique path (`rounds/<N>/evaluator/
+      //    evaluation.md`), so "the most recent" is unambiguously the
+      //    highest N — no pointer file needed. Best-effort: a write
+      //    failure surfaces as a warning, the verdict is still in
+      //    `fullCritique` on the result object regardless.
+      const verdictPath = AbsolutePathVO.trustString(
+        join(evaluatorRoundDir(input.evaluateWorkspaceDir, round), 'evaluation.md')
+      );
+      const verdictWritten = await this.writeContextFile.write(verdictPath, fullCritique);
+      if (!verdictWritten.ok) {
+        log.warn('failed to persist per-round evaluator verdict', {
+          round,
+          error: verdictWritten.error.message,
+        });
+      }
 
       log.info(`evaluator round complete for task ${String(input.task.id)}`, { round, outcome });
 
@@ -319,9 +358,16 @@ export class EvaluateAndFixLoopUseCase {
       // ── Generator fix round ─────────────────────────────────────
       // The generator resumes the same session, so the original
       // execute prompt file at `input.executePromptFilePath` is
-      // already in scope. No re-render needed.
+      // already in scope. The fix wrapper inlines the verdict body
+      // (`fullCritique`) directly in the resume turn so the generator
+      // reads it without a tool round-trip — the critique is bounded
+      // and already in memory; an on-disk handoff would only add
+      // failure modes. The next round's index is `round + 1`.
       log.info('resuming generator with critique', { round });
-      const generatorSessionMdPath = input.nextSessionMdPath ? await input.nextSessionMdPath('generator') : undefined;
+      const fixRound = round + 1;
+      const generatorSessionMdPath = input.nextSessionMdPath
+        ? await input.nextSessionMdPath('generator', fixRound)
+        : undefined;
       const fixResult = await this.generator.execute({
         task: input.task,
         sprint: input.sprint,
@@ -329,6 +375,7 @@ export class EvaluateAndFixLoopUseCase {
         promptFilePath: input.executePromptFilePath,
         ...(resumeSessionId !== undefined ? { resumeSessionId } : {}),
         ...(generatorSessionMdPath !== undefined ? { sessionMdPath: generatorSessionMdPath } : {}),
+        fixContext: { critique: fullCritique },
         ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
       });
       if (!fixResult.ok) return Result.error(fixResult.error);

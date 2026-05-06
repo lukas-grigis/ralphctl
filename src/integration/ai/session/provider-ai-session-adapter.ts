@@ -28,10 +28,11 @@
  * audit "where Claude was started, why, and with what permissions"
  * without reading code. Writes are best-effort: a write failure logs
  * a warn through the injected `LoggerPort` and the spawn proceeds
- * unchanged. For execution rounds the chain leaf rotates through
- * `session-1.md`, `session-2.md`, …  via {@link nextSessionPath}; for
- * single-shot AI rounds (refine / plan / ideate / feedback / evaluate)
- * a single `session.md` per unit folder is overwritten on re-run.
+ * unchanged. For execution rounds the chain leaf routes audits through
+ * round-aware paths (`rounds/<N>/{generator,evaluator}/session.md`) so
+ * each round's audit lives independently; for single-shot AI rounds
+ * (refine / plan / ideate / feedback / standalone evaluate) a single
+ * `session.md` per unit folder is overwritten on re-run.
  */
 import { RateLimitError } from '@src/domain/errors/rate-limit-error.ts';
 import { StorageError } from '@src/domain/errors/storage-error.ts';
@@ -260,6 +261,10 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
    * The actual provider exit code isn't surfaced through the runner's
    * typed Result — `1` is a faithful "spawn failed" stand-in for audit
    * purposes; the underlying error's message is already in the logs.
+   *
+   * `model` is the first audit hint we have for headless spawns where
+   * the runner picks the model — `writeSessionFinish` merges it into
+   * the frontmatter alongside the other finish fields in a single write.
    */
   private async writeSessionMdFinishHeadless(
     options: SessionOptions,
@@ -268,26 +273,19 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
     const path = options.sessionMdPath;
     if (path === undefined) return;
     const sessionId = result.ok ? result.value.sessionId : undefined;
+    const model = result.ok ? result.value.model : undefined;
     const written = await writeSessionFinish({
       path: String(path),
       finished: new Date().toISOString(),
       exitCode: result.ok ? 0 : 1,
       ...(sessionId !== undefined ? { sessionId } : {}),
+      ...(model !== undefined ? { model } : {}),
     });
     if (!written.ok) {
       this.opts.logger?.warn('failed to write session.md (finish) — spawn already settled', {
         path: String(path),
         error: written.error.message,
       });
-      return;
-    }
-    // Append model when surfaced (writeSessionFinish only carries the
-    // standard finish fields; model lives in the start frontmatter for
-    // pre-spawn sessions, but a successful headless run is the first
-    // chance we have to learn the resolved model identifier — patch it
-    // in by re-rendering with the merged field set).
-    if (result.ok && result.value.model !== undefined) {
-      await this.patchSessionMdModel(String(path), result.value.model);
     }
   }
 
@@ -308,39 +306,6 @@ export class ProviderAiSessionAdapter implements AiSessionPort {
       this.opts.logger?.warn('failed to write session.md (finish) — spawn already settled', {
         path: String(path),
         error: written.error.message,
-      });
-    }
-  }
-
-  /**
-   * Patch the resolved `model` into an existing `session.md`. Reuses
-   * `writeSessionFinish` to round-trip frontmatter without touching the
-   * prompt body. Best-effort — write failures log a warn.
-   *
-   * Implementation note: `writeSessionFinish` was scoped to the
-   * standard finish fields only. The narrow `model` patch here goes
-   * through `writeSessionStart` would clobber the body, so we re-read,
-   * splice the field, and re-emit via the same writer surface. This
-   * keeps the YAML-handling logic in one place (`session-md-writer`)
-   * even at the cost of a second IO round-trip — the audit pack is
-   * cold-path and we'd rather centralise format knowledge.
-   */
-  private async patchSessionMdModel(path: string, model: string): Promise<void> {
-    try {
-      const fs = await import('node:fs/promises');
-      const existing = await fs.readFile(path, 'utf-8');
-      // Surgical: rewrite the first `---`-delimited frontmatter block
-      // with `model:` either inserted (if missing) or replaced. Done
-      // inline because `session-md-writer` keeps its parser private —
-      // reaching for it here would expand the public surface for one
-      // post-hoc patch.
-      const patched = upsertFrontmatterField(existing, 'model', model);
-      if (patched === existing) return;
-      await fs.writeFile(path, patched, { encoding: 'utf-8', mode: 0o600 });
-    } catch (err) {
-      this.opts.logger?.warn('failed to patch session.md model field', {
-        path,
-        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -407,34 +372,4 @@ function stripTrailingPromptSlot(args: readonly string[]): readonly string[] {
   // Drop a trailing `--` separator if it's now exposed.
   if (end > 0 && args[end - 1] === '--') end -= 1;
   return args.slice(0, end);
-}
-
-/**
- * Upsert a single key into a YAML-ish frontmatter block. The block is
- * the first `---`-delimited section at the top of the file. If `key`
- * already appears, its value is replaced; otherwise the new line is
- * inserted just before the closing `---`. Handles only flat string
- * values — sufficient for the `model` patch the adapter performs.
- */
-function upsertFrontmatterField(content: string, key: string, value: string): string {
-  const lines = content.split('\n');
-  if (lines[0]?.trim() !== '---') return content;
-  let closeIdx = -1;
-  for (let i = 1; i < lines.length; i += 1) {
-    if (lines[i]?.trim() === '---') {
-      closeIdx = i;
-      break;
-    }
-  }
-  if (closeIdx < 0) return content;
-  const keyRegex = new RegExp(`^${key}\\s*:`);
-  for (let i = 1; i < closeIdx; i += 1) {
-    const line = lines[i] ?? '';
-    if (keyRegex.test(line.trim())) {
-      lines[i] = `${key}: ${value}`;
-      return lines.join('\n');
-    }
-  }
-  lines.splice(closeIdx, 0, `${key}: ${value}`);
-  return lines.join('\n');
 }

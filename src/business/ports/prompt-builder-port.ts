@@ -130,7 +130,7 @@ export interface PromptBuilderPort {
    * lands its contract pack on disk). When set, the rendered prompt
    * includes a `Contract files` section pointing the AI at upstream
    * artefacts (`requirements/`, `tasks.md`, `dimensions.md`,
-   * `evaluations/`, `project-context.md`). When unset, the section
+   * `prior-evaluations/`, `project-context.md`). When unset, the section
    * collapses — used by the standalone `sprint evaluate` chain which
    * has no workspace.
    */

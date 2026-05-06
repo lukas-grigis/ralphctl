@@ -2,10 +2,11 @@
  * `session-md-writer` — write per-AI-session markdown files with a YAML
  * frontmatter header and a `## Prompt` body.
  *
- * Each AI session under a per-unit folder gets a `session.md` (or
- * `session-N.md` for execution rounds) so the user can audit exactly
- * what the harness handed the model and how the spawn settled. Two
- * write phases:
+ * Each AI session under a per-unit folder gets a `session.md` (refine /
+ * plan / ideate stamp a single one at the unit root; the per-task chain
+ * routes each spawn into `rounds/<N>/{generator,evaluator}/session.md`)
+ * so the user can audit exactly what the harness handed the model and
+ * how the spawn settled. Two write phases:
  *
  *  - {@link writeSessionStart} — called immediately before the spawn.
  *    Writes provider / model / cwd / flags / sessionId / started + the
@@ -22,8 +23,7 @@
  * be overkill for these few keys.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { readdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import { StorageError } from '@src/domain/errors/storage-error.ts';
 import { Result } from '@src/domain/result.ts';
@@ -50,6 +50,13 @@ export interface SessionFinishArgs {
   readonly exitCode: number | null;
   /** New session id assigned by the provider, when surfaced. */
   readonly sessionId?: string;
+  /**
+   * Resolved model identifier from the provider, when surfaced. Merged
+   * into the frontmatter at finish time — the start half doesn't know
+   * the model for headless spawns where the runner picks it. Optional
+   * because interactive spawns don't surface a model identifier.
+   */
+  readonly model?: string;
 }
 
 const FRONTMATTER_DELIM = '---';
@@ -151,6 +158,7 @@ export async function writeSessionFinish(args: SessionFinishArgs): Promise<Resul
       finished: args.finished,
       exitCode: args.exitCode,
       sessionId: args.sessionId,
+      model: args.model,
     });
     return writeFileSafe(args.path, `${fm}\n\n## Prompt\n\n_(no prompt recorded — session finish without start)_\n`);
   }
@@ -160,6 +168,7 @@ export async function writeSessionFinish(args: SessionFinishArgs): Promise<Resul
   merged['finished'] = args.finished;
   merged['exitCode'] = args.exitCode;
   if (args.sessionId !== undefined) merged['sessionId'] = args.sessionId;
+  if (args.model !== undefined) merged['model'] = args.model;
 
   const fm = renderFrontmatter(merged);
   const content = `${fm}\n\n${body}`;
@@ -217,27 +226,4 @@ function unquote(s: string): string {
     return s.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
   }
   return s;
-}
-
-/**
- * Scan `unitDir` for `session-N.md` files and return the next number's
- * absolute path (`session-1.md` if none exist). Used by execution units
- * which spawn one AI session per evaluator round.
- */
-export async function nextSessionPath(unitDir: string): Promise<string> {
-  let entries: string[];
-  try {
-    entries = await readdir(unitDir);
-  } catch {
-    // Directory doesn't exist yet — start at 1.
-    return join(unitDir, 'session-1.md');
-  }
-  let max = 0;
-  for (const entry of entries) {
-    const m = /^session-(\d+)\.md$/.exec(entry);
-    if (!m) continue;
-    const n = Number(m[1]);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return join(unitDir, `session-${String(max + 1)}.md`);
 }

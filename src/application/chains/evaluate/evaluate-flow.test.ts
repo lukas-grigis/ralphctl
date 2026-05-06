@@ -3,8 +3,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { EvaluationSignal } from '@src/domain/signals/harness-signal.ts';
 import { FakeAiSessionPort } from '@src/business/_test-fakes/fake-ai-session-port.ts';
+import { FakeLoggerPort } from '@src/business/_test-fakes/fake-logger-port.ts';
 import { FakeWriteContextFilePort } from '@src/business/_test-fakes/fake-write-context-file-port.ts';
-import { T0, abs, makeSprint, makeTask } from '@src/application/_test-fakes/fixtures.ts';
+import type { WriteContextFilePort } from '@src/business/ports/write-context-file-port.ts';
+import { StorageError } from '@src/domain/errors/storage-error.ts';
+import { Result } from '@src/domain/result.ts';
+import type { AbsolutePath } from '@src/domain/values/absolute-path.ts';
+import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
+import { T0, abs, makeSprint, makeTask, taskId } from '@src/application/_test-fakes/fixtures.ts';
 import { createTestDeps } from '@src/application/_test-fakes/create-test-deps.ts';
 import { createEvaluateFlow } from './evaluate-flow.ts';
 
@@ -29,7 +35,7 @@ function activateSprint(draft: ReturnType<typeof makeSprint>) {
 }
 
 describe('createEvaluateFlow', () => {
-  it('runs load-sprint → assert-active → load-task → check-already-evaluated → render-prompt-to-file → evaluate-task → persist-evaluation', async () => {
+  it('runs load-sprint → assert-active → load-task → render-prompt-to-file → evaluate-task → persist-evaluation', async () => {
     const sprint = activateSprint(makeSprint());
     const task = makeTask({ name: 'do thing' });
     const deps = createTestDeps({
@@ -54,7 +60,6 @@ describe('createEvaluateFlow', () => {
       'load-sprint',
       'assert-active',
       'load-task',
-      'check-already-evaluated',
       'render-prompt-to-file',
       'evaluate-task',
       'persist-evaluation',
@@ -120,24 +125,29 @@ describe('createEvaluateFlow', () => {
     expect(result.error.trace.some((t) => t.status === 'aborted')).toBe(true);
   });
 
-  it('short-circuits as a successful no-op when the task is already evaluated', async () => {
+  it('re-runs end-to-end when the task is already evaluated (re-runs are allowed)', async () => {
     // The evaluator never blocks (REQUIREMENTS.md). Re-running
     // `sprint evaluate <task>` on a task that already has a recorded
-    // verdict must complete successfully, not return an error. Every
-    // downstream leaf no-ops so the trace stays honest.
+    // verdict must complete successfully — and now runs the AI spawn
+    // again so a stale verdict can be refreshed. Each invocation lays
+    // down a fresh `rounds/standalone-<ISO>/` so prior verdicts persist
+    // as durable history.
     const sprint = activateSprint(makeSprint());
     const task0 = makeTask({ name: 'do thing' });
     const evaluated = task0.recordEvaluation({
       status: 'passed',
       output: 'prior critique',
-      file: 'evaluations/x.md',
+      file: 'execution/x/latest-evaluation.md',
     });
 
-    const aiSession = new FakeAiSessionPort();
+    const aiSession = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'fresh evaluator output' } }],
+    });
     const writeContextFile = new FakeWriteContextFilePort();
     const deps = createTestDeps({
       sprints: [sprint],
       tasks: [[sprint.id, [evaluated]]],
+      signalParser: { results: [[passSignal]] },
       overrides: { aiSession, writeContextFile },
     });
 
@@ -151,31 +161,28 @@ describe('createEvaluateFlow', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Every step in the chain still ran (as a no-op for downstream
-    // leaves) so the trace remains the canonical step order.
     expect(result.value.trace.map((t) => t.stepName)).toStrictEqual([
       'load-sprint',
       'assert-active',
       'load-task',
-      'check-already-evaluated',
       'render-prompt-to-file',
       'evaluate-task',
       'persist-evaluation',
     ]);
-    // The task's recorded evaluation must be untouched — re-running
-    // shouldn't overwrite a prior verdict with a fresh spawn we never
-    // actually performed.
-    const reread = await deps.taskRepo.findById(sprint.id, evaluated.id);
-    if (!reread.ok) throw new Error('expected task');
-    expect(reread.value.evaluated).toBe(true);
-    expect(reread.value.evaluationStatus).toBe('passed');
-    expect(reread.value.evaluationOutput).toBe('prior critique');
-
-    // No AI spawn fired — the chain skipped evaluate-task as a no-op.
-    expect(aiSession.captured).toHaveLength(0);
-    // No prompt file was rendered — render-prompt-to-file honours the
-    // skip flag too.
-    expect(writeContextFile.writes).toHaveLength(0);
+    // A fresh AI spawn fires — the chain no longer short-circuits.
+    expect(aiSession.captured).toHaveLength(1);
+    // Two writes routed via WriteContextFilePort: the rendered prompt
+    // and the per-round evaluation.md verdict — both under the
+    // standalone-round folder. Each round path is unique, so no
+    // pointer file is needed.
+    expect(writeContextFile.writes).toHaveLength(2);
+    const writtenPaths = writeContextFile.writes.map((w) => String(w.path));
+    expect(writtenPaths).toStrictEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/prompt\.md$/),
+        expect.stringMatching(/\/execution\/[^/]+\/rounds\/standalone-[^/]+\/evaluator\/evaluation\.md$/),
+      ])
+    );
   });
 
   it('fails on assert-active when sprint is not active (draft)', async () => {
@@ -212,4 +219,147 @@ describe('createEvaluateFlow', () => {
     // The error code must identify the state violation.
     expect(result.error.error.code).toBe('invalid-state');
   });
+
+  it('two same-process invocations land in distinct rounds/standalone-<ISO>/ folders', async () => {
+    // Each `createEvaluateFlow(...)` call captures its own folder token
+    // (`<ISO>-<rand4>`). The 4-char random suffix means two back-to-back
+    // factory calls land in distinct folders even within the same
+    // millisecond — no `setTimeout` needed in this test, no race in
+    // production.
+    const sprint = activateSprint(makeSprint());
+    const task = makeTask({ name: 'do thing' });
+
+    const aiSession1 = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'evaluator output 1' } }],
+    });
+    const writer1 = new FakeWriteContextFilePort();
+    const deps1 = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      signalParser: { results: [[passSignal]] },
+      overrides: { aiSession: aiSession1, writeContextFile: writer1 },
+    });
+    const flow1 = createEvaluateFlow(deps1);
+
+    const result1 = await flow1.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result1.ok).toBe(true);
+
+    const aiSession2 = new FakeAiSessionPort({
+      outcomes: [{ kind: 'ok', result: { output: 'evaluator output 2' } }],
+    });
+    const writer2 = new FakeWriteContextFilePort();
+    const deps2 = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      signalParser: { results: [[passSignal]] },
+      overrides: { aiSession: aiSession2, writeContextFile: writer2 },
+    });
+    const flow2 = createEvaluateFlow(deps2);
+
+    const result2 = await flow2.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result2.ok).toBe(true);
+
+    const folder1 = extractStandaloneFolder(writer1.writes.map((w) => String(w.path)));
+    const folder2 = extractStandaloneFolder(writer2.writes.map((w) => String(w.path)));
+    expect(folder1).toBeDefined();
+    expect(folder2).toBeDefined();
+    expect(folder1).not.toBe(folder2);
+  });
+
+  it('persists Task.evaluationFile as execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/evaluation.md', async () => {
+    // The persisted relative path must point at the verdict file the
+    // upstream evaluate-task leaf actually wrote — keyed on the unit
+    // slug (`<id>-<name-slug>`) and the standalone round's ISO. Each
+    // standalone-round path is unique, so the recorded value
+    // unambiguously locates THIS run's verdict — no pointer-file
+    // indirection, no stale references after a re-run.
+    const sprint = activateSprint(makeSprint());
+    const explicitId = taskId('abc123');
+    const task = makeTask({ id: explicitId, name: 'My Cool Feature' });
+
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: { outcomes: [{ kind: 'ok', result: { output: 'evaluator output' } }] },
+      signalParser: { results: [[passSignal]] },
+    });
+
+    const flow = createEvaluateFlow(deps);
+    const result = await flow.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+    expect(result.ok).toBe(true);
+
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+
+    const slug = unitSlug(String(task.id), task.name);
+    expect(slug).toBe('abc123-my-cool-feature');
+    expect(reread.value.evaluationFile).toMatch(
+      new RegExp(`^execution/${slug}/rounds/standalone-[^/]+/evaluator/evaluation\\.md$`)
+    );
+  });
+
+  it('standalone evaluate write failures warn and never block the chain', async () => {
+    // Inject a fake writer that fails specifically on the verdict path
+    // but lets the prompt write succeed. The chain must complete
+    // (Result.ok) and emit a warn-level diagnostic referencing the
+    // failed path — durable history is best-effort, and the in-memory
+    // critique still flows downstream to persist-evaluation.
+    const sprint = activateSprint(makeSprint());
+    const task = makeTask({ name: 'do thing' });
+
+    const writer: WriteContextFilePort = {
+      writes: [] as { path: AbsolutePath; content: string }[],
+      write(path, content) {
+        this.writes.push({ path, content });
+        const p = String(path);
+        if (p.endsWith('/evaluation.md')) {
+          return Promise.resolve(
+            Result.error(new StorageError({ subCode: 'io', message: 'EACCES simulated', path: p }))
+          );
+        }
+        return Promise.resolve(Result.ok());
+      },
+    } as WriteContextFilePort & { writes: { path: AbsolutePath; content: string }[] };
+
+    const logger = new FakeLoggerPort();
+    const deps = createTestDeps({
+      sprints: [sprint],
+      tasks: [[sprint.id, [task]]],
+      aiSession: { outcomes: [{ kind: 'ok', result: { output: 'evaluator output' } }] },
+      signalParser: { results: [[passSignal]] },
+      overrides: { writeContextFile: writer, logger },
+    });
+
+    const flow = createEvaluateFlow(deps);
+    const result = await flow.execute({ sprintId: sprint.id, taskId: task.id, cwd: CWD });
+
+    expect(result.ok).toBe(true);
+
+    // At least one warn log references the failed evaluation.md path.
+    const warns = logger.entries.filter((e) => e.level === 'warn');
+    expect(warns.length).toBeGreaterThanOrEqual(1);
+    const warnedPaths = warns
+      .map((w) => (typeof w.context['path'] === 'string' ? w.context['path'] : ''))
+      .filter((p) => p.length > 0);
+    expect(warnedPaths.some((p) => p.endsWith('/evaluation.md'))).toBe(true);
+
+    // Persist-evaluation still ran with the in-memory critique.
+    const reread = await deps.taskRepo.findById(sprint.id, task.id);
+    if (!reread.ok) throw new Error('expected task');
+    expect(reread.value.evaluated).toBe(true);
+  });
 });
+
+/**
+ * Extract the `rounds/standalone-<iso>/` segment from any of the per-run
+ * write paths. Returns `undefined` when no path matches, which the test
+ * assertion catches.
+ */
+function extractStandaloneFolder(paths: readonly string[]): string | undefined {
+  const re = /\/(rounds\/standalone-[^/]+)\//;
+  for (const p of paths) {
+    const m = re.exec(p);
+    if (m && typeof m[1] === 'string') return m[1];
+  }
+  return undefined;
+}

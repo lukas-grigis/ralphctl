@@ -1,9 +1,9 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { nextSessionPath, writeSessionFinish, writeSessionStart } from './session-md-writer.ts';
+import { writeSessionFinish, writeSessionStart } from './session-md-writer.ts';
 
 let dir: string;
 
@@ -133,32 +133,47 @@ describe('writeSessionFinish', () => {
     const body = await readFile(path, 'utf-8');
     expect(body).toContain('exitCode: null');
   });
-});
 
-describe('nextSessionPath', () => {
-  it('returns session-1.md when the dir is empty', async () => {
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-1.md'));
+  it('merges model into the frontmatter on finish (single-write replacement for the legacy patch path)', async () => {
+    // Headless spawns learn the resolved model identifier only after the
+    // runner returns, so the adapter passes it through SessionFinishArgs.
+    // The prior implementation did a second read+regex-rewrite to splice
+    // model in; this test pins that the merge happens in one write and
+    // co-exists with the standard finish fields.
+    const path = join(dir, 'session.md');
+    await writeSessionStart({
+      path,
+      provider: 'claude',
+      cwd: '/tmp',
+      flags: [],
+      started: '2026-05-04T10:00:00Z',
+      promptBody: 'X',
+    });
+    await writeSessionFinish({
+      path,
+      finished: '2026-05-04T10:01:00Z',
+      exitCode: 0,
+      sessionId: 'sess-merge',
+      model: 'claude-opus-4-7',
+    });
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('model: claude-opus-4-7');
+    expect(body).toContain('sessionId: sess-merge');
+    expect(body).toContain('exitCode: 0');
+    // Body still preserved.
+    expect(body).toContain('## Prompt\n\nX');
   });
 
-  it('returns session-1.md when the dir does not exist', async () => {
-    const missing = join(dir, 'does-not-exist');
-    const p = await nextSessionPath(missing);
-    expect(p).toBe(join(missing, 'session-1.md'));
-  });
-
-  it('increments past existing session-N.md files', async () => {
-    await writeFile(join(dir, 'session-1.md'), 'a');
-    await writeFile(join(dir, 'session-2.md'), 'b');
-    await writeFile(join(dir, 'session-5.md'), 'c'); // skipped numbers tolerated
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-6.md'));
-  });
-
-  it('ignores files that do not match the session pattern', async () => {
-    await writeFile(join(dir, 'random.md'), 'x');
-    await writeFile(join(dir, 'session.md'), 'y'); // no number — ignored
-    const p = await nextSessionPath(dir);
-    expect(p).toBe(join(dir, 'session-1.md'));
+  it('includes model in the finish-only stub when no prior file exists', async () => {
+    const path = join(dir, 'session.md');
+    await writeSessionFinish({
+      path,
+      finished: '2026-05-04T10:00:00Z',
+      exitCode: 0,
+      model: 'claude-opus-4-7',
+    });
+    const body = await readFile(path, 'utf-8');
+    expect(body).toContain('model: claude-opus-4-7');
+    expect(body).toContain('finished: 2026-05-04T10:00:00Z');
   });
 });

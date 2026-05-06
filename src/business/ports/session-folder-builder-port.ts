@@ -21,8 +21,8 @@
  *
  * **Refresh semantics:** `refreshExecutionUnit` overwrites only the
  * volatile per-task files (`task.md`, `tasks.md`, `tasks.json`,
- * `project-context.md`, `evaluations/`). Static files written by the
- * initial `buildExecutionUnit` (`requirements/`, `dimensions.md`,
+ * `project-context.md`, `prior-evaluations/`). Static files written by
+ * the initial `buildExecutionUnit` (`requirements/`, `dimensions.md`,
  * the root context file) are left untouched.
  */
 import type { AiProvider } from '@src/business/ports/ai-session-port.ts';
@@ -82,8 +82,6 @@ export interface ExecutionUnitPaths {
    * `<root>/repo/`.
    */
   readonly sessionCwd: AbsolutePath;
-  /** `<root>/evaluation.md` — durable evaluator critique sink (overwritten per round). */
-  readonly evaluationMdPath: AbsolutePath;
 }
 
 export interface SessionFolderBuilderPort {
@@ -123,8 +121,8 @@ export interface SessionFolderBuilderPort {
    * Build a per-task execution unit folder. Writes both static files
    * (`requirements/`, `dimensions.md`, the root context file) and the
    * volatile per-task files (`task.md`, `tasks.md`, `tasks.json`,
-   * `project-context.md`, `evaluations/`). For Copilot, mirrors the
-   * task's `projectPath` into `<root>/repo/`.
+   * `project-context.md`, `prior-evaluations/`). For Copilot, mirrors
+   * the task's `projectPath` into `<root>/repo/`.
    */
   buildExecutionUnit(input: {
     readonly sprint: Sprint;

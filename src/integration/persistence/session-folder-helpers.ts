@@ -66,7 +66,7 @@ function renderInputsLine(phase: Phase): string {
   if (phase === 'plan')
     return '- Inputs: per-ticket refined requirements live alongside this folder under `../refinement/<unit>/requirements.json`. Write your generated `tasks.json` to `./tasks.json` in this folder.\n';
   // evaluate
-  return '- Inputs are in `./task.md` (the task under review), `./tasks.md` / `./tasks.json` (full task plan), `./requirements/` (per-ticket requirements), `./project-context.md` (target repo context), `./dimensions.md` (grading rubric), and `./evaluations/` (prior evaluations from this sprint).\n';
+  return '- Inputs are in `./task.md` (the task under review), `./tasks.md` / `./tasks.json` (full task plan), `./requirements/` (per-ticket requirements), `./project-context.md` (target repo context), `./dimensions.md` (grading rubric), and `./prior-evaluations/` (prior sibling evaluations from this sprint).\n';
 }
 
 function renderRepoLine(phase: Phase, affectedRepos: readonly AbsolutePath[], copilot: boolean): string {

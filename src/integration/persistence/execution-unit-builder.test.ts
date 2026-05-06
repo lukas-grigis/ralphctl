@@ -1,17 +1,18 @@
 /**
- * `buildExecutionUnit` integration tests — focused on the `done-criteria.md`
- * copy added as part of Wave 4 G3.
+ * `buildExecutionUnit` integration tests — covers the `done-criteria.md`
+ * copy and the renamed `prior-evaluations/` subtree.
  *
  * `buildExecutionUnit` is an IO-heavy function — these tests write to a real
  * tmp directory. Each test gets its own isolated root via a unique prefix.
  */
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, stat, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { resolveStoragePaths, resetEnsureLayoutDirsCache } from '@src/integration/persistence/storage-paths.ts';
 import { makeSprint, makeTask } from '@src/application/_test-fakes/fixtures.ts';
+import { TaskId } from '@src/domain/values/task-id.ts';
 import { buildExecutionUnit } from './execution-unit-builder.ts';
 
 function uniqueRoot(): string {
@@ -88,5 +89,36 @@ describe('buildExecutionUnit — done-criteria.md', () => {
     // A warning must be emitted so callers can surface it.
     expect(warnings.length).toBeGreaterThan(0);
     expect(warnings[0]).toContain('done-criteria.md not found');
+  });
+});
+
+describe('buildExecutionUnit — prior-evaluations directory', () => {
+  it('writes prior sibling critiques to <unit>/prior-evaluations/<task-id>.md (renamed from evaluations/)', async () => {
+    const sprint = makeSprint();
+    const task = makeTask({ name: 'current task', projectPath: '/tmp' });
+    const priorId = TaskId.trustString('aaaaaaaa');
+    const priorBody = '# Prior critique\n\n- correctness PASS';
+
+    const storage = resolveStoragePaths();
+    const result = await buildExecutionUnit(storage, {
+      sprint,
+      tasks: [task],
+      task,
+      aiProvider: 'claude',
+      priorEvaluations: new Map([[priorId, priorBody]]),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const unitRoot = String(result.value.root);
+    // The renamed folder receives prior siblings.
+    const priorPath = join(unitRoot, 'prior-evaluations', `${String(priorId)}.md`);
+    const body = await readFile(priorPath, 'utf-8');
+    expect(body).toContain('Prior critique');
+    expect(body).toContain('correctness PASS');
+
+    // The legacy `evaluations/` folder must NOT exist.
+    await expect(stat(join(unitRoot, 'evaluations'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

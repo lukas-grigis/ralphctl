@@ -9,11 +9,11 @@
  *      Requires `external.uncommitted: true` so `hasUncommittedChanges()`
  *      returns true and the leaf calls `commitChanges()`.
  *
- *   2. `evaluations/<task-id>.md` — written by `FileSystemSignalHandler` when
- *      the evaluator produces an `EvaluationSignal`. The harness default uses
- *      `NoopSignalHandler`; this test overrides it with the real
- *      `FileSystemSignalHandler`. Also asserts that the per-dimension
- *      `(score N/5)` marker introduced in the G2 contract appears in the file.
+ *   2. `rounds/<N>/evaluator/evaluation.md` — written by
+ *      `EvaluateAndFixLoopUseCase` via `WriteContextFilePort` after each
+ *      evaluator round, plus a stable copy at `<unit>/latest-evaluation.md`
+ *      that `Task.evaluationFile` points at. The handler appends a one-line
+ *      summary to `progress.md`; the loop owns the full critique.
  *
  *   3. `done-criteria.md` at the sprint root — written by the PLAN chain's
  *      `save-tasks` leaf and READ by the EXECUTE chain's `evaluate-task` leaf
@@ -35,6 +35,8 @@ import type { FakeExternalPort } from '@src/business/_test-fakes/fake-external-p
 import { FakePromptPort } from '@src/application/_test-fakes/fake-prompt-port.ts';
 import type { HarnessSignal } from '@src/domain/signals/harness-signal.ts';
 import { resolveStoragePaths } from '@src/integration/persistence/storage-paths.ts';
+import { FileSessionFolderBuilderAdapter } from '@src/integration/persistence/session-folder-builder-adapter.ts';
+import { FileWriteContextFileAdapter } from '@src/integration/persistence/file-write-context-file-adapter.ts';
 import { FileSystemSignalHandler } from '@src/integration/signals/file-system-handler.ts';
 import { unitSlug } from '@src/integration/persistence/unit-slug.ts';
 import { renderDoneCriteria } from '@src/application/chains/leaves/save-tasks.ts';
@@ -112,26 +114,32 @@ describe('e2e: execute golden-path artefacts', () => {
     });
   });
 
-  // ── 2. evaluations/<task-id>.md with (score N/5) markers ─────────────────
+  // ── 2. rounds/<N>/evaluator/evaluation.md ────────────────────────────────
 
   describe('evaluation artefact', () => {
-    it('writes evaluations/<task-id>.md with per-dimension (score N/5) markers', async () => {
+    it('writes rounds/1/evaluator/evaluation.md with the full critique and stamps that path on Task.evaluationFile', async () => {
       const sprint = makeArtefactSprint('eval');
       const task = makeTask({ name: 'eval-task', order: 1, projectPath: '/tmp/artefact-repo' });
 
-      // Compute the expected file path the signal handler will write to.
-      // FileSystemSignalHandler uses resolveStoragePaths() + unitSlug(taskId, taskName).
+      // Compute the expected per-round path. Each round path is unique,
+      // so the path itself is the canonical reference — no pointer file.
       const paths = resolveStoragePaths();
       const slug = unitSlug(String(task.id), task.name);
-      const evalFilePath = join(String(paths.executionUnitDir(sprint.id, slug)), 'evaluation.md');
+      const unitRoot = String(paths.executionUnitDir(sprint.id, slug));
+      const round1VerdictPath = join(unitRoot, 'rounds', '1', 'evaluator', 'evaluation.md');
+      const progressPath = join(String(paths.sprintDir(sprint.id)), 'progress.md');
 
-      // Ensure the parent directory exists so the handler can write.
-      await mkdir(join(String(paths.executionUnitDir(sprint.id, slug))), { recursive: true });
-
-      // Use the real FileSystemSignalHandler so the evaluation file lands on disk.
+      // Use the real FileSystemSignalHandler so the per-task progress
+      // summary lands in `progress.md`. Use the real session folder
+      // builder adapter so the loop's `evaluateWorkspaceDir` resolves
+      // to the actual `<sprintDir>/execution/<unit>/` path the test
+      // asserts on. Use the real WriteContextFile adapter so the
+      // loop's per-round verdict writes hit disk (the default Fake
+      // just captures the calls).
       const signalHandler = new FileSystemSignalHandler(paths);
+      const sessionFolderBuilder = new FileSessionFolderBuilderAdapter(paths);
+      const writeContextFile = new FileWriteContextFileAdapter();
 
-      // Evaluation signal with numeric per-dimension score (G2 contract).
       const evalPassed: HarnessSignal = {
         type: 'evaluation',
         status: 'passed',
@@ -148,11 +156,11 @@ describe('e2e: execute golden-path artefacts', () => {
         cwd: CWD,
         evaluationIterations: 1,
         external: { uncommitted: false },
-        overrides: { signalHandler },
+        overrides: { signalHandler, sessionFolderBuilder, writeContextFile },
         aiSession: {
           outcomes: [
             { kind: 'ok', result: { output: 'task done', sessionId: 'sess-exec' } },
-            { kind: 'ok', result: { output: 'eval round 1' } },
+            { kind: 'ok', result: { output: 'eval round 1 raw critique body' } },
           ],
         },
         signalParser: {
@@ -168,21 +176,18 @@ describe('e2e: execute golden-path artefacts', () => {
       if (!persisted.ok) throw new Error('taskRepo.findById failed');
       expect(persisted.value.status).toBe('done');
       expect(persisted.value.evaluationStatus).toBe('passed');
+      // `evaluationFile` points at the FINAL round's verdict (round 1 here).
+      expect(persisted.value.evaluationFile).toBe(`execution/${slug}/rounds/1/evaluator/evaluation.md`);
 
-      // The signal handler wrote the evaluation file.
-      let evalBody: string;
-      try {
-        evalBody = await readFile(evalFilePath, 'utf-8');
-      } catch {
-        throw new Error(`evaluation file not found at ${evalFilePath}`);
-      }
+      // The loop wrote the full critique to the per-round file.
+      const round1Body = await readFile(round1VerdictPath, 'utf-8');
+      expect(round1Body).toContain('eval round 1 raw critique body');
 
-      // Per-dimension (score N/5) marker — the G2 contract.
-      expect(evalBody).toContain('(score 5/5)');
-      // Overall score line.
-      expect(evalBody).toContain('Overall score: 5/5');
-      // Status header.
-      expect(evalBody).toContain('# Evaluation — passed');
+      // The signal handler still appends the one-line summary to
+      // progress.md so the sprint timeline shows the verdict.
+      const progress = await readFile(progressPath, 'utf-8');
+      expect(progress).toContain('**Evaluation:** passed');
+      expect(progress).toContain('score 5/5');
     });
   });
 
