@@ -1,428 +1,432 @@
 # RalphCTL — Architecture
 
-Five-module Clean Architecture with a chain-of-responsibility kernel. For acceptance criteria, see
+Function-first Clean Architecture with a chain-of-responsibility framework. For acceptance criteria, see
 [REQUIREMENTS.md](./REQUIREMENTS.md). For the chain framework reference, see [KERNEL-DESIGN.md](./KERNEL-DESIGN.md).
 
 ## Why this shape
 
-The application is structured as five strictly-layered modules. The kernel chain framework is a first-class primitive
-that orchestrates use cases — closer to a workflow engine (Camunda BPMN, Temporal) than a typical "pipeline"
-abstraction. Chains are declarative, composable, and inspectable; every workflow has a step trace consumable by tests
-and the TUI.
+The application is structured as four strictly-layered modules. Use cases are plain functions
+(`(props) => Promise<Result<Output, DomainError>>`) — no class instances, no constructor injection, no `this`.
+Chains compose use cases into workflows; the chain framework is the orchestration layer, not business logic.
+
+Every workflow ("flow") declares itself once in `src/application/registry.ts` as a `FlowManifest`. The CLI command
+builder, the TUI menu, and the launch logic all consume from the same array. Adding a flow is one append — there
+is no scattered index file or per-flow boilerplate fork.
 
 ## Module layout
 
 ```
 src/
-├── kernel/        ← pure algorithms + chain-of-responsibility framework
-├── domain/        ← entities, value objects, repository interfaces, signals, errors
-├── business/      ← use cases (constructor-injected classes) + service ports
-├── integration/   ← adapters: AI providers, persistence, external, signals, logging, UI prompts
-└── application/   ← composition root, CLI, TUI, chain definitions, runtime, doctor
+├── domain/        ← entities, value objects, errors, repository interfaces, signal types
+├── business/      ← use cases (function factories) + observability + SCM + version ports
+├── integration/   ← adapters: AI providers / prompts / signals / skills / readiness probes,
+│                    persistence, observability sinks, SCM (gh/glab), version-check, IO helpers
+└── application/   ← composition root, chain framework, flow registry + flows, runner + session,
+                     CLI + Ink TUI
 ```
 
-Strict layering — dependencies point one way only:
+Strict layering — dependencies point one way:
 
 ```
 application → integration → business → domain
-                                ↓        ↑
-                                └── kernel
 ```
 
-Both `domain/` and `kernel/` are pure, leaf-importable, zero-IO. `business/` may import from either. `integration/`
-may import from `business/`, `domain/`, `kernel/`. `application/` is the composition root and may import from anywhere.
+Both `domain/` and `business/` are pure: they cannot import I/O-bearing `node:*` modules (`node:fs`,
+`node:child_process`, `node:http`, …). Pure modules (`node:path`, `node:url`, `node:util`, `node:assert`,
+`node:crypto`) are allowed. `integration/` is where I/O lives. `application/` is the only layer that may import
+from anywhere.
 
-ESLint `no-restricted-imports` (in `eslint.config.js`) enforces every direction. No barrel `index.ts` files anywhere
-under `src/` — every import points directly to the source module.
+ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction. The same config enforces:
+
+- **No `class` outside `src/domain/value/error/`** — entities and use cases are interfaces + standalone functions.
+- **No barrel files anywhere under `src/`** — every import names what it pulls in directly. `export *` is banned.
+- **Sibling-isolation in `integration/ai/<concept>/`** — each per-tool / per-variant adapter directory is
+  independent. Cross-sibling reach goes through a shared `_engine/` sub-namespace (or `_partials/` for prompts).
+  Applies to `prompts/<flow>/`, `signals/<variant>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`.
+- **Port-shaped names live in `_engine/`** — interfaces / type aliases named `*Port`, `*Adapter`, `*Provider`,
+  `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector` must be declared in a concept's
+  `_engine/` sub-namespace. Factory inputs named `*Deps` are exempt.
+- **Business use cases consume slim sub-ports**, not composite `*Repository` interfaces. The composition root
+  wires the composite to the use case as a slim port (`FindById`, `Save`, `Remove`, …) under
+  `domain/repository/_base/`.
+- **Sibling-isolation in `business/<module>/`** — each business sub-domain (`project`, `sprint`, `ticket`,
+  `task`, `feedback`, …) is independent; cross-module sharing goes through `_engine/` or `_shared/`. The single
+  universal cross-cutting exception is `business/observability/` — Logger and EventBus are infra-shaped ports
+  every sibling consumes.
+- **Sibling-isolation in `application/flows/<flow>/`** — flows compose port-level vocabulary only; bootstrap
+  selects the concrete provider / probe / skill adapter. Meta-flows under `application/flows/_meta/` may import
+  any sibling flow.
+- **`*Output` types are the success-side data shape**, not the `Result` envelope. Use
+  `Result<FooOutput, ErrorUnion>` in the function signature.
 
 ## Bounded contexts (aggregates)
 
-| Aggregate root | Nested entities             | Repository          |
-| -------------- | --------------------------- | ------------------- |
-| **Project**    | Repositories                | `ProjectRepository` |
-| **Sprint**     | Tickets                     | `SprintRepository`  |
-| **Task**       | — (references Sprint by id) | `TaskRepository`    |
+| Aggregate root      | Sub-files on disk             | Repository interface        |
+| ------------------- | ----------------------------- | --------------------------- |
+| **Project**         | `projects/<id>.json`          | `ProjectRepository`         |
+| **Sprint**          | `sprints/<id>/sprint.json`    | `SprintRepository`          |
+| **SprintExecution** | `sprints/<id>/execution.json` | `SprintExecutionRepository` |
+| **Task** (set)      | `sprints/<id>/tasks.json`     | `TaskRepository`            |
+| **Settings**        | `config/settings.json`        | `SettingsRepository`        |
 
-Aggregates are mutated through their root only. Editing a ticket goes through `SprintRepository.save()`, not a
-separate `TicketRepository`. Invariants are enforced at the aggregate boundary.
+`Sprint` is split into three sibling on-disk files. `sprint.json` is the planning aggregate (tickets,
+requirements, status, project reference). `execution.json` carries the runtime audit — branch name, PR URL,
+per-repo setup-script timestamps. `tasks.json` is the canonical task list — the file the chain runner rewrites
+on every settlement. The split keeps planning mutations isolated from execution-time writes; corrupting the task
+list does not lose the sprint plan.
 
-Not domain elements:
+`Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
+of repositories (each with `setupScript`, `checkScript`, `onboardedAt`); mutating a repo goes through
+`ProjectRepository.save()`.
 
-- **Config** — application concern; lives in `src/application/config/`
-- **Skills** — integration concern; lives in `src/integration/ai/skills/`
+`Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
 
-## Kernel — chain framework
+## Chain framework
 
-Five concepts under `src/kernel/chain/`: `Element`, `Leaf`, `Sequential`, `Retry`, `OnError`. No `Conditional`,
-no concurrent fan-out — branching belongs inside a use case or in a sub-chain selected by the caller. See
-[KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract, semantics, and worked examples.
+Five factory functions under `src/application/chain/`:
 
-Kernel algorithms (`src/kernel/algorithms/`) are pure helpers consumed by chains and adapters: dependency
-reorder, mutex queue, rate-limit coordinator, signal micro-batcher. The `ChainRunner`
-(`src/kernel/runtime/chain-runner.ts`) wraps one `Element.execute()` call with a status machine, event stream,
-and live trace.
+- `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `children`
+  (for composite walk), and `execute(ctx, signal?, onTrace?): Promise<ElementResult<TCtx>>`.
+- `build/leaf.ts` — `leaf(name, { useCase, input, output })`. The only seam to a business use case. `input`
+  projects ctx → use-case input; `output` merges use-case output → new ctx.
+- `build/sequential.ts` — `sequential(name, [elements])`. Threads ctx; aborts remaining on first failure.
+- `build/loop.ts` — `loop(name, body, opts)`. Generator-evaluator primitive. `shouldContinue` (pre-iteration)
+  and `shouldStop` (post-iteration) predicates exit naturally; `maxIterations` (default 1000) is a hard cap.
+  Hitting the cap is an ok-return — callers distinguish budget exhaustion from natural termination via ctx.
+- `build/guard.ts` — `guard(name, predicate, body)`. Skips the body when `predicate(ctx)` returns false; emits
+  a `skipped` trace entry.
 
-## Multi-chain runtime
+**No `retry` or `onError` decorators** — branching belongs inside a use case or a sub-chain the caller selects.
+Retry on rate-limits is an adapter concern (`IterationConfig.rateLimitRetries` on the headless provider wrapper).
 
-The runtime supports **N chains executing concurrently**. Each chain runs as an independent session with its own
-state — context, trace, signal subscription, log tail, abort handle.
+The `ChainRunner` (`src/application/chain/run/runner.ts`) wraps one `Element.execute()` call with a status
+machine (`idle → running → completed | failed | aborted`) and an event stream
+(`started | step | completed | failed | aborted`). Late subscribers added after a terminal state receive a
+synthetic replay of every step entry plus the matching terminal event — UI re-attach is lossless. The trace is
+ring-buffered at `MAX_TRACE_ENTRIES = 20_000` to bound the per-runner memory footprint on multi-task runs.
 
-```
-kernel/runtime/chain-runner.ts             ← one runner = one chain execution
-application/runtime/session-manager-port.ts ← interface
-application/runtime/session-manager.ts      ← in-memory implementation
-application/runtime/live-config-reader.ts   ← FileLiveConfigReader — re-reads Config fresh per call
-```
+See [KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract.
 
-`SessionManager` owns N runners, mirrors their status into immutable `SessionDescriptor` snapshots, and emits a
-registry-level event stream (`added | removed | active-changed`).
+## Session scoping
 
-Public surface: `start({ element, initialCtx, label }) → SessionId`, `list()`, `get(id)`, `foreground(id)`,
-`background()`, `kill(id)`, `dispose()`.
+`src/application/session/session.ts` wraps every chain execution in an `AsyncLocalStorage`-backed scope
+(`runWithSession(sessionId, fn)`). Inside any async work spawned during the chain — including deep inside
+provider adapters that don't know which chain they're in — `currentSessionId()` returns the owning chain's id.
+The Logger and signal sink ports use this to tag every emitted record with the session, so the TUI can route
+streams without explicit threading. Outside any chain (one-shot CLI commands, doctor checks),
+`currentSessionId()` returns `undefined` and downstream consumers treat the stream as untagged.
 
-`FileLiveConfigReader` is the live-config seam (REQ-12): use cases that need the current config — most importantly
-the per-task evaluator loop — call `reader.current()` every settlement so settings-panel edits land on the next task
-without restart. Falls back to `CONFIG_DEFAULTS` on transient store errors.
+## Use cases (`src/business/<module>/`)
 
-`ChainRunner.subscribe` emits `step` events progressively as each leaf settles (see `kernel/runtime/chain-runner.ts`),
-not as a single end-of-run replay. The kernel passes an `onTrace` callback through `Sequential` / `Retry` /
-`OnError` so the dashboard can render the trace as it happens. Late subscribers attached after the runner reaches a
-terminal state still receive a synthetic replay (`step*` then the matching terminal event).
+Every business operation is a **function factory** with the shape:
 
-UX:
-
-- **TUI** — Tab cycles sessions, Shift+Tab cycles backwards, `Ctrl+1..9` direct-jump. Dedicated Sessions view
-  (`application/tui/views/sessions-view.tsx`) lists every runner with status + age. Foregrounding swaps the live
-  execute view to that runner's stream. Background runners keep emitting; logs accumulate so re-attaching shows the
-  full trace.
-- **CLI** — `ralphctl sessions list / attach <id> / detach <id> / kill <id>`. Attach in non-TTY streams JSONL events
-  to stdout until the runner finishes or Ctrl+C.
-
-## Use cases (`src/business/usecases/`)
-
-Every business operation is a class with constructor-injected port dependencies and a single `execute()` method
-returning `Result<T, DomainError>`. Use cases are unaware of the chain framework. A `Leaf` is the seam: it adapts
-`UseCase.execute(input)` into `Element.execute(ctx)`.
-
-Layout (one folder per workflow group):
-
-```
-business/usecases/
-├── evaluate/        evaluate-task, plateau-detection
-├── execute/         branch-preflight, execute-single-task, post-task-check, dirty-tree-preflight
-├── feedback/        apply-feedback
-├── ideate/          ideate-and-plan
-├── plan/            plan-sprint-tasks, task-list-parser
-├── project/         create / list / show / remove project; add / remove / update repository
-├── refine/          refine-single-ticket
-├── sprint/          create / list / show / remove / activate / close
-├── task/            add / list / show / remove / edit-status
-└── ticket/          add / edit / remove / approve
+```ts
+const createDoFoo = (deps: DoFooDeps): UseCase<FooInput, FooOutput> => ({
+  execute: async (input, signal?) => {
+    /* ... */
+  },
+});
 ```
 
-`ExecuteSingleTaskUseCase` is the per-task body; per-task orchestration lives in `application/chains/execute/per-task-flow.ts`.
-There is no monolithic `ExecuteTasksUseCase` — fan-out is the chain's job.
+No class instances. The factory closes over its slim-port dependencies; the returned object has only `execute`.
+Composition root constructs the factory at startup; chain leaves invoke `execute` via the `leaf` primitive.
+
+Layout (one module per business sub-domain, sibling-isolated):
+
+```
+business/
+├── project/           ← createProject, listProjects, addRepository, …
+├── sprint/            ← createSprint, planSprint, transitionToReview, transitionToDone, …
+├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
+├── ticket/            ← addTicket, refineTicket, removeTicket, …
+├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation, …
+├── feedback/          ← applyFeedback (review flow body)
+├── settings/          ← loadSettings, updateSettings
+├── version/           ← cli-metadata, version-check, version-checker (npm poll)
+├── scm/               ← issue-fetcher / issue-pusher / pull-request-creator ports
+├── interactive/       ← interactive prompt port + InteractiveQueue
+├── io/                ← write-file port (atomic + non-atomic shapes)
+└── observability/     ← logger / event-bus / event-bus-logger / events / sink
+```
 
 ## Ports
 
-### Service ports (`src/business/ports/`)
+Service ports live under `business/<module>/` (one folder per cross-cutting concern). Repository interfaces live
+in `domain/repository/<aggregate>/`.
 
-| Port                       | Responsibility                                                                                                                                 | Implementation                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `AiSessionPort`            | Spawning AI CLI sessions (Claude / Copilot). `SessionOptions.sessionMdPath` triggers per-spawn `session.md` audit emission                     | `ProviderAiSessionAdapter` (`integration/ai/session/`)                                          |
-| `PromptBuilderPort`        | Compile `.md` prompt templates with context                                                                                                    | `TextPromptBuilderAdapter` (`integration/ai/prompts/`)                                          |
-| `ExternalPort`             | `git`, `gh`/`glab` integration, branch verification, lifecycle hooks                                                                           | `DefaultExternalAdapter` (`integration/external/`)                                              |
-| `SignalParserPort`         | Extract `HarnessSignal[]` from raw AI stdout                                                                                                   | `SignalParser` (`integration/signals/parser.ts`)                                                |
-| `SignalHandlerPort`        | Durable writes for parsed signals (progress, evaluation, …)                                                                                    | `FileSystemSignalHandler` (`integration/signals/file-system-handler.ts`)                        |
-| `SignalBusPort`            | Live observer stream (dashboard subscribes)                                                                                                    | `InMemorySignalBus` (`integration/signals/bus.ts`)                                              |
-| `LoggerPort`               | Structured logging + UI output                                                                                                                 | `PlainTextSink`, `JsonLogger`, `InkSink` (`integration/logging/`)                               |
-| `PromptPort`               | Interactive prompts (select/confirm/input/checkbox/editor/fileBrowser)                                                                         | `InkPromptAdapter` (`integration/ui/prompts/`) — single implementation                          |
-| `WriteContextFilePort`     | Write rendered prompt / context markdown to `<sprintDir>/contexts/`                                                                            | `FileWriteContextFileAdapter` (`integration/persistence/file-write-context-file-adapter.ts`)    |
-| `SessionFolderBuilderPort` | Build per-unit sandbox folders (refinement / ideation / planning / execution) and refresh the volatile evaluator contract files between rounds | `FileSessionFolderBuilderAdapter` (`integration/persistence/session-folder-builder-adapter.ts`) |
+| Port                                                  | Folder                              | Concrete adapter                                                  |
+| ----------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
+| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)               |
+| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                 |
+| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/` |
+| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                   |
+| `HarnessSignalSink`                                   | `integration/ai/signals/_engine/`   | file sinks under `integration/observability/sinks/`               |
+| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`              |
+| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                         |
+| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project source                       |
+| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                     |
+| `FileLocker` + `WriteFile`                            | `business/io/` + `integration/io/`  | `createFileLocker` / atomic write helper                          |
+| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`             |
+| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                |
 
-### Repository interfaces (`src/domain/repositories/`)
+## Repository interfaces (`src/domain/repository/`)
 
-Per-aggregate repositories live in `domain/repositories/` as interfaces. Implementations live in
-`integration/persistence/`.
+Per-aggregate. Each composite repository declares the full CRUD surface but business code does not import it
+directly — use cases depend on **slim sub-ports** under `domain/repository/_base/` so the dependency surface of
+each use case is legible:
 
-| Interface           | Implementation                                                                 |
-| ------------------- | ------------------------------------------------------------------------------ |
-| `ProjectRepository` | `FileProjectRepository` (`integration/persistence/file-project-repository.ts`) |
-| `SprintRepository`  | `FileSprintRepository` (`integration/persistence/file-sprint-repository.ts`)   |
-| `TaskRepository`    | `FileTaskRepository` (`integration/persistence/file-task-repository.ts`)       |
+```ts
+// domain/repository/_base/
+interface FindById<Id, Entity> { findById(id: Id): Promise<Result<Entity | null, …>>; }
+interface Save<Entity>         { save(entity: Entity): Promise<Result<void, …>>; }
+interface Remove<Id>           { remove(id: Id): Promise<Result<void, …>>; }
+// ...
+```
 
-The monolithic `PersistencePort` from the legacy architecture is gone. Each aggregate has its own repository.
+A use case declares `Deps = { sprints: FindById<SprintId, Sprint> & Save<Sprint> }` and the composition root wires
+the composite `SprintRepository` (which already satisfies both sub-interfaces) as that prop. ESLint blocks
+business code from importing composite `*Repository` types.
+
+Sibling-isolation: each aggregate's repository folder (`sprint/`, `task/`, `project/`, `settings/`) is independent;
+shared abstractions live under `_base/`.
 
 ## Composition root
 
 ```
 application/bootstrap/
-├── shared-deps.ts         ← createSharedDeps(overrides?) — constructs every adapter
-├── get-shared-deps.ts     ← getSharedDeps() / setSharedDeps() / getPrompt()
-├── fan-out-logger.ts      ← FanOutLogger wrapping console + JsonlSink
-└── jsonl-sink.ts          ← LoggerPort adapter writing to <logsDir>/<sessionId>.jsonl
+├── wire.ts                ← createAppDeps via wire(opts: WireOptions): AppDeps
+├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath)
+├── runtime-sinks.ts       ← AppSinks (HarnessSignalSink, …)
+├── provider-factory.ts    ← createAiProvider({ ai, harnessConfig, eventBus, spawn? })
+├── interactive-provider-factory.ts
+└── config.ts              ← default settings + IterationConfig satisfies-check
 ```
 
-`createSharedDeps()` constructs every concrete adapter the runtime needs and wires them together. Tests build a focused
-subset by passing `overrides` for just the ports under test. Chain factories accept a narrower `ChainSharedDeps` view
-(`src/application/chains/chain-deps.ts`) so reading a factory's signature tells you exactly which ports the
-workflow depends on.
+`wire(opts)` returns the `AppDeps` graph — every concrete adapter, in one pure object. Tests construct one from
+a tmpdir via `storagePathsFromRoot(tmpDir)` so no test ever touches `~/.ralphctl-v2/`. Production resolves real
+paths via `resolveStoragePaths()` and calls `wire()` with them.
 
-The CLI entrypoint (`application/cli/entrypoint.ts`) builds a Commander program from the `SharedDeps` graph and
-dispatches to the matching command file. The Ink mount path (`application/tui/runtime/mount.tsx`) detects TTY, swaps
-`SharedDeps.{logger,signalBus,prompt}` to Ink variants via `setSharedDeps`, enters the alt-screen buffer, renders
-`<App />`, and awaits `waitUntilExit()`.
+`AppDeps` is the type the typechecker uses to prove "every port the app needs is actually wired" at the bootstrap
+boundary. Each flow declares its own slim `<Flow>Deps` interface that's a subset of `AppDeps` — reading a flow
+factory's signature tells you exactly which ports the workflow depends on.
 
-## Chain definitions (`src/application/chains/`)
+`AppDeps.eventBus` is a single in-memory bus per `wire()` call. Bus state isolates between concurrent app
+instances. Adapters publish structured `AppEvent`s:
 
-```
-chains/
-├── chain-deps.ts                 ← ChainSharedDeps (narrowed view of SharedDeps)
-├── leaves/                       ← shared leaves: load-sprint, load-tasks, save-sprint,
-│                                   save-tasks, link-skills, unlink-skills, reorder-tasks,
-│                                   render-prompt-to-file, build-refinement-unit,
-│                                   build-planning-folder, build-execution-unit,
-│                                   export-sprint-requirements
-├── refine/refine-flow.ts         ← createRefineFlow(deps, opts): Element<RefineCtx>
-│                                   load-sprint → assert-draft →
-│                                   [per-ticket: stage-ticket → build-refinement-unit → link-skills →
-│                                   render-prompt-to-file → refine-<id> → unlink-skills →
-│                                   save-after-<id>] → export-sprint-requirements
-├── plan/plan-flow.ts             ← load-sprint → assert-draft → assert-all-tickets-approved →
-│                                   persist-repo-selection → load-existing-tasks → snapshot-existing-tasks →
-│                                   build-planning-folder → link-skills → confirm-replan →
-│                                   render-prompt-to-file → plan-tasks → reorder-tasks →
-│                                   confirm-task-list → save-tasks → unlink-skills
-├── ideate/ideate-flow.ts         ← load-sprint → assert-draft → load-project → render-prompt-to-file →
-│                                   ideate-and-plan → save-sprint → save-tasks
-├── execute/
-│   ├── execute-flow.ts           ← outer: load-sprint → assert-active → load-tasks →
-│   │                               reset-stale-in-progress → assert-tasks-not-empty →
-│   │                               assert-tasks-blocked-by-resolvable → assert-tasks-acyclic →
-│   │                               resolve-branch → dirty-tree-preflight →
-│   │                               resolve-check-scripts → setup-scripts-sprint-start →
-│   │                               link-skills → execute-tasks (Sequential of
-│   │                               topologically-ordered per-task chains) →
-│   │                               unlink-skills → summarise-execution
-│   └── per-task-flow.ts          ← per-task: branch-preflight (OnError → mark-blocked) →
-│                                   mark-in-progress → render-prompt-to-file →
-│                                   build-execution-unit (OnError → noop) →
-│                                   execute-task (Retry on rate-limit) → post-task-check →
-│                                   evaluate-task (OnError → noop) → commit-task → mark-done
-├── evaluate/evaluate-flow.ts     ← load-sprint → assert-active → load-task →
-│                                   check-already-evaluated → render-prompt-to-file →
-│                                   evaluate-task → persist-evaluation
-├── feedback/feedback-flow.ts     ← load-sprint → assert-active → load-tasks →
-│                                   render-prompt-to-file → apply-feedback → record-feedback-iteration
-├── onboard/onboard-flow.ts       ← load-project → resolve-repo → detect-existing-files →
-│                                   confirm-start-ai → run-onboard-ai → confirm-setup-script →
-│                                   confirm-verify-script → confirm-context-file →
-│                                   write-context-file → save-repo-scripts
-└── create-pr/create-pr-flow.ts   ← load-sprint → assert-active → assert-has-branch →
-                                    derive-pr-content → create-pull-request → record-pr-url
+```ts
+ChainStarted |
+  ChainStepStarted |
+  ChainStepCompleted |
+  ChainStepFailed |
+  ChainCompleted |
+  ChainFailed |
+  ChainAborted |
+  TaskAttemptStarted |
+  TaskAttemptEvaluated |
+  FeedbackRoundApplied |
+  LogEvent;
 ```
 
-CLI commands and TUI views invoke chain factories (`createXxxFlow(deps, opts)`) and launch via
-`SessionManager.start({ element, initialCtx, label })` — never `chain.execute()` directly. An ESLint
-`no-restricted-imports` fence prevents direct use-case imports from CLI commands and TUI views.
+TUI panels subscribe; the persistent `<sprintDir>/chain.log` sink (`integration/observability/sinks/file-log-sink.ts`)
+subscribes. The same bus is the fan-out point for any future telemetry adapter.
 
-**Split OnError fallbacks (per-task).** `build-execution-unit` and `evaluate-task` are wrapped in **two
-independent** `OnError` decorators, each with `catchIf: err => err.code !== 'aborted'` and a `noopLeaf`
-fallback (`per-task-flow.ts`). A builder failure (disk full, EPERM…) is absorbed and the chain proceeds:
-`execute-task` runs against `task.projectPath` as usual, and `evaluate-task` runs the multi-round loop
-**without** `ctx.executionUnitRoot` — `EvaluateAndFixLoopUseCase` handles the missing root gracefully, so
-the per-task chain still settles to `mark-done`. User-initiated cancellation (`code: 'aborted'`)
-propagates through both wraps so Ctrl+C mid-evaluator doesn't silently fall through to `mark-done`.
+`AppDeps.logger` is created via `createEventBusLogger({ eventBus, clock: IsoTimestamp.now })` — every
+`logger.info(...)` publishes a `LogEvent` AppEvent. Console sinks, file appenders, and TUI tail panels all
+subscribe to the same stream.
 
-Per-pipeline step traces are the architectural fence: each `<name>-flow.test.ts` asserts
-`trace.map(s => s.stepName)` on happy + failure paths, locking step order. Step-order regressions break the build.
+## Flow registry (`src/application/registry.ts`)
+
+The single source of truth for "what flows exist". Each entry is a `FlowEntry` carrying a `FlowManifest`:
+
+```ts
+interface FlowManifest {
+  readonly id: string; // stable kebab-case identifier
+  readonly title: string; // shown in TUI menu / CLI help
+  readonly description: string;
+  readonly canBackground: boolean;
+  readonly triggers: FlowTriggers; // pre-launch readiness predicates
+}
+```
+
+`FlowTriggers` declares the conjunction of conditions that gate a flow: `requiresProject`,
+`currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`, `minResumableTasks`. Empty triggers means
+"always available". The TUI evaluates triggers against the current session state to enable / disable menu
+entries and surface a human-readable hint when a flow isn't ready.
+
+Concrete flow factories live next to the manifest in each flow folder (`src/application/flows/<flow>/`) and
+are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the CLI command
+(`application/ui/cli/commands/<flow>.ts`).
+
+### Flows and their nature
+
+| Flow id                        | Shape    | CLI command                   | Notes                                               |
+| ------------------------------ | -------- | ----------------------------- | --------------------------------------------------- |
+| `create-sprint`                | chain    | no                            | Interactive prompts; TUI only                       |
+| `add-tickets`                  | chain    | no                            | Interactive loop; TUI only                          |
+| `refine`                       | chain    | no                            | Hands the terminal to the AI CLI; TUI only          |
+| `plan`                         | chain    | no                            | Interactive AI handoff; TUI only                    |
+| `ideate`                       | chain    | no                            | Interactive AI handoff; TUI only                    |
+| `readiness`                    | chain    | no                            | Multi-step with confirm gates; TUI only             |
+| `detect-scripts`               | chain    | no                            | Setup/check script discovery; TUI only              |
+| `detect-skills`                | chain    | no                            | Skill discovery; TUI only                           |
+| `implement`                    | chain    | no                            | Genuinely needs the chain (gen-eval + retry)        |
+| `review`                       | chain    | no                            | Apply-feedback loop; TUI only                       |
+| `close-sprint`                 | use-case | yes (`sprint close`)          | review → done transition                            |
+| `export-context`               | use-case | yes                           | Render harness-context markdown                     |
+| `export-requirements`          | use-case | yes                           | Render approved-ticket requirements markdown        |
+| `create-pr`                    | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution |
+| `doctor`                       | use-case | yes                           | Environment health check                            |
+| `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                  |
+| `ticket-add` / `ticket-remove` | use-case | yes                           | Per `docs/api.md`                                   |
+
+CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. See
+`docs/api.md` (in this repo's docs at the v2 source) for flag-level detail on the CLI commands.
 
 ## Validation strategy
 
-- **Value objects** (`src/domain/values/`) — branded types with smart constructors that return `Result<T>`.
-  Instances are always valid. Examples: `SprintId`, `TaskId`, `TicketId`, `ProjectName`, `Slug`, `AbsolutePath`,
-  `IsoTimestamp`. Zod is used inside the smart constructor where a format check helps; otherwise plain runtime checks.
-- **Entities** (`src/domain/entities/`) — trust their own invariants. No Zod inside `Sprint`, `Project`, `Task`,
-  `Ticket`, `Repository`. Mutators return new instances; classes are structurally immutable. Lifecycle invariants live
-  in the entity, not at the use-case layer.
-- **Serialization boundary** — Zod schemas in `src/integration/persistence/schemas/` validate JSON when
-  reading/writing files. Round-trip type safety; on-disk corruption surfaces as a typed `ValidationError`.
-- **External input boundary** — Zod for AI output parsing (`tasks.json`, requirements blobs).
+- **Value objects** (`src/domain/value/`) — branded types with smart constructors that return `Result<T, E>`.
+  Instances are always valid. Examples: `SprintId`, `TaskId`, `TicketId`, `ProjectId`, `Slug`, `AbsolutePath`,
+  `IsoTimestamp`. Zod is used inside the smart constructor where a format check helps; otherwise plain runtime
+  predicates.
+- **Entities** (`src/domain/entity/`) — trust their own invariants. No Zod inside `Sprint`, `Project`, `Task`,
+  `Ticket`, `Repository`. Mutators return new instances; entities are structurally immutable.
+- **Serialization boundary** — Zod schemas in `src/integration/persistence/<aggregate>/<aggregate>.schema.ts`
+  validate JSON when reading/writing files. Round-trip type safety; on-disk corruption surfaces as a typed
+  `ParseError`.
+- **Settings boundary** — `src/domain/entity/settings.ts` declares the `SettingsSchema` Zod object; the
+  persistence adapter reuses it for round-trip parsing. A malformed file surfaces as `ParseError`, not a
+  half-decoded record. The schema carries `schemaVersion` for forward-migration when the on-disk shape changes.
+- **External input boundary** — Zod for AI output parsing (`signals.json`, planning output).
 
 ## Result types
 
 `Result<T, E>` and `AsyncResult<T, E>` come from `typescript-result`, but every consumer imports from
-`src/domain/result.ts` — the canonical re-export point. Future PRs that swap the underlying library or wrap it
-with project-specific helpers can do so by changing this single file.
+`src/domain/result.ts` — the canonical re-export point. The underlying library may only be imported by that one
+file; ESLint enforces it.
 
-Use cases return `Result<T, DomainError>`; throws are reserved for programmer errors. Persistence-layer functions may
-throw domain errors for bottom-of-the-stack failures — the use-case layer wraps them.
+Use cases return `Result<T, DomainError>`. Throws are reserved for programmer errors (e.g. ctx-shape violations
+inside a leaf `input` / `output` projection). Persistence-layer functions may throw domain errors at the bottom
+of the stack — the leaf or use-case wrapping them catches and converts to `Result`.
 
 ## Storage layout
 
 ```
-~/.ralphctl/                         ← override with RALPHCTL_ROOT
+~/.ralphctl-v2/                      ← override with RALPHCTL_HOME
 ├── config/
-│   ├── config.json                  ← global settings (currentSprint, aiProvider, …)
-│   └── projects.json                ← project + repo registry
+│   └── settings.json                ← user-configurable settings (per-flow models, provider, log level, …)
 ├── data/
-│   ├── sprints/<sprint-id>/
-│   │   ├── sprint.json                ← sprint + nested tickets
-│   │   ├── tasks.json                 ← canonical task list (promoted from planning/tasks.json)
-│   │   ├── done-criteria.md           ← one bullet per task naming its success criterion; written by save-tasks
-│   │   ├── progress.md                ← append-only signal log
-│   │   ├── requirements.json          ← canonical aggregate (only approved tickets, auto-derived from sprint.json)
-│   │   ├── feedback.md                ← optional, append-only feedback transcript
-│   │   ├── refinement/<unit-slug>/    ← cwd for refine AI session
-│   │   │   ├── ticket.md              ← input
-│   │   │   ├── prompt.md              ← rendered prompt the AI reads via file-handoff wrapper
-│   │   │   ├── session.md             ← per-session frontmatter + ## Prompt body
-│   │   │   ├── requirements.json      ← raw AI output ([{ ref, requirements }])
-│   │   │   ├── CLAUDE.md (or .github/copilot-instructions.md for Copilot)
-│   │   │   └── .claude/skills/        ← linked per session
-│   │   ├── ideation/<unit-slug>/      ← cwd for ideate AI session
-│   │   │   └── (ticket.md, session.md, output.json, CLAUDE.md, .claude/skills/)
-│   │   ├── planning/                  ← cwd for plan AI session (single per sprint)
-│   │   │   ├── prompt.md              ← rendered prompt the AI reads via file-handoff wrapper
-│   │   │   ├── requirements.json      ← real copy of `<sprintDir>/requirements.json` (reproducible sandbox)
-│   │   │   ├── session.md
-│   │   │   ├── tasks.json             ← raw AI output
-│   │   │   ├── tasks-snapshot-<ISO>.json
-│   │   │   └── (CLAUDE.md, .claude/skills/, repos/ for Copilot)
-│   │   └── execution/<unit-slug>/     ← cwd for evaluator (per-task)
-│   │       ├── prompt.md              ← execute prompt written by render-prompt-to-file leaf
-│   │       ├── evaluator-prompt.md    ← per-round evaluator prompt (overwritten each round)
-│   │       ├── task.md
-│   │       ├── session-<n>.md         ← numbered per round
-│   │       ├── evaluation.md          ← evaluator critique (overwritten per round)
-│   │       ├── done-criteria.md       ← copy of sprint-level done-criteria.md; evaluator per-task reference
-│   │       └── (CLAUDE.md, .claude/skills/, repo/ for Copilot,
-│   │           requirements/, dimensions.md, tasks.md, project-context.md)
-│   └── insights/<sprint-id>.md
-├── cache/                           ← transient, safe to delete
-│   └── prompts-compiled/            ← optional (skills are now copied per-session, not cached)
-├── logs/
-│   └── <session-id>.jsonl           ← per-session structured trace (every log entry, signal, error)
-└── backups/                         ← auto-snapshot before destructive ops
+│   ├── projects/
+│   │   └── <project-id>.json
+│   └── sprints/
+│       └── <sprint-id>/
+│           ├── sprint.json          ← planning: tickets, requirements, status, project ref
+│           ├── execution.json       ← runtime audit: branch, PR URL, setup script timestamps
+│           ├── tasks.json           ← task list with status, attempts, evaluations
+│           ├── chain.log            ← persistent EventBus trace (every chain run appends)
+│           ├── progress.md          ← append-only signal log (Progress / Note signals)
+│           ├── refinement/<ticket-slug>/  ← per-ticket sandbox for refine AI session
+│           │   ├── prompt.md
+│           │   └── requirements.md  ← AI writes; harness reads back
+│           ├── planning/<unit-slug>/      ← sandbox for plan AI session
+│           │   ├── prompt.md
+│           │   └── plan.json
+│           ├── ideation/<unit-slug>/      ← sandbox for ideate AI session
+│           ├── implement/<unit-slug>/     ← per-task sandbox for evaluator
+│           │   └── rounds/<N>/{generator,evaluator}/
+│           │       ├── prompt.md
+│           │       ├── session.md
+│           │       ├── signals.json
+│           │       └── sessionId
+│           └── review/<unit-slug>/        ← apply-feedback sandbox
+└── state/
+    └── locks/
+        └── sprints/<sprint-id>.lock ← cross-process advisory lock
 ```
 
-Resolution lives in `src/integration/persistence/storage-paths.ts` (`resolveStoragePaths`,
-`ensureLayoutDirs`). The application-side wrapper at `application/runtime/storage-paths-resolver.ts` re-exports for
-the composition root.
+Path resolution lives in `src/application/bootstrap/storage-paths.ts` (`resolveStoragePaths`,
+`storagePathsFromRoot`, `ensureStorageRoots`). On-disk path helpers for the sprint subtree live in
+`src/integration/persistence/storage.ts`.
 
-The `logs/` folder is the high-leverage add. Every session writes a structured JSONL trace via `JsonlSink` so
-post-hoc debugging is `tail -f` not guesswork.
-
-The per-unit `session.md` audit pack is written by **`ProviderAiSessionAdapter`**, not by chain leaves. When a chain
-factory passes `SessionOptions.sessionMdPath`, the adapter brackets the spawn with `writeSessionStart`
-(provider / cwd / flags / prompt body) before the child boots and `writeSessionFinish` (model / sessionId / exitCode)
-after it settles. Writes are best-effort: any filesystem failure logs a warn through the adapter's `LoggerPort` and
-is otherwise swallowed so audit emission never fails a spawn. Path construction lives in the chain leaves — refine /
-plan / ideate stamp a single `<unit-root>/session.md` (overwritten on re-run); the per-task chain routes each
-generator and evaluator spawn into `rounds/<N>/{generator,evaluator}/session.md` via the `generatorRoundDir` /
-`evaluatorRoundDir` helpers (`src/integration/persistence/execution-unit-builder.ts`) so every execute attempt and
-each evaluator round get distinct files; standalone `sprint evaluate` writes into
-`<sprintDir>/execution/<unit-slug>/rounds/standalone-<ISO>/evaluator/` (one folder per invocation, ISO-stamped so
-prior verdicts are preserved as durable history); feedback writes `<sprintDir>/feedback/session-<iteration>.md`.
-
-`sprint requirements [--output <path>]` and `sprint context [--output <path>]` are markdown **exports**, not state.
-They default to the caller's `cwd` (`./<sprintId>-requirements.md` / `./<sprintId>-context.md`) and accept any
-absolute or relative path. The exporter does not write inside `~/.ralphctl/` — these are user-owned artefacts.
+The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl-v2` prefix.
+Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
 
 ## Data Models
 
-Canonical entity shapes live in `src/domain/entities/<name>.ts` — class-based, immutable, with `Result`-returning
+Canonical entity shapes live in `src/domain/entity/<name>.ts` — immutable interfaces with `Result`-returning
 smart constructors. Read the source for the field list; this section names each aggregate's identity, lifecycle,
-and the mutators that are not obvious from the field names.
+and the non-obvious mutators.
 
-- **`Project`** (`project.ts`) — identified by branded `ProjectName` slug; owns `≥1 Repository` (unique by path).
-- **`Repository`** (`repository.ts`) — identified by `AbsolutePath`; carries `setupScript`, `checkScript`,
-  `checkTimeout`, `onboardedAt`. Mutators: `markOnboarded(now)`, `clearOnboarded()`, `withSetupScript(script)`.
-  `setupScript` runs **once** at sprint start (`setup-scripts-sprint-start` chain leaf, via
-  `ExternalPort.runSetupScript`) and any failure (non-zero exit OR spawn-level error) hard-aborts the chain
-  naming the failing repo before any task runs. The leaf skips repos already stamped on `Sprint.setupRanAt`
-  so resumes don't re-run setup. `checkScript` is the per-task verification gate run after every AI task
-  and inside the feedback loop — auto-sourced by the
-  `resolve-check-scripts` chain leaf, which walks the sprint's project at sprint start and stuffs each
-  affected repo's configured script into `ctx.checkScripts` so the per-task bridge can fire the gate
-  without the user passing `--check-script`. The CLI flag overrides the auto-source globally when set.
-  Both scripts share the same shell-runner but are emitted at different lifecycle hooks; do not conflate
-  them — setup is the deterministic baseline so Claude departs reliably; check is the step-to-step gate
-  so follow-up tasks may succeed.
-- **`Sprint`** (`sprint.ts`) — identified by `SprintId` (`YYYYMMDD-HHmmss-<slug>`); lifecycle
-  `draft → active → closed`; owns nested `Ticket[]`; carries `projectName`, `branch`, `pullRequestUrl`,
-  `affectedRepositories`, `setupRanAt`. Mutators: `rename(name)`, `clearBranch()`, `recordPullRequestUrl(url)`,
-  `setAffectedRepositories(paths)`, `recordSetupRun(repo, at)`. `setupRanAt` is the audit map
-  (`Map<AbsolutePath, IsoTimestamp>`) of sprint-start setup-script runs; cleared on `close()`.
-- **`Ticket`** (`ticket.ts`) — nested in Sprint; identified by `TicketId`; `requirementStatus: pending → approved`
-  set by `sprint refine`.
+- **`Project`** (`project.ts`) — identified by `ProjectId`; carries an array of `Repository` value objects (each
+  with `setupScript`, `checkScript`, `checkTimeout`, `onboardedAt`).
+- **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → active → review → done`; carries
+  `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
+  `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
+- **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
+  `pullRequestUrl`, `setupRunAt` (map of repo path → ISO timestamp). Separate from `Sprint` so the
+  runtime-mutating fields don't collide with planning writes.
+- **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `requirementStatus: pending → approved`
+  flipped by the refine flow.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references
-  Sprint via `ticketId` and DAG edges via `blockedBy`. Mutators: `update(input)`, `markBlocked(reason)`,
-  `unblock()`, `resetToTodo()` (stale-in-progress recovery). `evaluationOutput` is truncated to 2000 chars; full
-  critique persists to `evaluationFile`.
-- **`Config`** (application-level, `src/application/config/`) — `currentSprint`, `aiProvider`, `editor`,
-  `evaluationIterations` (`0` = disabled).
+  `Sprint` via `ticketId` and DAG edges via `blockedBy`. Carries an `attempts[]` history (one entry per
+  generator-evaluator round) — each `Attempt` has `evaluation` + `verification` sub-records. Optional
+  `extraDimensions` is the planner's per-task grading rubric beyond the four floor dimensions
+  (Correctness / Completeness / Safety / Consistency). Optional `maxAttempts` overrides the global cap.
+- **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields: `schemaVersion`,
+  `ai: { provider, models }`, `harness: { maxTurns, maxAttempts, rateLimitRetries }`, `logging: { level }`,
+  `concurrency: { maxParallelTasks }`. `ai.provider` is one of `'claude-code' | 'github-copilot' | 'openai-codex'`;
+  `ai.models` is an object keyed by chain (`refine` / `plan` / `implement` / `readiness` / `ideate`).
 
 ## Harness Signals
 
-Fixed discriminated union in `src/domain/signals/harness-signal.ts`. Adding a variant requires a code change;
-every `switch` on `HarnessSignal['type']` is exhaustiveness-checked by the compiler via
-`const _exhaustive: never = signal`.
+Discriminated union declared at `src/domain/signal.ts`; one sibling parser per variant under
+`src/integration/ai/signals/<variant>/`. The parser registry (`signals/_engine/registry.ts`) composes the
+parsers; adding a variant requires editing the registry and adding a parser.
 
-| Signal                       | Parsed from                                                        | Durable handler                                                                                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ProgressSignal`             | `<progress><summary>…</summary>…</progress>`                       | Append to `progress.md`                                                                                                                                                                                  |
-| `EvaluationSignal`           | `<evaluation-passed>` / `<evaluation-failed>…</evaluation-failed>` | `tasks.json` preview update (`Task.evaluationOutput` 2000-char truncation); full critique written per-round by `EvaluateAndFixLoopUseCase` to `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md` |
-| `TaskCompleteSignal`         | `<task-complete>`                                                  | None (per-task chain owns task lifecycle)                                                                                                                                                                |
-| `TaskVerifiedSignal`         | `<task-verified>output</task-verified>`                            | None (use case sets `verified` on the task entity)                                                                                                                                                       |
-| `TaskBlockedSignal`          | `<task-blocked>reason</task-blocked>`                              | Record blocker in `progress.md`                                                                                                                                                                          |
-| `NoteSignal`                 | `<note>text</note>`                                                | Append to `progress.md`                                                                                                                                                                                  |
-| `CheckScriptDiscoverySignal` | `<check-script>command</check-script>`                             | None — consumed inline by setup flow (`project add` / `project repo add`)                                                                                                                                |
-| `AgentsMdProposalSignal`     | `<agents-md>…</agents-md>`                                         | None — consumed inline by `project onboard`; harness writes the provider-native file                                                                                                                     |
-| `SetupScriptSignal`          | `<setup-script>command</setup-script>`                             | None — consumed inline by `project onboard`; persisted on `Repository.setupScript`                                                                                                                       |
-| `VerifyScriptSignal`         | `<verify-script>command</verify-script>`                           | None — consumed inline by `project onboard`; persisted on `Repository.checkScript`                                                                                                                       |
-| `SkillSuggestionsSignal`     | `<skill-suggestions>name1, name2, …</skill-suggestions>`           | None — consumed inline by `project onboard`; user-accepted subset linked via the skills port                                                                                                             |
+Adapter-side: each AI spawn writes a `signals.json` file the harness reads post-spawn. Replaces the brittle
+stdout-parsing path; signals are now a structured contract, not a regex over CLI output.
 
-Plus synthetic bus events emitted by the per-task chain (not parsed from AI output): `rate-limit-paused`,
-`rate-limit-resumed`, `task-started`, `task-finished`. The `InMemorySignalBus` micro-batches emissions at ~16ms
-(one animation frame) to prevent render storms.
+| Signal                                   | Consumed by                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `ProgressSignal`                         | Append to `<sprintDir>/progress.md`; emit on the EventBus                                                          |
+| `EvaluationSignal`                       | Per-round critique persisted on the `Task.attempts[]` history                                                      |
+| `TaskCompleteSignal`                     | Per-task subchain transitions the task to `done` (after `checkScript` passes)                                      |
+| `TaskVerifiedSignal`                     | Use case sets `verified` on the task entity                                                                        |
+| `TaskBlockedSignal`                      | Use case transitions task to `blocked`                                                                             |
+| `NoteSignal`                             | Append to `progress.md`                                                                                            |
+| `LearningSignal`                         | Adapter-side audit; routed to `chain.log` + EventBus                                                               |
+| `DecisionSignal`                         | Adapter-side audit                                                                                                 |
+| `ChangeSignal`                           | Adapter-side audit                                                                                                 |
+| `CommitMessageSignal`                    | Used by `commit-task` leaf to author commit message                                                                |
+| `ProgressEntrySignal`                    | Long-form progress entry, written to `progress.md`                                                                 |
+| `SetupScriptSignal`                      | `detect-scripts` flow persists on `Repository.setupScript`                                                         |
+| `VerifyScriptSignal`                     | `detect-scripts` flow persists on `Repository.checkScript`                                                         |
+| `AgentsMdProposalSignal`                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md) |
+| `SetupSkillSignal` / `VerifySkillSignal` | `detect-skills` flow surfaces suggestions                                                                          |
 
-Live signal forwarding: `ExecuteSingleTaskUseCase` forwards every parsed `HarnessSignal` onto `SignalBusPort` as
-`{ type: 'signal', signal, sprintId, taskId }` so the live execute view's "Recent events" panel renders
-`<progress>`, `<note>`, `<task-verified>`, etc. in real time. `ApplyFeedbackUseCase` does the same (without `taskId`).
-Rate-limit pause / resume reach the bus from two sources, both wired in the composition root: the AI session
-adapter's per-spawn retry loop emits when the adapter sleeps for a single rate-limit recovery; the kernel
-`RateLimitCoordinator` emits when its global state changes. The dashboard's `RateLimitBanner` consumes either.
-
-The kernel `RateLimitCoordinator` (`src/kernel/algorithms/rate-limit-coordinator.ts`) is the in-task pause
-primitive. `ExecuteSingleTaskUseCase` calls `coordinator.pause(reason)` when a spawn returns a 429 hint and
-`coordinator.resume()` once the cooldown elapses; the coordinator's pause/resume events bridge to the signal bus
-so the dashboard's `RateLimitBanner` reflects state. With sequential task execution there are no siblings to
-throttle, so the coordinator only mediates the in-task retry-via-resume path; the chain's
-`Retry(maxAttempts: 2, retryOn: 'rate-limited')` handles the actual recovery.
+EventBus events emitted by the chain runner (not parsed from AI output): `ChainStarted`, `ChainStepStarted`,
+`ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`, `ChainAborted`,
+`TaskAttemptStarted`, `TaskAttemptEvaluated`, `FeedbackRoundApplied`, `LogEvent`.
 
 ## Error Classes
 
-All domain errors extend `DomainError` (`src/domain/errors/domain-error.ts`) and carry a machine-readable `code`
-plus optional `cause`.
+All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`) and carry a machine-readable
+`code` plus optional `cause`. The error class is one of the few legitimate places `class` is allowed.
 
-| Class               | Group       | Cause                                                                  |
-| ------------------- | ----------- | ---------------------------------------------------------------------- |
-| `NotFoundError`     | not-found   | Aggregate (project / sprint / ticket / task) not found by id           |
-| `ConflictError`     | lifecycle   | Uniqueness or cardinality violation (e.g. duplicate slug, repo path)   |
-| `InvalidStateError` | lifecycle   | Operation invalid for the entity's current status                      |
-| `ValidationError`   | values      | Smart-constructor or schema validation failed (carries `field`/`path`) |
-| `ParseError`        | storage     | JSON / output parser rejection                                         |
-| `StorageError`      | storage     | Read/write failure in the persistence layer                            |
-| `RateLimitError`    | ai-provider | AI process rate-limited (wraps spawn outcome)                          |
-
-Plus the kernel's structural error type (`KernelError` in `src/kernel/chain/element.ts`) which carries `code` /
-`message` / `cause` — every `DomainError` satisfies this shape so chains can surface domain errors transparently in
-their trace.
+| Class               | Folder                | Cause                                                                  |
+| ------------------- | --------------------- | ---------------------------------------------------------------------- |
+| `NotFoundError`     | `domain/value/error/` | Aggregate (project / sprint / ticket / task) not found by id           |
+| `ConflictError`     | `domain/value/error/` | Uniqueness or cardinality violation (e.g. duplicate slug, repo path)   |
+| `InvalidStateError` | `domain/value/error/` | Operation invalid for the entity's current status                      |
+| `ValidationError`   | `domain/value/error/` | Smart-constructor or schema validation failed (carries `field`/`path`) |
+| `ParseError`        | `domain/value/error/` | JSON / output parser rejection                                         |
+| `StorageError`      | `domain/value/error/` | Read/write failure in the persistence layer                            |
+| `RateLimitError`    | `domain/value/error/` | AI process rate-limited (wraps spawn outcome)                          |
+| `AbortError`        | `domain/value/error/` | User-initiated cancellation; propagates through chains                 |
+| `ProbeError`        | `domain/value/error/` | Readiness probe rejection                                              |
 
 ## Exit Codes
 
-`src/application/cli/exit-codes.ts`:
+`src/application/ui/cli/exit-codes.ts`:
 
 | Code | Constant           | Meaning                       |
 | ---- | ------------------ | ----------------------------- |
@@ -430,77 +434,70 @@ their trace.
 | 1    | `EXIT_ERROR`       | Validation or execution error |
 | 130  | `EXIT_INTERRUPTED` | SIGINT received               |
 
-## Terminal UI Layer (`src/application/tui/`)
+## Terminal UI Layer (`src/application/ui/`)
 
-Stock Ink + `@inkjs/ui`. Mounted only for bare `ralphctl`, `ralphctl interactive`, and `ralphctl sprint start`. All
-other subcommands use `PlainTextSink` + Commander. Non-TTY / `CI=1` / `RALPHCTL_JSON=1` / `RALPHCTL_NO_TUI=1`
-short-circuit to the plain-text path.
+Stock Ink + hand-rolled inline gradient renderer (no `@inkjs/ui`, no external gradient libraries). The TUI is
+the primary surface — `ralphctl` with no args mounts the full app. CLI subcommands skip the Ink mount and run
+against the bootstrap directly, emitting structured logs through the console sink.
+
+```
+application/ui/
+├── cli/
+│   ├── cli.ts                       ← Commander program builder
+│   ├── bootstrap.ts                 ← wire() + sinks setup for one-shot commands
+│   └── commands/<name>.ts           ← per-command flag definitions + Result-aware action
+├── shared/
+│   └── launch/<flow>.ts             ← chain launcher (creates runner, tees chain.log)
+└── tui/
+    ├── runtime/                     ← mount.tsx (alt-screen takeover) + use-event-bus.ts subscriber
+    ├── theme/                       ← tokens.ts (single source of visual truth)
+    ├── components/                  ← ViewShell, SectionStamp, ResultCard, FieldList, Spinner, …
+    ├── prompts/                     ← InkPromptAdapter + per-kind components
+    └── views/                       ← Home, Sprints, Sprint detail, Projects, Settings, Doctor,
+                                       Sessions, Execute, Welcome, browse/, crud/
+```
 
 The mount path enters the **alt-screen buffer** (`CSI ? 1049 h`) and hides the cursor so ralphctl takes over the
-terminal the way vim/htop/less does. Restoration is guaranteed via explicit `exitAltScreen()` after `waitUntilExit()`
-plus `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets.
+terminal like vim/htop/less. Restoration is guaranteed via explicit exit + `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets.
 
-```
-application/tui/
-├── runtime/
-│   ├── mount.tsx         ← mountInkApp() — TTY gate, SharedDeps swap, alt-screen, render+waitUntilExit
-│   ├── screen.ts         ← enterAltScreen() / exitAltScreen() + signal-safe restore
-│   ├── event-bus.ts      ← Singleton log event bus (InkSink publisher, <LogTail /> subscriber)
-│   └── hooks.ts          ← useLoggerEvents, useSignalEvents, useSessionEvents
-├── components/           ← ViewShell, SectionStamp, ResultCard, FieldList, KeyboardHints,
-│                           StatusBar, ListView, RateLimitBanner, Spinner, StatusChip, useWorkflow
-└── views/                ← Top-level screens — each is a router destination
-    ├── app.tsx           ← Root — seeds the router stack, mounts <PromptHost /> as sibling
-    ├── router-context.ts ← ViewId union + RouterApi React context
-    ├── view-router.tsx   ← Navigation stack
-    ├── use-global-keys.ts ← Esc/h/s/d/Tab/Ctrl+1..9/q owned by the router
-    ├── view-hints-context.tsx
-    ├── home-view.tsx     ← Idle landing
-    ├── dashboard-view.tsx
-    ├── execute-view.tsx  ← Live sprint-execution dashboard (subscribes to SignalBus + logEventBus)
-    │                       Per-task panel = <TaskExecutionGrid /> (thin wrapper) →
-    │                       <TaskExecutionList /> (depth-indented, dag-depth.ts for ordering).
-    ├── sessions-view.tsx ← Multi-chain switcher
-    ├── settings-view.tsx ← Schema-driven rows
-    ├── browse/           ← list + show views (sprint, ticket, task, project)
-    └── crud/             ← add / edit / remove views
-```
+Cross-cutting TUI features:
 
-Prompt components live at `src/integration/ui/prompts/` so plain-text CLI commands that need a prompt can
-auto-mount a minimal `<PromptHost />` without pulling in the dashboard.
+- **Persistent banner** + **help overlay** (`?`). The banner quote stabilises at module load so navigation
+  doesn't jitter.
+- **Centralised keyboard map** — all shortcuts in one table; the help overlay generates from the same source.
+- **Multi-flow nav** — Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump; `SessionsView` lists every
+  runner with status + age.
+- **Schema-driven settings panel** — rows iterate the `SettingsSchema`; the prompt kind is derived from value
+  type. Edits save immediately.
+- **Doctor view** — runs `runDoctor()` on mount; renders per-check status rows + an aggregate result card.
+  `!` opens it from anywhere.
 
-Cross-cutting TUI features (testable criteria in `REQUIREMENTS.md`):
+For tokens / components / state surfaces / copy rules see [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md).
 
-- **Persistent banner** — `<Banner />` renders on every view via `<ViewShell />`. The quote stabilises at module
-  load (`STABLE_QUOTE` in `components/banner.tsx`) so navigation doesn't jitter.
-- **Help modal** — `?` opens `<HelpOverlay />`. The router renders ONLY the overlay when `isHelpOpen`; view tree,
-  prompts, hints, and the status bar are all suspended. Esc / `?` closes.
-- **Centralised keyboard map** — `application/tui/keyboard-map.ts` is the single source of truth. The help overlay
-  generates its rows from the same table; view-local hints declare their actions, not key bindings.
-- **Pipeline map + tiered submenus** — Home renders `<PipelineMap />` (Refine / Plan / Execute / Close 4-row spine
-  - bright "Next step" quick-action). `b` opens the browse submenu → drill-ins for Sprint / Ticket / Task / Project,
-    driven by a typed `MenuAction` discriminated union (no string-encoded routing).
-- **Prompt transcript** — resolved prompts render dim above the live prompt as a transcript so the user sees the
-  values they've already entered. History clears when the queue idles past `SEQUENCE_IDLE_MS = 250ms`. Per-kind
-  renderers in `prompt-transcript.tsx`.
-- **Schema-driven settings** — rows iterate `CONFIG_ROWS` (`application/config/config-schema-rows.ts`); the prompt
-  kind (`select` / `confirm` / `input`) is determined by value type. Edits save immediately via
-  `ConfigStorePort.save()`.
-- **Doctor view** — `<DoctorView />` runs `runDoctor()` on mount; renders per-check status rows + an aggregate
-  `ResultCard`. `!` hotkey opens it. Checks live in `application/doctor/checks/`, including `onboarding-status.ts`.
-- **Retry-loop forms** — sprint-create / project-add / ticket-add / task-add / sprint-edit / project-edit views
-  retry on validation errors instead of dumping back to home.
+## Build & Distribution
+
+Two-stage pipeline:
+
+1. **`tsup`** compiles the TypeScript graph to `dist/cli.mjs`.
+2. **`tsx scripts/build-assets.ts`** walks `src/integration/ai/prompts/<flow>/` and
+   `src/integration/ai/skills/bundled/<name>/`, copies them into `dist/prompts/` and `dist/skills/`, and writes
+   `dist/manifest.json` listing every staged asset.
+
+Template / skill loading is dual-mode:
+
+- **Dev (`tsx`)** — reads from `src/integration/ai/{prompts,skills}/`. `FsTemplateLoader` and `bundledSkillSource`
+  detect mode via `import.meta.url`.
+- **Bundled (`dist/cli.mjs`)** — reads from `dist/{prompts,skills}/`. Missing assets fail fast with a repair hint.
+
+CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm install` from the packed tarball.
 
 ## Future Work
 
-- **Per-repo feedback-loop check fan-out.** `feedback-flow.ts` records that checks should run after applying feedback
-  but does not yet fan out per-repo. Real fan-out needs a `forEachItem`-shaped primitive in the kernel.
-- **Cross-sprint browse views.** The TUI browse subtree (`tui/views/browse/`) ships per-sprint listing. Cross-sprint
-  navigation is a follow-up.
-- **Conditional element if needed.** Today, branching belongs inside a use case or in a sub-chain selected by the
-  caller. If a recurring pattern emerges where neither option fits cleanly, a `Conditional` primitive can be added —
-  but only with a documented justification.
-
-(Resolved follow-ups: live evaluation-config read landed via `LiveConfigReader`; the multi-iteration evaluator loop
-landed via `EvaluateAndFixLoopUseCase` inside the per-task chain; the progressive chain trace ships via
-`ChainRunner.subscribe`'s `step` events.)
+- **Real-provider e2e** — every Claude / Copilot / Codex provider test uses a fake `spawn`. Vendor JSON-shape
+  drift will surface here first. Same gap as v0.6.x; deferred.
+- **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` would silently no-op if the
+  published bin is renamed. Candidate replacement: `existsSync(<here>/manifest.json)`.
+- **User-skill consumption** — `SkillSuggestionsSignal` is parsed but nothing consumes it yet. Out of scope
+  for v0.7.0.
+- **Concurrency > 1** — `settings.concurrency.maxParallelTasks` is wired but the implement chain still runs
+  strictly sequential. Concurrent per-task fan-out needs a new chain primitive and is deferred.

@@ -93,11 +93,11 @@ ralphctl handles the rest.
 ```
   You describe what to build           ralphctl handles the rest
   ─────────────────────────           ─────────────────────────────────
-  ┌──────────┐   ┌──────────┐        ┌────────┐   ┌──────┐   ┌─────────┐
-  │  Create  │──>│   Add    │───────>│ Refine │──>│ Plan │──>│ Execute │
-  │  Sprint  │   │ Tickets  │        │ (WHAT) │   │(HOW) │   │  Loop   │
-  └──────────┘   └──────────┘        └────────┘   └──────┘   └─────────┘
-                                          │            │           │
+  ┌──────────┐   ┌──────────┐        ┌────────┐   ┌──────┐   ┌───────────┐
+  │  Create  │──>│   Add    │───────>│ Refine │──>│ Plan │──>│ Implement │
+  │  Sprint  │   │ Tickets  │        │ (WHAT) │   │(HOW) │   │   Loop    │
+  └──────────┘   └──────────┘        └────────┘   └──────┘   └───────────┘
+                                          │            │             │
                                      AI clarifies  AI generates  AI implements
                                      requirements  task graph    + AI reviews
                                      with you      from specs    each task
@@ -122,27 +122,44 @@ ralphctl
 That's it. Launches the interactive TUI — walks you through project setup, ticket refinement, task planning, and
 execution. No commands to memorize.
 
-Requires [Node.js](https://nodejs.org/) >= 24, [Git](https://git-scm.com/), and
-either [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
-or [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) installed and authenticated.
+Requires [Node.js](https://nodejs.org/) >= 24, [Git](https://git-scm.com/), and one of the supported AI CLIs:
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+[GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli), or
+[OpenAI Codex](https://github.com/openai/codex) — installed and authenticated.
 
 <details>
-<summary>Prefer explicit commands?</summary>
+<summary>Prefer the CLI for inspection + one-shot operations?</summary>
+
+The interactive flows (refine / plan / ideate / implement / readiness / create sprint) are TUI-only. The CLI
+covers inspection and one-shot operations:
 
 ```bash
-# 1. Register a project (points to your repo)
-ralphctl project add
+# Inspect projects + sprints
+ralphctl project list
+ralphctl sprint list
+ralphctl sprint show <sprint-id>
+ralphctl sprint progress <sprint-id>
 
-# 2. Create a sprint
-ralphctl sprint create --name "my-first-sprint"
+# Add / inspect tickets
+ralphctl ticket add
+ralphctl ticket list
 
-# 3. Add a ticket
-ralphctl ticket add --project my-app --title "Add user authentication"
+# Manage sprint state
+ralphctl sprint activate <sprint-id>
+ralphctl sprint close <sprint-id>           # review → done
+ralphctl sprint remove <sprint-id>
 
-# 4. Let AI refine requirements, plan tasks, and execute
-ralphctl sprint refine
-ralphctl sprint plan
-ralphctl sprint start
+# Open a PR for the sprint branch
+ralphctl create-pr --sprint <sprint-id>
+
+# Export sprint artifacts
+ralphctl export-requirements --sprint <id> --output <path>
+ralphctl export-context --sprint <id> --project <id> --output <path>
+
+# Settings
+ralphctl settings show
+ralphctl settings set ai.provider claude-code
+ralphctl settings set ai.models.implement <model-id>
 ```
 
 </details>
@@ -155,8 +172,8 @@ ralphctl sprint start
 - **Catch mistakes before they compound** — independent AI review after each task, iterating until quality passes or
   budget is exhausted
 - **Coordinate across repositories** — one sprint can span multiple repos with automatic dependency tracking
-- **Branch per sprint** — optional shared branch across every affected repo, with `sprint close --create-pr` to open
-  pull requests when you're done
+- **Branch per sprint** — optional shared branch across every affected repo; `ralphctl create-pr --sprint <id>`
+  opens a PR / MR via `gh` or `glab` when you're done
 - **Recover from rate limits** — automatic session resume across rate-limit pauses keeps the in-flight task's full
   context when the provider restarts
 - **Separate the what from the how** — AI clarifies requirements first, then generates implementation tasks, with human
@@ -169,36 +186,46 @@ ralphctl sprint start
 
 ## Configuration
 
-RalphCTL supports **Claude Code** and **GitHub Copilot** as AI backends.
+RalphCTL supports **Claude Code**, **GitHub Copilot**, and **OpenAI Codex** as AI backends. Configure via the
+TUI `Settings` view or one-shot CLI commands:
 
 ```bash
-ralphctl config set provider claude      # Use Claude Code
-ralphctl config set provider copilot     # Use GitHub Copilot
+ralphctl settings set ai.provider claude-code         # Use Claude Code
+ralphctl settings set ai.provider github-copilot      # Use GitHub Copilot
+ralphctl settings set ai.provider openai-codex        # Use OpenAI Codex
 ```
 
-Auto-prompts on first AI command if not set. Both CLIs must be in your PATH and authenticated.
+The selected provider's CLI must be in your `PATH` and authenticated. The TUI prompts you on first launch if
+no provider is configured.
 
-Tune the generator-evaluator loop:
+**Per-flow model selection.** Each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) carries its
+own model from the configured provider's catalog:
 
 ```bash
-ralphctl config set evaluationIterations 2   # Up to 2 fix attempts per task (default: 1)
-ralphctl config set evaluationIterations 0   # Disable evaluation entirely
+ralphctl settings set ai.models.implement <model-id>
+ralphctl settings set ai.models.plan      <model-id>
 ```
 
-`sprint start --no-evaluate` skips evaluation for a single run without touching the global setting.
+**Tune the generator-evaluator loop** (under `harness`):
+
+```bash
+ralphctl settings set harness.maxAttempts 2          # Cap fix attempts per task (1–10, default 1)
+ralphctl settings set harness.maxTurns    8          # Generator-evaluator turns per attempt (1–10)
+ralphctl settings set harness.rateLimitRetries 3     # Adapter-side 429 retries (0–10)
+```
 
 <details>
 <summary>Provider differences</summary>
 
-| Feature                     | Claude Code                          | GitHub Copilot                                                       |
-| --------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
-| Status                      | GA                                   | Public preview                                                       |
-| Headless execution          | `-p --output-format json`            | `-p --output-format json --autopilot --no-ask-user`                  |
-| Session IDs                 | In JSON output (`session_id`)        | In JSON output (`session_id`), `--share` file as fallback            |
-| Session resume (`--resume`) | Full support                         | Full support                                                         |
-| Per-tool permissions        | Settings files + `--permission-mode` | `--allow-all-tools` (all-or-nothing by default)                      |
-| Fine-grained tool control   | `allow`/`deny` in settings files     | `--allow-tool`, `--deny-tool` flags (not yet used)                   |
-| Rate limit detection        | Validated patterns                   | Borrowed from Claude — not yet validated against real Copilot errors |
+| Feature                     | Claude Code (`claude-code`)                         | GitHub Copilot (`github-copilot`)                  | OpenAI Codex (`openai-codex`)   |
+| --------------------------- | --------------------------------------------------- | -------------------------------------------------- | ------------------------------- |
+| Headless permission mode    | `--permission-mode bypassPermissions`               | `--allow-all-tools`                                | provider-specific approval flow |
+| Per-tool permissions        | `.claude/settings.local.json` allow/deny patterns   | `--allow-tool`, `--deny-tool` flags (not yet used) | approval flow per session       |
+| Native context file         | `CLAUDE.md` at repo root                            | `.github/copilot-instructions.md`                  | `AGENTS.md`                     |
+| Session ID source           | `signals.json` + `sessionId` file written per spawn | same                                               | same                            |
+| Session resume (`--resume`) | full support                                        | full support                                       | full support                    |
+| Rate-limit retry            | exponential backoff in the headless wrapper         | same wrapper, validated patterns                   | same wrapper                    |
+| Bundled skill injection     | yes (`.claude/skills/<id>/SKILL.md`)                | no-op today                                        | no-op today                     |
 
 </details>
 
@@ -206,58 +233,67 @@ ralphctl config set evaluationIterations 0   # Disable evaluation entirely
 
 ## Data Directory
 
-All data lives in `~/.ralphctl/` by default. Override with:
+All data lives in `~/.ralphctl-v2/` by default (settings under `config/`, sprints + projects under `data/`,
+advisory locks under `state/`). Override with:
 
 ```bash
-export RALPHCTL_ROOT="/path/to/custom/data-dir"
+export RALPHCTL_HOME="/path/to/custom/app-dir"
 ```
+
+The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl-v2` prefix.
+v0.6.x data at `~/.ralphctl/` is left untouched — see the upgrade section above.
 
 ---
 
 <details>
 <summary><strong>CLI Command Reference</strong></summary>
 
+The CLI surface is deliberately smaller than v0.6.x — interactive flows (refine / plan / ideate / implement /
+readiness / create sprint) stay TUI-only by design. The CLI exposes inspection + one-shot operations.
+
 ### Getting Started
 
-| Command                                          | Description                         |
-| ------------------------------------------------ | ----------------------------------- |
-| `ralphctl`                                       | Interactive menu mode (recommended) |
-| `ralphctl doctor`                                | Check environment health            |
-| `ralphctl config set provider <claude\|copilot>` | Set AI provider                     |
-| `ralphctl config show`                           | Show current configuration          |
-| `ralphctl completion install`                    | Enable shell tab-completion         |
+| Command                               | Description                       |
+| ------------------------------------- | --------------------------------- |
+| `ralphctl`                            | Interactive TUI (primary surface) |
+| `ralphctl doctor`                     | Check environment health          |
+| `ralphctl settings show`              | Print current settings            |
+| `ralphctl settings set <key> <value>` | Set a single settings key         |
+| `ralphctl completion <shell>`         | Print shell tab-completion script |
 
-### Project & Sprint Setup
+### Project & Sprint Inspection
 
-| Command                       | Description                      |
-| ----------------------------- | -------------------------------- |
-| `ralphctl project add`        | Register a project and its repos |
-| `ralphctl sprint create`      | Create a new sprint (draft)      |
-| `ralphctl sprint list`        | List all sprints                 |
-| `ralphctl sprint show`        | Show current sprint details      |
-| `ralphctl sprint set-current` | Switch the current sprint        |
-| `ralphctl ticket add`         | Add a work item to a sprint      |
+| Command                            | Description                               |
+| ---------------------------------- | ----------------------------------------- |
+| `ralphctl project list`            | List registered projects                  |
+| `ralphctl project show <id>`       | Show one project (incl. repositories)     |
+| `ralphctl project remove <id>`     | Delete a project registration             |
+| `ralphctl sprint list`             | List all sprints                          |
+| `ralphctl sprint show <id>`        | Show one sprint (tickets, status, branch) |
+| `ralphctl sprint progress <id>`    | Sprint progress with blocker diagnostics  |
+| `ralphctl sprint set-current <id>` | Switch the current sprint pointer         |
+| `ralphctl ticket add`              | Add a ticket to the current sprint        |
+| `ralphctl ticket list / show <id>` | Inspect tickets                           |
+| `ralphctl ticket remove <id>`      | Remove a ticket from a draft sprint       |
+| `ralphctl task list / show <id>`   | Inspect tasks (planning generates them)   |
 
-### AI-Assisted Planning
+### Sprint Lifecycle
 
-| Command                        | Description                             |
-| ------------------------------ | --------------------------------------- |
-| `ralphctl sprint refine`       | Clarify requirements with AI (WHAT)     |
-| `ralphctl sprint plan`         | Generate tasks from requirements (HOW)  |
-| `ralphctl sprint ideate`       | Quick single-session refine + plan      |
-| `ralphctl sprint requirements` | Export refined requirements to markdown |
+| Command                         | Description                     |
+| ------------------------------- | ------------------------------- |
+| `ralphctl sprint activate <id>` | Flip a draft sprint to `active` |
+| `ralphctl sprint close <id>`    | Transition `review` → `done`    |
+| `ralphctl sprint remove <id>`   | Delete a sprint permanently     |
 
-### Execution & Monitoring
+### Export & PR
 
-| Command                    | Description                                            |
-| -------------------------- | ------------------------------------------------------ |
-| `ralphctl sprint start`    | Execute tasks with AI (`--branch` for a sprint branch) |
-| `ralphctl sprint progress` | Sprint progress with blocker / stale-task diagnostics  |
-| `ralphctl task list`       | List tasks in the current sprint                       |
-| `ralphctl sprint close`    | Close an active sprint (`--create-pr` for PRs)         |
-| `ralphctl sprint remove`   | Delete a sprint permanently                            |
+| Command                                                                | Description                                                    |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `ralphctl export-requirements --sprint <id> --output <path>`           | Render approved-ticket requirements to markdown                |
+| `ralphctl export-context --sprint <id> --project <id> --output <path>` | Render harness context (sprint + project + tasks) to markdown  |
+| `ralphctl create-pr --sprint <id> [--base <branch>] [--draft]`         | Open a PR/MR via `gh` or `glab`, persist the URL on the sprint |
 
-Run `ralphctl <command> --help` for details on any command.
+Run `ralphctl <command> --help` for flag-level detail.
 
 </details>
 
