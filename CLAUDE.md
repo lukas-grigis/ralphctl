@@ -13,6 +13,7 @@ Both `commander.version()` and the npm-update poll consume the same constant —
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
+- `.claude/docs/diagrams/` — Mermaid diagrams: module layout, chain framework, flow lifecycle, sprint / task state machines
 
 ## Build & Run
 

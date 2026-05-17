@@ -15,6 +15,8 @@ is no scattered index file or per-flow boilerplate fork.
 
 ## Module layout
 
+> Visual: [diagrams/00-module-layout.md](./diagrams/00-module-layout.md)
+
 ```
 src/
 ├── domain/        ← entities, value objects, errors, repository interfaces, signal types
@@ -82,6 +84,8 @@ of repositories (each with `setupScript`, `checkScript`, `onboardedAt`); mutatin
 `Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
 
 ## Chain framework
+
+> Visual: [diagrams/01-chain-framework.md](./diagrams/01-chain-framework.md)
 
 Five factory functions under `src/application/chain/`:
 
@@ -236,6 +240,8 @@ subscribe to the same stream.
 
 ## Flow registry (`src/application/registry.ts`)
 
+> Visual: [diagrams/02-flow-lifecycle.md](./diagrams/02-flow-lifecycle.md)
+
 The single source of truth for "what flows exist". Each entry is a `FlowEntry` carrying a `FlowManifest`:
 
 ```ts
@@ -351,6 +357,9 @@ The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `
 Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
 
 ## Data Models
+
+> Visuals: [diagrams/03-sprint-lifecycle.md](./diagrams/03-sprint-lifecycle.md) ·
+> [diagrams/04-task-lifecycle.md](./diagrams/04-task-lifecycle.md)
 
 Canonical entity shapes live in `src/domain/entity/<name>.ts` — immutable interfaces with `Result`-returning
 smart constructors. Read the source for the field list; this section names each aggregate's identity, lifecycle,
