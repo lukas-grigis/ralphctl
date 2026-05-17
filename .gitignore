@@ -1,23 +1,25 @@
 # Dependencies
 node_modules
 
-# Testing
+# Testing + coverage
 coverage
+.vitest
 
 # Build
 dist
-
-# TypeScript
 *.tsbuildinfo
 
 # Debug logs
+*.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Environment files
+# Environment files (keep .env.example tracked)
 .env
-.env*
-.env*.local
+.env.*
+!.env.example
 
 # IDE
 .idea/
@@ -38,14 +40,11 @@ Thumbs.db
 # Secrets
 *.pem
 
-# Claude Code local settings (keep agents/)
+# Temp / scratch
+.tmp
+tmp
+*.tmp
+
+# Claude Code per-user settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-
-# ralphctl data
-ralphctl-data/
-
-# ralphctl task context files (temp, cleaned up after use)
-.ralphctl-task-context.md
-.ralphctl-sprint-*-task-*-context.md
-coverage/
