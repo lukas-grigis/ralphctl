@@ -1,0 +1,25 @@
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
+import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
+
+/**
+ * Narrow dependency contract for the detect-skills chain. Identical shape to
+ * {@link DetectScriptsDeps} plus the {@link SkillsAdapter} — propose needs it to splice
+ * the provider's skills-discovery convention into the authoring prompt so the AI knows
+ * where to look for existing skills before drafting new ones.
+ */
+export interface DetectSkillsDeps {
+  readonly projectRepo: ProjectRepository;
+  readonly provider: HeadlessAiProvider;
+  readonly templateLoader: TemplateLoader;
+  readonly signals: HarnessSignalSink;
+  readonly eventBus: EventBus;
+  readonly logger: Logger;
+  readonly interactive: InteractivePrompt;
+  readonly skillsAdapter: SkillsAdapter;
+}

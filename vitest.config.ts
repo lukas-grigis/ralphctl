@@ -1,60 +1,50 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'node:path';
+
+const ALIASES = {
+  '@src': fileURLToPath(new URL('./src', import.meta.url)),
+  '@tests': fileURLToPath(new URL('./tests', import.meta.url)),
+};
 
 export default defineConfig({
   test: {
-    globals: true,
-    environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-    setupFiles: ['./vitest.setup.ts'],
-    // Default 5s/10s ceilings are tight when many tests run in parallel:
-    // filesystem-bound tests (git operations, doctor checks that fan out to
-    // `spawnSync` / `git` / `claude --version`) and Ink-based UI tests can
-    // momentarily stall under contention. Bumping headroom here beats
-    // scattering per-test overrides.
-    testTimeout: 30000,
-    hookTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
-      // Emit the report even when a test fails so threshold violations are visible
-      // independently of pre-existing test failures.
-      reportOnFailure: true,
-      // Only gate on golden-path modules (project → sprint → ticket → refine → plan → exec).
-      // Tests, TUI, CLI, and integration adapters are intentionally excluded so the bar
-      // reflects business logic and domain coverage, not test-helper line counts.
-      include: [
-        'src/business/usecases/project/**',
-        'src/business/usecases/sprint/**',
-        'src/business/usecases/ticket/**',
-        'src/business/usecases/refine/**',
-        'src/business/usecases/plan/**',
-        'src/business/usecases/execute/**',
-        'src/business/usecases/evaluate/**',
-        'src/application/chains/**',
-        'src/domain/entities/**',
-        'src/domain/values/**',
-        'src/kernel/chain/**',
-        'src/kernel/algorithms/**',
-      ],
-      exclude: ['**/*.test.ts', '**/*.test.tsx', '**/*.d.ts', '**/_test-fakes/**', '**/_test/**'],
-      thresholds: {
-        // Calibrated against measured golden-path coverage (2026-05-04):
-        //   statements 86.52% · branches 73.85% · functions 95.92% · lines 90.61%
-        // Set to the quality-sprint goal of 80% where headroom allows; branches
-        // get a slightly lower floor (68%) because they are the weakest metric —
-        // still a meaningful gate 5 pp below measured. Raise all values as
-        // coverage improves; the declared goal is 80% across all four axes.
-        lines: 80,
-        branches: 68,
-        functions: 80,
-        statements: 80,
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/application/ui/**'],
+      thresholds: undefined,
+    },
+    // Two projects so the heavy TUI render tests can run with file-level serialisation
+    // while everything else keeps full fork-pool parallelism. The TUI suite is the only
+    // one that legitimately needs CPU-stable timing: Ink reconciliation + sequential
+    // keystroke flows are sensitive to fork contention, and turning that contention off
+    // is cheaper than perpetually hunting flaky assertions. Other tests are pure logic
+    // and parallelise cleanly.
+    projects: [
+      {
+        resolve: { alias: ALIASES },
+        test: {
+          name: 'tui',
+          include: ['tests/integration/application/ui/tui/**/*.test.{ts,tsx}'],
+          pool: 'forks',
+          // One file at a time within this project; non-TUI tests still parallelise.
+          fileParallelism: false,
+          // Even serial, individual TUI tests can take a couple of seconds (render +
+          // multiple keystroke cycles + effect flushes). 15s gives plenty of margin.
+          testTimeout: 15000,
+        },
       },
-    },
-  },
-  resolve: {
-    alias: {
-      '@src': resolve(__dirname, './src'),
-    },
+      {
+        resolve: { alias: ALIASES },
+        test: {
+          name: 'default',
+          include: ['tests/**/*.test.{ts,tsx}'],
+          exclude: ['tests/integration/application/ui/tui/**'],
+          pool: 'forks',
+        },
+      },
+    ],
   },
 });

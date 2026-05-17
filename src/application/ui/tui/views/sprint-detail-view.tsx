@@ -1,0 +1,1057 @@
+/**
+ * Sprint detail — the sprint workspace.
+ *
+ * Layout:
+ *  - Sprint header (name, status chip, slug, ticket/task counts, phase timeline with elapsed
+ *    between sprint state transitions).
+ *  - Phase-aware "Next action" card.
+ *  - Tickets section (always first) — one bordered Jira-style card per ticket.
+ *  - Tasks section — one bordered card per task, showing ticket reference, deps, repo, attempts.
+ *
+ * Two view modes: list (default) and detail (one card expanded with everything we know about
+ * it — full description, steps, verification criteria, ticket lookup, dependency names, attempt
+ * history with elapsed/sessionId/commitSha/evaluation/warning).
+ *
+ * Local keys:
+ *   a       add ticket (draft only)
+ *   d       remove the focused ticket (draft only) after a confirm
+ *   ↑/↓     move the focus cursor across BOTH tickets and tasks
+ *   ↵/o     open the focused card in detail view
+ *   esc     close detail view (back to list)
+ *   n       open Flows, scoped to this sprint
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
+import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
+import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
+import {
+  StatusChip,
+  type StatusKind,
+  sprintStatusKind,
+  ticketStatusKind,
+  taskStatusKind,
+} from '@src/application/ui/tui/components/status-chip.tsx';
+import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
+import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Project } from '@src/domain/entity/project.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { Attempt } from '@src/domain/entity/attempt.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { fmtDuration, fmtIsoAbsolute } from '@src/application/ui/tui/theme/duration.ts';
+import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
+import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
+
+interface SprintDetailProps extends Readonly<Record<string, unknown>> {
+  readonly sprintId: SprintId;
+}
+
+interface SprintBundle {
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+}
+
+type FocusItem = { readonly kind: 'ticket'; readonly ticket: Ticket } | { readonly kind: 'task'; readonly task: Task };
+
+const buildFocusList = (sprint: Sprint, tasks: readonly Task[]): readonly FocusItem[] => [
+  ...sprint.tickets.map((ticket) => ({ kind: 'ticket' as const, ticket })),
+  ...tasks.map((task) => ({ kind: 'task' as const, task })),
+];
+
+export const SprintDetailView = (): React.JSX.Element => {
+  const deps = useDeps();
+  const router = useRouter();
+  const ui = useUiState();
+  const { sprintId } = useViewProps<SprintDetailProps>();
+  const selection = useSelection();
+
+  const { state, reload } = useAsyncLoad<SprintBundle>(async () => {
+    // Sprint + tasks lookups are independent — fetch in parallel so the view paints faster on
+    // navigation. Project lookup happens in a separate best-effort effect below.
+    const [sprintR, tasksR] = await Promise.all([
+      deps.sprintRepo.findById(sprintId),
+      deps.taskRepo.findBySprintId(sprintId),
+    ]);
+    if (!sprintR.ok) throw new Error(sprintR.error.message);
+    if (!tasksR.ok) throw new Error(tasksR.error.message);
+    return { sprint: sprintR.value, tasks: tasksR.value };
+  }, [sprintId]);
+
+  // Project lookup is a separate, best-effort fetch — used only to resolve `repositoryId → name`
+  // for task cards / detail views. Failing this (test stubs without a real projectRepo, or a
+  // stale sprint pointing at a deleted project) must not break the view; we render with raw
+  // repo ids while the lookup hasn't resolved.
+  const [project, setProject] = useState<Project | undefined>(undefined);
+  React.useEffect(() => {
+    if (state.kind !== 'ok') {
+      setProject(undefined);
+      return undefined;
+    }
+    let cancelled = false;
+    const lookup = async (): Promise<void> => {
+      const finder = deps.projectRepo?.findById?.bind(deps.projectRepo);
+      if (typeof finder !== 'function') return;
+      const r = await finder(state.value.sprint.projectId);
+      if (cancelled) return;
+      if (r.ok) setProject(r.value);
+      else {
+        // Don't blow up the view — but surface the reason so an operator wondering why repo
+        // names render as raw uuids can find it in the log instead of silently shrugging.
+        deps.logger?.warn?.('sprint-detail: project lookup failed', {
+          projectId: String(state.value.sprint.projectId),
+          error: r.error.message,
+        });
+      }
+    };
+    lookup().catch((err: unknown) => {
+      deps.logger?.warn?.('sprint-detail: project lookup threw', {
+        projectId: String(state.value.sprint.projectId),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state, deps.projectRepo, deps.logger]);
+
+  // Stamp the sprint id (and later, name) into selection so the status bar shows context.
+  const setSprintRef = React.useRef(selection.setSprint);
+  setSprintRef.current = selection.setSprint;
+  React.useEffect(() => {
+    setSprintRef.current(sprintId);
+  }, [sprintId]);
+  React.useEffect(() => {
+    if (state.kind === 'ok') setSprintRef.current(state.value.sprint.id, state.value.sprint.name);
+  }, [state]);
+
+  const sprint = state.kind === 'ok' ? state.value.sprint : undefined;
+  const tasks = state.kind === 'ok' ? state.value.tasks : [];
+  const focusList = useMemo(() => (sprint !== undefined ? buildFocusList(sprint, tasks) : []), [sprint, tasks]);
+
+  const [cursorIdx, setCursorIdx] = useState(0);
+  const [openIdx, setOpenIdx] = useState<number | undefined>(undefined);
+  const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
+  const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
+  const ticketsEditable = sprint?.status === 'draft';
+  const inDetail = openIdx !== undefined;
+
+  useViewHints(
+    inDetail
+      ? [{ keys: 'esc', label: 'back to list' }]
+      : [
+          { keys: 'n', label: 'flows' },
+          { keys: '↵/o', label: 'open' },
+          { keys: 'a', label: 'add ticket' },
+          { keys: 'd', label: 'remove ticket' },
+        ]
+  );
+
+  useInput((input, key) => {
+    if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || sprint === undefined) return;
+    if (inDetail) {
+      if (key.escape || input === 'q') setOpenIdx(undefined);
+      return;
+    }
+    if (input === 'a' && ticketsEditable) {
+      router.push({ id: 'add-ticket', props: { sprintId: sprint.id } });
+      return;
+    }
+    if ((key.downArrow || input === 'j') && focusList.length > 0) {
+      setCursorIdx((c) => Math.min(focusList.length - 1, c + 1));
+      return;
+    }
+    if ((key.upArrow || input === 'k') && focusList.length > 0) {
+      setCursorIdx((c) => Math.max(0, c - 1));
+      return;
+    }
+    if ((key.return || input === 'o') && focusList.length > 0) {
+      setOpenIdx(Math.min(cursorIdx, focusList.length - 1));
+      return;
+    }
+    if (input === 'd' && ticketsEditable) {
+      const focused = focusList[Math.min(cursorIdx, focusList.length - 1)];
+      if (focused?.kind === 'ticket') setConfirmRemove(focused.ticket);
+    }
+  });
+
+  // Mute global keys while the confirm prompt is mounted.
+  useEffect(() => (confirmRemove !== undefined ? ui.claimPrompt() : undefined), [confirmRemove, ui.claimPrompt]);
+
+  const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
+    setConfirmRemove(undefined);
+    if (!confirmed || sprint === undefined) return;
+    const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
+    const r = await flow.execute({ input: { sprintId: sprint.id, ticketId: target.id } });
+    if (!r.ok) {
+      setFeedback(`✗ ${r.error.error.message}`);
+      return;
+    }
+    setFeedback(`✓ removed "${target.title}"`);
+    reload();
+  };
+
+  return (
+    <ViewShell title="Sprint" subtitle={state.kind === 'ok' ? state.value.sprint.name : 'loading'}>
+      {ui.helpOpen ? (
+        <HelpOverlay />
+      ) : state.kind === 'loading' || state.kind === 'idle' ? (
+        <Box paddingX={spacing.indent}>
+          <Spinner label="Loading…" />
+        </Box>
+      ) : state.kind === 'error' ? (
+        <Box paddingX={spacing.indent}>
+          <Text>Failed to load sprint.</Text>
+        </Box>
+      ) : confirmRemove !== undefined ? (
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Text>
+            Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
+          </Text>
+          <Box marginTop={1}>
+            <ConfirmPrompt
+              message="Remove?"
+              defaultYes={false}
+              onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
+              onCancel={() => setConfirmRemove(undefined)}
+            />
+          </Box>
+        </Box>
+      ) : (
+        <Body
+          bundle={state.value}
+          project={project}
+          focusList={focusList}
+          cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
+          openIdx={openIdx}
+          ticketsEditable={ticketsEditable}
+          feedback={feedback}
+        />
+      )}
+    </ViewShell>
+  );
+};
+
+interface BodyProps {
+  readonly bundle: SprintBundle;
+  readonly project: Project | undefined;
+  readonly focusList: readonly FocusItem[];
+  readonly cursorIdx: number;
+  readonly openIdx: number | undefined;
+  readonly ticketsEditable: boolean;
+  readonly feedback: string | undefined;
+}
+
+const Body = ({
+  bundle,
+  project,
+  focusList,
+  cursorIdx,
+  openIdx,
+  ticketsEditable,
+  feedback,
+}: BodyProps): React.JSX.Element => {
+  const { sprint, tasks } = bundle;
+  const action = phaseAction(sprint, tasks);
+  const ticketCount = sprint.tickets.length;
+  if (openIdx !== undefined) {
+    const focused = focusList[openIdx];
+    return (
+      <Box flexDirection="column">
+        <SprintHeader sprint={sprint} tasks={tasks} />
+        {focused !== undefined && (
+          <Box marginTop={spacing.section}>
+            {focused.kind === 'ticket' ? (
+              <TicketDetail ticket={focused.ticket} tasks={tasks} />
+            ) : (
+              <TaskDetail task={focused.task} sprint={sprint} tasks={tasks} project={project} />
+            )}
+          </Box>
+        )}
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
+          <Text dimColor>
+            {glyphs.bullet} esc back to list {glyphs.bullet} ↑/↓ scroll
+          </Text>
+        </Box>
+      </Box>
+    );
+  }
+  return (
+    <Box flexDirection="column">
+      <SprintHeader sprint={sprint} tasks={tasks} />
+
+      {action !== undefined &&
+        (sprint.status === 'done' ? (
+          <Box paddingX={spacing.indent} marginTop={spacing.section}>
+            <Text dimColor>
+              {glyphs.check} {action.hint}
+            </Text>
+          </Box>
+        ) : (
+          <Box marginTop={spacing.section}>
+            <Card title="Next phase" tone="primary">
+              <Box flexDirection="column" paddingX={spacing.indent}>
+                <Text bold color={inkColors.primary}>
+                  {glyphs.actionCursor} {action.label}
+                </Text>
+                <Box marginTop={1}>
+                  <Text dimColor>{action.hint}</Text>
+                </Box>
+              </Box>
+            </Card>
+          </Box>
+        ))}
+
+      <TicketsSection
+        sprint={sprint}
+        tasks={tasks}
+        focusList={focusList}
+        cursorIdx={cursorIdx}
+        ticketsEditable={ticketsEditable}
+        feedback={feedback}
+      />
+      <TasksSection
+        sprint={sprint}
+        tasks={tasks}
+        focusList={focusList}
+        cursorIdx={cursorIdx}
+        project={project}
+        offset={ticketCount}
+      />
+
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text dimColor>
+          {glyphs.bullet} ↑/↓ focus {glyphs.bullet} ↵/o open {glyphs.bullet} n flows {glyphs.bullet} esc back
+        </Text>
+      </Box>
+    </Box>
+  );
+};
+
+interface PhaseAction {
+  readonly label: string;
+  readonly hint: string;
+}
+
+const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction | undefined => {
+  const pending = sprint.tickets.filter((t) => t.status === 'pending').length;
+  const approved = sprint.tickets.filter((t) => t.status === 'approved').length;
+  const todo = tasks.filter((t) => t.status === 'todo').length;
+  switch (sprint.status) {
+    case 'draft':
+      if (sprint.tickets.length === 0) {
+        return { label: 'Add tickets', hint: 'Press a to start adding inputs to this sprint.' };
+      }
+      if (pending > 0) {
+        return {
+          label: `Refine ${String(pending)} pending ticket(s)`,
+          hint: 'Press n → refine. Tickets become inputs for plan once approved.',
+        };
+      }
+      if (approved > 0) {
+        return {
+          label: `Plan ${String(approved)} approved ticket(s)`,
+          hint: 'Press n → plan. Generates a dependency-ordered task list.',
+        };
+      }
+      return undefined;
+    case 'planned':
+    case 'active':
+      if (todo > 0) {
+        return {
+          label: `Implement ${String(todo)} pending task(s)`,
+          hint: 'Press n → implement. The loop picks tasks in dependency order and commits as it goes.',
+        };
+      }
+      return { label: 'Review pending tasks', hint: 'No todo tasks — check the list below for blocked / done.' };
+    case 'review':
+      return {
+        label: 'Open a pull request, then close',
+        hint: 'Press n → create-pr to surface for human approval, then n → close-sprint when you are done.',
+      };
+    case 'done':
+      return {
+        label: 'Sprint closed',
+        hint: 'No further work happens here. Press S to switch to another sprint.',
+      };
+  }
+};
+
+// ─── Sprint header ────────────────────────────────────────────────────────────────────────────
+
+const SprintHeader = ({
+  sprint,
+  tasks,
+}: {
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+}): React.JSX.Element => {
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  return (
+    <Card
+      title={sprint.name}
+      tone="primary"
+      right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
+    >
+      <FieldList
+        fields={[
+          { label: 'Slug', value: sprint.slug },
+          { label: 'Tickets', value: String(sprint.tickets.length) },
+          {
+            label: 'Tasks',
+            value: `${String(tasks.length)}  (${String(done)} done · ${String(blocked)} blocked)`,
+          },
+        ]}
+      />
+      <Box marginTop={1}>
+        <PhaseTimeline sprint={sprint} />
+      </Box>
+      <Box marginTop={1}>
+        <PipelineMap status={sprint.status} />
+      </Box>
+    </Card>
+  );
+};
+
+/**
+ * Inline phase ribbon with elapsed-between-transitions. We can't show the draft duration —
+ * sprints don't carry a `createdAt` — but every later transition timestamp is on the entity,
+ * so the ribbon reads like `planned · 2025-05-10  → active · 3h  → review · 1d2h  → done · 4h`.
+ * When a phase is the current one (no later timestamp), it shows `ongoing for X` instead.
+ *
+ * Robust to test fixtures that store `undefined` instead of `null` for unreached phases: both
+ * are filtered out via `!= null` (the loose equality on purpose).
+ */
+const PhaseTimeline = ({ sprint }: { readonly sprint: Sprint }): React.JSX.Element => {
+  const now = Date.now();
+  interface PhaseDef {
+    readonly label: string;
+    readonly at: string | null | undefined;
+    readonly nextAt: string | null | undefined;
+  }
+  const phases: readonly PhaseDef[] = [
+    { label: 'planned', at: sprint.plannedAt, nextAt: sprint.activatedAt },
+    { label: 'active', at: sprint.activatedAt, nextAt: sprint.reviewAt },
+    { label: 'review', at: sprint.reviewAt, nextAt: sprint.doneAt },
+    { label: 'done', at: sprint.doneAt, nextAt: null },
+  ];
+  const hasAt = (p: PhaseDef): p is PhaseDef & { readonly at: string } => p.at !== null && p.at !== undefined;
+  const noNextAt = (next: string | null | undefined): boolean => next === null || next === undefined;
+  const cells = phases.filter(hasAt).map((p, i, all) => {
+    const sameAsLast = i === all.length - 1;
+    const startedMs = Date.parse(p.at);
+    const elapsedMs = (() => {
+      if (!noNextAt(p.nextAt)) {
+        const ended = Date.parse(p.nextAt!);
+        return Number.isFinite(ended) && Number.isFinite(startedMs) ? ended - startedMs : undefined;
+      }
+      if (sameAsLast && sprint.status !== 'done') {
+        return Number.isFinite(startedMs) ? now - startedMs : undefined;
+      }
+      return undefined;
+    })();
+    return {
+      label: p.label,
+      absolute: fmtIsoAbsolute(p.at),
+      elapsed: elapsedMs !== undefined ? fmtDuration(elapsedMs) : undefined,
+      ongoing: noNextAt(p.nextAt) && sprint.status !== 'done',
+    };
+  });
+  if (cells.length === 0) {
+    return (
+      <Text dimColor>
+        {glyphs.bullet} draft {glyphs.bullet} no transitions yet
+      </Text>
+    );
+  }
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      {cells.map((c, idx) => (
+        <Box key={`${c.label}-${String(idx)}`}>
+          <Text dimColor>{glyphs.activityArrow} </Text>
+          <Text bold>{c.label}</Text>
+          <Text dimColor>
+            {' '}
+            {glyphs.bullet} {c.absolute}
+          </Text>
+          {c.elapsed !== undefined && (
+            <Text color={c.ongoing ? inkColors.info : inkColors.muted}>
+              {' '}
+              {glyphs.bullet} {c.ongoing ? 'ongoing ' : 'lasted '}
+              {c.elapsed}
+            </Text>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+};
+
+// ─── Tickets section ──────────────────────────────────────────────────────────────────────────
+
+interface TicketsSectionProps {
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+  readonly focusList: readonly FocusItem[];
+  readonly cursorIdx: number;
+  readonly ticketsEditable: boolean;
+  readonly feedback: string | undefined;
+}
+
+const TicketsSection = ({
+  sprint,
+  tasks,
+  focusList,
+  cursorIdx,
+  ticketsEditable,
+  feedback,
+}: TicketsSectionProps): React.JSX.Element => (
+  <Box marginTop={spacing.section} flexDirection="column">
+    <Text bold>{glyphs.badge} Tickets</Text>
+    {sprint.tickets.length === 0 ? (
+      <Box marginTop={1}>
+        <EmptyState
+          title="No tickets yet"
+          hint={
+            ticketsEditable ? 'Press a to add the first one.' : 'Sprint is no longer in draft — tickets are frozen.'
+          }
+        />
+      </Box>
+    ) : (
+      <Box flexDirection="column" marginTop={1}>
+        {sprint.tickets.map((ticket, idx) => {
+          const focused = focusList[cursorIdx]?.kind === 'ticket' && focusList[cursorIdx]?.ticket.id === ticket.id;
+          const taskCount = tasks.filter((t) => t.ticketId === ticket.id).length;
+          return <TicketCard key={ticket.id} ticket={ticket} taskCount={taskCount} focused={focused} index={idx} />;
+        })}
+      </Box>
+    )}
+    <Box paddingX={spacing.indent} marginTop={spacing.section}>
+      <Text dimColor>
+        {ticketsEditable
+          ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o open ${glyphs.bullet} d remove`
+          : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o open`}
+      </Text>
+    </Box>
+    {feedback !== undefined && (
+      <Box paddingX={spacing.indent} marginTop={1}>
+        <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+      </Box>
+    )}
+  </Box>
+);
+
+const TicketCard = ({
+  ticket,
+  taskCount,
+  focused,
+  index,
+}: {
+  readonly ticket: Ticket;
+  readonly taskCount: number;
+  readonly focused: boolean;
+  readonly index: number;
+}): React.JSX.Element => (
+  <Box marginBottom={1}>
+    <Card
+      tone={focused ? 'info' : 'rule'}
+      right={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
+    >
+      <Box flexDirection="column" paddingX={spacing.indent}>
+        <Box>
+          <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
+            {focused ? `${glyphs.actionCursor} ` : `  `}#{String(index + 1)}
+          </Text>
+          <Text bold> {ticket.title}</Text>
+        </Box>
+        <Box>
+          <Text dimColor>
+            {glyphs.bullet} {String(taskCount)} task{taskCount === 1 ? '' : 's'}
+          </Text>
+          {ticket.link !== undefined && (
+            <Text dimColor>
+              {' '}
+              {glyphs.bullet} {String(ticket.link)}
+            </Text>
+          )}
+          {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
+        </Box>
+        {ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
+      </Box>
+    </Card>
+  </Box>
+);
+
+// ─── Tasks section ────────────────────────────────────────────────────────────────────────────
+
+interface TasksSectionProps {
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+  readonly focusList: readonly FocusItem[];
+  readonly cursorIdx: number;
+  readonly project: Project | undefined;
+  /** Position in `focusList` of the first task entry (== ticket count). */
+  readonly offset: number;
+}
+
+const TasksSection = ({
+  sprint,
+  tasks,
+  focusList,
+  cursorIdx,
+  project,
+  offset,
+}: TasksSectionProps): React.JSX.Element => (
+  <Box marginTop={spacing.section} flexDirection="column">
+    <Text bold>{glyphs.badge} Tasks</Text>
+    {tasks.length === 0 ? (
+      <Box marginTop={1}>
+        <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
+      </Box>
+    ) : (
+      <Box flexDirection="column" marginTop={1}>
+        {tasks.map((task, idx) => {
+          const focusItem = focusList[cursorIdx];
+          const focused = focusItem?.kind === 'task' && focusItem.task.id === task.id;
+          const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
+          const repoName = repositoryName(project, task.repositoryId);
+          return (
+            <TaskCard
+              key={task.id}
+              task={task}
+              ticketTitle={ticket?.title}
+              repoName={repoName}
+              focused={focused}
+              index={offset + idx + 1}
+            />
+          );
+        })}
+      </Box>
+    )}
+  </Box>
+);
+
+const TaskCard = ({
+  task,
+  ticketTitle,
+  repoName,
+  focused,
+  index,
+}: {
+  readonly task: Task;
+  readonly ticketTitle: string | undefined;
+  readonly repoName: string | undefined;
+  readonly focused: boolean;
+  readonly index: number;
+}): React.JSX.Element => {
+  const lastAttempt: Attempt | undefined = task.attempts[task.attempts.length - 1];
+  const lastAttemptElapsed = lastAttempt !== undefined ? attemptElapsedMs(lastAttempt) : undefined;
+  return (
+    <Box marginBottom={1}>
+      <Card
+        tone={focused ? 'info' : 'rule'}
+        right={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
+      >
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Box>
+            <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
+              {focused ? `${glyphs.actionCursor} ` : `  `}#{String(index)}
+            </Text>
+            <Text bold> {task.name}</Text>
+          </Box>
+          <Box flexWrap="wrap">
+            {ticketTitle !== undefined && (
+              <Text dimColor>
+                {glyphs.bullet} ticket: <Text bold>{ticketTitle}</Text>
+              </Text>
+            )}
+            {task.dependsOn.length > 0 && (
+              <Text dimColor>
+                {' '}
+                {glyphs.bullet} {String(task.dependsOn.length)} dep{task.dependsOn.length === 1 ? '' : 's'}
+              </Text>
+            )}
+            {repoName !== undefined && (
+              <Text dimColor>
+                {' '}
+                {glyphs.bullet} repo: <Text>{repoName}</Text>
+              </Text>
+            )}
+            <Text dimColor>
+              {' '}
+              {glyphs.bullet} attempts: {String(task.attempts.length)}
+              {task.maxAttempts !== undefined ? `/${String(task.maxAttempts)}` : ''}
+            </Text>
+            {lastAttemptElapsed !== undefined && (
+              <Text dimColor>
+                {' '}
+                {glyphs.bullet} last: {fmtDuration(lastAttemptElapsed)}
+              </Text>
+            )}
+          </Box>
+          {task.description !== undefined && <Description text={task.description} maxLines={2} />}
+          {task.status === 'blocked' && (
+            <Box paddingLeft={2}>
+              <Text color={inkColors.error}>
+                {glyphs.cross} blocked: {task.blockedReason}
+              </Text>
+            </Box>
+          )}
+        </Box>
+      </Card>
+    </Box>
+  );
+};
+
+const repositoryName = (project: Project | undefined, id: RepositoryId): string | undefined => {
+  if (project === undefined) return undefined;
+  const repo = project.repositories.find((r) => r.id === id);
+  return repo?.name;
+};
+
+const attemptElapsedMs = (attempt: Attempt): number | undefined => {
+  if (attempt.status === 'running' || attempt.finishedAt === null) return undefined;
+  const finished = Date.parse(attempt.finishedAt);
+  const started = Date.parse(attempt.startedAt);
+  return Number.isFinite(finished) && Number.isFinite(started) ? finished - started : undefined;
+};
+
+// ─── Detail views ─────────────────────────────────────────────────────────────────────────────
+
+const TicketDetail = ({
+  ticket,
+  tasks,
+}: {
+  readonly ticket: Ticket;
+  readonly tasks: readonly Task[];
+}): React.JSX.Element => {
+  const referencedTasks = tasks.filter((t) => t.ticketId === ticket.id);
+  return (
+    <Card
+      title={`Ticket — ${ticket.title}`}
+      tone="info"
+      right={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
+    >
+      <Box flexDirection="column" paddingX={spacing.indent}>
+        <FieldList
+          fields={[
+            { label: 'Title', value: ticket.title },
+            { label: 'Status', value: ticket.status },
+            ...(ticket.link !== undefined ? [{ label: 'Link', value: String(ticket.link) }] : []),
+            { label: 'Tasks', value: String(referencedTasks.length) },
+          ]}
+        />
+        {ticket.description !== undefined && (
+          <Section heading="Description">
+            <Description text={ticket.description} maxLines={Number.POSITIVE_INFINITY} />
+          </Section>
+        )}
+        {ticket.status === 'approved' && (
+          <Section heading="Requirements">
+            <Description text={ticket.requirements} maxLines={Number.POSITIVE_INFINITY} />
+          </Section>
+        )}
+        {referencedTasks.length > 0 && (
+          <Section heading="Referenced tasks">
+            <Box flexDirection="column" paddingLeft={2}>
+              {referencedTasks.map((t) => (
+                <Box key={t.id}>
+                  <StatusChip label={t.status} kind={taskStatusKind(t.status)} />
+                  <Text bold> {t.name}</Text>
+                </Box>
+              ))}
+            </Box>
+          </Section>
+        )}
+      </Box>
+    </Card>
+  );
+};
+
+const TaskDetail = ({
+  task,
+  sprint,
+  tasks,
+  project,
+}: {
+  readonly task: Task;
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+  readonly project: Project | undefined;
+}): React.JSX.Element => {
+  const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
+  const dependsOnTasks = task.dependsOn
+    .map((id): Task | undefined => tasks.find((t) => t.id === id))
+    .filter((t): t is Task => t !== undefined);
+  const repoName = repositoryName(project, task.repositoryId);
+  return (
+    <Card
+      title={`Task — ${task.name}`}
+      tone="info"
+      right={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
+    >
+      <Box flexDirection="column" paddingX={spacing.indent}>
+        <FieldList
+          fields={[
+            { label: 'Name', value: task.name },
+            { label: 'Status', value: task.status },
+            { label: 'Order', value: String(task.order) },
+            {
+              label: 'Repository',
+              value: repoName !== undefined ? `${repoName}  (${String(task.repositoryId)})` : String(task.repositoryId),
+            },
+            {
+              label: 'Ticket',
+              value: ticket !== undefined ? `${ticket.title}  [${ticket.status}]` : String(task.ticketId),
+            },
+            {
+              label: 'Attempts',
+              value: `${String(task.attempts.length)}${task.maxAttempts !== undefined ? `/${String(task.maxAttempts)}` : ''}`,
+            },
+            ...(task.status === 'done' ? [{ label: 'Final attempt', value: `#${String(task.finalAttemptN)}` }] : []),
+            ...(task.extraDimensions !== undefined && task.extraDimensions.length > 0
+              ? [{ label: 'Extra dims', value: task.extraDimensions.join(', ') }]
+              : []),
+          ]}
+        />
+        {task.status === 'blocked' && (
+          <Box marginTop={1}>
+            <Text color={inkColors.error}>
+              {glyphs.cross} blocked: {task.blockedReason}
+            </Text>
+          </Box>
+        )}
+        {task.description !== undefined && (
+          <Section heading="Description">
+            <Description text={task.description} maxLines={Number.POSITIVE_INFINITY} />
+          </Section>
+        )}
+        {task.steps.length > 0 && (
+          <Section heading="Steps">
+            <Box flexDirection="column" paddingLeft={2}>
+              {task.steps.map((s, i) => (
+                <Text key={`step-${String(i)}`} dimColor>
+                  {String(i + 1)}. {s}
+                </Text>
+              ))}
+            </Box>
+          </Section>
+        )}
+        {task.verificationCriteria.length > 0 && (
+          <Section heading="Verification">
+            <Box flexDirection="column" paddingLeft={2}>
+              {task.verificationCriteria.map((c, i) => (
+                <Text key={`vc-${String(i)}`} dimColor>
+                  {glyphs.bullet} {c}
+                </Text>
+              ))}
+            </Box>
+          </Section>
+        )}
+        {dependsOnTasks.length > 0 && (
+          <Section heading="Depends on">
+            <Box flexDirection="column" paddingLeft={2}>
+              {dependsOnTasks.map((d) => (
+                <Box key={d.id}>
+                  <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
+                  <Text bold> {d.name}</Text>
+                </Box>
+              ))}
+            </Box>
+          </Section>
+        )}
+        {task.attempts.length > 0 && (
+          <Section heading="Attempt history">
+            <Box flexDirection="column" paddingLeft={2}>
+              {task.attempts.map((attempt) => (
+                <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
+              ))}
+            </Box>
+          </Section>
+        )}
+      </Box>
+    </Card>
+  );
+};
+
+const AttemptCard = ({ attempt }: { readonly attempt: Attempt }): React.JSX.Element => {
+  const elapsedMs = attemptElapsedMs(attempt);
+  return (
+    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+      <Box>
+        <Text bold>#{String(attempt.n)}</Text>
+        <Text> </Text>
+        <StatusChip label={attempt.status} kind={attemptStatusKind(attempt.status)} />
+        <Text dimColor>
+          {' '}
+          {glyphs.bullet} started {fmtIsoAbsolute(attempt.startedAt)}
+        </Text>
+        {attempt.finishedAt !== null && (
+          <Text dimColor>
+            {' '}
+            {glyphs.bullet} finished {fmtIsoAbsolute(attempt.finishedAt)}
+          </Text>
+        )}
+        {elapsedMs !== undefined && (
+          <Text dimColor>
+            {' '}
+            {glyphs.bullet} elapsed {fmtDuration(elapsedMs)}
+          </Text>
+        )}
+      </Box>
+      <Box paddingLeft={2} flexDirection="column">
+        {attempt.sessionId !== undefined && (
+          <Text dimColor>
+            session: <Text>{attempt.sessionId}</Text>
+          </Text>
+        )}
+        {attempt.commitSha !== undefined && (
+          <Text dimColor>
+            commit: <Text>{String(attempt.commitSha)}</Text>
+          </Text>
+        )}
+        {attempt.evaluation !== undefined && (
+          <Text dimColor>
+            evaluation: <Text color={evaluationColor(attempt.evaluation.status)}>{attempt.evaluation.status}</Text>{' '}
+            <Text dimColor>({attempt.evaluation.file})</Text>
+          </Text>
+        )}
+        {attempt.warning !== undefined && (
+          <Text color={inkColors.warning}>
+            {glyphs.warningGlyph} {attempt.warning.kind}
+            {renderWarningDetail(attempt.warning)}
+          </Text>
+        )}
+        {attempt.critique !== undefined && (
+          <Box paddingLeft={1}>
+            <Text dimColor italic>
+              critique: {firstLine(attempt.critique)}
+            </Text>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+};
+
+const attemptStatusKind = (status: Attempt['status']): StatusKind => {
+  switch (status) {
+    case 'running':
+      return 'info';
+    case 'verified':
+      return 'success';
+    case 'failed':
+      return 'error';
+    case 'malformed':
+      return 'error';
+    case 'aborted':
+      return 'warning';
+  }
+};
+
+const evaluationColor = (status: 'passed' | 'failed' | 'malformed'): string => {
+  switch (status) {
+    case 'passed':
+      return inkColors.success;
+    case 'failed':
+      return inkColors.error;
+    case 'malformed':
+      return inkColors.warning;
+  }
+};
+
+/**
+ * Human-readable detail tail for an attempt warning. The base label (`budget-exhausted`,
+ * `plateau`, …) is rendered by the caller; this returns the suffix (` · 5/5 turns`, etc.).
+ */
+const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
+  switch (w.kind) {
+    case 'budget-exhausted':
+      return `  ${glyphs.bullet} ${String(w.turnsUsed)}/${String(w.turnBudget)} turns`;
+    case 'plateau':
+      return w.dimensions.length > 0 ? `  ${glyphs.bullet} ${w.dimensions.join(', ')}` : '';
+    case 'malformed':
+      return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
+    case 'verify-failed':
+      return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` · ${firstLine(w.stderr)}` : ''}`;
+  }
+};
+
+const firstLine = (s: string): string => {
+  const line = s.split('\n').find((l) => l.trim().length > 0) ?? '';
+  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+};
+
+// ─── Shared bits ──────────────────────────────────────────────────────────────────────────────
+
+const DESCRIPTION_MAX_LINES = 3;
+
+const Section = ({
+  heading,
+  children,
+}: {
+  readonly heading: string;
+  readonly children: React.ReactNode;
+}): React.JSX.Element => (
+  <Box flexDirection="column" marginTop={1}>
+    <Text bold dimColor>
+      {glyphs.bullet} {heading}
+    </Text>
+    <Box marginTop={0}>{children}</Box>
+  </Box>
+);
+
+/**
+ * Description block — markdown-light: strips `**bold**` markers and bullet prefixes so the
+ * source string renders cleanly inside a TUI. Caps visible lines unless the caller passes
+ * `Number.POSITIVE_INFINITY` (detail view wants the whole text).
+ */
+const Description = ({
+  text,
+  maxLines = DESCRIPTION_MAX_LINES,
+}: {
+  readonly text: string;
+  readonly maxLines?: number;
+}): React.JSX.Element | null => {
+  const lines = text
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/^\s*[-*]\s+/, '')
+        .trimEnd()
+    )
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return null;
+  const shown = Number.isFinite(maxLines) ? lines.slice(0, maxLines) : lines;
+  const hidden = lines.length - shown.length;
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      {shown.map((line, idx) => (
+        <Text key={`${String(idx)}:${line.slice(0, 16)}`} dimColor>
+          {line}
+        </Text>
+      ))}
+      {hidden > 0 && (
+        <Text dimColor>
+          {glyphs.bullet} +{String(hidden)} more line{hidden === 1 ? '' : 's'}
+        </Text>
+      )}
+    </Box>
+  );
+};
