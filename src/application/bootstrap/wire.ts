@@ -164,7 +164,7 @@ export interface AppDeps {
 /**
  * Injection points for `wire()`. Production paths come from `resolveStoragePaths()`; tests
  * build their own from a tmp directory via `storagePathsFromRoot(tmpDir)` so no test ever
- * touches the real `~/.ralphctl-v2/` tree.
+ * touches the real `~/.ralphctl/` tree.
  *
  * Future injection points (AI session, signal sink, clock, logger) land here as they're
  * introduced — the test seam stays the same shape.

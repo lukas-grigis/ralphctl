@@ -7,9 +7,9 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * On-disk layout of the ralphctl-v2 home directory:
+ * On-disk layout of the ralphctl home directory:
  *
- *   <home>/.ralphctl-v2/
+ *   <home>/.ralphctl/
  *     data/                 ← root passed to persistence repositories
  *       projects/<id>.json
  *       sprints/<id>/{sprint,execution,tasks}.json
@@ -22,10 +22,10 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
  * threaded into the harness chains for lock acquisition.
  *
  * Home override: `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire
- * `<home>/.ralphctl-v2` prefix. Useful for integration tests that spawn real subprocesses.
+ * `<home>/.ralphctl` prefix. Useful for integration tests that spawn real subprocesses.
  */
 
-export const APP_ROOT_DIR = '.ralphctl-v2';
+export const APP_ROOT_DIR = '.ralphctl';
 export const DATA_SUBDIR = 'data';
 export const CONFIG_SUBDIR = 'config';
 export const STATE_SUBDIR = 'state';
@@ -33,7 +33,7 @@ export const LOCKS_SUBDIR = 'locks';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
 
 export interface StoragePaths {
-  /** `<home>/.ralphctl-v2` (or `$RALPHCTL_HOME`) — top-level app directory. */
+  /** `<home>/.ralphctl` (or `$RALPHCTL_HOME`) — top-level app directory. */
   readonly appRoot: AbsolutePath;
   /** `<appRoot>/data` — root for persistence repositories (projects + sprints). */
   readonly dataRoot: AbsolutePath;
@@ -53,7 +53,7 @@ export interface ResolveStoragePathsDeps {
   readonly homedir?: () => string;
   /**
    * Override `process.env` lookup for tests. Defaults to `process.env`. Set
-   * `RALPHCTL_HOME` to bypass the `homedir` + `.ralphctl-v2` join.
+   * `RALPHCTL_HOME` to bypass the `homedir` + `.ralphctl` join.
    */
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -61,7 +61,7 @@ export interface ResolveStoragePathsDeps {
 /**
  * Compute the canonical storage paths for the current user. Pure — does not touch the
  * filesystem. If `RALPHCTL_HOME` is set to an absolute path it overrides the default
- * `<home>/.ralphctl-v2` location; otherwise the standard layout under `homedir()` applies.
+ * `<home>/.ralphctl` location; otherwise the standard layout under `homedir()` applies.
  * Combine with `ensureStorageRoots` to materialise the directory tree.
  */
 export const resolveStoragePaths = (deps: ResolveStoragePathsDeps = {}): Result<StoragePaths, ValidationError> => {

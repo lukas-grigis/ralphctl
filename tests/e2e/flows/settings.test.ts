@@ -18,7 +18,7 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
   let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-settings-uc-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-settings-uc-'));
     const resolved = await realpath(raw);
     const parsed = AbsolutePath.parse(resolved);
     if (!parsed.ok) throw new Error('tmp dir not absolute');

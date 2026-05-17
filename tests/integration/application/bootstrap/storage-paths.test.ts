@@ -15,15 +15,15 @@ import {
 } from '@src/application/bootstrap/storage-paths.ts';
 
 describe('resolveStoragePaths', () => {
-  it('resolves <home>/.ralphctl-v2 with data, config, state, and locks subdirs', () => {
+  it('resolves <home>/.ralphctl with data, config, state, and locks subdirs', () => {
     const result = resolveStoragePaths({ homedir: () => '/home/alice', env: {} });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(String(result.value.appRoot)).toBe('/home/alice/.ralphctl-v2');
-    expect(String(result.value.dataRoot)).toBe('/home/alice/.ralphctl-v2/data');
-    expect(String(result.value.configRoot)).toBe('/home/alice/.ralphctl-v2/config');
-    expect(String(result.value.stateRoot)).toBe('/home/alice/.ralphctl-v2/state');
-    expect(String(result.value.locksRoot)).toBe('/home/alice/.ralphctl-v2/state/locks');
+    expect(String(result.value.appRoot)).toBe('/home/alice/.ralphctl');
+    expect(String(result.value.dataRoot)).toBe('/home/alice/.ralphctl/data');
+    expect(String(result.value.configRoot)).toBe('/home/alice/.ralphctl/config');
+    expect(String(result.value.stateRoot)).toBe('/home/alice/.ralphctl/state');
+    expect(String(result.value.locksRoot)).toBe('/home/alice/.ralphctl/state/locks');
   });
 
   it('uses os.homedir() by default', () => {
@@ -61,7 +61,7 @@ describe('resolveStoragePaths', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(String(result.value.appRoot)).toBe('/home/alice/.ralphctl-v2');
+    expect(String(result.value.appRoot)).toBe('/home/alice/.ralphctl');
   });
 
   it('returns ValidationError when RALPHCTL_HOME is set to a relative path', () => {
@@ -77,7 +77,7 @@ describe('ensureStorageRoots', () => {
   let fakeHome: string;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-bootstrap-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-bootstrap-'));
     fakeHome = await realpath(raw);
   });
 
@@ -93,13 +93,13 @@ describe('ensureStorageRoots', () => {
     expect(result.ok).toBe(true);
 
     const expected = [
-      `${fakeHome}/.ralphctl-v2`,
-      `${fakeHome}/.ralphctl-v2/data`,
-      `${fakeHome}/.ralphctl-v2/config`,
-      `${fakeHome}/.ralphctl-v2/state`,
-      `${fakeHome}/.ralphctl-v2/state/locks`,
-      `${fakeHome}/.ralphctl-v2/data/projects`,
-      `${fakeHome}/.ralphctl-v2/data/sprints`,
+      `${fakeHome}/.ralphctl`,
+      `${fakeHome}/.ralphctl/data`,
+      `${fakeHome}/.ralphctl/config`,
+      `${fakeHome}/.ralphctl/state`,
+      `${fakeHome}/.ralphctl/state/locks`,
+      `${fakeHome}/.ralphctl/data/projects`,
+      `${fakeHome}/.ralphctl/data/sprints`,
     ];
     for (const dir of expected) {
       const stat = await fs.stat(dir);

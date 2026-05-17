@@ -34,7 +34,7 @@ describe('wire', () => {
   let tmpHome: string;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-wire-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-wire-'));
     tmpHome = await realpath(raw);
   });
 
@@ -43,7 +43,7 @@ describe('wire', () => {
   });
 
   it('returns repos that read and write under the injected storage root, never the real home', async () => {
-    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-v2-test`);
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
     if (!appRoot.ok) throw new Error('appRoot parse failed');
     const paths = storagePathsFromRoot(appRoot.value);
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');
@@ -74,7 +74,7 @@ describe('wire', () => {
   });
 
   it('produces independent dependency graphs for each call (no shared state)', async () => {
-    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-v2-test`);
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
     if (!appRoot.ok) throw new Error('appRoot parse failed');
     const paths = storagePathsFromRoot(appRoot.value);
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');
@@ -88,7 +88,7 @@ describe('wire', () => {
   });
 
   it('exposes a real provider built from config; refine runs end-to-end with a fake spawn', async () => {
-    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-v2-test`);
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
     if (!appRoot.ok) throw new Error('appRoot parse failed');
     const paths = storagePathsFromRoot(appRoot.value);
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');

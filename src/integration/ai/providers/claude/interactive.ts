@@ -82,7 +82,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
       // `additionalRoots` follow so multi-repo projects can navigate every repo (plan / refine).
       // We ALSO auto-mount `dirname(outputFile)` and `dirname(promptFile)` so the AI's writes
       // to the harness-controlled output path (e.g. requirements.md / plan.json sitting in
-      // `~/.ralphctl-v2/data/sprints/…/`) don't trigger a "Create file?" prompt mid-session.
+      // `~/.ralphctl/data/sprints/…/`) don't trigger a "Create file?" prompt mid-session.
       // The end user shouldn't see framework plumbing; the harness already controls these
       // paths, so silently allowing edits inside them is the right default. Duplicates are
       // folded out.

@@ -43,7 +43,7 @@ describe('buildPrompt — happy path', () => {
   let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-build-prompt-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-build-prompt-'));
     const resolved = await realpath(raw);
     const parsed = AbsolutePath.parse(resolved);
     if (!parsed.ok) throw new Error('tmp dir not absolute');
@@ -101,7 +101,7 @@ describe('buildPrompt — error paths', () => {
   let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-build-prompt-err-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-build-prompt-err-'));
     const resolved = await realpath(raw);
     const parsed = AbsolutePath.parse(resolved);
     if (!parsed.ok) throw new Error('tmp dir not absolute');

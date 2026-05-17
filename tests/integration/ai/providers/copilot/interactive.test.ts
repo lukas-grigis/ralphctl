@@ -106,15 +106,15 @@ describe('createInteractiveCopilotProvider', () => {
 
     const runPromise = provider.run({
       cwd: CWD,
-      promptFile: absolutePath('/Users/x/.ralphctl-v2/data/sprints/abc/refinement/foo/prompt.md'),
-      outputFile: absolutePath('/Users/x/.ralphctl-v2/data/sprints/abc/refinement/foo/requirements.md'),
+      promptFile: absolutePath('/Users/x/.ralphctl/data/sprints/abc/refinement/foo/prompt.md'),
+      outputFile: absolutePath('/Users/x/.ralphctl/data/sprints/abc/refinement/foo/requirements.md'),
       model: COPILOT_MODELS[0]!,
     });
     emitExit(0);
     await runPromise;
 
     const args = calls[0]!.args;
-    const sharedDirFlag = '--add-dir=/Users/x/.ralphctl-v2/data/sprints/abc/refinement/foo';
+    const sharedDirFlag = '--add-dir=/Users/x/.ralphctl/data/sprints/abc/refinement/foo';
     // Both prompt and output share a dir → emitted once (deduped).
     const occurrences = args.filter((a) => a === sharedDirFlag).length;
     expect(occurrences).toBe(1);

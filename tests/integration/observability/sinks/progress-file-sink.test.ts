@@ -23,7 +23,7 @@ describe('createProgressFileSink', () => {
   let root: string;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-progress-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-progress-'));
     root = await realpath(raw);
   });
 

@@ -1,463 +1,264 @@
-# RalphCTL - Agent Harness for AI Coding Tasks
+# RalphCTL — Agent Harness for AI Coding Tasks
 
-Version 0.6.0 — read from `package.json` at build time via the JSON import attribute in
-`src/application/cli/entrypoint.ts`.
+Node.js 24 + TypeScript + Ink TUI. Three AI provider backends (Claude Code / GitHub Copilot / OpenAI Codex).
+The TUI is the primary surface; the CLI exposes inspection + one-shot operations only.
 
-@.claude/docs/ARCHITECTURE.md - Layout, data models, file storage, error/exit tables
-@.claude/docs/KERNEL-DESIGN.md - Chain framework reference (Element / Leaf / Sequential / Retry / OnError)
+Version is read from `package.json` via JSON import attribute in `src/business/version/cli-metadata.ts`.
+Both `commander.version()` and the npm-update poll consume the same constant — bin and registry cannot drift.
 
-Reference docs (read on demand, not auto-imported):
+**Read on demand** (not auto-imported — open with the `Read` tool when relevant):
 
-- `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist + UI contract (load when ticking off requirements or running a release audit)
-- `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules (designer agent loads automatically)
+- `.claude/docs/ARCHITECTURE.md` — module layout, ports, repository interfaces, data models, error tables
+- `.claude/docs/KERNEL-DESIGN.md` — chain framework reference (`element` / `leaf` / `sequential` / `loop` / `guard`)
+- `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
+- `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
+- `.claude/docs/diagrams/` — Mermaid diagrams: module layout, chain framework, flow lifecycle, sprint / task state machines
 
-## Quick Start
+## Build & Run
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Run CLI in dev mode
-pnpm dev --help
-pnpm dev sprint create
-
-# Or run installed CLI (works from any directory)
-./bin/ralphctl
-
-# Run without args for the Ink-based terminal app (recommended)
-pnpm dev
+pnpm dev <command>     # tsx, no build needed
+pnpm dev               # bare → Ink TUI (primary surface)
+pnpm build             # tsup + tsx scripts/build-assets.ts → dist/cli.mjs + dist/{prompts,skills,manifest.json}
+pnpm typecheck         # tsc --noEmit
+pnpm lint              # ESLint
+pnpm test              # vitest
+pnpm format:check      # prettier
+pnpm deadcode          # knip (clean tree exits 0)
+pnpm gen:flow <name>   # scaffold a new flow (manifest + stub + tests)
 ```
 
-Before committing any code change, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
-
-## Requirements
-
-- **Node.js 24+** (managed via `mise.toml`)
-- **pnpm 10+**
-- **Claude CLI** or **GitHub Copilot CLI** installed and configured (see Provider Configuration below)
-
-## Architecture Constraints
-
-- **Five-module Clean Architecture (`src/`)** — `kernel < domain < business < integration < application`. Both
-  `kernel/` and `domain/` are pure leaves with zero IO; `business/` may import from either. Inner layers never import
-  from outer layers. ESLint `no-restricted-imports` enforces every direction (see `eslint.config.js`).
-- **Repositories are domain interfaces** — `ProjectRepository`, `SprintRepository`, `TaskRepository` live in
-  `src/domain/repositories/`. Service ports (AiSession, External, Logger, Prompt, SignalBus, etc.) live in
-  `src/business/ports/`. Concrete adapters live in `src/integration/`.
-- **Chains are the orchestration layer** — every user-triggered workflow (refine, plan, ideate, execute, evaluate,
-  feedback) is a `kernel/chain` `Element` composed in `src/application/chains/<name>/`. The framework primitives
-  are `Element`, `Leaf` (the only seam to use cases), `Sequential`, `Retry`, `OnError`. There are NO conditional /
-  parallel / pipeline / step-builder helpers — branching belongs inside a use case or in a sub-chain selected by
-  the caller. See `KERNEL-DESIGN.md` for the full contract.
-- **Multi-chain runtime** — `SessionManager` (`src/application/runtime/session-manager.ts`) owns N concurrent
-  `ChainRunner` instances. Users start, foreground, background, and kill sessions like tmux windows: Tab cycles,
-  `Ctrl+1..9` jumps directly, `q` doesn't kill background runners. CLI parity: `ralphctl sessions list / attach / detach
-/ kill`. Every workflow launch goes through `SessionManager.start({ element, initialCtx, label })` — never call
-  `chain.execute()` directly.
-- **Composition root** — `createSharedDeps(overrides?)` (`src/application/bootstrap/shared-deps.ts`) constructs
-  every concrete adapter; `getSharedDeps()` / `setSharedDeps(deps)` (`bootstrap/get-shared-deps.ts`) are the singleton
-  accessor + swap hook used by the Ink mount path. `getPrompt()` is the convenience accessor for the prompt port.
-- **Result types** — every business operation returns `Result<T, DomainError>`. Import `Result` and `AsyncResult` from
-  `src/domain/result.ts` (the canonical re-export point) — never reach into `typescript-result` directly.
-- **`sprint activate` is the explicit draft → active transition** — `sprint start` auto-activates draft sprints, so most users never need it. Use `sprint activate --id <id>` only when you want to flip status without immediately starting execution (e.g. so other commands that require `active` can run).
-- **`affectedRepositories` stores absolute paths** (not names) — set during `sprint plan`, persisted on `Sprint.affectedRepositories` (not per-ticket)
-- **Refinement is per-ticket** — template uses `{{TICKET}}` (singular), one AI session per ticket; project name comes from the sprint, not from the ticket
-- **Planning is per-sprint** — every sprint targets exactly one project (`Sprint.projectName`); repo selection runs inside the plan chain's `persist-repo-selection` leaf and is saved on `sprint.affectedRepositories`
-- **`currentSprint`** (config.json pointer) is NOT the same as sprint status (lifecycle state)
-- **`aiProvider`** is a global config setting, not per-sprint — stored in config.json
-- **Check scripts come ONLY from explicit repo config** — set during `project add` or `project repo add`. Heuristic
-  detection in `src/integration/external/` is used only as editable suggestions during project setup, never as
-  a runtime fallback.
-- **`RALPHCTL_SETUP_TIMEOUT_MS`** — env var to override the 5-minute default timeout for setup AND check scripts (they
-  share the runner)
-- **`setupScript` ≠ `checkScript`** — two distinct lifecycle hooks on every `Repository`. `setupScript` is the
-  one-shot "prepare the env" command (e.g. `pnpm install`); it runs once per affected repo at sprint start, in the
-  `setup-scripts-sprint-start` chain leaf, and any setup failure (non-zero exit OR spawn-level error — missing binary,
-  EPERM, ENOENT) hard-aborts the chain naming the failing repo before any task runs. The leaf skips repos already
-  stamped on `Sprint.setupRanAt` so resumes are fast. `checkScript` is the per-task verification gate; it runs after
-  every AI task and inside the feedback loop. Both are collected during `project onboard` and persisted on the
-  `Repository` entity. Don't conflate them — a passing setup does not imply the codebase compiles, and a passing
-  check does not imply the env was prepared.
-- **Post-task gate** — the per-task chain runs the configured `checkScript` after every AI task; the task is not marked
-  done if the gate fails (see `business/usecases/execute/post-task-check.ts`). The script is auto-sourced from each
-  repo's `Repository.checkScript` by the `resolve-check-scripts` chain leaf (run at sprint start); `sprint start
---check-script <cmd>` overrides this for every task when set.
-- **Branch management** — `sprint start` prompts for branch strategy on first run; `sprint.branch` persists the
-  choice; branches created in all repos with tasks; pre-flight verifies correct branch before each task; `--branch`
-  auto-generates `ralphctl/<sprint-id>`; `--branch-name <name>` for custom names; `sprint close --create-pr` creates PRs
-- **Evaluator pattern** — independent code review after each task (see REQUIREMENTS.md § Evaluator Pattern):
-  - `evaluationIterations` is global (config.json). `0` disables; `>= 1` enables N rounds with plateau detection.
-    Inside the per-task chain the multi-round loop runs via `EvaluateAndFixLoopUseCase`
-    (`src/business/usecases/evaluate/evaluate-and-fix-loop.ts`). The loop reader is `LiveConfigReader`
-    (`src/application/runtime/live-config-reader.ts`) — config is re-read fresh per task settlement, so
-    settings-panel edits land on the next task without restart.
-  - Claude uses a model ladder (Opus→Sonnet, Sonnet→Haiku, Haiku→Haiku); Copilot uses the same model (no control).
-  - Evaluator grades four floor dimensions (Correctness / Completeness / Safety / Consistency) plus optional
-    `extraDimensions` emitted per-task by the planner.
-  - Full critique persists per-round to `execution/<unit-slug>/rounds/<N>/evaluator/evaluation.md`; `Task.evaluationFile` points at the final round's file; `tasks.json` keeps a 2000-char preview on `Task.evaluationOutput`.
-  - Evaluator **never blocks** — evaluator spawn / parse failures are wrapped in
-    `OnError(catchIf: err => err.code !== 'aborted', fallback: noop)` in the per-task chain, so the task always
-    proceeds to `done` (or `blocked` via `markBlocked` when branch-preflight fails) and the chain continues.
-    User-initiated cancellation (`code: 'aborted'`) is the one error the catch lets through — otherwise Ctrl+C
-    during an evaluator round would silently fall through to `mark-done` and the task would be reported complete
-    despite the user trying to stop it.
-- **Ink TUI is the default interactive surface** — bare `ralphctl` / `ralphctl interactive` / `ralphctl sprint start`
-  mount the Ink app via `src/application/tui/runtime/mount.tsx`. The mount path takes over the terminal using the
-  alt-screen buffer (vim/htop-style) and restores it on exit via `src/application/tui/runtime/screen.ts`. Non-TTY
-  / CI / piped invocations fall back automatically to Commander + `PlainTextSink`.
-- **PromptPort is the only interactive-prompt abstraction** — call sites use `getPrompt()` from
-  `src/application/bootstrap/get-shared-deps.ts`. Application-side type re-export at
-  `src/application/ui/prompt-port.ts`. `InkPromptAdapter` (`src/integration/ui/prompts/`) is the single
-  implementation. When a prompt fires and the full dashboard isn't mounted, the adapter auto-mounts a minimal Ink
-  tree containing only `<PromptHost />`. Non-interactive environments throw `PromptCancelledError`.
-- **LoggerPort is the only logging abstraction** — three sinks: `PlainTextSink` (TTY one-shot CLI), `JsonLogger`
-  (non-TTY / piped / CI), `InkSink` (Ink-mounted, publishes to a log event bus consumed by the dashboard). Plus a
-  `JsonlSink` that fans every log entry to `<dataRoot>/logs/<sessionId>.jsonl` for post-hoc debugging — wired via
-  `FanOutLogger` so console + on-disk receive identical streams.
-- **SignalBusPort is the live observability stream** — `ExecuteSingleTaskUseCase` (and the per-task chain it sits in)
-  emit on every parsed signal, rate-limit pause/resume, and task lifecycle event. Dashboard subscribes to render
-  live; filesystem signal handler subscribes to persist. `InMemorySignalBus` micro-batches emissions at ~16ms.
-- **Skills lifecycle** — `link-skills` / `unlink-skills` leaves bracket every AI session phase that benefits from
-  bundled defaults. `BundledSkillsCopier.install(cwd, phase)` copies the union of `default/` and `<phase>/` from the
-  bundled root (`src/integration/ai/skills/{default,refine,plan,exec}/`) into `<cwd>/.claude/skills/`; `uninstall(cwd)`
-  removes only the entries `install` actually created. **Project skills always win:** when
-  `<cwd>/.claude/skills/<name>/` already exists, the bundled copy is skipped and the project copy is left
-  untouched — and not tracked, so `uninstall` never removes it. `refineFlow`, `planFlow`, and `executeFlow` use the
-  pair (refine: structured requirement artefacts; plan: task decomposition; execute: code editing). Ideate / onboard
-  skip the bracket — they read code or do environment detection where bundled skills add nothing. No cache dir, no
-  symlinks. Adapter lives in `src/integration/ai/skills/`. **Local-git exclude:** when `<cwd>` is a git repo root
-  (`<cwd>/.git/` is a directory), `install` writes a marker block to `.git/info/exclude` so `git add -A` from
-  downstream leaves (e.g. per-task `commit-task`) doesn't stage the bundled skills; `uninstall` strips the block
-  again. Idempotent and crash-safe — orphan blocks from a prior crashed run get cleaned up on the next uninstall.
-  Helper: `src/integration/ai/skills/skill-git-exclude.ts`.
-- **No barrel files** — every import points to the source module directly. Never add an `index.ts` that only
-  re-exports from siblings; tree-shaking and import clarity beat brevity at the call site.
-- **Repo onboarding** — `ralphctl project onboard <project> [--repo] [--dry-run] [--auto]` runs the
-  `createOnboardFlow` chain (`src/application/chains/onboard/onboard-flow.ts`). Step trace:
-  `load-project → resolve-repo → detect-existing-files → confirm-start-ai → run-onboard-ai → confirm-setup-script →
-confirm-verify-script → confirm-context-file → write-context-file → save-repo-scripts`. A single AI session emits
-  four artefacts via signals
-  (`<setup-script>`, `<verify-script>`, `<agents-md>`, `<skill-suggestions>`); the user reviews each independently.
-  Writes the provider-native project context file the active `config.aiProvider` natively reads: `CLAUDE.md` at repo
-  root for Claude, `.github/copilot-instructions.md` for Copilot. No symlinks, no pointer files. Mode auto-detected:
-  `bootstrap` (no prior file), `adopt` (file present, no harness marker — preserve prose), `update` (harness marker
-  `<!-- ralphctl onboard: <ISO> -->` present — prune + augment). Persists `setupScript` + `checkScript` +
-  `onboardedAt` (IsoTimestamp) on the `Repository` entity via `markOnboarded`.
-- **Create-PR / MR chain** — `ralphctl sprint create-pr` runs `createCreatePrFlow`
-  (`src/application/chains/create-pr/create-pr-flow.ts`). Step trace:
-  `load-sprint → assert-has-branch → derive-pr-content → create-pull-request → record-pr-url`. Detects `gh` vs `glab`
-  from the git remote. Persists `pullRequestUrl` on the `Sprint` entity. The pipeline-map's Close phase prefers
-  Create PR over Close Sprint when the sprint is active, all tasks done, has a branch, and no PR yet.
-- **Persistent banner + help modal** — `<Banner />` renders on every view via `<ViewShell />`, with the quote
-  stabilised at module load (`STABLE_QUOTE` in `src/application/tui/components/banner.tsx`) so navigation doesn't
-  jitter. `?` opens `<HelpOverlay />` as a modal — the router renders only the overlay when `isHelpOpen`, suspending
-  the view tree, prompts, hints, and status bar. Esc / `?` closes.
-- **Centralised keyboard map** — every shortcut lives in `src/application/tui/keyboard-map.ts`. The help overlay
-  generates its rows from the same table; adding a binding is a single edit. Areas: `global / home / list / detail /
-execute / attach / runs / settings / help / notification`.
-- **Prompt transcript** — resolved prompts render dim above the live prompt as a transcript so the user sees the
-  values they've already entered. History clears when the queue idles past `SEQUENCE_IDLE_MS = 250ms`
-  (`src/integration/ui/prompts/prompt-queue.ts`). Per-kind value renderers live in `prompt-transcript.tsx`.
-- **Schema-driven settings panel** — rows iterate `CONFIG_ROWS` (`src/application/config/config-schema-rows.ts`);
-  each row's prompt kind (`select` / `confirm` / `input`) is determined by value type. Edits save immediately via
-  `ConfigStorePort.save()`.
-- **Doctor view** — `<DoctorView />` runs `runDoctor()` on mount; renders per-check status rows + an aggregate
-  `ResultCard`. `!` opens it from anywhere. Checks live in `src/application/doctor/checks/`, including
-  `onboarding-status.ts` which reports per-(project, repo) onboarding state.
-- **Mark-blocked task status** — `Task.markBlocked(reason)` / `Task.unblock()` add `'blocked'` to the
-  `TaskStatus` union (todo / in_progress / done / blocked). Branch-preflight failures fall back to `markBlocked`
-  via `OnError` rather than aborting the chain.
-- **Refine, plan, and evaluate AI sessions run in sandbox unit folders** — `<sprintDir>/refinement/<unit-slug>/`
-  (per ticket), `<sprintDir>/planning/` (single per sprint), and `<sprintDir>/execution/<unit-slug>/` (per task,
-  for the evaluator) are the AI's cwd; `.claude/skills/`, the provider-native context file (`CLAUDE.md` /
-  `.github/copilot-instructions.md`), and any per-phase contract files are pre-staged there. Affected repos are
-  exposed via `--add-dir` (Claude) or mirrored under `<unit>/repos/` (Copilot). Execute itself remains in
-  `task.projectPath`; only the evaluator runs in the execution unit folder. `SessionFolderBuilderPort`
-  (`src/business/ports/session-folder-builder-port.ts`) owns the layout; `FileSessionFolderBuilderAdapter` is the
-  implementation. Unit folders are durable — never auto-deleted; `refreshExecutionUnit` overwrites only the
-  volatile per-task files between rounds.
-
-## Common Mistakes to Avoid
-
-- Don't conflate `sprint activate` with `sprint start` — `start` auto-activates and begins execution; `activate` only flips status
-- Don't confuse `currentSprint` (which sprint CLI targets) with `sprintStatus` (draft/active/closed)
-- Don't store repository names in `affectedRepositories` — store absolute paths
-- Don't explore repos during `sprint refine` — refinement is implementation-agnostic (WHAT, not HOW)
-- Don't break task `blockedBy` dependencies during planning — preserve dependency chains
-- Don't let prompt templates drift from command implementation — verify prompts describe actual workflow
-- Don't hardcode provider-specific logic outside `src/integration/ai/providers/` — use the provider abstraction
-- Don't assume both providers share the same permission model — Claude uses settings files, Copilot uses
-  `--allow-all-tools` (see Provider Differences below)
-- Don't add runtime auto-detection of check scripts — it's for `project add` suggestions only
-- Don't introduce symlinks or pointer files for provider-facing artefacts — `project onboard` writes the native file
-  based on `config.aiProvider`
-- Don't skip file locks for data mutations — `FileLocker` (`src/integration/persistence/file-locker.ts`) prevents
-  race conditions in concurrent access (30s default timeout, configurable via `RALPHCTL_LOCK_TIMEOUT_MS`)
-- Don't add `index.ts` barrel files — every import goes directly to its source module
-- Don't import `@inquirer/prompts` — use `getPrompt()` from `src/application/bootstrap/get-shared-deps.ts`
-- Don't call use cases from CLI commands or TUI views — ESLint fence blocks it. Use chain factories from
-  `src/application/chains/<workflow>/` and launch via `SessionManager.start(...)`.
-- Don't invent a `Conditional` chain element — branching belongs inside a use case or in a sub-chain the caller
-  selects. The kernel framework has five concepts only: `Element`, `Leaf`, `Sequential`, `Retry`, `OnError`.
-- Don't import from `typescript-result` directly — use `import { Result } from '<path>/domain/result.ts'`
-- Don't put repository interfaces in `business/ports/` — they live in `domain/repositories/` (one per aggregate root)
-- Don't run refine, plan, or evaluator AI sessions in a user's repo — the unit-folder builder leaves are positioned
-  in every chain that needs sandboxing. Adding a new AI-session phase? Build a unit folder via
-  `SessionFolderBuilderPort`; never reuse a real repo path as the AI's cwd.
-
-## Workflow
-
-```
-0. Check setup        → ralphctl doctor (environment health check)
-1. Add projects       → ralphctl project add
-   (optional)          ralphctl project onboard <name> (AI-assisted setup scripts + project context file)
-2. Create sprint      → ralphctl sprint create --project <name> (draft, becomes current)
-3. Add tickets        → ralphctl ticket add
-4. Refine requirements → ralphctl sprint refine (WHAT — clarify requirements)
-5. Plan tasks         → ralphctl sprint plan (HOW — explore repos, generate tasks)
-6. Start work         → ralphctl sprint start (auto-activates draft sprints)
-7. Inspect            → ralphctl sprint progress (timeline + blockers + stale + cycles + branch)
-8. Publish            → ralphctl sprint create-pr (open PR / MR from sprint branch)
-9. Close sprint       → ralphctl sprint close
-```
-
-**Optional:** Configure your preferred AI provider with `ralphctl config set provider <claude|copilot>` (prompted on
-first use if not set). Install shell tab-completion with `ralphctl completion install [--shell bash|zsh|fish]`.
-
-### Command Surface
-
-| Group      | Subcommands                                                                                       |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| top-level  | `doctor`, `interactive`, `completion install`, `completion show`                                  |
-| `config`   | `show`, `set`                                                                                     |
-| `project`  | `add`, `list`, `show`, `remove`, `repo add`, `repo remove`, `onboard`                             |
-| `sprint`   | `create`, `edit`, `set-current`, `activate`, `list`, `show`, `remove`, `close`, `refine`, `plan`, |
-|            | `ideate`, `start`, `feedback`, `create-pr`, `progress`, `requirements`, `context`                 |
-| `ticket`   | `add`, `edit`, `approve`, `remove`                                                                |
-| `task`     | `add`, `list`, `show`, `edit`, `edit-status`, `remove`                                            |
-| `sessions` | `list`, `attach`, `detach`, `kill` — multi-chain runtime registry                                 |
-
-### Provider Configuration
-
-```bash
-ralphctl config set provider claude      # Use Claude Code CLI
-ralphctl config set provider copilot     # Use GitHub Copilot CLI
-```
-
-Auto-prompts on first AI command if not set. Both CLIs must be in PATH and authenticated.
-
-### Provider Differences
-
-| Aspect              | Claude Code                                                                                      | GitHub Copilot      |
-| ------------------- | ------------------------------------------------------------------------------------------------ | ------------------- |
-| CLI flags           | `--permission-mode bypassPermissions` (headless) / `acceptEdits` (interactive), `--effort xhigh` | `--allow-all-tools` |
-| Settings files      | `.claude/settings.local.json`, `~/.claude/settings.json`                                         | None                |
-| Allow/deny patterns | `Bash(git commit:*)`, `Bash(*)`, etc.                                                            | Not applicable      |
-
-`--effort xhigh` matches Claude Code's own default for plans (Opus 4.7 introduced the `xhigh` level between `high` and
-`max`). Older Claude models accept `--effort` too; the CLI maps the level down to what the selected model supports.
-
-### Workflow Paths
-
-**Direct Tasks:** `sprint create` → `task add` (repeat) → `sprint start`
-**AI-Assisted:** `sprint create` → `ticket add` → `sprint refine` → `sprint plan` → `sprint start`
-**Quick Ideation:** `sprint create` → `sprint ideate` → `sprint start` (combines refine + plan for quick ideas)
-**Re-Plan:** (draft sprint) `ticket add` → `sprint refine` → `sprint plan` (replaces existing tasks)
-
-## Sprint State Machine
-
-Status: `draft` → `active` → `closed`
-
-| Operation           | Draft | Active | Closed |
-| ------------------- | :---: | :----: | :----: |
-| Add ticket          |   ✓   |   ✗    |   ✗    |
-| Edit/remove ticket  |   ✓   |   ✗    |   ✗    |
-| Refine requirements |   ✓   |   ✗    |   ✗    |
-| Ideate (quick)      |   ✓   |   ✗    |   ✗    |
-| Plan tasks          |   ✓   |   ✗    |   ✗    |
-| Start (execute)     |  ✓\*  |   ✓    |   ✗    |
-| Update task status  |   ✗   |   ✓    |   ✗    |
-| Close               |   ✗   |   ✓    |   ✗    |
-
-\*`sprint start` auto-activates draft sprints.
-
-## Two-Phase Planning
-
-**Phase 1: Requirements Refinement** (`sprint refine`) — WHAT needs doing
-
-- Per-ticket HITL clarification: AI asks questions, user approves requirements
-- **Implementation-agnostic** — no code exploration, no repo selection
-- Stores results as `requirementStatus: 'approved'` on each ticket
-
-**Phase 2: Task Generation** (`sprint plan`) — HOW to implement
-
-- Requires all tickets to have `requirementStatus: 'approved'`
-- Repo selection runs inside the chain (`persist-repo-selection` leaf) → saved to `sprint.affectedRepositories`
-- AI explores confirmed repos only → generates tasks split by repo with dependencies
-- Repo selection persists for resumability
-
-### Draft Re-Plan
-
-Running `sprint plan` on a draft sprint that already has tasks triggers re-plan mode:
-
-- Processes ALL tickets (not just unplanned ones)
-- Existing tasks are included as AI context so the model can reuse, modify, or drop them
-- AI generates a complete replacement task set covering all tickets
-- New tasks atomically replace all existing tasks (interruption-safe)
-- Dependency reorder runs after every import
-- Interactive mode shows confirmation prompt before replacing
-
-## Development
-
-```bash
-pnpm dev <command>     # Run CLI (tsx, no build needed)
-pnpm build             # Compile for npm distribution (tsup)
-pnpm typecheck         # Type check
-pnpm lint              # Lint
-pnpm test              # Run tests
-```
-
-### Git Hooks
-
-Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files). If commits are rejected, run:
-
-```bash
-pnpm lint:fix    # Auto-fix linting issues
-pnpm format      # Format all files
-```
-
-## Prompt Template Engineering
-
-**Conditional sections** — `{{VARIABLE}}` placeholders in prompts can be empty strings; avoid numbered lists that
-create gaps (use blockquotes or bullets)
-**Em-dash usage** — Use `—` (em-dash) not `-` (hyphen) for explanatory clauses in `.md` prompts (consistency across all
-prompt files)
-**Workflow sync** — Prompt templates must match actual command flow (e.g., repo selection happens in command before
-the AI session starts)
-**Template builders** — `src/integration/ai/prompts/template-loader.ts` loads `.md` templates;
-`placeholder-substitution.ts` performs the substitution; `prompt-builder-adapter.ts` is the `PromptBuilderPort` impl
-**No hardcoded package-manager commands** — prompts must not embed `pnpm`/`npm`/`pip`/`cargo`/`go test` outside the
-`{{PROJECT_TOOLING}}` or `{{CHECK_GATE_EXAMPLE}}` placeholders. Downstream ecosystems differ; the placeholders are the
-seam.
-**Conditional placeholders must not sit inside numbered lists** — when the substitution is empty the list must still
-read cleanly. Emit conditional content as a standalone bullet or paragraph.
-**Downstream `.claude/` is optional context** — many downstream repos have no `.claude/` directory. Reference it as
-"when present" rather than prescriptively; skip silently when absent.
-**Absolute rules name their exception** — `never`/`always` phrasing is fragile when legitimate exceptions exist. Name
-the exception inline.
-
-## UI Patterns
-
-**Two UI surfaces — pick the right one for the command:**
-
-- **Ink TUI** (`src/application/tui/`) — live dashboard, REPL, settings panel, sessions switcher, inline editor,
-  doctor view, browse/CRUD views. Mounted by bare `ralphctl`, `ralphctl interactive`, and `ralphctl sprint start`.
-  Takes over the terminal via the alt-screen buffer (like vim/htop) and restores on exit. Uses `@inkjs/ui` components
-  - the `LoggerPort` event bus for live-updating output. The Banner is persistent across every view (stable per-process
-    quote); Home additionally renders the `<PipelineMap />` (Refine / Plan / Execute / Close 4-row spine + bright
-    "Next step" quick-action) and a tiered browse submenu (`b` from Home → Sprint / Ticket / Task / Project drill-ins).
-    Multi-chain navigation: Tab / Shift+Tab cycle sessions, `Ctrl+1..9` direct-jump. `?` opens the help modal.
-- **Plain-text CLI** — one-shot commands (`sprint show`, `config set`, `project add`, etc.) use `PlainTextSink` for
-  structured logging plus the pure formatters in `src/integration/ui/theme/ui.ts`. When a prompt fires, the
-  `InkPromptAdapter` auto-mounts a minimal `<PromptHost />` inline. Resolved prompts render dim above the active
-  prompt as a transcript and clear after a 100 ms idle.
-
-Never add raw emoji or inconsistent formatting — use theme tokens from `src/integration/ui/theme/theme.ts` and
-the formatters from `src/integration/ui/theme/ui.ts`. Ink components pull theme tokens via
-`src/integration/ui/theme/tokens.ts`.
-
-**The Ink TUI has a design system** — see [`.claude/docs/DESIGN-SYSTEM.md`](.claude/docs/DESIGN-SYSTEM.md) before
-adding a view, component, or glyph. It covers tokens, component inventory, state surfaces, navigation contract, copy
-rules, and anti-patterns. Most needs are already solved — reuse `ViewShell` + `ResultCard` + `FieldList` + `Spinner`
-before inventing.
-
-## Task Execution Signals
-
-See `ARCHITECTURE.md § Harness Signals` and `src/domain/signals/harness-signal.ts`. Adding a variant to the
-`HarnessSignal` discriminated union triggers compiler exhaustiveness errors at every consumer via
-`const _exhaustive: never = signal`. Signals flow to two subscribers in parallel: `FileSystemSignalHandler`
-(`integration/signals/file-system-handler.ts`, durable) + `SignalBusPort` (live dashboard).
-
-## Feedback Loop
-
-Optional, opt-out, runs only after all tasks complete successfully. The feedback flow is its OWN chain
-(`src/application/chains/feedback/feedback-flow.ts`), not embedded inside `executeFlow`:
-
-- Once `executeFlow` settles, the CLI/TUI checks outcomes and starts a `createFeedbackFlow` session if the user
-  provides input
-- User types free-form feedback; empty input exits the loop immediately
-- AI implements the feedback, check scripts re-run, evaluator re-runs (one round per chain run = one feedback iteration)
-- No hard iteration cap — empty submission is the natural terminator, owned by the launching CLI/TUI
-- Disable per-run with `--no-feedback`; disabled implicitly in `--session` mode
-
-## Sequential Execution
-
-`sprint start` runs tasks strictly one at a time, in dependency order. The `executeFlow` linearises `opts.tasks` via
-`topologicalReorder` (Kahn's algorithm — `blockedBy` → dependency edge) and feeds the result into a `Sequential` of
-per-task chains. Tasks already in `done` / `blocked` from a prior run are filtered out at construction time so the
-trace stays focused on runnable work; cycles or unknown deps surface as an `InvalidStateError` from
-`assert-tasks-acyclic`.
-
-- **Rate limiting:** `RateLimitCoordinator` (`src/kernel/algorithms/`) is still wired, but only for in-task
-  pause/resume. `ExecuteSingleTaskUseCase` calls `coordinator.pause(reason)` on a 429 hint and `coordinator.resume()`
-  once the cooldown elapses; `execute-task` is wrapped in `Retry(maxAttempts: 2, retryOn: code === 'rate-limited')` for
-  the in-task retry via session resume. The coordinator's pause / resume events bridge to `SignalBusPort` so the
-  dashboard's `RateLimitBanner` reflects state. With sequential execution there are no siblings to throttle, so the
-  former `wait-for-rate-limit` leaf is gone.
-- Errors with rate-limit headers (429-style responses) trigger coordinator pause automatically
-
-## Environment Variables
-
-| Variable                    | Default        | Range                         | Purpose                                                                       |
-| --------------------------- | -------------- | ----------------------------- | ----------------------------------------------------------------------------- |
-| `RALPHCTL_ROOT`             | `~/.ralphctl/` | Any valid path                | Override data directory (e.g., for testing or multi-workspace setup)          |
-| `RALPHCTL_SETUP_TIMEOUT_MS` | 300000 (5 min) | > 0                           | Timeout for check scripts; overridable per-repo via `Repository.checkTimeout` |
-| `RALPHCTL_LOCK_TIMEOUT_MS`  | 30000          | 1–3600000                     | Stale lock file threshold for concurrent access detection                     |
-| `RALPHCTL_LOG_LEVEL`        | `info`         | `debug`/`info`/`warn`/`error` | Filter structured-log output (PlainTextSink and JsonLogger)                   |
-| `RALPHCTL_NO_TUI`           | unset          | any truthy value              | Force the plain-text CLI fallback even on a TTY (skip Ink mount)              |
-| `RALPHCTL_JSON`             | unset          | any truthy value              | Force the `JsonLogger` sink (one JSON object per line) regardless of TTY      |
-| `NO_COLOR`                  | unset          | any truthy value              | Suppress ANSI colors                                                          |
-| `CI`                        | unset          | any truthy value              | Auto-detected; disables Ink mount and implicit interactive prompts            |
-| `VISUAL` / `EDITOR`         | unset          | editor command                | Read by the editor resolver; the Ink inline editor is preferred on TTY        |
-
-**Note:** In tests, set `RALPHCTL_ROOT` BEFORE importing persistence modules (e.g., in setup file before `describe`
-blocks).
-
-## Build & Distribution
-
-Prompt templates and default skills are distributed with the CLI. The build is a two-stage pipeline:
-`tsup` compiles the TypeScript graph, then `scripts/build-assets.mjs` copies `.md` templates and the bundled skill
-set from `src/integration/ai/` into `dist/` and writes `dist/manifest.json` listing every staged asset. Template
-loading is dual-mode:
-
-- **Dev:** Reads from `src/integration/ai/prompts/templates/*.md`. Manifest verification is a no-op (no
-  `manifest.json` next to the source loader).
-- **Bundled (npm):** Reads from `dist/prompts/*.md`. The CLI's `main()` calls `verifyDistAssets()` before any
-  command runs — a missing or corrupt asset fails fast with a clear repair hint
-  (`Run \`pnpm build\` to regenerate`) instead of letting prompt builds silently emit empty templates.
-
-Helpers: `src/integration/ai/dist-asset-manifest.ts` (verifier), `scripts/build-assets.mjs` (producer). CI verifies
-dist works by testing `node dist/cli.mjs --version` from arbitrary cwd.
-
-## Releasing
-
-Releases are automated via GitHub Actions on git tags matching `v[0-9]+.[0-9]+.[0-9]+`:
-
-1. Tag must match `package.json` version (e.g., tag `v0.2.2` requires `"version": "0.2.2"` in package.json)
-2. **Changelog:** Add a `## [X.Y.Z]` section to `CHANGELOG.md` or release notes will fall back to git log
-3. **NPM publish:** Uses provenance attestation (`--provenance`)
-4. **GitHub release:** Auto-generated with changelog section + comparison link to previous tag
-5. **Pre-release detection:** Tags containing `-` (e.g., `v1.0.0-beta`) are marked as prerelease
-
-## Compaction Rules
-
-When compacting, always preserve: sprint state machine, two-phase planning constraints, architecture constraints, list
-of modified files, verification commands, and current task context.
-
-## References
-
-- [Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) —
-  consult when extending the runner/executor layer.
-- [Anthropic — Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) —
-  generator-evaluator pattern, context management, iterative refinement, and model-specific tuning strategies.
+Before every commit, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
+Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files); `pnpm lint:fix` / `pnpm format` patch.
+
+Requirements: Node.js 24+ (managed via `mise.toml`), pnpm 10+, one of the supported AI CLIs in PATH and
+authenticated.
+
+## Architecture
+
+**Four-module Clean Architecture** under `src/`: `domain → business → integration → application`. Inner
+layers cannot import outer layers; `domain` and `business` cannot import I/O-bearing `node:*` modules. Pure
+`node:*` (`node:path`, `node:url`, `node:util`, …) is allowed. ESLint `no-restricted-imports` in
+`eslint.config.ts` enforces every direction.
+
+**Function-first.** Use cases are factory functions returning `{ execute(input) }`. No `class` outside
+`src/domain/value/error/`. No `this`. The ESLint config asserts this.
+
+**Per-aggregate repositories.** `ProjectRepository`, `SprintRepository`, `SprintExecutionRepository`,
+`TaskRepository`, `SettingsRepository` live under `src/domain/repository/<aggregate>/`. Business code consumes
+**slim sub-ports** from `domain/repository/_base/` (`FindById`, `Save`, `Remove`); the composition root wires
+the composite as the slim port. Importing composite `*Repository` types from business code is fenced.
+
+**Sprint splits into three on-disk files** at `<dataRoot>/sprints/<sprint-id>/`: `sprint.json` (planning),
+`execution.json` (branch / PR URL / setup audit), `tasks.json` (task list). Planning mutations don't collide
+with execution-time writes.
+
+**Chain primitives** in `src/application/chain/`: `element` (interface), `leaf`, `sequential`, `loop`,
+`guard` (factory functions). **No `retry` or `onError`** — retry-on-429 is an adapter concern
+(`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`.
+
+**Flow registry** in `src/application/registry.ts` — every user-launchable flow declared as a `FlowManifest`
+with `triggers` (pre-launch predicates). CLI command builder, TUI menu, and launcher consume from this one
+array. Add a flow = append one entry. Use `pnpm gen:flow <name>` to scaffold.
+
+**Composition root is `wire()`** at `src/application/bootstrap/wire.ts` — pure, returns `AppDeps`. Tests build
+from a tmpdir via `storagePathsFromRoot(tmpDir)`; production resolves real paths via `resolveStoragePaths()`.
+Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
+
+**EventBus** (`business/observability/event-bus.ts`, impl `integration/observability/in-memory-event-bus.ts`)
+is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
+`Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `FeedbackRoundApplied`, `LogEvent`).
+TUI panels subscribe live; `<sprintDir>/chain.log` sink subscribes for durable post-hoc trace. **One bus per
+`wire()` call** — production / test bus state cannot cross-talk.
+
+**Logger publishes to the same bus.** `createEventBusLogger({ eventBus, clock })` is the only Logger factory;
+every `logger.info(...)` emits a `LogEvent`.
+
+**Session scoping via `AsyncLocalStorage`** (`src/application/session/session.ts`). The runner wraps every
+`element.execute()` in `runWithSession(id, …)` so deep adapters can read `currentSessionId()` and tag logs /
+signals without explicit threading.
+
+**Sibling-isolation** in `integration/ai/<concept>/` — each per-tool / per-variant adapter directory
+(`providers/{claude,copilot,codex}/`, `signals/<variant>/`, `prompts/<flow>/`, `readiness/<tool>/`,
+`skills/<source>/`) is independent. Cross-sibling access goes through `_engine/`. Port-shaped interfaces
+(`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
+
+**Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
+takeover (vim/htop-style), restored on every exit path (`exit`, `SIGINT`, `SIGTERM`, `SIGHUP`,
+`uncaughtException`). Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount. Tokens are the single source of
+visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. See DESIGN-SYSTEM.md.
+
+**CLI** at `src/application/ui/cli/`. Interactive flows (`refine` / `plan` / `ideate` / `implement` /
+`readiness` / `create-sprint`) stay TUI-only by design. The CLI exposes `doctor`, `completion`,
+`export-{context,requirements}`, `create-pr`, `settings`, `project`, `sprint`, `ticket`, `task` —
+inspection + one-shot operations.
+
+## Implementation Style
+
+**Result types** — every business operation returns `Result<T, DomainError>`. Import from
+`@src/domain/result.ts` (the canonical re-export point); the underlying `typescript-result` library may only
+be imported by that one file. ESLint enforces. Throws are reserved for programmer errors (ctx-shape
+violations inside leaf projections).
+
+**No barrel files anywhere under `src/`** — `export *` is banned. Every import names what it pulls in. ESLint
+fences this.
+
+**`@public` JSDoc tag whitelist** — symbols intentionally exported after dead-code cleanup are tagged
+`@public` in JSDoc; `knip.json` whitelists them. `pnpm deadcode` exits 0 on a clean tree.
+
+**Output types are success-side, not Result envelopes.** Use `Result<FooOutput, FooError>` in the function
+signature, not `type FooOutput = Result<…>`.
+
+**No hardcoded provider logic outside `src/integration/ai/providers/<tool>/`** — call through
+`HeadlessAiProvider` / `InteractiveAiProvider` from `providers/_engine/`.
+
+**No `@inquirer/prompts` imports** — call through the injected `PromptPort` (`InkPromptAdapter` is the only
+implementation).
+
+**No direct use-case calls from CLI commands or TUI views** — use flow factories from
+`src/application/flows/<flow>/` and the `createRunner` chain runner. ESLint blocks the shortcut.
+
+**Prompt templates** live under `src/integration/ai/prompts/<flow>/template.md` plus partials in `_partials/`.
+Each template ships a branded `Prompt` type + parameter schema; regressions surface at typecheck.
+
+- `{{VARIABLE}}` placeholders may be empty — avoid numbered lists that gap on empty substitution.
+- Em-dash (`—`) not hyphen for explanatory clauses.
+- No hardcoded package-manager commands (`pnpm`/`npm`/`pip`/`cargo`/`go test`) outside `{{PROJECT_TOOLING}}`
+  or `{{CHECK_GATE_EXAMPLE}}`. Downstream ecosystems differ.
+- Reference `.claude/` directories as "when present" — many downstream repos lack one.
+- `never`/`always` rules name their exception inline.
+
+## Workflows & State
+
+Sprint lifecycle: `draft → active → review → done`.
+
+| Operation               | Draft | Active | Review | Done |
+| ----------------------- | :---: | :----: | :----: | :--: |
+| Add / refine ticket     |   ✓   |   ✗    |   ✗    |  ✗   |
+| Plan tasks              |   ✓   |   ✗    |   ✗    |  ✗   |
+| Implement               |  ✓\*  |   ✓    |   ✗    |  ✗   |
+| Review (apply feedback) |   ✗   |   ✗    |   ✓    |  ✗   |
+| Close (review → done)   |   ✗   |   ✗    |   ✓    |  ✗   |
+
+\*`implement` auto-activates a draft sprint that has tasks. Implement transitions the sprint to `review` once
+every task is `done`. The `sprint close` CLI command and the close-sprint flow accept only `review`-status.
+
+**Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
+no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires
+every ticket `approved`; repo selection runs inside the chain and persists on `Sprint.affectedRepositories`
+(absolute paths); AI generates `tasks.json` atomically. **Ideate** combines both in a single AI session for
+low-stakes work.
+
+**Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Body is
+`generator-leaf → evaluator-leaf → settle-attempt-leaf`. Exits when the evaluator passes or `maxAttempts`
+fires (the task then transitions to `blocked`). Per-flow model from `settings.ai.models.implement`.
+
+**TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
+Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
+`SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
+
+**`setupScript` vs `checkScript`.** Setup is the one-shot env preparation (e.g. `pnpm install`); runs once
+per affected repo at sprint start; non-zero exit or spawn failure hard-aborts the chain. Check is the
+per-task verification gate run after every AI task and inside the apply-feedback loop. Failure transitions
+the task to `blocked`, never `done`. Both are collected during `detect-scripts` and persisted on
+`Repository.{setupScript,checkScript}`.
+
+**Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
+per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
+`glab` and persists `SprintExecution.pullRequestUrl`.
+
+## Security & Safety
+
+**Provider permission model is per-tool, not portable.** Don't assume Claude / Copilot / Codex share gates.
+
+| Provider         | Headless permission flag              | Native context file               |
+| ---------------- | ------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--allow-all-tools`                   | `.github/copilot-instructions.md` |
+| `openai-codex`   | per-session approval flow             | `AGENTS.md`                       |
+
+The `readiness` flow writes the native file selected by `settings.ai.provider` — no symlinks, no pointer
+schemes. Don't introduce either.
+
+**Cross-process advisory lock** at `<stateRoot>/locks/sprints/<sprint-id>.lock` prevents two ralphctl
+processes racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS` (default 30s, range
+1–3600000).
+
+**Atomic file writes** via `business/io/write-file.ts` for all persisted state. Direct `fs.writeFile` is
+fenced from business code by the layer rules.
+
+**`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
+TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
+or fallback catches errors, it MUST exempt `AbortError`.
+
+**AI sessions run in sandbox folders** under `<sprintDir>/<flow>/<unit-slug>/`. The `refine` / `plan` /
+`ideate` / `implement` flows pre-stage `prompt.md`, the provider-native context file, bundled skills, and
+contract files there. Affected repos are exposed via `--add-dir` (Claude) or mirrored under `<unit>/repos/`
+(Copilot / Codex). Never run an AI session in a user repo — the sandbox keeps writes auditable.
+
+**Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
+bundled copy is skipped and the project copy is left untouched. The skills adapter
+(`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
+those entries.
+
+**File-based AI provider contract** — providers write `signals.json` + `sessionId` files per spawn; the
+harness reads them post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing
+brittleness vector when CLI vendors tweak JSON shape.
+
+## Performance & Limits
+
+**Implement is strictly sequential.** Tasks run one at a time in topological order over `Task.blockedBy`,
+linearised via `topologicalReorder` (Kahn's). `settings.concurrency.maxParallelTasks` is wired but only `1`
+is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred).
+
+**Rate-limit retry is adapter-side.** The headless provider wrapper at
+`src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
+retries. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). Coordinator pause / resume
+events bridge to the EventBus so the TUI's `RateLimitBanner` reflects state.
+
+**Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
+/ Copilot / Codex process cannot strand the harness.
+
+**Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash reset to `todo` on next
+launch and re-enter the queue. No double-execution.
+
+**Iteration budget.** `settings.harness` carries:
+
+- `maxTurns` (1–10) — generator-evaluator turns budgeted per attempt
+- `maxAttempts` (1–10) — cap on attempts per task before transitioning to `blocked`
+- `rateLimitRetries` (0–10) — adapter-side 429 retries
+
+Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
+and the headless provider adapter read it.
+
+**Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 20_000`
+(`src/application/chain/run/runner.ts`). Live subscribers see every event; the cap bounds only the snapshot
+late subscribers replay from. The TUI's per-task round counter holds a monotonic high-water mark in a React
+ref so the displayed `round N/M` survives eviction.
+
+**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace to disk. Survives
+TUI exit; `tail -f`-friendly.
+
+**Environment variables.**
+
+| Variable                     | Default        | Range / values                         | Purpose                                                       |
+| ---------------------------- | -------------- | -------------------------------------- | ------------------------------------------------------------- |
+| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path                          | Override application root (data + config + state)             |
+| `RALPHCTL_LOCK_TIMEOUT_MS`   | 30000          | 1–3600000                              | Stale lock file threshold for concurrent-access detection     |
+| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value                       | Bypass the v0.6.x legacy-layout detector at boot              |
+| `RALPHCTL_LOG_LEVEL`         | `info`         | `silent`/`debug`/`info`/`warn`/`error` | Filter structured-log output (console + bus subscribers)      |
+| `RALPHCTL_NO_TUI`            | unset          | any truthy value                       | Force the plain-text CLI fallback even on a TTY               |
+| `RALPHCTL_JSON`              | unset          | any truthy value                       | Force JSON log output (one object per line) regardless of TTY |
+| `NO_COLOR`                   | unset          | any truthy value                       | Suppress ANSI colors                                          |
+| `CI`                         | auto-detected  | any truthy value                       | Disables Ink mount and implicit interactive prompts           |
+
+**Release procedure.** GitHub Actions auto-publishes on tags `v[0-9]+.[0-9]+.[0-9]+`. Tag must match
+`package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces
+it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
+
+**References** —
+[Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents),
+[Anthropic — Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps),
+[Martin Fowler — Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html).
