@@ -11,7 +11,7 @@ that fixes it.
 
 ```bash
 pnpm install
-pnpm dev    # runs ralphctl from src against the real ~/.ralphctl-v2/ data
+pnpm dev    # runs ralphctl from src against the real ~/.ralphctl/ data
 ```
 
 If you want a clean slate:

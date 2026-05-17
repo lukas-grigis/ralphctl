@@ -41,7 +41,7 @@ npx -p @mermaid-js/mermaid-cli mmdc -i input.mmd -o output.svg
 
 ## Why Mermaid (not PlantUML)
 
-The v2 source repo (`/Users/grigis/Workzone/github/lukas-grigis/ralphctl-v2/docs/`) shipped
+The v2 source repo (`/Users/grigis/Workzone/github/lukas-grigis/ralphctl/docs/`) shipped
 with PlantUML activity diagrams under `docs/architecture/diagrams/` and `docs/domain/`. Those
 files describe a chain framework that included `Retry` + `OnError` decorators and a sentinel
 `isRetryNeededError` — concepts that **did not make the final v0.7.0 codebase**. v0.7.0 ships

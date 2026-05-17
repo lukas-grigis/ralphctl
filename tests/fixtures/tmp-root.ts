@@ -14,7 +14,7 @@ export const makeTmpRoot = async (): Promise<{
   readonly root: AbsolutePath;
   readonly cleanup: () => Promise<void>;
 }> => {
-  const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-persistence-'));
+  const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-persistence-'));
   const resolved = await realpath(raw);
   const parsed = AbsolutePath.parse(resolved);
   if (!parsed.ok) throw new Error(`tmp dir is not a valid AbsolutePath: ${resolved}`);

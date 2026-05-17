@@ -27,13 +27,15 @@ across repositories.**
 ## Upgrading from 0.6.x to 0.7.0
 
 > [!IMPORTANT]
-> **0.7.0 is a structural rewrite.** Internal architecture, on-disk schema, data root, and
-> several CLI commands all changed. **There is no automatic migration from 0.6.x** — sprints,
-> projects, and settings written by 0.6.x will not be read by 0.7.0.
+> **0.7.0 is a structural rewrite.** Internal architecture, on-disk schema, and several CLI
+> commands all changed. **There is no automatic migration from 0.6.x** — sprints, projects,
+> and settings written by 0.6.x will not be read by 0.7.0, even though the data directory
+> path is the same. **You must back up `~/.ralphctl/` before launching 0.7.0**, or the
+> first read will surface a `ParseError` on incompatible files.
 
 ### Before upgrading
 
-1. Back up your 0.6.x data so it's safe to fall back to:
+1. **Back up your 0.6.x data** — required, not optional:
 
    ```bash
    mv ~/.ralphctl ~/.ralphctl.0.6-backup
@@ -56,11 +58,11 @@ across repositories.**
 
 ### What changed
 
-- **Data root moved.** v0.7.0 stores everything under `~/.ralphctl-v2/` (override with
-  `RALPHCTL_HOME=<absolute-path>`). Your 0.6.x data at `~/.ralphctl/` is left untouched.
-- **On-disk schema split.** Each sprint now spans three files — `sprint.json` (planning),
-  `execution.json` (branch / PR / setup audit), `tasks.json` (the task list) — instead of the
-  single 0.6.x `sprint.json`. The 0.6.x layout will not parse.
+- **On-disk schema is incompatible.** Each sprint now spans three files —
+  `sprint.json` (planning), `execution.json` (branch / PR / setup audit), `tasks.json`
+  (the task list) — instead of the single 0.6.x `sprint.json`. The 0.6.x layout does not
+  parse. 0.7.0 reuses `~/.ralphctl/` as the data directory; override with
+  `RALPHCTL_HOME=<absolute-path>` if you need a separate location.
 - **`settings.json` schema changed.** Per-flow model selection replaces the single global
   `model`; each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) picks its own.
   0.6.x settings files are rejected on read — re-run `ralphctl settings` to reconfigure.
@@ -233,15 +235,16 @@ ralphctl settings set harness.rateLimitRetries 3     # Adapter-side 429 retries 
 
 ## Data Directory
 
-All data lives in `~/.ralphctl-v2/` by default (settings under `config/`, sprints + projects under `data/`,
+All data lives in `~/.ralphctl/` by default (settings under `config/`, sprints + projects under `data/`,
 advisory locks under `state/`). Override with:
 
 ```bash
 export RALPHCTL_HOME="/path/to/custom/app-dir"
 ```
 
-The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl-v2` prefix.
-v0.6.x data at `~/.ralphctl/` is left untouched — see the upgrade section above.
+The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl` prefix.
+Upgrading from 0.6.x? Back up the existing `~/.ralphctl/` first — the 0.7.0 schema is incompatible.
+See the upgrade section above.
 
 ---
 

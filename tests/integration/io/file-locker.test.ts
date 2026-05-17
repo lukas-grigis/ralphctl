@@ -16,7 +16,7 @@ describe('createFileLocker', () => {
   let root: string;
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-locker-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-locker-'));
     root = await realpath(raw);
   });
 

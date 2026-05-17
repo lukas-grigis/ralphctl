@@ -60,14 +60,14 @@ describe('createInteractiveClaudeProvider', () => {
 
   it('auto-mounts dirname(outputFile) and dirname(promptFile) so framework-controlled writes never prompt', async () => {
     // This is the bug fix: the user was hit by "Create file?" prompts inside refine because
-    // the output file lives under `~/.ralphctl-v2/data/sprints/…` (outside the project cwd)
+    // the output file lives under `~/.ralphctl/data/sprints/…` (outside the project cwd)
     // and `acceptEdits` only auto-approves writes inside `--add-dir` roots. The adapter
     // now mounts the prompt/output dirs unconditionally.
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn });
 
-    const sprintRefinementDir = '/Users/x/.ralphctl-v2/data/sprints/abc/refinement/foo';
+    const sprintRefinementDir = '/Users/x/.ralphctl/data/sprints/abc/refinement/foo';
     const runPromise = provider.run({
       cwd: CWD,
       promptFile: absolutePath(`${sprintRefinementDir}/prompt.md`),
@@ -86,8 +86,7 @@ describe('createInteractiveClaudeProvider', () => {
     expect(inner).toContain(`--add-dir '${sprintRefinementDir}'`);
     expect(inner).toContain('--permission-mode acceptEdits');
     // Prompt and output share a dir → emitted exactly once (deduped).
-    const occurrences =
-      inner.match(/--add-dir '\/Users\/x\/\.ralphctl-v2\/data\/sprints\/abc\/refinement\/foo'/g) ?? [];
+    const occurrences = inner.match(/--add-dir '\/Users\/x\/\.ralphctl\/data\/sprints\/abc\/refinement\/foo'/g) ?? [];
     expect(occurrences).toHaveLength(1);
   });
 

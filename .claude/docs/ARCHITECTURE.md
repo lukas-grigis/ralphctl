@@ -205,7 +205,7 @@ application/bootstrap/
 ```
 
 `wire(opts)` returns the `AppDeps` graph — every concrete adapter, in one pure object. Tests construct one from
-a tmpdir via `storagePathsFromRoot(tmpDir)` so no test ever touches `~/.ralphctl-v2/`. Production resolves real
+a tmpdir via `storagePathsFromRoot(tmpDir)` so no test ever touches `~/.ralphctl/`. Production resolves real
 paths via `resolveStoragePaths()` and calls `wire()` with them.
 
 `AppDeps` is the type the typechecker uses to prove "every port the app needs is actually wired" at the bootstrap
@@ -315,7 +315,7 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 ## Storage layout
 
 ```
-~/.ralphctl-v2/                      ← override with RALPHCTL_HOME
+~/.ralphctl/                      ← override with RALPHCTL_HOME
 ├── config/
 │   └── settings.json                ← user-configurable settings (per-flow models, provider, log level, …)
 ├── data/
@@ -351,7 +351,7 @@ Path resolution lives in `src/application/bootstrap/storage-paths.ts` (`resolveS
 `storagePathsFromRoot`, `ensureStorageRoots`). On-disk path helpers for the sprint subtree live in
 `src/integration/persistence/storage.ts`.
 
-The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl-v2` prefix.
+The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl` prefix.
 Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
 
 ## Data Models

@@ -116,7 +116,7 @@ describe('createReadinessFlow', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp('/tmp/ralphctl-v2-readiness-test-');
+    tmpDir = await fs.mkdtemp('/tmp/ralphctl-readiness-test-');
     repoPath = join(tmpDir, 'repo-a');
     await fs.mkdir(repoPath, { recursive: true });
   });

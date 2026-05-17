@@ -229,7 +229,7 @@ Don't obsess over:
   shared `_test-fakes/` directory — tests construct minimal stubs per case (or use `wire()` overrides for
   more elaborate setups).
 - **`RALPHCTL_HOME`** must be set **before** importing persistence modules (e.g. in a vitest setup file,
-  not inside `beforeEach`) — otherwise the file-backed adapter binds to the real `~/.ralphctl-v2/`.
+  not inside `beforeEach`) — otherwise the file-backed adapter binds to the real `~/.ralphctl/`.
 - **`VITEST=1`** silences `info` / `warn` output in the console sink automatically.
 - **Logger / EventBus tests:** the in-memory event bus
   (`src/integration/observability/in-memory-event-bus.ts`) is the easy seam; subscribe a spy listener and

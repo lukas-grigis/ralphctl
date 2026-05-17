@@ -13,7 +13,7 @@ describe('savePrompt', () => {
   const writeFile = createAtomicWriteFile();
 
   beforeEach(async () => {
-    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-prompt-'));
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-prompt-'));
     tmpRoot = await realpath(raw);
   });
 

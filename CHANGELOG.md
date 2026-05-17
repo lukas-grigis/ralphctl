@@ -14,11 +14,12 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Breaking
 
-- **Data root moved.** v0.7.0 stores everything under `~/.ralphctl-v2/` (override with `RALPHCTL_HOME`).
-  Your 0.6.x data at `~/.ralphctl/` is left untouched; 0.7.0 will not read it.
-- **On-disk sprint schema split.** Each sprint now spans three files — `sprint.json` (planning),
-  `execution.json` (branch / PR / setup audit), `tasks.json` (the task list) — instead of the single
-  0.6.x `sprint.json`. The 0.6.x layout does not parse.
+- **On-disk schema is incompatible with 0.6.x.** 0.7.0 reuses `~/.ralphctl/` as the data directory
+  (override with `RALPHCTL_HOME=<absolute-path>`), but **back up your 0.6.x data before launching**.
+  Each sprint now spans three files — `sprint.json` (planning), `execution.json` (branch / PR / setup
+  audit), `tasks.json` (the task list) — instead of the single 0.6.x `sprint.json`. The 0.6.x layout
+  does not parse; the first read against legacy files surfaces a `ParseError`. Recommended:
+  `mv ~/.ralphctl ~/.ralphctl.0.6-backup` before installing 0.7.0.
 - **`settings.json` schema changed.** Per-flow model selection replaces the single global `model`
   setting; each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) picks its own. 0.6.x
   settings files are rejected on read — re-run `ralphctl settings` to reconfigure.

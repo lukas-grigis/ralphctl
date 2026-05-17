@@ -44,7 +44,7 @@ export interface CliHome {
  * subtree. Caller is responsible for `cleanup()` (typically in `afterEach`).
  */
 export const createCliHome = async (): Promise<CliHome> => {
-  const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-v2-cli-e2e-'));
+  const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-cli-e2e-'));
   const resolved = await realpath(raw);
   const home = AbsolutePath.parse(resolved);
   if (!home.ok) throw new Error(`tmp dir is not absolute: ${resolved}`);

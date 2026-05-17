@@ -28,7 +28,7 @@ it done; when a behaviour regresses, untick it.
 - [ ] **Use cases are functions** — every business operation returns `Result<T, DomainError>`; each has a unit
       test against fake ports. No `this`; no class instances.
 - [ ] **Composition root via `wire()`** — `wire(opts)` is pure (no filesystem / `os` touch); tests build
-      `AppDeps` via `storagePathsFromRoot(tmpDir)` so no test ever writes to `~/.ralphctl-v2/`.
+      `AppDeps` via `storagePathsFromRoot(tmpDir)` so no test ever writes to `~/.ralphctl/`.
 - [ ] **Per-aggregate repositories** — `Project`, `Sprint`, `SprintExecution`, `Task`, `Settings` each own a
       repository under `domain/repository/<aggregate>/`. Business code consumes slim sub-ports from
       `domain/repository/_base/`, not composite `*Repository` types.
