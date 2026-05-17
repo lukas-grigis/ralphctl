@@ -72,10 +72,13 @@ jobs:
         id: changelog
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # Extract the section for this version from CHANGELOG.md
-          SECTION=$(awk -v ver="## [${VERSION}]" '
-            $0 ~ ver { found=1; next }
-            found && /^## \[/ { exit }
+          # Extract the section for this version from CHANGELOG.md.
+          # `marker` is matched as a literal-prefix string (index(...) == 1) rather than a
+          # regex — `## [x.y.z]` contains `[`/`]` regex metacharacters that would otherwise
+          # turn the marker into a single-char class and silently match nothing.
+          SECTION=$(awk -v marker="## [${VERSION}]" '
+            index($0, marker) == 1 { found=1; next }
+            found && substr($0, 1, 4) == "## [" { exit }
             found { print }
           ' CHANGELOG.md)
 
