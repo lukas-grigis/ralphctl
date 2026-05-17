@@ -75,7 +75,10 @@ export interface BlockedTask extends TaskBase {
 
 export type Task = TodoTask | InProgressTask | DoneTask | BlockedTask;
 
-/** Derived from `Task` — adding a new variant flows here automatically. */
+/**
+ * Derived from `Task` — adding a new variant flows here automatically.
+ * @public
+ */
 export type TaskStatus = Task['status'];
 
 export interface TaskCreateInput {
@@ -468,6 +471,7 @@ export const updateTask = (
 /**
  * Replace `dependsOn`. Rejects self-edges; deeper cycle detection (A→B→A) needs the
  * full task graph and lives in {@link validateTaskGraph} below.
+ * @public
  */
 export const setTaskDependsOn = (task: Task, deps: readonly TaskId[]): Result<Task, ValidationError> => {
   if (deps.includes(task.id)) {

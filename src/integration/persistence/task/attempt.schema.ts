@@ -70,8 +70,6 @@ export const AttemptSchema = z.discriminatedUnion('status', [
 
 export const fromJsonAttempt = (input: unknown): Result<Attempt, ParseError> => safeParseToResult(AttemptSchema, input);
 
-export const toJsonAttempt = (attempt: Attempt): unknown => attempt;
-
 type _checkAttempt = Compatible<Attempt, z.infer<typeof AttemptSchema>>;
 const _typeChecks: [_checkAttempt] = [true];
 void _typeChecks;

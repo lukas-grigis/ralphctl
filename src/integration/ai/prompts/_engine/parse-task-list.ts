@@ -26,7 +26,10 @@ type ZodIssueLike = z.core.$ZodIssue;
  *     tickets).
  */
 
-/** Public alias — type-level contract callers depend on. The runtime schema is in `task-import-schema.ts`. */
+/**
+ * Public alias — type-level contract callers depend on. The runtime schema is in `task-import-schema.ts`.
+ * @public
+ */
 export type TaskListSpec = TaskImportSpec;
 
 export type ParseTaskListMode =

@@ -256,10 +256,6 @@ export const updateRepository = (
   return Result.ok({ ...project, repositories: next });
 };
 
-/** CLI-friendly lookup: find a repository on this project by its slug. Returns `undefined` when absent. */
-export const findRepositoryBySlug = (project: Project, slug: Slug): Repository | undefined =>
-  project.repositories.find((r) => r.slug === slug);
-
 const resolveSlug = (
   field: string,
   candidate: Slug | undefined,

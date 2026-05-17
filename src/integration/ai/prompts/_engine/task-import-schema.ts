@@ -55,8 +55,6 @@ export const IdeateOutputSchema = z
   })
   .strict();
 
-export type IdeateOutput = z.infer<typeof IdeateOutputSchema>;
-
 /**
  * Top-level shape the plan-interactive session writes. Either a task array (happy path) or an
  * `{ blocked: "<reason>" }` object (the AI declined to plan). Discriminator is "is it an array?"
@@ -67,8 +65,6 @@ export const PlanBlockedSchema = z
     blocked: z.string().min(1, 'blocked reason missing or empty'),
   })
   .strict();
-
-export type PlanBlocked = z.infer<typeof PlanBlockedSchema>;
 
 /**
  * JSON Schema string substituted into prompts at the `{{SCHEMA}}` placeholder. Derived from

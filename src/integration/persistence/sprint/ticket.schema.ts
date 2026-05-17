@@ -28,8 +28,6 @@ export const TicketSchema = z.discriminatedUnion('status', [PendingTicketSchema,
 
 export const fromJsonTicket = (input: unknown): Result<Ticket, ParseError> => safeParseToResult(TicketSchema, input);
 
-export const toJsonTicket = (ticket: Ticket): unknown => ticket;
-
 type _checkTicket = Compatible<Ticket, z.infer<typeof TicketSchema>>;
 const _typeChecks: [_checkTicket] = [true];
 void _typeChecks;

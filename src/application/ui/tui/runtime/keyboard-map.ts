@@ -48,10 +48,6 @@ export const executeKeys = {
   detach: { keys: ['D'], label: 'detach (background)' },
 } as const satisfies Record<string, KeyBinding>;
 
-export type GlobalKey = keyof typeof globalKeys;
-export type ListKey = keyof typeof listKeys;
-export type ExecuteKey = keyof typeof executeKeys;
-
 /** Key labels grouped by area — consumed by the help overlay. */
 export interface KeySection {
   readonly title: string;

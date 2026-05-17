@@ -14,5 +14,3 @@ export const CLI_METADATA = {
   packageName: pkg.name,
   currentVersion: pkg.version,
 } as const;
-
-export type CliMetadata = typeof CLI_METADATA;

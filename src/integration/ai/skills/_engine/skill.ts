@@ -59,5 +59,3 @@ export interface Skill {
   /** Markdown body (everything after the frontmatter block). */
   readonly content: string;
 }
-
-export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;

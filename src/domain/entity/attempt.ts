@@ -57,6 +57,7 @@ export type AttemptWarning =
  *
  * Terminal states stamp `finishedAt`. `verified` additionally requires `verification` to be
  * present — the structural invariant that powers `DoneTask`.
+ * @public
  */
 export type AttemptStatus = 'running' | 'verified' | 'failed' | 'malformed' | 'aborted';
 

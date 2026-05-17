@@ -109,6 +109,3 @@ export type AppEvent =
   | TaskAttemptEvaluatedEvent
   | FeedbackRoundAppliedEvent
   | LogEvent;
-
-/** Discriminator helper — narrow an event to a specific variant. */
-export type AppEventOf<T extends AppEvent['type']> = Extract<AppEvent, { type: T }>;

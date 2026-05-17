@@ -16,17 +16,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 
-/**
- * Subscribe a handler to the bus for the lifetime of the component. The handler is captured via
- * a ref so a freshly-allocated arrow function on every render does not churn subscriptions —
- * the underlying bus subscription is established once per `bus` and stays put.
- */
-export const useEventBus = (bus: EventBus, handler: (event: AppEvent) => void): void => {
-  const handlerRef = useRef(handler);
-  handlerRef.current = handler;
-  useEffect(() => bus.subscribe((e) => handlerRef.current(e)), [bus]);
-};
-
 export interface UseEventBufferOptions<T extends AppEvent> {
   readonly filter: (event: AppEvent) => event is T;
   /** Cap on events kept in component state. Default `100`. */

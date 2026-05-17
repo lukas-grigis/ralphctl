@@ -85,23 +85,6 @@ const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   skills: inkColors.info,
 };
 
-/** Short prose description per label — surfaced in the legend strip atop the Tasks panel. */
-export const SIGNAL_LABEL_HELP: Readonly<Record<string, string>> = {
-  change: 'concrete file/code change the generator just made',
-  learning: 'cross-task insight worth pinning under "Learnings"',
-  decision: 'intentional design/architectural choice with rationale',
-  commit: 'generator-proposed commit message for the per-task commit',
-  note: 'free-form annotation',
-  progress: 'short progress summary',
-  'progress-entry': 'structured per-task progress block written to progress.md',
-  done: 'task signalled completion',
-  verified: 'task self-verified (ran its own check) — `<task-verified>` output',
-  blocked: 'task self-blocked with a reason',
-  script: 'AI proposed a shell script (setup/verify/check-discovery)',
-  proposal: 'AI proposed a context file (CLAUDE.md / AGENTS.md / copilot-instructions)',
-  skills: 'AI suggested skill files to link into the task workspace',
-};
-
 interface SignalRow {
   readonly label: string;
   readonly text: string;

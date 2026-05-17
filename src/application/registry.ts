@@ -99,6 +99,3 @@ export const flowRegistry: readonly FlowEntry[] = [
   { manifest: ticketAddManifest },
   { manifest: ticketRemoveManifest },
 ];
-
-/** Look up a flow's manifest by id. Returns `undefined` for unknown ids. */
-export const findFlow = (id: string): FlowEntry | undefined => flowRegistry.find((entry) => entry.manifest.id === id);

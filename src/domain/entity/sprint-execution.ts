@@ -51,11 +51,6 @@ export const setExecutionBranch = (execution: SprintExecution, branch: string): 
   branch,
 });
 
-export const clearExecutionBranch = (execution: SprintExecution): SprintExecution => ({
-  ...execution,
-  branch: null,
-});
-
 export const recordExecutionPullRequestUrl = (
   execution: SprintExecution,
   url: string

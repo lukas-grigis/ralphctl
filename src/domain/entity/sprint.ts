@@ -375,9 +375,3 @@ export const assertSprintStatus = (
     })
   );
 };
-
-/** True iff every ticket has reached `approved`. Trivially true for empty ticket list. */
-export const hasApprovedAllTickets = (sprint: Sprint): boolean => sprint.tickets.every((t) => t.status === 'approved');
-
-export const findTicketById = (sprint: Sprint, id: TicketId): Ticket | undefined =>
-  sprint.tickets.find((t) => t.id === id);

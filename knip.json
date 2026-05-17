@@ -3,5 +3,6 @@
   "entry": ["tests/**/*.test.{ts,tsx}", "scripts/**/*.ts"],
   "project": ["src/**/*.{ts,tsx}"],
   "ignoreExportsUsedInFile": true,
-  "ignoreBinaries": ["ralphctl"]
+  "ignoreBinaries": ["ralphctl"],
+  "tags": ["-public"]
 }

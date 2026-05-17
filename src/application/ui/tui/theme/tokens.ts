@@ -70,6 +70,3 @@ export const spacing = {
 
 /** Standard label width for field lists (`Repositories:` is the longest label). */
 export const FIELD_LABEL_WIDTH = 14;
-
-/** Donut emoji — banner accent + Ralph personality. */
-export const DONUT_EMOJI = '🍩';
