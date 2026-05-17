@@ -3,7 +3,7 @@
 Companion to [ARCHITECTURE.md](./ARCHITECTURE.md). This document is the canonical reference for the chain
 framework that lives under `src/application/chain/`.
 
-> Visual: [diagrams/01-chain-framework.md](./diagrams/01-chain-framework.md)
+> Visual: [diagrams/00-chain-framework.md](./diagrams/00-chain-framework.md)
 
 > The filename is preserved from the v1 docs ("KERNEL-DESIGN.md") so existing cross-references don't break.
 > v0.7.0 has no `kernel/` module — the chain primitives live inside `application/` because they are application

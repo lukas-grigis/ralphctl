@@ -1,53 +1,11 @@
 # Chain framework
 
-Five concepts under `src/application/chain/`. Composition-pattern: every primitive returns
-an `Element<TCtx>`, composites carry their `children`, and the trace is built into `execute`
-itself (returns `Result<{ ctx, trace }, { error, trace }>`).
-
-## Element hierarchy
-
-```mermaid
-classDiagram
-  class Element~TCtx~ {
-    +string name
-    +Element[] children?
-    +execute(ctx, signal?, onTrace?) ElementResult~TCtx~
-  }
-
-  class leaf {
-    +useCase: UseCase~UInput, UOutput~
-    +input: (ctx) =&gt; UInput
-    +output: (ctx, out) =&gt; TCtx
-  }
-
-  class sequential {
-    +children: Element[]
-    +threads ctx; aborts remaining on first error
-  }
-
-  class loop {
-    +body: Element
-    +shouldContinue?(ctx, i)
-    +shouldStop?(ctx, i)
-    +maxIterations = 1000
-  }
-
-  class guard {
-    +predicate: (ctx) =&gt; boolean
-    +body: Element
-    +emits `skipped` when predicate false
-  }
-
-  Element~TCtx~ <|-- leaf
-  Element~TCtx~ <|-- sequential
-  Element~TCtx~ <|-- loop
-  Element~TCtx~ <|-- guard
-
-  note for leaf "the only seam to a UseCase"
-  note for sequential "composite — children visible to TUI"
-  note for loop "generator-evaluator primitive"
-  note for guard "skips body when predicate false"
-```
+Five concepts under `src/application/chain/`: `element` (interface) + four factory functions
+`leaf`, `sequential`, `loop`, `guard`. Every primitive returns an `Element<TCtx>`, composites
+carry their `children`, the trace is built into `execute` itself
+(`Result<{ ctx, trace }, { error, trace }>`). See `.claude/docs/KERNEL-DESIGN.md` for the
+typed contract — the diagrams below cover the two parts a picture genuinely helps with: the
+runner status machine, and what a real composition looks like.
 
 ## What's NOT in the framework
 
