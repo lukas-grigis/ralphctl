@@ -27,8 +27,16 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 
-/** Default bundled root — the directory this module lives in (SKILL.md folders are siblings). */
-const defaultBundledRoot = dirname(fileURLToPath(import.meta.url));
+// Default bundled root.
+//   Dev (tsx): this module lives at src/integration/ai/skills/bundled/source.ts — SKILL.md
+//     folders sit next to it.
+//   Bundled (tsup): every source module collapses into `dist/cli.mjs`; `scripts/build-assets.ts`
+//     copies SKILL.md folders to `dist/skills/<name>/SKILL.md`.
+const defaultBundledRoot = (() => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const isBundled = import.meta.url.endsWith('/cli.mjs') || import.meta.url.endsWith('\\cli.mjs');
+  return isBundled ? join(here, 'skills') : here;
+})();
 
 export interface BundledSkillSourceDeps {
   /** Override for tests. Production resolves the bundled root next to this module. */

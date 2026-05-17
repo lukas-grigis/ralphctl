@@ -1,14 +1,18 @@
 /**
  * Single source of truth for the CLI's identity. Both `commander.version()` and the
  * version-check adapter read from here so the npm registry poll and the `--version` flag
- * always agree. When we publish, bump `currentVersion` here and the rest of the code follows.
+ * always agree.
+ *
+ * `currentVersion` and `packageName` are sourced from the repo's `package.json` at build /
+ * dev time via a JSON import attribute (Node + tsx + esbuild all support this) — there's no
+ * runtime `fs.readFile` and no risk of the constant drifting from `package.json`.
  */
 
+import pkg from '../../../package.json' with { type: 'json' };
+
 export const CLI_METADATA = {
-  /** npm package name. The version-check adapter polls `https://registry.npmjs.org/<name>/latest`. */
-  packageName: 'ralphctl',
-  /** Current installed version. Update on every release. */
-  currentVersion: '0.1.0',
+  packageName: pkg.name,
+  currentVersion: pkg.version,
 } as const;
 
 export type CliMetadata = typeof CLI_METADATA;

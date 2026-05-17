@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 import { resolve } from 'node:path';
 
 export default defineConfig({
-  entry: { cli: 'src/application/cli/entrypoint.ts' },
+  entry: { cli: 'src/index.ts' },
   format: ['esm'],
   target: 'node24',
   outDir: 'dist',
@@ -10,6 +10,9 @@ export default defineConfig({
   clean: true,
   banner: { js: '#!/usr/bin/env node' },
   esbuildOptions(options) {
-    options.alias = { '@src': resolve('src') };
+    options.alias = {
+      '@src': resolve('src'),
+      '@tests': resolve('tests'),
+    };
   },
 });

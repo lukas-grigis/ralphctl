@@ -14,7 +14,6 @@ export default defineConfig({
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/application/ui/**'],
-      thresholds: undefined,
     },
     // Two projects so the heavy TUI render tests can run with file-level serialisation
     // while everything else keeps full fork-pool parallelism. The TUI suite is the only

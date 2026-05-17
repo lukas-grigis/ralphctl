@@ -63,12 +63,14 @@ const tryRead = async (path: string): Promise<ReadOutcome> => {
 
 // fs-template-loader.ts lives at src/integration/ai/prompts/_engine/; templates sit one
 // level up at src/integration/ai/prompts/<name>/template.md (and _partials/<name>.md).
-// Resolved eagerly at module load so the invariant ("`import.meta.url` parent is an
-// absolute path") is checked once at startup — there is no recoverable failure mode for
-// callers, so we don't expose a Result.
+// In a tsup bundle every source module collapses into `dist/cli.mjs` — `scripts/build-assets.ts`
+// then copies the templates alongside as `dist/prompts/<name>/template.md` (+ `_partials/`).
+// Resolved eagerly at module load so the invariant ("path parses as AbsolutePath") is
+// checked once at startup.
 const TEMPLATES_DIR: AbsolutePath = (() => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const path = join(here, '..');
+  const isBundled = import.meta.url.endsWith('/cli.mjs') || import.meta.url.endsWith('\\cli.mjs');
+  const path = isBundled ? join(here, 'prompts') : join(here, '..');
   const parsed = AbsolutePath.parse(path);
   if (!parsed.ok) {
     throw new Error(`fs-template-loader: bundled-templates path is not absolute: ${path}`);
