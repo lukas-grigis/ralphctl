@@ -243,15 +243,16 @@ TUI exit; `tail -f`-friendly.
 
 **Environment variables.**
 
-| Variable                   | Default        | Range / values                         | Purpose                                                       |
-| -------------------------- | -------------- | -------------------------------------- | ------------------------------------------------------------- |
-| `RALPHCTL_HOME`            | `~/.ralphctl/` | absolute path                          | Override application root (data + config + state)             |
-| `RALPHCTL_LOCK_TIMEOUT_MS` | 30000          | 1–3600000                              | Stale lock file threshold for concurrent-access detection     |
-| `RALPHCTL_LOG_LEVEL`       | `info`         | `silent`/`debug`/`info`/`warn`/`error` | Filter structured-log output (console + bus subscribers)      |
-| `RALPHCTL_NO_TUI`          | unset          | any truthy value                       | Force the plain-text CLI fallback even on a TTY               |
-| `RALPHCTL_JSON`            | unset          | any truthy value                       | Force JSON log output (one object per line) regardless of TTY |
-| `NO_COLOR`                 | unset          | any truthy value                       | Suppress ANSI colors                                          |
-| `CI`                       | auto-detected  | any truthy value                       | Disables Ink mount and implicit interactive prompts           |
+| Variable                     | Default        | Range / values                         | Purpose                                                       |
+| ---------------------------- | -------------- | -------------------------------------- | ------------------------------------------------------------- |
+| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path                          | Override application root (data + config + state)             |
+| `RALPHCTL_LOCK_TIMEOUT_MS`   | 30000          | 1–3600000                              | Stale lock file threshold for concurrent-access detection     |
+| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value                       | Bypass the v0.6.x legacy-layout detector at boot              |
+| `RALPHCTL_LOG_LEVEL`         | `info`         | `silent`/`debug`/`info`/`warn`/`error` | Filter structured-log output (console + bus subscribers)      |
+| `RALPHCTL_NO_TUI`            | unset          | any truthy value                       | Force the plain-text CLI fallback even on a TTY               |
+| `RALPHCTL_JSON`              | unset          | any truthy value                       | Force JSON log output (one object per line) regardless of TTY |
+| `NO_COLOR`                   | unset          | any truthy value                       | Suppress ANSI colors                                          |
+| `CI`                         | auto-detected  | any truthy value                       | Disables Ink mount and implicit interactive prompts           |
 
 **Release procedure.** GitHub Actions auto-publishes on tags `v[0-9]+.[0-9]+.[0-9]+`. Tag must match
 `package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces

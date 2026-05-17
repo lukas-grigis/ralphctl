@@ -16,6 +16,7 @@ import type { LogEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
+import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { wire } from '@src/application/bootstrap/wire.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
@@ -37,6 +38,15 @@ interface Bootstrapped {
 const bootstrap = async (): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
+
+  // Legacy-layout check runs BEFORE ensureStorageRoots and BEFORE the Ink mount so
+  // the user sees the recovery message on the regular terminal (alt-screen hasn't
+  // engaged yet). On hit we exit non-zero.
+  const legacy = await detectLegacyLayout(paths.value.appRoot);
+  if (legacy.kind === 'legacy-v0.6') {
+    process.stderr.write(renderLegacyLayoutMessage(legacy));
+    process.exit(1);
+  }
 
   const ensured = await ensureStorageRoots(paths.value);
   if (!ensured.ok) throw new Error(`ensure-roots: ${ensured.error.message}`);

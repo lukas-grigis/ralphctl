@@ -48,6 +48,10 @@ to [Semantic Versioning](https://semver.org/).
   new chain needs.
 - **EventBus + chain-progress streaming.** Adapters publish structured events that the TUI
   subscribes to live (no more polling).
+- **Legacy-layout safeguard at boot.** Detects v0.6.x leftovers at `~/.ralphctl/` (`cache/`,
+  `logs/`, `backups/`, top-level `config.json`) and refuses to start, printing the exact backup
+  command. No data is touched. Mirrors the v0.6.0 detector that caught the v0.5.x → v0.6.0
+  upgrade footgun. Bypass for tests / power users: `RALPHCTL_SKIP_LEGACY_CHECK=1`.
 
 ### Changed
 

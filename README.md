@@ -30,12 +30,15 @@ across repositories.**
 > **0.7.0 is a structural rewrite.** Internal architecture, on-disk schema, and several CLI
 > commands all changed. **There is no automatic migration from 0.6.x** — sprints, projects,
 > and settings written by 0.6.x will not be read by 0.7.0, even though the data directory
-> path is the same. **You must back up `~/.ralphctl/` before launching 0.7.0**, or the
-> first read will surface a `ParseError` on incompatible files.
+> path is the same.
+>
+> If you launch 0.7.0 with v0.6.x data still in `~/.ralphctl/`, the harness detects the
+> legacy layout, **refuses to start**, and prints the exact backup command you need to run.
+> No data is touched. The steps below are what the safeguard will tell you.
 
 ### Before upgrading
 
-1. **Back up your 0.6.x data** — required, not optional:
+1. **Back up your 0.6.x data**:
 
    ```bash
    mv ~/.ralphctl ~/.ralphctl.0.6-backup
