@@ -21,6 +21,7 @@ import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
+import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { spacing, inkColors, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
@@ -30,6 +31,7 @@ import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
@@ -114,6 +116,7 @@ export const SettingsView = (): React.JSX.Element => {
   const deps = useDeps();
   const storage = useStorage();
   const ui = useUiState();
+  const logLevel = useLogLevel();
   const [settings, setSettings] = useState<Settings | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [cursor, setCursor] = useState(0);
@@ -209,6 +212,12 @@ export const SettingsView = (): React.JSX.Element => {
       setFeedback({ tone: 'error', text: saved.error.error.message });
       closeEditor();
       return;
+    }
+    // Mirror persisted log-level into the live forwarder gate so the floor takes effect
+    // immediately — otherwise the recent-events panel would keep using the boot-time level
+    // until the TUI restarts.
+    if (field.key === 'logging.level') {
+      logLevel.setLevel(next.value.logging.level satisfies LogLevel);
     }
     setFeedback({ tone: 'ok', text: `${field.label} = ${raw}` });
     closeEditor();

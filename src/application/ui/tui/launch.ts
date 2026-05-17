@@ -29,6 +29,7 @@ import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { App } from '@src/application/ui/tui/App.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
+import { createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -69,8 +70,13 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   // launchTui's finally on Ink shutdown) can release the listener — otherwise a re-launched
   // TUI in the same Node process would stack a fresh forwarder on top of the dead one and
   // each 'log' event would publish twice (or N times after N relaunches).
+  //
+  // Log-level gate is a small mutable holder seeded from `settings.logging.level`. The
+  // forwarder reads `gate.get()` on every event so the Settings view can swap the floor at
+  // runtime by calling `gate.set(newLevel)` via the LogLevelContext.
+  const logLevelGate = createLogLevelGate(settings.value.logging.level);
   const unsubLogForward = deps.eventBus.subscribe((event) => {
-    if (event.type === 'log') logBus.emit(event);
+    if (event.type === 'log' && passesLogLevel(event.level, logLevelGate.get())) logBus.emit(event);
   });
 
   const sessions = createSessionManager();
@@ -101,6 +107,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
       buses: { harness: harnessBus, log: logBus },
       sessions,
       queue,
+      logLevelGate,
       initialView,
       ...(initialSelection !== undefined ? { initialSelection } : {}),
       onSelectionChange: (next): void => {

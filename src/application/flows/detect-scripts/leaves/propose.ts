@@ -14,7 +14,8 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildDetectScriptsPrompt } from '@src/integration/ai/prompts/detect-scripts/definition.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
-import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { withSignalsTempPath, allocSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { removeFile } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 
@@ -23,13 +24,15 @@ export const detectScriptsSession = (
   repository: Repository,
   prompt: Prompt,
   model: string,
-  signalsFile: AbsolutePath
+  signalsFile: AbsolutePath,
+  bodyFile?: AbsolutePath
 ): AiSession => ({
   prompt,
   cwd: repository.path,
   model,
   permissions: READ_ONLY,
   signalsFile,
+  ...(bodyFile !== undefined ? { bodyFile } : {}),
 });
 
 export interface ProposeDetectScriptsLeafDeps {
@@ -74,38 +77,58 @@ const proposeUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  return withSignalsTempPath('detect-scripts', async (signalsFile) => {
-    const signals = await consumeSignals(
-      deps.provider,
-      detectScriptsSession(input.repository, prompt.value, deps.model, signalsFile),
-      deps.signals
-    );
-    if (!signals.ok) {
-      log.error(`provider failed for repo ${input.repository.name}`, {
+  // Allocate a sibling body file for diagnostic capture. When the AI returns no proposals,
+  // the operator can inspect this file to see what the assistant actually emitted.
+  // Only the Claude adapter implements bodyFile; other adapters silently no-op.
+  const bodyPathResult = allocSignalsTempPath('detect-scripts-body');
+  const bodyFile = bodyPathResult.ok ? bodyPathResult.value : undefined;
+
+  try {
+    return await withSignalsTempPath('detect-scripts', async (signalsFile) => {
+      const signals = await consumeSignals(
+        deps.provider,
+        detectScriptsSession(input.repository, prompt.value, deps.model, signalsFile, bodyFile),
+        deps.signals
+      );
+      if (!signals.ok) {
+        log.error(`provider failed for repo ${input.repository.name}`, {
+          repositoryId: String(input.repository.id),
+          error: signals.error.message,
+        });
+        return Result.error(signals.error);
+      }
+
+      const setupScript = signals.value.find(
+        (s: HarnessSignal): s is SetupScriptSignal => s.type === 'setup-script'
+      )?.command;
+      const verifyScript = signals.value.find(
+        (s: HarnessSignal): s is VerifyScriptSignal => s.type === 'verify-script'
+      )?.command;
+
+      if (setupScript === undefined && verifyScript === undefined && bodyFile !== undefined) {
+        log.debug(`AI returned no proposals for repo ${input.repository.name} — inspect body file for raw response`, {
+          repositoryId: String(input.repository.id),
+          bodyFile: String(bodyFile),
+        });
+      }
+
+      log.info(`proposal ready for repo ${input.repository.name}`, {
         repositoryId: String(input.repository.id),
-        error: signals.error.message,
+        hasSetupScript: setupScript !== undefined,
+        hasVerifyScript: verifyScript !== undefined,
       });
-      return Result.error(signals.error);
+
+      return Result.ok({
+        ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
+        ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
+      });
+    });
+  } finally {
+    // Best-effort cleanup of the diagnostic body file. Orphan tempfiles are bounded by os.tmpdir() rotation.
+    if (bodyFile !== undefined) {
+      await removeFile(String(bodyFile));
     }
-
-    const setupScript = signals.value.find(
-      (s: HarnessSignal): s is SetupScriptSignal => s.type === 'setup-script'
-    )?.command;
-    const verifyScript = signals.value.find(
-      (s: HarnessSignal): s is VerifyScriptSignal => s.type === 'verify-script'
-    )?.command;
-
-    log.info(`proposal ready for repo ${input.repository.name}`, {
-      repositoryId: String(input.repository.id),
-      hasSetupScript: setupScript !== undefined,
-      hasVerifyScript: verifyScript !== undefined,
-    });
-
-    return Result.ok({
-      ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
-      ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
-    });
-  });
+  }
 };
 
 export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): Element<DetectScriptsCtx> =>

@@ -25,9 +25,11 @@ import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-cont
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { BusesProvider, type TuiBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue, type PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
+import { createLogLevelGate } from '@src/business/observability/log-level-filter.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -98,15 +100,17 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
                 <HintsProvider>
                   <SelectionProvider>
                     {opts.selection !== undefined && <SeedSelection seed={opts.selection} />}
-                    <SystemStatusProvider>
-                      <RouterProvider initial={opts.initial}>
-                        {(current): React.ReactNode => {
-                          routes.push(current);
-                          opts.onRoute?.(current);
-                          return child;
-                        }}
-                      </RouterProvider>
-                    </SystemStatusProvider>
+                    <LogLevelProvider gate={createLogLevelGate('info')}>
+                      <SystemStatusProvider>
+                        <RouterProvider initial={opts.initial}>
+                          {(current): React.ReactNode => {
+                            routes.push(current);
+                            opts.onRoute?.(current);
+                            return child;
+                          }}
+                        </RouterProvider>
+                      </SystemStatusProvider>
+                    </LogLevelProvider>
                   </SelectionProvider>
                 </HintsProvider>
               </UiStateProvider>

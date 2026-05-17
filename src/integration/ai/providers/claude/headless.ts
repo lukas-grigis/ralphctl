@@ -19,7 +19,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -275,6 +275,20 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(envelope.body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
+    // debugging). Best-effort: a write failure here is logged but does not fail the session.
+    if (session.bodyFile !== undefined) {
+      const bodyWrote = await writeTextAtomic(String(session.bodyFile), envelope.body);
+      if (!bodyWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: `claude-provider: failed to write body file — diagnostic capture skipped`,
+          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+    }
     return {
       kind: 'success',
       output: {
