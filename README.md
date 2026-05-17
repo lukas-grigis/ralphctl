@@ -24,18 +24,57 @@ across repositories.**
 
 ---
 
-## Upgrading from 0.5.x to 0.6.0
+## Upgrading from 0.6.x to 0.7.0
 
-The rewrite changes the on-disk layout under `~/.ralphctl/`. Existing 0.5.x data is **not migrated automatically**.
-Before upgrading:
+> [!IMPORTANT]
+> **0.7.0 is a structural rewrite.** Internal architecture, on-disk schema, data root, and
+> several CLI commands all changed. **There is no automatic migration from 0.6.x** — sprints,
+> projects, and settings written by 0.6.x will not be read by 0.7.0.
 
-1. Back up your existing data: `mv ~/.ralphctl ~/.ralphctl.0.5-backup`
-2. Install 0.6.0 (`pnpm install ralphctl@0.6.0` or via your package manager)
-3. Run `ralphctl project add` to register your projects in the new layout
-4. (Optional) Re-create sprints from your backup as needed
+### Before upgrading
 
-ralphctl will detect a legacy layout on first launch and refuse to start until you back up + reset, with
-instructions printed.
+1. Back up your 0.6.x data so it's safe to fall back to:
+
+   ```bash
+   mv ~/.ralphctl ~/.ralphctl.0.6-backup
+   ```
+
+2. Install 0.7.0:
+
+   ```bash
+   npm install -g ralphctl@0.7.0
+   ```
+
+3. Launch the TUI and re-register your projects:
+
+   ```bash
+   ralphctl
+   ```
+
+4. (Optional) Re-create sprints by hand from the backup — `~/.ralphctl.0.6-backup/data/sprints/<id>/`
+   still holds the original ticket bodies, plan output, and progress notes for reference.
+
+### What changed
+
+- **Data root moved.** v0.7.0 stores everything under `~/.ralphctl-v2/` (override with
+  `RALPHCTL_HOME=<absolute-path>`). Your 0.6.x data at `~/.ralphctl/` is left untouched.
+- **On-disk schema split.** Each sprint now spans three files — `sprint.json` (planning),
+  `execution.json` (branch / PR / setup audit), `tasks.json` (the task list) — instead of the
+  single 0.6.x `sprint.json`. The 0.6.x layout will not parse.
+- **`settings.json` schema changed.** Per-flow model selection replaces the single global
+  `model`; each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) picks its own.
+  0.6.x settings files are rejected on read — re-run `ralphctl settings` to reconfigure.
+- **CLI surface intentionally smaller.** These commands were removed in favour of the TUI:
+  `sprint feedback / edit`, `ticket approve / edit`, `project repo add / remove`,
+  all `task add / edit / edit-status / remove`, and `sessions list / attach / detach / kill`.
+  If you scripted any of these, switch to the interactive TUI or to `ralphctl sprint show <id>`
+  / the relevant flow command.
+- **OpenAI Codex provider added** alongside Claude Code and GitHub Copilot — pick via
+  `ralphctl settings`.
+
+See [CHANGELOG.md](./CHANGELOG.md#070---2026-05-17) for the full list, including non-breaking
+improvements (cross-project sprint lock, idle-stdout watchdog, resume-aborted runs, persistent
+`<sprintDir>/chain.log`, exponential rate-limit backoff).
 
 ---
 

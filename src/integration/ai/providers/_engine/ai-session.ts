@@ -1,0 +1,48 @@
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+
+/**
+ * Per-call AI session descriptor — the shape `HeadlessAiProvider.generate` consumes.
+ *
+ * The descriptor captures **intent** (model tier, permissions, additional roots, resume id).
+ * The adapter is the only place that knows how to translate intent into the concrete
+ * vocabulary of its CLI (Claude flag names, model strings, tool names).
+ *
+ * Adapter advisory contract: when an adapter does not support a feature (e.g.
+ * `additionalRoots` on a future Copilot adapter), it MUST surface `InvalidStateError`
+ * rather than silently using only `cwd`. Fail loud beats silent surprise.
+ */
+export interface AiSession {
+  /** Fully-rendered prompt — branded so a non-validated string cannot be passed. */
+  readonly prompt: Prompt;
+  /** Primary working directory the AI session opens in. */
+  readonly cwd: AbsolutePath;
+  /**
+   * Extra repository roots the session should mount alongside `cwd`. Optional; adapters
+   * that cannot mount multiple roots MUST error rather than silently drop the extras.
+   */
+  readonly additionalRoots?: readonly AbsolutePath[];
+  /**
+   * Concrete model identifier the adapter will pass through. Each provider publishes
+   * its supported models (`ClaudeModel`, `CopilotModel`, …); the composition root picks
+   * one per chain via config and threads it here. The adapter validates the string
+   * against its known set and surfaces `InvalidStateError` for unknowns.
+   */
+  readonly model: string;
+  /** Semantic permission set — adapter maps to its concrete permission flags / modes. */
+  readonly permissions: SessionPermissions;
+  /** Optional id of a prior session to resume. */
+  readonly resume?: SessionId;
+  /** Optional caller-controlled abort signal. Adapters propagate to spawn → SIGTERM. */
+  readonly abortSignal?: AbortSignal;
+  /**
+   * Caller-supplied path the provider writes parsed signals to (JSON array of `HarnessSignal`).
+   * The caller controls placement (audit tree, tempfile, …) and lifetime. Every signal a flow
+   * cares about must have a registered parser in `signal-parsers/registry.ts`; the file-based
+   * contract gives flows a single uniform read-path (read `signalsFile`, filter by `type`)
+   * regardless of which custom tags they consume.
+   */
+  readonly signalsFile: AbsolutePath;
+}

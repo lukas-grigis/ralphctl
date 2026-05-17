@@ -7,6 +7,70 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-17
+
+> **Structural rewrite.** Internal architecture, on-disk schema, data root, and several CLI commands
+> all changed. **No automatic migration from 0.6.x** — see [README §Upgrading](./README.md#upgrading-from-06x-to-070).
+
+### Breaking
+
+- **Data root moved.** v0.7.0 stores everything under `~/.ralphctl-v2/` (override with `RALPHCTL_HOME`).
+  Your 0.6.x data at `~/.ralphctl/` is left untouched; 0.7.0 will not read it.
+- **On-disk sprint schema split.** Each sprint now spans three files — `sprint.json` (planning),
+  `execution.json` (branch / PR / setup audit), `tasks.json` (the task list) — instead of the single
+  0.6.x `sprint.json`. The 0.6.x layout does not parse.
+- **`settings.json` schema changed.** Per-flow model selection replaces the single global `model`
+  setting; each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) picks its own. 0.6.x
+  settings files are rejected on read — re-run `ralphctl settings` to reconfigure.
+- **CLI surface intentionally smaller.** These commands were removed in favour of the TUI:
+  `sprint feedback / edit`, `ticket approve / edit`, `project repo add / remove`, all
+  `task add / edit / edit-status / remove`, and `sessions list / attach / detach / kill`. If you
+  scripted any of these, switch to the interactive TUI or to the relevant flow command.
+
+### Added
+
+- **OpenAI Codex provider** alongside Claude Code and GitHub Copilot — pick via `ralphctl settings`.
+- **Per-flow model selection.** Each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`)
+  carries its own model, configurable in `settings.json` or via the settings view.
+- **Cross-project sprint lock** prevents two ralphctl sessions on the same machine from racing
+  one sprint's on-disk state.
+- **Idle-stdout watchdog** kills wedged headless provider children so a stuck Claude / Copilot /
+  Codex process can't strand the harness.
+- **Resume of aborted Implement runs.** A killed implement loop recovers in-progress tasks on
+  the next launch instead of starting clean.
+- **Persistent `<sprintDir>/chain.log`** — every chain run streams its trace to disk for post-hoc
+  debugging.
+- **File-based AI provider contract** — `signals.json` + `sessionId` files replace stdout parsing,
+  closing a long-standing source of brittleness when CLI vendors tweak their JSON shape.
+- **Exponential backoff on rate-limit retries** (`provider._engine/rate-limit-backoff`).
+- **`gen:flow` scaffold generator** — `pnpm gen:flow <name>` produces the manifest + flow stub a
+  new chain needs.
+- **EventBus + chain-progress streaming.** Adapters publish structured events that the TUI
+  subscribes to live (no more polling).
+
+### Changed
+
+- **Internal architecture rewritten** to a function-first composition (no class instances for use
+  cases). `Result<T, E>` end-to-end — every `process.exit(1)` is a pattern-matched typed error.
+  ESLint enforces the new layer rules (`domain → nothing`, `business → domain`,
+  `integration → domain + business`, `application → everything`) plus sibling-isolation rules
+  inside `integration/ai/` so flows speak port-level vocabulary only.
+- **Prompt corpus tightened by ~36%** with no semantic loss on the rubric, anti-stamp guard, or
+  parameter validation — `evaluate` template went from 276 → 150 lines via XML-block → markdown
+  conversion. Each template now ships with a branded `Prompt` type and per-template parameter
+  schema, so prompt regressions surface at type-check time.
+- **TUI rewritten** as a responsive dashboard with a kanban-style Sprint Detail view, a
+  pipeline-map Home view, and a multi-chain session switcher (`SessionsView`). Banner is
+  persistent across views, help overlay (`?`) is generated from the central `keyboard-map.ts`.
+
+### Removed
+
+- The class-based use-case layer, the kernel module (chain primitives now live in
+  `application/chain/`), and the `PersistencePort` monolith — replaced by per-aggregate repositories
+  (`ProjectRepository`, `SprintRepository`, `SprintExecutionRepository`, `TaskRepository`).
+- v1-only TUI dependencies: `@inkjs/ui`, `colorette`, `gradient-string`, `tabtab`. v0.7.0 ships a
+  hand-rolled inline gradient renderer + Ink-native primitives.
+
 ## [0.6.3] - 2026-05-06
 
 ### Changed
