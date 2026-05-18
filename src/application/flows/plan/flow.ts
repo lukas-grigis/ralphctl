@@ -110,10 +110,9 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       {
         flowId: 'plan',
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
+        // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+        // only auto-discover skills from cwd, not from `--add-dir` roots.
+        cwdPicker: () => opts.cwd,
       }
     ),
     callPlannerInteractiveLeaf({
@@ -128,15 +127,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         : {}),
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
-    unlinkSkillsLeaf<PlanCtx>(
-      { skillsAdapter: deps.skillsAdapter },
-      {
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
-      }
-    ),
+    unlinkSkillsLeaf<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
   ]);

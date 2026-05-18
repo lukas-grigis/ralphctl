@@ -1,5 +1,5 @@
 ---
-name: alignment
+name: ralphctl-alignment
 description: Cross-phase skill — establish a shared understanding of what will and will not be done before producing output. Restate the input back to the user; surface assumptions; agree before you write.
 ---
 

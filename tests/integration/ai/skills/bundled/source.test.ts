@@ -13,17 +13,17 @@ describe('createBundledSkillSource (production root)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const names = result.value.map((s) => s.name);
-    expect(names).toContain('alignment');
-    expect(names).toContain('abstraction-first');
-    expect(names).toContain('iterative-review');
+    expect(names).toContain('ralphctl-alignment');
+    expect(names).toContain('ralphctl-abstraction-first');
+    expect(names).toContain('ralphctl-iterative-review');
   });
 
   it('reads name + description from frontmatter', async () => {
     const result = await source.getForFlow('refine');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const alignment = result.value.find((s) => s.name === 'alignment');
-    expect(alignment?.name).toBe('alignment');
+    const alignment = result.value.find((s) => s.name === 'ralphctl-alignment');
+    expect(alignment?.name).toBe('ralphctl-alignment');
     expect(alignment?.description.length).toBeGreaterThan(0);
     expect(alignment?.content).toContain('# Alignment');
   });
@@ -50,12 +50,12 @@ describe('createBundledSkillSource (custom root)', () => {
 
   it('rejects malformed frontmatter with a parse error', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
-    const skillDir = join(root, 'alignment');
+    const skillDir = join(root, 'ralphctl-alignment');
     await mkdir(skillDir, { recursive: true });
     // Frontmatter missing the required `name` field.
     await writeFile(join(skillDir, 'SKILL.md'), '---\ndescription: only description\n---\n\n# body\n', 'utf-8');
     // Need the other two too so the loop reaches alignment cleanly.
-    for (const id of ['abstraction-first', 'iterative-review']) {
+    for (const id of ['ralphctl-abstraction-first', 'ralphctl-iterative-review']) {
       const dir = join(root, id);
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, 'SKILL.md'), `---\nname: ${id}\ndescription: ok\n---\nbody\n`, 'utf-8');
@@ -69,11 +69,11 @@ describe('createBundledSkillSource (custom root)', () => {
 
   it('requires frontmatter name to match the folder name', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
-    const alignDir = join(root, 'alignment');
+    const alignDir = join(root, 'ralphctl-alignment');
     await mkdir(alignDir, { recursive: true });
-    // Frontmatter name does not match the folder ('alignment' vs. 'mismatch').
+    // Frontmatter name does not match the folder ('ralphctl-alignment' vs. 'mismatch').
     await writeFile(join(alignDir, 'SKILL.md'), `---\nname: mismatch\ndescription: ok\n---\n\nbody\n`, 'utf-8');
-    for (const name of ['abstraction-first', 'iterative-review']) {
+    for (const name of ['ralphctl-abstraction-first', 'ralphctl-iterative-review']) {
       const dir = join(root, name);
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ok\n---\nbody\n`, 'utf-8');

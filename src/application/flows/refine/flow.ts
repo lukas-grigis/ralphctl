@@ -118,10 +118,9 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         {
           name: `link-skills-${String(ticket.id)}`,
           flowId: 'refine',
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            return ctx.currentUnitRoot;
-          },
+          // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+          // only auto-discover skills from cwd, not from `--add-dir` roots.
+          cwdPicker: () => opts.cwd,
         }
       ),
       refineTicketInteractiveLeaf(
@@ -139,13 +138,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
       ),
       unlinkSkillsLeaf<RefineCtx>(
         { skillsAdapter: deps.skillsAdapter },
-        {
-          name: `unlink-skills-${String(ticket.id)}`,
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            return ctx.currentUnitRoot;
-          },
-        }
+        { name: `unlink-skills-${String(ticket.id)}`, cwdPicker: () => opts.cwd }
       ),
       saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${String(ticket.id)}`),
     ])

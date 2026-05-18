@@ -13,6 +13,7 @@
  */
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
@@ -20,15 +21,18 @@ import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/a
 
 export interface SkillsAdapterFactoryDeps {
   readonly provider: AiProvider;
+  /** Optional logger — surfaces best-effort `.git/info/exclude` write failures as warnings. */
+  readonly logger?: Logger;
 }
 
 export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter => {
+  const logger = deps.logger;
   switch (deps.provider) {
     case 'claude-code':
-      return createClaudeSkillsAdapter();
+      return createClaudeSkillsAdapter(logger !== undefined ? { logger } : undefined);
     case 'github-copilot':
-      return createCopilotSkillsAdapter();
+      return createCopilotSkillsAdapter(logger !== undefined ? { logger } : undefined);
     case 'openai-codex':
-      return createCodexSkillsAdapter();
+      return createCodexSkillsAdapter(logger !== undefined ? { logger } : undefined);
   }
 };

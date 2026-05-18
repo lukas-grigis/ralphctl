@@ -127,9 +127,11 @@ export interface CreateImplementFlowOpts {
  *     ),
  *   ])
  *
- * Skills are linked into the per-task workspace under our data root, NOT the user's repo —
- * the AI session uses that workspace as its `cwd` and mounts the user's repo as `--add-dir`.
- * The user's git status stays clean of harness-managed context.
+ * Skills are linked into the user's repo at `<repo>/<parentDir>/skills/ralphctl-<name>/` — the
+ * provider-native conventions (`.claude/skills`, `.github/skills`, `.agents/skills`) only
+ * auto-discover from cwd, so the AI session uses the repo as its `cwd` and the per-task
+ * workspace as `--add-dir`. The `ralphctl-` prefix combined with one wildcard line in
+ * `.git/info/exclude` keeps `git status` clean of harness-managed context.
  *
  * Preflight rationale: the dirty-tree check is a precondition for the whole invocation, not for
  * each task. Between tasks the tree is clean (commit-task commits each task's work), so a
@@ -216,16 +218,13 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   });
   const signalsBroadcast = broadcastSink<HarnessSignal>([deps.signals, progressSink]);
 
-  // `linkSkillsLeaf` writes the bundled skill set to `<sessionDir>/.claude/skills/`. Pointing
-  // it at `ctx.taskWorkspaceRoot` keeps that managed context inside the harness dir; the user's
-  // repo never sees a `.claude/skills/` write, so `git add -A` can't accidentally commit them.
-  // The implement session uses the same workspace as its cwd and mounts the repo via
-  // `--add-dir`, so the AI still has full access to repo-specific `.claude/`, `.mcp.json`,
-  // `agents/`, etc.
-  const taskWorkspaceCwdPicker = (ctx: ImplementCtx): AbsolutePath => {
-    if (ctx.taskWorkspaceRoot === undefined) throw new Error('taskWorkspaceRoot missing');
-    return ctx.taskWorkspaceRoot;
-  };
+  // `linkSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
+  // Pointing it at `repo.path` is what makes per-repo project skills, `.mcp.json`, and the
+  // provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)
+  // visible to the running AI — those are only auto-discovered from cwd, not from `--add-dir`
+  // roots. The `ralphctl-` prefix + the wildcard line the skills adapter appends to
+  // `.git/info/exclude` keeps the harness-authored copies out of the user's git tree.
+  const repoCwdPicker = (repoPath: AbsolutePath) => (): AbsolutePath => repoPath;
 
   const perTaskSubChain = (task: Task): Element<ImplementCtx> => {
     const taskId = task.id;
@@ -258,7 +257,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       ),
       linkSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-        { name: `link-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: taskWorkspaceCwdPicker }
+        { name: `link-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
       ),
       startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
@@ -309,7 +308,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       ),
       unlinkSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter },
-        { name: `${IMPLEMENT_TASK_TERMINAL_LEAF}-${String(taskId)}`, cwdPicker: taskWorkspaceCwdPicker }
+        { name: `${IMPLEMENT_TASK_TERMINAL_LEAF}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
       ),
     ]);
   };

@@ -101,10 +101,9 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       {
         flowId: 'ideate',
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
+        // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+        // only auto-discover skills from cwd, not from `--add-dir` roots.
+        cwdPicker: () => opts.cwd,
       }
     ),
     ideateAndPlanLeaf({
@@ -113,15 +112,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       logger: deps.logger,
       model: opts.model,
     }),
-    unlinkSkillsLeaf<IdeateCtx>(
-      { skillsAdapter: deps.skillsAdapter },
-      {
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
-      }
-    ),
+    unlinkSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
   ]);

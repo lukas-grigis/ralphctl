@@ -7,6 +7,7 @@
  * {@link createFilesystemSkillsAdapter} — shared with the claude and copilot variants.
  */
 
+import type { Logger } from '@src/business/observability/logger.ts';
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
@@ -17,9 +18,14 @@ const CONVENTION = [
   'whose `name` or `description` hints at sprint setup or post-task verification.',
 ].join(' ');
 
-export const createCodexSkillsAdapter = (): SkillsAdapter =>
+export interface CreateCodexSkillsAdapterDeps {
+  readonly logger?: Logger;
+}
+
+export const createCodexSkillsAdapter = (deps: CreateCodexSkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'openai-codex',
     parentDir: '.agents',
     convention: CONVENTION,
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });

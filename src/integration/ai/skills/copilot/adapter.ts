@@ -11,6 +11,7 @@
  * is the canonical Copilot-native location and what the CLI's docs steer authors toward.
  */
 
+import type { Logger } from '@src/business/observability/logger.ts';
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
@@ -21,9 +22,14 @@ const CONVENTION = [
   'whose `name` or `description` hints at sprint setup or post-task verification.',
 ].join(' ');
 
-export const createCopilotSkillsAdapter = (): SkillsAdapter =>
+export interface CreateCopilotSkillsAdapterDeps {
+  readonly logger?: Logger;
+}
+
+export const createCopilotSkillsAdapter = (deps: CreateCopilotSkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'github-copilot',
     parentDir: '.github',
     convention: CONVENTION,
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });

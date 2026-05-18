@@ -25,6 +25,8 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
+import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
@@ -38,6 +40,12 @@ export interface FilesystemSkillsAdapterDeps {
   readonly parentDir: string;
   /** Markdown sentence returned from {@link SkillsAdapter.describeSkillsConvention}. */
   readonly convention: string;
+  /**
+   * Optional logger — used to warn when the best-effort `.git/info/exclude` write fails.
+   * Skills install still succeeds in that case; the user just sees harness-authored
+   * `ralphctl-*` folders in `git status` until the exclude lands manually.
+   */
+  readonly logger?: Logger;
 }
 
 /**
@@ -65,7 +73,12 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
   // Per-sessionDir manifest of skill names this adapter created at install time. Cleared on
   // a successful uninstall. Not promised across crashed runs — the cleanup is best-effort.
   const installed = new Map<string, Set<string>>();
+  // Per-sessionDir flag tracking whether we've already attempted to append the wildcard
+  // exclude. Idempotent against the file regardless, but the in-memory check avoids re-
+  // reading the file on every install call across a long-running session.
+  const excludeAttempted = new Set<string>();
   const skillsSubdir = join(deps.parentDir, 'skills');
+  const excludePattern = `${skillsSubdir}/ralphctl-*`;
 
   // Self-healing prune: drop manifest entries whose sessionDir no longer exists on disk. The
   // typical leak path is the per-task subchain failing BETWEEN `linkSkills` and `unlinkSkills`
@@ -109,6 +122,21 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       }
 
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
+
+      // Best-effort: append a single wildcard line to <sessionDir>/.git/info/exclude so
+      // every `ralphctl-*` skill we manage stays out of `git status`. A non-git tree, a
+      // worktree, or a write-protected `.git/info/exclude` all collapse to "warn and
+      // proceed" — the skill install itself already succeeded.
+      if (!excludeAttempted.has(String(sessionDir))) {
+        excludeAttempted.add(String(sessionDir));
+        const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
+        if (!excluded.ok) {
+          deps.logger
+            ?.named('skills.exclude')
+            .warn(`${deps.providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
+        }
+      }
+
       return Result.ok(undefined);
     },
 

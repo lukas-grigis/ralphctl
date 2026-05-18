@@ -32,6 +32,16 @@ describe('skillsForFlow', () => {
   it('returns the configured ids for a known flow', () => {
     const ids = skillsForFlow('refine');
     expect(ids.length).toBeGreaterThan(0);
-    expect(ids).toContain('alignment');
+    expect(ids).toContain('ralphctl-alignment');
+  });
+
+  it('namespaces every bundled skill id with the ralphctl- prefix', () => {
+    const allSkillIds = new Set<string>();
+    for (const ids of Object.values(FLOW_SKILLS)) {
+      for (const id of ids) allSkillIds.add(id);
+    }
+    for (const id of allSkillIds) {
+      expect(id.startsWith('ralphctl-'), `bundled skill id missing prefix: ${id}`).toBe(true);
+    }
   });
 });

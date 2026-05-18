@@ -200,7 +200,7 @@ export const launchFlow = async (
     eventBus: deps.app.eventBus,
   });
   const interactiveAi = createInteractiveAiProvider({ ai: settings.ai, eventBus: deps.app.eventBus });
-  const skillsAdapter = createSkillsAdapter({ provider: settings.ai.provider });
+  const skillsAdapter = createSkillsAdapter({ provider: settings.ai.provider, logger: deps.app.logger });
 
   // Compose the static bundled skill source with a project-scoped source that emits per-repo
   // setup / verify skills authored via the detect-skills flow. The project-source closure reads
