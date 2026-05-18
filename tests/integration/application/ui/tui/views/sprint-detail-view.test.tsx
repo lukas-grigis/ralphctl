@@ -14,6 +14,7 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -118,6 +119,119 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
     await tick(40);
     expect(result.lastFrame() ?? '').toContain('Open a pull request');
+    result.unmount();
+  });
+
+  it('pressing u on a blocked task flips it to todo and surfaces "✓ unblocked"', async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const blockedTask: Task = {
+      id: 'task-blocked' as never,
+      name: 'wedged',
+      status: 'blocked',
+      blockedReason: 'mvn agent attach failed',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 't1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const updateCalls: Task[] = [];
+    let storedStatus: 'blocked' | 'todo' = 'blocked';
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(
+            storedStatus === 'todo'
+              ? [{ ...(blockedTask as object), status: 'todo' } as unknown as Task]
+              : [blockedTask]
+          );
+        },
+        async update(_sprintId: SprintId, task: Task) {
+          updateCalls.push(task);
+          storedStatus = task.status === 'todo' ? 'todo' : storedStatus;
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    // Cursor starts at idx 0 (the ticket). Press 'j' once to land on the (one) task below.
+    result.stdin.write('j');
+    await tick(40);
+    result.stdin.write('u');
+    // Give the async use case + reload a chance to settle.
+    await tick(80);
+    const frame = result.lastFrame() ?? '';
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.status).toBe('todo');
+    expect(frame).toContain('✓ unblocked');
+    expect(frame).toContain('wedged');
+    result.unmount();
+  });
+
+  it('u is a no-op when the focused card is a todo task (no use-case invocation)', async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const todoTask: Task = {
+      id: 'task-todo' as never,
+      name: 'fine',
+      status: 'todo',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 't1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const updateCalls: Task[] = [];
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([todoTask]);
+        },
+        async update(_sprintId: SprintId, task: Task) {
+          updateCalls.push(task);
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    result.stdin.write('j');
+    await tick(20);
+    result.stdin.write('u');
+    await tick(40);
+    expect(updateCalls).toHaveLength(0);
     result.unmount();
   });
 });

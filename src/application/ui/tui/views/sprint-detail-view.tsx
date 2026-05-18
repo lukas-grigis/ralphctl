@@ -54,6 +54,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
+import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 
 interface SprintDetailProps extends Readonly<Record<string, unknown>> {
   readonly sprintId: SprintId;
@@ -149,6 +150,9 @@ export const SprintDetailView = (): React.JSX.Element => {
   // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
   const ticketsEditable = sprint?.status === 'draft';
   const inDetail = openIdx !== undefined;
+  const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
+  const focusedBlockedTask =
+    focusedNow?.kind === 'task' && focusedNow.task.status === 'blocked' ? focusedNow.task : undefined;
 
   useViewHints(
     inDetail
@@ -158,6 +162,7 @@ export const SprintDetailView = (): React.JSX.Element => {
           { keys: '↵/o', label: 'open' },
           { keys: 'a', label: 'add ticket' },
           { keys: 'd', label: 'remove ticket' },
+          ...(focusedBlockedTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
         ]
   );
 
@@ -186,6 +191,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     if (input === 'd' && ticketsEditable) {
       const focused = focusList[Math.min(cursorIdx, focusList.length - 1)];
       if (focused?.kind === 'ticket') setConfirmRemove(focused.ticket);
+      return;
+    }
+    if (input === 'u' && focusedBlockedTask !== undefined) {
+      void handleUnblock(focusedBlockedTask);
     }
   });
 
@@ -202,6 +211,22 @@ export const SprintDetailView = (): React.JSX.Element => {
       return;
     }
     setFeedback(`✓ removed "${target.title}"`);
+    reload();
+  };
+
+  const handleUnblock = async (target: Task): Promise<void> => {
+    if (sprint === undefined) return;
+    const r = await unblockTaskUseCase({
+      task: target,
+      sprintId: sprint.id,
+      taskRepo: deps.taskRepo,
+      logger: deps.logger,
+    });
+    if (!r.ok) {
+      setFeedback(`✗ ${r.error.message}`);
+      return;
+    }
+    setFeedback(`✓ unblocked "${target.name}"`);
     reload();
   };
 

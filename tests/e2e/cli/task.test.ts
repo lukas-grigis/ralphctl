@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
-import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { markTaskBlocked } from '@src/domain/entity/task.ts';
+import { makeDraftSprint, makeDoneTask, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl task', () => {
@@ -66,6 +67,64 @@ describe('ralphctl task', () => {
       ]);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('error:');
+    });
+  });
+
+  describe('unblock <taskId>', () => {
+    it('flips a blocked task back to todo and persists', async () => {
+      const sprint = makeDraftSprint();
+      const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+      const blocked = markTaskBlocked(makeTodoTask({ name: 'wedged' }), 'flaky verify');
+      if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
+      await repo.saveAll(sprint.id, [blocked.value]);
+
+      const result = await runCliCaptured(cli, [
+        'task',
+        'unblock',
+        String(blocked.value.id),
+        '--sprint',
+        String(sprint.id),
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('unblocked task');
+      expect(result.stdout).toContain('wedged');
+
+      const reloaded = await repo.findById(sprint.id, blocked.value.id);
+      expect(reloaded.ok).toBe(true);
+      if (!reloaded.ok) return;
+      expect(reloaded.value.status).toBe('todo');
+    });
+
+    it('idempotent — already-todo task is a no-op success', async () => {
+      const sprint = makeDraftSprint();
+      const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+      const todo = makeTodoTask({ name: 'fine' });
+      await repo.saveAll(sprint.id, [todo]);
+
+      const result = await runCliCaptured(cli, ['task', 'unblock', String(todo.id), '--sprint', String(sprint.id)]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('unblocked task');
+    });
+
+    it('exits 1 when the task is done (cannot unblock a done task)', async () => {
+      const sprint = makeDraftSprint();
+      const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+      const done = makeDoneTask();
+      await repo.saveAll(sprint.id, [done]);
+
+      const result = await runCliCaptured(cli, ['task', 'unblock', String(done.id), '--sprint', String(sprint.id)]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('error:');
+    });
+
+    it('exits 1 on malformed task id', async () => {
+      const sprint = makeDraftSprint();
+      const result = await runCliCaptured(cli, ['task', 'unblock', 'nope', '--sprint', String(sprint.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('invalid task id');
     });
   });
 });
