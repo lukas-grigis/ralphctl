@@ -21,14 +21,7 @@ import type {
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import {
-  absolutePath,
-  FIXED_LATER,
-  makeDraftSprint,
-  makeExecution,
-  makePendingTicket,
-  makeProject,
-} from '@tests/fixtures/domain.ts';
+import { FIXED_LATER, makeDraftSprint, makeExecution, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -37,8 +30,6 @@ import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-term
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-
-const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current = initial;
@@ -201,7 +192,6 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
-      cwd: FAKE_CWD,
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });
@@ -232,7 +222,6 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
-      cwd: FAKE_CWD,
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });
@@ -270,7 +259,6 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
-      cwd: FAKE_CWD,
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });

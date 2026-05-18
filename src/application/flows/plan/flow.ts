@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
@@ -22,12 +23,12 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
   readonly projectId: ProjectId;
-  /** Working directory for the AI session — typically the repo root for codebase navigation. */
-  readonly cwd: AbsolutePath;
   /**
-   * Extra repo roots to mount alongside `cwd` so the planner can read across every repo on a
-   * multi-repo project without per-file approval prompts. Caller (the launcher) passes
-   * `project.repositories.map((r) => r.path)`; the adapter folds duplicates with `cwd`.
+   * Repo roots mounted as equal `--add-dir` sources so the planner can navigate every repo on
+   * a multi-repo project without per-file approval prompts. Caller (the launcher) passes
+   * `project.repositories.map((r) => r.path)`. No repo enjoys cwd privilege — the session's
+   * cwd is the per-sprint plan unit root, so no repo's `CLAUDE.md` / agents / `.mcp.json`
+   * auto-loads, and the planner treats every repo symmetrically.
    */
   readonly additionalRoots?: readonly AbsolutePath[];
   /** Configured model — `config.ai.<provider>.models.plan`. */
@@ -110,9 +111,21 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       {
         flowId: 'plan',
-        // Skills land in the AI session's cwd (the repo) — the provider-native conventions
-        // only auto-discover skills from cwd, not from `--add-dir` roots.
-        cwdPicker: () => opts.cwd,
+        // Skills land in the AI session's cwd — for plan that's the per-sprint plan unit root
+        // (`<sprintDir>/plan/<run-slug>/`), not any project repo. Plan mounts every repo as an
+        // equal `--add-dir` source; rooting the session in any one repo would auto-load that
+        // repo's `CLAUDE.md` / agents / `.mcp.json` and bias the planner toward it.
+        cwdPicker: (ctx) => {
+          if (ctx.currentUnitRoot === undefined) {
+            throw new InvalidStateError({
+              entity: 'chain',
+              currentState: 'pre-plan',
+              attemptedAction: 'install-skills',
+              message: 'install-skills: currentUnitRoot missing — build-plan-unit must run first',
+            });
+          }
+          return ctx.currentUnitRoot;
+        },
       }
     ),
     callPlannerInteractiveLeaf({
@@ -120,14 +133,28 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
       clock: deps.clock,
-      cwd: opts.cwd,
       model: opts.model,
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0
         ? { additionalRoots: opts.additionalRoots }
         : {}),
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
-    uninstallSkillsLeaf<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
+    uninstallSkillsLeaf<PlanCtx>(
+      { skillsAdapter: deps.skillsAdapter },
+      {
+        cwdPicker: (ctx) => {
+          if (ctx.currentUnitRoot === undefined) {
+            throw new InvalidStateError({
+              entity: 'chain',
+              currentState: 'pre-plan',
+              attemptedAction: 'uninstall-skills',
+              message: 'uninstall-skills: currentUnitRoot missing — build-plan-unit must run first',
+            });
+          }
+          return ctx.currentUnitRoot;
+        },
+      }
+    ),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
   ]);

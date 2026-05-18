@@ -193,7 +193,7 @@ fenced from business code by the layer rules.
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`.
 
-**AI sessions plug onto the repo (plan / implement / ideate).** Cwd is the user's repo (multi-repo flows
+**AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
 `--add-dir` so `prompt.md`, `done-criteria.md`, and `signals.json` round-trip through harness-controlled
 paths. Cwd is the repo because Claude / Copilot / Codex only auto-discover their context file
@@ -202,12 +202,14 @@ paths. Cwd is the repo because Claude / Copilot / Codex only auto-discover their
 Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-*/` and the skills adapter appends one
 wildcard line to `.git/info/exclude` on first install so they never appear in `git status` or `git add -A`.
 
-**Refine is the exception — its AI session runs in the per-ticket unit root.** Refinement is
-implementation-agnostic by design; rooting the session in the user's repo would auto-load that repo's
-`CLAUDE.md` / agents / `.mcp.json` and bias the AI toward implementation specifics, and would also
-pollute the repo with bundled skills. The session cwd is `<sprintDir>/refinement/<ticket-slug>/`
-instead. The repo path is still consulted at launch time to derive `defaultIssueOrigin` for the
-"update remote" reviewer option, but no AI session is rooted there.
+**Refine and plan are the exceptions — their AI sessions run in the per-sprint unit root.**
+Refine's session is rooted at `<sprintDir>/refinement/<ticket-slug>/`; plan's at
+`<sprintDir>/plan/<run-slug>/`. Rooting either in any one repo would auto-load that repo's `CLAUDE.md` /
+agents / `.mcp.json` and bias the AI toward implementation specifics (refine) or toward repositories[0]
+on a multi-repo project (plan); refine would also pollute the repo with bundled skills. Plan mounts
+**every** project repository as an equal `--add-dir` source — no repo enjoys cwd privilege, so the planner
+treats every repo symmetrically. Refine's repo path is still consulted at launch time to derive
+`defaultIssueOrigin` for the "update remote" reviewer option, but no AI session is rooted there.
 
 **Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
 bundled copy is skipped and the project copy is left untouched. The skills adapter
