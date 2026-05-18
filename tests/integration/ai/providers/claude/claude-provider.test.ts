@@ -237,28 +237,49 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(unwrapArgs(session({ permissions: READ_ONLY })).includes('-p')).toBe(true);
   });
 
-  it('maps full autoApprove + edit + shell to --permission-mode bypassPermissions', () => {
+  it('always emits --permission-mode bypassPermissions (deny rules carry the safety contract)', () => {
+    const fullAutoArgs = unwrapArgs(session({ permissions: FULL_AUTO }));
+    const readOnlyArgs = unwrapArgs(session({ permissions: READ_ONLY }));
+    expect(fullAutoArgs[fullAutoArgs.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
+    expect(readOnlyArgs[readOnlyArgs.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
+  });
+
+  it('omits --disallowedTools entirely for full-auto sessions (every gate is open)', () => {
     const args = unwrapArgs(session({ permissions: FULL_AUTO }));
-    const idx = args.indexOf('--permission-mode');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('bypassPermissions');
+    expect(args.includes('--disallowedTools')).toBe(false);
   });
 
-  it('maps read-only permissions to --permission-mode plan', () => {
+  it('read-only permissions deny Edit / Write / MultiEdit / NotebookEdit / Bash but keep Read / Grep / Glob open', () => {
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
-    const idx = args.indexOf('--permission-mode');
+    const idx = args.indexOf('--disallowedTools');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('plan');
+    const denied = (args[idx + 1] ?? '').split(',');
+    expect(denied).toEqual(expect.arrayContaining(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']));
+    expect(denied).not.toContain('Read');
+    expect(denied).not.toContain('Grep');
+    expect(denied).not.toContain('Glob');
   });
 
-  it('maps a half-permission set to plan mode (closest available)', () => {
+  it('half-permission set (edit-only, no shell, network OK) denies only Bash', () => {
     const args = unwrapArgs(
       session({
         permissions: { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false },
       })
     );
-    const idx = args.indexOf('--permission-mode');
-    expect(args[idx + 1]).toBe('plan');
+    const idx = args.indexOf('--disallowedTools');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect((args[idx + 1] ?? '').split(',')).toEqual(['Bash']);
+  });
+
+  it('canAccessNetwork=false adds WebFetch + WebSearch to the deny list', () => {
+    const args = unwrapArgs(
+      session({
+        permissions: { canEditFiles: false, canRunShell: false, canAccessNetwork: false, autoApprove: false },
+      })
+    );
+    const idx = args.indexOf('--disallowedTools');
+    const denied = (args[idx + 1] ?? '').split(',');
+    expect(denied).toEqual(expect.arrayContaining(['WebFetch', 'WebSearch']));
   });
 
   it('emits one --add-dir per additionalRoots entry, in declared order', () => {

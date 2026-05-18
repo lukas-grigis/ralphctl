@@ -17,6 +17,7 @@ export const launchDetectScripts = (ctx: LaunchContext): LaunchResult => {
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
       interactive: deps.interactive,
+      runsRoot: deps.storage.runsRoot,
     },
     {
       projectId: snapshot.project.id,

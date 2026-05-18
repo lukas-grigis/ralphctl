@@ -1,3 +1,4 @@
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -38,6 +39,13 @@ export interface DetectScriptsCtx {
      * on accept — the harness's post-task gate.
      */
     readonly proposedVerifyScript?: string;
+    /**
+     * Per-run forensic dir under `<dataRoot>/runs/detect-scripts/<run-id>/` holding the
+     * rendered `prompt.md` and (for providers that implement `bodyFile`, i.e. Claude today)
+     * the raw `body.txt`. Surfaced to the confirm leaf so an empty proposal can show the user
+     * what the AI actually emitted instead of leaving them with no context.
+     */
+    readonly runDir?: AbsolutePath;
   };
   readonly accepted?: boolean;
 }

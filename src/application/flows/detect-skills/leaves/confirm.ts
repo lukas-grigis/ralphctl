@@ -1,10 +1,12 @@
 import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
 
 export interface ConfirmDetectSkillsLeafDeps {
@@ -17,6 +19,8 @@ interface ConfirmInput {
     readonly proposedSetupSkill?: string;
     readonly proposedVerifySkill?: string;
   };
+  /** Per-run forensic dir. See {@link DetectSkillsCtx.proposal.runDir}. */
+  readonly runDir?: AbsolutePath;
 }
 
 interface ConfirmOutput {
@@ -33,6 +37,7 @@ interface ConfirmOutput {
 }
 
 type Decision = 'approve' | 'reject';
+type EmptyDecision = 'skip';
 
 /**
  * Render the proposed bodies as a preview (chunked + headed by source label) and ask
@@ -41,10 +46,11 @@ type Decision = 'approve' | 'reject';
  * worse UX than re-running the flow with a tighter prompt. The user can also tweak the
  * persisted skill via the storage file once it lands.
  *
- * Edge case — no proposed skills at all: short-circuit with `accepted: false`. We do NOT
- * offer manual entry here (unlike detect-scripts, where the user might want to type a
- * one-liner); writing a multi-paragraph skill from scratch in a single-line text prompt
- * is impractical, and a "no skill needed" answer from the AI is a valid outcome.
+ * Edge case — no proposed skills at all: show the AI's actual body inline (e.g. a permission
+ * request, a confused refusal) so the operator understands *why* nothing came back, then exit
+ * with `accepted: false`. Manual authoring is genuinely impractical for multi-paragraph skills,
+ * so the only action is acknowledge-and-skip; the run dir path is surfaced regardless so the
+ * operator can dig deeper. Mirrors the detect-scripts failsafe.
  */
 const confirmUseCase = async (
   deps: ConfirmDetectSkillsLeafDeps,
@@ -53,6 +59,25 @@ const confirmUseCase = async (
   const { proposedSetupSkill: nextSetup, proposedVerifySkill: nextVerify } = input.proposal;
 
   if (nextSetup === undefined && nextVerify === undefined) {
+    const bodyPreview =
+      input.runDir !== undefined
+        ? await readRunBodyPreview(input.runDir, {
+            truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
+          })
+        : undefined;
+    const header = `AI returned no skill proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
+    const promptLines: string[] = [header];
+    if (bodyPreview !== undefined) {
+      promptLines.push('', 'AI response:', bodyPreview);
+    } else if (input.runDir !== undefined) {
+      promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
+    }
+    promptLines.push('', 'Acknowledge and skip — the repository will be left untouched.');
+    const choices: ReadonlyArray<Choice<EmptyDecision>> = [
+      { label: 'Skip', value: 'skip', description: 'Continue without applying any skill.' },
+    ];
+    const decision = await deps.interactive.askChoice<EmptyDecision>(promptLines.join('\n'), choices);
+    if (!decision.ok) return Result.error(decision.error);
     return Result.ok({ accepted: false, proposal: {} });
   }
 
@@ -127,7 +152,16 @@ export const confirmDetectSkillsLeaf = (deps: ConfirmDetectSkillsLeafDeps): Elem
             ? { proposedVerifySkill: ctx.proposal.proposedVerifySkill }
             : {}),
         },
+        ...(ctx.proposal.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
       };
     },
-    output: (ctx, out) => ({ ...ctx, accepted: out.accepted, proposal: out.proposal }),
+    // Preserve the runDir produced by propose so the write leaf's logs can reference it.
+    output: (ctx, out) => ({
+      ...ctx,
+      accepted: out.accepted,
+      proposal: {
+        ...out.proposal,
+        ...(ctx.proposal?.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
+      },
+    }),
   });

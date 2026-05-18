@@ -13,6 +13,11 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
  *     data/                 ← root passed to persistence repositories
  *       projects/<id>.json
  *       sprints/<id>/{sprint,execution,tasks}.json
+ *       runs/<flow>/<run-id>/{prompt.md,body.txt}
+ *                            ← per-run forensic artifacts for non-sprint flows
+ *                              (detect-scripts today; readiness / detect-skills follow).
+ *                              Symmetric with the sprint chain.log idea — survives the run,
+ *                              user-managed lifecycle (rm -rf at will, no auto-GC).
  *     config/               ← reserved for later (settings, profiles)
  *     state/                ← ephemeral coordination state (locks, run metadata)
  *       locks/              ← advisory file locks (per-sprint and per-repository)
@@ -30,6 +35,7 @@ export const DATA_SUBDIR = 'data';
 export const CONFIG_SUBDIR = 'config';
 export const STATE_SUBDIR = 'state';
 export const LOCKS_SUBDIR = 'locks';
+export const RUNS_SUBDIR = 'runs';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
 
 export interface StoragePaths {
@@ -43,6 +49,12 @@ export interface StoragePaths {
   readonly stateRoot: AbsolutePath;
   /** `<appRoot>/state/locks` — advisory file locks. */
   readonly locksRoot: AbsolutePath;
+  /**
+   * `<dataRoot>/runs` — per-flow forensic artifacts for non-sprint flows (rendered prompt,
+   * raw AI response body). Sprint flows persist their own trace under `<dataRoot>/sprints/<id>/`;
+   * `runsRoot` covers the one-shot flows that previously left nothing on disk.
+   */
+  readonly runsRoot: AbsolutePath;
 }
 
 export interface ResolveStoragePathsDeps {
@@ -92,12 +104,15 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
   if (!stateRoot.ok) return Result.error(stateRoot.error);
   const locksRoot = AbsolutePath.parse(join(String(stateRoot.value), LOCKS_SUBDIR));
   if (!locksRoot.ok) return Result.error(locksRoot.error);
+  const runsRoot = AbsolutePath.parse(join(String(dataRoot.value), RUNS_SUBDIR));
+  if (!runsRoot.ok) return Result.error(runsRoot.error);
   return Result.ok({
     appRoot,
     dataRoot: dataRoot.value,
     configRoot: configRoot.value,
     stateRoot: stateRoot.value,
     locksRoot: locksRoot.value,
+    runsRoot: runsRoot.value,
   }) as Result<StoragePaths, ValidationError>;
 };
 
@@ -113,6 +128,7 @@ export const ensureStorageRoots = async (paths: StoragePaths): Promise<Result<vo
     String(paths.configRoot),
     String(paths.stateRoot),
     String(paths.locksRoot),
+    String(paths.runsRoot),
     join(String(paths.dataRoot), 'projects'),
     join(String(paths.dataRoot), 'sprints'),
   ];

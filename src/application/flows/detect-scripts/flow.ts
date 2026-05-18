@@ -56,6 +56,7 @@ export const createDetectScriptsFlow = (
       signals: deps.signals,
       logger: deps.logger,
       model: opts.model,
+      runsRoot: deps.runsRoot,
     }),
     confirmDetectScriptsLeaf({ interactive: deps.interactive }),
     writeDetectScriptsLeaf({ projectRepo: deps.projectRepo, logger: deps.logger }),

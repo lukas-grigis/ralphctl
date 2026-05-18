@@ -7,6 +7,30 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude headless permission mapping.** Read-only flows (`refine`, `plan`, `readiness`,
+  `detect-scripts`, `detect-skills`) previously mapped `READ_ONLY` to `--permission-mode plan`.
+  Recent Claude Code versions require interactive approval for _every_ tool under plan mode —
+  including Read / Grep / Glob — so headless `claude -p` sessions silently fell through with no
+  signals and the model emitted a human-facing "please grant read permission" body instead of
+  the expected harness tags. Operators saw an empty proposal at the confirm prompt with no
+  obvious diagnosis. Every headless session now runs under `--permission-mode bypassPermissions`
+  with a `--disallowedTools` deny list scoped to the configured `SessionPermissions`; Claude's
+  deny rules take precedence over bypass, so writes / shell / network stay blocked while reads
+  flow. No behavioural change for full-auto sessions.
+
+### Added
+
+- **Per-run forensic artifacts for one-shot flows.** `detect-scripts`, `detect-skills`, and
+  `readiness` now persist `<dataRoot>/runs/<flow>/<run-id>/{prompt.md,body.txt}` per AI call.
+  Artifacts survive after the chain exits — user-managed lifecycle (`rm -rf` at will, no auto-GC,
+  symmetric with `<sprintDir>/chain.log` for sprint flows). When the AI returns an empty proposal
+  the confirm leaf splices the raw body inline ("AI response: …") so a permission ask or
+  format slip is visible without leaving the TUI. `readiness` splices the same body into the
+  `ParseError` hint when the tool-specific wire tag is missing. Only the Claude provider
+  implements `bodyFile` today; Copilot / Codex no-op the field per the documented contract.
+
 ## [0.7.0] - 2026-05-17
 
 > **Structural rewrite.** Internal architecture, on-disk schema, data root, and several CLI commands

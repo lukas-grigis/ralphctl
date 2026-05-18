@@ -1,3 +1,4 @@
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { ReadinessProbeRegistry } from '@src/integration/ai/readiness/_engine/probe.ts';
@@ -36,4 +37,6 @@ export interface SetupReadinessDeps {
   readonly clock: () => IsoTimestamp;
   readonly skillsAdapter: SkillsAdapter;
   readonly skillSource: SkillSource;
+  /** `<dataRoot>/runs`; threaded to the propose leaf + engine for forensic artifact persistence. */
+  readonly runsRoot: AbsolutePath;
 }
