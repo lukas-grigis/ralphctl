@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -5,6 +6,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -20,6 +22,28 @@ import type {
 } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+
+/** Max chars of body.txt shown inline in the missing-tag error hint before truncation. */
+const BODY_PREVIEW_LIMIT = 800;
+
+/** Lexicographic-sortable run dir name; mirrors detect-scripts / detect-skills. */
+const buildRunDirName = (): string => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${stamp}-${suffix}`;
+};
+
+const readBodyPreview = async (bodyFile: AbsolutePath): Promise<string | undefined> => {
+  try {
+    const raw = await fs.readFile(String(bodyFile), 'utf8');
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return undefined;
+    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
+    return `${trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd()} […truncated]`;
+  } catch {
+    return undefined;
+  }
+};
 
 /**
  * Per-tool target path for the readiness artefact, relative to the repo root. Centralised so
@@ -56,10 +80,11 @@ export type BuildReadinessPromptFn = (input: {
 
 /**
  * Function-injection contract for the AiSession builder. The chain leaf owns the per-call
- * profile and supplies a closure that wraps the rendered prompt + signalsFile into the
- * chain's per-call profile; the use case stays profile-agnostic.
+ * profile and supplies a closure that wraps the rendered prompt + signalsFile (+ optional
+ * bodyFile for forensic capture) into the chain's per-call profile; the use case stays
+ * profile-agnostic.
  */
-export type BuildReadinessSessionFn = (prompt: Prompt, signalsFile: AbsolutePath) => AiSession;
+export type BuildReadinessSessionFn = (prompt: Prompt, signalsFile: AbsolutePath, bodyFile?: AbsolutePath) => AiSession;
 
 export interface SetupReadinessDeps {
   readonly provider: HeadlessAiProvider;
@@ -69,6 +94,13 @@ export interface SetupReadinessDeps {
   readonly buildSession: BuildReadinessSessionFn;
   readonly signals: HarnessSignalSink;
   readonly logger: Logger;
+  /**
+   * `<dataRoot>/runs`. The use case materialises `<runsRoot>/readiness/<run-id>/prompt.md` and
+   * (for Claude) `body.txt`. On a missing-wire-tag failure the body content is spliced into the
+   * ParseError hint so the operator sees the AI's actual response without leaving the chain
+   * trace. Sibling pattern to detect-scripts / detect-skills.
+   */
+  readonly runsRoot: AbsolutePath;
 }
 
 export interface SetupReadinessInput {
@@ -138,12 +170,27 @@ export const setupReadinessUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
+  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
+  if (!runDir.ok) return Result.error(runDir.error);
+  const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
+  if (!promptFile.ok) return Result.error(promptFile.error);
+  const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
+  if (!bodyFile.ok) return Result.error(bodyFile.error);
+
+  const promptWrote = await writeTextAtomic(String(promptFile.value), String(prompt.value));
+  if (!promptWrote.ok) return Result.error(promptWrote.error);
+
   return withSignalsTempPath('readiness', async (signalsFile) => {
-    const signals = await consumeSignals(deps.provider, deps.buildSession(prompt.value, signalsFile), deps.signals);
+    const signals = await consumeSignals(
+      deps.provider,
+      deps.buildSession(prompt.value, signalsFile, bodyFile.value),
+      deps.signals
+    );
     if (!signals.ok) {
       log.error(`provider failed for repo ${input.repository.name}`, {
         repositoryId: String(input.repository.id),
         error: signals.error.message,
+        runDir: String(runDir.value),
       });
       return Result.error(signals.error);
     }
@@ -153,13 +200,27 @@ export const setupReadinessUseCase = async (
       (s: HarnessSignal): s is AgentsMdProposalSignal => s.type === 'agents-md-proposal' && s.tag === expectedTag
     );
     if (proposal === undefined) {
+      // Surface the AI's actual response inline — when the wire tag is missing the operator
+      // most needs to see what the model said (often a permission ask, sometimes a markdown-
+      // fence slip). Run dir is also referenced so they can `cat body.txt` for the full body.
+      const bodyPreview = await readBodyPreview(bodyFile.value);
+      log.warn(`readiness: AI response missing <${expectedTag}> tag — inspect run dir for raw body`, {
+        repositoryId: String(input.repository.id),
+        runDir: String(runDir.value),
+      });
+      const hintLines: string[] = [
+        `the prompt asks for exactly one <${expectedTag}> tag with no surrounding markdown fence; ` +
+          `signals.json carried ${String(signals.value.length)} entries, none matching that tag`,
+        `run artifacts: ${String(runDir.value)}`,
+      ];
+      if (bodyPreview !== undefined) {
+        hintLines.push('', 'AI response:', bodyPreview);
+      }
       return Result.error(
         new ParseError({
           subCode: 'schema-mismatch',
           message: `readiness: AI response missing <${expectedTag}>…</${expectedTag}> block`,
-          hint:
-            `the prompt asks for exactly one <${expectedTag}> tag with no surrounding markdown fence; ` +
-            `signals.json carried ${String(signals.value.length)} entries, none matching that tag`,
+          hint: hintLines.join('\n'),
         })
       );
     }
@@ -180,6 +241,7 @@ export const setupReadinessUseCase = async (
       targetPath: String(targetPath.value),
       hasSetupScript: setupScript !== undefined,
       hasVerifyScript: verifyScript !== undefined,
+      runDir: String(runDir.value),
     });
 
     return Result.ok({

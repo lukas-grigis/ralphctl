@@ -66,6 +66,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       logger: deps.logger,
       cwd: opts.cwd,
       model: opts.model,
+      runsRoot: deps.runsRoot,
     }),
     uninstallSkillsLeaf<ReadinessCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     confirmReadinessLeaf({ interactive: deps.interactive }),

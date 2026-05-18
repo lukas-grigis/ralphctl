@@ -23,6 +23,7 @@ export const launchReadiness = (ctx: LaunchContext): LaunchResult => {
       clock: deps.app.clock,
       skillsAdapter,
       skillSource,
+      runsRoot: deps.storage.runsRoot,
     },
     {
       projectId: snapshot.project.id,

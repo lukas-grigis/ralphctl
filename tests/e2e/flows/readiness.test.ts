@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
@@ -114,11 +116,16 @@ const recordingWriteFile = (): { write: WriteFile; writes: Array<{ path: string;
 describe('createReadinessFlow', () => {
   let tmpDir: string;
   let repoPath: string;
+  let runsRoot: AbsolutePath;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp('/tmp/ralphctl-readiness-test-');
+    const raw = await fs.mkdtemp('/tmp/ralphctl-readiness-test-');
+    tmpDir = await realpath(raw);
     repoPath = join(tmpDir, 'repo-a');
     await fs.mkdir(repoPath, { recursive: true });
+    const parsed = AbsolutePath.parse(join(tmpDir, 'runs'));
+    if (!parsed.ok) throw new Error('AbsolutePath.parse failed for runs dir');
+    runsRoot = parsed.value;
   });
 
   afterEach(async () => {
@@ -175,6 +182,7 @@ describe('createReadinessFlow', () => {
         clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -264,6 +272,7 @@ describe('createReadinessFlow', () => {
         clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -317,6 +326,7 @@ describe('createReadinessFlow', () => {
         clock: () => PINNED,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -370,6 +380,7 @@ describe('createReadinessFlow', () => {
         clock: () => FIXED_NOW,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -386,16 +397,18 @@ describe('createReadinessFlow', () => {
     expect(writer.writes).toHaveLength(1);
   });
 
-  it('surfaces a ParseError when the AI omits the <claude-md> tag', async () => {
+  it('surfaces a ParseError when the AI omits the <claude-md> tag, with the raw body spliced into the error hint', async () => {
     const { project } = await buildScene();
     const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
 
+    // Permission-ask shape mirrors what the model actually emits when it can't read the repo —
+    // the failsafe must surface this text in the error hint so the operator sees what happened.
+    const permissionAskBody = 'I need read permission for /repo. Approve the prompt in the UI and I will continue.';
     const provider = createFakeAiProvider({
-      // No <claude-md> in the body — the use case must surface a ParseError.
-      responses: { readiness: 'no agents-md here, just commentary' },
+      responses: { readiness: permissionAskBody },
     });
 
     const interactive = scriptedInteractive({
@@ -417,6 +430,7 @@ describe('createReadinessFlow', () => {
         clock: () => FIXED_NOW,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -432,6 +446,13 @@ describe('createReadinessFlow', () => {
     const failed = runner.trace.find((e) => e.status === 'failed');
     expect(failed?.elementName).toBe('propose');
     expect(writer.writes).toHaveLength(0);
+
+    // Failsafe — the error must carry the AI's raw body so the operator sees the permission ask.
+    const err = failed?.error as { code?: string; hint?: string; message?: string } | undefined;
+    expect(err?.code).toBe('parse-error');
+    expect(err?.hint ?? '').toContain('AI response:');
+    expect(err?.hint ?? '').toContain('I need read permission');
+    expect(err?.hint ?? '').toContain('run artifacts:');
   });
 
   it('surfaces AI-proposed setup-script and verify-script on ctx.proposal', async () => {
@@ -475,6 +496,7 @@ describe('createReadinessFlow', () => {
         clock: () => FIXED_NOW,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );
@@ -521,6 +543,7 @@ describe('createReadinessFlow', () => {
         clock: () => FIXED_NOW,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        runsRoot,
       },
       { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
     );

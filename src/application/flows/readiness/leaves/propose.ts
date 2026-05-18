@@ -25,13 +25,15 @@ export const readinessSession = (
   cwd: AbsolutePath,
   prompt: Prompt,
   model: string,
-  signalsFile: AbsolutePath
+  signalsFile: AbsolutePath,
+  bodyFile?: AbsolutePath
 ): AiSession => ({
   prompt,
   cwd,
   model,
   permissions: READ_ONLY,
   signalsFile,
+  ...(bodyFile !== undefined ? { bodyFile } : {}),
 });
 
 export interface ProposeReadinessLeafDeps {
@@ -41,6 +43,8 @@ export interface ProposeReadinessLeafDeps {
   readonly logger: Logger;
   readonly cwd: AbsolutePath;
   readonly model: string;
+  /** `<dataRoot>/runs`; forwarded into the engine for artifact persistence. */
+  readonly runsRoot: AbsolutePath;
 }
 
 interface ProposeReadinessInput {
@@ -84,9 +88,11 @@ const proposeReadinessUseCase = async (
     {
       provider: deps.provider,
       buildPrompt: (params) => buildReadinessPrompt(deps.templateLoader, params),
-      buildSession: (prompt, signalsFile) => readinessSession(deps.cwd, prompt, deps.model, signalsFile),
+      buildSession: (prompt, signalsFile, bodyFile) =>
+        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile),
       signals: deps.signals,
       logger: deps.logger,
+      runsRoot: deps.runsRoot,
     },
     {
       repository: input.repository,
