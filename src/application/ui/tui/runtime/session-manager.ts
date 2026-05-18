@@ -38,7 +38,7 @@ export interface SessionDescriptor {
    */
   readonly plannedLeaves?: readonly string[];
   /**
-   * Name of the per-task subchain's final leaf (`'unlink-skills'` for the implement flow). When
+   * Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). When
    * the bucketing sees this leaf for a task id it flips the task to `completed`. Threaded from
    * the launcher so flows with a different terminal leaf — or future renames — don't break the
    * UI silently.

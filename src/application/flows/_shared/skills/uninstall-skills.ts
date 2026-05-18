@@ -1,5 +1,5 @@
 /**
- * `unlinkSkillsLeaf` — uninstall bundled skills the matching {@link linkSkillsLeaf} placed
+ * `uninstallSkillsLeaf` — uninstall bundled skills the matching {@link installSkillsLeaf} placed
  * into the sandbox.
  *
  * Idempotent: dispatching to an adapter that never saw an install (or has already been
@@ -13,19 +13,22 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
-export interface UnlinkSkillsDeps {
+export interface UninstallSkillsDeps {
   readonly skillsAdapter: SkillsAdapter;
 }
 
-export interface UnlinkSkillsOptions<TCtx> {
+export interface UninstallSkillsOptions<TCtx> {
   readonly name?: string;
-  /** Same picker as the matching `linkSkillsLeaf` — ensures install/uninstall target the
+  /** Same picker as the matching `installSkillsLeaf` — ensures install/uninstall target the
    * same sandbox even when the chain has multiple AI sub-sessions per run. */
   readonly cwdPicker: (ctx: TCtx) => AbsolutePath;
 }
 
-export const unlinkSkillsLeaf = <TCtx>(deps: UnlinkSkillsDeps, opts: UnlinkSkillsOptions<TCtx>): Element<TCtx> => {
-  const name = opts.name ?? 'unlink-skills';
+export const uninstallSkillsLeaf = <TCtx>(
+  deps: UninstallSkillsDeps,
+  opts: UninstallSkillsOptions<TCtx>
+): Element<TCtx> => {
+  const name = opts.name ?? 'uninstall-skills';
   return leaf<TCtx, { readonly cwd: AbsolutePath }, void>(name, {
     useCase: {
       execute: async (input) => deps.skillsAdapter.uninstall(input.cwd),

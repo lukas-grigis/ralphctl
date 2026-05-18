@@ -121,7 +121,7 @@ describe('ExecuteView', () => {
       title: 'Implement — Rounds',
       taskNames,
       maxTurns: 10,
-      terminalSubstepName: 'unlink-skills',
+      terminalSubstepName: 'uninstall-skills',
     });
 
     // Seed 5 generator entries — round counter should read 5.
@@ -146,7 +146,7 @@ describe('ExecuteView', () => {
     expect(traceArray.length).toBe(2);
     // Trigger a re-render by mutating something the descriptor exposes. Easiest:
     // emit another step-style change by pushing a different leaf.
-    traceArray.push({ elementName: `unlink-skills-${TASK}`, status: 'completed', durationMs: 1 });
+    traceArray.push({ elementName: `uninstall-skills-${TASK}`, status: 'completed', durationMs: 1 });
     // Force the descriptor to update so the view re-renders.
     // The session-manager subscribes to runner events; we can't easily fire one against the
     // fake runner. Re-render by re-registering a new sessions object isn't right either.

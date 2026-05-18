@@ -1,7 +1,7 @@
 /**
  * `createProjectSkillSource` — a {@link SkillSource} that materialises per-repository skills
  * stored on the {@link Project} aggregate. Pairs with the bundled source via
- * {@link composeSkillSources} so the same `linkSkillsLeaf` installs both flows of skills
+ * {@link composeSkillSources} so the same `installSkillsLeaf` installs both flows of skills
  * without each leaf having to know about the project.
  *
  * Each repository on the project may contribute up to two skills:

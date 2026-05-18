@@ -204,7 +204,7 @@ export const launchFlow = async (
 
   // Compose the static bundled skill source with a project-scoped source that emits per-repo
   // setup / verify skills authored via the detect-skills flow. The project-source closure reads
-  // through `snapshot.project` so every link-skills leaf during this chain run sees the latest
+  // through `snapshot.project` so every install-skills leaf during this chain run sees the latest
   // skills as of launch time. Flows that run without a project (none today) fall back cleanly
   // to bundled-only.
   const projectSource = createProjectSkillSource({ getProject: () => snapshot.project });

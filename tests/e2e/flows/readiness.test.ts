@@ -193,9 +193,9 @@ describe('createReadinessFlow', () => {
       'pick-repository',
       'pick-tool',
       'probe',
-      'link-skills',
+      'install-skills',
       'propose',
-      'unlink-skills',
+      'uninstall-skills',
       'confirm',
       'write',
     ]);

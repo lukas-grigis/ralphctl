@@ -11,8 +11,8 @@ import { pickToolLeaf } from '@src/application/flows/readiness/leaves/pick-tool.
 import { probeReadinessLeaf } from '@src/application/flows/readiness/leaves/probe.ts';
 import { proposeReadinessLeaf } from '@src/application/flows/readiness/leaves/propose.ts';
 import { writeReadinessLeaf } from '@src/application/flows/readiness/leaves/write.ts';
-import { linkSkillsLeaf } from '@src/application/flows/_shared/skills/link-skills.ts';
-import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-skills.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
@@ -55,7 +55,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
     ),
     pickToolLeaf({ interactive: deps.interactive }),
     probeReadinessLeaf({ probes: deps.probes, clock: deps.clock }),
-    linkSkillsLeaf<ReadinessCtx>(
+    installSkillsLeaf<ReadinessCtx>(
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       { flowId: 'readiness', cwdPicker: () => opts.cwd }
     ),
@@ -67,7 +67,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       cwd: opts.cwd,
       model: opts.model,
     }),
-    unlinkSkillsLeaf<ReadinessCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
+    uninstallSkillsLeaf<ReadinessCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     confirmReadinessLeaf({ interactive: deps.interactive }),
     writeReadinessLeaf({ writeFile: deps.writeFile, logger: deps.logger, clock: deps.clock }),
   ]);

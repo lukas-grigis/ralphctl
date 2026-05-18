@@ -33,8 +33,8 @@ import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
-import { linkSkillsLeaf } from '@src/application/flows/_shared/skills/link-skills.ts';
-import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-skills.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
 /**
  * Per-task subchain's terminal leaf — the leaf that marks "this task is fully settled" for the
@@ -44,7 +44,7 @@ import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-s
  * detection. Keep this in sync with the actual final element name returned from
  * `perTaskSubChain` below.
  */
-export const IMPLEMENT_TASK_TERMINAL_LEAF = 'unlink-skills';
+export const IMPLEMENT_TASK_TERMINAL_LEAF = 'uninstall-skills';
 
 /**
  * Per-repository execution config — path + the scripts the chain runs against that repo. The
@@ -111,13 +111,13 @@ export interface CreateImplementFlowOpts {
  *           sequential('task-<id>', [
  *             branch-preflight-<id>,       // halt if working tree drifted off the sprint branch
  *             build-task-workspace-<id>,
- *             link-skills-<id>,            // → <sprintDir>/implement/<task-id>/.claude/skills/
+ *             install-skills-<id>,         // → <sprintDir>/implement/<task-id>/.claude/skills/
  *             start-attempt-<id>,
  *             gen-eval-loop-<id>,
  *             commit-task-<id>,
  *             post-task-check,
  *             settle-attempt-<id>,
- *             unlink-skills-<id>,
+ *             uninstall-skills-<id>,
  *           ]),
  *           ...
  *         ]),
@@ -136,7 +136,7 @@ export interface CreateImplementFlowOpts {
  * Preflight rationale: the dirty-tree check is a precondition for the whole invocation, not for
  * each task. Between tasks the tree is clean (commit-task commits each task's work), so a
  * per-task check just re-asserts what's already known. Running preflight ONCE at the outer level
- * also lets `link-skills` materialise its files afterwards without tripping the check.
+ * also lets `install-skills` materialise its files afterwards without tripping the check.
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -218,7 +218,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   });
   const signalsBroadcast = broadcastSink<HarnessSignal>([deps.signals, progressSink]);
 
-  // `linkSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
+  // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
   // Pointing it at `repo.path` is what makes per-repo project skills, `.mcp.json`, and the
   // provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)
   // visible to the running AI — those are only auto-discovered from cwd, not from `--add-dir`
@@ -255,9 +255,9 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         },
         taskId
       ),
-      linkSkillsLeaf<ImplementCtx>(
+      installSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-        { name: `link-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
+        { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
       ),
       startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
@@ -306,7 +306,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { cwd: repo.path },
         taskId
       ),
-      unlinkSkillsLeaf<ImplementCtx>(
+      uninstallSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter },
         { name: `${IMPLEMENT_TASK_TERMINAL_LEAF}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
       ),

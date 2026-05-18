@@ -16,8 +16,8 @@ import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts'
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
-import { linkSkillsLeaf } from '@src/application/flows/_shared/skills/link-skills.ts';
-import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-skills.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
@@ -106,7 +106,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
       }
     ),
-    linkSkillsLeaf<PlanCtx>(
+    installSkillsLeaf<PlanCtx>(
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       {
         flowId: 'plan',
@@ -127,7 +127,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         : {}),
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
-    unlinkSkillsLeaf<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
+    uninstallSkillsLeaf<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
   ]);
