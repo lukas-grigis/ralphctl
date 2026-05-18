@@ -38,7 +38,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const signals: HarnessSignal[] = [note('2026-05-09T10:00:30.000Z')];
     const result = bucketTaskSignals(trace, events, signals);
@@ -50,7 +50,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
   it('attributes a signal at the exact startedAt boundary to the matching window', () => {
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
     const signals: HarnessSignal[] = [note('2026-05-09T10:00:00.000Z', 'at-start')];
@@ -62,7 +62,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
   it('attributes a signal at the exact endedAt boundary to the matching window', () => {
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
     const signals: HarnessSignal[] = [note('2026-05-09T10:01:00.000Z', 'at-end')];
@@ -85,7 +85,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
     // and there's no later task to inherit it — must orphan.
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
     const signals: HarnessSignal[] = [note('2026-05-09T10:01:30.000Z', 'after-task-1')];
@@ -96,9 +96,9 @@ describe('bucketTaskSignals — binary-search attribution', () => {
   it('routes signals to the right task across two non-overlapping windows', () => {
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
       stepCompleted(`build-task-workspace-${TASK2}`, '2026-05-09T10:02:00.000Z'),
-      stepCompleted(`unlink-skills-${TASK2}`, '2026-05-09T10:03:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK2}`, '2026-05-09T10:03:00.000Z'),
     ];
     const trace: Trace = [
       { elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 },
@@ -121,7 +121,7 @@ describe('bucketTaskSignals — status derivation', () => {
   it('flips a task to completed when the default terminal substep appears', () => {
     const trace: Trace = [
       { elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 },
-      { elementName: `unlink-skills-${TASK}`, status: 'completed', durationMs: 1 },
+      { elementName: `uninstall-skills-${TASK}`, status: 'completed', durationMs: 1 },
     ];
     const result = bucketTaskSignals(trace, [], []);
     expect(result.tasks[0]?.status).toBe('completed');
@@ -130,7 +130,7 @@ describe('bucketTaskSignals — status derivation', () => {
   it('respects a custom terminalSubstepName when the flow uses a different terminal leaf', () => {
     const trace: Trace = [
       { elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 },
-      { elementName: `unlink-skills-${TASK}`, status: 'completed', durationMs: 1 },
+      { elementName: `uninstall-skills-${TASK}`, status: 'completed', durationMs: 1 },
       { elementName: `custom-final-${TASK}`, status: 'completed', durationMs: 1 },
     ];
     const result = bucketTaskSignals(trace, [], [], { terminalSubstepName: 'custom-final' });
@@ -146,7 +146,7 @@ describe('bucketTaskSignals — status derivation', () => {
   it('lets a failed substep override a later completed terminal substep', () => {
     const trace: Trace = [
       { elementName: `generator-${TASK}`, status: 'failed', durationMs: 1 },
-      { elementName: `unlink-skills-${TASK}`, status: 'completed', durationMs: 1 },
+      { elementName: `uninstall-skills-${TASK}`, status: 'completed', durationMs: 1 },
     ];
     const result = bucketTaskSignals(trace, [], []);
     expect(result.tasks[0]?.status).toBe('failed');

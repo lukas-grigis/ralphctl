@@ -1,9 +1,9 @@
 /**
- * `linkSkillsLeaf` — install bundled skills into the AI session's sandbox before the session
+ * `installSkillsLeaf` — install bundled skills into the AI session's sandbox before the session
  * runs.
  *
- * Pairs with {@link unlinkSkillsLeaf}. The flow brackets every AI step with
- * `link → … → unlink`; both leaves dispatch through the wired {@link SkillsAdapter}, which
+ * Pairs with {@link uninstallSkillsLeaf}. The flow brackets every AI step with
+ * `install → … → uninstall`; both leaves dispatch through the wired {@link SkillsAdapter}, which
  * is provider-aware (Claude writes to `.claude/skills/`, Copilot / Codex log + no-op).
  *
  * The leaf does not throw if the skill source has no skills configured for the flow — an
@@ -23,12 +23,12 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 
-export interface LinkSkillsDeps {
+export interface InstallSkillsDeps {
   readonly skillsAdapter: SkillsAdapter;
   readonly skillSource: SkillSource;
 }
 
-export interface LinkSkillsOptions<TCtx> {
+export interface InstallSkillsOptions<TCtx> {
   readonly name?: string;
   readonly flowId: FlowId;
   /** Project the chain context to the AI session's cwd. Throws if the upstream leaves haven't
@@ -36,8 +36,8 @@ export interface LinkSkillsOptions<TCtx> {
   readonly cwdPicker: (ctx: TCtx) => AbsolutePath;
 }
 
-export const linkSkillsLeaf = <TCtx>(deps: LinkSkillsDeps, opts: LinkSkillsOptions<TCtx>): Element<TCtx> => {
-  const name = opts.name ?? 'link-skills';
+export const installSkillsLeaf = <TCtx>(deps: InstallSkillsDeps, opts: InstallSkillsOptions<TCtx>): Element<TCtx> => {
+  const name = opts.name ?? 'install-skills';
   return leaf<TCtx, { readonly cwd: AbsolutePath }, void>(name, {
     useCase: {
       async execute(input): Promise<Result<void, DomainError>> {

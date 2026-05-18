@@ -1,5 +1,5 @@
 ---
-name: abstraction-first
+name: ralphctl-abstraction-first
 description: Cross-phase skill — design the shape of the change (entities, boundaries, seams) before generating code, tasks, or acceptance criteria. Failure mode is "big blob" output that obscures the core change.
 ---
 

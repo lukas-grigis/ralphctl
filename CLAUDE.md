@@ -193,10 +193,14 @@ fenced from business code by the layer rules.
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`.
 
-**AI sessions run in sandbox folders** under `<sprintDir>/<flow>/<unit-slug>/`. The `refine` / `plan` /
-`ideate` / `implement` flows pre-stage `prompt.md`, the provider-native context file, bundled skills, and
-contract files there. Affected repos are exposed via `--add-dir` (Claude) or mirrored under `<unit>/repos/`
-(Copilot / Codex). Never run an AI session in a user repo — the sandbox keeps writes auditable.
+**AI sessions plug onto the repo.** Cwd is the user's repo (multi-repo flows pick `repositories[0]`);
+the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via `--add-dir` so `prompt.md`,
+`done-criteria.md`, and `signals.json` round-trip through harness-controlled paths. Cwd is the repo because
+Claude / Copilot / Codex only auto-discover their context file (`CLAUDE.md` / `.github/copilot-instructions.md`
+/ `AGENTS.md`), skills (`.claude/skills/` / `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json`
+from cwd — not from `--add-dir` roots. Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-*/`
+and the skills adapter appends one wildcard line to `.git/info/exclude` on first install so they never appear
+in `git status` or `git add -A`.
 
 **Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
 bundled copy is skipped and the project copy is left untouched. The skills adapter

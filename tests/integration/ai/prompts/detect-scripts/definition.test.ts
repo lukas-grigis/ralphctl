@@ -86,7 +86,9 @@ describe('detect-scripts template — detection guidance', () => {
 
   it('instructs the AI to read coding-agent context files first', async () => {
     const body = await renderedBody();
-    expect(body).toMatch(/Read project context first/i);
+    // The constraint block must explicitly position coding-agent context files as the primary
+    // (strongest) evidence source — before manifests.
+    expect(body).toMatch(/Coding-agent context files are the strongest evidence/i);
     // The two canonical coding-agent context filenames must be named explicitly.
     expect(body).toMatch(/CLAUDE\.md/);
     expect(body).toMatch(/AGENTS\.md/);
@@ -94,10 +96,11 @@ describe('detect-scripts template — detection guidance', () => {
 
   it('treats a coding-agent context file as valid standalone evidence', async () => {
     const body = await renderedBody();
-    // The evidence rule must explicitly allow a context file as standalone evidence — without
-    // this carve-out the AI can only cite manifest files and would dismiss `CLAUDE.md`-stated
-    // commands as inferred guesses.
-    expect(body).toMatch(/coding-agent context file.*valid evidence on its own/i);
+    // The constraint block must explicitly elevate context files over manifest inference —
+    // without this the AI dismisses CLAUDE.md-stated commands as inferred guesses.
+    expect(body).toMatch(/lift it verbatim/i);
+    // Must also instruct the AI to prefer context files over manifest inference.
+    expect(body).toMatch(/Prefer this over any inference from manifest/i);
   });
 
   it('does not bias the scope toward a specific stack family', async () => {
@@ -130,13 +133,15 @@ describe('detect-scripts template — detection guidance', () => {
     const body = await renderedBody();
     expect(body).toMatch(/read-only/i);
     expect(body).toMatch(/Do not modify the working tree/);
-    expect(body).toMatch(/do not run commands/i);
+    // "do not run commands" may span a soft line-wrap in the template source.
+    expect(body).toMatch(/do not run[\s\S]{0,5}commands/i);
   });
 
   it('mandates an evidence-or-omit rule on every proposed command', async () => {
     const body = await renderedBody();
-    expect(body).toMatch(/Evidence rule/);
-    expect(body).toMatch(/omit the tag entirely/i);
-    expect(body).toMatch(/guessing is worse than silence/i);
+    // The template must state explicitly when to emit vs omit — framed as "emit when
+    // documented, omit when silent" rather than a blanket silence-is-safer rule.
+    expect(body).toMatch(/Emit when documented, omit when silent/i);
+    expect(body).toMatch(/omit.*when the project.*files are silent/i);
   });
 });

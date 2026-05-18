@@ -134,8 +134,10 @@ Status flow: `draft → active → review → done`.
 - [ ] **Exponential backoff** — rate-limit retries use `rate-limit-backoff.ts` (`integration/ai/providers/_engine/`).
 - [ ] **Interactive variant** — `InteractiveAiProvider` hands over the terminal (alt-screen swap to the AI's
       own UI); the TUI restores its alt-screen state on the way back.
-- [ ] **Bundled skills** — `linkSkillsLeaf` / `unlinkSkillsLeaf` bracket every AI session that benefits from
-      defaults. Project skills always win over bundled ones. Adapter is no-op for Codex / Copilot today.
+- [ ] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
+      from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
+      single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
+      Adapter is no-op for Codex / Copilot today.
 - [ ] **Provider-native context file** — `readiness` flow writes `CLAUDE.md` (Claude),
       `.github/copilot-instructions.md` (Copilot), or `AGENTS.md` (Codex) based on `settings.ai.provider`.
 

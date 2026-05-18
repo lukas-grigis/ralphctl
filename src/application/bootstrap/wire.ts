@@ -266,7 +266,7 @@ export const wire = (opts: WireOptions): AppDeps => {
       currentVersion: CLI_METADATA.currentVersion,
       packageName: CLI_METADATA.packageName,
     }),
-    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider }),
+    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
   };
 };

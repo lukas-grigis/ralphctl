@@ -15,8 +15,8 @@ import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
-import { linkSkillsLeaf } from '@src/application/flows/_shared/skills/link-skills.ts';
-import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-skills.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
 export interface CreateIdeateFlowOpts {
   readonly sprintId: SprintId;
@@ -97,14 +97,13 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
       }
     ),
-    linkSkillsLeaf<IdeateCtx>(
+    installSkillsLeaf<IdeateCtx>(
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       {
         flowId: 'ideate',
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
+        // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+        // only auto-discover skills from cwd, not from `--add-dir` roots.
+        cwdPicker: () => opts.cwd,
       }
     ),
     ideateAndPlanLeaf({
@@ -113,15 +112,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       logger: deps.logger,
       model: opts.model,
     }),
-    unlinkSkillsLeaf<IdeateCtx>(
-      { skillsAdapter: deps.skillsAdapter },
-      {
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          return ctx.currentUnitRoot;
-        },
-      }
-    ),
+    uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
   ]);

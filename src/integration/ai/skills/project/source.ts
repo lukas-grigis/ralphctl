@@ -1,7 +1,7 @@
 /**
  * `createProjectSkillSource` — a {@link SkillSource} that materialises per-repository skills
  * stored on the {@link Project} aggregate. Pairs with the bundled source via
- * {@link composeSkillSources} so the same `linkSkillsLeaf` installs both flows of skills
+ * {@link composeSkillSources} so the same `installSkillsLeaf` installs both flows of skills
  * without each leaf having to know about the project.
  *
  * Each repository on the project may contribute up to two skills:
@@ -9,7 +9,10 @@
  *  - `verify` → from `Repository.verifySkill` (if set)
  *
  * Skill names are namespaced per repository so two repos with their own setup skills don't
- * collide in `<sessionDir>/.claude/skills/<name>/`: `<repo-slug>-setup`, `<repo-slug>-verify`.
+ * collide in `<sessionDir>/.claude/skills/<name>/`: `ralphctl-<repo-slug>-setup`,
+ * `ralphctl-<repo-slug>-verify`. The `ralphctl-` prefix lets the wildcard exclude in
+ * `.git/info/exclude` (`<parentDir>/skills/ralphctl-*`) hide these from `git status`
+ * alongside the bundled skills.
  *
  * The source is project-aware but flow-agnostic — every flow that links skills installs the
  * same set. Reason: setup + verify guidance is load-bearing across refine (understand the
@@ -38,14 +41,14 @@ const projectSkillsFor = (project: Project): readonly Skill[] => {
   for (const repo of project.repositories) {
     if (repo.setupSkill !== undefined && repo.setupSkill.trim().length > 0) {
       skills.push({
-        name: `${String(repo.slug)}-setup`,
+        name: `ralphctl-${String(repo.slug)}-setup`,
         description: `Setup guidance for ${repo.name}: how to prepare the working tree at sprint start.`,
         content: `# Setup — ${repo.name}\n\n${repo.setupSkill}`,
       });
     }
     if (repo.verifySkill !== undefined && repo.verifySkill.trim().length > 0) {
       skills.push({
-        name: `${String(repo.slug)}-verify`,
+        name: `ralphctl-${String(repo.slug)}-verify`,
         description: `Verify guidance for ${repo.name}: how to interpret the post-task verification gate.`,
         content: `# Verify — ${repo.name}\n\n${repo.verifySkill}`,
       });

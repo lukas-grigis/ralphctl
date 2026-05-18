@@ -20,11 +20,11 @@ export type FlowId = 'refine' | 'plan' | 'implement' | 'readiness' | 'ideate';
 
 /** Skill ids referenced below — must each exist as `src/ai/skills/bundled/<id>/SKILL.md`. */
 export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
-  refine: ['alignment', 'iterative-review', 'abstraction-first'],
-  plan: ['alignment', 'iterative-review', 'abstraction-first'],
-  implement: ['alignment', 'iterative-review', 'abstraction-first'],
-  readiness: ['alignment', 'iterative-review', 'abstraction-first'],
-  ideate: ['alignment', 'iterative-review', 'abstraction-first'],
+  refine: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
+  plan: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
+  implement: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
+  readiness: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
+  ideate: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
 };
 
 /** Type-safe lookup. Returns the configured skill ids or an empty list. */

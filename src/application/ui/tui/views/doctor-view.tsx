@@ -4,23 +4,23 @@
  *
  * Probes are bucketed by their `group` field and rendered under section headers. Probes
  * without a group fall under a "General" section.
+ *
+ * The view reads the doctor report from {@link useSystemStatus} so the StatusBar footer and
+ * the view share a single source of truth — pressing `r` here also refreshes the footer's
+ * "X doctor warnings" indicator.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
 import type { ProbeGroup, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
-import { commandExists } from '@src/integration/io/command-exists.ts';
-import { runCommand } from '@src/integration/io/run-command.ts';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
 const GROUP_ORDER: ReadonlyArray<ProbeGroup | 'other'> = [
@@ -46,43 +46,36 @@ const GROUP_LABEL: Record<ProbeGroup | 'other', string> = {
 };
 
 export const DoctorView = (): React.JSX.Element => {
-  const deps = useDeps();
-  const storage = useStorage();
   const ui = useUiState();
-  const [results, setResults] = useState<readonly ProbeResult[] | undefined>(undefined);
+  const system = useSystemStatus();
+  const results = system.doctor?.probes;
   useViewHints([{ keys: 'r', label: 'reload' }]);
 
-  const runProbes = useCallback(async (): Promise<void> => {
-    setResults(undefined);
-    const flow = createDoctorFlow({
-      projectRepo: deps.projectRepo,
-      sprintRepo: deps.sprintRepo,
-      sprintExecutionRepo: deps.sprintExecutionRepo,
-      settingsRepo: deps.settingsRepo,
-      commandExists,
-      runCommand,
-      nodeVersion: process.version,
-    });
-    const report = await flow.execute({
-      input: { dataRoot: storage.dataRoot, configRoot: storage.configRoot },
-    });
-    if (report.ok) setResults(report.value.ctx.output!.probes);
-  }, [deps, storage]);
-
+  // Trigger a refresh on first mount when the shared provider hasn't auto-fired yet (e.g. the
+  // test-env gate suppressed the boot-time probe). A ref guards against re-firing if the
+  // refreshDoctor callback identity changes mid-life. Explicit re-runs go through the `r`
+  // keybind below.
+  const refreshDoctor = system.refreshDoctor;
+  const triggered = React.useRef(false);
   useEffect(() => {
-    void runProbes();
-  }, [runProbes]);
+    if (triggered.current) return;
+    if (results !== undefined || system.doctorLoading) return;
+    triggered.current = true;
+    void refreshDoctor();
+  }, [refreshDoctor, results, system.doctorLoading]);
 
   useInput((input) => {
     if (ui.helpOpen || ui.promptActive) return;
-    if (input === 'r') void runProbes();
+    if (input === 'r') void system.refreshDoctor();
   });
+
+  const showSpinner = system.doctorLoading || results === undefined;
 
   return (
     <ViewShell title="Doctor" subtitle="sanity probes">
       {ui.helpOpen ? (
         <HelpOverlay />
-      ) : results === undefined ? (
+      ) : showSpinner ? (
         <Box paddingX={spacing.indent}>
           <Spinner label="Running probes…" />
         </Box>

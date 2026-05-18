@@ -1,5 +1,5 @@
 ---
-name: iterative-review
+name: ralphctl-iterative-review
 description: Cross-phase skill — treat AI output as a controlled feedback loop, not a one-shot generation. Run the cheap check after each meaningful change; re-read your own output before signalling completion.
 ---
 

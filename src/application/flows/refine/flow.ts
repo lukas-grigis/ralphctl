@@ -15,8 +15,8 @@ import type { RefineDeps } from '@src/application/flows/refine/deps.ts';
 import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
 import { refineTicketInteractiveLeaf } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
 import { buildRefinePrompt } from '@src/integration/ai/prompts/refine/definition.ts';
-import { linkSkillsLeaf } from '@src/application/flows/_shared/skills/link-skills.ts';
-import { unlinkSkillsLeaf } from '@src/application/flows/_shared/skills/unlink-skills.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
 export interface CreateRefineFlowOpts {
   readonly sprintId: SprintId;
@@ -113,15 +113,14 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
         }
       ),
-      linkSkillsLeaf<RefineCtx>(
+      installSkillsLeaf<RefineCtx>(
         { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
         {
-          name: `link-skills-${String(ticket.id)}`,
+          name: `install-skills-${String(ticket.id)}`,
           flowId: 'refine',
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            return ctx.currentUnitRoot;
-          },
+          // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+          // only auto-discover skills from cwd, not from `--add-dir` roots.
+          cwdPicker: () => opts.cwd,
         }
       ),
       refineTicketInteractiveLeaf(
@@ -137,15 +136,9 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         },
         ticket
       ),
-      unlinkSkillsLeaf<RefineCtx>(
+      uninstallSkillsLeaf<RefineCtx>(
         { skillsAdapter: deps.skillsAdapter },
-        {
-          name: `unlink-skills-${String(ticket.id)}`,
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            return ctx.currentUnitRoot;
-          },
-        }
+        { name: `uninstall-skills-${String(ticket.id)}`, cwdPicker: () => opts.cwd }
       ),
       saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${String(ticket.id)}`),
     ])

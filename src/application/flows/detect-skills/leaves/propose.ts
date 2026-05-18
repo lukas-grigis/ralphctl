@@ -14,7 +14,8 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildDetectSkillsPrompt } from '@src/integration/ai/prompts/detect-skills/definition.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
-import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { withSignalsTempPath, allocSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { removeFile } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
@@ -24,13 +25,15 @@ export const detectSkillsSession = (
   repository: Repository,
   prompt: Prompt,
   model: string,
-  signalsFile: AbsolutePath
+  signalsFile: AbsolutePath,
+  bodyFile?: AbsolutePath
 ): AiSession => ({
   prompt,
   cwd: repository.path,
   model,
   permissions: READ_ONLY,
   signalsFile,
+  ...(bodyFile !== undefined ? { bodyFile } : {}),
 });
 
 export interface ProposeDetectSkillsLeafDeps {
@@ -73,40 +76,60 @@ const proposeUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  return withSignalsTempPath('detect-skills', async (signalsFile) => {
-    const signals = await consumeSignals(
-      deps.provider,
-      detectSkillsSession(input.repository, prompt.value, deps.model, signalsFile),
-      deps.signals
-    );
-    if (!signals.ok) {
-      log.error(`provider failed for repo ${input.repository.name}`, {
+  // Allocate a sibling body file for diagnostic capture. When the AI returns no proposals,
+  // the operator can inspect this file to see what the assistant actually emitted.
+  // Only the Claude adapter implements bodyFile; other adapters silently no-op.
+  const bodyPathResult = allocSignalsTempPath('detect-skills-body');
+  const bodyFile = bodyPathResult.ok ? bodyPathResult.value : undefined;
+
+  try {
+    return await withSignalsTempPath('detect-skills', async (signalsFile) => {
+      const signals = await consumeSignals(
+        deps.provider,
+        detectSkillsSession(input.repository, prompt.value, deps.model, signalsFile, bodyFile),
+        deps.signals
+      );
+      if (!signals.ok) {
+        log.error(`provider failed for repo ${input.repository.name}`, {
+          repositoryId: String(input.repository.id),
+          error: signals.error.message,
+        });
+        return Result.error(signals.error);
+      }
+
+      const setupSkill = signals.value.find(
+        (s: HarnessSignal): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal'
+      )?.content;
+      const verifySkill = signals.value.find(
+        (s: HarnessSignal): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal'
+      )?.content;
+
+      if (setupSkill === undefined && verifySkill === undefined && bodyFile !== undefined) {
+        log.debug(`AI returned no proposals for repo ${input.repository.name} — inspect body file for raw response`, {
+          repositoryId: String(input.repository.id),
+          bodyFile: String(bodyFile),
+        });
+      }
+
+      log.info(`proposal ready for repo ${input.repository.name}`, {
         repositoryId: String(input.repository.id),
-        error: signals.error.message,
+        hasSetupSkill: setupSkill !== undefined,
+        hasVerifySkill: verifySkill !== undefined,
+        setupLength: setupSkill?.length ?? 0,
+        verifyLength: verifySkill?.length ?? 0,
       });
-      return Result.error(signals.error);
+
+      return Result.ok({
+        ...(setupSkill !== undefined ? { proposedSetupSkill: setupSkill } : {}),
+        ...(verifySkill !== undefined ? { proposedVerifySkill: verifySkill } : {}),
+      });
+    });
+  } finally {
+    // Best-effort cleanup of the diagnostic body file. Orphan tempfiles are bounded by os.tmpdir() rotation.
+    if (bodyFile !== undefined) {
+      await removeFile(String(bodyFile));
     }
-
-    const setupSkill = signals.value.find(
-      (s: HarnessSignal): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal'
-    )?.content;
-    const verifySkill = signals.value.find(
-      (s: HarnessSignal): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal'
-    )?.content;
-
-    log.info(`proposal ready for repo ${input.repository.name}`, {
-      repositoryId: String(input.repository.id),
-      hasSetupSkill: setupSkill !== undefined,
-      hasVerifySkill: verifySkill !== undefined,
-      setupLength: setupSkill?.length ?? 0,
-      verifyLength: verifySkill?.length ?? 0,
-    });
-
-    return Result.ok({
-      ...(setupSkill !== undefined ? { proposedSetupSkill: setupSkill } : {}),
-      ...(verifySkill !== undefined ? { proposedVerifySkill: verifySkill } : {}),
-    });
-  });
+  }
 };
 
 export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Element<DetectSkillsCtx> =>

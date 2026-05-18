@@ -8,6 +8,7 @@
  * skills adapters, which only differ in `parentDir` and the convention text.
  */
 
+import type { Logger } from '@src/business/observability/logger.ts';
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
@@ -18,9 +19,14 @@ const CONVENTION = [
   'whose `name` or `description` hints at sprint setup or post-task verification.',
 ].join(' ');
 
-export const createClaudeSkillsAdapter = (): SkillsAdapter =>
+export interface CreateClaudeSkillsAdapterDeps {
+  readonly logger?: Logger;
+}
+
+export const createClaudeSkillsAdapter = (deps: CreateClaudeSkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'claude-code',
     parentDir: '.claude',
     convention: CONVENTION,
+    ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });

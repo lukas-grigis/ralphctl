@@ -49,7 +49,11 @@ describe('createProjectSkillSource', () => {
     if (!r.ok) return;
     expect(r.value).toHaveLength(3);
     const names = r.value.map((s) => s.name);
-    expect(names).toEqual([`${String(a.slug)}-setup`, `${String(b.slug)}-setup`, `${String(b.slug)}-verify`]);
+    expect(names).toEqual([
+      `ralphctl-${String(a.slug)}-setup`,
+      `ralphctl-${String(b.slug)}-setup`,
+      `ralphctl-${String(b.slug)}-verify`,
+    ]);
     expect(r.value[0]!.content).toContain('# Setup — api');
     expect(r.value[0]!.content).toContain(SETUP_BODY);
     expect(r.value[2]!.content).toContain('# Verify — web-ui');

@@ -45,4 +45,16 @@ export interface AiSession {
    * regardless of which custom tags they consume.
    */
   readonly signalsFile: AbsolutePath;
+  /**
+   * Optional path where the provider mirrors the raw assistant response body (plain text).
+   * Intended for diagnostic use in one-shot flows (detect-scripts, detect-skills) where an
+   * empty signal set may mean the AI responded but emitted no recognised tags. When set,
+   * the body is written here after `signalsFile` is written; the file is owned and cleaned
+   * up by the caller. Adapters that do not support this field MUST silently ignore it —
+   * never surface an error for an unset optional diagnostic path.
+   *
+   * Only the Claude adapter currently implements this field. Copilot and Codex support is
+   * deferred; they will silently no-op when `bodyFile` is present.
+   */
+  readonly bodyFile?: AbsolutePath;
 }

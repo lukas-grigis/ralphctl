@@ -18,8 +18,8 @@
  * per-task substep trace alone:
  *
  *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
- *  - last expected substep (`unlink-skills-<id>`) recorded → `completed`
- *  - any substep recorded, but not yet `unlink-skills` → `running`
+ *  - last expected substep (`uninstall-skills-<id>`) recorded → `completed`
+ *  - any substep recorded, but not yet `uninstall-skills` → `running`
  *  - no substeps recorded → `pending`
  *
  * The function is pure and total — empty inputs yield `{ tasks: [], orphanSignals: [] }`.
@@ -46,7 +46,7 @@ export const isPerTaskLeaf = (name: string): boolean => TOP_LEVEL_TASK_REGEX.tes
  * overall status flips to `completed`. Matches the implement flow. Flows with a different
  * terminal leaf override via {@link BucketOptions.terminalSubstepName}.
  */
-const DEFAULT_TERMINAL_SUBSTEP = 'unlink-skills';
+const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
 
 export type TaskBucketStatus = TraceStatus | 'running' | 'pending';
 
@@ -258,7 +258,7 @@ export interface BucketOptions {
   readonly maxTurns?: number;
   /**
    * Name of the per-task subchain's final leaf — when it appears in the trace the task flips to
-   * `completed`. Defaults to `'unlink-skills'` (the implement flow's terminal leaf). Decoupling
+   * `completed`. Defaults to `'uninstall-skills'` (the implement flow's terminal leaf). Decoupling
    * this from a hard-coded constant means a flow that renames its terminal leaf can override
    * via the launcher without breaking the UI.
    */

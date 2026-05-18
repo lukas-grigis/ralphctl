@@ -111,3 +111,42 @@ describe('createClaudeSkillsAdapter — install / uninstall', () => {
     expect(existsSync(join(String(session), '.claude/CLAUDE.md'))).toBe(true);
   });
 });
+
+describe('createClaudeSkillsAdapter — .git/info/exclude wildcard', () => {
+  it('appends the .claude/skills/ralphctl-* line on first install', async () => {
+    const session = await makeSession();
+    await mkdir(join(String(session), '.git/info'), { recursive: true });
+    await writeFile(join(String(session), '.git/info/exclude'), '# default\n', 'utf-8');
+
+    const adapter = createClaudeSkillsAdapter();
+    await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
+
+    const content = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
+    expect(content).toContain('.claude/skills/ralphctl-*');
+  });
+
+  it('does not duplicate the wildcard on repeated installs', async () => {
+    const session = await makeSession();
+    await mkdir(join(String(session), '.git/info'), { recursive: true });
+    await writeFile(join(String(session), '.git/info/exclude'), '', 'utf-8');
+
+    const adapter = createClaudeSkillsAdapter();
+    await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
+    await adapter.install(session, [skill('ralphctl-iterative-review', '# B')]);
+
+    const content = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
+    const matches = content.split('\n').filter((l) => l.trim() === '.claude/skills/ralphctl-*');
+    expect(matches).toHaveLength(1);
+  });
+
+  it('install proceeds when .git is missing (non-git working tree)', async () => {
+    const session = await makeSession();
+    const adapter = createClaudeSkillsAdapter();
+    const result = await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
+    expect(result.ok).toBe(true);
+
+    const installed = await readFile(join(String(session), '.claude/skills/ralphctl-alignment/SKILL.md'), 'utf-8');
+    expect(installed).toContain('# A');
+    expect(existsSync(join(String(session), '.git'))).toBe(false);
+  });
+});

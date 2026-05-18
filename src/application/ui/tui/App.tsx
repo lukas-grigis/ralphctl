@@ -15,6 +15,7 @@ import type { TuiBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx
 import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
+import type { LogLevelGate } from '@src/business/observability/log-level-filter.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { BusesProvider } from '@src/application/ui/tui/runtime/sinks-context.tsx';
@@ -25,6 +26,7 @@ import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.ts
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -36,6 +38,11 @@ export interface AppProps {
   readonly buses: TuiBuses;
   readonly sessions: SessionManager;
   readonly queue: PromptQueue;
+  /**
+   * Mutable holder for the active log-level floor. The TUI's `EventBus -> logBus` forwarder
+   * reads it on every event; the Settings view writes to it when the user changes log level.
+   */
+  readonly logLevelGate: LogLevelGate;
   /**
    * Initial view to mount. Production launches with `{ id: 'welcome' }` on first run (no
    * settings file yet) and `{ id: 'home' }` otherwise; tests can pass anything.
@@ -59,6 +66,7 @@ export const App = ({
   buses,
   sessions,
   queue,
+  logLevelGate,
   initialView,
   initialSelection,
   onSelectionChange,
@@ -74,11 +82,13 @@ export const App = ({
                   {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
                   {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
                 >
-                  <SystemStatusProvider>
-                    <RouterProvider initial={initialView}>
-                      {(current) => <Layout>{renderView(current)}</Layout>}
-                    </RouterProvider>
-                  </SystemStatusProvider>
+                  <LogLevelProvider gate={logLevelGate}>
+                    <SystemStatusProvider>
+                      <RouterProvider initial={initialView}>
+                        {(current) => <Layout>{renderView(current)}</Layout>}
+                      </RouterProvider>
+                    </SystemStatusProvider>
+                  </LogLevelProvider>
                 </SelectionProvider>
               </HintsProvider>
             </UiStateProvider>

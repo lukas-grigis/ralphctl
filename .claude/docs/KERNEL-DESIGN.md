@@ -215,41 +215,47 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
 sequential('refine', [
   loadSprintLeaf,
   assertDraftLeaf,
-  linkSkillsLeaf,
   sequential(
     'per-ticket',
     tickets.map((t) =>
       sequential(`ticket-${t.id}`, [
         buildUnitLeaf(/* refinement/<ticket-slug>/ */),
+        installSkillsLeaf({ name: `install-skills-${t.id}` }),
         renderPromptToFileLeaf,
         callRefineInteractiveLeaf, // reads <unit-root>/requirements.md, updates ticket
         saveSprintLeaf,
+        uninstallSkillsLeaf({ name: `uninstall-skills-${t.id}` }),
       ])
     )
   ),
   exportRequirementsLeaf,
-  unlinkSkillsLeaf,
 ]);
 ```
 
 ### implementFlow (per-task gen-eval loop)
 
 ```ts
-const perTask = sequential('per-task', [
-  preflightTaskLeaf,
+const perTask = sequential('task-<id>', [
+  branchPreflightLeaf,
+  buildTaskWorkspaceLeaf,
+  installSkillsLeaf, // copies bundled skills into <repo>; git-excludes via ralphctl-*
   startAttemptLeaf,
-  withRepoLock(
-    sequential('attempt', [
-      buildTaskWorkspaceLeaf,
-      loop('gen-eval', sequential('round', [generatorLeaf, evaluatorLeaf, finalizeGenEvalLeaf]), {
-        shouldStop: (ctx) => ctx.attempt.evaluation?.passed === true,
-        maxIterations: ctx.task.maxAttempts ?? settings.harness.maxAttempts,
-      }),
-      postTaskCheckLeaf,
-      commitTaskLeaf,
-    ])
+  loop(
+    'gen-eval-<id>',
+    sequential('gen-eval-turn-<id>', [
+      generatorLeaf,
+      guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
+    ]),
+    {
+      shouldStop: (ctx) => ctx.lastExit !== undefined,
+      maxIterations: settings.harness.maxTurns,
+    }
   ),
+  finalizeGenEvalLeaf,
+  postTaskCheckLeaf,
+  guard('commit-task-guard-<id>', (ctx) => ctx.lastBlockReason === undefined, commitTaskLeaf),
   settleAttemptLeaf,
+  uninstallSkillsLeaf, // removes harness-installed ralphctl-* skills from <repo>
 ]);
 
 // Linearise tasks via topologicalReorder over `task.blockedBy` and feed
@@ -262,13 +268,11 @@ sequential('implement', [
   resolveBranchLeaf,
   ensureProgressFileLeaf,
   setupScriptRunnerLeaf,
-  linkSkillsLeaf,
   sequential(
     'execute-tasks',
-    orderedTasks.map(() => perTask)
+    orderedTasks.map(() => perTask) // each perTask brackets with install-skills-<id> / uninstall-skills-<id>
   ),
   flushProgressSinkLeaf,
-  unlinkSkillsLeaf,
   transitionSprintToReviewLeaf,
 ]);
 ```
