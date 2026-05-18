@@ -73,6 +73,11 @@ interface ProposeInput {
 interface ProposeOutput {
   readonly proposedSetupScript?: string;
   readonly proposedVerifyScript?: string;
+  /**
+   * Per-run forensic dir surfaced for the confirm leaf to read `body.txt` when both scripts
+   * are absent. Always set on success — the leaf creates the dir before calling the AI.
+   */
+  readonly runDir: AbsolutePath;
 }
 
 /**
@@ -159,6 +164,7 @@ const proposeUseCase = async (
     return Result.ok({
       ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
       ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
+      runDir: runDir.value,
     });
   });
 };
@@ -184,6 +190,7 @@ export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): El
       proposal: {
         ...(out.proposedSetupScript !== undefined ? { proposedSetupScript: out.proposedSetupScript } : {}),
         ...(out.proposedVerifyScript !== undefined ? { proposedVerifyScript: out.proposedVerifyScript } : {}),
+        runDir: out.runDir,
       },
     }),
   });

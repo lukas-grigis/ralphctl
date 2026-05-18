@@ -219,6 +219,37 @@ describe('createDetectScriptsFlow', () => {
     expect(saves).toHaveLength(0);
   });
 
+  it('failsafe — empty proposal surfaces the raw AI body inline in the confirm prompt', async () => {
+    // Permission-request shape mirrors the real-world body that motivated the failsafe — the AI
+    // can't read the repo, so it asks the user instead of emitting tags. Operator must see this.
+    const permissionAskBody = 'I need read permission for /repo. Approve the prompt in the UI and I will continue.';
+    const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-failsafe', name: 'svc' });
+    const project = makeProject({ repositories: [repository] });
+
+    // Capture the askChoice prompt so we can assert the body landed inline.
+    const recordedChoicePrompts: string[] = [];
+    const recordingInteractive: InteractivePrompt = {
+      ...scriptedInteractive({ choices: ['skip'] }),
+      async askChoice<T>(question: string): Promise<Result<T, DomainError>> {
+        recordedChoicePrompts.push(question);
+        return Result.ok('skip' as unknown as T) as Result<T, DomainError>;
+      },
+    };
+
+    const { deps } = buildDeps(project, permissionAskBody, recordingInteractive, runsRoot);
+    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const runner = createRunner({ id: 'r-detect-failsafe', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // First askChoice is pick-repository (auto-skipped because single repo); the relevant
+    // prompt is the empty-proposal one from the confirm leaf.
+    const emptyProposalPrompt = recordedChoicePrompts.find((p) => p.includes('AI returned no proposals'));
+    expect(emptyProposalPrompt).toBeDefined();
+    expect(emptyProposalPrompt!).toContain('AI response:');
+    expect(emptyProposalPrompt!).toContain('I need read permission');
+  });
+
   it('empty proposal + user enters manually — confirm asks, user provides setup, save lands', async () => {
     const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-manual', name: 'svc' });
     const project = makeProject({ repositories: [repository] });

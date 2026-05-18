@@ -1,11 +1,17 @@
+import { join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
+
+/** Max chars of body.txt shown inline in the empty-proposal prompt before truncation. */
+const BODY_PREVIEW_LIMIT = 800;
 
 export interface ConfirmDetectScriptsLeafDeps {
   readonly interactive: InteractivePrompt;
@@ -17,7 +23,34 @@ interface ConfirmInput {
     readonly proposedSetupScript?: string;
     readonly proposedVerifyScript?: string;
   };
+  /**
+   * Per-run forensic dir under `<runsRoot>/detect-scripts/<run-id>/`. The empty-proposal branch
+   * reads `body.txt` inside it (when present) and surfaces a preview so the user sees the AI's
+   * actual response — e.g. a permission request — instead of just "no proposals". `undefined`
+   * means propose didn't write artifacts (shouldn't happen on the happy path, but the empty
+   * branch degrades gracefully without it).
+   */
+  readonly runDir?: AbsolutePath;
 }
+
+/**
+ * Read `<runDir>/body.txt` for an inline preview when the AI returned no proposals. Returns a
+ * trimmed + truncated string when the file exists, `undefined` otherwise. Designed to never
+ * throw — diagnostic UX must not crash the chain when the body file is absent (Copilot / Codex
+ * providers don't implement `bodyFile` today) or unreadable.
+ */
+const readBodyPreview = async (runDir: AbsolutePath | undefined): Promise<string | undefined> => {
+  if (runDir === undefined) return undefined;
+  try {
+    const raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return undefined;
+    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
+    return `${trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd()}\n[…truncated; full body at ${String(runDir)}/body.txt]`;
+  } catch {
+    return undefined;
+  }
+};
 
 interface ConfirmOutput {
   readonly accepted: boolean;
@@ -60,15 +93,23 @@ const confirmUseCase = async (
 
   if (nextSetup === undefined && nextVerify === undefined) {
     // AI returned no proposals — surface that to the user instead of silently no-op'ing.
-    // Offer them a chance to enter scripts manually, or skip outright.
+    // Show the raw body when available so a permission request / read-error / format slip is
+    // visible inline, not buried in the run dir. Then offer manual entry or skip.
+    const bodyPreview = await readBodyPreview(input.runDir);
+    const header = `AI returned no proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
+    const promptLines: string[] = [header];
+    if (bodyPreview !== undefined) {
+      promptLines.push('', 'AI response:', bodyPreview);
+    } else if (input.runDir !== undefined) {
+      promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
+    }
+    promptLines.push('', 'What would you like to do?');
+
     const emptyChoices: ReadonlyArray<Choice<EmptyDecision>> = [
       { label: 'Enter manually', value: 'manual', description: 'Type setup / verify scripts yourself.' },
       { label: 'Skip', value: 'skip', description: 'Leave the repository unchanged.' },
     ];
-    const decision = await deps.interactive.askChoice<EmptyDecision>(
-      `AI returned no proposals for ${input.repository.name} (${String(input.repository.slug)}).\nWhat would you like to do?`,
-      emptyChoices
-    );
+    const decision = await deps.interactive.askChoice<EmptyDecision>(promptLines.join('\n'), emptyChoices);
     if (!decision.ok) return Result.error(decision.error);
     if (decision.value === 'skip') {
       return Result.ok({ accepted: false, proposal: {} });
@@ -192,7 +233,18 @@ export const confirmDetectScriptsLeaf = (deps: ConfirmDetectScriptsLeafDeps): El
             ? { proposedVerifyScript: ctx.proposal.proposedVerifyScript }
             : {}),
         },
+        ...(ctx.proposal.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
       };
     },
-    output: (ctx, out) => ({ ...ctx, accepted: out.accepted, proposal: out.proposal }),
+    // The runDir produced by propose is preserved on ctx for write-leaf logs; everything else
+    // in the proposal is owned by confirm's output (Edit & approve can drop a previously-set
+    // field, so we must NOT carry the old script values forward).
+    output: (ctx, out) => ({
+      ...ctx,
+      accepted: out.accepted,
+      proposal: {
+        ...out.proposal,
+        ...(ctx.proposal?.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),
+      },
+    }),
   });

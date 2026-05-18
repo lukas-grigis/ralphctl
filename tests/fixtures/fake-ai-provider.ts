@@ -5,7 +5,7 @@ import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 
 /**
@@ -94,6 +94,14 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): HeadlessAiPr
 
       const wrote = await writeJsonAtomic(String(session.signalsFile), allSignals);
       if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+
+      // Mirror Claude's bodyFile contract so tests covering forensic-artifact paths see a real
+      // body.txt on disk. Best-effort: a write failure is treated as warn-equivalent (production
+      // claude-headless logs at warn and proceeds) — surfacing it would break tests that don't
+      // care about the body file.
+      if (session.bodyFile !== undefined) {
+        await writeTextAtomic(String(session.bodyFile), body);
+      }
 
       const sessionId = script.sessionIds?.[templateName];
       return Result.ok({
