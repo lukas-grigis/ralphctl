@@ -50,6 +50,7 @@ export const createDetectSkillsFlow = (
       logger: deps.logger,
       skillsAdapter: deps.skillsAdapter,
       model: opts.model,
+      runsRoot: deps.runsRoot,
     }),
     confirmDetectSkillsLeaf({ interactive: deps.interactive }),
     writeDetectSkillsLeaf({ projectRepo: deps.projectRepo, logger: deps.logger }),

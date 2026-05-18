@@ -1,9 +1,10 @@
+import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -14,8 +15,8 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildDetectSkillsPrompt } from '@src/integration/ai/prompts/detect-skills/definition.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
-import { withSignalsTempPath, allocSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
-import { removeFile } from '@src/integration/io/fs.ts';
+import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
@@ -43,7 +44,16 @@ export interface ProposeDetectSkillsLeafDeps {
   readonly logger: Logger;
   readonly skillsAdapter: SkillsAdapter;
   readonly model: string;
+  /** `<dataRoot>/runs`. See {@link DetectSkillsDeps.runsRoot}. */
+  readonly runsRoot: AbsolutePath;
 }
+
+/** Lexicographic-sortable run dir name. Mirrors detect-scripts so the two trees feel the same. */
+const buildRunDirName = (): string => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${stamp}-${suffix}`;
+};
 
 interface ProposeInput {
   readonly repository: Repository;
@@ -52,6 +62,8 @@ interface ProposeInput {
 interface ProposeOutput {
   readonly proposedSetupSkill?: string;
   readonly proposedVerifySkill?: string;
+  /** Always set on success — propose creates the dir before calling the AI. */
+  readonly runDir: AbsolutePath;
 }
 
 /**
@@ -59,6 +71,10 @@ interface ProposeOutput {
  * repository path, then picks the `setup-skill-proposal` / `verify-skill-proposal` signals out
  * of the provider's signals file. Either signal may be absent — that's a valid "no skill
  * needed" answer.
+ *
+ * Forensic artifacts: every call materialises `<runsRoot>/detect-skills/<run-id>/prompt.md`
+ * (always) and `<run-id>/body.txt` (Claude only; Copilot / Codex no-op). The confirm leaf reads
+ * body.txt when the proposal is empty to surface the AI's actual response to the user.
  */
 const proposeUseCase = async (
   deps: ProposeDetectSkillsLeafDeps,
@@ -76,60 +92,60 @@ const proposeUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  // Allocate a sibling body file for diagnostic capture. When the AI returns no proposals,
-  // the operator can inspect this file to see what the assistant actually emitted.
-  // Only the Claude adapter implements bodyFile; other adapters silently no-op.
-  const bodyPathResult = allocSignalsTempPath('detect-skills-body');
-  const bodyFile = bodyPathResult.ok ? bodyPathResult.value : undefined;
+  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'detect-skills', buildRunDirName()));
+  if (!runDir.ok) return Result.error(runDir.error);
+  const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
+  if (!promptFile.ok) return Result.error(promptFile.error);
+  const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
+  if (!bodyFile.ok) return Result.error(bodyFile.error);
 
-  try {
-    return await withSignalsTempPath('detect-skills', async (signalsFile) => {
-      const signals = await consumeSignals(
-        deps.provider,
-        detectSkillsSession(input.repository, prompt.value, deps.model, signalsFile, bodyFile),
-        deps.signals
-      );
-      if (!signals.ok) {
-        log.error(`provider failed for repo ${input.repository.name}`, {
-          repositoryId: String(input.repository.id),
-          error: signals.error.message,
-        });
-        return Result.error(signals.error);
-      }
+  const promptWrote = await writeTextAtomic(String(promptFile.value), String(prompt.value));
+  if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-      const setupSkill = signals.value.find(
-        (s: HarnessSignal): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal'
-      )?.content;
-      const verifySkill = signals.value.find(
-        (s: HarnessSignal): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal'
-      )?.content;
-
-      if (setupSkill === undefined && verifySkill === undefined && bodyFile !== undefined) {
-        log.debug(`AI returned no proposals for repo ${input.repository.name} — inspect body file for raw response`, {
-          repositoryId: String(input.repository.id),
-          bodyFile: String(bodyFile),
-        });
-      }
-
-      log.info(`proposal ready for repo ${input.repository.name}`, {
+  return await withSignalsTempPath('detect-skills', async (signalsFile) => {
+    const signals = await consumeSignals(
+      deps.provider,
+      detectSkillsSession(input.repository, prompt.value, deps.model, signalsFile, bodyFile.value),
+      deps.signals
+    );
+    if (!signals.ok) {
+      log.error(`provider failed for repo ${input.repository.name}`, {
         repositoryId: String(input.repository.id),
-        hasSetupSkill: setupSkill !== undefined,
-        hasVerifySkill: verifySkill !== undefined,
-        setupLength: setupSkill?.length ?? 0,
-        verifyLength: verifySkill?.length ?? 0,
+        error: signals.error.message,
+        runDir: String(runDir.value),
       });
-
-      return Result.ok({
-        ...(setupSkill !== undefined ? { proposedSetupSkill: setupSkill } : {}),
-        ...(verifySkill !== undefined ? { proposedVerifySkill: verifySkill } : {}),
-      });
-    });
-  } finally {
-    // Best-effort cleanup of the diagnostic body file. Orphan tempfiles are bounded by os.tmpdir() rotation.
-    if (bodyFile !== undefined) {
-      await removeFile(String(bodyFile));
+      return Result.error(signals.error);
     }
-  }
+
+    const setupSkill = signals.value.find(
+      (s: HarnessSignal): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal'
+    )?.content;
+    const verifySkill = signals.value.find(
+      (s: HarnessSignal): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal'
+    )?.content;
+
+    if (setupSkill === undefined && verifySkill === undefined) {
+      log.warn(`AI returned no proposals for repo ${input.repository.name} — inspect run dir for prompt + raw body`, {
+        repositoryId: String(input.repository.id),
+        runDir: String(runDir.value),
+      });
+    }
+
+    log.info(`proposal ready for repo ${input.repository.name}`, {
+      repositoryId: String(input.repository.id),
+      hasSetupSkill: setupSkill !== undefined,
+      hasVerifySkill: verifySkill !== undefined,
+      setupLength: setupSkill?.length ?? 0,
+      verifyLength: verifySkill?.length ?? 0,
+      runDir: String(runDir.value),
+    });
+
+    return Result.ok({
+      ...(setupSkill !== undefined ? { proposedSetupSkill: setupSkill } : {}),
+      ...(verifySkill !== undefined ? { proposedVerifySkill: verifySkill } : {}),
+      runDir: runDir.value,
+    });
+  });
 };
 
 export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Element<DetectSkillsCtx> =>
@@ -153,6 +169,7 @@ export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Elem
       proposal: {
         ...(out.proposedSetupSkill !== undefined ? { proposedSetupSkill: out.proposedSetupSkill } : {}),
         ...(out.proposedVerifySkill !== undefined ? { proposedVerifySkill: out.proposedVerifySkill } : {}),
+        runDir: out.runDir,
       },
     }),
   });

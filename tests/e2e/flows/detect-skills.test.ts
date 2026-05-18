@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { promises as fs } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -9,6 +13,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, makeProject, makeRepository, isoTimestamp } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -69,7 +74,12 @@ const scriptedInteractive = (answers: ScriptedAnswers): InteractivePrompt => {
   };
 };
 
-const buildDeps = (project: Project, providerResponse: string, interactive: InteractivePrompt) => {
+const buildDeps = (
+  project: Project,
+  providerResponse: string,
+  interactive: InteractivePrompt,
+  runsRoot: AbsolutePath
+) => {
   const { repo, saves } = fakeProjectRepo(project);
   const harness = createInMemorySink<HarnessSignal>();
   const eventBus = createInMemoryEventBus();
@@ -94,6 +104,7 @@ const buildDeps = (project: Project, providerResponse: string, interactive: Inte
       logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-12T11:00:00.000Z') }),
       interactive,
       skillsAdapter: noopSkillsAdapter,
+      runsRoot,
     },
   };
 };
@@ -104,6 +115,23 @@ const VERIFY_BODY = `Run \`pnpm typecheck && pnpm lint && pnpm test\`. Typecheck
 in TS' standard form; lint errors flag ESLint rules; tests use vitest with concise diffs.`;
 
 describe('createDetectSkillsFlow', () => {
+  // Per-test tmp `runsRoot` so propose's persistent artifacts (prompt.md, body.txt) land
+  // somewhere disposable. Production lifecycle is user-managed.
+  let runsRoot: AbsolutePath;
+  let runsRootRaw: string;
+
+  beforeEach(async () => {
+    const raw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-detect-skills-runs-'));
+    runsRootRaw = await realpath(raw);
+    const parsed = AbsolutePath.parse(runsRootRaw);
+    if (!parsed.ok) throw new Error('AbsolutePath.parse failed');
+    runsRoot = parsed.value;
+  });
+
+  afterEach(async () => {
+    await fs.rm(runsRootRaw, { recursive: true, force: true });
+  });
+
   it('happy path — AI proposes both skills, user approves, project is saved with both fields', async () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-repo', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
@@ -111,7 +139,8 @@ describe('createDetectSkillsFlow', () => {
     const { deps, saves } = buildDeps(
       project,
       `<setup-skill>\n${SETUP_BODY}\n</setup-skill>\n<verify-skill>\n${VERIFY_BODY}\n</verify-skill>`,
-      interactive
+      interactive,
+      runsRoot
     );
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
@@ -141,7 +170,7 @@ describe('createDetectSkillsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-decline', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['reject'] });
-    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive);
+    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-2', element: flow, initialCtx: { projectId: project.id } });
@@ -152,15 +181,16 @@ describe('createDetectSkillsFlow', () => {
     expect(saves).toHaveLength(0);
   });
 
-  it('empty proposal — both tags omitted → confirm short-circuits with accepted: false, no save', async () => {
+  it('empty proposal — confirm surfaces the AI body and asks user to skip; project untouched', async () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-empty', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
-    // No scripted choice — empty proposal must NOT ask the user.
-    const interactive = scriptedInteractive({});
+    // Empty proposal now surfaces the AI's response and asks the user to acknowledge ("skip").
+    const interactive = scriptedInteractive({ choices: ['skip'] });
     const { deps, saves } = buildDeps(
       project,
       '<note>generic project, no per-repo guidance needed</note>',
-      interactive
+      interactive,
+      runsRoot
     );
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
@@ -174,12 +204,37 @@ describe('createDetectSkillsFlow', () => {
     expect(saves).toHaveLength(0);
   });
 
+  it('failsafe — empty proposal surfaces the raw AI body inline in the confirm prompt', async () => {
+    const permissionAskBody = 'I need read permission for /repo. Approve the prompt in the UI and I will continue.';
+    const repository = makeRepository({ path: '/tmp/ralph/skills-failsafe', name: 'svc' });
+    const project = makeProject({ repositories: [repository] });
+    const recordedChoicePrompts: string[] = [];
+    const recordingInteractive: InteractivePrompt = {
+      ...scriptedInteractive({ choices: ['skip'] }),
+      async askChoice<T>(question: string): Promise<Result<T, DomainError>> {
+        recordedChoicePrompts.push(question);
+        return Result.ok('skip' as unknown as T) as Result<T, DomainError>;
+      },
+    };
+    const { deps } = buildDeps(project, permissionAskBody, recordingInteractive, runsRoot);
+
+    const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const runner = createRunner({ id: 'r-skills-failsafe', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const emptyProposalPrompt = recordedChoicePrompts.find((p) => p.includes('AI returned no skill proposals'));
+    expect(emptyProposalPrompt).toBeDefined();
+    expect(emptyProposalPrompt!).toContain('AI response:');
+    expect(emptyProposalPrompt!).toContain('I need read permission');
+  });
+
   it('partial proposal — only verify-skill proposed → save updates verifySkill, leaves setupSkill untouched', async () => {
     const existing = makeRepository({ path: '/tmp/ralph/skills-partial', name: 'svc' });
     const seeded = { ...existing, setupSkill: 'pre-existing setup body' } as typeof existing;
     const project = makeProject({ repositories: [seeded] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
-    const { deps, saves } = buildDeps(project, `<verify-skill>${VERIFY_BODY}</verify-skill>`, interactive);
+    const { deps, saves } = buildDeps(project, `<verify-skill>${VERIFY_BODY}</verify-skill>`, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-4', element: flow, initialCtx: { projectId: project.id } });
@@ -197,7 +252,7 @@ describe('createDetectSkillsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-preselect', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
-    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive);
+    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, {
       projectId: project.id,

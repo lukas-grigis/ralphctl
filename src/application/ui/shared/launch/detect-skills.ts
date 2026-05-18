@@ -18,6 +18,7 @@ export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
       logger: deps.app.logger,
       interactive: deps.interactive,
       skillsAdapter,
+      runsRoot: deps.storage.runsRoot,
     },
     {
       projectId: snapshot.project.id,

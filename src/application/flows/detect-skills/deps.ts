@@ -1,3 +1,4 @@
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
@@ -12,6 +13,10 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
  * {@link DetectScriptsDeps} plus the {@link SkillsAdapter} — propose needs it to splice
  * the provider's skills-discovery convention into the authoring prompt so the AI knows
  * where to look for existing skills before drafting new ones.
+ *
+ *  - `runsRoot` — `<dataRoot>/runs`; propose materialises `prompt.md` + `body.txt` under
+ *    `<runsRoot>/detect-skills/<run-id>/` so empty / surprising proposals are forensically
+ *    diagnosable. Confirm reads `body.txt` to show the AI's actual response inline.
  */
 export interface DetectSkillsDeps {
   readonly projectRepo: ProjectRepository;
@@ -22,4 +27,5 @@ export interface DetectSkillsDeps {
   readonly logger: Logger;
   readonly interactive: InteractivePrompt;
   readonly skillsAdapter: SkillsAdapter;
+  readonly runsRoot: AbsolutePath;
 }
