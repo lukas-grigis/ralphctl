@@ -16,8 +16,8 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
  * tag a flow extracts (`<task-verified>`, `<setup-script>`, `<claude-md>`, …) has a parser in
  * the harness-signal registry, so the signals file is the single uniform read-path.
  *
- * `sessionId` is best-effort per-provider — claude's `--output-format json` envelope, codex's
- * JSONL meta event, copilot's stream meta line. Absence is never an error.
+ * `sessionId` is best-effort per-provider — claude's `--output-format stream-json` init event,
+ * codex's JSONL meta event, copilot's stream meta line. Absence is never an error.
  */
 export interface HeadlessAiProvider {
   generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>>;
