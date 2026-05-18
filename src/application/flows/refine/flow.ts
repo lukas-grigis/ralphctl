@@ -26,8 +26,6 @@ export interface CreateRefineFlowOpts {
    * time so the trace names every ticket — a crash mid-run shows exactly which ticket failed.
    */
   readonly pendingTickets: readonly PendingTicket[];
-  /** Working directory for the AI session — typically the repo root. */
-  readonly cwd: AbsolutePath;
   /** Configured model for the refine chain. */
   readonly model: string;
   /** Per-sprint refinement directory: `<sprintDir>/refinement/`. The chain materialises per-ticket subfolders under it. */
@@ -118,9 +116,17 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         {
           name: `install-skills-${String(ticket.id)}`,
           flowId: 'refine',
-          // Skills land in the AI session's cwd (the repo) — the provider-native conventions
-          // only auto-discover skills from cwd, not from `--add-dir` roots.
-          cwdPicker: () => opts.cwd,
+          // Skills land in the AI session's cwd — for refine that's the per-ticket unit root
+          // (`<sprintDir>/refinement/<ticket-slug>/`), not the user's repo. Refinement is
+          // implementation-agnostic, so we keep the AI out of the repo's auto-discovered context.
+          cwdPicker: (ctx) => {
+            if (ctx.currentUnitRoot === undefined) {
+              throw new Error(
+                `install-skills-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`
+              );
+            }
+            return ctx.currentUnitRoot;
+          },
         }
       ),
       refineTicketInteractiveLeaf(
@@ -128,7 +134,6 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           interactiveAi: deps.interactiveAi,
           runInTerminal: deps.runInTerminal,
           logger: deps.logger,
-          cwd: opts.cwd,
           model: opts.model,
           ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
           ...(deps.issuePusher !== undefined ? { issuePusher: deps.issuePusher } : {}),
@@ -138,7 +143,17 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
       ),
       uninstallSkillsLeaf<RefineCtx>(
         { skillsAdapter: deps.skillsAdapter },
-        { name: `uninstall-skills-${String(ticket.id)}`, cwdPicker: () => opts.cwd }
+        {
+          name: `uninstall-skills-${String(ticket.id)}`,
+          cwdPicker: (ctx) => {
+            if (ctx.currentUnitRoot === undefined) {
+              throw new Error(
+                `uninstall-skills-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`
+              );
+            }
+            return ctx.currentUnitRoot;
+          },
+        }
       ),
       saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${String(ticket.id)}`),
     ])

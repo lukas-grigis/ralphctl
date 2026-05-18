@@ -19,7 +19,7 @@ import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
-import { absolutePath, makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
@@ -27,8 +27,6 @@ import { passthroughRunInTerminal } from '@src/application/ui/shared/run-in-term
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-
-const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 
 const inMemoryRepo = (initial?: Sprint): { repo: SprintRepository; saves: Sprint[] } => {
   let current: Sprint | undefined = initial;
@@ -128,7 +126,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -186,7 +183,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -244,7 +240,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -306,7 +301,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -382,7 +376,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -434,7 +427,6 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
-        cwd: FAKE_CWD,
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
