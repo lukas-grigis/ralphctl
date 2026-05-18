@@ -164,6 +164,15 @@ describe('createDetectSkillsFlow', () => {
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupSkill).toBe(SETUP_BODY);
     expect(saved.verifySkill).toBe(VERIFY_BODY);
+
+    // Forensic artifact: rendered prompt persisted under `<runsRoot>/detect-skills/<run-id>/`.
+    // Mirrors the detect-scripts test — body.txt is provider-specific so we only assert prompt.md.
+    const flowDir = join(runsRootRaw, 'detect-skills');
+    const runDirs = await fs.readdir(flowDir);
+    expect(runDirs).toHaveLength(1);
+    const promptContent = await fs.readFile(join(flowDir, runDirs[0]!, 'prompt.md'), 'utf8');
+    expect(promptContent).toContain(DETECT_SKILLS_MARKER);
+    expect(promptContent).toContain(String(repository.path));
   });
 
   it('rejection path — user declines → project is not saved', async () => {

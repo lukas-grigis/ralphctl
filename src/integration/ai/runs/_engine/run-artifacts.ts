@@ -15,7 +15,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  */
 
 /** Max chars of body.txt shown inline in confirm prompts / error hints before truncation. */
-export const BODY_PREVIEW_LIMIT = 800;
+const BODY_PREVIEW_LIMIT = 800;
 
 /**
  * Build a unique run directory name. Lexicographic sort = chronological sort, which is what
@@ -39,23 +39,31 @@ export interface ReadRunBodyPreviewOptions {
 
 /**
  * Read `<runDir>/body.txt` for an inline preview. Returns a trimmed + (optionally) truncated
- * string when the file exists and has content, `undefined` otherwise. Never throws —
- * diagnostic UX must degrade gracefully when the body file is absent (Copilot / Codex
- * providers that don't implement `bodyFile`) or unreadable.
+ * string when the file exists and has content; `undefined` when the file is absent (the
+ * common case for Copilot / Codex providers that don't implement `bodyFile`); a sentinel
+ * `(unable to read body.txt: <code>)` string for unexpected I/O errors so the operator sees
+ * the failure inline instead of a blank confirm prompt. Never throws — diagnostic UX must
+ * degrade gracefully.
  */
 export const readRunBodyPreview = async (
   runDir: AbsolutePath,
   options?: ReadRunBodyPreviewOptions
 ): Promise<string | undefined> => {
+  let raw: string;
   try {
-    const raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return undefined;
-    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
-    const head = trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd();
-    const suffix = options?.truncatedSuffix ?? ' […truncated]';
-    return `${head}${suffix}`;
-  } catch {
-    return undefined;
+    raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
+  } catch (cause) {
+    if (isErrnoException(cause) && cause.code === 'ENOENT') return undefined;
+    const code = isErrnoException(cause) ? cause.code : 'unknown';
+    return `(unable to read body.txt: ${code ?? 'unknown'})`;
   }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
+  const head = trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd();
+  const suffix = options?.truncatedSuffix ?? ' […truncated]';
+  return `${head}${suffix}`;
 };
+
+const isErrnoException = (cause: unknown): cause is NodeJS.ErrnoException =>
+  typeof cause === 'object' && cause !== null && 'code' in cause;
