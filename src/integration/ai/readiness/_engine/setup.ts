@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -7,6 +6,7 @@ import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { buildRunDirName, readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -22,28 +22,6 @@ import type {
 } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
-
-/** Max chars of body.txt shown inline in the missing-tag error hint before truncation. */
-const BODY_PREVIEW_LIMIT = 800;
-
-/** Lexicographic-sortable run dir name; mirrors detect-scripts / detect-skills. */
-const buildRunDirName = (): string => {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return `${stamp}-${suffix}`;
-};
-
-const readBodyPreview = async (bodyFile: AbsolutePath): Promise<string | undefined> => {
-  try {
-    const raw = await fs.readFile(String(bodyFile), 'utf8');
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return undefined;
-    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
-    return `${trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd()} […truncated]`;
-  } catch {
-    return undefined;
-  }
-};
 
 /**
  * Per-tool target path for the readiness artefact, relative to the repo root. Centralised so
@@ -203,7 +181,7 @@ export const setupReadinessUseCase = async (
       // Surface the AI's actual response inline — when the wire tag is missing the operator
       // most needs to see what the model said (often a permission ask, sometimes a markdown-
       // fence slip). Run dir is also referenced so they can `cat body.txt` for the full body.
-      const bodyPreview = await readBodyPreview(bodyFile.value);
+      const bodyPreview = await readRunBodyPreview(runDir.value);
       log.warn(`readiness: AI response missing <${expectedTag}> tag — inspect run dir for raw body`, {
         repositoryId: String(input.repository.id),
         runDir: String(runDir.value),

@@ -17,6 +17,7 @@ import { buildDetectSkillsPrompt } from '@src/integration/ai/prompts/detect-skil
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
@@ -47,13 +48,6 @@ export interface ProposeDetectSkillsLeafDeps {
   /** `<dataRoot>/runs`. See {@link DetectSkillsDeps.runsRoot}. */
   readonly runsRoot: AbsolutePath;
 }
-
-/** Lexicographic-sortable run dir name. Mirrors detect-scripts so the two trees feel the same. */
-const buildRunDirName = (): string => {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return `${stamp}-${suffix}`;
-};
 
 interface ProposeInput {
   readonly repository: Repository;

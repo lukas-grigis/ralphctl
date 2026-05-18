@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -8,10 +6,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
-
-/** Max chars of body.txt shown inline in the empty-proposal prompt before truncation. */
-const BODY_PREVIEW_LIMIT = 800;
 
 export interface ConfirmDetectSkillsLeafDeps {
   readonly interactive: InteractivePrompt;
@@ -26,19 +22,6 @@ interface ConfirmInput {
   /** Per-run forensic dir. See {@link DetectSkillsCtx.proposal.runDir}. */
   readonly runDir?: AbsolutePath;
 }
-
-const readBodyPreview = async (runDir: AbsolutePath | undefined): Promise<string | undefined> => {
-  if (runDir === undefined) return undefined;
-  try {
-    const raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return undefined;
-    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
-    return `${trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd()}\n[…truncated; full body at ${String(runDir)}/body.txt]`;
-  } catch {
-    return undefined;
-  }
-};
 
 interface ConfirmOutput {
   readonly accepted: boolean;
@@ -76,7 +59,12 @@ const confirmUseCase = async (
   const { proposedSetupSkill: nextSetup, proposedVerifySkill: nextVerify } = input.proposal;
 
   if (nextSetup === undefined && nextVerify === undefined) {
-    const bodyPreview = await readBodyPreview(input.runDir);
+    const bodyPreview =
+      input.runDir !== undefined
+        ? await readRunBodyPreview(input.runDir, {
+            truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
+          })
+        : undefined;
     const header = `AI returned no skill proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
     const promptLines: string[] = [header];
     if (bodyPreview !== undefined) {

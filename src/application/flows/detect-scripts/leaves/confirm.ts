@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -8,10 +6,8 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
-
-/** Max chars of body.txt shown inline in the empty-proposal prompt before truncation. */
-const BODY_PREVIEW_LIMIT = 800;
 
 export interface ConfirmDetectScriptsLeafDeps {
   readonly interactive: InteractivePrompt;
@@ -32,25 +28,6 @@ interface ConfirmInput {
    */
   readonly runDir?: AbsolutePath;
 }
-
-/**
- * Read `<runDir>/body.txt` for an inline preview when the AI returned no proposals. Returns a
- * trimmed + truncated string when the file exists, `undefined` otherwise. Designed to never
- * throw — diagnostic UX must not crash the chain when the body file is absent (Copilot / Codex
- * providers don't implement `bodyFile` today) or unreadable.
- */
-const readBodyPreview = async (runDir: AbsolutePath | undefined): Promise<string | undefined> => {
-  if (runDir === undefined) return undefined;
-  try {
-    const raw = await fs.readFile(join(String(runDir), 'body.txt'), 'utf8');
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return undefined;
-    if (trimmed.length <= BODY_PREVIEW_LIMIT) return trimmed;
-    return `${trimmed.slice(0, BODY_PREVIEW_LIMIT).trimEnd()}\n[…truncated; full body at ${String(runDir)}/body.txt]`;
-  } catch {
-    return undefined;
-  }
-};
 
 interface ConfirmOutput {
   readonly accepted: boolean;
@@ -95,7 +72,12 @@ const confirmUseCase = async (
     // AI returned no proposals — surface that to the user instead of silently no-op'ing.
     // Show the raw body when available so a permission request / read-error / format slip is
     // visible inline, not buried in the run dir. Then offer manual entry or skip.
-    const bodyPreview = await readBodyPreview(input.runDir);
+    const bodyPreview =
+      input.runDir !== undefined
+        ? await readRunBodyPreview(input.runDir, {
+            truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
+          })
+        : undefined;
     const header = `AI returned no proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
     const promptLines: string[] = [header];
     if (bodyPreview !== undefined) {

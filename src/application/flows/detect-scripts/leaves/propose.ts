@@ -17,6 +17,7 @@ import { buildDetectScriptsPrompt } from '@src/integration/ai/prompts/detect-scr
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 
@@ -54,17 +55,6 @@ export interface ProposeDetectScriptsLeafDeps {
    */
   readonly runsRoot: AbsolutePath;
 }
-
-/**
- * Build a unique run directory name. Lexicographic sort = chronological sort, which is what
- * an operator wants when they `ls` the runs dir. Random suffix keeps two near-simultaneous
- * runs from colliding in the same millisecond.
- */
-const buildRunDirName = (): string => {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return `${stamp}-${suffix}`;
-};
 
 interface ProposeInput {
   readonly repository: Repository;
