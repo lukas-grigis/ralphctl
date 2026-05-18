@@ -1,3 +1,4 @@
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
@@ -15,6 +16,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *  - `provider` / `templateLoader` / `signals` / `logger` — the standard AI-call quartet.
  *  - `interactive` — port for the pick-repository + confirm leaves.
  *  - `eventBus` — wired by the launcher; reserved for future per-leaf events.
+ *  - `runsRoot` — `<dataRoot>/runs`; the propose leaf materialises `prompt.md` + `body.txt`
+ *    under `<runsRoot>/detect-scripts/<run-id>/` so an empty or surprising proposal is
+ *    forensically diagnosable after the chain exits.
  */
 export interface DetectScriptsDeps {
   readonly projectRepo: ProjectRepository;
@@ -24,4 +28,5 @@ export interface DetectScriptsDeps {
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly interactive: InteractivePrompt;
+  readonly runsRoot: AbsolutePath;
 }
