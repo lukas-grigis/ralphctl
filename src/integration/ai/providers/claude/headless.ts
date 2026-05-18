@@ -39,13 +39,13 @@ import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
  *
  * Translation table (intent → Claude CLI flag):
  *
- *   | AiSession field                                         | Claude flag                              |
- *   | ------------------------------------------------------- | ---------------------------------------- |
- *   | model: <ClaudeModel>                                    | --model <model>                          |
- *   | permissions {autoApprove,canEditFiles,canRunShell}=true | --permission-mode acceptEdits            |
- *   | permissions read-only (none of the above)               | --permission-mode plan                   |
- *   | additionalRoots: [a, b]                                 | --add-dir a --add-dir b                  |
- *   | resume: id                                              | --resume id                              |
+ *   | AiSession field                                         | Claude flag                                                  |
+ *   | ------------------------------------------------------- | ------------------------------------------------------------ |
+ *   | model: <ClaudeModel>                                    | --model <model>                                              |
+ *   | permissions {autoApprove,canEditFiles,canRunShell}=true | --permission-mode bypassPermissions                          |
+ *   | permissions read-only (canEditFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
+ *   | additionalRoots: [a, b]                                 | --add-dir a --add-dir b                                      |
+ *   | resume: id                                              | --resume id                                                  |
  *
  * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
  * actually launching `claude`. Defaults to `node:child_process.spawn`.
@@ -83,15 +83,42 @@ export interface ClaudeProviderDeps {
 const RATE_LIMIT_RE = /rate.?limit/i;
 
 /**
- * Headless permission mapping. `bypassPermissions` for full-auto runs (implement / evaluate /
- * apply-feedback): `acceptEdits` auto-approves only Read/Write/Edit and prompts for `Bash`,
- * which hangs `claude -p` forever waiting on stdin. The harness already enforces safety at the
- * branch / dirty-tree / post-task-check layer; per-tool prompts are the wrong place to add it.
- * Read-only chains stay on `plan` (the safest available headless mode).
+ * Headless permission mapping. Every session uses `--permission-mode bypassPermissions` paired
+ * with a `--disallowedTools` deny list scoped to whichever permissions are off.
+ *
+ *  - **Read-only chains** (refine / plan / readiness / detect-scripts / detect-skills) used to
+ *    map to `--permission-mode plan`. Recent Claude Code versions tightened plan mode so it
+ *    requires interactive approval for *every* tool — including reads — and the model emits a
+ *    human-facing "please grant read permission" message instead of using its Read tool. In
+ *    headless `-p` mode there's no human to answer the prompt, so the chain falls through with
+ *    no signals and the operator sees an empty proposal. Switching read-only flows to
+ *    `bypassPermissions + disallowedTools` lets reads sail through while writes / shell stay
+ *    blocked — Claude's deny rules take precedence over `bypassPermissions`.
+ *  - **Full-auto chains** (implement / apply-feedback) still need `bypassPermissions` because
+ *    `acceptEdits` only auto-approves Read/Write/Edit and prompts for `Bash`, which hangs
+ *    `claude -p` forever waiting on stdin. Safety is enforced at the branch / dirty-tree /
+ *    post-task-check layer, not at the per-tool prompt.
+ *
+ * Docs: https://code.claude.com/docs/en/agent-sdk/permissions
+ *  - bypassPermissions auto-approves every tool; `allowedTools` does NOT constrain it.
+ *  - `disallowedTools` is a deny rule that overrides every other allow, including bypass.
  */
-const permissionMode = (p: SessionPermissions): 'bypassPermissions' | 'plan' => {
-  if (p.autoApprove && p.canEditFiles && p.canRunShell) return 'bypassPermissions';
-  return 'plan';
+
+/** Claude Code tool names. Kept as a literal list so a typo here = compile-time error in the test. */
+const TOOL_EDIT = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const;
+const TOOL_SHELL = ['Bash'] as const;
+const TOOL_NETWORK = ['WebFetch', 'WebSearch'] as const;
+
+/**
+ * Translate {@link SessionPermissions} into the comma-separated `--disallowedTools` deny list.
+ * Returns an empty array when every gate is open (full-auto) — caller skips the flag entirely.
+ */
+const disallowedToolsFor = (p: SessionPermissions): readonly string[] => {
+  const denied: string[] = [];
+  if (!p.canEditFiles) denied.push(...TOOL_EDIT);
+  if (!p.canRunShell) denied.push(...TOOL_SHELL);
+  if (!p.canAccessNetwork) denied.push(...TOOL_NETWORK);
+  return denied;
 };
 
 /**
@@ -114,7 +141,11 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   // `-p` is the print-mode flag — without it `claude` launches its interactive TUI and the
   // stdin-piped prompt is silently discarded. v1 hit the same gotcha; mirror the fix here.
   const args: string[] = ['-p', '--output-format', 'json', '--model', session.model];
-  args.push('--permission-mode', permissionMode(session.permissions));
+  args.push('--permission-mode', 'bypassPermissions');
+  const denied = disallowedToolsFor(session.permissions);
+  if (denied.length > 0) {
+    args.push('--disallowedTools', denied.join(','));
+  }
   for (const root of session.additionalRoots ?? []) {
     args.push('--add-dir', String(root));
   }
