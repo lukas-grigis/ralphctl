@@ -107,7 +107,7 @@ const proposeReadinessUseCase = async (
  * Return the absolute path of the tool-native context file when the probe surfaced one.
  *  - claude-code → `claudeMd` (preferred) or `agentsMd`.
  *  - copilot     → `copilotInstructions`.
- *  - codex       → no canonical artifact in the v1 catalog yet (placeholder type) → undefined.
+ *  - codex       → `agentsMd`.
  */
 const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): string | undefined => {
   if (!isPresent(state)) return undefined;
@@ -119,6 +119,9 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
   }
   if (tool === 'copilot' && a.tool === 'copilot') {
     return a.copilotInstructions !== undefined ? String(a.copilotInstructions.path) : undefined;
+  }
+  if (tool === 'codex' && a.tool === 'codex') {
+    return a.agentsMd !== undefined ? String(a.agentsMd.path) : undefined;
   }
   return undefined;
 };

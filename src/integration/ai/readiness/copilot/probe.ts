@@ -5,6 +5,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
 import { absentState, type ReadinessState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { hasAnyCopilotArtifact } from '@src/integration/ai/readiness/_engine/predicates.ts';
@@ -34,6 +35,3 @@ export const copilotProbe: ReadinessProbe<CopilotArtifacts> = {
     }
   },
 };
-
-const isNodeErrnoCode = (cause: unknown, code: string): boolean =>
-  typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === code;

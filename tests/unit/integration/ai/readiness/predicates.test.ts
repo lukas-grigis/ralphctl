@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   hasAnyClaudeArtifact,
+  hasAnyCodexArtifact,
   hasAnyCopilotArtifact,
   isAbsent,
   isPresent,
@@ -8,6 +9,7 @@ import {
 } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { ClaudeArtifacts } from '@src/integration/ai/readiness/claude/artifacts.ts';
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
+import type { CodexArtifacts } from '@src/integration/ai/readiness/codex/artifacts.ts';
 import { absentState, presentState, unknownState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 
@@ -62,5 +64,25 @@ describe('hasAnyCopilotArtifact', () => {
       copilotInstructions: { path: absolutePath('/repo/.github/copilot-instructions.md') },
     };
     expect(hasAnyCopilotArtifact(a)).toBe(true);
+  });
+});
+
+describe('hasAnyCodexArtifact', () => {
+  it('false when agentsMd is missing and skills are empty', () => {
+    const a: CodexArtifacts = { tool: 'codex', skills: [] };
+    expect(hasAnyCodexArtifact(a)).toBe(false);
+  });
+
+  it('true when AGENTS.md exists', () => {
+    const a: CodexArtifacts = { tool: 'codex', agentsMd: { path: absolutePath('/repo/AGENTS.md') }, skills: [] };
+    expect(hasAnyCodexArtifact(a)).toBe(true);
+  });
+
+  it('true when at least one skill exists', () => {
+    const a: CodexArtifacts = {
+      tool: 'codex',
+      skills: [{ name: 'my-skill' as never, path: absolutePath('/repo/.agents/skills/my-skill/SKILL.md') }],
+    };
+    expect(hasAnyCodexArtifact(a)).toBe(true);
   });
 });

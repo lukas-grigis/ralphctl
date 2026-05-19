@@ -21,26 +21,27 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
  *
  * Translation table (intent → Codex CLI argv):
  *
- *   | AiSession field                   | Codex argv                                                 |
- *   | --------------------------------- | ---------------------------------------------------------- |
- *   | (always)                          | leading `exec` (or `exec resume <id>` when resume is set) |
- *   | (always)                          | `--ephemeral --skip-git-repo-check -o <tmpfile> --json`   |
- *   | model: <CodexModel>               | `-m <model>`                                               |
- *   | cwd                               | `-C <cwd>`                                                 |
- *   | additionalRoots: [a, b]           | `--add-dir a --add-dir b`                                  |
- *   | permissions = READ_ONLY           | `-s read-only -a never`                                    |
- *   | permissions = FULL_AUTO           | `-s workspace-write -a never`                              |
- *   | anything else                     | InvalidStateError (only the two locked profiles supported) |
- *   | reasoningEffort (dep-level)       | `-c model_reasoning_effort=<level>`                        |
- *   | (always, trailing)                | `-` (read prompt from stdin)                              |
- *   | prompt                            | piped to stdin                                             |
+ *   | AiSession field                   | Codex argv                                                      |
+ *   | --------------------------------- | --------------------------------------------------------------- |
+ *   | fresh session                     | `exec`                                                          |
+ *   | resume: <SessionId>               | `exec resume <id>`                                              |
+ *   | (always)                          | `--ephemeral --skip-git-repo-check -o <tmpfile> --json`        |
+ *   | model: <CodexModel>               | `-m <model>`                                                    |
+ *   | cwd                               | `-C <cwd>` (fresh only; `exec resume` does not accept it)      |
+ *   | additionalRoots: [a, b]           | `--add-dir a --add-dir b` (fresh only; `exec resume` does not) |
+ *   | permissions = READ_ONLY           | `-s read-only` (fresh only)                                     |
+ *   | permissions = FULL_AUTO           | `-s workspace-write` (fresh only)                               |
+ *   | anything else                     | InvalidStateError (only the two locked profiles supported)      |
+ *   | reasoningEffort (dep-level)       | `-c model_reasoning_effort=<level>`                             |
+ *   | (always, trailing)                | `-` (read prompt from stdin)                                    |
+ *   | prompt                            | piped to stdin                                                  |
  *
  * The trailing `-` is codex's documented sentinel for "the prompt is on stdin." Without it,
  * codex would treat the piped data as side context and wait for a positional prompt arg —
@@ -48,10 +49,10 @@ import { writeJsonAtomic } from '@src/integration/io/fs.ts';
  *
  * Output handling — file-based contract: codex's `-o <tmpfile>` writes the final assistant
  * message to a tempfile; after exit the adapter reads it, runs {@link parseHarnessSignals},
- * and writes the result array to `session.signalsFile`. The body string is dropped — it
- * never leaves this function. Every tag downstream flows care about (`<task-verified>`,
- * `<setup-script>`, `<claude-md>`, …) has a registered parser, so signals.json is the single
- * uniform read-path.
+ * and writes the result array to `session.signalsFile`. When `session.bodyFile` is set, the
+ * adapter also mirrors the raw body there for diagnostic capture (best-effort). Every tag
+ * downstream flows care about (`<task-verified>`, `<setup-script>`, `<claude-md>`, …) has a
+ * registered parser, so signals.json is the single uniform read-path.
  *
  * Session id capture: codex emits JSONL meta events on stdout that carry `session_id` on the
  * leading config / startup record. The adapter line-buffers stdout, picks the first id out,
@@ -59,7 +60,10 @@ import { writeJsonAtomic } from '@src/integration/io/fs.ts';
  *
  * Permissions: only the two locked profiles (READ_ONLY / FULL_AUTO) are supported, since
  * those cover every wired chain. Half-permission combos surface `InvalidStateError` —
- * fail loud beats silent surprise.
+ * fail loud beats silent surprise. Codex `exec` on v0.130.0 does not expose a `--search`
+ * flag, so the headless adapter cannot currently translate `canAccessNetwork`; sessions run
+ * without the native live-web-search tool even though the shared permission model keeps the
+ * bit for cross-provider parity.
  *
  * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
  * launching the real `codex` binary. `readFile` / `unlink` are also injectable for unit
@@ -154,24 +158,16 @@ export const buildCodexArgs = (
   if (!perms.ok) return Result.error(perms.error);
 
   const args: string[] = ['exec'];
-  if (session.resume !== undefined) {
+  const isResume = session.resume !== undefined;
+  if (isResume) {
     args.push('resume', String(session.resume));
   }
-  args.push(
-    '--ephemeral',
-    '--skip-git-repo-check',
-    '-o',
-    opts.outputFile,
-    '--json',
-    '-m',
-    session.model,
-    '-C',
-    String(session.cwd),
-    '-s',
-    perms.value.sandbox
-  );
-  for (const root of session.additionalRoots ?? []) {
-    args.push('--add-dir', String(root));
+  args.push('--ephemeral', '--skip-git-repo-check', '-o', opts.outputFile, '--json', '-m', session.model);
+  if (!isResume) {
+    args.push('-C', String(session.cwd), '-s', perms.value.sandbox);
+    for (const root of session.additionalRoots ?? []) {
+      args.push('--add-dir', String(root));
+    }
   }
   if (opts.reasoningEffort !== undefined) {
     args.push('-c', `model_reasoning_effort=${opts.reasoningEffort}`);
@@ -388,6 +384,18 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    if (session.bodyFile !== undefined) {
+      const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
+      if (!bodyWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: `codex-provider: failed to write body file — diagnostic capture skipped`,
+          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+    }
     return {
       kind: 'success',
       output: {

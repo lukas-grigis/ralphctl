@@ -142,18 +142,19 @@ const probeCliAuth = async (
   binary: string,
   args: readonly string[],
   hint: string,
-  runCommand: RunCommand
+  runCommand: RunCommand,
+  group: ProbeGroup = 'vcs'
 ): Promise<ProbeResult> => {
   const r = await runCommand(binary, args);
   if (r.ok) {
-    return { id, label, status: 'pass', detail: 'authenticated', group: 'vcs' };
+    return { id, label, status: 'pass', detail: 'authenticated', group };
   }
   const detail =
     r.stderr
       .split('\n')
       .find((line) => line.trim().length > 0)
       ?.trim() ?? 'not authenticated';
-  return { id, label, status: 'warn', detail, hint, group: 'vcs' };
+  return { id, label, status: 'warn', detail, hint, group };
 };
 
 /**
@@ -288,6 +289,7 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
         // ---- AI providers -----------------------------------------------------
         const settings = await deps.settingsRepo.load();
         const configuredProvider: AiProvider | undefined = settings.ok ? settings.value.ai.provider : undefined;
+        let codexInstalled = false;
         for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
           const binary = PROVIDER_BINARY[provider];
           const isConfigured = provider === configuredProvider;
@@ -299,11 +301,25 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
             deps.commandExists,
             `install the '${binary}' CLI and ensure it is on your PATH`
           );
+          if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
           if (probe.status === 'fail') {
             probes.push({ ...probe, status: 'warn' });
           } else {
             probes.push(probe);
           }
+        }
+        if (configuredProvider === 'openai-codex' && codexInstalled) {
+          probes.push(
+            await probeCliAuth(
+              'codex-auth',
+              'OpenAI Codex CLI authenticated',
+              'codex',
+              ['login', 'status'],
+              'run `codex login` to sign in',
+              deps.runCommand,
+              'ai'
+            )
+          );
         }
 
         // ---- Repositories -----------------------------------------------------

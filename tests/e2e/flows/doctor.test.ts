@@ -10,7 +10,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { DEFAULT_AI_SETTINGS_BY_PROVIDER, DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
 
@@ -182,6 +182,70 @@ describe('doctor use-case', () => {
     const configuredProbe = result.value.ctx.output!.probes.find((p) => p.id === 'ai-claude-code');
     expect(configuredProbe?.status).toBe('warn');
     expect(configuredProbe?.hint).toContain('install');
+  });
+
+  it('warns when Codex is configured but `codex login status` is unauthenticated', async () => {
+    const codexDefaults = { ...DEFAULT_SETTINGS, ai: DEFAULT_AI_SETTINGS_BY_PROVIDER['openai-codex'] };
+    const flow = createDoctorFlow({
+      projectRepo: fakeProjectRepo(),
+      sprintRepo: fakeSprintRepo(),
+      settingsRepo: fakeSettingsRepo({
+        async load() {
+          return Result.ok(codexDefaults);
+        },
+      }),
+      commandExists: stubCommandExists(true),
+      runCommand: stubRunCommand((name, args) => {
+        if (name === 'codex' && args[0] === 'login' && args[1] === 'status') {
+          return { ok: false, stderr: 'Not logged in' };
+        }
+        return undefined;
+      }),
+      sprintExecutionRepo: fakeSprintExecutionRepo(),
+      nodeVersion: 'v24.0.0',
+    });
+    const result = await flow.execute({
+      input: { dataRoot: absolutePath(dataDir), configRoot: absolutePath(configDir) },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'codex-auth');
+    expect(probe?.status).toBe('warn');
+    expect(probe?.detail).toContain('Not logged in');
+    expect(probe?.group).toBe('ai');
+  });
+
+  it('passes when Codex is configured and `codex login status` succeeds', async () => {
+    const codexDefaults = { ...DEFAULT_SETTINGS, ai: DEFAULT_AI_SETTINGS_BY_PROVIDER['openai-codex'] };
+    const flow = createDoctorFlow({
+      projectRepo: fakeProjectRepo(),
+      sprintRepo: fakeSprintRepo(),
+      settingsRepo: fakeSettingsRepo({
+        async load() {
+          return Result.ok(codexDefaults);
+        },
+      }),
+      commandExists: stubCommandExists(true),
+      runCommand: stubRunCommand((name, args) => {
+        if (name === 'codex' && args[0] === 'login' && args[1] === 'status') {
+          return { ok: true };
+        }
+        return undefined;
+      }),
+      sprintExecutionRepo: fakeSprintExecutionRepo(),
+      nodeVersion: 'v24.0.0',
+    });
+    const result = await flow.execute({
+      input: { dataRoot: absolutePath(dataDir), configRoot: absolutePath(configDir) },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'codex-auth');
+    expect(probe?.status).toBe('pass');
+    expect(probe?.detail).toBe('authenticated');
+    expect(probe?.group).toBe('ai');
   });
 
   it('reports the missing-root probe as failed without erroring', async () => {
