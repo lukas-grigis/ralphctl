@@ -256,8 +256,10 @@ export const ExecuteView = (): React.JSX.Element => {
   );
 
   // Top-level flow steps exclude per-task subchain leaves (any name carrying a uuid suffix) —
-  // those render under the Tasks panel.
-  const outerFlowFilter = (name: string): boolean => !isPerTaskLeaf(name);
+  // those render under the Tasks panel. The `with-repo-lock(…)` wrapper is plumbing the
+  // operator never needs to see in the plan; it only lands in the trace on a lock-acquire
+  // failure, in which case the failure surfaces through the Recent-log panel anyway.
+  const outerFlowFilter = (name: string): boolean => !isPerTaskLeaf(name) && !name.startsWith('with-repo-lock(');
 
   const flowStepsPanel = (
     <StepTrace
