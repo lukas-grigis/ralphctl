@@ -289,6 +289,7 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
         // ---- AI providers -----------------------------------------------------
         const settings = await deps.settingsRepo.load();
         const configuredProvider: AiProvider | undefined = settings.ok ? settings.value.ai.provider : undefined;
+        let codexInstalled = false;
         for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
           const binary = PROVIDER_BINARY[provider];
           const isConfigured = provider === configuredProvider;
@@ -300,13 +301,14 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
             deps.commandExists,
             `install the '${binary}' CLI and ensure it is on your PATH`
           );
+          if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
           if (probe.status === 'fail') {
             probes.push({ ...probe, status: 'warn' });
           } else {
             probes.push(probe);
           }
         }
-        if (configuredProvider === 'openai-codex' && (await deps.commandExists('codex'))) {
+        if (configuredProvider === 'openai-codex' && codexInstalled) {
           probes.push(
             await probeCliAuth(
               'codex-auth',
