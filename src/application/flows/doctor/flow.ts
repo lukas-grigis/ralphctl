@@ -142,18 +142,19 @@ const probeCliAuth = async (
   binary: string,
   args: readonly string[],
   hint: string,
-  runCommand: RunCommand
+  runCommand: RunCommand,
+  group: ProbeGroup = 'vcs'
 ): Promise<ProbeResult> => {
   const r = await runCommand(binary, args);
   if (r.ok) {
-    return { id, label, status: 'pass', detail: 'authenticated', group: 'vcs' };
+    return { id, label, status: 'pass', detail: 'authenticated', group };
   }
   const detail =
     r.stderr
       .split('\n')
       .find((line) => line.trim().length > 0)
       ?.trim() ?? 'not authenticated';
-  return { id, label, status: 'warn', detail, hint, group: 'vcs' };
+  return { id, label, status: 'warn', detail, hint, group };
 };
 
 /**
@@ -304,6 +305,19 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
           } else {
             probes.push(probe);
           }
+        }
+        if (configuredProvider === 'openai-codex' && (await deps.commandExists('codex'))) {
+          probes.push(
+            await probeCliAuth(
+              'codex-auth',
+              'OpenAI Codex CLI authenticated',
+              'codex',
+              ['login', 'status'],
+              'run `codex login` to sign in',
+              deps.runCommand,
+              'ai'
+            )
+          );
         }
 
         // ---- Repositories -----------------------------------------------------

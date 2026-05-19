@@ -21,7 +21,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
@@ -49,10 +49,10 @@ import { writeJsonAtomic } from '@src/integration/io/fs.ts';
  *
  * Output handling — file-based contract: codex's `-o <tmpfile>` writes the final assistant
  * message to a tempfile; after exit the adapter reads it, runs {@link parseHarnessSignals},
- * and writes the result array to `session.signalsFile`. The body string is dropped — it
- * never leaves this function. Every tag downstream flows care about (`<task-verified>`,
- * `<setup-script>`, `<claude-md>`, …) has a registered parser, so signals.json is the single
- * uniform read-path.
+ * and writes the result array to `session.signalsFile`. When `session.bodyFile` is set, the
+ * adapter also mirrors the raw body there for diagnostic capture (best-effort). Every tag
+ * downstream flows care about (`<task-verified>`, `<setup-script>`, `<claude-md>`, …) has a
+ * registered parser, so signals.json is the single uniform read-path.
  *
  * Session id capture: codex emits JSONL meta events on stdout that carry `session_id` on the
  * leading config / startup record. The adapter line-buffers stdout, picks the first id out,
@@ -384,6 +384,18 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    if (session.bodyFile !== undefined) {
+      const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
+      if (!bodyWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: `codex-provider: failed to write body file — diagnostic capture skipped`,
+          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+    }
     return {
       kind: 'success',
       output: {

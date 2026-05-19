@@ -53,8 +53,7 @@ export interface AiSession {
    * up by the caller. Adapters that do not support this field MUST silently ignore it —
    * never surface an error for an unset optional diagnostic path.
    *
-   * Only the Claude adapter currently implements this field. Copilot and Codex support is
-   * deferred; they will silently no-op when `bodyFile` is present.
+   * Implemented by Claude and Codex. Copilot support is deferred and currently a no-op.
    */
   readonly bodyFile?: AbsolutePath;
 }

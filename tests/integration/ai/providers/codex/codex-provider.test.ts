@@ -86,6 +86,14 @@ const tempSignalsFile = () => {
   );
 };
 
+let bodyCounter = 0;
+const tempBodyFile = () => {
+  bodyCounter += 1;
+  return absolutePath(
+    join(tmpdir(), `ralphctl-codex-body-${String(process.pid)}-${String(Date.now())}-${String(bodyCounter)}.txt`)
+  );
+};
+
 const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   prompt: PROMPT,
   cwd: CWD,
@@ -150,6 +158,29 @@ describe('createCodexProvider', () => {
     const signals = await readSignals(String(out.value.signalsFile));
     expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
+  });
+
+  it('mirrors raw body to session.bodyFile when requested (diagnostic capture)', async () => {
+    const cap = createCapturingBus();
+    const bodyFile = tempBodyFile();
+    const sess = session({ bodyFile });
+    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
+    const fsStub = stubFs('<task-verified>all good</task-verified>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const mirrored = await fs.readFile(String(bodyFile), 'utf8');
+    expect(mirrored).toBe('<task-verified>all good</task-verified>');
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {

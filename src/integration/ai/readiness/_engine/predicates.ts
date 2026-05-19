@@ -1,6 +1,7 @@
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { ClaudeArtifacts } from '@src/integration/ai/readiness/claude/artifacts.ts';
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
+import type { CodexArtifacts } from '@src/integration/ai/readiness/codex/artifacts.ts';
 
 /** Narrow {@link ReadinessState} to its `present` variant. */
 export const isPresent = (state: ReadinessState): state is Extract<ReadinessState, { kind: 'present' }> =>
@@ -28,3 +29,5 @@ export const hasAnyClaudeArtifact = (a: ClaudeArtifacts): boolean =>
   a.hooks.length > 0;
 
 export const hasAnyCopilotArtifact = (a: CopilotArtifacts): boolean => a.copilotInstructions !== undefined;
+
+export const hasAnyCodexArtifact = (a: CodexArtifacts): boolean => a.agentsMd !== undefined || a.skills.length > 0;
