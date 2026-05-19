@@ -11,8 +11,8 @@ import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/
  * its own shell-wrapper that translates the {@link InteractiveAiProviderInput} into the
  * provider's TUI invocation:
  *
- *  - claude  → `claude --add-dir <cwd> --model <m> --permission-mode plan "$(cat <prompt>)"`
- *  - codex   → `codex --cd <cwd> --model <m> -s read-only -a never "$(cat <prompt>)"`
+ *  - claude  → `claude --add-dir <cwd> --model <m> --permission-mode acceptEdits "$(cat <prompt>)"`
+ *  - codex   → `codex --cd <cwd> --model <m> -s workspace-write -a on-request "$(cat <prompt>)"`
  *  - copilot → `copilot --add-dir=<cwd> --model=<m> --allow-all-tools -i <prompt>` (equals-only flags)
  *
  * Adding a provider extends this switch plus a sibling `providers/<name>/interactive.ts`.

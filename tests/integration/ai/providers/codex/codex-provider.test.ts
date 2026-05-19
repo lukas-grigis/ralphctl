@@ -245,6 +245,12 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('-a');
   });
 
+  it('omits -s for resume sessions because `codex exec resume` rejects it', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    const args = unwrapArgs(session({ resume: id, permissions: FULL_AUTO }));
+    expect(args).not.toContain('-s');
+  });
+
   it('rejects intermediate permission combinations with InvalidStateError', () => {
     const half = { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false };
     const r = buildCodexArgs(session({ permissions: half }), { outputFile: FIXED_OUT });
@@ -261,6 +267,12 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args[idx + 1]).toBe(String(CWD));
   });
 
+  it('omits -C for resume sessions because `codex exec resume` rejects it', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    const args = unwrapArgs(session({ resume: id }));
+    expect(args).not.toContain('-C');
+  });
+
   it('emits one --add-dir per additionalRoots entry, in declared order', () => {
     const a = absolutePath('/tmp/repo-a');
     const b = absolutePath('/tmp/repo-b');
@@ -273,6 +285,13 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
       ['--add-dir', '/tmp/repo-a'],
       ['--add-dir', '/tmp/repo-b'],
     ]);
+  });
+
+  it('omits --add-dir for resume sessions because `codex exec resume` rejects it', () => {
+    const id = 'sess-abc' as unknown as SessionId;
+    const a = absolutePath('/tmp/repo-a');
+    const args = unwrapArgs(session({ resume: id, additionalRoots: [a] }));
+    expect(args).not.toContain('--add-dir');
   });
 
   it('emits -c model_reasoning_effort=<level> when reasoningEffort is set', () => {
