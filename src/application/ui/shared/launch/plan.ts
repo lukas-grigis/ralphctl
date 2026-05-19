@@ -8,10 +8,13 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchPlan = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId } = ctx;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
-  if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
+  // No `cwd` pre-flight: plan's AI session is rooted at the per-sprint plan unit root
+  // (`<sprintDir>/plan/<run-slug>/`), and every project repository is mounted as an equal
+  // `--add-dir` source. If `repositories` is empty the chain surfaces a clearer error from
+  // inside (e.g. the planner producing a `projectPath` mismatch) than an opaque pre-flight reject.
   const planRoot = AbsolutePath.parse(
     join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'plan')
   );
@@ -54,9 +57,9 @@ export const launchPlan = (ctx: LaunchContext): LaunchResult => {
     {
       sprintId: snapshot.sprint.id,
       projectId: snapshot.project.id,
-      cwd,
-      // Mount every repo on the project so the planner can navigate across them without per-file
-      // approval prompts. Duplicates with `cwd` are folded out by the adapter.
+      // Mount every repo on the project as an equal `--add-dir` source so the planner can
+      // navigate across them without per-file approval prompts. No repo enjoys cwd privilege —
+      // the session's cwd is the per-sprint plan unit root.
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
       model: extras.modelOverride ?? settings.ai.models.plan,
       planRoot: planRoot.value,

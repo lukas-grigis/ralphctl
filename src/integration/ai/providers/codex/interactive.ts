@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
@@ -65,10 +66,32 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
         );
       }
 
+      // Multi-repo plan mounts every project repository through `additionalRoots`. Codex
+      // accepts repeated `--add-dir <DIR>` exactly like the headless variant; without this the
+      // session is sandboxed to `--cd` alone and the AI can't navigate outside it. We also
+      // auto-mount the dirs that hold the prompt / output files so harness-internal writes land
+      // inside an allowed root without prompting — mirrors Claude's interactive adapter.
+      // Duplicates (e.g. when prompt/output already sit inside cwd) are folded out.
+      const allRoots = [
+        String(input.cwd),
+        ...(input.additionalRoots?.map((r) => String(r)) ?? []),
+        dirname(String(input.outputFile)),
+        dirname(String(input.promptFile)),
+      ];
+      const seen = new Set<string>();
+      const dirFlags = allRoots
+        .filter((p) => {
+          if (seen.has(p)) return false;
+          seen.add(p);
+          return true;
+        })
+        .flatMap((p) => ['--add-dir', shellQuote(p)]);
+
       const inner = [
         'codex',
         '--cd',
         shellQuote(String(input.cwd)),
+        ...dirFlags,
         '--model',
         shellQuote(input.model),
         '-s',

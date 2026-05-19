@@ -30,7 +30,6 @@ export interface RefineTicketInteractiveDeps {
   readonly interactiveAi: InteractiveAiProvider;
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
-  readonly cwd: AbsolutePath;
   readonly model: string;
   /**
    * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
@@ -62,6 +61,7 @@ const REFINED_FOOTER = (now: string): string => `\n\n---\n_Refined by ralphctl o
 interface RefineTicketInteractiveInput {
   readonly sprint: Sprint;
   readonly ticket: PendingTicket;
+  readonly cwd: AbsolutePath;
   readonly promptFile: AbsolutePath;
   readonly outputFile: AbsolutePath;
 }
@@ -131,7 +131,7 @@ export const refineTicketInteractiveLeaf = (
       execute: async (input) => {
         const session = await deps.runInTerminal(async () =>
           deps.interactiveAi.run({
-            cwd: deps.cwd,
+            cwd: input.cwd,
             promptFile: input.promptFile,
             outputFile: input.outputFile,
             model: deps.model,
@@ -192,9 +192,18 @@ export const refineTicketInteractiveLeaf = (
           message: `refine-ticket-${String(ticket.id)}: prompt/output paths missing — render-prompt-to-file must run first`,
         });
       }
+      if (ctx.currentUnitRoot === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-refine',
+          attemptedAction: `refine-ticket-${String(ticket.id)}`,
+          message: `refine-ticket-${String(ticket.id)}: unit root missing — build-refine-unit must run first`,
+        });
+      }
       return {
         sprint: ctx.sprint,
         ticket,
+        cwd: ctx.currentUnitRoot,
         promptFile: ctx.currentPromptFile,
         outputFile: ctx.currentOutputFile,
       };

@@ -15,13 +15,7 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { wire } from '@src/application/bootstrap/wire.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
-import {
-  absolutePath,
-  makeDraftSprint,
-  makeDraftSprintBundle,
-  makePendingTicket,
-  makeProject,
-} from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makeDraftSprintBundle, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
@@ -138,7 +132,6 @@ describe('wire', () => {
       {
         sprintId: withTicket.value.id,
         pendingTickets: [ticket],
-        cwd: absolutePath('/tmp/wire-test-cwd'),
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot.value,
       }

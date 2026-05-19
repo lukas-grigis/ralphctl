@@ -81,6 +81,35 @@ describe('createInteractiveCodexProvider', () => {
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
+  it('emits --add-dir for cwd, every additionalRoot, and the prompt / output dirs (deduped)', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
+
+    const repoA = absolutePath('/tmp/codex-repo-a');
+    const repoB = absolutePath('/tmp/codex-repo-b');
+
+    const runPromise = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CODEX_MODELS[0]!,
+      additionalRoots: [repoA, repoB],
+    });
+    emitExit(0);
+    const result = await runPromise;
+    expect(result.ok).toBe(true);
+
+    const inner = calls[0]!.args[1]!;
+    expect(inner).toContain(`--add-dir '${String(CWD)}'`);
+    expect(inner).toContain(`--add-dir '${String(repoA)}'`);
+    expect(inner).toContain(`--add-dir '${String(repoB)}'`);
+    // dirname(promptFile) === dirname(outputFile) === '/tmp' here — dedupe collapses them
+    // to a single `--add-dir '/tmp'`. Asserting the count keeps the dedupe load-bearing.
+    const addDirOccurrences = inner.match(/--add-dir/g) ?? [];
+    expect(addDirOccurrences).toHaveLength(4);
+  });
+
   it('returns InvalidStateError when the session exits non-zero', async () => {
     const cap = createCapturingBus();
     const { spawn, emitExit } = makeSpawn();

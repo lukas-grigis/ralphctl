@@ -31,9 +31,13 @@ const deriveOriginFromGit = async (
 };
 
 export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId } = ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
-  if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
+  // Refine intentionally does not require a repo path — the AI session is rooted at the
+  // per-ticket unit folder (`<sprintDir>/refinement/<ticket-slug>/`), not the repo, because
+  // refinement is implementation-agnostic. The repo path is still consulted below to derive
+  // `defaultIssueOrigin` for the "update remote" reviewer option, but that resolution is
+  // best-effort and tolerates a missing path.
   const pending = snapshot.sprint.tickets.filter((t) => t.status === 'pending');
   const refinementRoot = AbsolutePath.parse(
     join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'refinement')
@@ -132,7 +136,6 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
     {
       sprintId: snapshot.sprint.id,
       pendingTickets: pending,
-      cwd,
       model: extras.modelOverride ?? settings.ai.models.refine,
       refinementRoot: refinementRoot.value,
     }

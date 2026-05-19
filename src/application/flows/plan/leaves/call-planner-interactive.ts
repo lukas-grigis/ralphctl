@@ -33,11 +33,10 @@ export interface CallPlannerInteractiveDeps {
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
   readonly clock: () => IsoTimestamp;
-  readonly cwd: AbsolutePath;
   /**
-   * Extra repo roots to mount alongside `cwd`. The plan flow passes every repository on the
-   * project so the AI can navigate across a multi-repo codebase without per-file approval
-   * prompts during interview-style planning. Adapter folds duplicates with `cwd`.
+   * Repo roots mounted as equal `--add-dir` sources alongside the per-sprint plan unit root.
+   * The plan flow passes every repository on the project so the AI can navigate across a
+   * multi-repo codebase without per-file approval prompts during interview-style planning.
    */
   readonly additionalRoots?: readonly AbsolutePath[];
   readonly model: string;
@@ -56,6 +55,7 @@ interface CallPlannerInput {
   readonly sprint: DraftSprint;
   readonly project: Project;
   readonly existingTasks: readonly Task[];
+  readonly cwd: AbsolutePath;
   readonly promptFile: AbsolutePath;
   readonly outputFile: AbsolutePath;
 }
@@ -79,7 +79,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
 
         const session = await deps.runInTerminal(async () =>
           deps.interactiveAi.run({
-            cwd: deps.cwd,
+            cwd: input.cwd,
             promptFile: input.promptFile,
             outputFile: input.outputFile,
             model: deps.model,
@@ -159,10 +159,19 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
           message: 'call-planner-interactive: prompt/output paths missing — render-prompt-to-file must run first',
         });
       }
+      if (ctx.currentUnitRoot === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-plan',
+          attemptedAction: 'call-planner-interactive',
+          message: 'call-planner-interactive: unit root missing — build-plan-unit must run first',
+        });
+      }
       return {
         sprint: ctx.sprint,
         project: ctx.project,
         existingTasks: ctx.tasks ?? [],
+        cwd: ctx.currentUnitRoot,
         promptFile: ctx.currentPromptFile,
         outputFile: ctx.currentOutputFile,
       };

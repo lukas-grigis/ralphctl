@@ -116,17 +116,19 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
 };
 
 describe('createClaudeProvider', () => {
-  it('happy path: parses harness signals from the JSON .result envelope and writes them to signalsFile', async () => {
+  it('happy path: parses harness signals from the stream-json result event and writes them to signalsFile', async () => {
     const cap = createCapturingBus();
     const sess = session();
 
-    const envelope = JSON.stringify({
-      session_id: 'sess-1',
-      model: 'sonnet',
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-1', model: 'sonnet' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
       result: '<progress>working</progress>\n<task-verified>all good</task-verified>',
+      session_id: 'sess-1',
       num_turns: 4,
     });
-    const { spawn } = makeSpawn([{ stdoutChunks: [`${envelope}\n`], exitCode: 0 }]);
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 2,
@@ -173,10 +175,16 @@ describe('createClaudeProvider', () => {
     const cap = createCapturingBus();
     const sess = session();
 
-    const okEnvelope = JSON.stringify({ session_id: 'sess-2', result: '<task-complete/>' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-2', model: 'sonnet' });
+    const okResult = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '<task-complete/>',
+      session_id: 'sess-2',
+    });
     const { spawn } = makeSpawn([
       { stderrChunks: ['rate-limit hit\n'], exitCode: 1 },
-      { stdoutChunks: [`${okEnvelope}\n`], exitCode: 0 },
+      { stdoutChunks: [`${init}\n${okResult}\n`], exitCode: 0 },
     ]);
 
     const provider = createClaudeProvider({
@@ -235,6 +243,14 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(unwrapArgs(session()).includes('-p')).toBe(true);
     expect(unwrapArgs(session({ permissions: FULL_AUTO })).includes('-p')).toBe(true);
     expect(unwrapArgs(session({ permissions: READ_ONLY })).includes('-p')).toBe(true);
+  });
+
+  it('emits --verbose + --output-format stream-json so stdout streams JSONL for the idle watchdog', () => {
+    const args = unwrapArgs(session());
+    expect(args).toContain('--verbose');
+    const fmtIdx = args.indexOf('--output-format');
+    expect(fmtIdx).toBeGreaterThanOrEqual(0);
+    expect(args[fmtIdx + 1]).toBe('stream-json');
   });
 
   it('always emits --permission-mode bypassPermissions (deny rules carry the safety contract)', () => {
@@ -315,7 +331,9 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
 
   it('passes the translated argv through spawn end-to-end', async () => {
     const cap = createCapturingBus();
-    const captured = makeSpawn([{ stdoutChunks: ['{"result":"ok"}\n'], exitCode: 0 }]);
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude-opus-4-7' });
+    const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-e2e' });
+    const captured = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
     const provider = createClaudeProvider({
       rateLimitRetries: 0,

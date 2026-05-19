@@ -3,18 +3,21 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 
 interface SprintOpt {
   readonly sprint: string;
 }
 
 /**
- * Register the `task` command group. Read-side only — task creation is owned by the planning
- * chain (AI generates the task graph from approved tickets); manual `task add` / `task edit`
- * are deferred until there's a concrete UX for tweaking AI-generated plans.
+ * Register the `task` command group. Read-side plus a single recovery hatch (`unblock`) —
+ * task creation is owned by the planning chain (AI generates the task graph from approved
+ * tickets); manual `task add` / `task edit` are deferred until there's a concrete UX for
+ * tweaking AI-generated plans.
  *
  *   ralphctl task list --sprint <id>
  *   ralphctl task show --sprint <id> <task-id>
+ *   ralphctl task unblock --sprint <id> <task-id>
  */
 export const registerTaskCommand = (program: Command): void => {
   const task = program.command('task').description('inspect tasks for a sprint (planning generates them)');
@@ -71,6 +74,44 @@ export const registerTaskCommand = (program: Command): void => {
         return;
       }
       process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
+    });
+
+  task
+    .command('unblock <taskId>')
+    .description('flip a blocked task back to todo so the implement loop picks it up again')
+    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .action(async (rawTaskId: string, opts: SprintOpt) => {
+      const sprintId = SprintId.parse(opts.sprint);
+      if (!sprintId.ok) {
+        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.exit(1);
+        return;
+      }
+      const taskId = TaskId.parse(rawTaskId);
+      if (!taskId.ok) {
+        process.stderr.write(`error: invalid task id: ${taskId.error.message}\n`);
+        process.exit(1);
+        return;
+      }
+      const { deps } = await bootstrapCli();
+      const loaded = await deps.taskRepo.findById(sprintId.value, taskId.value);
+      if (!loaded.ok) {
+        process.stderr.write(`error: ${loaded.error.message}\n`);
+        process.exit(1);
+        return;
+      }
+      const result = await unblockTaskUseCase({
+        task: loaded.value,
+        sprintId: sprintId.value,
+        taskRepo: deps.taskRepo,
+        logger: deps.logger,
+      });
+      if (!result.ok) {
+        process.stderr.write(`error: ${result.error.message}\n`);
+        process.exit(1);
+        return;
+      }
+      process.stdout.write(`unblocked task '${result.value.name}' (${String(result.value.id)})\n`);
     });
 };
 

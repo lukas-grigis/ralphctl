@@ -1,0 +1,67 @@
+import { Result } from '@src/domain/result.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+import { unblockTask, type Task, type TodoTask } from '@src/domain/entity/task.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+
+/**
+ * Manually unblock a task — recovery hatch for transient pre-task failures (a flaky test
+ * runner, a JVM agent attach hiccup, a one-off mvn/Gradle download wobble) that would
+ * otherwise leave the task stuck in `blocked` and require hand-editing `tasks.json`.
+ *
+ * Policy: domain transition + persist + log. Idempotent — an already-`todo` task passes
+ * through unchanged (mirrors {@link activateSprintUseCase}'s shape).
+ *
+ * Rejects `done` / `in_progress` with `InvalidStateError` (the domain {@link unblockTask}
+ * guard does the work). After this, the task re-enters the implement queue on the next run.
+ */
+export interface UnblockTaskProps {
+  readonly task: Task;
+  readonly sprintId: SprintId;
+  readonly taskRepo: UpdateTask;
+  readonly logger: Logger;
+}
+
+export type UnblockTaskOutput = TodoTask;
+
+export const unblockTaskUseCase = async (
+  props: UnblockTaskProps
+): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
+  const log = props.logger.named('task.unblock');
+
+  if (props.task.status === 'todo') {
+    log.debug('already todo, skipping', { taskId: props.task.id, sprintId: props.sprintId });
+    return Result.ok(props.task);
+  }
+
+  log.debug('unblocking task', {
+    taskId: props.task.id,
+    sprintId: props.sprintId,
+    from: props.task.status,
+  });
+
+  const transitioned = unblockTask(props.task);
+  if (!transitioned.ok) {
+    log.warn('invalid state transition', {
+      taskId: props.task.id,
+      from: props.task.status,
+      error: transitioned.error.message,
+    });
+    return Result.error(transitioned.error);
+  }
+
+  const persisted = await props.taskRepo.update(props.sprintId, transitioned.value);
+  if (!persisted.ok) {
+    log.error('persist failed', { taskId: transitioned.value.id, error: persisted.error.message });
+    return Result.error(persisted.error);
+  }
+
+  log.info(`unblocked task '${transitioned.value.name}'`, {
+    taskId: transitioned.value.id,
+    sprintId: props.sprintId,
+  });
+  return Result.ok(transitioned.value);
+};

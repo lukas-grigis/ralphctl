@@ -11,7 +11,7 @@ import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
-import { parseClaudeJsonEnvelope } from '@src/integration/ai/providers/claude/parse-stream.ts';
+import { createClaudeStreamParser, type ClaudeStreamLine } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import {
@@ -24,13 +24,27 @@ import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
  *
- * Output handling — file-based contract: claude is invoked with `-p --output-format json`,
- * which emits ONE JSON envelope to stdout: `{"session_id":"…","result":"<assistant text>",…}`.
- * After `'close'` fires (stdio drained), the captured stdout is JSON.parse'd, the `result`
- * body is fed to {@link parseHarnessSignals}, and the parsed signal array is written to
- * `session.signalsFile`. The body itself is dropped — it never leaves this function. When
- * `session.bodyFile` is set (one-shot flows that extract custom tags outside the harness-signal
- * registry), the body is also written there for the caller to read inline.
+ * Output handling — file-based contract: claude is invoked with
+ * `-p --verbose --output-format stream-json`, which emits one JSON object per line as the
+ * session progresses:
+ *
+ *   {"type":"system","subtype":"init","session_id":"…","model":"…", …}
+ *   {"type":"assistant","message":{…},"session_id":"…"}
+ *   {"type":"result","subtype":"success","result":"<assistant text>","session_id":"…", …}
+ *
+ * `--verbose` is required by the CLI in non-interactive `-p` mode when `--output-format` is
+ * `stream-json`; without it the CLI errors out. Token streaming on stdout is what the
+ * idle-stdout watchdog at `src/integration/ai/providers/_engine/idle-watchdog.ts` relies on
+ * to distinguish a wedged child from a healthy long-running session — plain `json` buffered
+ * everything until end-of-session and SIGTERM'd healthy children mid-task.
+ *
+ * After `'close'` fires (stdio drained), the parser's accumulated envelope (body = the `result`
+ * event's `.result` string; session_id = earliest seen on any line) is read out, the body is
+ * fed to {@link parseHarnessSignals}, and the parsed signal array is written to
+ * `session.signalsFile`. The body itself goes out of scope at function return — never retained
+ * on a domain entity. When `session.bodyFile` is set (one-shot flows that extract custom tags
+ * outside the harness-signal registry), the body is also written there for the caller to read
+ * inline.
  *
  * Rate-limit detection is a lean stderr regex (`/rate.?limit/i`); on match, retry up to
  * `rateLimitRetries` then surface {@link RateLimitError}. `abortSignal` propagates to SIGTERM
@@ -140,7 +154,10 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   }
   // `-p` is the print-mode flag — without it `claude` launches its interactive TUI and the
   // stdin-piped prompt is silently discarded. v1 hit the same gotcha; mirror the fix here.
-  const args: string[] = ['-p', '--output-format', 'json', '--model', session.model];
+  // `--verbose` is required alongside `--output-format stream-json` in non-interactive `-p`
+  // mode; the CLI rejects stream-json without it. stream-json itself is required so the
+  // idle-stdout watchdog has a real liveness signal across multi-minute sessions.
+  const args: string[] = ['-p', '--verbose', '--output-format', 'stream-json', '--model', session.model];
   args.push('--permission-mode', 'bypassPermissions');
   const denied = disallowedToolsFor(session.permissions);
   if (denied.length > 0) {
@@ -233,18 +250,23 @@ interface SpawnAttemptArgs {
 }
 
 /**
- * One spawn attempt: launch `claude`, write prompt, capture stdout in full, then JSON.parse
- * the captured stdout to recover the assistant body. Extracts harness signals from the body
- * and writes them to `session.signalsFile`; optionally mirrors the raw body to
- * `session.bodyFile`. The body is then dropped — it never crosses back to the caller.
+ * One spawn attempt: launch `claude`, write prompt, stream stdout JSONL through the
+ * stream-json parser, accumulate the authoritative assistant body from the `{type:"result"}`
+ * event, then on close extract harness signals and write them to `session.signalsFile`.
+ * Optionally mirrors the body to `session.bodyFile`. The body goes out of scope at function
+ * return — never retained on a domain entity.
  */
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session } = input;
   const child = spawnFn(command, args, {
     stdio: ['pipe', 'pipe', 'pipe'] as const,
   });
-  let stdoutBuf = '';
+  const parser = createClaudeStreamParser();
   let stderrBuf = '';
+
+  const onLine = (line: ClaudeStreamLine): void => {
+    parser.ingest(line);
+  };
 
   // Wait for the child to fully `'close'` — NOT just `'exit'`. `'exit'` can fire before the
   // final stdout chunk has been delivered to our listener; `'close'` guarantees the streams
@@ -255,9 +277,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // `session.abortSignal` (Ctrl-C / TUI) threads through the same kill ladder.
   const { code, signal } = await runHeadlessSpawn({
     child,
-    onStdout: (chunk) => {
-      stdoutBuf += chunk;
-    },
+    onStdout: (chunk) => parser.feed(chunk, onLine),
     onStderr: (chunk) => {
       stderrBuf += chunk;
     },
@@ -276,6 +296,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
     },
   });
+  parser.flush(onLine);
 
   if (signal === 'SIGTERM') {
     return {
@@ -289,11 +310,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     };
   }
 
+  const envelope = parser.snapshot();
+
   if (code === 0) {
-    const envelope = parseClaudeJsonEnvelope(stdoutBuf);
-    // Drop the spawn-side stdout buffer NOW. From here on the only string we hold is
-    // `envelope.body`, and that goes out of scope when the function returns.
-    stdoutBuf = '';
     if (envelope.sessionId !== undefined) {
       deps.eventBus.publish({
         type: 'log',
@@ -332,14 +351,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 
   // Non-zero exit. Rate-limit detection: stderr regex match — lean heuristic, easy to widen.
   if (RATE_LIMIT_RE.test(stderrBuf)) {
-    // Best-effort: pull session id out of whatever stdout we captured, even on failure.
-    const sessionIdOnFailure = parseClaudeJsonEnvelope(stdoutBuf).sessionId;
+    // Best-effort: surface any session id the stream already carried, even on failure.
     return {
       kind: 'rate-limit',
       error: new RateLimitError({
         subCode: 'spawn-stderr',
         message: `claude-provider: rate-limit detected in stderr (exit ${String(code)})`,
-        ...(sessionIdOnFailure !== undefined ? { sessionId: sessionIdOnFailure } : {}),
+        ...(envelope.sessionId !== undefined ? { sessionId: envelope.sessionId } : {}),
       }),
     };
   }
