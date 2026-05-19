@@ -7,6 +7,22 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-05-19
+
+### Fixed
+
+- **Execute view shows real flow steps** instead of a placeholder, with a vertical task legend so
+  long task lists no longer clip in the TUI.
+- **Codex headless `--resume` args** are now passed correctly, so resume of an in-flight Codex
+  session no longer reinvokes the model with a fresh context.
+
+### Changed
+
+- **Codex readiness and diagnostics parity** with Claude / Copilot — same probe surface, same
+  signal vocabulary, same failure breadcrumbs.
+- **Readiness probe-FS helpers deduplicated** and the probes themselves slimmed down; no behavior
+  change, just less surface area to drift.
+
 ## [0.7.1] - 2026-05-19
 
 ### Added
