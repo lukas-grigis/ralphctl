@@ -7,6 +7,35 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-19
+
+### Added
+
+- **Interactive dirty-tree preflight.** When `implement` starts on a dirty working tree (e.g. after
+  an interrupted prior run), the user picks Keep / Stash / Reset / Cancel instead of being
+  hard-failed. Stash uses `git stash push -u` with a recoverable message that includes the
+  sprintId + timestamp; Reset is `git reset --hard && git clean -fd`; Cancel surfaces as
+  `AbortError`. Non-interactive callers (CI, headless harness) keep failing fast by passing
+  `dirtyTreePolicy: 'cancel'`.
+- **Task unblock recovery hatch.** Tasks that settled to `blocked` can now be unblocked from the
+  TUI's Sprint Detail view and from the `ralphctl task` CLI — re-running `implement` then picks
+  them up on the next attempt without manual JSON surgery.
+
+### Fixed
+
+- **Claude provider streams JSONL** instead of buffering until the session exits, so the
+  idle-stdout watchdog no longer kills healthy sessions during long generator turns.
+- **Codex interactive launches emit `--add-dir`** for `additionalRoots` and the prompt / output
+  dirs, so the harness-controlled file contract (`signals.json`, `prompt.md`, `done-criteria.md`)
+  is actually visible to the running model.
+- **Plan flow roots its AI session** at `<sprintDir>/plan/<run-slug>/` instead of `repositories[0]`,
+  and mounts **every** project repository as an equal `--add-dir` source. Multi-repo planning now
+  treats every repo symmetrically — no cwd privilege for the first one, no biased auto-loading of
+  one repo's `CLAUDE.md` / agents / `.mcp.json`.
+- **Refine flow roots its AI session** at `<sprintDir>/refinement/<ticket-slug>/` instead of the
+  repo. Refinement is implementation-agnostic, so it no longer auto-loads the repo's
+  provider-native context file and no longer pollutes the repo with bundled skills.
+
 ## [0.7.0] - 2026-05-18
 
 > **Structural rewrite.** Internal architecture, on-disk schema, data root, and several CLI commands
