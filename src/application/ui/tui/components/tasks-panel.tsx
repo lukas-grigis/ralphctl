@@ -152,29 +152,42 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
 };
 
 /**
- * One-line legend rendered above the first task block. Keeps the dashboard readable when the
+ * Vertical legend rendered above the first task block. Keeps the dashboard readable when the
  * 4-letter shorthand was replaced by full words: the operator sees what `change`, `learning`,
- * `decision`, `verified`, `blocked` mean without leaving the view.
+ * `decision`, `verified`, `blocked` mean without leaving the view. One row per signal kind
+ * with the label padded to {@link SIGNAL_LABEL_WIDTH} so the ` = description` column lines up
+ * with the same column under each task's signals block.
  */
+interface LegendEntry {
+  readonly label: string;
+  readonly color: string;
+  readonly description: string;
+}
+
+const LEGEND_ENTRIES: readonly LegendEntry[] = [
+  { label: 'change', color: inkColors.info, description: 'file/code edit' },
+  { label: 'learning', color: inkColors.highlight, description: 'cross-task insight' },
+  { label: 'decision', color: inkColors.highlight, description: 'design choice' },
+  { label: 'verified', color: inkColors.success, description: 'task self-check passed' },
+  { label: 'blocked', color: inkColors.error, description: 'task self-blocked' },
+  { label: 'commit', color: inkColors.info, description: 'proposed commit message' },
+];
+
 const SignalLegend = (): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent} marginBottom={spacing.section}>
-    <Text dimColor>
-      <Text bold>legend</Text>
-      {'  '}
-      <Text color={inkColors.info}>change</Text> = file/code edit
-      {'   '}
-      <Text color={inkColors.highlight}>learning</Text> = cross-task insight
-      {'   '}
-      <Text color={inkColors.highlight}>decision</Text> = design choice
+    <Text dimColor bold>
+      legend
     </Text>
-    <Text dimColor>
-      {'        '}
-      <Text color={inkColors.success}>verified</Text> = task self-check passed
-      {'   '}
-      <Text color={inkColors.error}>blocked</Text> = task self-blocked
-      {'   '}
-      <Text color={inkColors.info}>commit</Text> = proposed commit message
-    </Text>
+    <Box flexDirection="column" paddingLeft={2}>
+      {LEGEND_ENTRIES.map((entry) => (
+        <Box key={entry.label}>
+          <Text color={entry.color} bold>
+            {padLabel(entry.label)}
+          </Text>
+          <Text dimColor>= {entry.description}</Text>
+        </Box>
+      ))}
+    </Box>
   </Box>
 );
 

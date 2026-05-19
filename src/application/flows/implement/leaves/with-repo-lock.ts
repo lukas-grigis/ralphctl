@@ -38,6 +38,11 @@ export interface WithRepoLockOpts {
 
 export const withRepoLock = (opts: WithRepoLockOpts, inner: Element<ImplementCtx>): Element<ImplementCtx> => ({
   name: `with-repo-lock(${inner.name})`,
+  // Expose the wrapped chain through the composite-pattern `children` slot so `flattenLeaves`
+  // walks into it when the TUI builds its planned-leaf list. Without this the wrapper looked
+  // like an opaque single leaf and the Flow-steps panel rendered only "with-repo-lock(…)" —
+  // never the real setup / per-task / teardown sequence inside the lock.
+  children: [inner],
   async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
     const lockPath = repoLockFile(opts.locksRoot, opts.worktreePath);
     if (!lockPath.ok) {
