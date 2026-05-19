@@ -86,7 +86,11 @@ export interface CreateImplementFlowOpts {
   readonly sprintDir: AbsolutePath;
   /** Configured model for the implement chain — `config.ai.<provider>.models.implement`. */
   readonly model: string;
-  /** How preflight handles a dirty working tree. Default `'cancel'`. */
+  /**
+   * How preflight handles a dirty working tree. Default `'prompt'` — interactive recovery
+   * (Keep / Stash / Reset / Cancel). Non-interactive callers (CI, headless harness) should
+   * explicitly pass `'cancel'` or `'continue'`.
+   */
   readonly dirtyTreePolicy?: DirtyTreePolicy;
 }
 
@@ -325,13 +329,18 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   }));
 
   // Per-repo dirty-tree preflight. Each affected repo gets its own check so a clean
-  // working tree in one repo doesn't mask a dirty tree in another.
+  // working tree in one repo doesn't mask a dirty tree in another. Default to 'prompt' here
+  // so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires; the business-layer
+  // default stays 'cancel' for non-interactive callers in isolation.
+  const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
   const preflightLeaves = uniqueRepoCwds.map((cwd, i) =>
     preflightTaskLeaf(
       {
         gitRunner: deps.gitRunner,
+        interactive: deps.interactive,
+        clock: deps.clock,
         logger: deps.logger,
-        ...(opts.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: opts.dirtyTreePolicy } : {}),
+        dirtyTreePolicy,
       },
       cwd,
       `preflight-task-${String(i + 1)}-${String(cwd)}`
