@@ -71,4 +71,109 @@ describe('session-manager', () => {
     runner.subscribe(() => undefined);
     expect(notifyCount).toBe(countAfterRegister);
   });
+
+  describe('eviction', () => {
+    const TTL_MS = 30 * 60 * 1000;
+    const LRU_CAP = 50;
+
+    const makeFakeClock = (start = 1_000_000): { now: () => number; advance: (ms: number) => void } => {
+      let t = start;
+      return {
+        now: () => t,
+        advance: (ms) => {
+          t += ms;
+        },
+      };
+    };
+
+    const registerTerminal = async (sessions: ReturnType<typeof createSessionManager>, id: string): Promise<void> => {
+      const flow: Element<Ctx> = sequential<Ctx>(id, [okLeaf('one')]);
+      const runner = createRunner({ id, element: flow, initialCtx: {} });
+      await runner.start();
+      sessions.register({ runner, flowId: 'demo', title: id });
+    };
+
+    const registerRunning = (sessions: ReturnType<typeof createSessionManager>, id: string): void => {
+      const flow: Element<Ctx> = sequential<Ctx>(id, [okLeaf('one')]);
+      const runner = createRunner({ id, element: flow, initialCtx: {} });
+      // Do not start — runner stays in 'idle' (non-terminal), which `evict` treats the same as
+      // 'running': protected from both TTL and LRU pressure.
+      sessions.register({ runner, flowId: 'demo', title: id });
+    };
+
+    it('evicts terminal records older than the TTL on the next sweep', async () => {
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+      await registerTerminal(sessions, 'old');
+      expect(sessions.get('old')).toBeDefined();
+
+      clock.advance(TTL_MS + 1);
+      // A second register() triggers the eviction sweep.
+      await registerTerminal(sessions, 'new');
+
+      expect(sessions.get('old')).toBeUndefined();
+      expect(sessions.get('new')).toBeDefined();
+    });
+
+    it('retains terminal records under the TTL', async () => {
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+      await registerTerminal(sessions, 'fresh');
+
+      clock.advance(TTL_MS - 1);
+      await registerTerminal(sessions, 'next');
+
+      expect(sessions.get('fresh')).toBeDefined();
+      expect(sessions.get('next')).toBeDefined();
+    });
+
+    it('never evicts non-terminal records regardless of age', async () => {
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+      registerRunning(sessions, 'live');
+
+      clock.advance(TTL_MS * 10);
+      // Sweep fires inside register() — `live` is non-terminal so it must survive.
+      await registerTerminal(sessions, 'tick');
+
+      expect(sessions.get('live')).toBeDefined();
+    });
+
+    it('drops the oldest terminal record when more than LRU_CAP terminals exist', async () => {
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+
+      // Fill exactly to cap: 50 terminal records, each finished a millisecond apart so ordering
+      // by finishedAt is deterministic.
+      for (let i = 0; i < LRU_CAP; i++) {
+        await registerTerminal(sessions, `t-${i}`);
+        clock.advance(1);
+      }
+      expect(sessions.list().length).toBe(LRU_CAP);
+
+      // 51st terminal record. The next register() runs evict() *before* inserting, which sees
+      // size === LRU_CAP (under cap), so nothing drops yet. After insertion the runner finishes
+      // and `update()` re-runs evict() with size === LRU_CAP + 1 → oldest terminal goes.
+      await registerTerminal(sessions, 'overflow');
+
+      expect(sessions.list().length).toBe(LRU_CAP);
+      expect(sessions.get('t-0')).toBeUndefined();
+      expect(sessions.get('overflow')).toBeDefined();
+    });
+
+    it('does not evict when running records push size above LRU_CAP', () => {
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+
+      for (let i = 0; i < LRU_CAP + 5; i++) {
+        registerRunning(sessions, `r-${i}`);
+      }
+
+      expect(sessions.list().length).toBe(LRU_CAP + 5);
+      // Every running record still present — none can be displaced.
+      for (let i = 0; i < LRU_CAP + 5; i++) {
+        expect(sessions.get(`r-${i}`)).toBeDefined();
+      }
+    });
+  });
 });
