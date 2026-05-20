@@ -1,4 +1,5 @@
 import type { Task } from '@src/domain/entity/task.ts';
+import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 
 /**
  * Shared task-section renderers used by both the implement (P02) and evaluate (P03) prompt
@@ -88,28 +89,23 @@ export const renderExtraDimensionsSection = (extras: readonly string[] | undefin
 };
 
 /**
- * Render the verbatim ticket-reference trailer line for the implement prompt's commit-message
- * instructions. Format is git-trailer style: `Refs: #123, #124` — single line, no markdown
- * heading, no trailing newline. Used by the implement template inside a conditional clause so
- * the empty case reads cleanly (no orphan label, no gappy sentence).
+ * Render the closing-keyword trailer block appended to per-task commit messages. GitHub and
+ * GitLab both parse `Closes <ref>` (case-insensitive) and auto-close the referenced issue
+ * when the PR / MR merges, so one line per ref is what both platforms expect. Used today by
+ * `commit-task.ts`; the implement prompt no longer carries the trailer placeholder.
  *
- * Empty / undefined → empty string. Multiple refs are comma-separated, deduped (set-style),
- * preserved in input order. The harness writes them verbatim — `#`/`!`/`PROJ-` decoration is
- * the source ticket's choice, not ours to normalise.
+ * Format:
+ *   `Closes #123`                       (single ref)
+ *   `Closes #123\nCloses #456`          (multiple refs — one keyword per line)
+ *
+ * Empty / undefined → empty string. Refs are trimmed, deduped first-seen-wins, and emitted in
+ * input order via {@link normalizeRefs}. The harness writes the ref tokens verbatim —
+ * `#`/`!`/`PROJ-` decoration is the source ticket's choice, not ours to normalise.
  */
 export const renderTicketRefsSection = (refs: readonly string[] | undefined): string => {
-  if (refs === undefined || refs.length === 0) return '';
-  const seen = new Set<string>();
-  const ordered: string[] = [];
-  for (const r of refs) {
-    const trimmed = r.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    ordered.push(trimmed);
-  }
-  if (ordered.length === 0) return '';
-  return `Refs: ${ordered.join(', ')}`;
+  const normalized = normalizeRefs(refs);
+  if (normalized.length === 0) return '';
+  return normalized.map((r) => `Closes ${r}`).join('\n');
 };
 
 /**

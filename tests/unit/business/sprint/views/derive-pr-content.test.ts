@@ -36,7 +36,7 @@ describe('derivePrContent', () => {
     expect(out.body).not.toContain('still-pending');
   });
 
-  it('includes the Related issues section listing each ticket externalRef', () => {
+  it('includes the Related issues section with `Closes <ref>` bullets for each ticket externalRef', () => {
     const sprint = makeDraftSprint({
       tickets: [
         makeApprovedTicket({ title: 'first', externalRef: '#123' }),
@@ -45,8 +45,8 @@ describe('derivePrContent', () => {
     });
     const out = derivePrContent(sprint, []);
     expect(out.body).toContain('## Related issues');
-    expect(out.body).toContain('- #123');
-    expect(out.body).toContain('- !456');
+    expect(out.body).toContain('- Closes #123');
+    expect(out.body).toContain('- Closes !456');
   });
 
   it('omits the Related issues section when no ticket carries an externalRef', () => {
@@ -66,9 +66,9 @@ describe('derivePrContent', () => {
       ],
     });
     const out = derivePrContent(sprint, []);
-    // First-seen wins; the duplicate `- #123` line must not appear twice.
-    const hits = out.body.match(/- #123/g) ?? [];
+    // First-seen wins; the duplicate `- Closes #123` line must not appear twice.
+    const hits = out.body.match(/- Closes #123/g) ?? [];
     expect(hits).toHaveLength(1);
-    expect(out.body).toContain('- !456');
+    expect(out.body).toContain('- Closes !456');
   });
 });

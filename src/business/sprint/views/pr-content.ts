@@ -1,5 +1,6 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 
 export interface DerivedPrContent {
   readonly title: string;
@@ -25,12 +26,13 @@ export interface DerivedPrContent {
  *   - …
  *
  *   ## Related issues  (omitted when no ticket carries an externalRef)
- *   - #123
- *   - !456
+ *   - Closes #123
+ *   - Closes !456
  *
  *   — sprint id: `<sprint id>`
  *
- * The "Related issues" entries are deduped across tickets via a `Set` so a sprint that
+ * "Related issues" bullets use the `Closes <ref>` form GitHub and GitLab both recognise for
+ * auto-close on merge. Refs are trimmed and deduped via `normalizeRefs` so a sprint that
  * collected the same issue ref on multiple tickets does not show it twice.
  */
 export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): DerivedPrContent => {
@@ -47,17 +49,9 @@ export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): Derived
     sections.push(`## Tasks\n${taskLines}`);
   }
 
-  const seenRefs = new Set<string>();
-  const orderedRefs: string[] = [];
-  for (const t of sprint.tickets) {
-    const ref = t.externalRef?.trim();
-    if (ref === undefined || ref.length === 0) continue;
-    if (seenRefs.has(ref)) continue;
-    seenRefs.add(ref);
-    orderedRefs.push(ref);
-  }
+  const orderedRefs = normalizeRefs(sprint.tickets.map((t) => t.externalRef ?? ''));
   if (orderedRefs.length > 0) {
-    const refLines = orderedRefs.map((r) => `- ${r}`).join('\n');
+    const refLines = orderedRefs.map((r) => `- Closes ${r}`).join('\n');
     sections.push(`## Related issues\n${refLines}`);
   }
 
