@@ -50,6 +50,7 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 
 /**
  * Wired application dependencies. Composition root assembles these once at startup; everything
@@ -167,6 +168,13 @@ export interface AppDeps {
    * settle-attempt, sprint transition). Tolerant by contract: missing file → empty list.
    */
   readonly loadChainLog: LoadChainLog;
+  /**
+   * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
+   * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
+   * "ralphctl needs you" cue can call it directly. Production: terminal bell + Darwin
+   * NotificationCenter / Linux libnotify. Tests: a no-op stub unless one is injected.
+   */
+  readonly notificationDispatcher: NotificationDispatcher;
 }
 
 /**
@@ -187,6 +195,13 @@ export interface WireOptions {
    * test passes a fake spawn so the test exercises the full wiring without a real binary.
    */
   readonly spawn?: ProviderSpawn;
+  /**
+   * Optional override for the OS attention notifier. Production callers (the TUI bootstrap in
+   * `launch.ts`) pass the real Darwin / Linux adapter; the default for unspecified callers is a
+   * silent no-op so tests don't accidentally pop NotificationCenter dings on the dev machine
+   * when they exercise a chain that fires an attention event.
+   */
+  readonly notificationDispatcher?: NotificationDispatcher;
 }
 
 /**
@@ -222,6 +237,13 @@ const PROBES: ReadinessProbeRegistry = {
   codex: codexProbe,
 };
 
+/** Silent default dispatcher — used when no production override is passed (i.e. by tests). */
+const noopNotificationDispatcher: NotificationDispatcher = {
+  async notify() {
+    // intentionally no-op
+  },
+};
+
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn = (opts.spawn ?? defaultPipeSpawn) as unknown as Spawn;
   // One bus per `wire()` call — bus state isolates between concurrent app
@@ -229,6 +251,11 @@ export const wire = (opts: WireOptions): AppDeps => {
   // unified pipe TUI panels, file appenders, and webhooks all subscribe to.
   const eventBus = createInMemoryEventBus();
   const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
+  // OS-attention notifier slot. The TUI bootstrap (launch.ts) injects the real Darwin/Linux
+  // adapter and ALSO calls `startNotificationSubscriber` to attach it to the bus; everything
+  // else (tests, CLI one-shots) takes the no-op fallback and no subscriber is started, so an
+  // accidental NotificationCenter ding from a unit test is impossible.
+  const notificationDispatcher = opts.notificationDispatcher ?? noopNotificationDispatcher;
   // Hoisted so taskRepo can share the same locker for its per-file read-modify-write guard.
   // One locker instance per app means stale-takeover semantics agree across every caller.
   const fileLocker = createFileLocker({
@@ -277,5 +304,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
     loadChainLog: createFsChainLogLoader({ logger }),
+    notificationDispatcher,
   };
 };

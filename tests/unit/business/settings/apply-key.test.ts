@@ -39,6 +39,25 @@ describe('applySettingsKey', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('unknown settings key');
   });
+
+  it('toggles ui.notifications.enabled from common truthy/falsy synonyms', () => {
+    for (const raw of ['true', '1', 'yes', 'on'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'ui.notifications.enabled', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.ui.notifications.enabled).toBe(true);
+    }
+    for (const raw of ['false', '0', 'no', 'off'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'ui.notifications.enabled', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.ui.notifications.enabled).toBe(false);
+    }
+  });
+
+  it('rejects a non-boolean value for ui.notifications.enabled', () => {
+    const r = applySettingsKey(DEFAULT_SETTINGS, 'ui.notifications.enabled', 'maybe');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain('not a boolean');
+  });
 });
 
 describe('parseSettingsKvSyntax', () => {

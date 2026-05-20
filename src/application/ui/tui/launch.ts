@@ -31,6 +31,8 @@ import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
 import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
+import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
+import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -91,6 +93,17 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     },
   });
 
+  // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
+  // accidentally pop NotificationCenter dings on the dev machine — only the TUI bootstrap
+  // attaches the real adapter + subscriber. Disable gate reads the boot-time settings snapshot
+  // (a runtime toggle requires relaunch; see wire.ts comment).
+  const osNotificationDispatcher = createOsNotificationDispatcher({ logger: deps.logger });
+  const unsubNotifications = startNotificationSubscriber({
+    eventBus: deps.eventBus,
+    dispatcher: osNotificationDispatcher,
+    disabled: () => settings.value.ui.notifications.enabled === false,
+  });
+
   const sessions = createSessionManager();
   const queue = createPromptQueue();
 
@@ -138,6 +151,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
       queue.drain(new Error('TUI shutting down'));
       unsubLogForward();
       heapWatchdog.stop();
+      unsubNotifications();
     },
   };
 };

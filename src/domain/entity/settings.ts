@@ -82,6 +82,14 @@ export const SettingsSchema = z.object({
     maxAttempts: z.number().int().min(1).max(10),
     /** Adapter-side retries on `RateLimitError` before surfacing the failure (0–10). */
     rateLimitRetries: z.number().int().min(0).max(10),
+    /**
+     * Consecutive evaluator turns flagging the same failed-dimension set before the loop
+     * exits with a `plateau` warning (2–5). Setting to 3+ gives the AI extra retries before
+     * the harness gives up. See `business/task/plateau-detection.ts` for the exemption rules
+     * (score improvement / commit-message change / critique-prose shift) that can soften or
+     * skip the plateau even when the threshold is met.
+     */
+    plateauThreshold: z.number().int().min(2).max(5).default(2),
   }),
   logging: z.object({
     level: LogLevelSchema,
@@ -90,6 +98,21 @@ export const SettingsSchema = z.object({
     /** Max tasks running in parallel within one sprint. `1` = strict serial execution. */
     maxParallelTasks: z.number().int().min(1),
   }),
+  ui: z
+    .object({
+      notifications: z
+        .object({
+          /**
+           * Master switch for OS-level attention notifications (terminal bell + Darwin
+           * NotificationCenter / Linux libnotify). Defaults `true`; users on shared workstations
+           * or in muted-headphones environments can flip this off to suppress every notify call.
+           * Read on each event so a runtime toggle takes effect immediately.
+           */
+          enabled: z.boolean().default(true),
+        })
+        .default({ enabled: true }),
+    })
+    .default({ notifications: { enabled: true } }),
 });
 
 export type AiSettings = z.infer<typeof AiSettingsSchema>;
