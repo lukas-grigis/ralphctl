@@ -1,12 +1,16 @@
 /**
  * Multi-select prompt. Space toggles the focused option; Enter submits the current selection;
- * `a` selects all; `n` clears selection. Esc cancels with empty.
+ * `a` selects all; `n` clears selection. Esc cancels with empty. Long option lists scroll
+ * within a fixed window so the prompt frame stays predictable; `picked` keeps original-index
+ * references so toggling survives scrolling.
  */
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+
+const VISIBLE_ROWS = 8;
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -66,13 +70,18 @@ export const MultiSelectPrompt = ({
     else if (key.downArrow || input === 'j') setCursor((c) => clamp(c + 1, 0, options.length - 1));
   });
 
+  const half = Math.floor(VISIBLE_ROWS / 2);
+  const start = clamp(cursor - half, 0, Math.max(0, options.length - VISIBLE_ROWS));
+  const end = Math.min(options.length, start + VISIBLE_ROWS);
+
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <Text color={inkColors.primary} bold>
         {glyphs.actionCursor} {message}
       </Text>
       <Box flexDirection="column" marginTop={1}>
-        {options.map((opt, i) => {
+        {options.slice(start, end).map((opt, localIdx) => {
+          const i = start + localIdx;
           const focused = i === cursor;
           const checked = picked.has(i);
           return (
@@ -92,6 +101,11 @@ export const MultiSelectPrompt = ({
           );
         })}
       </Box>
+      {options.length > VISIBLE_ROWS && (
+        <Text dimColor>
+          {String(cursor + 1)} of {String(options.length)}
+        </Text>
+      )}
       <Text dimColor>
         space toggle · a select-all · n clear · ↵ submit ({String(picked.size)} selected) · esc cancel
       </Text>
