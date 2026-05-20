@@ -74,7 +74,7 @@ describe('renderSnapshotText', () => {
           attemptsCount: 1,
           lastAttempt: {
             n: 1,
-            status: 'completed',
+            status: 'verified',
             verdict: 'passed',
             commitSha: 'deadbeef1234567',
             startedAt: ts('2026-05-08T10:00:00.000Z'),
