@@ -29,6 +29,7 @@ export const globalKeys = {
   doctor: { keys: ['!'], label: 'doctor' },
   bannerToggle: { keys: ['b'], label: 'toggle banner' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
+  yankTask: { keys: ['y'], label: 'copy active task summary' },
   help: { keys: ['?'], label: 'help' },
   quit: { keys: ['q', 'ctrl+c'], label: 'quit' },
 } as const satisfies Record<string, KeyBinding>;
@@ -48,6 +49,26 @@ export const listKeys = {
 export const executeKeys = {
   cancel: { keys: ['c'], label: 'cancel run' },
   detach: { keys: ['D'], label: 'detach (background)' },
+} as const satisfies Record<string, KeyBinding>;
+
+/**
+ * Bindings local to the Tasks panel — the live per-task surface on the Implement view.
+ *
+ * `criteria` uses `e` (expand). The first instinct — `D` / Shift+D — collides with
+ * {@link executeKeys.detach}, which the execute view intercepts regardless of whether the
+ * panel owns input; `c` is the cancel binding. `e` is otherwise free across the global / list
+ * / execute key surfaces and reads as "expand criteria" at a glance.
+ *
+ * `cardUp` / `cardDown` reuse j/k from {@link listKeys} but with a different scope: the panel's
+ * cursor moves across task cards when the focused card is collapsed, and across signal rows
+ * within the focused card when it is expanded.
+ */
+export const tasksPanelKeys = {
+  cardUp: { keys: ['k', '↑'], label: 'prev card / row' },
+  cardDown: { keys: ['j', '↓'], label: 'next card / row' },
+  toggleCard: { keys: ['↵', 'space'], label: 'expand / collapse card or commit row' },
+  collapseCard: { keys: ['esc'], label: 'collapse expanded card' },
+  criteria: { keys: ['e'], label: 'expand done criteria for active card' },
 } as const satisfies Record<string, KeyBinding>;
 
 /** Key labels grouped by area — consumed by the help overlay. */
@@ -101,5 +122,6 @@ export const keySections: readonly KeySection[] = [
   toSection('Global', globalKeys),
   toSection('Lists', listKeys),
   toSection('Execute', executeKeys),
+  toSection('Tasks panel', tasksPanelKeys),
   signalReference,
 ];

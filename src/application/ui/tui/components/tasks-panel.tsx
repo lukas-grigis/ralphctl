@@ -18,7 +18,7 @@
  * bucketed structure.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type {
   BucketedExecution,
@@ -35,6 +35,7 @@ import type {
 } from '@src/domain/signal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
+import { EvaluatorFailurePanel } from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 
 export interface TasksPanelProps {
@@ -74,6 +75,28 @@ export interface TasksPanelProps {
    * task in the run is a resume.
    */
   readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
+  /**
+   * Optional lazy loader for a task's `done-criteria.md`. When supplied, each non-pending
+   * task's header renders a collapsed 3-line summary of the criteria with a `press e to
+   * expand` hint; pressing `e` while the panel owns input toggles the active task's full
+   * criteria block. The loader is called once per task id and cached for the lifetime of the
+   * mount.
+   *
+   * The implement chain materialises `<sprintDir>/implement/<task-id>/done-criteria.md` once
+   * the per-task subchain enters its workspace-build leaf; before that point the loader
+   * returns `undefined` and the criteria block is omitted entirely (the canonical criteria
+   * still live on the task entity if the operator opens task detail).
+   */
+  readonly readDoneCriteria?: (taskId: string) => Promise<string | undefined>;
+  /**
+   * Dev-only flag — when `true`, failing evaluator rows render via
+   * {@link EvaluatorFailurePanel} (per-dimension colour-coded view + critique excerpt with
+   * expand affordance) instead of the canonical single-line summary. Defaults `false` so
+   * production keeps the existing 4-line dimension summary until the per-dimension panel is
+   * promoted out of the developer-flag gate. Threaded from `settings.developer
+   * .showEvaluatorFailureUI` by the launcher.
+   */
+  readonly showEvaluatorFailureUI?: boolean;
 }
 
 const STATUS_PRESENTATION: Readonly<Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>> = {
@@ -443,13 +466,71 @@ const collectKinds = (bucketed: BucketedExecution): readonly string[] => {
   return order;
 };
 
-const EvaluationLine = ({ evaluation }: { readonly evaluation: EvaluationSignal }): React.JSX.Element => {
+/**
+ * Extract the bullet bodies from a `done-criteria.md` blob. The implement chain's workspace
+ * builder writes a `# Done criteria — …` heading followed by `- <criterion>` bullets; we
+ * strip headings, blank lines, and the italic-placeholder note that the builder emits when
+ * the task carries no `verificationCriteria`. Lines that look like a markdown bullet (`- ` or
+ * `* `) are tolerated; everything else is preserved verbatim so a hand-edited file still
+ * renders sensibly.
+ */
+const parseCriteriaBullets = (raw: string): readonly string[] => {
+  const out: string[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('_') && trimmed.endsWith('_')) continue;
+    const bullet = /^[-*]\s+(.*)$/.exec(trimmed);
+    out.push(bullet?.[1] ?? trimmed);
+  }
+  return out;
+};
+
+/**
+ * Per-criterion verdict mapping is deterministic only when the criterion count and the
+ * evaluator's dimension count match — in that case we pair them positionally, which is what
+ * the AI prompt already encourages. When counts diverge (a freshly-edited criteria file or an
+ * evaluator with a different dimension shape), we fall back to the 4-dimension scores
+ * unchanged rather than fabricate attribution. Returns the rendered text bullets, one per
+ * criterion, paired with the dimension's score / pass flag.
+ */
+interface CriterionVerdictRow {
+  readonly criterion: string;
+  readonly score: number;
+  readonly passed: boolean;
+}
+
+const fuseCriteriaWithDimensions = (
+  criteria: readonly string[],
+  dimensions: EvaluationSignal['dimensions']
+): readonly CriterionVerdictRow[] | undefined => {
+  if (criteria.length === 0 || dimensions.length === 0) return undefined;
+  if (criteria.length !== dimensions.length) return undefined;
+  const out: CriterionVerdictRow[] = [];
+  for (let i = 0; i < criteria.length; i += 1) {
+    const c = criteria[i];
+    const d = dimensions[i];
+    if (c === undefined || d === undefined) return undefined;
+    out.push({ criterion: c, score: d.score, passed: d.passed });
+  }
+  return out;
+};
+
+const EvaluationLine = ({
+  evaluation,
+  criteria,
+}: {
+  readonly evaluation: EvaluationSignal;
+  readonly criteria?: readonly string[];
+}): React.JSX.Element => {
   const color =
     evaluation.status === 'passed'
       ? inkColors.success
       : evaluation.status === 'failed'
         ? inkColors.error
         : inkColors.warning;
+  const fused = criteria !== undefined ? fuseCriteriaWithDimensions(criteria, evaluation.dimensions) : undefined;
   return (
     <Box flexDirection="column">
       <Box>
@@ -465,14 +546,36 @@ const EvaluationLine = ({ evaluation }: { readonly evaluation: EvaluationSignal 
           </Text>
         )}
       </Box>
-      {evaluation.dimensions.length > 0 && (
-        <Box paddingLeft={6}>
-          <Text dimColor>
-            {evaluation.dimensions
-              .map((d) => `${d.dimension}: ${String(d.score)}/5 ${d.passed ? glyphs.check : glyphs.cross}`)
-              .join(`  ${glyphs.bullet}  `)}
-          </Text>
+      {fused !== undefined ? (
+        // Per-criterion attribution: one row per criterion, each ellided on width so a long
+        // criterion line never explodes the layout. Pass / fail glyph at the head matches the
+        // paired dimension's `passed` flag.
+        <Box flexDirection="column" paddingLeft={6}>
+          {fused.map((row, i) => (
+            <Box key={`crit-${String(i)}`}>
+              <Text color={row.passed ? inkColors.success : inkColors.error} bold>
+                {row.passed ? glyphs.check : glyphs.cross}
+              </Text>
+              <Text dimColor>
+                {' '}
+                {String(row.score)}/5{'  '}
+              </Text>
+              <Box flexGrow={1} flexShrink={1}>
+                <Text wrap="truncate-end">{collapseWhitespace(row.criterion)}</Text>
+              </Box>
+            </Box>
+          ))}
         </Box>
+      ) : (
+        evaluation.dimensions.length > 0 && (
+          <Box paddingLeft={6}>
+            <Text dimColor>
+              {evaluation.dimensions
+                .map((d) => `${d.dimension}: ${String(d.score)}/5 ${d.passed ? glyphs.check : glyphs.cross}`)
+                .join(`  ${glyphs.bullet}  `)}
+            </Text>
+          </Box>
+        )
       )}
     </Box>
   );
@@ -579,6 +682,54 @@ const focusKeysForSlice = (scope: string, signals: readonly HarnessSignal[], sli
   return out;
 };
 
+/**
+ * Number of criterion bullets to render in the collapsed-summary form. Three lines reads as a
+ * glance preview without becoming a wall of text on tasks with many criteria; expanding via
+ * `e` reveals the rest.
+ */
+const CRITERIA_COLLAPSED_LINES = 3;
+
+const CriteriaBlock = ({
+  raw,
+  expanded,
+}: {
+  readonly raw: string;
+  readonly expanded: boolean;
+}): React.JSX.Element | null => {
+  const bullets = useMemo(() => parseCriteriaBullets(raw), [raw]);
+  if (bullets.length === 0) return null;
+  const visible = expanded ? bullets : bullets.slice(0, CRITERIA_COLLAPSED_LINES);
+  const overflow = bullets.length - visible.length;
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      <Box>
+        <Text dimColor>{glyphs.bullet} criteria</Text>
+        {!expanded && bullets.length > CRITERIA_COLLAPSED_LINES && (
+          <Text dimColor> {glyphs.bullet} press e to expand</Text>
+        )}
+        {expanded && bullets.length > CRITERIA_COLLAPSED_LINES && (
+          <Text dimColor> {glyphs.bullet} press e to collapse</Text>
+        )}
+      </Box>
+      <Box flexDirection="column" paddingLeft={2}>
+        {visible.map((b, i) => (
+          <Box key={`crit-row-${String(i)}`}>
+            <Text dimColor>{glyphs.bullet} </Text>
+            <Box flexGrow={1} flexShrink={1}>
+              <Text wrap="truncate-end">{collapseWhitespace(b)}</Text>
+            </Box>
+          </Box>
+        ))}
+        {overflow > 0 && (
+          <Text dimColor>
+            {glyphs.emDash} {String(overflow)} more
+          </Text>
+        )}
+      </Box>
+    </Box>
+  );
+};
+
 const TaskBlock = ({
   task,
   running,
@@ -591,6 +742,9 @@ const TaskBlock = ({
   expandedKeys,
   scopeId,
   sliceStart,
+  criteriaRaw,
+  criteriaExpanded,
+  showEvaluatorFailureUI,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -604,6 +758,12 @@ const TaskBlock = ({
   readonly scopeId: string;
   /** Absolute signal index where the rendered slice starts (`task.signals.length - sliceLen`). */
   readonly sliceStart: number;
+  /** Raw `done-criteria.md` blob, when the loader has hydrated it for this task. */
+  readonly criteriaRaw?: string;
+  /** When true the criteria block renders all bullets; otherwise the 3-line summary. */
+  readonly criteriaExpanded: boolean;
+  /** Dev flag — opt into the EvaluatorFailurePanel for failed evaluations. */
+  readonly showEvaluatorFailureUI: boolean;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -612,6 +772,10 @@ const TaskBlock = ({
   const subStepElided = task.subSteps.length - subStepRows.length;
   const evalRows = task.evaluations.slice(-maxEvaluations);
   const evalElided = task.evaluations.length - evalRows.length;
+  const criteriaBullets = useMemo(
+    () => (criteriaRaw !== undefined ? parseCriteriaBullets(criteriaRaw) : undefined),
+    [criteriaRaw]
+  );
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Box>
@@ -642,6 +806,7 @@ const TaskBlock = ({
         )}
       </Box>
       {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
+      {criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
       {task.errorMessage !== undefined && (
         <Box paddingLeft={2}>
           <Text color={inkColors.error}>{task.errorMessage}</Text>
@@ -658,9 +823,31 @@ const TaskBlock = ({
       {evalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           {evalElided > 0 && <Text dimColor>{`… ${String(evalElided)} earlier evaluations`}</Text>}
-          {evalRows.map((e, i) => (
-            <EvaluationLine key={`${task.id}-eval-${String(i)}`} evaluation={e} />
-          ))}
+          {evalRows.map((e, i) => {
+            // Dev-gated: failed evaluations render via the dedicated per-dimension panel when
+            // the flag is on. Anything else (passed / malformed) keeps the canonical compact
+            // line so we don't disrupt the existing layout. `isFinalRound` is approximated as
+            // "this is the latest evaluation row AND the task is still running" — only then
+            // will the harness feed the critique into another round.
+            const isLatest = i === evalRows.length - 1;
+            const willGetAnotherRound = isLatest && task.status === 'running';
+            if (showEvaluatorFailureUI && e.status === 'failed') {
+              return (
+                <EvaluatorFailurePanel
+                  key={`${task.id}-eval-${String(i)}`}
+                  evaluation={e}
+                  isFinalRound={!willGetAnotherRound}
+                />
+              );
+            }
+            return (
+              <EvaluationLine
+                key={`${task.id}-eval-${String(i)}`}
+                evaluation={e}
+                {...(criteriaBullets !== undefined ? { criteria: criteriaBullets } : {})}
+              />
+            );
+          })}
         </Box>
       )}
       {signalRows.length > 0 && (
@@ -772,6 +959,8 @@ export const TasksPanel = ({
   maxEvaluationsPerTask = 6,
   recoveringByTaskId,
   inputActive = false,
+  readDoneCriteria,
+  showEvaluatorFailureUI = false,
 }: TasksPanelProps): React.JSX.Element => {
   const flatKeys = useMemo(
     () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
@@ -784,12 +973,63 @@ export const TasksPanel = ({
   // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
   const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // Lazy-hydrated done-criteria.md by task id. The loader is called once per task that has
+  // entered its per-task subchain (status !== 'pending'); we cache the result for the lifetime
+  // of the mount. The map's value is the raw markdown blob, or the empty string sentinel when
+  // the loader returned `undefined` (either way, criteria UI is suppressed for that task).
+  const [criteriaByTaskId, setCriteriaByTaskId] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // Task ids whose criteria block is currently expanded (full bullet list). Default state is
+  // the 3-line summary. Toggled by pressing `e` while the panel owns input.
+  const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Hydrate criteria for any task that has materialised its workspace (status !== 'pending').
+  // The implement chain's `build-task-workspace-leaf` writes `done-criteria.md` early in each
+  // task's subchain, so the file is usually present by the time the task shows `running`.
+  useEffect(() => {
+    if (readDoneCriteria === undefined) return undefined;
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      for (const task of bucketed.tasks) {
+        if (task.status === 'pending') continue;
+        if (criteriaByTaskId.has(task.id)) continue;
+        const raw = await readDoneCriteria(task.id);
+        if (cancelled) return;
+        setCriteriaByTaskId((prev) => {
+          if (prev.has(task.id)) return prev;
+          const next = new Map(prev);
+          next.set(task.id, raw ?? '');
+          return next;
+        });
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [bucketed.tasks, readDoneCriteria, criteriaByTaskId]);
+
+  // The criteria-expansion hotkey targets the active (first non-completed) task — that's the
+  // single one the operator is actively reading. Recomputed each render so the `useInput`
+  // callback always sees the latest active id.
+  const activeTaskIdx = bucketed.tasks.findIndex((t) => t.status !== 'completed');
+  const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
 
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
 
   useInput(
     (input, key) => {
+      // Done-criteria toggle for the active task. Independent of the signal-row cursor: the
+      // operator is virtually always reading the running task when this hotkey is reached.
+      if (input === 'e' && activeTaskId !== undefined) {
+        setCriteriaExpandedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(activeTaskId)) next.delete(activeTaskId);
+          else next.add(activeTaskId);
+          return next;
+        });
+        return;
+      }
       if (flatKeys.length === 0) return;
       const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
       if (key.downArrow || input === 'j') {
@@ -852,6 +1092,10 @@ export const TasksPanel = ({
         const recovering = recoveringByTaskId?.get(task.id);
         const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
         const sliceStart = task.signals.length - sliceLen;
+        const cached = criteriaByTaskId.get(task.id);
+        // Treat the empty-string sentinel (loader returned `undefined`) as "no criteria for
+        // this task" — the block is skipped entirely rather than rendering a stub.
+        const criteriaRaw = cached !== undefined && cached.length > 0 ? cached : undefined;
         return (
           <TaskBlock
             key={task.id}
@@ -865,7 +1109,10 @@ export const TasksPanel = ({
             expandedKeys={expandedKeys}
             scopeId={task.id}
             sliceStart={sliceStart}
+            criteriaExpanded={criteriaExpandedIds.has(task.id)}
+            showEvaluatorFailureUI={showEvaluatorFailureUI}
             {...(recovering !== undefined ? { recovering } : {})}
+            {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
           />
         );
       })}

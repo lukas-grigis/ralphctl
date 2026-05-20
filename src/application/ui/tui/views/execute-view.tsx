@@ -29,7 +29,14 @@ import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { RecentEventsTail } from '@src/application/ui/tui/components/recent-events-tail.tsx';
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { CONTEXT_WIDTH, RAIL_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import {
+  COMPACT_RAIL_WIDTH,
+  CONTEXT_WIDTH,
+  RAIL_WIDTH,
+  glyphs,
+  inkColors,
+  spacing,
+} from '@src/application/ui/tui/theme/tokens.ts';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
@@ -59,7 +66,12 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 
 const TWO_COL_BREAKPOINT = 140;
 const THREE_COL_BREAKPOINT = 180;
-/** Below this width the Flow Steps section collapses to four rows in single-column mode. */
+/**
+ * Below this width the Flow Steps section collapses to four rows in single-column mode AND the
+ * two-column layout disappears entirely (we never render the rail on a <100 col terminal — the
+ * stream column wouldn't have room left). At 100-139 cols a *compact* rail variant (status
+ * glyphs only, no labels) is rendered instead of the labelled rail used at ≥140 cols.
+ */
 const NARROW_FLOW_STEPS_BREAKPOINT = 100;
 const NARROW_FLOW_STEPS_ROWS = 4;
 
@@ -247,11 +259,13 @@ export const ExecuteView = (): React.JSX.Element => {
   const tasksTotal = bucketed?.tasks.length ?? 0;
   const threeColumn = term.columns >= THREE_COL_BREAKPOINT;
   const twoColumn = !threeColumn && term.columns >= TWO_COL_BREAKPOINT;
-  const singleColumn = !threeColumn && !twoColumn;
+  // Intermediate breakpoint (100–139 cols): a compact two-column layout with the rail
+  // collapsed to status glyphs (no labels). Below 100 cols we drop the rail entirely.
+  const compactTwoColumn = !threeColumn && !twoColumn && term.columns >= NARROW_FLOW_STEPS_BREAKPOINT;
+  const singleColumn = !threeColumn && !twoColumn && !compactTwoColumn;
 
   const baseFlowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
-  const flowStepsRows =
-    singleColumn && term.columns < NARROW_FLOW_STEPS_BREAKPOINT ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
+  const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
   const tasksMaxSignals = isRunning ? 6 : 12;
   const logRows = isRunning ? 6 : 10;
 
@@ -341,6 +355,20 @@ export const ExecuteView = (): React.JSX.Element => {
     />
   );
 
+  // Compact rail panel — icons-only variant used at the 100–139 col breakpoint. The
+  // `inFlightLabel` is dropped because there's no room for any text anyway, and the rail's
+  // job in compact mode is just "is the runner moving and which phase is it on".
+  const compactFlowStepsPanel = (
+    <StepTrace
+      trace={descriptor.trace}
+      running={isRunning}
+      filter={outerFlowFilter}
+      maxRows={flowStepsRows}
+      compact
+      {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
+    />
+  );
+
   // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
   // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
   // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
@@ -411,6 +439,19 @@ export const ExecuteView = (): React.JSX.Element => {
               <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
+              </Box>
+              <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
+                <SectionHeader title="Tasks" />
+                {tasksPanel}
+              </Box>
+            </Box>
+          ) : compactTwoColumn ? (
+            // 100–139 col breakpoint — compact rail (icons only, ~6 cols wide) + Tasks stream.
+            // The rail's SectionHeader is dropped because "Flow steps" overflows the narrow
+            // column; the glyph-only column reads as a status spine.
+            <Box flexDirection="row" marginTop={spacing.section}>
+              <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+                {compactFlowStepsPanel}
               </Box>
               <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
                 <SectionHeader title="Tasks" />

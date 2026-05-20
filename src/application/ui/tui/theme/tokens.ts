@@ -82,9 +82,12 @@ export const PROMPT_VISIBLE_ROWS = 8;
  * Layout widths for the Implement dashboard's rail / stream / context split. Fixed character
  * widths (no flex) so the stream column inherits all remaining space via `flexGrow={1}`.
  *
- *   - {@link RAIL_WIDTH} — left rail; carries the Flow Steps list.
- *   - {@link CONTEXT_WIDTH} — right context column; empty on day-one, populated later by
- *     baseline health (P1k), token meter (P2b), and ETA (P3a) cards.
+ *   - {@link RAIL_WIDTH} — left rail; carries the Flow Steps list (labels visible).
+ *   - {@link COMPACT_RAIL_WIDTH} — narrowed rail used at the intermediate 100–139 col
+ *     breakpoint; the Flow Steps list collapses to status icons only, no labels.
+ *   - {@link CONTEXT_WIDTH} — right context column; baseline health (P1k), token meter
+ *     (P2b), and ETA (P3a) cards stack here at ≥180 cols.
  */
 export const RAIL_WIDTH = 24;
+export const COMPACT_RAIL_WIDTH = 6;
 export const CONTEXT_WIDTH = 28;

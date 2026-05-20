@@ -33,6 +33,13 @@ export interface StepTraceProps {
    * the in-flight cursor (first unmatched plan entry while running) gets a spinner.
    */
   readonly plan?: readonly string[];
+  /**
+   * When `true`, only the per-row status glyph renders — leaf name, duration, trailing label,
+   * and error message are all suppressed. Used by the compact-rail breakpoint (~100-139 cols) so
+   * the rail still communicates "where the runner is" without consuming the column width labels
+   * need. Default `false`.
+   */
+  readonly compact?: boolean;
 }
 
 type RowStatus = TraceEntry['status'] | 'pending' | 'running';
@@ -134,6 +141,7 @@ export const StepTrace = ({
   maxRows = 12,
   inFlightLabel,
   plan,
+  compact = false,
 }: StepTraceProps): React.JSX.Element => {
   // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
   // lookup Map on every call. For long running sessions (5k+ trace entries) re-allocating that
@@ -176,24 +184,28 @@ export const StepTrace = ({
                 {instruction.glyph}
               </Text>
             )}
-            <Text dimColor={dimRow}> {row.name}</Text>
-            {row.durationMs !== undefined && (
-              <Text dimColor>
-                {' '}
-                {glyphs.bullet} {fmtDuration(row.durationMs)}
-              </Text>
-            )}
-            {trailing !== undefined && (
-              <Text color={instruction.color}>
-                {'  '}
-                {glyphs.emDash} {trailing}
-              </Text>
-            )}
-            {row.errorMessage !== undefined && (
-              <Text color={inkColors.error}>
-                {'  '}
-                {glyphs.emDash} {row.errorMessage}
-              </Text>
+            {!compact && (
+              <>
+                <Text dimColor={dimRow}> {row.name}</Text>
+                {row.durationMs !== undefined && (
+                  <Text dimColor>
+                    {' '}
+                    {glyphs.bullet} {fmtDuration(row.durationMs)}
+                  </Text>
+                )}
+                {trailing !== undefined && (
+                  <Text color={instruction.color}>
+                    {'  '}
+                    {glyphs.emDash} {trailing}
+                  </Text>
+                )}
+                {row.errorMessage !== undefined && (
+                  <Text color={inkColors.error}>
+                    {'  '}
+                    {glyphs.emDash} {row.errorMessage}
+                  </Text>
+                )}
+              </>
             )}
           </Box>
         );

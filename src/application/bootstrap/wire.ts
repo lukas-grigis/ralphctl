@@ -50,6 +50,8 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import type { ReadDoneCriteria } from '@src/business/sprint/read-done-criteria.ts';
+import { createFsReadDoneCriteria } from '@src/integration/persistence/sprint/read-done-criteria.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 
 /**
@@ -168,6 +170,13 @@ export interface AppDeps {
    * settle-attempt, sprint transition). Tolerant by contract: missing file → empty list.
    */
   readonly loadChainLog: LoadChainLog;
+  /**
+   * Reader for a task's materialised `done-criteria.md` under the implement audit workspace.
+   * The TUI's Tasks panel calls this lazily when the operator expands a task's criteria block —
+   * the canonical criteria still live on `Task.verificationCriteria`, but the on-disk view is
+   * what the AI session is actually held to, so surfacing it directly avoids drift.
+   */
+  readonly readDoneCriteria: ReadDoneCriteria;
   /**
    * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
    * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
@@ -304,6 +313,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
     loadChainLog: createFsChainLogLoader({ logger }),
+    readDoneCriteria: createFsReadDoneCriteria(),
     notificationDispatcher,
   };
 };

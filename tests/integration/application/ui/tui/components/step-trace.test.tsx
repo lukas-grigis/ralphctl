@@ -29,6 +29,25 @@ describe('StepTrace plan/trace merge', () => {
     r.unmount();
   });
 
+  it('compact mode hides leaf names, durations, trailing labels, and error messages', () => {
+    const trace: TraceEntry[] = [
+      entry('one', 'completed'),
+      { ...entry('two'), status: 'failed', error: { message: 'boom' } as never },
+    ];
+    const r = render(<StepTrace trace={trace} running={false} plan={['one', 'two', 'three']} maxRows={10} compact />);
+    const frame = r.lastFrame() ?? '';
+    // Labels and durations and trailing words must all be absent.
+    expect(frame).not.toContain('one');
+    expect(frame).not.toContain('two');
+    expect(frame).not.toContain('three');
+    expect(frame).not.toContain('pending');
+    expect(frame).not.toContain('1ms');
+    expect(frame).not.toContain('boom');
+    // Status glyphs still render — the compact rail's whole job is the icon spine.
+    expect(frame).toMatch(/[■◇✗◌]/);
+    r.unmount();
+  });
+
   it('updates the merged rows when new entries are pushed to the same trace array', () => {
     // Simulate the runner mutating in place — array reference is stable across pushes.
     const trace: TraceEntry[] = [];
