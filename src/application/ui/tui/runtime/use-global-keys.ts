@@ -7,6 +7,7 @@
 
 import { useApp, useInput } from 'ink';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 export interface UseGlobalKeysOptions {
@@ -18,6 +19,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const { exit } = useApp();
   const router = useRouter();
   const ui = useUiState();
+  const selection = useSelection();
 
   useInput((input, key) => {
     // Quit always wins.
@@ -36,6 +38,18 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     // Help mode swallows the rest of the keystrokes; only Esc dismisses.
     if (ui.helpOpen) {
       if (key.escape) ui.toggleHelp();
+      return;
+    }
+
+    // Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded);
+    // `g` also dismisses while open so the operator can mash the same key to toggle. `esc`
+    // dismisses. Anchoring on `selection.sprintId` keeps Home a no-op as the spec demands.
+    if (ui.progressOpen) {
+      if (key.escape || input === 'g') ui.toggleProgress();
+      return;
+    }
+    if (input === 'g' && selection.sprintId !== undefined) {
+      ui.toggleProgress();
       return;
     }
 

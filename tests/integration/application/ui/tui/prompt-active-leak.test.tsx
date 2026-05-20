@@ -15,6 +15,7 @@ import { render } from 'ink-testing-library';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 
@@ -32,13 +33,15 @@ const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => vo
 
 const Harness = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => (
   <UiStateProvider>
-    <RouterProvider initial={{ id: 'home' }}>
-      {(): React.JSX.Element => (
-        <GlobalHarness>
-          <RouterAwareChild onSubmit={onSubmit} />
-        </GlobalHarness>
-      )}
-    </RouterProvider>
+    <SelectionProvider>
+      <RouterProvider initial={{ id: 'home' }}>
+        {(): React.JSX.Element => (
+          <GlobalHarness>
+            <RouterAwareChild onSubmit={onSubmit} />
+          </GlobalHarness>
+        )}
+      </RouterProvider>
+    </SelectionProvider>
   </UiStateProvider>
 );
 

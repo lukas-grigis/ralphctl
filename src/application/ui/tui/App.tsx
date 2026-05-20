@@ -33,6 +33,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
+import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -116,11 +117,15 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
   useGlobalKeys({ disabled: ui.promptActive });
   // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
   // prompt-host → footer, with header / prompt / footer pinned via `flexShrink={0}`.
+  //
+  // The progress overlay is a true modal — it replaces the active view's body so no parallel
+  // ScrollRegion / list cursor races for the same keystrokes. The global handler closes it
+  // (esc / g); `selection.sprintId` gates the open.
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
       <ChainLogDegradedBanner />
-      {children}
+      {ui.progressOpen ? <ProgressOverlay /> : children}
     </Box>
   );
 };

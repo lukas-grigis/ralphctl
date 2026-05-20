@@ -17,6 +17,12 @@ import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 
 interface UiStateApi {
   readonly helpOpen: boolean;
+  /**
+   * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via
+   * {@link useGlobalKeys}, gated on a sprint being loaded in {@link useSelection}. Mounted
+   * once at the {@link App} Layout level so every view inherits it without per-view wiring.
+   */
+  readonly progressOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
   /**
@@ -27,6 +33,7 @@ interface UiStateApi {
    */
   readonly bannerCompact: boolean;
   toggleHelp(): void;
+  toggleProgress(): void;
   toggleBanner(): void;
   /**
    * Claim "input is captured by a prompt; suspend global keys." Returns a release function
@@ -59,12 +66,17 @@ const UiStateContext = createContext<UiStateApi | undefined>(undefined);
 
 export const UiStateProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [bannerCompact, setBannerCompact] = useState(false);
   const [claims, setClaims] = useState(0);
   const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
 
   const toggleHelp = useCallback(() => {
     setHelpOpen((v) => !v);
+  }, []);
+
+  const toggleProgress = useCallback(() => {
+    setProgressOpen((v) => !v);
   }, []);
 
   const toggleBanner = useCallback(() => {
@@ -88,9 +100,11 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
   const api = useMemo<UiStateApi>(
     () => ({
       helpOpen,
+      progressOpen,
       promptActive: claims > 0,
       bannerCompact,
       toggleHelp,
+      toggleProgress,
       toggleBanner,
       claimPrompt,
       sessionRepositoryId,
@@ -98,9 +112,11 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     }),
     [
       helpOpen,
+      progressOpen,
       claims,
       bannerCompact,
       toggleHelp,
+      toggleProgress,
       toggleBanner,
       claimPrompt,
       sessionRepositoryId,
