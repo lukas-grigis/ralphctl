@@ -30,6 +30,11 @@ import { RecentEventsTail } from '@src/application/ui/tui/components/recent-even
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { CONTEXT_WIDTH, RAIL_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
+import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useViewProps, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSession, useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -96,12 +101,53 @@ export const ExecuteView = (): React.JSX.Element => {
   // When a buffer overflows it drops the OLDEST entry. The on-disk chain.log is authoritative.
   const signals = useSinkStream(buses.harness, { limit: 1000 });
   const logEntries = useSinkStream(buses.log, { limit: 1000 });
-  const eventBus = useDeps().eventBus;
+  const deps = useDeps();
+  const eventBus = deps.eventBus;
   const chainEvents = useEventBusBuffer<AppEvent>(eventBus, {
     filter: (e): e is AppEvent => 'chainId' in e && (e as { chainId: string }).chainId === sessionId,
     limit: 2000,
   });
   const term = useTerminalSize();
+
+  // Baseline-health data — Sprint Execution + Task list, polled while the run is live so the
+  // Card / Chip reflect the latest pre/post check-script rows as they land. We re-read on a
+  // tight interval rather than wiring a dedicated bus channel because the persisted entities
+  // are the source of truth (the chain leaves write to taskRepo / sprintExecutionRepo before
+  // the bus event fires); polling keeps the wiring simple.
+  const [executionState, setExecutionState] = React.useState<SprintExecution | undefined>(undefined);
+  const [taskState, setTaskState] = React.useState<readonly Task[] | undefined>(undefined);
+  const baselineSprintId: SprintId | undefined = selection.sprintId as SprintId | undefined;
+  React.useEffect(() => {
+    if (baselineSprintId === undefined) {
+      setExecutionState(undefined);
+      setTaskState(undefined);
+      return undefined;
+    }
+    // Test bootstraps wire a partial AppDeps; guard so missing repos don't crash the view.
+    const execRepo = deps.sprintExecutionRepo;
+    const taskRepo = deps.taskRepo;
+    if (execRepo === undefined || taskRepo === undefined) return undefined;
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      const [execR, tasksR] = await Promise.all([
+        execRepo.findById(baselineSprintId),
+        taskRepo.findBySprintId(baselineSprintId),
+      ]);
+      if (cancelled) return;
+      if (execR.ok) setExecutionState(execR.value);
+      if (tasksR.ok) setTaskState(tasksR.value);
+    };
+    void load();
+    // 3s cadence — fast enough that a fresh CheckRun row lands within the operator's reading
+    // window, slow enough that the disk + JSON parse cost stays trivial even on a wide sprint.
+    const id = setInterval(() => {
+      void load();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [baselineSprintId, deps.sprintExecutionRepo, deps.taskRepo]);
 
   const isRunning = session?.descriptor.status === 'running';
 
@@ -313,6 +359,16 @@ export const ExecuteView = (): React.JSX.Element => {
         <HelpOverlay />
       ) : (
         <Box flexDirection="column">
+          {/* Baseline-health chip — sits above the active-task header so the verify-gate
+              state is visible without scrolling. Always rendered; renders a neutral
+              "awaiting first run" pill before the first leaf has touched the data. */}
+          <Box paddingX={spacing.indent}>
+            <BaselineHealthChip
+              {...(executionState !== undefined ? { execution: executionState } : {})}
+              {...(taskState !== undefined ? { tasks: taskState } : {})}
+              now={now}
+            />
+          </Box>
           {headerCard}
 
           {threeColumn ? (
@@ -325,8 +381,15 @@ export const ExecuteView = (): React.JSX.Element => {
                 <SectionHeader title="Tasks" />
                 {tasksPanel}
               </Box>
-              {/* Context column — empty on day-one. Later P2b/P3a/P1k slot in here. */}
-              <Box flexDirection="column" width={CONTEXT_WIDTH} flexShrink={0} />
+              {/* Right context column — filled by P1k baseline-health card. P2b token meter
+                  and P3a ETA will stack below the card in later waves. */}
+              <Box flexDirection="column" width={CONTEXT_WIDTH} flexShrink={0}>
+                <BaselineHealthCard
+                  {...(executionState !== undefined ? { execution: executionState } : {})}
+                  {...(taskState !== undefined ? { tasks: taskState } : {})}
+                  now={now}
+                />
+              </Box>
             </Box>
           ) : twoColumn ? (
             <Box flexDirection="row" marginTop={spacing.section}>
