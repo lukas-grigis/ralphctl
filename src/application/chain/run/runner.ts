@@ -52,16 +52,15 @@ export interface Runner<TCtx> {
  * (7+ tasks × multi-round × ~12 leaves each) can emit thousands of entries; live subscribers
  * still see every event (the trace cap only bounds the snapshot late subscribers replay from).
  *
- * Sized for a worst-case 20-task sprint with ~15 substeps per task × ~10 gen-eval rounds plus
- * outer-flow leaves (~3000) — 20000 leaves headroom without making the per-runner memory
- * footprint material (each entry is ~200 bytes → 4 MB at the cap).
- *
- * The execute view's per-task round counter (in execute-view.tsx) holds a monotonic high-water
- * mark in a ref so the displayed `round N/M` survives eviction here, but downstream consumers
- * that scan the trace (StepTrace's plan-merge, sprint-detail's attempt history) read whatever
- * the trace holds. Raising the cap reduces the chance of those readers seeing a truncated tail.
+ * Sized at ~1 MB worst case (each entry is ~200 bytes → 5000 × 200 B ≈ 1 MB). The durable
+ * `<sprintDir>/chain.log` sink captures the full trace on disk, so post-mortem analysis does
+ * not depend on the in-memory snapshot. The execute view's per-task round counter (in
+ * execute-view.tsx) holds a monotonic high-water mark in a ref so the displayed `round N/M`
+ * survives eviction here; downstream consumers that scan the trace (StepTrace's plan-merge,
+ * sprint-detail's attempt history) read whatever the trace holds and reach for `chain.log`
+ * when they need entries that have already aged out.
  */
-const MAX_TRACE_ENTRIES = 20_000;
+const MAX_TRACE_ENTRIES = 5_000;
 
 export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
   const abortController = new AbortController();

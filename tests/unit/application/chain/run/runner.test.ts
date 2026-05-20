@@ -5,6 +5,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { type RunnerEvent, createRunner } from '@src/application/chain/run/runner.ts';
+import type { OnTrace } from '@src/application/chain/trace.ts';
 
 interface Ctx {
   readonly trail: readonly string[];
@@ -177,6 +178,27 @@ describe('createRunner', () => {
     runner.abort();
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith({ type: 'aborted' });
+  });
+
+  it('caps runner.trace at 5_000 entries and evicts oldest first', async () => {
+    const TOTAL = 5_200;
+    const cappingElement: Element<Ctx> = {
+      name: 'flood',
+      async execute(ctx, _signal, onTrace) {
+        const callback = onTrace as OnTrace;
+        for (let i = 0; i < TOTAL; i += 1) {
+          callback({ elementName: `entry-${i}`, status: 'completed', durationMs: 0 });
+        }
+        return Result.ok({ ctx, trace: [] });
+      },
+    };
+    const runner = createRunner({ id: 'r-cap', element: cappingElement, initialCtx: { trail: [] } });
+
+    await runner.start();
+
+    expect(runner.trace).toHaveLength(5_000);
+    expect(runner.trace[0]?.elementName).toBe(`entry-${TOTAL - 5_000}`);
+    expect(runner.trace.at(-1)?.elementName).toBe(`entry-${TOTAL - 1}`);
   });
 
   it('unsubscribe stops further events', async () => {
