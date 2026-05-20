@@ -20,7 +20,11 @@ import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/defi
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
-import { nextRoundNum, roundSignalsPath } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import {
+  nextRoundNum,
+  roundSignalsPath,
+  writeRoundPrompt,
+} from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -86,6 +90,11 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             ...(priorCritique !== undefined ? { priorCritique } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
+          // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI
+          // call so a crash mid-spawn still leaves the prompt that triggered it on disk for
+          // post-hoc replay. Best-effort: the writer logs and swallows on failure (the audit
+          // trail must never take down the chain).
+          await writeRoundPrompt(input.workspaceRoot, roundNum, 'generator', String(prompt.value), deps.logger);
           return consumeSignals(
             deps.provider,
             implementSession(input.workspaceRoot, deps.cwd, prompt.value, deps.model, signalsFile),

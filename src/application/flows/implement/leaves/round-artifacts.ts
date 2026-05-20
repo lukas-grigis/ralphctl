@@ -75,6 +75,32 @@ export const writeEvaluatorRoundArtifacts = async (
   }
 };
 
+/**
+ * Persist the rendered prompt the harness handed to the AI provider for a given gen-eval round
+ * to `<workspaceRoot>/rounds/<N>/<role>/prompt.md`. Called from the generator + evaluator
+ * leaves immediately after `buildImplementPrompt` / `buildEvaluatePrompt` resolves, BEFORE the
+ * provider call — that way a post-hoc debug session can re-issue the same prompt to the model
+ * (or diff it against a later round's prompt to see how the prior critique reshaped the brief)
+ * without re-running the chain.
+ *
+ * Atomic write via `writeTextAtomic` (tmp+rename): a crash mid-write cannot leave a half-written
+ * file on disk. Best-effort like the evaluator-side artifact write: a write failure is logged
+ * and swallowed so the audit trail can't take down the chain.
+ */
+export const writeRoundPrompt = async (
+  workspaceRoot: AbsolutePath,
+  round: number,
+  role: 'generator' | 'evaluator',
+  prompt: string,
+  logger?: Logger
+): Promise<void> => {
+  const base = roundDir(workspaceRoot, round, role);
+  const wrote = await writeTextAtomic(join(base, 'prompt.md'), prompt);
+  if (!wrote.ok) {
+    logger?.warn('failed to write round prompt', { round, role, base, error: wrote.error.message });
+  }
+};
+
 const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | undefined =>
   signals.find((s): s is EvaluationSignal => s.type === 'evaluation');
 

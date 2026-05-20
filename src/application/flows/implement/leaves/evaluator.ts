@@ -23,6 +23,7 @@ import {
   roundEvaluationRelativePath,
   roundSignalsPath,
   writeEvaluatorRoundArtifacts,
+  writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -84,6 +85,10 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
             ...(deps.checkScript !== undefined ? { checkScript: deps.checkScript } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
+          // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
+          // call so a crash mid-spawn still leaves the prompt on disk for post-hoc replay.
+          // Best-effort: the writer logs and swallows on failure.
+          await writeRoundPrompt(input.workspaceRoot, input.roundNum, 'evaluator', String(prompt.value), deps.logger);
           const signals = await consumeSignals(
             deps.provider,
             implementSession(input.workspaceRoot, deps.cwd, prompt.value, deps.model, signalsFile),

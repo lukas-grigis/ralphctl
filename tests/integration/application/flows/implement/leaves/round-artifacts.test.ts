@@ -8,6 +8,7 @@ import {
   nextRoundNum,
   roundSignalsPath,
   writeEvaluatorRoundArtifacts,
+  writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 
 describe('round-artifacts', () => {
@@ -87,6 +88,26 @@ describe('round-artifacts', () => {
       await writeEvaluatorRoundArtifacts(root.root, 1, []);
       const base = join(String(root.root), 'rounds', '1', 'evaluator');
       await expect(fs.readFile(join(base, 'session.md'), 'utf8')).rejects.toThrow();
+    });
+  });
+
+  describe('writeRoundPrompt', () => {
+    it('writes prompt.md atomically into rounds/<N>/<role>/', async () => {
+      await writeRoundPrompt(root.root, 4, 'generator', 'hello prompt body');
+      const path = join(String(root.root), 'rounds', '4', 'generator', 'prompt.md');
+      expect(await fs.readFile(path, 'utf8')).toBe('hello prompt body');
+
+      await writeRoundPrompt(root.root, 4, 'evaluator', 'evaluator brief');
+      const evalPath = join(String(root.root), 'rounds', '4', 'evaluator', 'prompt.md');
+      expect(await fs.readFile(evalPath, 'utf8')).toBe('evaluator brief');
+    });
+
+    it('leaves no .tmp leftover after a successful write (rename-based atomicity)', async () => {
+      await writeRoundPrompt(root.root, 2, 'generator', 'body');
+      const dir = join(String(root.root), 'rounds', '2', 'generator');
+      const entries = await fs.readdir(dir);
+      expect(entries).toContain('prompt.md');
+      expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
     });
   });
 
