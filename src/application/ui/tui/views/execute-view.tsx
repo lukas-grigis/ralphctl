@@ -287,6 +287,7 @@ export const ExecuteView = (): React.JSX.Element => {
         running={isRunning}
         maxSignalsPerTask={tasksMaxSignals}
         {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
+        {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       />
     ) : null;
 

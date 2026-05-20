@@ -10,6 +10,7 @@
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
@@ -63,6 +64,13 @@ export type LaunchResult =
        * `running` forever.
        */
       readonly terminalSubstepName?: string;
+      /**
+       * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior
+       * aborted attempt. Forwarded into `SessionDescriptor.taskRecovering`; the execute view
+       * renders a one-line resume banner under the active-task header. Empty / undefined when
+       * no task is resuming.
+       */
+      readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -112,11 +120,13 @@ export const sessionHintsFromLaunchResult = (
   readonly maxTurns?: number;
   readonly plannedLeaves?: readonly string[];
   readonly terminalSubstepName?: string;
+  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
   ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
+  ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
 });
 
 /**

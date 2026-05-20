@@ -26,6 +26,7 @@ import type {
   TaskSubStep,
   TaskBucketStatus,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { AbortCause, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
@@ -48,6 +49,13 @@ export interface TasksPanelProps {
   readonly maxSubStepsPerTask?: number;
   /** Max evaluation rows per task to render; same elision treatment as sub-steps. */
   readonly maxEvaluationsPerTask?: number;
+  /**
+   * Optional `taskId → RecoveryContext` map for tasks the launcher detected as resuming a
+   * prior aborted attempt. When set for a given task id the active-task header gets a second
+   * row: `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)`. Absent / empty when no
+   * task in the run is a resume.
+   */
+  readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
 }
 
 const STATUS_PRESENTATION: Readonly<Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>> = {
@@ -258,6 +266,56 @@ const EvaluationLine = ({ evaluation }: { readonly evaluation: EvaluationSignal 
   );
 };
 
+/**
+ * User-facing label for an {@link AbortCause}. `undefined` means "omit the parenthetical" —
+ * we don't show `(unknown)` because it adds noise without adding information. Keeping this in
+ * tasks-panel rather than under domain/ because it's purely a TUI concern (the same cause
+ * surfaces in chain.log with its raw discriminator).
+ */
+const abortCauseLabel = (cause: AbortCause): string | undefined => {
+  switch (cause) {
+    case 'user-cancel':
+      return 'Ctrl-C';
+    case 'sigterm':
+      return 'SIGTERM';
+    case 'watchdog-killed':
+      return 'watchdog timeout';
+    case 'rate-limit-exhausted':
+      return 'rate limit';
+    case 'process-crash':
+      return 'process crash';
+    case 'unknown':
+      return undefined;
+  }
+};
+
+const RecoveryLine = ({
+  attemptN,
+  context,
+}: {
+  readonly attemptN: number;
+  readonly context: RecoveryContext;
+}): React.JSX.Element => {
+  // HH:MM from the ISO timestamp — keep `fmtIsoTime` for the seconds-precise variant; the
+  // resume banner shows wall-clock at minute granularity to match what a user sees on a
+  // sprint header (we don't need to know that the abort settled at 19:41:07.123).
+  const hhmm = String(context.abortedAt).slice(11, 16);
+  const label = abortCauseLabel(context.cause);
+  return (
+    <Box paddingLeft={2}>
+      <Text dimColor>{glyphs.activityArrow} </Text>
+      <Text>attempt {String(attemptN)}</Text>
+      <Text dimColor> {glyphs.bullet} </Text>
+      <Text color={inkColors.warning}>resumed from aborted</Text>
+      <Text>
+        {' '}
+        {String(context.fromAttemptN)} at {hhmm}
+      </Text>
+      {label !== undefined && <Text dimColor> ({label})</Text>}
+    </Box>
+  );
+};
+
 const SubStepLine = ({ sub, running }: { readonly sub: TaskSubStep; readonly running: boolean }): React.JSX.Element => {
   const presentation = SUB_STEP_PRESENTATION[sub.status];
   const glyph = running && sub.status === 'completed' ? presentation.glyph : presentation.glyph;
@@ -290,6 +348,7 @@ const TaskBlock = ({
   maxSignals,
   maxSubSteps,
   maxEvaluations,
+  recovering,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -297,6 +356,7 @@ const TaskBlock = ({
   readonly maxSignals: number;
   readonly maxSubSteps: number;
   readonly maxEvaluations: number;
+  readonly recovering?: RecoveryContext;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -334,6 +394,7 @@ const TaskBlock = ({
           </Text>
         )}
       </Box>
+      {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
       {task.errorMessage !== undefined && (
         <Box paddingLeft={2}>
           <Text color={inkColors.error}>{task.errorMessage}</Text>
@@ -400,6 +461,7 @@ export const TasksPanel = ({
   maxOrphanSignals = 6,
   maxSubStepsPerTask = 12,
   maxEvaluationsPerTask = 6,
+  recoveringByTaskId,
 }: TasksPanelProps): React.JSX.Element => {
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return (
@@ -419,6 +481,7 @@ export const TasksPanel = ({
         // name path goes through `nameById` and renders verbatim; if a future design makes
         // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
         const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}…`;
+        const recovering = recoveringByTaskId?.get(task.id);
         return (
           <TaskBlock
             key={task.id}
@@ -428,6 +491,7 @@ export const TasksPanel = ({
             maxSignals={maxSignalsPerTask}
             maxSubSteps={maxSubStepsPerTask}
             maxEvaluations={maxEvaluationsPerTask}
+            {...(recovering !== undefined ? { recovering } : {})}
           />
         );
       })}

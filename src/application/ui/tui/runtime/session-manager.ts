@@ -9,6 +9,7 @@
  */
 
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 
@@ -58,6 +59,14 @@ export interface SessionDescriptor {
    * UI silently.
    */
   readonly terminalSubstepName?: string;
+  /**
+   * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior
+   * aborted attempt. The launcher derives this at click time from any `in_progress` tasks
+   * whose last attempt is still `running` (a v8 OOM / Ctrl-C / SIGTERM in the prior process
+   * leaves that signature). The execute view surfaces it as an annotation under the active
+   * task header. Empty / undefined when no task is resuming.
+   */
+  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
 }
 
 export interface SessionRecord {
@@ -84,6 +93,7 @@ export interface SessionManager {
     readonly maxTurns?: number;
     readonly plannedLeaves?: readonly string[];
     readonly terminalSubstepName?: string;
+    readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   }): SessionRecord;
   /** Request the runner to abort. No-op if the session is already terminal. */
   abort(id: string): void;
@@ -157,7 +167,16 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
     get(id: string): SessionRecord | undefined {
       return records.get(id);
     },
-    register({ runner, flowId, title, taskNames, maxTurns, plannedLeaves, terminalSubstepName }): SessionRecord {
+    register({
+      runner,
+      flowId,
+      title,
+      taskNames,
+      maxTurns,
+      plannedLeaves,
+      terminalSubstepName,
+      taskRecovering,
+    }): SessionRecord {
       evict(clock());
       const descriptor: SessionDescriptor = {
         id: runner.id,
@@ -170,6 +189,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(plannedLeaves !== undefined ? { plannedLeaves } : {}),
         ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),
+        ...(taskRecovering !== undefined ? { taskRecovering } : {}),
       };
       const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
       records.set(runner.id, record);
