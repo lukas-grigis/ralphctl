@@ -12,6 +12,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { keySections } from '@src/application/ui/tui/runtime/keyboard-map.ts';
+import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 export const HelpOverlay = (): React.JSX.Element => {
@@ -47,14 +48,28 @@ export const HelpOverlay = (): React.JSX.Element => {
         {keySections.map((section) => (
           <Box key={section.title} flexDirection="column" marginTop={spacing.section}>
             <Text bold>{section.title}</Text>
-            {section.bindings.map((b) => (
-              <Box key={b.label}>
-                <Box width={20}>
-                  <Text color={inkColors.highlight}>{b.keys.join(' · ')}</Text>
+            {section.bindings.map((b) =>
+              b.keys.length > 0 ? (
+                <Box key={b.label}>
+                  <Box width={20}>
+                    <Text color={inkColors.highlight}>{b.keys.join(' · ')}</Text>
+                  </Box>
+                  <Text dimColor>{b.label}</Text>
                 </Box>
-                <Text dimColor>{b.label}</Text>
-              </Box>
-            ))}
+              ) : (
+                // Reference row (e.g. signal-kind vocabulary). Left column carries the label
+                // coloured from SIGNAL_LABEL_COLOR (or the section-provided color); right
+                // column carries the description. No key-chord.
+                <Box key={b.label}>
+                  <Box width={20}>
+                    <Text color={b.color ?? SIGNAL_LABEL_COLOR[b.label] ?? inkColors.info} bold>
+                      {b.label}
+                    </Text>
+                  </Box>
+                  <Text dimColor>{b.description ?? ''}</Text>
+                </Box>
+              )
+            )}
           </Box>
         ))}
       </Box>

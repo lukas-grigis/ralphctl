@@ -87,7 +87,6 @@ describe('TasksPanel render caps', () => {
     expect(frame).toContain('… 44 earlier evaluations');
 
     // Each rendered evaluation shows its score as "<score>/5.0" — exactly 6 should appear.
-    // ("passed" alone occurs in the SignalLegend's "task self-check passed" copy too.)
     const evalScoreCount = frame.split('5.0/5.0').length - 1;
     expect(evalScoreCount).toBe(6);
 

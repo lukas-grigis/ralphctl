@@ -52,7 +52,20 @@ export const executeKeys = {
 /** Key labels grouped by area — consumed by the help overlay. */
 export interface KeySection {
   readonly title: string;
-  readonly bindings: ReadonlyArray<{ readonly keys: readonly string[]; readonly label: string }>;
+  /**
+   * Each entry is rendered by the help overlay. When `keys` is non-empty the entry is a
+   * key-action pair (left column: chord, right column: `label`). When `keys` is empty the entry
+   * is a reference row (left column: `label`, right column: `description`) — used for the
+   * Signals legend so the static signal-kind vocabulary lives in the help overlay instead of
+   * on every render of the Tasks panel.
+   */
+  readonly bindings: ReadonlyArray<{
+    readonly keys: readonly string[];
+    readonly label: string;
+    readonly description?: string;
+    /** Optional truecolor swatch for the left-column label on reference rows. */
+    readonly color?: string;
+  }>;
 }
 
 const toSection = (title: string, map: Readonly<Record<string, KeyBinding>>): KeySection => ({
@@ -60,8 +73,32 @@ const toSection = (title: string, map: Readonly<Record<string, KeyBinding>>): Ke
   bindings: Object.values(map),
 });
 
+/**
+ * Signal-kind vocabulary surfaced in the help overlay. Mirrors `SIGNAL_LABEL_COLOR` in
+ * `tasks-panel.tsx` — that map remains the colour source of truth; the overlay imports it via
+ * the inline-kinds bar component. Descriptions are short, no trailing period (matches the
+ * keybinding labels). Order tracks the operator's reading flow (most common first).
+ */
+const signalReference: KeySection = {
+  title: 'Signals',
+  bindings: [
+    { keys: [], label: 'change', description: 'file or code edit made by the AI during a task' },
+    { keys: [], label: 'learning', description: 'cross-task insight worth noting' },
+    { keys: [], label: 'decision', description: 'design choice the AI committed to' },
+    { keys: [], label: 'verified', description: 'task self-check gate passed' },
+    { keys: [], label: 'blocked', description: 'task halted — check gate failed or AI self-reported stuck' },
+    { keys: [], label: 'commit', description: 'proposed commit message for the task' },
+    { keys: [], label: 'note', description: 'general annotation' },
+    { keys: [], label: 'progress', description: 'milestone marker from the AI' },
+    { keys: [], label: 'script', description: 'setup or check script discovered or run' },
+    { keys: [], label: 'proposal', description: 'AI-authored context file or skill draft' },
+    { keys: [], label: 'skills', description: 'skill suggestions surfaced for this run' },
+  ],
+};
+
 export const keySections: readonly KeySection[] = [
   toSection('Global', globalKeys),
   toSection('Lists', listKeys),
   toSection('Execute', executeKeys),
+  signalReference,
 ];

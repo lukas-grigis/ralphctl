@@ -80,10 +80,13 @@ const collapseWhitespace = (s: string): string => s.replace(/\s+/g, ' ');
  * Signal-label vocabulary. Labels are full words (not 4-letter codes) so the dashboard reads at
  * a glance without a legend. Keep names short — they sit in a label column alongside timestamps.
  *
- * Hover-tip-style descriptions: rendered next to the first signal of each kind via {@link SIGNAL_LEGEND}
- * if the operator runs `?` help, and inline in the legend strip below the Tasks header.
+ * Single source of truth for signal-label colours: consumed by the inline-kinds bar in this
+ * file AND by the help overlay's `Signals` reference section. Adding a new signal kind means
+ * one edit here plus an entry in `keySections.signalReference`.
+ *
+ * @public
  */
-const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
+export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   change: inkColors.info,
   learning: inkColors.highlight,
   decision: inkColors.highlight,
@@ -181,44 +184,44 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
 };
 
 /**
- * Vertical legend rendered above the first task block. Keeps the dashboard readable when the
- * 4-letter shorthand was replaced by full words: the operator sees what `change`, `learning`,
- * `decision`, `verified`, `blocked` mean without leaving the view. One row per signal kind
- * with the label padded to {@link SIGNAL_LABEL_WIDTH} so the ` = description` column lines up
- * with the same column under each task's signals block.
+ * One-row inline kinds bar — colored signal-kind labels for kinds that have actually appeared
+ * in the bucketed signals so far. Replaces the prior 6-row static legend; full descriptions
+ * live in the help overlay's Signals reference. Suppressed entirely when no task carries any
+ * signals yet — avoids a flicker of empty row on mount.
+ *
+ * Kinds are derived from the union of every per-task signal label plus every orphan signal
+ * label, deduped, and ordered by first appearance. Reads {@link SIGNAL_LABEL_COLOR} for the
+ * colour swatch — the help overlay reads the same map, so the two surfaces stay in sync.
  */
-interface LegendEntry {
-  readonly label: string;
-  readonly color: string;
-  readonly description: string;
-}
-
-const LEGEND_ENTRIES: readonly LegendEntry[] = [
-  { label: 'change', color: inkColors.info, description: 'file/code edit' },
-  { label: 'learning', color: inkColors.highlight, description: 'cross-task insight' },
-  { label: 'decision', color: inkColors.highlight, description: 'design choice' },
-  { label: 'verified', color: inkColors.success, description: 'task self-check passed' },
-  { label: 'blocked', color: inkColors.error, description: 'task self-blocked' },
-  { label: 'commit', color: inkColors.info, description: 'proposed commit message' },
-];
-
-const SignalLegend = (): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent} marginBottom={spacing.section}>
-    <Text dimColor bold>
-      legend
-    </Text>
-    <Box flexDirection="column" paddingLeft={2}>
-      {LEGEND_ENTRIES.map((entry) => (
-        <Box key={entry.label}>
-          <Text color={entry.color} bold>
-            {padLabel(entry.label)}
-          </Text>
-          <Text dimColor>= {entry.description}</Text>
-        </Box>
+const InlineKindsBar = ({ kinds }: { readonly kinds: readonly string[] }): React.JSX.Element | null => {
+  if (kinds.length === 0) return null;
+  return (
+    <Box marginBottom={spacing.section}>
+      <Text dimColor>{glyphs.bullet} kinds:</Text>
+      {kinds.map((kind) => (
+        <Text key={kind} color={SIGNAL_LABEL_COLOR[kind] ?? inkColors.info} bold>
+          {'  '}
+          {kind}
+        </Text>
       ))}
     </Box>
-  </Box>
-);
+  );
+};
+
+const collectKinds = (bucketed: BucketedExecution): readonly string[] => {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  const visit = (sig: HarnessSignal): void => {
+    const row = rowForSignal(sig);
+    if (row === undefined) return;
+    if (seen.has(row.label)) return;
+    seen.add(row.label);
+    order.push(row.label);
+  };
+  for (const task of bucketed.tasks) for (const sig of task.signals) visit(sig);
+  for (const sig of bucketed.orphanSignals) visit(sig);
+  return order;
+};
 
 const EvaluationLine = ({ evaluation }: { readonly evaluation: EvaluationSignal }): React.JSX.Element => {
   const color =
@@ -405,9 +408,10 @@ export const TasksPanel = ({
       </Box>
     );
   }
+  const kinds = collectKinds(bucketed);
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
-      <SignalLegend />
+      <InlineKindsBar kinds={kinds} />
       <OrphanSignals signals={bucketed.orphanSignals} max={maxOrphanSignals} />
       {bucketed.tasks.map((task) => {
         // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
