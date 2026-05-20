@@ -32,6 +32,7 @@ import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.t
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
+import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -118,6 +119,7 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
+      <ChainLogDegradedBanner />
       {children}
     </Box>
   );
