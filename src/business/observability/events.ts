@@ -97,6 +97,26 @@ export interface LogEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Process-wide heap-pressure signal. Emitted by the heap watchdog on every
+ * threshold TRANSITION (not on every poll) so subscribers can render a banner
+ * that mirrors the current band without de-duping a stream of identical samples.
+ *
+ * `'recovered'` is fired once when the ratio drops back below the warning band,
+ * giving the banner an explicit clear signal.
+ */
+export interface MemoryPressureEvent {
+  readonly type: 'memory-pressure';
+  readonly severity: 'warning' | 'critical' | 'recovered';
+  /** heapUsed / heap_size_limit ratio at sample time, 0–1. */
+  readonly ratio: number;
+  /** Bytes used. */
+  readonly heapUsed: number;
+  /** V8's `heap_size_limit`. */
+  readonly heapLimit: number;
+  readonly at: IsoTimestamp;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -108,4 +128,5 @@ export type AppEvent =
   | TaskAttemptStartedEvent
   | TaskAttemptEvaluatedEvent
   | FeedbackRoundAppliedEvent
-  | LogEvent;
+  | LogEvent
+  | MemoryPressureEvent;
