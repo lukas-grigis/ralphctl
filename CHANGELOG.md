@@ -7,6 +7,178 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Three-column Implement layout with responsive breakpoints.** At ≥180 cols the execute view splits into a
+  fixed-width rail (24 cols), a flex Tasks stream, and a fixed context column (28 cols). At 140–179 cols the
+  context column drops; below 140 cols the existing single-column stack applies, capped at 4 Flow Steps rows
+  below 100 cols. Signal bodies now ellide at actual rendered width instead of hard-coded 60/80-char clips.
+
+- **Tiered StatusBanner replaces single-purpose `RateLimitBanner`.** A `BannerShowEvent` / `BannerClearEvent`
+  pair on the AppEvent bus lets any subsystem surface state through one generic strip. Banners stack ordered
+  error → warn → info; surplus past 3 collapses to `+N more`; `d` dismisses the topmost. Emitters: rate-limit
+  backoff (info), idle-stdout watchdog (warn), setup-script failure (error), red-baseline pre-task check (warn),
+  lock-acquisition exhaustion (warn).
+
+- **Banner full ↔ compact toggle on `b`.** A global `b` hotkey flips the banner between full and compact for
+  the session. Implement view defaults to compact so long runs preserve vertical real estate.
+
+- **Signal legend replaced by inline kinds bar + help overlay entry.** The static 6-row `SignalLegend` is gone;
+  a one-row `InlineKindsBar` labels only the signal kinds that have actually appeared in the run. A Signals
+  reference section in the help overlay (`?`) auto-populates from the same colour-map. `NO_COLOR` glyph backups
+  (`change → +`, `learning → ~`, `decision → ◇`, `verified → ★`, `blocked → △`, `commit → ■`, `note → •`)
+  ensure signal-kind discrimination survives monochrome terminals.
+
+- **SprintState projection as single TUI/progress.md surface.** A pure `projectSprintState` function projects
+  Sprint + SprintExecution + Task[] + chain.log entries into a normalised view model used by both the progress
+  renderer and TUI panels. Encodes effective-status synthesis (active-but-all-blocked → `'blocked'`), stale-task
+  detection (24 h threshold), dependency-cycle detection with orphan synthesis, run-boundary grouping, and median
+  attempt-duration for ETA.
+
+- **`progress.md` snapshot renderer replaces streaming sink.** `renderProgressMarkdown` turns the SprintState
+  projection into a Markdown bootstrap document targeting a fresh AI session — sections for status, branch/PR,
+  tickets, tasks, blockers, stale tasks, dependency cycles, decisions, and recent runs. Empty sections are
+  omitted. Snapshot regenerates at three trigger points: sprint start, post-settle, post-review transition.
+  Legacy streaming `progress-file-sink` and `flush-progress-sink` leaf removed.
+
+- **Global `g` overlay reads `progress.md` from disk.** Pressing `g` (when a sprint is loaded) opens a
+  read-only, scrollable Ink overlay mirroring `<sprintDir>/progress.md`. Esc or `g` again dismisses. The file
+  is read fresh on each open so it always reflects the last snapshot.
+
+- **Per-round `outcome.md` digest.** After every settle-attempt leaf the chain writes
+  `<sprintDir>/implement/<task-id>/rounds/<N>/outcome.md` — verdict, evaluator dimensions, critique (when not
+  passed), session IDs, commit SHA, duration, and a one-sentence synthesis paragraph. Crash mid-spawn still
+  leaves the file from the triggering round. Best-effort write; failures are logged and swallowed.
+
+- **Per-round generator + evaluator prompts persisted to disk.** `writeRoundPrompt` writes
+  `<workspaceRoot>/rounds/<N>/<role>/prompt.md` atomically before each AI spawn, so a crash mid-spawn still
+  leaves the prompt that triggered it on disk.
+
+- **Pre/post check-script audit with attribution.** `CheckRun` / `Attribution` types on `Attempt` record
+  baseline (pre) and verification (post) check outcomes per round, surviving resume. `preTaskCheckLeaf` captures
+  baseline state before the generator; a red baseline stamps `baselineBroken: true` and warns but never blocks.
+  `postTaskCheckLeaf` computes attribution from pre+post outcomes and blocks the task on `regressed` (pre-green,
+  post-red). `baseline-broken` preserves the AI's verdict.
+
+- **Baseline-health card + chip in context column.** `BaselineHealthCard` surfaces Setup / Check (pre) / Check
+  (post) rows plus an attribution count summary (clean / regressed / fixed-baseline / baseline-broken). A
+  companion `BaselineHealthChip` shows a single-line status above the active-task header; tier synthesis: red on
+  regressions or failed setup, amber on broken-baseline attempts or stale checks, green otherwise.
+
+- **Deterministic setup-script audit with spawn-error attribution.** `SetupRun` now carries `command`,
+  `exitCode`, `durationMs`, stdout/stderr tails (capped at 4 KB), and `outcome` (`success | failed |
+spawn-error | skipped`). The runner appends every attempt without upsert. Spawn-time errors (ENOENT, permission
+  denied) record `exitCode: -1` so operators can distinguish "ran and failed" from "could not run." Legacy
+  two-field rows migrate in-place on read.
+
+- **`task-round-started` event + `useTaskRoundTracker` hook.** The generator leaf emits `TaskRoundStartedEvent`
+  before the AI call so TUI subscribers see the round boundary immediately. A new monotonic hook reads it;
+  the execute-view drops the trace-counting ref hack and survives chain.trace ring eviction without counting
+  leaves.
+
+- **Resume-from-aborted context on Attempt.** `AbortCause` discriminated union
+  (`user-cancel | sigterm | watchdog-killed | rate-limit-exhausted | process-crash | unknown`) +
+  `RecoveryContext { fromAttemptN, cause, abortedAt }` are stamped on the `RunningAttempt`. The TUI surfaces
+  `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)` in the active-task header before the first leaf runs.
+
+- **`chain.log` run boundaries.** Each chain run is bracketed by human-readable delimiter lines
+  (`=== chain-run <chainId> <flow> started <iso> ===` / `=== chain-run … <outcome> … ===`).
+  NDJSON consumers skip lines not starting with `{`; legacy boundary-less logs still parse.
+
+- **`sessionId` file persisted next to `signals.json` per spawn.** All three providers (Claude / Copilot /
+  Codex) write `<signals-dir>/sessionId` atomically after a clean-termination spawn, closing the gap between
+  the documented file-based AI provider contract and reality.
+
+- **Token / attention-budget card.** A new `TokenBudgetCard` subscribes to `TokenUsageEvent` and renders
+  input/output tokens, cache-hit (when reported), and a tiered (green/amber/red) context-window progress bar.
+  Providers emit one `TokenUsageEvent` per clean-exit spawn; Claude reports all four counter types; Copilot /
+  Codex emit what their CLI surfaces.
+
+- **ETA estimate from median round duration in attempt header.** `TasksPanel` derives
+  `medianRoundDurationMs × (max − currentRound)` for the active task and renders `· ~Xm Ys remaining` when a
+  median is known, `· no ETA yet` on the first round of the first task.
+
+- **Done-criteria surface + per-criterion verdict mapping.** `TasksPanel` renders a collapsed 3-line criteria
+  summary per non-pending task; `e` toggles the active task's full bullet list. Per-criterion verdict mapping
+  pairs criterion bullets with evaluator dimensions positionally when counts match; falls back to the 4-dim
+  summary otherwise.
+
+- **`y` hotkey copies active-task summary to clipboard.** `createCopyToClipboard` shells out to `pbcopy` /
+  `wl-copy` / `xclip` / `clip.exe`. A 2-second banner confirms success or reports the error; the hotkey is
+  best-effort and never throws into the TUI.
+
+- **`ralphctl snapshot [--sprint <id>]` CLI command.** Writes a single-frame text digest of the active
+  sprint's current state to stdout (no Ink mount) — header, status, tasks table, active-task block,
+  recent-signals tail. Resolves sprint from `--sprint`, then from the pinned selection; exits 1 with a hint
+  when neither is set.
+
+- **Sprint-level `decisions.log` + prompt-driven decision capture.** A new `_partials/decisions.md` prompt
+  section instructs the AI to emit `<decision>` tags for non-obvious architectural choices. A
+  `decisions-log-sink` appends one line per decision to `<sprintDir>/decisions.log` (atomic serial drain);
+  `projectSprintState` merges decisions-log entries into the `## Decisions` section of `progress.md`.
+
+- **Collapsed-by-default task cards with `j`/`k` expansion.** Non-active task cards collapse to a single-line
+  summary (`<icon> <name> · <status> · <attempts>× · <sha?>`). The active task auto-expands. `j`/`k`/arrows
+  navigate; Enter/Space expand a focused card; Esc collapses a manually-expanded card (active card exempt).
+  The cursor sticks to its row when new signals arrive and the slice shifts.
+
+- **Idle-state ticker showing last note signals.** When the active task's latest signal is older than 10 s, a
+  muted ticker line surfaces the last 1–2 note/learning signal bodies. The ticker vanishes the moment any new
+  signal lands.
+
+- **Empty + first-run states for Tasks panel.** Zero-task render shows `Tasks panel empty · Run plan to
+generate tasks`; on the first round before any signal fires, the active-task spinner shows a
+  `waiting for first attempt…` hint.
+
+- **Cancel hotkey opens scope picker.** Pressing `c` on a running Implement view opens `CancelScopeOverlay`
+  instead of aborting immediately. Option `1` cancels just the current attempt; option `2` marks the active
+  task `blocked` with reason `'user cancel'` and aborts the chain. The overlay shows wall-clock waste time
+  and the count of remaining queued tasks.
+
+- **Fixture-gated per-dimension evaluator-failure panel.** `EvaluatorFailurePanel` renders per-dimension
+  verdicts, critique excerpts, and a "next round will receive this critique" annotation. Gated behind
+  `settings.developer.showEvaluatorFailureUI` (default `false`); promoted once validated.
+
+- **Plateau predicate refined with score-delta + commit-progress exemptions.** `computePlateauVerdict` adds
+  three exemptions before declaring a plateau: score improvement (≥1 on a same-still-failed dimension),
+  critique-prose shift (trigram Jaccard < 0.5), and proposed-commit-subject change (softened to a non-exiting
+  warning). `settings.harness.plateauThreshold` (2–5, default 2) is configurable.
+
+- **Context-compacted signal type + TUI marker.** `ContextCompactedSignal` is a first-class lifecycle event
+  for the provider's auto-compaction boundary, rendered as a dedented separator line in the signal stream using
+  the muted colour token.
+
+- **Terminal bell + OS notifications on attention events.** A new `NotificationDispatcher` port + OS-backed
+  adapter fires for: setup-script failure, chain abort, rate-limit pause ≥ 60 s, and red-baseline warn logs.
+  Darwin shells out to `osascript`; Linux probes `notify-send`; others bell-only. Controlled by a new
+  `settings.ui.notifications.enabled` flag (default `true`).
+
+- **Commit row body + `Closes` trailer expansion.** A `commit-message` signal row is now collapsible with
+  Enter/Space, revealing the full commit message (subject, body paragraphs, harness-appended `Closes #…`
+  trailer). A disclosure glyph (`▸` / `▾`) replaces one leading space; degenerate subject-only rows suppress
+  the caret.
+
+### Fixed
+
+- **Commit-message signal deduplication.** The AI's parse-time signal (no `fullMessage`) is dropped from the
+  bucketed output whenever the harness-resolved version (with `fullMessage`) exists for the same task, so the
+  TUI never shows two commit rows for one commit.
+
+- **Signal body truncation replaced with flex-driven ellision.** The hardcoded 60/80-char clip is replaced by
+  `<Text wrap="truncate-end">` inside a `flexGrow={1}` box so Ink ellides at actual rendered width. Multi-line
+  payloads are pre-collapsed to one line before ellision.
+
+### Changed
+
+- **Setup-script runner migrated off deprecated `SETUP_TAIL_BYTES`.** Both `SetupRun` and `CheckRun` now
+  import `SCRIPT_TAIL_BYTES` from the shared constant; the deprecated `SETUP_TAIL_BYTES` alias is kept for
+  backward compat until removed.
+
+### Internal
+
+- **`commit-task` leaf re-emits `CommitMessageSignal` with `fullMessage`** after `appendTrailerToMessage` so
+  TUI and audit-log consumers see the exact text that landed in git history, not the AI's pre-trailer proposal.
+
 ## [0.7.3] - 2026-05-20
 
 ### Added
