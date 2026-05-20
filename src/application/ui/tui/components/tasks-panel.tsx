@@ -29,7 +29,7 @@ import type {
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
-import { useSpinnerFrame, spinnerGlyph } from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 
 export interface TasksPanelProps {
   readonly bucketed: BucketedExecution;
@@ -40,6 +40,14 @@ export interface TasksPanelProps {
   readonly maxSignalsPerTask?: number;
   /** Max orphan signals to render. */
   readonly maxOrphanSignals?: number;
+  /**
+   * Max sub-step rows per task to render; older ones drop off the top behind a single elision
+   * row. Bounds Ink reconciliation cost on long gen-eval loops (every retry adds ~12 leaves),
+   * preventing the OOM mode where unbounded child lists thrash the V8 heap every spinner tick.
+   */
+  readonly maxSubStepsPerTask?: number;
+  /** Max evaluation rows per task to render; same elision treatment as sub-steps. */
+  readonly maxEvaluationsPerTask?: number;
 }
 
 const STATUS_PRESENTATION: Readonly<Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>> = {
@@ -226,18 +234,9 @@ const EvaluationLine = ({ evaluation }: { readonly evaluation: EvaluationSignal 
   );
 };
 
-const SubStepLine = ({
-  sub,
-  running,
-  spinner,
-}: {
-  readonly sub: TaskSubStep;
-  readonly running: boolean;
-  readonly spinner: string;
-}): React.JSX.Element => {
+const SubStepLine = ({ sub, running }: { readonly sub: TaskSubStep; readonly running: boolean }): React.JSX.Element => {
   const presentation = SUB_STEP_PRESENTATION[sub.status];
   const glyph = running && sub.status === 'completed' ? presentation.glyph : presentation.glyph;
-  void spinner;
   return (
     <Box>
       <Text color={presentation.color} bold>
@@ -263,22 +262,33 @@ const TaskBlock = ({
   running,
   display,
   maxSignals,
+  maxSubSteps,
+  maxEvaluations,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
   readonly display: string;
   readonly maxSignals: number;
+  readonly maxSubSteps: number;
+  readonly maxEvaluations: number;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
-  const frame = useSpinnerFrame(running && task.status === 'running');
-  const glyph = task.status === 'running' ? spinnerGlyph(frame) : presentation.glyph;
+  const isSpinning = task.status === 'running';
   const signalRows = task.signals.slice(-maxSignals);
+  const subStepRows = task.subSteps.slice(-maxSubSteps);
+  const subStepElided = task.subSteps.length - subStepRows.length;
+  const evalRows = task.evaluations.slice(-maxEvaluations);
+  const evalElided = task.evaluations.length - evalRows.length;
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Box>
-        <Text color={presentation.color} bold>
-          {glyph}
-        </Text>
+        {isSpinning ? (
+          <Spinner active={running} color={presentation.color} />
+        ) : (
+          <Text color={presentation.color} bold>
+            {presentation.glyph}
+          </Text>
+        )}
         <Text bold> {display}</Text>
         {task.durationMs !== undefined && (
           <Text dimColor>
@@ -303,16 +313,18 @@ const TaskBlock = ({
           <Text color={inkColors.error}>{task.errorMessage}</Text>
         </Box>
       )}
-      {task.subSteps.length > 0 && (
+      {subStepRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2}>
-          {task.subSteps.map((s, i) => (
-            <SubStepLine key={`${task.id}-sub-${String(i)}`} sub={s} running={running} spinner={spinnerGlyph(frame)} />
+          {subStepElided > 0 && <Text dimColor>{`… ${String(subStepElided)} earlier sub-steps`}</Text>}
+          {subStepRows.map((s, i) => (
+            <SubStepLine key={`${task.id}-sub-${String(i)}`} sub={s} running={running} />
           ))}
         </Box>
       )}
-      {task.evaluations.length > 0 && (
+      {evalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {task.evaluations.map((e, i) => (
+          {evalElided > 0 && <Text dimColor>{`… ${String(evalElided)} earlier evaluations`}</Text>}
+          {evalRows.map((e, i) => (
             <EvaluationLine key={`${task.id}-eval-${String(i)}`} evaluation={e} />
           ))}
         </Box>
@@ -360,6 +372,8 @@ export const TasksPanel = ({
   nameById,
   maxSignalsPerTask = 8,
   maxOrphanSignals = 6,
+  maxSubStepsPerTask = 12,
+  maxEvaluationsPerTask = 6,
 }: TasksPanelProps): React.JSX.Element => {
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return (
@@ -375,7 +389,15 @@ export const TasksPanel = ({
       {bucketed.tasks.map((task) => {
         const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}…`;
         return (
-          <TaskBlock key={task.id} task={task} running={running} display={display} maxSignals={maxSignalsPerTask} />
+          <TaskBlock
+            key={task.id}
+            task={task}
+            running={running}
+            display={display}
+            maxSignals={maxSignalsPerTask}
+            maxSubSteps={maxSubStepsPerTask}
+            maxEvaluations={maxEvaluationsPerTask}
+          />
         );
       })}
     </Box>

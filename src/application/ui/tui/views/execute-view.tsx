@@ -41,7 +41,6 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { useSpinnerFrame, spinnerGlyph } from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
@@ -95,7 +94,6 @@ export const ExecuteView = (): React.JSX.Element => {
     filter: (e): e is AppEvent => 'chainId' in e && (e as { chainId: string }).chainId === sessionId,
     limit: 2000,
   });
-  const frame = useSpinnerFrame(session?.descriptor.status === 'running');
   const term = useTerminalSize();
 
   const isRunning = session?.descriptor.status === 'running';
@@ -222,7 +220,7 @@ export const ExecuteView = (): React.JSX.Element => {
           )}
           {isRunning && (
             <Box marginLeft={2}>
-              <Text color={inkColors.info}>{spinnerGlyph(frame)} live</Text>
+              <Spinner active={isRunning} color={inkColors.info} label="live" />
             </Box>
           )}
         </Box>
