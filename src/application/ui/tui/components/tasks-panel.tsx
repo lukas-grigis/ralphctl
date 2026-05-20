@@ -1190,31 +1190,40 @@ export const TasksPanel = ({
         }
         return;
       }
-      // j / k navigation moves the card cursor between task cards. The signal-row cursor stays
-      // on ↑ / ↓ — the two axes are independent so the operator can move between cards even
-      // when the focused card is expanded without first collapsing it.
-      if (input === 'j') {
+      // j / k AND ↑ / ↓ share one cursor; the scope shifts with the focused card's state and
+      // the current row-cursor anchor:
+      //   - collapsed card → card cursor moves between cards.
+      //   - expanded card AND a row cursor is already anchored → row cursor moves within the
+      //     card; jumping past either edge hands off to the card cursor (no need to collapse
+      //     the card first).
+      //   - expanded card with no row anchor yet → card cursor (lets the operator pan
+      //     between cards without first clicking into a row).
+      const rowCursorActive = focusedCardExpanded && flatKeys.length > 0 && focusedIndex >= 0;
+      if (key.downArrow || input === 'j') {
+        if (rowCursorActive) {
+          if (focusedIndex < flatKeys.length - 1) {
+            setFocusedKey(flatKeys[focusedIndex + 1]);
+            return;
+          }
+          // Row cursor at the bottom — fall through to the card cursor.
+        }
         const next = Math.min(bucketed.tasks.length - 1, effectiveCardCursor + 1);
         setCardCursor(next);
+        // Reset the row cursor so the next expanded card starts un-anchored.
+        setFocusedKey(undefined);
         return;
       }
-      if (input === 'k') {
+      if (key.upArrow || input === 'k') {
+        if (rowCursorActive) {
+          if (focusedIndex > 0) {
+            setFocusedKey(flatKeys[focusedIndex - 1]);
+            return;
+          }
+          // Row cursor at the top — fall through to the card cursor.
+        }
         const next = Math.max(0, effectiveCardCursor - 1);
         setCardCursor(next);
-        return;
-      }
-      // Arrow keys traverse the signal-row cursor within the focused card's stream — only
-      // meaningful when the card is expanded; collapsed cards have nothing to scroll.
-      if (key.downArrow) {
-        if (!focusedCardExpanded || flatKeys.length === 0) return;
-        const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
-        setFocusedKey(flatKeys[Math.min(flatKeys.length - 1, current + 1)]);
-        return;
-      }
-      if (key.upArrow) {
-        if (!focusedCardExpanded || flatKeys.length === 0) return;
-        const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
-        setFocusedKey(flatKeys[Math.max(0, current - 1)]);
+        setFocusedKey(undefined);
         return;
       }
       if (key.return || input === ' ') {

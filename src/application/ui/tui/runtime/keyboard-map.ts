@@ -54,18 +54,19 @@ export const executeKeys = {
 /**
  * Bindings local to the Tasks panel — the live per-task surface on the Implement view.
  *
+ * Cursor model: j / k (or ↑ / ↓) move within the focused card's signal rows when the card is
+ * expanded; when the focused card is collapsed (or the row cursor is at an edge), the same
+ * keystroke shifts the cursor between cards. This lets the operator pan between cards without
+ * first collapsing them.
+ *
  * `criteria` uses `e` (expand). The first instinct — `D` / Shift+D — collides with
  * {@link executeKeys.detach}, which the execute view intercepts regardless of whether the
  * panel owns input; `c` is the cancel binding. `e` is otherwise free across the global / list
  * / execute key surfaces and reads as "expand criteria" at a glance.
- *
- * `cardUp` / `cardDown` reuse j/k from {@link listKeys} but with a different scope: the panel's
- * cursor moves across task cards when the focused card is collapsed, and across signal rows
- * within the focused card when it is expanded.
  */
 export const tasksPanelKeys = {
-  cardUp: { keys: ['k', '↑'], label: 'prev card / row' },
-  cardDown: { keys: ['j', '↓'], label: 'next card / row' },
+  navUp: { keys: ['k', '↑'], label: 'prev card / row' },
+  navDown: { keys: ['j', '↓'], label: 'next card / row' },
   toggleCard: { keys: ['↵', 'space'], label: 'expand / collapse card or commit row' },
   collapseCard: { keys: ['esc'], label: 'collapse expanded card' },
   criteria: { keys: ['e'], label: 'expand done criteria for active card' },
