@@ -70,6 +70,8 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       skillsAdapter,
       skillSource,
       interactive: deps.interactive,
+      loadChainLog: deps.app.loadChainLog,
+      writeFile: deps.app.writeFile,
     },
     {
       sprintId: snapshot.sprint.id,

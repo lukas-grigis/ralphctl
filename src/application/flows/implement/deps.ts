@@ -15,6 +15,8 @@ import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 
 /**
  * Narrow dependency contract for the implement chain. Composition root constructs each field
@@ -53,4 +55,15 @@ export interface ImplementDeps {
    * type a custom name. Subsequent runs reuse the persisted decision and skip the prompt.
    */
   readonly interactive: InteractivePrompt;
+  /**
+   * Loader for `<sprintDir>/chain.log`. Threaded through into the progress.md snapshot
+   * renderer so the file reflects the persisted entities + run history at every trigger
+   * point (sprint start, settle-attempt, sprint transition).
+   */
+  readonly loadChainLog: LoadChainLog;
+  /**
+   * Atomic file writer used by the progress.md snapshot renderer. Production wires the
+   * tmp+rename adapter (`createAtomicWriteFile`); tests pass an in-memory fake.
+   */
+  readonly writeFile: WriteFile;
 }

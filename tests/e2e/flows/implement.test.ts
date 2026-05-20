@@ -40,6 +40,8 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -304,6 +306,8 @@ const buildDeps = (
   skillsAdapter: noopSkillsAdapter,
   skillSource: emptySkillSource,
   interactive: unusedInteractive,
+  loadChainLog: createFsChainLogLoader(),
+  writeFile: createAtomicWriteFile(),
 });
 
 const unusedInteractive: InteractivePrompt = {
@@ -336,6 +340,50 @@ describe('createImplementFlow — gen-eval loop', () => {
   const tracking = (b: FixtureBundle): void => {
     cleanupFns.push(b.cleanup);
   };
+
+  it('writes rounds/<n>/outcome.md after the attempt settles, with the synthesis paragraph', async () => {
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      responses: {
+        implement: '<task-verified>tests pass</task-verified>',
+        evaluate: '<evaluation-passed>',
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        model: 'claude-opus-4-7',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-outcome-md',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+
+    const task = f.tasks[0];
+    if (task === undefined) throw new Error('test setup: missing task');
+    const outcomePath = join(f.dir, 'implement', String(task.id), 'rounds', '1', 'outcome.md');
+    const outcome = await fs.readFile(outcomePath, 'utf8');
+    expect(outcome).toContain('# Round 1 · attempt 1');
+    expect(outcome).toContain('- verdict: passed');
+    expect(outcome).toContain('## Synthesis');
+    expect(outcome).toMatch(/Round 1 of attempt 1 passed all evaluator dimensions/);
+    expect(outcome).not.toContain('## Critique');
+  });
 
   it('first-try pass: implement verifies, evaluator passes — task → done, sprint → review in one turn', async () => {
     const f = await buildFixture(1);
@@ -816,7 +864,11 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(round2GenSignals)).toEqual([]);
   });
 
-  it('REQ-5+6: <learning> and <progress-entry> from the AI land in <sprintDir>/progress.md', async () => {
+  it('progress.md is snapshot-rendered from the persisted sprint state after each settle', async () => {
+    // The legacy streaming-sink behaviour (appending `<learning>` / `<progress-entry>` bullets
+    // to `progress.md` mid-run) is gone — those signals now land in `rounds/<N>/<role>/signals.json`
+    // and the AI's own audit tree. `progress.md` is regenerated from scratch at sprint start,
+    // after every settle-attempt, and after the sprint transitions to review.
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -826,14 +878,6 @@ describe('createImplementFlow — gen-eval loop', () => {
       responses: {
         implement: [
           '<learning>sqlite expects explicit pragmas</learning>',
-          '<progress-entry>',
-          '  <task>Add user-id index</task>',
-          '  <files-changed>',
-          '    - app/db.ts',
-          '  </files-changed>',
-          '  <learnings>migration ran cleanly on the dev clone</learnings>',
-          '  <notes-for-next>need to add the ORM mapping next</notes-for-next>',
-          '</progress-entry>',
           '<task-verified>tests pass</task-verified>',
         ].join('\n'),
         evaluate: '<evaluation-passed>',
@@ -861,31 +905,32 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(runner.status).toBe('completed');
 
     const md = await fs.readFile(f.progressFile, 'utf8');
-    // Sections present.
-    expect(md).toContain('# Sprint progress');
-    expect(md).toContain('## Learnings');
+    // Snapshot shape: header + status + tasks table from the projection renderer.
+    expect(md).toContain('# Sprint progress —');
+    expect(md).toContain('## Status');
     expect(md).toContain('## Tasks');
-    // Learning bullet rendered under Learnings.
-    const learningsBlock = md.slice(md.indexOf('## Learnings'), md.indexOf('## Decisions'));
-    expect(learningsBlock).toContain('sqlite expects explicit pragmas');
-    // Progress-entry rendered as a 4-section block under Tasks.
-    const tasksBlock = md.slice(md.indexOf('## Tasks'));
-    expect(tasksBlock).toContain('Add user-id index');
-    expect(tasksBlock).toContain('**Files changed**');
-    expect(tasksBlock).toContain('- app/db.ts');
-    expect(tasksBlock).toContain('**Learnings**');
-    expect(tasksBlock).toContain('migration ran cleanly on the dev clone');
-    expect(tasksBlock).toContain('**Notes for next**');
-    expect(tasksBlock).toContain('need to add the ORM mapping next');
+    // Task transition is reflected — the snapshot fired after settle-attempt + after the
+    // active → review transition.
+    expect(md).toMatch(/status: review/);
+    expect(md).toMatch(/1\/1 done/);
+    // The AI-emitted learning signal is captured in the round's signals.json, not progress.md.
+    const task = f.tasks[0];
+    if (task === undefined) throw new Error('test setup: missing task');
+    const signals = await fs.readFile(
+      join(f.dir, 'implement', String(task.id), 'rounds', '1', 'generator', 'signals.json'),
+      'utf8'
+    );
+    expect(JSON.parse(signals).some((s: { type: string }) => s.type === 'learning')).toBe(true);
   });
 
-  it('REQ-7: resume preserves prior rounds and existing progress.md content', async () => {
+  it('resume preserves prior round artifacts; progress.md is overwritten by the next snapshot (that IS the migration)', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
-    // Pre-seed a prior run: rounds/1/generator/ + a populated progress.md.
+    // Pre-seed a prior run: rounds/1/generator/ + a streaming-sink-era progress.md. The new
+    // snapshot renderer overwrites the legacy content — no separate migration step.
     const task = f.tasks[0];
     if (task === undefined) throw new Error('test setup: missing task');
     const workspace = join(f.dir, 'implement', String(task.id));
@@ -925,17 +970,20 @@ describe('createImplementFlow — gen-eval loop', () => {
     await runner.start();
     expect(runner.status).toBe('completed');
 
-    // Prior round artifacts are untouched.
+    // Prior round artifacts are untouched — the round folder is the source of truth for prior work.
     expect(await fs.readFile(join(round1Gen, 'signals.json'), 'utf8')).toBe('[{"type":"prior"}]');
     // New round was written at N=2 — provider wrote signals.json there.
     const round2Signals = JSON.parse(
       await fs.readFile(join(workspace, 'rounds', '2', 'generator', 'signals.json'), 'utf8')
     );
     expect(round2Signals.some((s: { type: string; text?: string }) => s.type === 'learning')).toBe(true);
-    // progress.md preserves prior content AND appends new learning.
+    // progress.md is REGENERATED — the legacy streaming-sink bullet is gone, replaced by the
+    // new projection-rendered snapshot reflecting the just-settled sprint state.
     const md = await fs.readFile(f.progressFile, 'utf8');
-    expect(md).toContain('prior learning kept');
-    expect(md).toContain('fresh learning');
+    expect(md).not.toContain('prior learning kept');
+    expect(md).toContain('# Sprint progress —');
+    expect(md).toContain('## Status');
+    expect(md).toMatch(/status: review/);
   });
 
   it('multiple <commit-message> tags across turns: last one wins at commit time', async () => {
@@ -1003,7 +1051,7 @@ describe('createImplementFlow — gen-eval loop', () => {
   // branch, no quiet pass. This is the primary "go-off-the-computer" guardrail and the
   // composition that powers it (post-task-check → guard → commit-task → settle-attempt) only
   // gets exercised end-to-end here.
-  it('verify-script failure blocks the task and prevents the commit even when the AI claims verified', async () => {
+  it('regressed baseline (pre=green, post=red) blocks the task and prevents the commit', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1016,13 +1064,24 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
-    const failingShell: ShellScriptRunner = {
+    // The shell runner is invoked once per setup-script, once per pre-task-check, once per
+    // post-task-check. We need to return GREEN for the first pre-check (baseline is good) and
+    // RED for the post-check — that's a `regressed` attribution, which DOES block. Setup is
+    // skipped (no `setupScript`).
+    let shellCallCount = 0;
+    const regressingShell: ShellScriptRunner = {
       async run() {
-        return Result.ok({ passed: false, exitCode: 1, output: 'tests failed: 3 of 7\n', durationMs: 12 });
+        shellCallCount += 1;
+        // Call 1 = pre-task-check (green baseline). Call 2 = post-task-check (red — regression).
+        const isPost = shellCallCount >= 2;
+        if (isPost) {
+          return Result.ok({ passed: false, exitCode: 1, output: 'tests failed: 3 of 7\n', durationMs: 12 });
+        }
+        return Result.ok({ passed: true, exitCode: 0, output: 'all green\n', durationMs: 10 });
       },
     };
 
-    // Wire a checkScript on the repo so post-task-check actually runs (it's a no-op when absent).
+    // Wire a checkScript on the repo so pre/post checks actually run.
     const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, checkScript: 'pnpm test' }]]);
 
     const git = commitCapturingGit(1);
@@ -1035,7 +1094,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         f.dir,
         git.runner
       ),
-      shellScriptRunner: failingShell,
+      shellScriptRunner: regressingShell,
     };
 
     const flow = createImplementFlow(deps, {
@@ -1057,12 +1116,77 @@ describe('createImplementFlow — gen-eval loop', () => {
     const finalTask = taskRepo.tasks()[0];
     expect(finalTask?.status).toBe('blocked');
     if (finalTask?.status === 'blocked') {
-      expect(finalTask.blockedReason).toContain('verify script failed');
+      // The block reason names the regression — operator sees what failed without digging through the audit log.
+      expect(finalTask.blockedReason).toMatch(/regressed baseline|verify script failed/);
     }
+    // Attribution row on the attempt records `'regressed'` — the deterministic verdict the TUI surfaces.
+    expect(finalTask?.attempts.at(-1)?.attribution).toBe('regressed');
     // No commit landed on the branch — that's the whole point of the gate.
     expect(git.commitMessages()).toEqual([]);
     // Sprint stays active (no task settled `done`).
     expect(sprintRepo.current().status).not.toBe('review');
+  });
+
+  it('baseline-broken (pre=red, post=red) preserves the AI verdict — pre-existing failure does NOT block', async () => {
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      responses: {
+        implement: '<task-verified>looks great</task-verified>',
+        evaluate: '<evaluation-passed>',
+      },
+    });
+
+    // Both pre and post return red — pre-existing failure. The harness must NOT blame the AI
+    // (attribution: 'baseline-broken') — task settles `done` so the operator can fix the
+    // baseline without losing the AI's work.
+    const persistentlyRedShell: ShellScriptRunner = {
+      async run() {
+        return Result.ok({ passed: false, exitCode: 1, output: 'pre-existing failure\n', durationMs: 12 });
+      },
+    };
+
+    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, checkScript: 'pnpm test' }]]);
+
+    const git = commitCapturingGit(1);
+    const deps: ImplementDeps = {
+      ...buildDeps(
+        sprintRepo.repo,
+        inMemoryExecutionRepo(f.execution).repo,
+        taskRepo.repo,
+        provider,
+        f.dir,
+        git.runner
+      ),
+      shellScriptRunner: persistentlyRedShell,
+    };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: reposWithCheck,
+      model: 'claude-opus-4-7',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+    const runner = createRunner({
+      id: 'r-impl-baseline-broken',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const finalTask = taskRepo.tasks()[0];
+    // Task settles `done` — preserved verdict — even though both checks ran red.
+    expect(finalTask?.status).toBe('done');
+    // Attribution = baseline-broken — surfaced for the post-mortem.
+    const lastAttempt = finalTask?.attempts.at(-1);
+    expect(lastAttempt?.attribution).toBe('baseline-broken');
+    expect(lastAttempt?.baselineBroken).toBe(true);
   });
 
   // ─── Resilience: AI emits no recognisable signals at all ──────────────────────────
@@ -1276,13 +1400,16 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(statusCwds.has(String(CWD_A))).toBe(true);
     expect(statusCwds.has(String(CWD_B))).toBe(true);
 
-    // Per-task cwd-wiring: post-task-check fired once per task against the task's repo,
-    // proving resolveRepo(task) wires the right cwd into the per-task sub-chain (not "first
-    // repo wins for everything").
+    // Per-task cwd-wiring: pre-task-check + post-task-check each fire once per task against
+    // the task's repo, proving resolveRepo(task) wires the right cwd into the per-task
+    // sub-chain (not "first repo wins for everything"). Two tasks × two checks = 4 calls.
     const shellCwds = shellCalls.map((c) => c.cwd);
     expect(shellCwds).toContain(String(CWD_A));
     expect(shellCwds).toContain(String(CWD_B));
-    expect(shellCalls).toHaveLength(2);
+    expect(shellCalls).toHaveLength(4);
+    // Each repo received exactly 2 shell calls (pre + post).
+    expect(shellCwds.filter((c) => c === String(CWD_A))).toHaveLength(2);
+    expect(shellCwds.filter((c) => c === String(CWD_B))).toHaveLength(2);
   });
 
   // ─── Resilience: resume after a mid-evaluator crash ───────────────────────────────

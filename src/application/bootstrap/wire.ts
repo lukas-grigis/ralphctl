@@ -48,6 +48,8 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
+import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
 
 /**
  * Wired application dependencies. Composition root assembles these once at startup; everything
@@ -159,6 +161,12 @@ export interface AppDeps {
    * will host a user-skill source in a follow-up.
    */
   readonly skillSource: SkillSource;
+  /**
+   * Loader for `<sprintDir>/chain.log` — read by the snapshot renderer that regenerates
+   * `progress.md` at the implement chain's well-defined trigger points (sprint start,
+   * settle-attempt, sprint transition). Tolerant by contract: missing file → empty list.
+   */
+  readonly loadChainLog: LoadChainLog;
 }
 
 /**
@@ -268,5 +276,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     }),
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
+    loadChainLog: createFsChainLogLoader({ logger }),
   };
 };

@@ -3,13 +3,10 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
-import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
-import { createProgressFileSink } from '@src/integration/observability/sinks/progress-file-sink.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
@@ -17,14 +14,15 @@ import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/spri
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
-import { flushProgressSinkLeaf } from '@src/application/flows/implement/leaves/flush-progress-sink.ts';
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
 import { ensureProgressFileLeaf } from '@src/application/flows/implement/leaves/ensure-progress-file.ts';
+import { writeProgressSnapshotLeaf } from '@src/application/flows/implement/leaves/write-progress-snapshot.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
 import { postTaskCheckLeaf } from '@src/application/flows/implement/leaves/post-task-check.ts';
+import { preTaskCheckLeaf } from '@src/application/flows/implement/leaves/pre-task-check.ts';
 import { preflightTaskLeaf, type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -207,20 +205,19 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     return out;
   })();
 
-  // Fan-out signal stream — every signal emitted by the gen-eval leaves reaches the
-  // existing harness sink (TUI / in-memory bus) AND lands in `<sprintDir>/progress.md`
-  // under a colocated `.lock`. The progress sink is fire-and-forget on emit; the chain
-  // flushes it on the way out via `flushProgressSinkLeaf` so the file is consistent
-  // with everything the run emitted before the trace closes.
-  const progressLockPath = AbsolutePath.parse(`${String(opts.progressFile)}.lock`);
-  if (!progressLockPath.ok) throw progressLockPath.error;
-  const progressSink = createProgressFileSink({
-    progressFile: opts.progressFile,
-    lockFile: progressLockPath.value,
-    locker: deps.fileLocker,
-    logger: deps.logger,
-  });
-  const signalsBroadcast = broadcastSink<HarnessSignal>([deps.signals, progressSink]);
+  // `<sprintDir>/progress.md` is now snapshot-rendered (not streaming-appended) — the file is
+  // a function of the persisted entities + `<sprintDir>/chain.log`, regenerated at sprint
+  // start, after every settle-attempt, and after sprint status transitions. The legacy
+  // `progress-file-sink` is gone; the snapshot renderer reads chain.log via `deps.loadChainLog`
+  // and writes through `deps.writeFile`.
+  const chainLogPathParsed = AbsolutePath.parse(`${String(opts.sprintDir)}/chain.log`);
+  if (!chainLogPathParsed.ok) throw chainLogPathParsed.error;
+  const chainLogPath = chainLogPathParsed.value;
+  const snapshotLeaf = (name: string): Element<ImplementCtx> =>
+    writeProgressSnapshotLeaf(
+      { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+      { progressFile: opts.progressFile, chainLogPath, name }
+    );
 
   // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
   // Pointing it at `repo.path` is what makes per-repo project skills, `.mcp.json`, and the
@@ -236,7 +233,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     const genEvalLeafDeps = {
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: signalsBroadcast,
+      signals: deps.signals,
       cwd: repo.path,
       model: opts.model,
       clock: deps.clock,
@@ -266,6 +263,22 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
       ),
       startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
+      // PRE-task check — captures the baseline state of the working tree BEFORE the AI runs
+      // so the post-task-check can attribute correctly: a red post on a green pre means the
+      // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
+      // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
+      // attempt and lets the AI try anyway.
+      preTaskCheckLeaf(
+        {
+          shellScriptRunner: deps.shellScriptRunner,
+          taskRepo: deps.taskRepo,
+          clock: deps.clock,
+          eventBus: deps.eventBus,
+          logger: deps.logger,
+        },
+        { cwd: repo.path, ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}) },
+        taskId
+      ),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
       // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
       // self-blocked this turn it set `lastExit` and the evaluator must not run.
@@ -294,7 +307,13 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       // The AI is told to run the verify script itself via the prompt; this leaf is the
       // harness-side enforcement.
       postTaskCheckLeaf(
-        { shellScriptRunner: deps.shellScriptRunner, logger: deps.logger },
+        {
+          shellScriptRunner: deps.shellScriptRunner,
+          taskRepo: deps.taskRepo,
+          clock: deps.clock,
+          eventBus: deps.eventBus,
+          logger: deps.logger,
+        },
         { cwd: repo.path, ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}) },
         taskId
       ),
@@ -318,6 +337,10 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { cwd: repo.path },
         taskId
       ),
+      // Snapshot progress.md after every settled attempt so a fresh agent re-opening the file
+      // sees the current task state (verdict, blocker reason, attempt count). Best-effort —
+      // the snapshot leaf logs + swallows failures so a render hiccup never halts the chain.
+      snapshotLeaf(`progress-snapshot-after-settle-${String(taskId)}`),
       uninstallSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter },
         { name: `${IMPLEMENT_TASK_TERMINAL_LEAF}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
@@ -363,7 +386,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    ensureProgressFileLeaf(opts.progressFile),
+    ensureProgressFileLeaf(
+      { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+      opts.progressFile,
+      chainLogPath
+    ),
     setupScriptRunnerLeaf(
       {
         shellScriptRunner: deps.shellScriptRunner,
@@ -394,9 +421,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     guard<ImplementCtx>(
       'transition-sprint-to-review-when-any-done',
       (ctx) => ctx.tasks?.some((t) => t.status === 'done') === true,
-      transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger })
+      sequential<ImplementCtx>('transition-to-review-and-snapshot', [
+        transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+        // Snapshot progress.md so the file reflects the active → review transition (the
+        // status line, the reviewAt timestamp, the run-history tail) immediately, without
+        // waiting for the next implement run to refresh it.
+        snapshotLeaf('progress-snapshot-after-review-transition'),
+      ])
     ),
-    flushProgressSinkLeaf(progressSink),
   ]);
 
   // Lock key: the sprint dir. One implement run at a time per sprint — across all repos the

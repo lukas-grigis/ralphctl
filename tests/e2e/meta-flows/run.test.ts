@@ -38,6 +38,8 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createRunFlow } from '@src/application/flows/_meta/run/flow.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -243,6 +245,8 @@ describe('createRunFlow', () => {
           skillsAdapter: noopSkillsAdapter,
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
+          loadChainLog: createFsChainLogLoader(),
+          writeFile: createAtomicWriteFile(),
         },
         review: {
           sprintRepo: sprintRepo.repo,
@@ -313,6 +317,8 @@ describe('createRunFlow', () => {
           skillsAdapter: noopSkillsAdapter,
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
+          loadChainLog: createFsChainLogLoader(),
+          writeFile: createAtomicWriteFile(),
         },
         review: {
           sprintRepo: sprintRepo.repo,
