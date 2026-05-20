@@ -88,7 +88,9 @@ signals without explicit threading.
 **Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
 takeover (vim/htop-style), restored on every exit path (`exit`, `SIGINT`, `SIGTERM`, `SIGHUP`,
 `uncaughtException`). Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount. Tokens are the single source of
-visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. See DESIGN-SYSTEM.md.
+visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. List renders
+sliced before `.map()`; spinner state lives in the leaf `<Spinner />` so 90 ms timer re-renders don't
+propagate. See DESIGN-SYSTEM.md.
 
 **CLI** at `src/application/ui/cli/`. Interactive flows (`refine` / `plan` / `ideate` / `implement` /
 `readiness` / `create-sprint`) stay TUI-only by design. The CLI exposes `doctor`, `completion`,

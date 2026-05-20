@@ -287,6 +287,12 @@ pushes a dedicated `*-detail-view.tsx`).
 - Behave like a workflow view: `SectionStamp`, phase state, `ResultCard` for outcome.
 - No bespoke input handlers — everything goes through the injected `PromptPort`.
 
+### 7.5 Render caps for list data
+
+Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries, settings options, fixed phase order) may render in full — comment the bound at the call site.
+
+Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call `useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use `<Spinner active … />` instead.
+
 ## 8. Copy & tone
 
 ### 8.1 Spinner labels

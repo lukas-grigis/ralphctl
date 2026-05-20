@@ -19,7 +19,7 @@ import { Box, Text } from 'ink';
 import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
-import { useSpinnerFrame, spinnerGlyph } from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 
 export interface StepTraceProps {
   readonly trace: Trace;
@@ -44,20 +44,31 @@ interface MergedRow {
   readonly errorMessage?: string;
 }
 
-const glyphFor = (status: RowStatus, frame: number): readonly [string, string] => {
+/**
+ * Per-row glyph instruction. Either a static glyph (rendered inline by the caller's `<Text>`) or
+ * a `spinner` sentinel — in which case the caller renders a `<Spinner />` leaf, which owns its
+ * own 90 ms re-render scope. Returning the sentinel (instead of calling `spinnerGlyph(frame)`
+ * here) is what allows StepTrace to drop the `useSpinnerFrame` call at the top of the component:
+ * the spinner re-render no longer ticks the whole row list, only the spinner node itself.
+ */
+type GlyphInstruction =
+  | { readonly kind: 'static'; readonly glyph: string; readonly color: string }
+  | { readonly kind: 'spinner'; readonly color: string };
+
+const glyphFor = (status: RowStatus): GlyphInstruction => {
   switch (status) {
     case 'completed':
-      return [glyphs.phaseDone, inkColors.success];
+      return { kind: 'static', glyph: glyphs.phaseDone, color: inkColors.success };
     case 'failed':
-      return [glyphs.cross, inkColors.error];
+      return { kind: 'static', glyph: glyphs.cross, color: inkColors.error };
     case 'aborted':
-      return [glyphs.warningGlyph, inkColors.warning];
+      return { kind: 'static', glyph: glyphs.warningGlyph, color: inkColors.warning };
     case 'skipped':
-      return [glyphs.phaseDisabled, inkColors.muted];
+      return { kind: 'static', glyph: glyphs.phaseDisabled, color: inkColors.muted };
     case 'running':
-      return [spinnerGlyph(frame), inkColors.info];
+      return { kind: 'spinner', color: inkColors.info };
     case 'pending':
-      return [glyphs.phasePending, inkColors.muted];
+      return { kind: 'static', glyph: glyphs.phasePending, color: inkColors.muted };
   }
 };
 
@@ -124,7 +135,6 @@ export const StepTrace = ({
   inFlightLabel,
   plan,
 }: StepTraceProps): React.JSX.Element => {
-  const frame = useSpinnerFrame(running);
   // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
   // lookup Map on every call. For long running sessions (5k+ trace entries) re-allocating that
   // every render adds avoidable GC pressure even though the cost is fast in absolute terms.
@@ -154,14 +164,18 @@ export const StepTrace = ({
   return (
     <Box flexDirection="column">
       {rows.map((row, i) => {
-        const [g, color] = glyphFor(row.status, frame);
+        const instruction = glyphFor(row.status);
         const trailing = trailingLabelFor(row.status);
         const dimRow = row.status === 'pending';
         return (
           <Box key={`${row.name}-${String(i)}`} paddingX={spacing.indent}>
-            <Text color={color} bold>
-              {g}
-            </Text>
+            {instruction.kind === 'spinner' ? (
+              <Spinner active={running} color={instruction.color} />
+            ) : (
+              <Text color={instruction.color} bold>
+                {instruction.glyph}
+              </Text>
+            )}
             <Text dimColor={dimRow}> {row.name}</Text>
             {row.durationMs !== undefined && (
               <Text dimColor>
@@ -170,7 +184,7 @@ export const StepTrace = ({
               </Text>
             )}
             {trailing !== undefined && (
-              <Text color={color}>
+              <Text color={instruction.color}>
                 {'  '}
                 {glyphs.emDash} {trailing}
               </Text>
@@ -189,9 +203,7 @@ export const StepTrace = ({
           to avoid double-rendering. */}
       {plan === undefined && running && inFlightLabel !== undefined && (
         <Box paddingX={spacing.indent}>
-          <Text color={inkColors.info} bold>
-            {spinnerGlyph(frame)}
-          </Text>
+          <Spinner active={running} color={inkColors.info} />
           <Text dimColor> {inFlightLabel}</Text>
         </Box>
       )}
