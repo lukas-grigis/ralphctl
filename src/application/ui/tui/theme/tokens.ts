@@ -91,3 +91,61 @@ export const PROMPT_VISIBLE_ROWS = 8;
 export const RAIL_WIDTH = 24;
 export const COMPACT_RAIL_WIDTH = 6;
 export const CONTEXT_WIDTH = 28;
+
+/**
+ * Signal-kind family used by the Tasks panel. Mirrors the keys of `SIGNAL_LABEL_COLOR` in
+ * `tasks-panel.tsx`; declared here so {@link glyphFor} can name its discriminator without
+ * pulling tasks-panel into tokens (sibling-isolation kept clean — tokens has no upward deps).
+ *
+ * @public
+ */
+export type SignalKind =
+  | 'change'
+  | 'learning'
+  | 'decision'
+  | 'commit'
+  | 'note'
+  | 'progress'
+  | 'progress-entry'
+  | 'done'
+  | 'verified'
+  | 'blocked'
+  | 'script'
+  | 'proposal'
+  | 'skills';
+
+/**
+ * Shape-only fallback marker per signal kind — printed BEFORE the kind label when colour
+ * encoding isn't available (NO_COLOR=1, non-truecolor terminal, accessibility setting). Pairs
+ * with the colour map in `tasks-panel.tsx` so the two encodings stay redundant rather than
+ * fighting each other.
+ *
+ * Glyphs are deliberately ASCII / common-Unicode (no Powerline / Nerd-Font glyphs) so they
+ * render uniformly across vt220-class emulators where colour is most likely to be disabled.
+ *
+ * Returns the empty string for kinds that already read distinctly from their label text
+ * (`progress` / `progress-entry` / `done` / `script` / `proposal` / `skills`) — adding a glyph
+ * there would clutter the row without adding shape information.
+ *
+ * @public
+ */
+export const glyphFor = (kind: SignalKind): string => {
+  switch (kind) {
+    case 'change':
+      return '+';
+    case 'learning':
+      return '~';
+    case 'decision':
+      return '◇';
+    case 'verified':
+      return '★';
+    case 'blocked':
+      return '△';
+    case 'commit':
+      return '■';
+    case 'note':
+      return '•';
+    default:
+      return '';
+  }
+};
