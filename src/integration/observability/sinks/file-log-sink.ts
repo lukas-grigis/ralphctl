@@ -1,6 +1,11 @@
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppEvent } from '@src/business/observability/events.ts';
+import type {
+  AppEvent,
+  ChainAbortedEvent,
+  ChainCompletedEvent,
+  ChainFailedEvent,
+} from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -19,6 +24,24 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * AppEvent) so a downstream tool (jq / a future `ralphctl doctor`) can filter cheaply. No
  * frontmatter, no rotation — append-only; the operator removes the file when they want to
  * reset.
+ *
+ * Chain-run brackets: each chain run is delimited by two human-readable marker lines that
+ * start with `=== ` so they are trivially distinguishable from the NDJSON event stream
+ * (which always starts with `{`). The header is written immediately before the
+ * `chain-started` event line; the footer immediately after the terminal event line
+ * (`chain-completed` / `chain-failed` / `chain-aborted`). Format:
+ *
+ *   === chain-run <chainId> <flowId> started <iso> ===
+ *   <NDJSON event lines>
+ *   === chain-run <chainId> <flowId> <outcome> <iso> duration=<ms>ms steps=<n> ===
+ *
+ * `<n>` is the number of completed-or-failed steps observed for the chain. If a chain dies
+ * without emitting a terminal event the footer is missing, but the NEXT run's header still
+ * appears cleanly — legacy logs without boundaries also parse, so the bracketing is purely
+ * additive.
+ *
+ * Boundary lines deliberately carry no JSON payload — any consumer that wants to filter the
+ * NDJSON stream simply skips lines that do not start with `{`.
  *
  * Concurrency: writes go through a serial drain queue. `fs.appendFile` is atomic per-call on
  * POSIX for chunks ≤ PIPE_BUF (4KB on Linux, 512B on macOS guaranteed) but each event line
@@ -69,8 +92,45 @@ export interface FileLogSink {
   flush(): Promise<void>;
 }
 
+interface ChainState {
+  readonly flowId: string;
+  readonly startedAtMs: number;
+  steps: number;
+}
+
+type ChainTerminalEvent = ChainCompletedEvent | ChainFailedEvent | ChainAbortedEvent;
+
+const isTerminalChainEvent = (event: AppEvent): event is ChainTerminalEvent =>
+  event.type === 'chain-completed' || event.type === 'chain-failed' || event.type === 'chain-aborted';
+
+const terminalOutcome = (type: ChainTerminalEvent['type']): string => {
+  switch (type) {
+    case 'chain-completed':
+      return 'completed';
+    case 'chain-failed':
+      return 'failed';
+    case 'chain-aborted':
+      return 'aborted';
+  }
+};
+
+const headerLine = (chainId: string, flowId: string, startedAt: IsoTimestamp): string =>
+  `=== chain-run ${chainId} ${flowId} started ${startedAt} ===\n`;
+
+const footerLine = (
+  chainId: string,
+  flowId: string,
+  outcome: string,
+  endedAt: IsoTimestamp,
+  durationMs: number,
+  steps: number
+): string => `=== chain-run ${chainId} ${flowId} ${outcome} ${endedAt} duration=${durationMs}ms steps=${steps} ===\n`;
+
 export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
-  const queue: AppEvent[] = [];
+  // Queue holds pre-rendered text payloads — either an NDJSON event line or a `=== ` boundary
+  // marker. Render-at-enqueue keeps the drain loop trivial and lets boundary lines share the
+  // same back-pressure / write-fail path as event lines.
+  const queue: string[] = [];
   let draining: Promise<void> | undefined;
   let dirEnsured = false;
   let stopped = false;
@@ -78,6 +138,12 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
   // queue overflows and write failures are silenced — the banner is already up; re-emitting
   // would spam the bus and (worse) re-enter the sink's own queue.
   let degraded = false;
+
+  // Per-chain bracket state. Populated on `chain-started`, consumed and removed on the
+  // matching terminal event. A chain that never emits a terminal (process killed mid-run)
+  // leaves its entry orphaned in memory until the sink is stopped — bounded by the number of
+  // distinct chainIds the sink sees, which is at most ~one per launcher invocation.
+  const chains = new Map<string, ChainState>();
 
   const drain = async (): Promise<void> => {
     while (queue.length > 0) {
@@ -88,7 +154,7 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
           await fs.mkdir(dirname(String(deps.file)), { recursive: true });
           dirEnsured = true;
         }
-        await fs.appendFile(String(deps.file), `${JSON.stringify(next)}\n`, 'utf8');
+        await fs.appendFile(String(deps.file), next, 'utf8');
       } catch (err) {
         // Best-effort write — never take down the chain. But fire the one-shot degradation
         // marker so the operator knows the on-disk trace is incomplete.
@@ -110,18 +176,8 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
     draining = undefined;
   };
 
-  const onEvent = (event: AppEvent): void => {
-    if (stopped) return;
-    // Re-entrancy guard: never enqueue our own degradation marker. Without this the first
-    // write failure would publish the marker, which would synchronously land back here and
-    // get appended — round-tripping the event we are trying to surface and (worse) putting it
-    // on a queue that may itself be in trouble.
-    if (event.type === 'chain-log-degraded') return;
+  const enqueue = (line: string): boolean => {
     if (queue.length >= MAX_QUEUE) {
-      // Drop-newest: keep the older, context-rich queued events; lose the most recent inbound
-      // one. Newest events are the cheapest to drop because the operator already saw their
-      // immediate effects on the TUI; the older queued ones are what they need on disk to
-      // reconstruct what led to the stall.
       if (!degraded) {
         degraded = true;
         deps.bus.publish({
@@ -130,10 +186,57 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
           at: IsoTimestamp.now(),
         });
       }
+      return false;
+    }
+    queue.push(line);
+    if (draining === undefined) draining = drain();
+    return true;
+  };
+
+  const onEvent = (event: AppEvent): void => {
+    if (stopped) return;
+    // Re-entrancy guard: never enqueue our own degradation marker. Without this the first
+    // write failure would publish the marker, which would synchronously land back here and
+    // get appended — round-tripping the event we are trying to surface and (worse) putting it
+    // on a queue that may itself be in trouble.
+    if (event.type === 'chain-log-degraded') return;
+
+    // Bracket state tracking — header BEFORE the chain-started event line, footer AFTER the
+    // terminal event line. The boundary lines start with `=== ` so an NDJSON consumer skips
+    // them by ignoring any line that doesn't start with `{`.
+    if (event.type === 'chain-started') {
+      chains.set(event.chainId, {
+        flowId: event.flowId,
+        startedAtMs: Date.parse(event.at),
+        steps: 0,
+      });
+      enqueue(headerLine(event.chainId, event.flowId, event.at));
+      enqueue(`${JSON.stringify(event)}\n`);
       return;
     }
-    queue.push(event);
-    if (draining === undefined) draining = drain();
+
+    if (event.type === 'chain-step-completed' || event.type === 'chain-step-failed') {
+      const state = chains.get(event.chainId);
+      if (state !== undefined) state.steps += 1;
+      enqueue(`${JSON.stringify(event)}\n`);
+      return;
+    }
+
+    if (isTerminalChainEvent(event)) {
+      enqueue(`${JSON.stringify(event)}\n`);
+      const state = chains.get(event.chainId);
+      if (state !== undefined) {
+        chains.delete(event.chainId);
+        const endedMs = Date.parse(event.at);
+        const durationMs = Number.isFinite(endedMs - state.startedAtMs) ? Math.max(0, endedMs - state.startedAtMs) : 0;
+        enqueue(
+          footerLine(event.chainId, state.flowId, terminalOutcome(event.type), event.at, durationMs, state.steps)
+        );
+      }
+      return;
+    }
+
+    enqueue(`${JSON.stringify(event)}\n`);
   };
 
   const unsubscribe = deps.bus.subscribe(onEvent);
