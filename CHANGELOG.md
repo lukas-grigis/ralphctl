@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-05-20
+
+### Added
+
+- **Heap watchdog with memory-pressure TUI banner.** A background watchdog samples Node's heap and emits
+  pressure events; a new `MemoryPressureBanner` surfaces sustained pressure in the TUI so OOM crashes
+  aren't a surprise.
+
+### Fixed
+
+- **TasksPanel render cap.** Long-running sprints with many subSteps / evaluations no longer balloon the
+  render tree — the panel now caps the rendered slice, with a covering test to prevent regressions.
+
+### Changed
+
+- **Spinner re-renders isolated.** The 90 ms spinner timer now lives in the leaf `<Spinner />` only, so
+  unrelated TUI subtrees stop re-rendering on every tick. A render-budget test locks in the new behavior.
+
 ## [0.7.2] - 2026-05-19
 
 ### Fixed
