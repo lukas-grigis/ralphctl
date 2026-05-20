@@ -49,6 +49,54 @@ export type AttemptWarning =
   | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string };
 
 /**
+ * Discriminated reason why an attempt was settled as `aborted`. Capture point varies:
+ *
+ *  - `user-cancel`          — caller invoked `runner.abort()` (Ctrl-C in the TUI / CLI).
+ *  - `sigterm`              — host sent SIGTERM (e.g. external orchestrator killed the process).
+ *  - `watchdog-killed`      — the idle-stdout watchdog SIGTERM'd a wedged AI child.
+ *  - `rate-limit-exhausted` — provider 429 retries gave up after `harness.rateLimitRetries`.
+ *  - `process-crash`        — the prior process exited without settling the attempt; inferred
+ *                              on the next launch when start-attempt finds a leftover `running`
+ *                              attempt. We can't tell from a fresh process what killed the
+ *                              previous one (Ctrl-C and a v8 OOM both leave the same trace) —
+ *                              `process-crash` is the conservative label.
+ *  - `unknown`              — fallback for legacy task data written before this field existed.
+ *
+ * Stored alongside `signalOrExitCode` (POSIX signal name or numeric exit code, when known).
+ * The TUI's resume-from-aborted banner reads both fields to render a one-line parenthetical
+ * (`(SIGTERM)`, `(rate limit)`, etc.).
+ * @public
+ */
+export type AbortCause =
+  | 'user-cancel'
+  | 'sigterm'
+  | 'watchdog-killed'
+  | 'rate-limit-exhausted'
+  | 'process-crash'
+  | 'unknown';
+
+/**
+ * Context attached to a `RunningAttempt` when it was opened as a resume of a prior aborted
+ * attempt — set at attempt-creation time so the TUI doesn't have to walk the `attempts` array
+ * to discover the resume. Persisted with the attempt so the field survives into terminal state
+ * (a resumed attempt that itself succeeds still tells the post-mortem reader that it was a
+ * resume of attempt N-1).
+ *
+ *  - `fromAttemptN`  — the 1-indexed `n` of the prior attempt that was just settled as aborted.
+ *  - `cause`         — best-known reason the prior attempt aborted.
+ *  - `abortedAt`     — when the prior attempt's settle (in `failCurrentAttempt`) ran, which is
+ *                      the same clock value as the new running attempt's `startedAt` for
+ *                      in-process aborts. For cross-process resumes (the process-crash path)
+ *                      it's the resume clock, which is the closest proxy we have.
+ * @public
+ */
+export interface RecoveryContext {
+  readonly fromAttemptN: number;
+  readonly cause: AbortCause;
+  readonly abortedAt: IsoTimestamp;
+}
+
+/**
  * Lifecycle of a single generator–evaluator iteration:
  *
  *   start ─► running ─►   verified            ◄── markTaskDone consumes this
@@ -77,6 +125,24 @@ interface AttemptBase {
    * path. At most one warning per attempt — later warnings overwrite earlier ones.
    */
   readonly warning?: AttemptWarning;
+  /**
+   * Reason this attempt was aborted. Meaningful only when `status === 'aborted'`; on
+   * verified / failed / malformed / running attempts the field is absent. Optional because
+   * legacy attempt records persisted before this field existed (see {@link AbortCause}).
+   */
+  readonly abortCause?: AbortCause;
+  /**
+   * Originating signal (POSIX name like `'SIGTERM'`) or numeric exit code captured at abort
+   * time. Audit detail only — the TUI's parenthetical reads {@link abortCause} for the
+   * label and uses this field for forensic chain.log reading.
+   */
+  readonly signalOrExitCode?: string | number;
+  /**
+   * Set at attempt creation when this attempt is opening as a resume of a prior aborted
+   * attempt. Absent on the first attempt of a task and on subsequent attempts that weren't
+   * preceded by an abort. See {@link RecoveryContext}.
+   */
+  readonly recovering?: RecoveryContext;
 }
 
 export interface RunningAttempt extends AttemptBase {
@@ -103,6 +169,12 @@ export interface StartAttemptInput {
   readonly n: number;
   readonly startedAt: IsoTimestamp;
   readonly sessionId?: string;
+  /**
+   * Pre-derived recovery context. Supplied by callers that opened this attempt as a resume
+   * of a prior aborted attempt (e.g. `startAttemptUseCase` settling a leftover `running`
+   * attempt before opening a new one). Absent on every other path.
+   */
+  readonly recovering?: RecoveryContext;
 }
 
 export const startAttempt = (input: StartAttemptInput): Result<RunningAttempt, ValidationError> => {
@@ -127,6 +199,7 @@ export const startAttempt = (input: StartAttemptInput): Result<RunningAttempt, V
     status: 'running',
     finishedAt: null,
     ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(input.recovering !== undefined ? { recovering: input.recovering } : {}),
   });
 };
 
@@ -156,13 +229,32 @@ export const recordAttemptWarning = (att: RunningAttempt, warning: AttemptWarnin
 });
 
 /**
+ * Optional metadata supplied when settling an attempt as `aborted`. Ignored for any other
+ * terminal status. Stamped onto the attempt so future audit + the resume-from-aborted banner
+ * can show *why* the attempt died, not just that it died.
+ *
+ *  - `abortCause`        — discriminated reason (see {@link AbortCause}).
+ *  - `signalOrExitCode`  — POSIX signal name or numeric exit code, when known.
+ */
+export interface AbortMetadata {
+  readonly abortCause: AbortCause;
+  readonly signalOrExitCode?: string | number;
+}
+
+/**
  * Settle a running attempt. Transition into `verified` requires verification to be present —
  * the structural guarantee that a verified attempt carries the artifact that proved it.
+ *
+ * The optional `abortMeta` is consumed only on the `'aborted'` transition; passing it on any
+ * other status is a no-op (silently dropped). Callers thread it through `failCurrentAttempt`
+ * when settling a leftover running attempt during resume so the next attempt's
+ * {@link RecoveryContext} can point at a fully-attributed prior.
  */
 export const completeAttempt = (
   att: RunningAttempt,
   status: TerminalAttempt['status'],
-  finishedAt: IsoTimestamp
+  finishedAt: IsoTimestamp,
+  abortMeta?: AbortMetadata
 ): Result<TerminalAttempt, InvalidStateError> => {
   if (status === 'verified') {
     if (att.verification === undefined) {
@@ -177,6 +269,15 @@ export const completeAttempt = (
       );
     }
     return Result.ok({ ...att, status: 'verified', finishedAt, verification: att.verification });
+  }
+  if (status === 'aborted' && abortMeta !== undefined) {
+    return Result.ok({
+      ...att,
+      status,
+      finishedAt,
+      abortCause: abortMeta.abortCause,
+      ...(abortMeta.signalOrExitCode !== undefined ? { signalOrExitCode: abortMeta.signalOrExitCode } : {}),
+    });
   }
   return Result.ok({ ...att, status, finishedAt });
 };

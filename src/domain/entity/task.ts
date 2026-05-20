@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Entity } from '@src/domain/entity/_base/entity.ts';
 import {
+  type AbortMetadata,
   type Attempt,
   type AttemptWarning,
   completeAttempt,
@@ -10,6 +11,7 @@ import {
   recordAttemptEvaluation,
   recordAttemptVerification,
   recordAttemptWarning,
+  type RecoveryContext,
   type RunningAttempt,
   startAttempt,
   type VerifiedAttempt,
@@ -165,11 +167,16 @@ const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.atte
  * Append a fresh `running` attempt and transition to `in_progress`. Idempotent only on a
  * fresh task — if the current last attempt is already `running`, callers must settle it first
  * via `markTaskDone` or `failCurrentAttempt`. A `done`/`blocked` task is rejected.
+ *
+ * Pass `recovering` when this attempt is opening as a resume of a prior aborted attempt;
+ * the value is stamped onto the new `RunningAttempt` so the TUI can render the
+ * resume-from-aborted banner without walking the attempt history.
  */
 export const startNextAttempt = (
   task: Task,
   now: IsoTimestamp,
-  sessionId?: string
+  sessionId?: string,
+  recovering?: RecoveryContext
 ): Result<InProgressTask, InvalidStateError | ValidationError> => {
   const guard = requireStatus(
     'task',
@@ -193,11 +200,17 @@ export const startNextAttempt = (
     );
   }
 
-  const attemptInput: { n: number; startedAt: IsoTimestamp; sessionId?: string } = {
+  const attemptInput: {
+    n: number;
+    startedAt: IsoTimestamp;
+    sessionId?: string;
+    recovering?: RecoveryContext;
+  } = {
     n: guard.value.attempts.length + 1,
     startedAt: now,
   };
   if (sessionId !== undefined) attemptInput.sessionId = sessionId;
+  if (recovering !== undefined) attemptInput.recovering = recovering;
   const attemptResult = startAttempt(attemptInput);
   if (!attemptResult.ok) return Result.error(attemptResult.error);
 
@@ -335,11 +348,16 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
  * Settle the current attempt as `failed`/`malformed`/`aborted`. If `maxAttempts` is set and
  * reached, transitions the task to `blocked` with reason `'attempt budget exhausted'`. Otherwise
  * the task stays `in_progress` and the caller can `startNextAttempt` again.
+ *
+ * The optional `abortMeta` is forwarded to {@link completeAttempt} — meaningful only when
+ * `reason === 'aborted'`. The `start-attempt` use case supplies it on the resume path so the
+ * leftover running attempt carries `abortCause` + (optional) `signalOrExitCode` into history.
  */
 export const failCurrentAttempt = (
   task: Task,
   now: IsoTimestamp,
-  reason: 'failed' | 'malformed' | 'aborted'
+  reason: 'failed' | 'malformed' | 'aborted',
+  abortMeta?: AbortMetadata
 ): Result<InProgressTask | BlockedTask, InvalidStateError> => {
   const guard = requireStatus(
     'task',
@@ -351,7 +369,7 @@ export const failCurrentAttempt = (
   if (!guard.ok) return Result.error(guard.error);
   const inner = requireRunningAttempt(guard.value);
   if (!inner.ok) return Result.error(inner.error);
-  const settledResult = completeAttempt(inner.value.running, reason, now);
+  const settledResult = completeAttempt(inner.value.running, reason, now, abortMeta);
   if (!settledResult.ok) return Result.error(settledResult.error);
 
   const inProgressNext: InProgressTask = replaceLastAttempt(guard.value, settledResult.value);

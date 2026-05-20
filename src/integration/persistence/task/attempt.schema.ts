@@ -32,6 +32,21 @@ const AttemptWarningSchema = z.discriminatedUnion('kind', [
   VerifyFailedWarningSchema,
 ]);
 
+const AbortCauseSchema = z.enum([
+  'user-cancel',
+  'sigterm',
+  'watchdog-killed',
+  'rate-limit-exhausted',
+  'process-crash',
+  'unknown',
+]);
+
+const RecoveryContextSchema = z.object({
+  fromAttemptN: z.number().int().positive(),
+  cause: AbortCauseSchema,
+  abortedAt: IsoTimestampSchema,
+});
+
 const AttemptBaseShape = {
   n: z.number().int().positive(),
   startedAt: IsoTimestampSchema,
@@ -41,6 +56,12 @@ const AttemptBaseShape = {
   commitSha: CommitShaSchema.optional(),
   sessionId: z.string().optional(),
   warning: AttemptWarningSchema.optional(),
+  // Aborted-attempt forensics. Stored on every attempt variant for schema symmetry —
+  // semantically only populated on `status === 'aborted'` records (see attempt.ts).
+  abortCause: AbortCauseSchema.optional(),
+  signalOrExitCode: z.union([z.string(), z.number()]).optional(),
+  // Set at attempt creation time when opening as a resume of a prior aborted attempt.
+  recovering: RecoveryContextSchema.optional(),
 };
 
 const RunningAttemptSchema = z.object({
