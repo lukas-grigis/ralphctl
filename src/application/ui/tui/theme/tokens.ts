@@ -77,3 +77,14 @@ export const FIELD_LABEL_WIDTH = 14;
  * predictable size across the TUI.
  */
 export const PROMPT_VISIBLE_ROWS = 8;
+
+/**
+ * Layout widths for the Implement dashboard's rail / stream / context split. Fixed character
+ * widths (no flex) so the stream column inherits all remaining space via `flexGrow={1}`.
+ *
+ *   - {@link RAIL_WIDTH} — left rail; carries the Flow Steps list.
+ *   - {@link CONTEXT_WIDTH} — right context column; empty on day-one, populated later by
+ *     baseline health (P1k), token meter (P2b), and ETA (P3a) cards.
+ */
+export const RAIL_WIDTH = 24;
+export const CONTEXT_WIDTH = 28;

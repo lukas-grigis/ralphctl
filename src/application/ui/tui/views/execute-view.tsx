@@ -3,10 +3,12 @@
  *
  * Layout:
  *  - Header card (flow id, elapsed, steps, tasks done/total, status).
- *  - Wide (≥140 cols): two-column dashboard — flow steps on the left, Tasks panel on the right
- *    (per-task sub-steps, evaluations, signals nested under their owning task; cross-task
- *    signals pinned at the top of the Tasks column). Log tail spans full width below.
- *  - Narrow (<140 cols): single-column stack — header, flow steps, tasks, log.
+ *  - Wide (≥180 cols): three-column dashboard — fixed-width Flow Steps rail (left), flex-grow
+ *    Tasks stream (centre), fixed-width Context column (right). The context column is empty
+ *    on day-one and populated by later tasks (P2b token meter, P3a ETA, P1k baseline health).
+ *  - Mid (≥140 cols): two-column — rail + flex Tasks stream. No context column.
+ *  - Narrow (<140 cols): single-column stack — header, flow steps, tasks, log. Below 100 cols
+ *    the Flow Steps section drops to `maxRows={4}` so the Tasks section keeps room to breathe.
  *
  * Naming: the chain-runner trace and the AppEvent buffer both carry the same milestones; the
  * dashboard merges them into one "Flow steps" surface. The historical separate "Progress" and
@@ -27,7 +29,7 @@ import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { RecentEventsTail } from '@src/application/ui/tui/components/recent-events-tail.tsx';
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, RAIL_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useViewProps, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSession, useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -48,6 +50,10 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 }
 
 const TWO_COL_BREAKPOINT = 140;
+const THREE_COL_BREAKPOINT = 180;
+/** Below this width the Flow Steps section collapses to four rows in single-column mode. */
+const NARROW_FLOW_STEPS_BREAKPOINT = 100;
+const NARROW_FLOW_STEPS_ROWS = 4;
 
 const SectionHeader = ({ title }: { readonly title: string }): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
@@ -178,9 +184,13 @@ export const ExecuteView = (): React.JSX.Element => {
   const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
   const tasksDone = bucketed?.tasks.filter((t) => t.status === 'completed').length ?? 0;
   const tasksTotal = bucketed?.tasks.length ?? 0;
-  const twoColumn = term.columns >= TWO_COL_BREAKPOINT;
+  const threeColumn = term.columns >= THREE_COL_BREAKPOINT;
+  const twoColumn = !threeColumn && term.columns >= TWO_COL_BREAKPOINT;
+  const singleColumn = !threeColumn && !twoColumn;
 
-  const flowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
+  const baseFlowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
+  const flowStepsRows =
+    singleColumn && term.columns < NARROW_FLOW_STEPS_BREAKPOINT ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
   const tasksMaxSignals = isRunning ? 6 : 12;
   const logRows = isRunning ? 6 : 10;
 
@@ -294,9 +304,22 @@ export const ExecuteView = (): React.JSX.Element => {
         <Box flexDirection="column">
           {headerCard}
 
-          {twoColumn ? (
+          {threeColumn ? (
             <Box flexDirection="row" marginTop={spacing.section}>
+              <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+                <SectionHeader title="Flow steps" />
+                {flowStepsPanel}
+              </Box>
               <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} marginRight={spacing.section}>
+                <SectionHeader title="Tasks" />
+                {tasksPanel}
+              </Box>
+              {/* Context column — empty on day-one. Later P2b/P3a/P1k slot in here. */}
+              <Box flexDirection="column" width={CONTEXT_WIDTH} flexShrink={0} />
+            </Box>
+          ) : twoColumn ? (
+            <Box flexDirection="row" marginTop={spacing.section}>
+              <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
               </Box>
