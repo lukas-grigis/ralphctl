@@ -26,6 +26,7 @@ import type {
   TaskSubStep,
   TaskBucketStatus,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { SprintState, TaskProjection } from '@src/business/sprint/state-projection.ts';
 import type { AbortCause, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type {
   CommitMessageSignal,
@@ -97,6 +98,14 @@ export interface TasksPanelProps {
    * .showEvaluatorFailureUI` by the launcher.
    */
   readonly showEvaluatorFailureUI?: boolean;
+  /**
+   * Optional projected sprint state. When supplied the per-task header appends an ETA derived
+   * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
+   * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
+   * of truth for whether to project: tests render TasksPanel in isolation without a projection,
+   * and the live dashboard threads it once `taskState` is polled.
+   */
+  readonly sprintState?: SprintState;
 }
 
 const STATUS_PRESENTATION: Readonly<Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>> = {
@@ -683,6 +692,46 @@ const focusKeysForSlice = (scope: string, signals: readonly HarnessSignal[], sli
 };
 
 /**
+ * Format an ETA (milliseconds remaining) as `~Xm Ys`. For sub-minute durations the minutes
+ * field is omitted; the result is `~Ys`. Negative / NaN values degrade to `undefined` so the
+ * header renders no ETA chip at all rather than misleading "negative time remaining" text.
+ */
+const fmtEta = (ms: number): string | undefined => {
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m === 0) return `~${String(s)}s`;
+  return `~${String(m)}m ${String(s).padStart(2, '0')}s`;
+};
+
+/**
+ * Derive ETA text for the active-task header from the projected task. The estimate uses the
+ * median settled round duration over the remaining rounds in the gen-eval loop. Returns the
+ * pre-formatted string `· ~Xm Ys remaining` ready to splice into the header, or
+ * `· no ETA yet` when the projection has no median yet (first round of first task, or any
+ * task whose attempts haven't settled). When the cap is already reached, returns `undefined`
+ * so the chip is dropped instead of stale.
+ */
+const formatEtaChip = (
+  projection: TaskProjection | undefined,
+  currentRound: number,
+  maxRounds: number | undefined
+): string | undefined => {
+  if (projection === undefined) return undefined;
+  if (maxRounds === undefined || maxRounds <= 0) return undefined;
+  const remaining = Math.max(0, maxRounds - Math.max(0, currentRound));
+  if (remaining === 0) return undefined;
+  const median = projection.medianRoundDurationMs;
+  if (median === undefined || median <= 0) {
+    return `${glyphs.bullet} no ETA yet`;
+  }
+  const text = fmtEta(median * remaining);
+  if (text === undefined) return undefined;
+  return `${glyphs.bullet} ${text} remaining`;
+};
+
+/**
  * Number of criterion bullets to render in the collapsed-summary form. Three lines reads as a
  * glance preview without becoming a wall of text on tasks with many criteria; expanding via
  * `e` reveals the rest.
@@ -745,6 +794,8 @@ const TaskBlock = ({
   criteriaRaw,
   criteriaExpanded,
   showEvaluatorFailureUI,
+  taskProjection,
+  isActive,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -764,6 +815,10 @@ const TaskBlock = ({
   readonly criteriaExpanded: boolean;
   /** Dev flag — opt into the EvaluatorFailurePanel for failed evaluations. */
   readonly showEvaluatorFailureUI: boolean;
+  /** Projected task entry — sourced from `sprintState.tasks` when available. */
+  readonly taskProjection?: TaskProjection;
+  /** True for the active (running) task; gates ETA rendering to the operator's focus. */
+  readonly isActive: boolean;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -804,6 +859,14 @@ const TaskBlock = ({
             {task.genEvalMaxRounds !== undefined ? `/${String(task.genEvalMaxRounds)}` : ''}
           </Text>
         )}
+        {isActive &&
+          task.genEvalRound !== undefined &&
+          task.genEvalRound > 0 &&
+          (() => {
+            const eta = formatEtaChip(taskProjection, task.genEvalRound, task.genEvalMaxRounds);
+            if (eta === undefined) return null;
+            return <Text dimColor> {eta}</Text>;
+          })()}
       </Box>
       {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
       {criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
@@ -961,6 +1024,7 @@ export const TasksPanel = ({
   inputActive = false,
   readDoneCriteria,
   showEvaluatorFailureUI = false,
+  sprintState,
 }: TasksPanelProps): React.JSX.Element => {
   const flatKeys = useMemo(
     () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
@@ -1083,7 +1147,7 @@ export const TasksPanel = ({
         expandedKeys={expandedKeys}
         sliceStart={orphanSliceStart}
       />
-      {bucketed.tasks.map((task) => {
+      {bucketed.tasks.map((task, idx) => {
         // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
         // the header readable when the launcher hasn't supplied a friendly name. The friendly
         // name path goes through `nameById` and renders verbatim; if a future design makes
@@ -1096,6 +1160,11 @@ export const TasksPanel = ({
         // Treat the empty-string sentinel (loader returned `undefined`) as "no criteria for
         // this task" — the block is skipped entirely rather than rendering a stub.
         const criteriaRaw = cached !== undefined && cached.length > 0 ? cached : undefined;
+        // Match by id when a projection is supplied so the order of `sprintState.tasks`
+        // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
+        // tasks track the runtime sequence).
+        const taskProjection = sprintState?.tasks.find((t) => t.id === task.id);
+        const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock
             key={task.id}
@@ -1111,8 +1180,10 @@ export const TasksPanel = ({
             sliceStart={sliceStart}
             criteriaExpanded={criteriaExpandedIds.has(task.id)}
             showEvaluatorFailureUI={showEvaluatorFailureUI}
+            isActive={isActive}
             {...(recovering !== undefined ? { recovering } : {})}
             {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
+            {...(taskProjection !== undefined ? { taskProjection } : {})}
           />
         );
       })}
