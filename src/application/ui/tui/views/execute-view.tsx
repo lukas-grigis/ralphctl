@@ -59,6 +59,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import { renderActiveTaskSummary } from '@src/application/ui/tui/runtime/render-active-task-summary.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
@@ -280,6 +281,25 @@ export const ExecuteView = (): React.JSX.Element => {
       ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}…`)
       : undefined;
   const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
+
+  // Register the active-task summary provider so the global `y` (yank) hotkey can copy a
+  // markdown snapshot of whatever task the operator is currently watching. The provider closes
+  // over the latest `currentTask` + display name; React re-runs the effect each render they
+  // change, so the closure always reflects the current frame. Cleanup clears the registration
+  // on unmount or when the deps change — important because the global handler reads the
+  // provider through a ref and a stale closure would leak yesterday's task name into copies.
+  useEffect(() => {
+    if (currentTask === undefined || currentTaskName === undefined) {
+      ui.setActiveTaskSummaryProvider(undefined);
+      return undefined;
+    }
+    const task = currentTask;
+    const displayName = currentTaskName;
+    ui.setActiveTaskSummaryProvider(() => renderActiveTaskSummary({ task, displayName }));
+    return () => {
+      ui.setActiveTaskSummaryProvider(undefined);
+    };
+  }, [currentTask, currentTaskName, ui]);
 
   const headerCard = (
     <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>

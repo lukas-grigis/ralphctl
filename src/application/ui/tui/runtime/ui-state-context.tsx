@@ -12,8 +12,17 @@
  * commit — the typed-character "n" leaking through to the flows hotkey is exactly that race.
  */
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+
+/**
+ * Closure returned by the focused view that, on demand, renders the markdown summary of the
+ * task the operator is currently watching. `undefined` means "no active task right now" (e.g.
+ * the focused view doesn't know about tasks, or the run hasn't reached its first task yet).
+ * The execute view registers one of these via {@link UiStateApi.setActiveTaskSummaryProvider}
+ * whenever its `bucketed` data changes; the global `y` hotkey calls it.
+ */
+export type ActiveTaskSummaryProvider = () => string | undefined;
 
 interface UiStateApi {
   readonly helpOpen: boolean;
@@ -60,6 +69,22 @@ interface UiStateApi {
    */
   readonly sessionRepositoryId: RepositoryId | undefined;
   setSessionRepositoryId(id: RepositoryId | undefined): void;
+  /**
+   * Register a provider for the markdown summary of the operator's currently-focused task —
+   * read by the global `y` hotkey via {@link getActiveTaskSummary}. Stored in a ref (not
+   * state), so registering / unregistering does not trigger a re-render on every render of the
+   * execute view. The execute view calls this from a `useEffect`, returning `() =>
+   * setActiveTaskSummaryProvider(undefined)` as the cleanup.
+   *
+   * Pass `undefined` to clear. The provider is itself synchronous so the hotkey can copy +
+   * surface its toast in one tick.
+   */
+  setActiveTaskSummaryProvider(provider: ActiveTaskSummaryProvider | undefined): void;
+  /**
+   * Invoke the currently-registered provider, or return `undefined` if none is. Read by the
+   * global `y` hotkey only — view code that owns the task data renders its own markdown.
+   */
+  getActiveTaskSummary(): string | undefined;
 }
 
 const UiStateContext = createContext<UiStateApi | undefined>(undefined);
@@ -97,6 +122,25 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     setSessionRepositoryIdState(id);
   }, []);
 
+  // The active-task summary provider is registered through a ref so swapping it does not churn
+  // the context value (which would re-render every consumer including unrelated views). The
+  // hotkey reads through `getActiveTaskSummary()` on press; until then the ref is dormant.
+  const activeTaskSummaryProviderRef = useRef<ActiveTaskSummaryProvider | undefined>(undefined);
+  const setActiveTaskSummaryProvider = useCallback((provider: ActiveTaskSummaryProvider | undefined): void => {
+    activeTaskSummaryProviderRef.current = provider;
+  }, []);
+  const getActiveTaskSummary = useCallback((): string | undefined => {
+    const provider = activeTaskSummaryProviderRef.current;
+    if (provider === undefined) return undefined;
+    try {
+      return provider();
+    } catch {
+      // Provider must never throw. If it does (programmer error), treat as "no summary
+      // available" so the hotkey surfaces a friendly toast instead of crashing the TUI.
+      return undefined;
+    }
+  }, []);
+
   const api = useMemo<UiStateApi>(
     () => ({
       helpOpen,
@@ -109,6 +153,8 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       claimPrompt,
       sessionRepositoryId,
       setSessionRepositoryId,
+      setActiveTaskSummaryProvider,
+      getActiveTaskSummary,
     }),
     [
       helpOpen,
@@ -121,6 +167,8 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       claimPrompt,
       sessionRepositoryId,
       setSessionRepositoryId,
+      setActiveTaskSummaryProvider,
+      getActiveTaskSummary,
     ]
   );
 
