@@ -325,9 +325,12 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
 
   const perTaskChains = opts.todoTasks.map((task) => perTaskSubChain(task));
 
-  // Setup scripts run once per sprint per repo, across EVERY repo on the project (not just
-  // the task-touched subset). The leaf iterates `opts.repositories`, skipping repos that
-  // either have no `setupScript` or are already stamped on `execution.setupRanAt`.
+  // Setup scripts run unconditionally at sprint-start across EVERY repo on the project (not
+  // just the task-touched subset). The leaf iterates `opts.repositories` and appends one
+  // structured audit row to `execution.setupRanAt` per repo per run — `'success'`,
+  // `'failed'`, `'spawn-error'`, or `'skipped'` (no script configured). A `'failed'` or
+  // `'spawn-error'` outcome hard-aborts the chain before any task spins up; the AI may also
+  // run setup commands itself, but the harness is the authoritative readiness gate.
   const setupRepoEntries = Array.from(opts.repositories.entries()).map(([id, r]) => ({
     repositoryId: id,
     path: r.path,
