@@ -40,12 +40,13 @@ import {
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
+import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
 import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useViewProps, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useSession, useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useSession, useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
@@ -101,6 +102,8 @@ export const ExecuteView = (): React.JSX.Element => {
   const { sessionId } = useViewProps<ExecuteProps>();
   const session = useSession(sessionId);
   const sessions = useSessionManager();
+  // Live list of every session for the multi-flow strip (renders only when ≥2 are running).
+  const sessionList = useSessions();
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
@@ -419,6 +422,11 @@ export const ExecuteView = (): React.JSX.Element => {
         <HelpOverlay />
       ) : (
         <Box flexDirection="column">
+          {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
+              flow run pays zero pixels. The strip shows `[N] · <flow>: <title> ⏱<elapsed>`
+              chips with the current chip highlighted and a Tab/Shift+Tab cycle hint pinned
+              to the right end. */}
+          <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
           {/* Baseline-health chip — sits above the active-task header so the verify-gate
               state is visible without scrolling. Always rendered; renders a neutral
               "awaiting first run" pill before the first leaf has touched the data. */}

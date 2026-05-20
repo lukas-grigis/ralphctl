@@ -34,7 +34,8 @@ import type {
   EvaluationSignal,
   HarnessSignal,
 } from '@src/domain/signal.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphFor, glyphs, inkColors, spacing, type SignalKind } from '@src/application/ui/tui/theme/tokens.ts';
+import { useNoColor } from '@src/application/ui/tui/runtime/use-no-color.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import { EvaluatorFailurePanel } from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -237,9 +238,17 @@ const SignalLine = ({
   readonly signal: HarnessSignal;
   readonly focused?: boolean;
 }): React.JSX.Element | null => {
+  // NB hook call runs unconditionally — `useNoColor` is read before the early return below
+  // so the rules-of-hooks lint stays clean even when `rowForSignal` returns undefined.
+  const noColor = useNoColor();
   const row = rowForSignal(signal);
   if (row === undefined) return null;
   const color = SIGNAL_LABEL_COLOR[row.label] ?? inkColors.info;
+  // Shape backup — when NO_COLOR is in effect the colour swatch on the label disappears, so
+  // prefix the label with a per-kind glyph (`+` change, `~` learning, `■` commit, …). The
+  // glyph reads as a visual prefix without consuming the body column. `glyphFor` returns the
+  // empty string for kinds whose label already self-discriminates (`progress`, `done`, …).
+  const shapeGlyph = noColor ? glyphFor(row.label as SignalKind) : '';
   // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the
   // terminal's actual width via Ink's `wrap="truncate-end"`. The body is a row that may
   // shrink (so long messages don't push the layout); the label box is fixed-width and never
@@ -254,7 +263,7 @@ const SignalLine = ({
       <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
       <Text color={color} bold>
         {'  '}
-        {padLabel(row.label)}
+        {shapeGlyph !== '' ? `${shapeGlyph} ${padLabel(row.label)}` : padLabel(row.label)}
       </Text>
       <Box flexGrow={1} flexShrink={1}>
         <Text bold={row.bold ?? false} wrap="truncate-end">
@@ -797,6 +806,8 @@ const TaskBlock = ({
   taskProjection,
   isActive,
   firstRun,
+  cardExpanded,
+  cardFocused,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -826,6 +837,14 @@ const TaskBlock = ({
    * spinner so the operator sees the run is alive but pre-signal.
    */
   readonly firstRun: boolean;
+  /**
+   * When `true` the full card body (criteria, sub-steps, evaluations, signals) renders. When
+   * `false` only the one-line header summary is shown — the operator expands by focusing the
+   * card cursor and pressing Enter / Space.
+   */
+  readonly cardExpanded: boolean;
+  /** Card-level focus indicator — drives the leading cursor caret on the header row. */
+  readonly cardFocused: boolean;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -838,9 +857,20 @@ const TaskBlock = ({
     () => (criteriaRaw !== undefined ? parseCriteriaBullets(criteriaRaw) : undefined),
     [criteriaRaw]
   );
+  // Most recent commit SHA for the collapsed summary line — sourced from the projection's
+  // lastAttempt when a TaskProjection is supplied. Truncated to 7 chars (git's `--short`
+  // default).
+  const latestCommitSha = useMemo<string | undefined>(() => {
+    const sha = taskProjection?.lastAttempt?.commitSha;
+    return sha !== undefined ? String(sha).slice(0, 7) : undefined;
+  }, [taskProjection]);
+  const attemptsCount = taskProjection?.attemptsCount ?? 0;
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Box>
+        <Text color={cardFocused ? inkColors.highlight : inkColors.muted} bold={cardFocused}>
+          {cardFocused ? FOCUS_CURSOR : ' '}{' '}
+        </Text>
         {isSpinning ? (
           <Spinner active={running} color={presentation.color} />
         ) : (
@@ -859,14 +889,27 @@ const TaskBlock = ({
           {' '}
           {glyphs.bullet} {task.status}
         </Text>
-        {task.genEvalRound !== undefined && task.genEvalRound > 0 && (
+        {!cardExpanded && attemptsCount > 0 && (
+          <Text dimColor>
+            {' '}
+            {glyphs.bullet} {String(attemptsCount)}×
+          </Text>
+        )}
+        {!cardExpanded && latestCommitSha !== undefined && (
+          <Text dimColor>
+            {' '}
+            {glyphs.bullet} {latestCommitSha}
+          </Text>
+        )}
+        {cardExpanded && task.genEvalRound !== undefined && task.genEvalRound > 0 && (
           <Text color={inkColors.info}>
             {' '}
             {glyphs.bullet} round {String(task.genEvalRound)}
             {task.genEvalMaxRounds !== undefined ? `/${String(task.genEvalMaxRounds)}` : ''}
           </Text>
         )}
-        {isActive &&
+        {cardExpanded &&
+          isActive &&
           task.genEvalRound !== undefined &&
           task.genEvalRound > 0 &&
           (() => {
@@ -875,19 +918,21 @@ const TaskBlock = ({
             return <Text dimColor> {eta}</Text>;
           })()}
       </Box>
-      {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
-      {firstRun && isActive && isSpinning && (
+      {cardExpanded && recovering !== undefined && (
+        <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />
+      )}
+      {cardExpanded && firstRun && isActive && isSpinning && (
         <Box paddingLeft={2}>
           <Text dimColor>{glyphs.activityArrow} waiting for first attempt…</Text>
         </Box>
       )}
-      {criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
-      {task.errorMessage !== undefined && (
+      {cardExpanded && criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
+      {cardExpanded && task.errorMessage !== undefined && (
         <Box paddingLeft={2}>
           <Text color={inkColors.error}>{task.errorMessage}</Text>
         </Box>
       )}
-      {subStepRows.length > 0 && (
+      {cardExpanded && subStepRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2}>
           {subStepElided > 0 && <Text dimColor>{`… ${String(subStepElided)} earlier sub-steps`}</Text>}
           {subStepRows.map((s, i) => (
@@ -895,7 +940,7 @@ const TaskBlock = ({
           ))}
         </Box>
       )}
-      {evalRows.length > 0 && (
+      {cardExpanded && evalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           {evalElided > 0 && <Text dimColor>{`… ${String(evalElided)} earlier evaluations`}</Text>}
           {evalRows.map((e, i) => {
@@ -925,7 +970,7 @@ const TaskBlock = ({
           })}
         </Box>
       )}
-      {signalRows.length > 0 && (
+      {cardExpanded && signalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           <Text dimColor>signals</Text>
           <Box flexDirection="column" paddingLeft={2}>
@@ -1057,6 +1102,13 @@ export const TasksPanel = ({
   // Task ids whose criteria block is currently expanded (full bullet list). Default state is
   // the 3-line summary. Toggled by pressing `e` while the panel owns input.
   const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Per-task card expansion. The active (running) task is auto-expanded — the operator's eye
+  // always lives there. Other cards default collapsed to a one-line summary; pressing
+  // Enter / Space on a focused card-row expands it, Esc re-collapses (active task excepted).
+  const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Card cursor — index into `bucketed.tasks`. Default `undefined` means "no manual focus
+  // yet"; the panel anchors on the active task on first interaction.
+  const [cardCursor, setCardCursor] = useState<number | undefined>(undefined);
 
   // Hydrate criteria for any task that has materialised its workspace (status !== 'pending').
   // The implement chain's `build-task-workspace-leaf` writes `done-criteria.md` early in each
@@ -1084,18 +1136,37 @@ export const TasksPanel = ({
     };
   }, [bucketed.tasks, readDoneCriteria, criteriaByTaskId]);
 
-  // The criteria-expansion hotkey targets the active (first non-completed) task — that's the
-  // single one the operator is actively reading. Recomputed each render so the `useInput`
-  // callback always sees the latest active id.
+  // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
+  // default card-cursor position. Recomputed each render so the `useInput` callback always
+  // sees the latest active id.
   const activeTaskIdx = bucketed.tasks.findIndex((t) => t.status !== 'completed');
   const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
+
+  // Effective expansion set: the manual set unioned with the active task (auto-expanded).
+  // Recomputed each render so the panel reacts immediately when the active task transitions.
+  const isCardExpanded = (taskId: string): boolean => {
+    if (expandedTaskIds.has(taskId)) return true;
+    if (taskId === activeTaskId) return true;
+    return false;
+  };
+
+  // The card cursor — defaults to the active task on first render, falls back to the last
+  // card when the active task no longer exists (e.g. the run has finished). Stays put across
+  // re-renders so a moving cursor doesn't jump.
+  const effectiveCardCursor = useMemo(() => {
+    if (cardCursor !== undefined && cardCursor >= 0 && cardCursor < bucketed.tasks.length) return cardCursor;
+    if (activeTaskIdx >= 0) return activeTaskIdx;
+    return bucketed.tasks.length - 1;
+  }, [cardCursor, activeTaskIdx, bucketed.tasks.length]);
+  const focusedCardId = effectiveCardCursor >= 0 ? bucketed.tasks[effectiveCardCursor]?.id : undefined;
+  const focusedCardExpanded = focusedCardId !== undefined ? isCardExpanded(focusedCardId) : false;
 
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
 
   useInput(
     (input, key) => {
-      // Done-criteria toggle for the active task. Independent of the signal-row cursor: the
+      // Done-criteria toggle for the active task. Independent of the card / row cursors: the
       // operator is virtually always reading the running task when this hotkey is reached.
       if (input === 'e' && activeTaskId !== undefined) {
         setCriteriaExpandedIds((prev) => {
@@ -1106,23 +1177,60 @@ export const TasksPanel = ({
         });
         return;
       }
-      if (flatKeys.length === 0) return;
-      const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
-      if (key.downArrow || input === 'j') {
-        const next = Math.min(flatKeys.length - 1, current + 1);
-        setFocusedKey(flatKeys[next]);
+      // Esc collapses an expanded card (when manually expanded). The active task stays
+      // auto-expanded — Esc on the active card is a no-op so the operator can't accidentally
+      // hide the live stream.
+      if (key.escape) {
+        if (focusedCardId !== undefined && focusedCardId !== activeTaskId && expandedTaskIds.has(focusedCardId)) {
+          setExpandedTaskIds((prev) => {
+            const next = new Set(prev);
+            next.delete(focusedCardId);
+            return next;
+          });
+        }
         return;
       }
-      if (key.upArrow || input === 'k') {
-        const prev = Math.max(0, current - 1);
-        setFocusedKey(flatKeys[prev]);
+      // j / k navigation moves the card cursor between task cards. The signal-row cursor stays
+      // on ↑ / ↓ — the two axes are independent so the operator can move between cards even
+      // when the focused card is expanded without first collapsing it.
+      if (input === 'j') {
+        const next = Math.min(bucketed.tasks.length - 1, effectiveCardCursor + 1);
+        setCardCursor(next);
+        return;
+      }
+      if (input === 'k') {
+        const next = Math.max(0, effectiveCardCursor - 1);
+        setCardCursor(next);
+        return;
+      }
+      // Arrow keys traverse the signal-row cursor within the focused card's stream — only
+      // meaningful when the card is expanded; collapsed cards have nothing to scroll.
+      if (key.downArrow) {
+        if (!focusedCardExpanded || flatKeys.length === 0) return;
+        const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
+        setFocusedKey(flatKeys[Math.min(flatKeys.length - 1, current + 1)]);
+        return;
+      }
+      if (key.upArrow) {
+        if (!focusedCardExpanded || flatKeys.length === 0) return;
+        const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
+        setFocusedKey(flatKeys[Math.max(0, current - 1)]);
         return;
       }
       if (key.return || input === ' ') {
+        // Card-scope: expand the focused card.
+        if (!focusedCardExpanded && focusedCardId !== undefined) {
+          setExpandedTaskIds((prev) => {
+            const next = new Set(prev);
+            next.add(focusedCardId);
+            return next;
+          });
+          return;
+        }
+        // Row-scope: existing commit-message toggle behaviour.
+        if (flatKeys.length === 0) return;
         const target = focusedIndex >= 0 ? focusedKey : flatKeys[flatKeys.length - 1];
         if (target === undefined) return;
-        // Only commit-message rows are toggleable today — other focusable kinds carry no
-        // hidden body. Make the keypress a no-op rather than tracking dead state.
         if (!isCommitMessageKey(target, bucketed)) {
           if (effectiveFocusedKey === undefined) setFocusedKey(target);
           return;
@@ -1203,6 +1311,8 @@ export const TasksPanel = ({
             showEvaluatorFailureUI={showEvaluatorFailureUI}
             isActive={isActive}
             firstRun={noSignalsYet}
+            cardExpanded={isCardExpanded(task.id)}
+            cardFocused={idx === effectiveCardCursor}
             {...(recovering !== undefined ? { recovering } : {})}
             {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}

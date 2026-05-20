@@ -113,6 +113,22 @@ export const SettingsSchema = z.object({
         .default({ enabled: true }),
     })
     .default({ notifications: { enabled: true } }),
+  /**
+   * Developer-only feature toggles. These default to `false` and are not surfaced in the
+   * Settings UI — they are gates for behaviour the team is still validating against real
+   * sprint data before promoting to the default render path.
+   */
+  developer: z
+    .object({
+      /**
+       * Render the per-dimension evaluator-failure panel inside the Tasks panel when an
+       * attempt's evaluator verdict is `failed`. Defaults `false`; production still renders
+       * the canonical 4-line dimension summary. When `true` the panel shows each dimension's
+       * score colour-coded red / green plus the critique excerpt with an expand affordance.
+       */
+      showEvaluatorFailureUI: z.boolean().default(false),
+    })
+    .default({ showEvaluatorFailureUI: false }),
 });
 
 export type AiSettings = z.infer<typeof AiSettingsSchema>;

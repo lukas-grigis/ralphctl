@@ -91,6 +91,7 @@ describe('JsonSettingsRepository', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
+      developer: { showEvaluatorFailureUI: false },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     expect((await repo.save(codex)).ok).toBe(true);
@@ -116,6 +117,7 @@ describe('JsonSettingsRepository', () => {
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
       ui: { notifications: { enabled: false } },
+      developer: { showEvaluatorFailureUI: true },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     const saved = await repo.save(custom);
