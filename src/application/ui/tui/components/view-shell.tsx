@@ -44,30 +44,31 @@ export interface ViewShellProps {
   readonly subtitle?: string;
   readonly right?: React.ReactNode;
   /**
-   * Banner display:
-   *   - `'full'` (default) → the wordmark + Ralph quote inside the bordered frame; shown on
-   *     every view so the chrome stays consistent as the user navigates.
-   *   - `'compact'` → single-line strip; reserved for narrow terminals where the wordmark
-   *     would overflow (the Banner component auto-switches below `MIN_FULL_WIDTH` regardless).
+   * View-level banner preference:
+   *   - `true` → render the compact two-row strip (long-running flows pass this so the wordmark
+   *     doesn't eat vertical real estate from the task stream).
+   *   - `undefined` (default) → let the {@link Banner} auto-switch on terminal width (full above
+   *     `MIN_FULL_WIDTH`, compact below).
+   *
+   * Precedence: a user `b`-toggle (`UiState.bannerCompact`) always wins; this prop is the
+   * fallback the view declares; absent both, Banner's width-based auto-switch applies.
    */
-  readonly bannerMode?: 'full' | 'compact';
+  readonly compactBanner?: boolean;
   readonly children: React.ReactNode;
 }
 
-export const ViewShell = ({
-  title,
-  subtitle,
-  right,
-  bannerMode = 'full',
-  children,
-}: ViewShellProps): React.JSX.Element => {
+export const ViewShell = ({ title, subtitle, right, compactBanner, children }: ViewShellProps): React.JSX.Element => {
   const ui = useUiState();
   const queue = usePromptQueue();
+  // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
+  // wins over `Banner`'s internal width-based auto-switch. When neither is set we pass
+  // `undefined` so the auto-switch fires.
+  const banner = ui.bannerCompact ? true : compactBanner;
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* ── HEADER ─────────────────────────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexShrink={0}>
-        <Banner compact={bannerMode === 'compact'} />
+        <Banner {...(banner !== undefined ? { compact: banner } : {})} />
         <Breadcrumb />
       </Box>
 

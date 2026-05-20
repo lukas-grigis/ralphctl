@@ -27,6 +27,7 @@ export const globalKeys = {
   sessions: { keys: ['x'], label: 'sessions' },
   settings: { keys: ['s'], label: 'settings' },
   doctor: { keys: ['!'], label: 'doctor' },
+  bannerToggle: { keys: ['b'], label: 'toggle banner' },
   help: { keys: ['?'], label: 'help' },
   quit: { keys: ['q', 'ctrl+c'], label: 'quit' },
 } as const satisfies Record<string, KeyBinding>;

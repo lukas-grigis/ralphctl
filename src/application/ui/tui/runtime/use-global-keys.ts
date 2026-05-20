@@ -67,6 +67,11 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       case '!':
         navigate('doctor');
         return;
+      case 'b':
+        // Banner full ↔ compact toggle. Overrides the view's `compactBanner` prop for the rest
+        // of the session — pressing `h` back to Home does not reset the toggle.
+        ui.toggleBanner();
+        return;
       case 'P':
         // Capital P opens the project picker from anywhere — lowercase `p` still routes to
         // the read-only Projects view. The picker remembers the current selection as its

@@ -296,6 +296,7 @@ export const ExecuteView = (): React.JSX.Element => {
     <ViewShell
       title="Implement"
       subtitle={descriptor.title}
+      compactBanner
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
     >
       {ui.helpOpen ? (

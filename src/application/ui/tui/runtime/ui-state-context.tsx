@@ -19,7 +19,15 @@ interface UiStateApi {
   readonly helpOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
+  /**
+   * User-toggle override for the banner mode. `false` (default) defers to the view's
+   * `compactBanner` prop; `true` forces the compact strip everywhere until the user toggles
+   * it back. Bound to the global `b` hotkey via {@link useGlobalKeys}; persists for the
+   * session (does not reset on navigation).
+   */
+  readonly bannerCompact: boolean;
   toggleHelp(): void;
+  toggleBanner(): void;
   /**
    * Claim "input is captured by a prompt; suspend global keys." Returns a release function
    * matched 1:1 to the claim — calling release more than once is a no-op. The natural way to
@@ -51,11 +59,16 @@ const UiStateContext = createContext<UiStateApi | undefined>(undefined);
 
 export const UiStateProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [bannerCompact, setBannerCompact] = useState(false);
   const [claims, setClaims] = useState(0);
   const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
 
   const toggleHelp = useCallback(() => {
     setHelpOpen((v) => !v);
+  }, []);
+
+  const toggleBanner = useCallback(() => {
+    setBannerCompact((v) => !v);
   }, []);
 
   const claimPrompt = useCallback((): (() => void) => {
@@ -76,12 +89,23 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     () => ({
       helpOpen,
       promptActive: claims > 0,
+      bannerCompact,
       toggleHelp,
+      toggleBanner,
       claimPrompt,
       sessionRepositoryId,
       setSessionRepositoryId,
     }),
-    [helpOpen, claims, toggleHelp, claimPrompt, sessionRepositoryId, setSessionRepositoryId]
+    [
+      helpOpen,
+      claims,
+      bannerCompact,
+      toggleHelp,
+      toggleBanner,
+      claimPrompt,
+      sessionRepositoryId,
+      setSessionRepositoryId,
+    ]
   );
 
   return <UiStateContext.Provider value={api}>{children}</UiStateContext.Provider>;

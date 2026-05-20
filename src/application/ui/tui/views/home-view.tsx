@@ -194,7 +194,7 @@ export const HomeView = (): React.JSX.Element => {
   );
 
   return (
-    <ViewShell title="Home" subtitle="Where do we start today?" bannerMode="full">
+    <ViewShell title="Home" subtitle="Where do we start today?">
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : (
