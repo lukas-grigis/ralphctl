@@ -143,9 +143,11 @@ export const makePlannedSprint = (overrides?: { tickets?: ApprovedTicket[] }): P
   return unwrap(planSprint(draft, FIXED_LATER));
 };
 
-export const makeActiveSprint = (): ActiveSprint => unwrap(activateSprint(makePlannedSprint(), FIXED_LATEST));
+export const makeActiveSprint = (overrides?: { tickets?: ApprovedTicket[] }): ActiveSprint =>
+  unwrap(activateSprint(makePlannedSprint(overrides), FIXED_LATEST));
 
-export const makeReviewSprint = (): ReviewSprint => unwrap(transitionSprintToReview(makeActiveSprint(), FIXED_LATEST));
+export const makeReviewSprint = (overrides?: { tickets?: ApprovedTicket[] }): ReviewSprint =>
+  unwrap(transitionSprintToReview(makeActiveSprint(overrides), FIXED_LATEST));
 
 export const makeDoneSprint = (): DoneSprint => unwrap(transitionSprintToDone(makeReviewSprint(), FIXED_LATEST));
 
@@ -184,8 +186,9 @@ export const makeInProgressTaskWithRunningAttempt = (overrides?: { maxAttempts?:
   return unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
 };
 
-export const makeDoneTask = (): DoneTask => {
-  const inProgress = makeInProgressTaskWithRunningAttempt();
+export const makeDoneTask = (overrides?: { name?: string }): DoneTask => {
+  const todo = overrides?.name !== undefined ? makeTodoTask({ name: overrides.name }) : makeTodoTask();
+  const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
   const verified = unwrap(recordRunningAttemptVerification(inProgress));
   return unwrap(markTaskDone(verified, FIXED_LATER));
 };

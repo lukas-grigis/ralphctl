@@ -54,9 +54,7 @@ export const createCreatePrFlow = (deps: CreatePrDeps): Element<CreatePrCtx> =>
           );
         }
 
-        // Prefer pre-supplied tasks (test callers + future override seams); otherwise load
-        // them so the derived body's `## Tasks` + `## Related issues` sections reflect the
-        // sprint's actual state without forcing every caller surface to pre-load.
+        // Honour caller-supplied tasks (override seam); otherwise load from the repo.
         let tasks = input.tasks;
         if (tasks === undefined) {
           const loaded = await deps.taskRepo.findBySprintId(input.sprintId);
