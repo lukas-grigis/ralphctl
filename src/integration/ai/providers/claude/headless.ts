@@ -20,6 +20,7 @@ import {
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -328,6 +329,19 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(envelope.body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // Persist captured session id as a sibling `sessionId` file so `--resume` / forensic
+    // re-attach works without parsing chain.log. Skipped when the stream never carried an id
+    // (process crashed mid-init) — see persistSessionIdFile for the contract.
+    const sidWrote = await persistSessionIdFile(session.signalsFile, envelope.sessionId);
+    if (sidWrote !== undefined && !sidWrote.ok) {
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'warn',
+        message: `claude-provider: failed to write sessionId file — resume re-attach may need log parsing`,
+        meta: { error: sidWrote.error.message },
+        at: IsoTimestamp.now(),
+      });
+    }
     // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
     // debugging). Best-effort: a write failure here is logged but does not fail the session.
     if (session.bodyFile !== undefined) {

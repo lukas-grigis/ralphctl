@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -81,8 +81,14 @@ const CWD = absolutePath('/tmp/codex-provider-test');
 let signalsCounter = 0;
 const tempSignalsFile = () => {
   signalsCounter += 1;
+  // Per-test sub-directory so the sibling `sessionId` file written next to `signals.json`
+  // does not collide with another test's expected-missing assertion in the same parent.
   return absolutePath(
-    join(tmpdir(), `ralphctl-codex-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}.json`)
+    join(
+      tmpdir(),
+      `ralphctl-codex-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}`,
+      'signals.json'
+    )
   );
 };
 
@@ -181,6 +187,85 @@ describe('createCodexProvider', () => {
     if (!out.ok) return;
     const mirrored = await fs.readFile(String(bodyFile), 'utf8');
     expect(mirrored).toBe('<task-verified>all good</task-verified>');
+  });
+
+  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-persist","type":"config"}\n'], exitCode: 0 }]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('sess-persist\n');
+    expect(out.value.sessionId).toBe('sess-persist');
+  });
+
+  it('skips the sessionId file when stdout never carried a session_id (no empty marker)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // stdout JSONL with no session_id field — adapter must not write an empty sessionId file.
+    const { spawn } = makeSpawn([{ stdoutChunks: ['{"type":"config"}\n'], exitCode: 0 }]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBeUndefined();
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-doomed","type":"config"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {

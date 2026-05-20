@@ -23,6 +23,7 @@ import {
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+).
@@ -296,6 +297,19 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // Persist captured session id as a sibling `sessionId` file. Copilot streams the id on a
+    // leading JSON meta line; if it was missing (banner-only streams, crash before meta) we
+    // skip rather than write an empty marker. See persistSessionIdFile for the contract.
+    const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
+    if (sidWrote !== undefined && !sidWrote.ok) {
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'warn',
+        message: `copilot-provider: failed to write sessionId file — resume re-attach may need log parsing`,
+        meta: { error: sidWrote.error.message },
+        at: IsoTimestamp.now(),
+      });
+    }
     return {
       kind: 'success',
       output: {

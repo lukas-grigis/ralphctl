@@ -22,6 +22,7 @@ import {
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
@@ -387,6 +388,18 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // Persist captured session id as a sibling `sessionId` file. Codex emits the id on the
+    // leading JSONL config record; missing → skip (no empty marker). See persistSessionIdFile.
+    const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
+    if (sidWrote !== undefined && !sidWrote.ok) {
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'warn',
+        message: `codex-provider: failed to write sessionId file — resume re-attach may need log parsing`,
+        meta: { error: sidWrote.error.message },
+        at: IsoTimestamp.now(),
+      });
+    }
     if (session.bodyFile !== undefined) {
       const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
       if (!bodyWrote.ok) {

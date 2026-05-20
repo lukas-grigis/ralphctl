@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -90,8 +90,14 @@ const CWD = absolutePath('/tmp/claude-provider-test');
 let tempCounter = 0;
 const tempSignalsFile = () => {
   tempCounter += 1;
+  // Per-test sub-directory so the sibling `sessionId` file written next to `signals.json`
+  // does not collide with another test's expected-missing assertion in the same parent.
   return absolutePath(
-    join(tmpdir(), `ralphctl-claude-test-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}.json`)
+    join(
+      tmpdir(),
+      `ralphctl-claude-test-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}`,
+      'signals.json'
+    )
   );
 };
 
@@ -199,6 +205,57 @@ describe('createClaudeProvider', () => {
     if (!out.ok) return;
     const signals = await readSignals(String(out.value.signalsFile));
     expect(signals.map((s) => s.type)).toEqual(['task-complete']);
+  });
+
+  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-persist', model: 'sonnet' });
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-persist' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('sess-persist\n');
+    expect(out.value.sessionId).toBe('sess-persist');
+  });
+
+  it('skips the sessionId file when the stream never emitted a session_id (no empty marker)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // result event WITHOUT session_id — Claude can omit it on early-exit / malformed init.
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBeUndefined();
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    // signals.json is also never written on the failure path.
+    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('non-rate-limit failure: surfaces InvalidStateError without retrying', async () => {

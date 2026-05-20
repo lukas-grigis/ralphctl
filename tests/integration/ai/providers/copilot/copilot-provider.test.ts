@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -81,8 +81,14 @@ const CWD = absolutePath('/tmp/copilot-provider-test');
 let signalsCounter = 0;
 const tempSignalsFile = () => {
   signalsCounter += 1;
+  // Per-test sub-directory so the sibling `sessionId` file written next to `signals.json`
+  // does not collide with another test's expected-missing assertion in the same parent.
   return absolutePath(
-    join(tmpdir(), `ralphctl-copilot-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}.json`)
+    join(
+      tmpdir(),
+      `ralphctl-copilot-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}`,
+      'signals.json'
+    )
   );
 };
 
@@ -132,6 +138,63 @@ describe('createCopilotProvider', () => {
     expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
     const sessionEntry = cap.logs.find((e) => e.message.includes('session id'));
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
+  });
+
+  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-persist","model":"gpt-5.1"}\n', '<task-complete/>\n'],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('sess-persist\n');
+    expect(out.value.sessionId).toBe('sess-persist');
+  });
+
+  it('skips the sessionId file when no meta line carried a session_id (no empty marker)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // Only plain-text body lines — no JSON meta line, so no session_id is ever extracted.
+    const { spawn } = makeSpawn([{ stdoutChunks: ['<task-complete/>\n'], exitCode: 0 }]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBeUndefined();
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-doomed"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
