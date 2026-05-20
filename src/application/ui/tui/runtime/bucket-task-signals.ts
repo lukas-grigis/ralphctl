@@ -253,6 +253,24 @@ const totalDurationMs = (subSteps: readonly TaskSubStep[]): number =>
 const countGeneratorTurns = (subSteps: readonly TaskSubStep[]): number =>
   subSteps.reduce((n, sub) => (sub.leafName === 'generator' ? n + 1 : n), 0);
 
+/**
+ * Two `commit-message` signals reach the bus per task: the AI's parse-time signal (subject +
+ * optional body, no `fullMessage`) and the harness's re-emission AFTER `assembleCommitMessage`
+ * + the `Closes …` trailer (carries `fullMessage`). The UI only wants the latter — showing
+ * both produces a stuttered "feat(auth): …" row followed by the resolved version a few seconds
+ * later. Drop the parse-time signal whenever a harness-resolved version exists in the same
+ * bucket. When the harness signal hasn't landed yet (mid-task), the AI's preview is the only
+ * source of truth and is shown.
+ *
+ * Pure function over a signal list — no side effects, no ordering changes for non-commit
+ * signals. Returns the input unchanged when ≤1 commit-message signal is present.
+ */
+const dedupCommitMessages = (signals: readonly HarnessSignal[]): readonly HarnessSignal[] => {
+  const hasResolved = signals.some((s) => s.type === 'commit-message' && s.fullMessage !== undefined);
+  if (!hasResolved) return signals;
+  return signals.filter((s) => s.type !== 'commit-message' || s.fullMessage !== undefined);
+};
+
 export interface BucketOptions {
   /** Configured cap on gen-eval-loop iterations (`config.harness.maxTurns`). */
   readonly maxTurns?: number;
@@ -304,11 +322,11 @@ export const bucketTaskSignals = (
       ...(errorMessage !== undefined ? { errorMessage } : {}),
       subSteps,
       evaluations: evaluationsByTask.get(id) ?? [],
-      signals: signalsByTask.get(id) ?? [],
+      signals: dedupCommitMessages(signalsByTask.get(id) ?? []),
       genEvalRound,
       ...(opts.maxTurns !== undefined ? { genEvalMaxRounds: opts.maxTurns } : {}),
     };
   });
 
-  return { tasks, orphanSignals: orphans };
+  return { tasks, orphanSignals: dedupCommitMessages(orphans) };
 };
