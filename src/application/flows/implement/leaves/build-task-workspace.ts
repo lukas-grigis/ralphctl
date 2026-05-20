@@ -86,8 +86,6 @@ export const buildTaskWorkspaceLeaf = (
         const log = deps.logger.named('implement.workspace');
         const workspaceRoot = join(String(opts.sprintDir), 'implement', String(input.task.id));
 
-        // `task.externalRefs` (populated by parseTaskList from the source ticket's externalRef)
-        // is read inside buildImplementPrompt and rendered into the commit-message trailer.
         const prompt = await buildImplementPrompt(deps.templateLoader, {
           task: input.task,
           projectPath: String(opts.cwd),

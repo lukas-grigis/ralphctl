@@ -134,11 +134,7 @@ In order:
    fallback when you omit the signal is just the task name + the task's description paragraph, which is
    thin context, so emit the signal on every task that touched any file. Omit only when the task was a pure
    investigation that wrote nothing.
-6. **Append the issue trailer when present** — the harness substitutes a `Refs: …` git-trailer line below
-   when the task carries external issue references. When the substitution is non-empty, append it verbatim
-   as the final line of the commit-message body (single line, no surrounding quotes, no extra prefix); when
-   the substitution is empty, skip this step entirely. Trailer: {{TICKET_REFS_SECTION}}
-7. **Signal completion** — emit `<task-complete>` ONLY after all the above steps pass.
+6. **Signal completion** — emit `<task-complete>` ONLY after all the above steps pass.
 
 ## Output format
 

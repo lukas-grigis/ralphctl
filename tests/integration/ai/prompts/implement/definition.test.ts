@@ -268,7 +268,6 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
-      ticketRefsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -287,7 +286,6 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',
-      ticketRefsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

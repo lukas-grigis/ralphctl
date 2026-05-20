@@ -26,14 +26,20 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
  */
 
 const HEX_SHA_RE = /^[0-9a-f]{7,64}$/i;
-// Per-task commits are signal, not prose — the harness writes machine-readable history, the
-// AI's descriptive prose belongs in `progress.md`. 500 UTF-8 bytes is enough for a
-// conventional-style subject, a short WHY paragraph, and the `Refs: …` trailer the implement
-// prompt appends from `Task.externalRefs`; anything longer is truncated by the message
-// factories upstream of this validator. Treat a breach as a bug (a factory failed to clamp)
-// rather than a soft hint, so the chain halts loudly. Must stay in sync with the constant of
-// the same name in `src/application/flows/implement/leaves/commit-task.ts`.
-const COMMIT_MESSAGE_MAX_BYTES = 500;
+/**
+ * Hard cap on `git commit -m <message>` bytes, enforced by {@link gitCommitWithMessage}.
+ * Canonical owner — message-assembly factories upstream (currently
+ * `src/application/flows/implement/leaves/commit-task.ts`) import this constant so they
+ * cannot drift from the validator.
+ *
+ * Per-task commits are signal, not prose — the harness writes machine-readable history, the
+ * AI's descriptive prose belongs in `progress.md`. 500 UTF-8 bytes is enough for a
+ * conventional-style subject, a short WHY paragraph, and the `Closes …` trailer appended
+ * from `Task.externalRefs`; anything longer is truncated by the message factories upstream
+ * of this validator. Treat a breach as a bug (a factory failed to clamp) rather than a soft
+ * hint, so the chain halts loudly.
+ */
+export const COMMIT_MESSAGE_MAX_BYTES = 500;
 
 export interface GitStatusEntry {
   readonly status: string;
