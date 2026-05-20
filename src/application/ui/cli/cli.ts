@@ -10,6 +10,7 @@ import { registerProjectCommand } from '@src/application/ui/cli/commands/project
 import { registerSprintCommand } from '@src/application/ui/cli/commands/sprint.ts';
 import { registerTicketCommand } from '@src/application/ui/cli/commands/ticket.ts';
 import { registerTaskCommand } from '@src/application/ui/cli/commands/task.ts';
+import { registerRunsCommand } from '@src/application/ui/cli/commands/runs.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 
 /**
@@ -42,6 +43,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerSprintCommand(program);
   registerTicketCommand(program);
   registerTaskCommand(program);
+  registerRunsCommand(program);
 
   await program.parseAsync([...argv]);
 };
