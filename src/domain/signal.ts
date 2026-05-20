@@ -207,6 +207,40 @@ export interface ProgressEntrySignal {
 }
 
 /**
+ * AI-provider context-window compaction event. Emitted when the underlying CLI auto-compacts its
+ * working context (Claude / Copilot / Codex all do this transparently in long sessions). First-
+ * class lifecycle moment per the Anthropic harness-engineering guidance: the operator should be
+ * able to see when the model's working memory was rebuilt so an apparent regression mid-task
+ * can be attributed to the compaction boundary instead of the prompt.
+ *
+ *  - `beforeTokens` / `afterTokens` are the provider-reported token counts before and after the
+ *    compaction. Both optional — providers vary on what they expose. When neither is present the
+ *    marker renders as a bare "context compacted" boundary.
+ *  - `preservedTopics` is the optional list of topic / summary headings the provider says it
+ *    retained. Empty / absent when the provider does not name what it kept.
+ *
+ * Per-provider emission gap (no parser implemented yet — TODO):
+ *  - Claude Code: the `claude -p --verbose --output-format stream-json` line family includes a
+ *    `{"type":"system","subtype":"compact_boundary"}` event in recent CLI versions; once
+ *    confirmed stable, wire it through `parse-stream.ts` and emit this signal from the headless
+ *    adapter. Older CLI versions omit the event entirely.
+ *  - GitHub Copilot CLI: no documented compaction marker on the stream as of v0.7.0; treat as
+ *    unobservable until the vendor surfaces one.
+ *  - OpenAI Codex CLI: no documented compaction marker; same status as Copilot.
+ *
+ * The signal-type is therefore present in the union (so renderers + future parsers can land
+ * incrementally) but is not yet produced by any adapter. The TUI marker rendering is the
+ * forward-compatible target; emitters follow in a P3 task once vendor markers stabilise.
+ */
+export interface ContextCompactedSignal {
+  readonly type: 'context-compacted';
+  readonly beforeTokens?: number;
+  readonly afterTokens?: number;
+  readonly preservedTopics?: readonly string[];
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
  * Generator-proposed commit message for the harness's per-task commit. The harness owns the
  * actual `git commit` call (commit-task leaf); this signal lets the generator influence the
  * message without taking control of the operation.
@@ -255,4 +289,5 @@ export type HarnessSignal =
   | SetupSkillProposalSignal
   | VerifySkillProposalSignal
   | SkillSuggestionsSignal
-  | CommitMessageSignal;
+  | CommitMessageSignal
+  | ContextCompactedSignal;

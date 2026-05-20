@@ -27,7 +27,7 @@ import type {
   TaskBucketStatus,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { AbortCause, RecoveryContext } from '@src/domain/entity/attempt.ts';
-import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { ContextCompactedSignal, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -157,6 +157,10 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     case 'skill-suggestions':
       return { label: 'skills', text: sig.names.length > 0 ? sig.names.join(', ') : '(none)' };
     case 'evaluation':
+    case 'context-compacted':
+      // Both render outside the per-signal label column — `evaluation` via its dedicated
+      // `<EvaluationLine>` row, `context-compacted` via `<CompactionMarker>` (a dedented
+      // lifecycle-boundary marker rendered inline with the signal stream).
       return undefined;
   }
 };
@@ -189,6 +193,83 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
       </Box>
     </Box>
   );
+};
+
+/**
+ * Compact a token count for display: `200000` → `200k`, `1500` → `1.5k`, `120` → `120`. The
+ * provider's reported numbers can be large (context windows trend 100k-200k); collapsing to a
+ * one-or-two-char "k" suffix keeps the marker scannable inside one terminal row.
+ */
+const fmtTokens = (n: number): string => {
+  if (!Number.isFinite(n) || n < 0) return String(n);
+  if (n < 1000) return String(Math.round(n));
+  const k = n / 1000;
+  return k >= 100 ? `${String(Math.round(k))}k` : `${k.toFixed(1).replace(/\.0$/, '')}k`;
+};
+
+/**
+ * Render the parenthetical detail block of a `context-compacted` marker. Returns `undefined`
+ * when neither token counts nor preserved topics were reported by the provider — the marker
+ * then degrades gracefully to the bare "context compacted" boundary.
+ */
+const formatCompactionDetail = (sig: ContextCompactedSignal): string | undefined => {
+  const parts: string[] = [];
+  if (sig.beforeTokens !== undefined && sig.afterTokens !== undefined) {
+    parts.push(`${fmtTokens(sig.beforeTokens)} ${glyphs.arrowRight} ${fmtTokens(sig.afterTokens)}`);
+  } else if (sig.beforeTokens !== undefined) {
+    parts.push(`from ${fmtTokens(sig.beforeTokens)}`);
+  } else if (sig.afterTokens !== undefined) {
+    parts.push(`to ${fmtTokens(sig.afterTokens)}`);
+  }
+  if (sig.preservedTopics !== undefined && sig.preservedTopics.length > 0) {
+    parts.push(`kept: ${String(sig.preservedTopics.length)} topic${sig.preservedTopics.length === 1 ? '' : 's'}`);
+  }
+  return parts.length > 0 ? parts.join(', ') : undefined;
+};
+
+/**
+ * Dedented lifecycle-boundary marker for `context-compacted` signals. Rendered inline with the
+ * surrounding signal stream but pulled left of the signal label column with a negative
+ * `marginLeft` — visually marks a boundary rather than another per-task entry. Uses
+ * `inkColors.muted` so it never competes for attention with semantic-state signals (success /
+ * warning / error). The body shares the same `flexGrow` + `wrap="truncate-end"` shape as
+ * {@link SignalLine} so on narrow terminals the topic / token text ellides instead of wrapping.
+ *
+ * Layout note: the parent `<Box paddingLeft={2}>` indents the signal column by 2 chars; the
+ * `marginLeft={-2}` here cancels that indent so the marker lines up with the un-indented
+ * "signals" header row above. The dot triplet (`· · ·`) and `dimColor` make it read as a
+ * separator at a glance.
+ */
+const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal }): React.JSX.Element => {
+  const detail = formatCompactionDetail(signal);
+  return (
+    <Box marginLeft={-2}>
+      <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+      <Text color={inkColors.muted}>
+        {'  '}
+        {glyphs.bullet} {glyphs.bullet} {glyphs.bullet} context compacted
+      </Text>
+      {detail !== undefined && (
+        <Box flexGrow={1} flexShrink={1}>
+          <Text color={inkColors.muted} wrap="truncate-end">
+            {' ('}
+            {detail}
+            {')'}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+/**
+ * Dispatch from a signal to its renderer: `context-compacted` → dedented {@link CompactionMarker};
+ * everything else → the default {@link SignalLine}. Returns `null` for signals that have no row
+ * form (e.g. `evaluation`, which is rendered by the dedicated {@link EvaluationLine}).
+ */
+const StreamSignalRow = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.Element | null => {
+  if (signal.type === 'context-compacted') return <CompactionMarker signal={signal} />;
+  return <SignalLine signal={signal} />;
 };
 
 /**
@@ -421,7 +502,7 @@ const TaskBlock = ({
           <Text dimColor>signals</Text>
           <Box flexDirection="column" paddingLeft={2}>
             {signalRows.map((s, i) => (
-              <SignalLine key={`${task.id}-sig-${String(i)}`} signal={s} />
+              <StreamSignalRow key={`${task.id}-sig-${String(i)}`} signal={s} />
             ))}
           </Box>
         </Box>
@@ -446,7 +527,7 @@ const OrphanSignals = ({
       </Text>
       <Box flexDirection="column" paddingLeft={2}>
         {rows.map((s, i) => (
-          <SignalLine key={`orphan-${String(i)}`} signal={s} />
+          <StreamSignalRow key={`orphan-${String(i)}`} signal={s} />
         ))}
       </Box>
     </Box>
