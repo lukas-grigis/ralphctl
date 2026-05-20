@@ -31,6 +31,7 @@ import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -116,6 +117,7 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
   // prompt-host → footer, with header / prompt / footer pinned via `flexShrink={0}`.
   return (
     <Box flexDirection="column" height={rows}>
+      <MemoryPressureBanner />
       {children}
     </Box>
   );

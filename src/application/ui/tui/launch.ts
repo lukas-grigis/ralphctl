@@ -30,6 +30,7 @@ import { App } from '@src/application/ui/tui/App.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
+import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -79,6 +80,17 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     if (event.type === 'log' && passesLogLevel(event.level, logLevelGate.get())) logBus.emit(event);
   });
 
+  // Heap watchdog gives the operator a 30-second warning before V8 SIGKILLs the harness on a
+  // long-running session. On 'critical' it dumps the TUI's in-memory buffers (which retain the
+  // bulk of process memory after the per-list render caps) so the GC has something to free.
+  const heapWatchdog = startHeapWatchdog({
+    eventBus: deps.eventBus,
+    onCritical: () => {
+      harnessBus.clear();
+      logBus.clear();
+    },
+  });
+
   const sessions = createSessionManager();
   const queue = createPromptQueue();
 
@@ -125,6 +137,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     drain: (): void => {
       queue.drain(new Error('TUI shutting down'));
       unsubLogForward();
+      heapWatchdog.stop();
     },
   };
 };
