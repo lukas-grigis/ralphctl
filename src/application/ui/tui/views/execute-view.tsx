@@ -335,12 +335,18 @@ export const ExecuteView = (): React.JSX.Element => {
     />
   );
 
+  // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
+  // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
+  // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
+  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
+
   const tasksPanel =
     bucketed !== undefined ? (
       <TasksPanel
         bucketed={bucketed}
         running={isRunning}
         maxSignalsPerTask={tasksMaxSignals}
+        inputActive={tasksInputActive}
         {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
         {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       />

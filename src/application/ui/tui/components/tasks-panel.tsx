@@ -18,8 +18,8 @@
  * bucketed structure.
  */
 
-import React from 'react';
-import { Box, Text } from 'ink';
+import React, { useMemo, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 import type {
   BucketedExecution,
   TaskBucket,
@@ -27,7 +27,12 @@ import type {
   TaskBucketStatus,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { AbortCause, RecoveryContext } from '@src/domain/entity/attempt.ts';
-import type { ContextCompactedSignal, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type {
+  CommitMessageSignal,
+  ContextCompactedSignal,
+  EvaluationSignal,
+  HarnessSignal,
+} from '@src/domain/signal.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -41,6 +46,19 @@ export interface TasksPanelProps {
   readonly maxSignalsPerTask?: number;
   /** Max orphan signals to render. */
   readonly maxOrphanSignals?: number;
+  /**
+   * When `true` the panel claims keyboard input for row-cursor navigation (j/k or ↑/↓) and
+   * row expansion (Enter / Space). Defaults to `false` so unit tests that render the panel in
+   * isolation don't compete with any other `useInput` handler in the same Ink tree. The
+   * Implement view sets this `true` while the run is live and no overlay is open.
+   *
+   * The cursor traverses the flat sequence of visible signal rows (orphans first, then each
+   * task in order). When focused on a `commit-message` row, Enter / Space toggles expansion to
+   * reveal the body + trailing `Closes #…` trailer. Expansion state lives in panel-local
+   * `useState` so it persists across re-renders within the session but resets if the panel
+   * unmounts (e.g. on `D` detach back to home).
+   */
+  readonly inputActive?: boolean;
   /**
    * Max sub-step rows per task to render; older ones drop off the top behind a single elision
    * row. Bounds Ink reconciliation cost on long gen-eval loops (every retry adds ~12 leaves),
@@ -127,8 +145,8 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     case 'commit-message': {
       // Prefer the harness-resolved `fullMessage` (subject + body + `Closes …` trailer) — the
       // AI's pre-trailer `subject` can diverge from what actually lands in git history if the
-      // harness clamped or rewrote it. Display the first line; the multi-line expansion UX
-      // lands in a follow-up.
+      // harness clamped or rewrote it. Display the first line; body + trailer are revealed by
+      // the `<CommitSignalLine>` collapsible row when the user expands the focused row.
       const headline = sig.fullMessage !== undefined ? (sig.fullMessage.split('\n', 1)[0] ?? sig.subject) : sig.subject;
       return { label: 'commit', text: headline };
     }
@@ -170,17 +188,37 @@ const SIGNAL_LABEL_WIDTH = 16;
 
 const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 
-const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.Element | null => {
+/**
+ * Disclosure markers for collapsible commit-message rows. Glyphs chosen for clear visual
+ * affinity (right-pointing → collapsed, down-pointing → expanded) and Unicode coverage in the
+ * vt220 / Powerline glyph families every modern terminal emulator ships.
+ */
+const COLLAPSED_DISCLOSURE = '▸';
+const EXPANDED_DISCLOSURE = '▾';
+/** Cursor caret for the focused signal row. Same vocabulary as the global action cursor. */
+const FOCUS_CURSOR = '›';
+
+const SignalLine = ({
+  signal,
+  focused = false,
+}: {
+  readonly signal: HarnessSignal;
+  readonly focused?: boolean;
+}): React.JSX.Element | null => {
   const row = rowForSignal(signal);
   if (row === undefined) return null;
   const color = SIGNAL_LABEL_COLOR[row.label] ?? inkColors.info;
   // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the
   // terminal's actual width via Ink's `wrap="truncate-end"`. The body is a row that may
   // shrink (so long messages don't push the layout); the label box is fixed-width and never
-  // shrinks. Collapsing whitespace on the body line keeps multi-line payloads (e.g. commit
-  // bodies) readable as a single ellided row until the expansion UX lands.
+  // shrinks. Collapsing whitespace on the body line keeps multi-line payloads readable as a
+  // single ellided row — for `commit-message` the full body + trailer is reached via the
+  // separate {@link CommitSignalLine} collapsible variant.
   return (
     <Box>
+      <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
+        {focused ? FOCUS_CURSOR : ' '}{' '}
+      </Text>
       <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
       <Text color={color} bold>
         {'  '}
@@ -191,6 +229,88 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
           {collapseWhitespace(row.text)}
         </Text>
       </Box>
+    </Box>
+  );
+};
+
+/**
+ * Collapsible variant for `commit-message` signals. Default state is collapsed: only the
+ * commit subject line shows, identical in layout to {@link SignalLine}. When expanded (the
+ * row is focused and the user pressed Enter / Space), the body paragraphs and any
+ * harness-appended `Closes #…` trailer render indented under the signal label column.
+ *
+ * Source of truth for the multi-line body is `sig.fullMessage` when present — the harness
+ * re-emits the commit-message signal with `fullMessage` populated after the commit-task leaf
+ * runs `assembleCommitMessage` (subject + body + trailers). On the parse-time signal where
+ * `fullMessage` is absent, the row falls back to `sig.body` and shows no trailer block.
+ *
+ * Width handling: every body line uses the same `wrap="truncate-end"` discipline as the
+ * subject row, so a 200-col commit body still ellides cleanly at narrow widths instead of
+ * exploding the layout.
+ */
+const CommitSignalLine = ({
+  signal,
+  focused,
+  expanded,
+}: {
+  readonly signal: CommitMessageSignal;
+  readonly focused: boolean;
+  readonly expanded: boolean;
+}): React.JSX.Element => {
+  const headline =
+    signal.fullMessage !== undefined ? (signal.fullMessage.split('\n', 1)[0] ?? signal.subject) : signal.subject;
+  const color = SIGNAL_LABEL_COLOR['commit'] ?? inkColors.info;
+  // Lines below the subject — body paragraphs + trailers — derived from `fullMessage` when
+  // available (authoritative), or from `body` alone otherwise. We drop the first line (it is
+  // the subject already rendered above) and any leading blank separators so the indented
+  // block reads as a tight prose block.
+  const tailLines = useMemo<readonly string[]>(() => {
+    const raw = signal.fullMessage ?? (signal.body !== undefined ? `${signal.subject}\n\n${signal.body}` : '');
+    if (raw.length === 0) return [];
+    const parts = raw.split('\n').slice(1);
+    // Trim contiguous leading / trailing blanks but preserve interior blank lines so the
+    // body's paragraph structure (and the blank separator before a `Closes #…` trailer)
+    // survives.
+    let start = 0;
+    let end = parts.length;
+    while (start < end && parts[start]?.trim() === '') start += 1;
+    while (end > start && parts[end - 1]?.trim() === '') end -= 1;
+    return parts.slice(start, end);
+  }, [signal.fullMessage, signal.body, signal.subject]);
+  const canExpand = tailLines.length > 0;
+  const disclosure = canExpand ? (expanded ? EXPANDED_DISCLOSURE : COLLAPSED_DISCLOSURE) : ' ';
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
+          {focused ? FOCUS_CURSOR : ' '}{' '}
+        </Text>
+        <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
+        <Text color={color} bold>
+          {disclosure} {padLabel('commit')}
+        </Text>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end">{collapseWhitespace(headline)}</Text>
+        </Box>
+      </Box>
+      {expanded && canExpand && (
+        // Indent under the signal label column so the body visually nests beneath its subject.
+        // The label column width is the cursor (2) + timestamp (5: "HH:MM") + 2-char gap + the
+        // padded label width — but rather than pin a magic number, use a single
+        // `paddingLeft={spacing.indent * 4}` which lines up with the start of the body column
+        // at a glance without needing to mirror the exact pixel-grid.
+        <Box flexDirection="column" paddingLeft={spacing.indent * 4}>
+          {tailLines.map((line, i) => (
+            <Box key={`tail-${String(i)}`}>
+              <Box flexGrow={1} flexShrink={1}>
+                <Text dimColor={line.trim() === ''} wrap="truncate-end">
+                  {line.length === 0 ? ' ' : line}
+                </Text>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 };
@@ -264,12 +384,23 @@ const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal 
 
 /**
  * Dispatch from a signal to its renderer: `context-compacted` → dedented {@link CompactionMarker};
- * everything else → the default {@link SignalLine}. Returns `null` for signals that have no row
- * form (e.g. `evaluation`, which is rendered by the dedicated {@link EvaluationLine}).
+ * `commit-message` → collapsible {@link CommitSignalLine}; everything else → the default
+ * {@link SignalLine}. Returns `null` for signals that have no row form (e.g. `evaluation`, which
+ * is rendered by the dedicated {@link EvaluationLine}).
  */
-const StreamSignalRow = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.Element | null => {
+const StreamSignalRow = ({
+  signal,
+  focused,
+  expanded,
+}: {
+  readonly signal: HarnessSignal;
+  readonly focused: boolean;
+  readonly expanded: boolean;
+}): React.JSX.Element | null => {
   if (signal.type === 'context-compacted') return <CompactionMarker signal={signal} />;
-  return <SignalLine signal={signal} />;
+  if (signal.type === 'commit-message')
+    return <CommitSignalLine signal={signal} focused={focused} expanded={expanded} />;
+  return <SignalLine signal={signal} focused={focused} />;
 };
 
 /**
@@ -422,6 +553,32 @@ const SubStepLine = ({ sub, running }: { readonly sub: TaskSubStep; readonly run
   );
 };
 
+/**
+ * Build a stable focusable-row key. Composed of `scope:absoluteIndex` where `scope` is either
+ * the literal string `orphan` or a task id (uuid v7). Absolute index is the signal's position
+ * in the original (unsliced) signal array — surviving the slice means the key stays valid even
+ * when newer signals push older ones off the visible window.
+ */
+const focusKey = (scope: string, absoluteIndex: number): string => `${scope}:${String(absoluteIndex)}`;
+
+/**
+ * Predicate: is this signal type focusable in the cursor model? Non-focusable signals are
+ * either rendered by a dedicated component outside the signal stream (evaluation) or render as
+ * a dedented lifecycle boundary (context-compacted) where focus would feel out of place.
+ */
+const isFocusable = (sig: HarnessSignal): boolean => sig.type !== 'evaluation' && sig.type !== 'context-compacted';
+
+/** Build the visible row keys for one scope's signal slice. */
+const focusKeysForSlice = (scope: string, signals: readonly HarnessSignal[], sliceStart: number): readonly string[] => {
+  const out: string[] = [];
+  for (let i = 0; i < signals.length; i += 1) {
+    const sig = signals[i];
+    if (sig === undefined) continue;
+    if (isFocusable(sig)) out.push(focusKey(scope, sliceStart + i));
+  }
+  return out;
+};
+
 const TaskBlock = ({
   task,
   running,
@@ -430,6 +587,10 @@ const TaskBlock = ({
   maxSubSteps,
   maxEvaluations,
   recovering,
+  focusedKey,
+  expandedKeys,
+  scopeId,
+  sliceStart,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -438,6 +599,11 @@ const TaskBlock = ({
   readonly maxSubSteps: number;
   readonly maxEvaluations: number;
   readonly recovering?: RecoveryContext;
+  readonly focusedKey: string | undefined;
+  readonly expandedKeys: ReadonlySet<string>;
+  readonly scopeId: string;
+  /** Absolute signal index where the rendered slice starts (`task.signals.length - sliceLen`). */
+  readonly sliceStart: number;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -501,9 +667,17 @@ const TaskBlock = ({
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           <Text dimColor>signals</Text>
           <Box flexDirection="column" paddingLeft={2}>
-            {signalRows.map((s, i) => (
-              <StreamSignalRow key={`${task.id}-sig-${String(i)}`} signal={s} />
-            ))}
+            {signalRows.map((s, i) => {
+              const key = focusKey(scopeId, sliceStart + i);
+              return (
+                <StreamSignalRow
+                  key={`${task.id}-sig-${String(sliceStart + i)}`}
+                  signal={s}
+                  focused={focusedKey === key}
+                  expanded={expandedKeys.has(key)}
+                />
+              );
+            })}
           </Box>
         </Box>
       )}
@@ -514,9 +688,16 @@ const TaskBlock = ({
 const OrphanSignals = ({
   signals,
   max,
+  focusedKey,
+  expandedKeys,
+  sliceStart,
 }: {
   readonly signals: readonly HarnessSignal[];
   readonly max: number;
+  readonly focusedKey: string | undefined;
+  readonly expandedKeys: ReadonlySet<string>;
+  /** Absolute signal index where the rendered slice starts. */
+  readonly sliceStart: number;
 }): React.JSX.Element | null => {
   if (signals.length === 0) return null;
   const rows = signals.slice(-max);
@@ -526,12 +707,59 @@ const OrphanSignals = ({
         {glyphs.bullet} Cross-task notes
       </Text>
       <Box flexDirection="column" paddingLeft={2}>
-        {rows.map((s, i) => (
-          <StreamSignalRow key={`orphan-${String(i)}`} signal={s} />
-        ))}
+        {rows.map((s, i) => {
+          const key = focusKey('orphan', sliceStart + i);
+          return (
+            <StreamSignalRow
+              key={`orphan-${String(sliceStart + i)}`}
+              signal={s}
+              focused={focusedKey === key}
+              expanded={expandedKeys.has(key)}
+            />
+          );
+        })}
       </Box>
     </Box>
   );
+};
+
+/**
+ * Compute the flat sequence of focusable row keys in render order: orphans first (matching
+ * the on-screen ordering), then each task's visible signal slice. Keys are stable across
+ * re-renders so a moving cursor doesn't jump when a new signal lands; non-focusable signals
+ * (`evaluation`, `context-compacted`) are excluded from the cursor model but still render.
+ */
+const buildFlatFocusKeys = (
+  bucketed: BucketedExecution,
+  maxSignalsPerTask: number,
+  maxOrphanSignals: number
+): readonly string[] => {
+  const keys: string[] = [];
+  const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
+  const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
+  const orphanSlice = bucketed.orphanSignals.slice(-orphanSliceLen);
+  for (const k of focusKeysForSlice('orphan', orphanSlice, orphanSliceStart)) keys.push(k);
+  for (const task of bucketed.tasks) {
+    const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
+    const sliceStart = task.signals.length - sliceLen;
+    const slice = task.signals.slice(-sliceLen);
+    for (const k of focusKeysForSlice(task.id, slice, sliceStart)) keys.push(k);
+  }
+  return keys;
+};
+
+/** Test if a focus key points at a `commit-message` signal in the bucketed view. */
+const isCommitMessageKey = (key: string, bucketed: BucketedExecution): boolean => {
+  const sep = key.indexOf(':');
+  if (sep < 0) return false;
+  const scope = key.slice(0, sep);
+  const idx = Number(key.slice(sep + 1));
+  if (!Number.isFinite(idx)) return false;
+  if (scope === 'orphan') {
+    return bucketed.orphanSignals[idx]?.type === 'commit-message';
+  }
+  const task = bucketed.tasks.find((t) => t.id === scope);
+  return task?.signals[idx]?.type === 'commit-message';
 };
 
 export const TasksPanel = ({
@@ -543,7 +771,58 @@ export const TasksPanel = ({
   maxSubStepsPerTask = 12,
   maxEvaluationsPerTask = 6,
   recoveringByTaskId,
+  inputActive = false,
 }: TasksPanelProps): React.JSX.Element => {
+  const flatKeys = useMemo(
+    () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
+    [bucketed, maxSignalsPerTask, maxOrphanSignals]
+  );
+
+  // Cursor identity is the focused row's stable key (not its index). When a new signal lands
+  // the index of the existing row may shift, but its key is unchanged, so the cursor sticks
+  // to the same row. When the focused key falls off the visible slice (cap-elision), the
+  // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
+  const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
+
+  const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
+  const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
+
+  useInput(
+    (input, key) => {
+      if (flatKeys.length === 0) return;
+      const current = focusedIndex >= 0 ? focusedIndex : flatKeys.length - 1;
+      if (key.downArrow || input === 'j') {
+        const next = Math.min(flatKeys.length - 1, current + 1);
+        setFocusedKey(flatKeys[next]);
+        return;
+      }
+      if (key.upArrow || input === 'k') {
+        const prev = Math.max(0, current - 1);
+        setFocusedKey(flatKeys[prev]);
+        return;
+      }
+      if (key.return || input === ' ') {
+        const target = focusedIndex >= 0 ? focusedKey : flatKeys[flatKeys.length - 1];
+        if (target === undefined) return;
+        // Only commit-message rows are toggleable today — other focusable kinds carry no
+        // hidden body. Make the keypress a no-op rather than tracking dead state.
+        if (!isCommitMessageKey(target, bucketed)) {
+          if (effectiveFocusedKey === undefined) setFocusedKey(target);
+          return;
+        }
+        setExpandedKeys((prev) => {
+          const next = new Set(prev);
+          if (next.has(target)) next.delete(target);
+          else next.add(target);
+          return next;
+        });
+        if (effectiveFocusedKey === undefined) setFocusedKey(target);
+      }
+    },
+    { isActive: inputActive }
+  );
+
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return (
       <Box paddingX={spacing.indent}>
@@ -552,10 +831,18 @@ export const TasksPanel = ({
     );
   }
   const kinds = collectKinds(bucketed);
+  const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
+  const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <InlineKindsBar kinds={kinds} />
-      <OrphanSignals signals={bucketed.orphanSignals} max={maxOrphanSignals} />
+      <OrphanSignals
+        signals={bucketed.orphanSignals}
+        max={maxOrphanSignals}
+        focusedKey={effectiveFocusedKey}
+        expandedKeys={expandedKeys}
+        sliceStart={orphanSliceStart}
+      />
       {bucketed.tasks.map((task) => {
         // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
         // the header readable when the launcher hasn't supplied a friendly name. The friendly
@@ -563,6 +850,8 @@ export const TasksPanel = ({
         // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
         const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}…`;
         const recovering = recoveringByTaskId?.get(task.id);
+        const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
+        const sliceStart = task.signals.length - sliceLen;
         return (
           <TaskBlock
             key={task.id}
@@ -572,6 +861,10 @@ export const TasksPanel = ({
             maxSignals={maxSignalsPerTask}
             maxSubSteps={maxSubStepsPerTask}
             maxEvaluations={maxEvaluationsPerTask}
+            focusedKey={effectiveFocusedKey}
+            expandedKeys={expandedKeys}
+            scopeId={task.id}
+            sliceStart={sliceStart}
             {...(recovering !== undefined ? { recovering } : {})}
           />
         );
