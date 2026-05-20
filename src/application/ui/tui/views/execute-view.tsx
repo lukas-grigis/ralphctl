@@ -32,6 +32,8 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { CONTEXT_WIDTH, RAIL_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
+import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
+import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -207,6 +209,10 @@ export const ExecuteView = (): React.JSX.Element => {
   // own state so the event-driven source remains stable across re-renders, even if the bus's
   // own subscription stream missed earlier events (the hook only goes forward).
   const taskRounds = useTaskRoundTracker(eventBus);
+  // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
+  // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
+  const tokenUsageBySession = useTokenUsage(eventBus);
+  const tokenUsage = tokenUsageBySession.get(sessionId);
   const bucketed = useMemo(() => {
     if (rawBucketed === undefined) return undefined;
     const tasks = rawBucketed.tasks.map((t) => {
@@ -387,14 +393,17 @@ export const ExecuteView = (): React.JSX.Element => {
                 <SectionHeader title="Tasks" />
                 {tasksPanel}
               </Box>
-              {/* Right context column — filled by P1k baseline-health card. P2b token meter
-                  and P3a ETA will stack below the card in later waves. */}
+              {/* Right context column — baseline-health card (P1k) on top, token-budget card
+                  (P2b) below. P3a ETA stacks here in a later wave. */}
               <Box flexDirection="column" width={CONTEXT_WIDTH} flexShrink={0}>
                 <BaselineHealthCard
                   {...(executionState !== undefined ? { execution: executionState } : {})}
                   {...(taskState !== undefined ? { tasks: taskState } : {})}
                   now={now}
                 />
+                <Box marginTop={spacing.section}>
+                  <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+                </Box>
               </Box>
             </Box>
           ) : twoColumn ? (
