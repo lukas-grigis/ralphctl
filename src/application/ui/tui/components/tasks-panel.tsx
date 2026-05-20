@@ -68,7 +68,13 @@ const SUB_STEP_PRESENTATION: Readonly<Record<TraceLikeStatus, { readonly color: 
 
 type TraceLikeStatus = 'completed' | 'failed' | 'aborted' | 'skipped';
 
-const truncate = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/**
+ * Collapse runs of whitespace to a single space so multi-line content (e.g. a `task-verified`
+ * signal's `output`) renders as one row before Ink ellides on width. We deliberately do not
+ * char-clip here — Ink's `wrap="truncate-end"` handles width-based ellision based on actual
+ * terminal columns. See {@link SignalLine} for the flexbox shape that constrains the body box.
+ */
+const collapseWhitespace = (s: string): string => s.replace(/\s+/g, ' ');
 
 /**
  * Signal-label vocabulary. Labels are full words (not 4-letter codes) so the dashboard reads at
@@ -124,7 +130,7 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     case 'task-complete':
       return { label: 'done', text: 'task complete' };
     case 'task-verified':
-      return { label: 'verified', text: truncate(sig.output.replace(/\s+/g, ' '), 80) };
+      return { label: 'verified', text: collapseWhitespace(sig.output) };
     case 'task-blocked':
       return { label: 'blocked', text: sig.reason };
     case 'check-script-discovery':
@@ -153,6 +159,11 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
   const row = rowForSignal(signal);
   if (row === undefined) return null;
   const color = SIGNAL_LABEL_COLOR[row.label] ?? inkColors.info;
+  // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the
+  // terminal's actual width via Ink's `wrap="truncate-end"`. The body is a row that may
+  // shrink (so long messages don't push the layout); the label box is fixed-width and never
+  // shrinks. Collapsing whitespace on the body line keeps multi-line payloads (e.g. commit
+  // bodies) readable as a single ellided row until the expansion UX lands.
   return (
     <Box>
       <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
@@ -160,7 +171,11 @@ const SignalLine = ({ signal }: { readonly signal: HarnessSignal }): React.JSX.E
         {'  '}
         {padLabel(row.label)}
       </Text>
-      <Text bold={row.bold ?? false}>{truncate(row.text, 80)}</Text>
+      <Box flexGrow={1} flexShrink={1}>
+        <Text bold={row.bold ?? false} wrap="truncate-end">
+          {collapseWhitespace(row.text)}
+        </Text>
+      </Box>
     </Box>
   );
 };
@@ -254,10 +269,12 @@ const SubStepLine = ({ sub, running }: { readonly sub: TaskSubStep; readonly run
         {glyphs.bullet} {fmtDuration(sub.durationMs)}
       </Text>
       {sub.errorMessage !== undefined && (
-        <Text color={inkColors.error}>
-          {' '}
-          {glyphs.emDash} {truncate(sub.errorMessage, 60)}
-        </Text>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text color={inkColors.error} wrap="truncate-end">
+            {' '}
+            {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
+          </Text>
+        </Box>
       )}
     </Box>
   );
@@ -393,6 +410,10 @@ export const TasksPanel = ({
       <SignalLegend />
       <OrphanSignals signals={bucketed.orphanSignals} max={maxOrphanSignals} />
       {bucketed.tasks.map((task) => {
+        // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
+        // the header readable when the launcher hasn't supplied a friendly name. The friendly
+        // name path goes through `nameById` and renders verbatim; if a future design makes
+        // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
         const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}…`;
         return (
           <TaskBlock
