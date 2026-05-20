@@ -43,7 +43,10 @@ Each task entry uses these fields:
 - **`projectPath`** — absolute path matching one of the repositories listed below.
 - **`ticketRef`** — the ticket id (the UUID-shaped value from `## Approved tickets`) the task
   descends from. **Required.** A task that doesn't trace to an approved ticket is a planning
-  bug — surface it as a question instead.
+  bug — surface it as a question instead. Some tickets also show an **External reference**
+  line below their title (e.g. `#123`, `!456`, `PROJ-7`); that value is informational only —
+  the harness propagates it onto generated tasks for commit-message and PR-body trailers.
+  Always set `ticketRef` to the UUID; never substitute the external reference.
 - **`steps`** — concrete implementation steps in order.
 - **`verificationCriteria`** — observable checks an evaluator can run.
 - **`blockedBy`** — `id`s of earlier tasks that must complete first.

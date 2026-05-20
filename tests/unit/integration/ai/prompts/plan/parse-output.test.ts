@@ -54,6 +54,49 @@ describe('parsePlanOutput', () => {
     expect(out.value[1]?.dependsOn).toHaveLength(1);
   });
 
+  it('inherits the source ticket externalRef onto every task that references it', () => {
+    // Seed two approved tickets — one with an external ref, one without — so we can verify
+    // both inheritance and the "no ref → no externalRefs field" branch in a single plan.
+    let sprint: Sprint = makeDraftSprint();
+    const withRef = makePendingTicket({ title: 'tracked', externalRef: '#123' });
+    const withoutRef = makePendingTicket({ title: 'untracked' });
+    const a = addTicket(sprint, withRef);
+    if (!a.ok) throw new Error('addTicket failed');
+    const b = addTicket(a.value, withoutRef);
+    if (!b.ok) throw new Error('addTicket failed');
+    const approvedA = approveTicketRequirements(b.value.tickets[0]!, '## reqs\n');
+    if (!approvedA.ok) throw new Error('approve failed');
+    const approvedB = approveTicketRequirements(b.value.tickets[1]!, '## reqs\n');
+    if (!approvedB.ok) throw new Error('approve failed');
+    sprint = { ...b.value, tickets: [approvedA.value, approvedB.value] };
+
+    const json = JSON.stringify([
+      {
+        id: 'T1',
+        name: 'tracked task',
+        ticketRef: String(approvedA.value.id),
+        projectPath: String(project.repositories[0]?.path),
+        steps: ['s'],
+        verificationCriteria: ['v'],
+      },
+      {
+        id: 'T2',
+        name: 'untracked task',
+        ticketRef: String(approvedB.value.id),
+        projectPath: String(project.repositories[0]?.path),
+        steps: ['s'],
+        verificationCriteria: ['v'],
+      },
+    ]);
+    const out = parsePlanOutput(json, { project, sprint });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value[0]?.externalRefs).toEqual(['#123']);
+    // Tickets without an externalRef → task.externalRefs is undefined (not []), per the
+    // minimal-persisted-shape rule.
+    expect(out.value[1]?.externalRefs).toBeUndefined();
+  });
+
   it('threads optional extraDimensions onto the resulting Task, lowercased and trimmed', () => {
     const { sprint, ticketIds } = draftWith(1);
     const json = JSON.stringify([

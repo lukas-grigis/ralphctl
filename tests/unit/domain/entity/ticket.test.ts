@@ -20,6 +20,27 @@ describe('createTicket', () => {
     const r = createTicket({ title: 'x', link: 'ftp://nope' });
     expect(r.ok).toBe(false);
   });
+
+  it('trims externalRef and preserves a meaningful value', () => {
+    const r = createTicket({ title: 'x', externalRef: '  #123  ' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBe('#123');
+  });
+
+  it('drops a whitespace-only externalRef', () => {
+    const r = createTicket({ title: 'x', externalRef: '   ' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBeUndefined();
+  });
+
+  it('omits externalRef entirely when not supplied', () => {
+    const r = createTicket({ title: 'x' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBeUndefined();
+  });
 });
 
 describe('approveTicketRequirements', () => {

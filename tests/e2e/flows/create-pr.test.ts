@@ -5,9 +5,18 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import { setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  makeApprovedTicket,
+  makeDoneTask,
+  makeReviewSprint,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 import { createSprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -57,6 +66,24 @@ const recordingPullRequestCreator = (
 const failingPullRequestCreator = (): PullRequestCreator => async () =>
   Result.error(new StorageError({ subCode: 'io', message: 'gh pr create failed: auth' }));
 
+const emptyTaskRepo = (): FindTasksBySprintId => ({
+  async findBySprintId() {
+    return Result.ok([]);
+  },
+});
+
+const recordingTaskRepo = (tasks: readonly Task[]): FindTasksBySprintId => ({
+  async findBySprintId() {
+    return Result.ok(tasks);
+  },
+});
+
+const failingTaskRepo = (): FindTasksBySprintId => ({
+  async findBySprintId() {
+    return Result.error(new StorageError({ subCode: 'io', message: 'task store unreachable' }));
+  },
+});
+
 const fixedClock = (): typeof FIXED_LATER => FIXED_LATER;
 
 describe('create-pr flow — happy path', () => {
@@ -69,6 +96,7 @@ describe('create-pr flow — happy path', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: execRepo.repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: pr.creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -88,6 +116,41 @@ describe('create-pr flow — happy path', () => {
     expect(String(execRepo.saves[0]?.pullRequestUrl)).toBe('https://github.com/o/r/pull/42');
   });
 
+  it('loads tasks from the repo and emits `## Tasks` + `## Related issues` (with `- Closes <ref>`) in the body', async () => {
+    const sprint = makeReviewSprint({
+      tickets: [
+        makeApprovedTicket({ title: 'first', externalRef: '#123' }),
+        makeApprovedTicket({ title: 'second', externalRef: '!456' }),
+      ],
+    });
+    const done = makeDoneTask({ name: 'shipped task' });
+    const todo = makeTodoTask({ name: 'still-pending' });
+    const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/x');
+    const pr = recordingPullRequestCreator('https://github.com/o/r/pull/77');
+
+    const flow = createCreatePrFlow({
+      sprintRepo: fakeSprintRepo(sprint),
+      sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+      taskRepo: recordingTaskRepo([done, todo]),
+      pullRequestCreator: pr.creator,
+      eventBus: createInMemoryEventBus(),
+      clock: fixedClock,
+    });
+    const result = await flow.execute({
+      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(pr.calls).toHaveLength(1);
+    const body = pr.calls[0]?.body ?? '';
+    expect(body).toContain('## Tasks');
+    expect(body).toContain('- shipped task');
+    expect(body).not.toContain('still-pending');
+    expect(body).toContain('## Related issues');
+    expect(body).toContain('- Closes #123');
+    expect(body).toContain('- Closes !456');
+  });
+
   it('honours user-supplied title and body overrides', async () => {
     const sprint = makeReviewSprint();
     const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/y');
@@ -96,6 +159,7 @@ describe('create-pr flow — happy path', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: pr.creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -127,6 +191,7 @@ describe('create-pr flow — failures', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: execRepo.repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: failingPullRequestCreator(),
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -139,6 +204,31 @@ describe('create-pr flow — failures', () => {
     expect(execRepo.saves).toHaveLength(0);
   });
 
+  it('aborts without opening a PR when taskRepo.findBySprintId fails', async () => {
+    const sprint = makeReviewSprint();
+    const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/x');
+    const execRepo = inMemoryExecutionRepo(exec);
+    const pr = recordingPullRequestCreator('https://github.com/o/r/pull/unused');
+
+    const flow = createCreatePrFlow({
+      sprintRepo: fakeSprintRepo(sprint),
+      sprintExecutionRepo: execRepo.repo,
+      taskRepo: failingTaskRepo(),
+      pullRequestCreator: pr.creator,
+      eventBus: createInMemoryEventBus(),
+      clock: fixedClock,
+    });
+    const result = await flow.execute({
+      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(StorageError);
+    expect(pr.calls).toHaveLength(0);
+    expect(execRepo.saves).toHaveLength(0);
+  });
+
   it('rejects an execution without a branch (no run flow yet)', async () => {
     const sprint = makeReviewSprint();
     const exec = createSprintExecution({ sprintId: sprint.id });
@@ -147,6 +237,7 @@ describe('create-pr flow — failures', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: recordingPullRequestCreator('unused').creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,

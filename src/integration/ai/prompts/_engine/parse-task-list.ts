@@ -4,6 +4,7 @@ import { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { TicketId as TicketIdValue } from '@src/domain/value/id/ticket-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { TaskImportListSchema, type TaskImportSpec } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
@@ -33,8 +34,25 @@ type ZodIssueLike = z.core.$ZodIssue;
 export type TaskListSpec = TaskImportSpec;
 
 export type ParseTaskListMode =
-  | { readonly kind: 'fixed'; readonly ticketId: TicketId }
-  | { readonly kind: 'lookup'; readonly ticketIds: ReadonlySet<string> };
+  | {
+      readonly kind: 'fixed';
+      readonly ticketId: TicketId;
+      /**
+       * Optional source ticket — when supplied the parser inherits `externalRef` onto every
+       * generated task as a single-element `externalRefs`. Omit when the caller has no
+       * ticket-level reference to propagate (e.g. tests that only care about task shape).
+       */
+      readonly ticket?: Ticket;
+    }
+  | {
+      readonly kind: 'lookup';
+      /**
+       * Approved tickets the planner can map onto tasks. The parser validates each task's
+       * `ticketRef` against this set (by id) and inherits the matched ticket's `externalRef`
+       * onto the task as a single-element `externalRefs`.
+       */
+      readonly tickets: readonly Ticket[];
+    };
 
 export interface ParseTaskListInput {
   readonly project: Project;
@@ -87,8 +105,9 @@ export const parseTaskList = (
     const t = specs[i];
     if (t === undefined) continue;
 
-    const ticketIdResult = resolveTicketId(t, i, input.mode);
-    if (!ticketIdResult.ok) return Result.error(ticketIdResult.error);
+    const ticketResolution = resolveTicketRef(t, i, input.mode);
+    if (!ticketResolution.ok) return Result.error(ticketResolution.error);
+    const { ticketId, externalRefs } = ticketResolution.value;
 
     const repoId = repoByPath.get(t.projectPath);
     if (repoId === undefined) {
@@ -127,10 +146,11 @@ export const parseTaskList = (
       steps: t.steps,
       verificationCriteria: t.verificationCriteria,
       order: i + 1,
-      ticketId: ticketIdResult.value,
+      ticketId,
       repositoryId: repoId,
       ...(dependsOn.length > 0 ? { dependsOn } : {}),
       ...(normalisedExtras !== undefined && normalisedExtras.length > 0 ? { extraDimensions: normalisedExtras } : {}),
+      ...(externalRefs !== undefined ? { externalRefs } : {}),
     });
     if (!created.ok) {
       return Result.error(
@@ -147,8 +167,24 @@ export const parseTaskList = (
   return Result.ok(tasks);
 };
 
-const resolveTicketId = (t: TaskImportSpec, i: number, mode: ParseTaskListMode): Result<TicketId, ParseError> => {
-  if (mode.kind === 'fixed') return Result.ok(mode.ticketId);
+interface ResolvedTicketRef {
+  readonly ticketId: TicketId;
+  /** Single-element when the source ticket carries an `externalRef`; `undefined` otherwise. */
+  readonly externalRefs?: readonly string[];
+}
+
+const externalRefsOf = (ticket: Ticket | undefined): readonly string[] | undefined =>
+  ticket?.externalRef !== undefined ? [ticket.externalRef] : undefined;
+
+const resolveTicketRef = (
+  t: TaskImportSpec,
+  i: number,
+  mode: ParseTaskListMode
+): Result<ResolvedTicketRef, ParseError> => {
+  if (mode.kind === 'fixed') {
+    const externalRefs = externalRefsOf(mode.ticket);
+    return Result.ok({ ticketId: mode.ticketId, ...(externalRefs !== undefined ? { externalRefs } : {}) });
+  }
   if (typeof t.ticketRef !== 'string' || t.ticketRef.trim().length === 0) {
     return Result.error(
       new ParseError({
@@ -158,12 +194,13 @@ const resolveTicketId = (t: TaskImportSpec, i: number, mode: ParseTaskListMode):
     );
   }
   const ref = t.ticketRef;
-  if (!mode.ticketIds.has(ref)) {
+  const match = mode.tickets.find((tk) => String(tk.id) === ref);
+  if (match === undefined) {
     return Result.error(
       new ParseError({
         subCode: 'schema-mismatch',
         message: `task-list: tasks[${String(i)}].ticketRef '${ref}' is not an approved ticket on the sprint`,
-        hint: `available ticket ids: ${Array.from(mode.ticketIds).join(', ')}`,
+        hint: `available ticket ids: ${mode.tickets.map((tk) => String(tk.id)).join(', ')}`,
       })
     );
   }
@@ -177,7 +214,8 @@ const resolveTicketId = (t: TaskImportSpec, i: number, mode: ParseTaskListMode):
       })
     );
   }
-  return Result.ok(parsed.value);
+  const externalRefs = externalRefsOf(match);
+  return Result.ok({ ticketId: parsed.value, ...(externalRefs !== undefined ? { externalRefs } : {}) });
 };
 
 /** Pull the first issue out of a zod error and format it `tasks[<n>].<field>: <message>`. */

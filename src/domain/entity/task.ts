@@ -46,6 +46,16 @@ interface TaskBase extends Entity<TaskId> {
   /** Cap for `attempts.length`. Once reached, `failCurrentAttempt` transitions to `blocked`. */
   readonly maxAttempts?: number;
   readonly extraDimensions?: readonly string[];
+  /**
+   * Verbatim external tracker references inherited from the originating ticket — e.g.
+   * `['#123']`, `['!456']`, `['PROJ-7']`. Currently always derived from `Ticket.externalRef`
+   * (1:1 ticketId mapping at plan / ideate time), but typed as an array to allow future
+   * fan-in (one task synthesised from multiple tickets) without a schema migration.
+   *
+   * Surfaced in the implement prompt's commit-message trailer (`Refs: #123, #124`) and in the
+   * PR / MR body's `## Related issues` section. Absent → no trailer, no entry.
+   */
+  readonly externalRefs?: readonly string[];
 }
 
 export interface TodoTask extends TaskBase {
@@ -93,6 +103,7 @@ export interface TaskCreateInput {
   readonly repositoryId: RepositoryId;
   readonly maxAttempts?: number;
   readonly extraDimensions?: readonly string[];
+  readonly externalRefs?: readonly string[];
 }
 
 export interface TaskUpdateInput {
@@ -107,6 +118,8 @@ export interface TaskUpdateInput {
   readonly maxAttempts?: number | null;
   /** `null` clears extra dimensions; `undefined` keeps them. */
   readonly extraDimensions?: readonly string[] | null;
+  /** `null` clears external refs; `undefined` keeps them. */
+  readonly externalRefs?: readonly string[] | null;
 }
 
 export const createTask = (input: TaskCreateInput): Result<TodoTask, ValidationError> => {
@@ -140,6 +153,7 @@ export const createTask = (input: TaskCreateInput): Result<TodoTask, ValidationE
     attempts: [],
     ...(maxAttempts !== undefined ? { maxAttempts } : {}),
     ...(input.extraDimensions !== undefined ? { extraDimensions: [...input.extraDimensions] } : {}),
+    ...(input.externalRefs !== undefined ? { externalRefs: [...input.externalRefs] } : {}),
   });
 };
 
@@ -310,6 +324,7 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     repositoryId: guard.value.repositoryId,
     ...(guard.value.maxAttempts !== undefined ? { maxAttempts: guard.value.maxAttempts } : {}),
     ...(guard.value.extraDimensions !== undefined ? { extraDimensions: guard.value.extraDimensions } : {}),
+    ...(guard.value.externalRefs !== undefined ? { externalRefs: guard.value.externalRefs } : {}),
     status: 'done',
     attempts,
     finalAttemptN: verified.n,
@@ -448,10 +463,22 @@ export const updateTask = (
     nextExtraDimensions = input.extraDimensions === null ? undefined : [...input.extraDimensions];
   }
 
-  const { description: _dropDesc, maxAttempts: _dropMax, extraDimensions: _dropExtra, ...rest } = todo;
+  let nextExternalRefs = todo.externalRefs;
+  if (input.externalRefs !== undefined) {
+    nextExternalRefs = input.externalRefs === null ? undefined : [...input.externalRefs];
+  }
+
+  const {
+    description: _dropDesc,
+    maxAttempts: _dropMax,
+    extraDimensions: _dropExtra,
+    externalRefs: _dropRefs,
+    ...rest
+  } = todo;
   void _dropDesc;
   void _dropMax;
   void _dropExtra;
+  void _dropRefs;
   return Result.ok({
     ...rest,
     name: nextName,
@@ -463,6 +490,7 @@ export const updateTask = (
     repositoryId: input.repositoryId ?? todo.repositoryId,
     ...(nextMaxAttempts !== undefined ? { maxAttempts: nextMaxAttempts } : {}),
     ...(nextExtraDimensions !== undefined ? { extraDimensions: nextExtraDimensions } : {}),
+    ...(nextExternalRefs !== undefined ? { externalRefs: nextExternalRefs } : {}),
   });
 };
 

@@ -54,7 +54,14 @@ export const createCreatePrFlow = (deps: CreatePrDeps): Element<CreatePrCtx> =>
           );
         }
 
-        const derived = derivePrContent(sprint.value, input.tasks ?? []);
+        // Honour caller-supplied tasks (override seam); otherwise load from the repo.
+        let tasks = input.tasks;
+        if (tasks === undefined) {
+          const loaded = await deps.taskRepo.findBySprintId(input.sprintId);
+          if (!loaded.ok) return Result.error(loaded.error);
+          tasks = loaded.value;
+        }
+        const derived = derivePrContent(sprint.value, tasks);
         const title = input.title ?? derived.title;
         const body = input.body ?? derived.body;
 

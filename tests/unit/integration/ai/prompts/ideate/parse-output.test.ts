@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-output.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { makeProject } from '@tests/fixtures/domain.ts';
+import { makeApprovedTicket, makeProject } from '@tests/fixtures/domain.ts';
 
 const ticketId = (() => {
   const r = TicketId.parse('01900000-0000-7000-8000-00000000aaaa');
@@ -133,5 +133,68 @@ describe('parseIdeateOutput', () => {
     const out = parseIdeateOutput(json, { project, sprintId, ticketId });
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.value.tasks).toHaveLength(0);
+  });
+
+  it('inherits externalRef from the supplied source ticket onto every generated task', () => {
+    const ticket = makeApprovedTicket({ externalRef: 'PROJ-7' });
+    const json = JSON.stringify({
+      requirements: 'r',
+      tasks: [
+        {
+          name: 'A',
+          projectPath: '/tmp/ralph/main-repo',
+          steps: ['s'],
+          verificationCriteria: ['v'],
+        },
+        {
+          name: 'B',
+          projectPath: '/tmp/ralph/main-repo',
+          steps: ['s'],
+          verificationCriteria: ['v'],
+        },
+      ],
+    });
+    const out = parseIdeateOutput(json, { project, sprintId, ticketId: ticket.id, ticket });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.tasks[0]?.externalRefs).toEqual(['PROJ-7']);
+    expect(out.value.tasks[1]?.externalRefs).toEqual(['PROJ-7']);
+  });
+
+  it('omits externalRefs when the source ticket has no externalRef (caller passes ticket)', () => {
+    const ticket = makeApprovedTicket();
+    const json = JSON.stringify({
+      requirements: 'r',
+      tasks: [
+        {
+          name: 'A',
+          projectPath: '/tmp/ralph/main-repo',
+          steps: ['s'],
+          verificationCriteria: ['v'],
+        },
+      ],
+    });
+    const out = parseIdeateOutput(json, { project, sprintId, ticketId: ticket.id, ticket });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.tasks[0]?.externalRefs).toBeUndefined();
+  });
+
+  it('omits externalRefs when no source ticket is supplied (legacy id-only call)', () => {
+    const json = JSON.stringify({
+      requirements: 'r',
+      tasks: [
+        {
+          name: 'A',
+          projectPath: '/tmp/ralph/main-repo',
+          steps: ['s'],
+          verificationCriteria: ['v'],
+        },
+      ],
+    });
+    const out = parseIdeateOutput(json, { project, sprintId, ticketId });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.tasks[0]?.externalRefs).toBeUndefined();
   });
 });

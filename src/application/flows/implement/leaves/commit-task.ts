@@ -9,8 +9,9 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
+import { COMMIT_MESSAGE_MAX_BYTES, gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { renderTicketRefsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export type CommitMessageFactory = (input: { readonly task: Task }) => string;
@@ -22,12 +23,11 @@ export interface CommitTaskLeafDeps {
   readonly logger: Logger;
 }
 
-// Hard cap on the full commit message (subject + blank line + body, bytes). Must match
-// `COMMIT_MESSAGE_MAX_BYTES` in `git-operations.ts` — the validator there is the
-// last-line-of-defense; the factories below should never produce a message that breaches it.
-// Per-task commits are signal for the harness, not prose; the AI's descriptive write-up lives
-// in `progress.md`, not in git history.
-const COMMIT_MESSAGE_MAX_BYTES = 200;
+// Hard cap on the full commit message imported from the validator in `git-operations.ts` so
+// the factories below cannot drift from the last-line-of-defence check. Per-task commits are
+// signal for the harness, not prose — the AI's descriptive write-up lives in `progress.md`,
+// not in git history. The cap leaves room for a conventional subject, a short WHY paragraph,
+// and the per-ticket `Closes …` trailer the harness appends from `Task.externalRefs`.
 const ELLIPSIS = '...';
 
 /** UTF-8 byte length — `commit-task` argv is bytes-bound, not chars-bound. */
@@ -77,6 +77,32 @@ const assembleCommitMessage = (subject: string, body: string | undefined): strin
 
 const defaultMessageFactory: CommitMessageFactory = ({ task }): string =>
   assembleCommitMessage(task.name, firstParagraph(task.description ?? ''));
+
+/**
+ * Append the deterministic `Closes <ref>` trailer block when the task carries external
+ * references. Centralised here (rather than asked of the AI via the prompt) so persisted
+ * ticket → commit linkage doesn't depend on model compliance.
+ *
+ * Layout: existing message + blank line + trailer. If the existing message is already at or
+ * near the cap, the message tail is truncated (with the same ellipsis convention used by
+ * `clampToBytes`) so the trailer always lands intact at the end. If the trailer alone cannot
+ * fit alongside even a 1-byte subject — extreme edge — the original message is returned
+ * unchanged; better to ship the message without the trailer than ship a degenerate message.
+ */
+const appendTrailerToMessage = (message: string, refs: readonly string[] | undefined): string => {
+  const trailer = renderTicketRefsSection(refs);
+  if (trailer.length === 0) return message;
+  const trailerBytes = byteLen(trailer);
+  const separatorBytes = 2; // `\n\n`
+  const overhead = separatorBytes + trailerBytes;
+  if (overhead + 1 > COMMIT_MESSAGE_MAX_BYTES) return message;
+  if (byteLen(message) + overhead <= COMMIT_MESSAGE_MAX_BYTES) {
+    return `${message}\n\n${trailer}`;
+  }
+  const innerCap = COMMIT_MESSAGE_MAX_BYTES - overhead;
+  const truncated = clampToBytes(message, innerCap);
+  return `${truncated}\n\n${trailer}`;
+};
 
 export interface CommitTaskLeafOpts {
   readonly cwd: AbsolutePath;
@@ -141,11 +167,14 @@ export const commitTaskLeaf = (
       //      Subject + optional body are joined with the conventional blank-line separator.
       //   2. Caller-supplied `opts.messageFactory` (legacy injection point).
       //   3. Default `task(<short-id>): <name>` factory.
+      // After resolution we always append the deterministic `Closes …` trailer when the task
+      // carries external refs — the AI no longer sees the refs, so this is the only writer.
       const proposed = ctx.proposedCommitMessage;
-      const message =
+      const baseMessage =
         proposed !== undefined
           ? assembleCommitMessage(proposed.subject, proposed.body)
           : (opts.messageFactory ?? defaultMessageFactory)({ task });
+      const message = appendTrailerToMessage(baseMessage, task.externalRefs);
       return { task, sprintId: ctx.sprintId, message };
     },
     output: (ctx, out) => ({

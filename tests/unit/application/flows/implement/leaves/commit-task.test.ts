@@ -219,7 +219,7 @@ describe('commitTaskLeaf', () => {
   it('truncates long commit messages with an ellipsis', async () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt({});
-    const longName = 'x'.repeat(500);
+    const longName = 'x'.repeat(1000);
     const renamed: Task = { ...task, name: longName };
     const sha = 'c'.repeat(40);
     let observedMessage: string | undefined;
@@ -241,11 +241,11 @@ describe('commitTaskLeaf', () => {
       task.id
     );
     await leaf.execute(baseCtx(renamed));
-    expect(observedMessage?.length ?? 0).toBeLessThanOrEqual(200);
+    expect(observedMessage?.length ?? 0).toBeLessThanOrEqual(500);
     expect(observedMessage?.endsWith('...')).toBe(true);
   });
 
-  it('clamps the default message so a long description never breaches the 200-byte cap', async () => {
+  it('clamps the default message so a long description never breaches the 500-byte cap', async () => {
     // Regression: the realistic case from production — short task name, long description.
     // Previously the factory concatenated `name + "\n\n" + description` with no body clamp,
     // blew past the 200-byte validator, and commit-task silently no-op'd. The task settled
@@ -280,7 +280,7 @@ describe('commitTaskLeaf', () => {
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(true);
     expect(observedMessage).toBeDefined();
-    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(200);
+    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(500);
     // Subject must be preserved verbatim — clamping happens in the body.
     expect(observedMessage!.startsWith('Add "exphub" confetti easter egg')).toBe(true);
   });
@@ -316,8 +316,188 @@ describe('commitTaskLeaf', () => {
     };
     await leaf.execute(ctx);
     expect(observedMessage).toBeDefined();
-    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(200);
+    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(500);
     expect(observedMessage!.startsWith('feat(easter-egg): add exphub confetti\n\n')).toBe(true);
     expect(observedMessage!.endsWith('...')).toBe(true);
+  });
+
+  it('accepts a proposed message with a long body that fits within the new 500-byte cap', async () => {
+    // Regression-prevention: the cap raise from 200 → 500 must let a realistic AI commit
+    // (subject + a few WHY sentences) pass through verbatim. The harness now appends any
+    // `Closes …` trailer itself, so the AI no longer has reason to emit one — this task has
+    // no externalRefs, so the body lands as-is.
+    const repo = fakeRepo();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const sha = 'f'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    const subject = 'feat(auth): switch session lookup to user-id index';
+    // ~380-byte body so subject + body + trailer ≈ 460 bytes (under the 500 cap, above the
+    // old 200 cap — exactly the size we extended for).
+    const body = `${'x'.repeat(380)}\n\nRefs: #123`;
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      proposedCommitMessage: { subject, body },
+    };
+    await leaf.execute(ctx);
+    expect(observedMessage).toBeDefined();
+    // The full body landed verbatim — no truncation ellipsis at the new cap.
+    expect(observedMessage!.endsWith('Refs: #123')).toBe(true);
+    expect(observedMessage!.startsWith(`${subject}\n\n`)).toBe(true);
+    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(500);
+  });
+
+  it('appends a deterministic `Closes <ref>` trailer when the task carries externalRefs', async () => {
+    const repo = fakeRepo();
+    const baseTask = makeInProgressTaskWithRunningAttempt();
+    const task: Task = { ...baseTask, externalRefs: ['#123'] };
+    const sha = '1'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      proposedCommitMessage: { subject: 'feat(auth): rotate refresh tokens', body: 'WHY this matters' },
+    };
+    await leaf.execute(ctx);
+    expect(observedMessage).toBeDefined();
+    expect(observedMessage!.endsWith('\n\nCloses #123')).toBe(true);
+    expect(observedMessage!.startsWith('feat(auth): rotate refresh tokens\n\n')).toBe(true);
+  });
+
+  it('renders one `Closes <ref>` line per ref for multi-ref tasks', async () => {
+    const repo = fakeRepo();
+    const baseTask = makeInProgressTaskWithRunningAttempt();
+    const task: Task = { ...baseTask, externalRefs: ['#123', '!456'] };
+    const sha = '2'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    // No proposed message → default factory + trailer append.
+    await leaf.execute(baseCtx(task));
+    expect(observedMessage).toBeDefined();
+    expect(observedMessage!.endsWith('\n\nCloses #123\nCloses !456')).toBe(true);
+  });
+
+  it('does not append a trailer when the task has no externalRefs', async () => {
+    const repo = fakeRepo();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const sha = '3'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      proposedCommitMessage: { subject: 'chore: nothing fancy', body: 'no trailer please' },
+    };
+    await leaf.execute(ctx);
+    expect(observedMessage).toBeDefined();
+    expect(observedMessage).not.toContain('Closes');
+    expect(observedMessage).toBe('chore: nothing fancy\n\nno trailer please');
+  });
+
+  it('truncates the message body to keep the trailer intact when the combined size would breach the cap', async () => {
+    // Realistic shape: a long AI-written body brushes the cap; the trailer must still land
+    // intact as the final line. The body gets the ellipsis, not the trailer.
+    const repo = fakeRepo();
+    const baseTask = makeInProgressTaskWithRunningAttempt();
+    const task: Task = { ...baseTask, externalRefs: ['#9999'] };
+    const sha = '4'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    const subject = 'feat(auth): switch session lookup to user-id index';
+    // Body sized so subject + body alone is at the cap — adding the trailer forces truncation.
+    const body = 'x'.repeat(500);
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      proposedCommitMessage: { subject, body },
+    };
+    await leaf.execute(ctx);
+    expect(observedMessage).toBeDefined();
+    expect(Buffer.byteLength(observedMessage!, 'utf8')).toBeLessThanOrEqual(500);
+    // Trailer is the final line, intact.
+    expect(observedMessage!.endsWith('\n\nCloses #9999')).toBe(true);
+    expect(observedMessage!.startsWith(`${subject}\n\n`)).toBe(true);
+    // The body got the ellipsis, not the trailer.
+    const lines = observedMessage!.split('\n');
+    const trailerIdx = lines.lastIndexOf('Closes #9999');
+    expect(lines[trailerIdx - 2]?.endsWith('...')).toBe(true);
   });
 });

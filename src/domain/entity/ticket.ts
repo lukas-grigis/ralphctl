@@ -13,6 +13,12 @@ interface TicketBase extends Entity<TicketId> {
   readonly title: string;
   readonly description?: string;
   readonly link?: HttpUrl;
+  /**
+   * External tracker reference — e.g. GitHub `#123`, GitLab `!456`, JIRA `PROJ-7`. Free-form
+   * verbatim string; the harness propagates it onto generated tasks and surfaces it in commit
+   * messages + PR / MR bodies. No format validation — different trackers, different shapes.
+   */
+  readonly externalRef?: string;
 }
 
 export interface PendingTicket extends TicketBase {
@@ -39,6 +45,7 @@ export interface TicketCreateInput {
   readonly title: string;
   readonly description?: string;
   readonly link?: string;
+  readonly externalRef?: string;
 }
 
 export const createTicket = (input: TicketCreateInput): Result<PendingTicket, ValidationError> => {
@@ -55,11 +62,18 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
     link = parsed.value;
   }
 
+  // Trim the external ref at intake so persisted tickets never carry whitespace-only refs;
+  // downstream renderers (commit trailer, PR body) treat those as absent anyway, so the
+  // persisted shape should match.
+  const trimmedRef = input.externalRef?.trim();
+  const externalRef = trimmedRef !== undefined && trimmedRef.length > 0 ? trimmedRef : undefined;
+
   return Result.ok({
     id: input.id ?? TicketId.generate(),
     title: title.value,
     ...(description.value !== undefined ? { description: description.value } : {}),
     ...(link !== undefined ? { link } : {}),
+    ...(externalRef !== undefined ? { externalRef } : {}),
     status: 'pending',
     requirements: undefined,
   });
@@ -97,6 +111,7 @@ export const approveTicketRequirements = (ticket: Ticket, text: string): Result<
     title: ticket.title,
     ...(ticket.description !== undefined ? { description: ticket.description } : {}),
     ...(ticket.link !== undefined ? { link: ticket.link } : {}),
+    ...(ticket.externalRef !== undefined ? { externalRef: ticket.externalRef } : {}),
     status: 'approved',
     requirements: text,
   });

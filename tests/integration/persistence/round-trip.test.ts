@@ -48,6 +48,19 @@ describe('codec round-trip', () => {
     expect(roundTrip(original, fromJsonTicket)).toEqual(original);
   });
 
+  it('Ticket with externalRef — preserves the verbatim tracker reference', () => {
+    const original = makeApprovedTicket({ externalRef: '#123' });
+    expect(roundTrip(original, fromJsonTicket)).toEqual(original);
+  });
+
+  it('Ticket without externalRef — back-compat: absent JSON key parses to undefined', () => {
+    const raw = JSON.parse(JSON.stringify(makeApprovedTicket())) as { externalRef?: unknown };
+    expect(raw.externalRef).toBeUndefined();
+    const r = fromJsonTicket(raw);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.externalRef).toBeUndefined();
+  });
+
   it('Sprint draft — preserves projectName and tickets', () => {
     const bundle = makeDraftSprintBundle();
     const sprint = { ...bundle.sprint, tickets: [makeApprovedTicket()] };
@@ -72,6 +85,19 @@ describe('codec round-trip', () => {
   it('Task todo — round-trips with empty attempts', () => {
     const original = makeTodoTask();
     expect(roundTrip(original, fromJsonTask)).toEqual(original);
+  });
+
+  it('Task with externalRefs — preserves the verbatim list', () => {
+    const original = makeTodoTask({ externalRefs: ['#123', '!456'] });
+    expect(roundTrip(original, fromJsonTask)).toEqual(original);
+  });
+
+  it('Task without externalRefs — back-compat: absent JSON key parses to undefined', () => {
+    const raw = JSON.parse(JSON.stringify(makeTodoTask())) as { externalRefs?: unknown };
+    expect(raw.externalRefs).toBeUndefined();
+    const r = fromJsonTask(raw);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.externalRefs).toBeUndefined();
   });
 
   it('Task in_progress — preserves running attempt', () => {
