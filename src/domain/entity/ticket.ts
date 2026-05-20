@@ -13,6 +13,12 @@ interface TicketBase extends Entity<TicketId> {
   readonly title: string;
   readonly description?: string;
   readonly link?: HttpUrl;
+  /**
+   * External tracker reference — e.g. GitHub `#123`, GitLab `!456`, JIRA `PROJ-7`. Free-form
+   * verbatim string; the harness propagates it onto generated tasks and surfaces it in commit
+   * messages + PR / MR bodies. No format validation — different trackers, different shapes.
+   */
+  readonly externalRef?: string;
 }
 
 export interface PendingTicket extends TicketBase {
@@ -39,6 +45,7 @@ export interface TicketCreateInput {
   readonly title: string;
   readonly description?: string;
   readonly link?: string;
+  readonly externalRef?: string;
 }
 
 export const createTicket = (input: TicketCreateInput): Result<PendingTicket, ValidationError> => {
@@ -60,6 +67,7 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
     title: title.value,
     ...(description.value !== undefined ? { description: description.value } : {}),
     ...(link !== undefined ? { link } : {}),
+    ...(input.externalRef !== undefined ? { externalRef: input.externalRef } : {}),
     status: 'pending',
     requirements: undefined,
   });
@@ -97,6 +105,7 @@ export const approveTicketRequirements = (ticket: Ticket, text: string): Result<
     title: ticket.title,
     ...(ticket.description !== undefined ? { description: ticket.description } : {}),
     ...(ticket.link !== undefined ? { link: ticket.link } : {}),
+    ...(ticket.externalRef !== undefined ? { externalRef: ticket.externalRef } : {}),
     status: 'approved',
     requirements: text,
   });

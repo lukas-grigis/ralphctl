@@ -46,6 +46,7 @@ export const registerCreatePrCommand = (program: Command): void => {
       const flow = createCreatePrFlow({
         sprintRepo: deps.sprintRepo,
         sprintExecutionRepo: deps.sprintExecutionRepo,
+        taskRepo: deps.taskRepo,
         pullRequestCreator: deps.pullRequestCreator,
         eventBus: deps.eventBus,
         clock: deps.clock,

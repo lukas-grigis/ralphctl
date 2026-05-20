@@ -59,10 +59,10 @@ export const parsePlanOutput = (
     );
   }
 
-  const approvedTicketIds = new Set(ctx.sprint.tickets.filter((t) => t.status === 'approved').map((t) => String(t.id)));
+  const approvedTickets = ctx.sprint.tickets.filter((t) => t.status === 'approved');
 
   return parseTaskList(json, {
     project: ctx.project,
-    mode: { kind: 'lookup', ticketIds: approvedTicketIds },
+    mode: { kind: 'lookup', tickets: approvedTickets },
   });
 };

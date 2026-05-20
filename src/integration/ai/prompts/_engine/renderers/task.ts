@@ -88,6 +88,31 @@ export const renderExtraDimensionsSection = (extras: readonly string[] | undefin
 };
 
 /**
+ * Render the verbatim ticket-reference trailer line for the implement prompt's commit-message
+ * instructions. Format is git-trailer style: `Refs: #123, #124` — single line, no markdown
+ * heading, no trailing newline. Used by the implement template inside a conditional clause so
+ * the empty case reads cleanly (no orphan label, no gappy sentence).
+ *
+ * Empty / undefined → empty string. Multiple refs are comma-separated, deduped (set-style),
+ * preserved in input order. The harness writes them verbatim — `#`/`!`/`PROJ-` decoration is
+ * the source ticket's choice, not ours to normalise.
+ */
+export const renderTicketRefsSection = (refs: readonly string[] | undefined): string => {
+  if (refs === undefined || refs.length === 0) return '';
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const r of refs) {
+    const trimmed = r.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    ordered.push(trimmed);
+  }
+  if (ordered.length === 0) return '';
+  return `Refs: ${ordered.join(', ')}`;
+};
+
+/**
  * Render the optional "## Prior Critique" section — populated on turn 2+ of the gen-eval loop
  * with the evaluator's failed-verdict critique from the previous turn. The generator reads it
  * to know exactly which dimensions to address on the fix attempt. Absent on turn 1 (no prior

@@ -19,6 +19,7 @@ const TaskBaseShape = {
   attempts: z.array(AttemptSchema).readonly(),
   maxAttempts: z.number().optional(),
   extraDimensions: z.array(z.string()).readonly().optional(),
+  externalRefs: z.array(z.string()).readonly().optional(),
 };
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });

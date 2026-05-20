@@ -26,8 +26,9 @@ export interface CommitTaskLeafDeps {
 // `COMMIT_MESSAGE_MAX_BYTES` in `git-operations.ts` — the validator there is the
 // last-line-of-defense; the factories below should never produce a message that breaches it.
 // Per-task commits are signal for the harness, not prose; the AI's descriptive write-up lives
-// in `progress.md`, not in git history.
-const COMMIT_MESSAGE_MAX_BYTES = 200;
+// in `progress.md`, not in git history. 500 bytes leaves room for a conventional subject,
+// a short WHY paragraph, and the per-ticket `Refs: …` trailer the implement prompt appends.
+const COMMIT_MESSAGE_MAX_BYTES = 500;
 const ELLIPSIS = '...';
 
 /** UTF-8 byte length — `commit-task` argv is bytes-bound, not chars-bound. */

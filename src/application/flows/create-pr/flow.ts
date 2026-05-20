@@ -54,7 +54,16 @@ export const createCreatePrFlow = (deps: CreatePrDeps): Element<CreatePrCtx> =>
           );
         }
 
-        const derived = derivePrContent(sprint.value, input.tasks ?? []);
+        // Prefer pre-supplied tasks (test callers + future override seams); otherwise load
+        // them so the derived body's `## Tasks` + `## Related issues` sections reflect the
+        // sprint's actual state without forcing every caller surface to pre-load.
+        let tasks = input.tasks;
+        if (tasks === undefined) {
+          const loaded = await deps.taskRepo.findBySprintId(input.sprintId);
+          if (!loaded.ok) return Result.error(loaded.error);
+          tasks = loaded.value;
+        }
+        const derived = derivePrContent(sprint.value, tasks);
         const title = input.title ?? derived.title;
         const body = input.body ?? derived.body;
 

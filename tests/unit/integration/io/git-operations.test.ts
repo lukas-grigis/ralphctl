@@ -163,18 +163,18 @@ describe('gitCommitWithMessage', () => {
     if (!result.ok) expect(result.error.message).toContain('empty');
   });
 
-  it('rejects commit message over the 200-byte cap (validator is the last line of defence)', async () => {
+  it('rejects commit message over the 500-byte cap (validator is the last line of defence)', async () => {
     // Per-task commits are signal, not prose. The validator at git-operations.ts trusts the
     // factories upstream to clamp messages; this test pins the hard cap so a factory bug
     // surfaces here rather than as a corrupted git history.
     const { runner } = scriptRunner([]);
-    const result = await gitCommitWithMessage(runner, cwd, 'x'.repeat(201));
+    const result = await gitCommitWithMessage(runner, cwd, 'x'.repeat(501));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('200-byte');
+    if (!result.ok) expect(result.error.message).toContain('500-byte');
   });
 
   it('accepts a subject-only message at exactly the cap', async () => {
-    const message = 'x'.repeat(200);
+    const message = 'x'.repeat(500);
     const { runner } = scriptRunner([
       { args: ['status', '--porcelain'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },

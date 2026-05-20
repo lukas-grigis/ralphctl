@@ -78,6 +78,8 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
 
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);
+          // `task.externalRefs` (populated by parseTaskList from the source ticket's externalRef)
+          // is read inside buildImplementPrompt and rendered into the commit-message trailer.
           const prompt = await buildImplementPrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),

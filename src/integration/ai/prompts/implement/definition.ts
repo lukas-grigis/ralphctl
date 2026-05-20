@@ -10,6 +10,7 @@ import {
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
+  renderTicketRefsSection,
   renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -24,6 +25,7 @@ export {
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
+  renderTicketRefsSection,
   renderVerificationCriteriaSection,
 };
 
@@ -65,6 +67,13 @@ export interface ImplementPromptParams {
    * the generator's fix attempt addresses the same dimensions the evaluator flagged.
    */
   readonly priorCritiqueSection: string;
+  /**
+   * Single-line git-trailer string substituted into the commit-message instructions —
+   * `Refs: #123, #124` when the task carries external refs, empty string otherwise. The
+   * surrounding template prose collapses cleanly in the empty case (conditional clause,
+   * not a list item).
+   */
+  readonly ticketRefsSection: string;
 }
 
 const requireNonEmpty =
@@ -126,6 +135,11 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
     },
+    ticketRefsSection: {
+      placeholder: 'TICKET_REFS_SECTION',
+      description:
+        'Single-line "Refs: #123, #124" git trailer for the commit message — empty when the task carries no external refs.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -170,4 +184,5 @@ export const buildImplementPrompt = async (
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    ticketRefsSection: renderTicketRefsSection(input.task.externalRefs),
   });

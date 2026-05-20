@@ -93,6 +93,13 @@ export const renderApprovedTickets = (sprint: Sprint): string => {
   const lines: string[] = [];
   for (const t of approved) {
     lines.push(`### Ticket \`${String(t.id)}\` — ${t.title}`);
+    if (t.externalRef !== undefined && t.externalRef.trim().length > 0) {
+      // Informational only — the planner must still use the UUID above as `ticketRef` in the
+      // emitted JSON. The clarifying line in the prompt template (see "Ticket reference
+      // policy") enforces that contract.
+      lines.push('');
+      lines.push(`**External reference:** ${t.externalRef.trim()}`);
+    }
     lines.push('');
     lines.push(t.requirements.trim().length > 0 ? t.requirements : '_(no requirements body)_');
     lines.push('');

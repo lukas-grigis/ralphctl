@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { TodoTask } from '@src/domain/entity/task.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -27,6 +28,12 @@ export interface ParseIdeateOutputInput {
   readonly project: Project;
   readonly sprintId: SprintId;
   readonly ticketId: TicketId;
+  /**
+   * Optional source ticket — when supplied, its `externalRef` (if present) is inherited onto
+   * every generated task as a single-element `externalRefs`. Callers that only have the id
+   * (e.g. tests, legacy call-sites) can omit; the propagation then no-ops cleanly.
+   */
+  readonly ticket?: Ticket;
 }
 
 export interface ParseIdeateOutputResult {
@@ -62,7 +69,7 @@ export const parseIdeateOutput = (
 
   const tasks = parseTaskList(parsed.data.tasks, {
     project: ctx.project,
-    mode: { kind: 'fixed', ticketId: ctx.ticketId },
+    mode: { kind: 'fixed', ticketId: ctx.ticketId, ...(ctx.ticket !== undefined ? { ticket: ctx.ticket } : {}) },
   });
   if (!tasks.ok) return Result.error(tasks.error);
 

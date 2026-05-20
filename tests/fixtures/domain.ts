@@ -87,11 +87,26 @@ export const makeProject = (
     })
   );
 
-export const makePendingTicket = (overrides: Partial<{ title: string }> = {}): PendingTicket =>
-  unwrap(createTicket({ title: overrides.title ?? 'a ticket' }));
+export const makePendingTicket = (overrides: Partial<{ title: string; externalRef: string }> = {}): PendingTicket =>
+  unwrap(
+    createTicket({
+      title: overrides.title ?? 'a ticket',
+      ...(overrides.externalRef !== undefined ? { externalRef: overrides.externalRef } : {}),
+    })
+  );
 
-export const makeApprovedTicket = (overrides: Partial<{ title: string; requirements: string }> = {}): ApprovedTicket =>
-  unwrap(approveTicketRequirements(makePendingTicket(overrides), overrides.requirements ?? 'do the thing well'));
+export const makeApprovedTicket = (
+  overrides: Partial<{ title: string; requirements: string; externalRef: string }> = {}
+): ApprovedTicket =>
+  unwrap(
+    approveTicketRequirements(
+      makePendingTicket({
+        ...(overrides.title !== undefined ? { title: overrides.title } : {}),
+        ...(overrides.externalRef !== undefined ? { externalRef: overrides.externalRef } : {}),
+      }),
+      overrides.requirements ?? 'do the thing well'
+    )
+  );
 
 export interface SprintBundle {
   readonly sprint: DraftSprint;
@@ -145,6 +160,7 @@ export const makeTodoTask = (
     repositoryId: RepositoryId;
     dependsOn: TaskId[];
     maxAttempts: number;
+    externalRefs: readonly string[];
   }> = {}
 ): TodoTask => {
   const ticket = makeApprovedTicket();
@@ -158,6 +174,7 @@ export const makeTodoTask = (
       verificationCriteria: ['runs to completion'],
       ...(overrides.dependsOn !== undefined ? { dependsOn: overrides.dependsOn } : {}),
       ...(overrides.maxAttempts !== undefined ? { maxAttempts: overrides.maxAttempts } : {}),
+      ...(overrides.externalRefs !== undefined ? { externalRefs: overrides.externalRefs } : {}),
     })
   );
 };

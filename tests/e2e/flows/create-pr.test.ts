@@ -5,6 +5,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
@@ -57,6 +58,12 @@ const recordingPullRequestCreator = (
 const failingPullRequestCreator = (): PullRequestCreator => async () =>
   Result.error(new StorageError({ subCode: 'io', message: 'gh pr create failed: auth' }));
 
+const emptyTaskRepo = (): FindTasksBySprintId => ({
+  async findBySprintId() {
+    return Result.ok([]);
+  },
+});
+
 const fixedClock = (): typeof FIXED_LATER => FIXED_LATER;
 
 describe('create-pr flow — happy path', () => {
@@ -69,6 +76,7 @@ describe('create-pr flow — happy path', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: execRepo.repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: pr.creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -96,6 +104,7 @@ describe('create-pr flow — happy path', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: pr.creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -127,6 +136,7 @@ describe('create-pr flow — failures', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: execRepo.repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: failingPullRequestCreator(),
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
@@ -147,6 +157,7 @@ describe('create-pr flow — failures', () => {
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
+      taskRepo: emptyTaskRepo(),
       pullRequestCreator: recordingPullRequestCreator('unused').creator,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,

@@ -10,6 +10,7 @@ const TicketBaseShape = {
   title: z.string(),
   description: z.string().optional(),
   link: HttpUrlSchema.optional(),
+  externalRef: z.string().optional(),
 };
 
 const PendingTicketSchema = z.object({
