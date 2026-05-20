@@ -50,7 +50,7 @@ export const registerRunsCommand = (program: Command): void => {
     .command('prune')
     .description('delete per-run forensic artifacts (filters required unless invoked interactively)')
     .option('--older-than <duration>', 'delete runs older than this (h / d / w suffix, e.g. 7d)')
-    .option('--keep-last <n>', 'retain the N most-recent runs per flow', parseKeepLastOption)
+    .option('--keep-last <n>', 'retain the N most-recent runs per flow')
     .option('-f, --flow <name>', 'restrict pruning to a single flow')
     .option('--dry-run', 'list candidates without deleting (wins over --yes)')
     .option('-y, --yes', 'skip the interactive y/N confirmation')
@@ -122,7 +122,6 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
 
   let keepLast: number | undefined;
   if (opts.keepLast !== undefined) {
-    // Commander has already run parseKeepLastOption — opts.keepLast is the validated string form.
     const parsed = Number(opts.keepLast);
     if (!Number.isInteger(parsed) || parsed < 0) {
       process.stderr.write(`error: --keep-last must be a non-negative integer\n`);
@@ -162,33 +161,7 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
     return;
   }
 
-  // Per-flow candidate selection. When both criteria are set, a dir qualifies only when it is
-  // older than the duration AND not among the N most-recent for its flow. When only one is set,
-  // only that criterion gates the dir. Non-conforming dir names (no embedded timestamp) cannot
-  // satisfy `--older-than`; they're warned about and skipped from the age branch but still
-  // considered for `--keep-last` ordering (they sort to the tail in groupByFlow).
-  const candidates: RunEntry[] = [];
-  const unknownStampWarnings: string[] = [];
-  const nowMs = Date.now();
-  for (const [, runsForFlow] of grouped) {
-    const keep = new Set<string>();
-    if (keepLast !== undefined) {
-      for (const r of runsForFlow.slice(0, keepLast)) keep.add(r.path);
-    }
-    for (const run of runsForFlow) {
-      let ageQualifies = true;
-      if (olderThanMs !== undefined) {
-        if (run.timestamp === null) {
-          unknownStampWarnings.push(run.path);
-          ageQualifies = false;
-        } else {
-          ageQualifies = nowMs - run.timestamp.getTime() >= olderThanMs;
-        }
-      }
-      const keepQualifies = keepLast === undefined ? true : !keep.has(run.path);
-      if (ageQualifies && keepQualifies) candidates.push(run);
-    }
-  }
+  const { candidates, unknownStampWarnings } = selectCandidates(grouped, { olderThanMs, keepLast });
 
   for (const warning of unknownStampWarnings) {
     process.stdout.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
@@ -294,22 +267,10 @@ const runInteractivePrune = async (): Promise<void> => {
     }
 
     const scoped = flowFilter !== undefined ? listed.value.filter((r) => r.flow === flowFilter) : listed.value;
-    const candidates: RunEntry[] = [];
     const grouped = groupByFlow(scoped);
-    const nowMs = Date.now();
-    for (const [, runsForFlow] of grouped) {
-      const keep = new Set<string>();
-      if (keepLast !== undefined) {
-        for (const r of runsForFlow.slice(0, keepLast)) keep.add(r.path);
-      }
-      for (const run of runsForFlow) {
-        if (olderThanMs !== undefined) {
-          if (run.timestamp === null) continue;
-          if (nowMs - run.timestamp.getTime() >= olderThanMs) candidates.push(run);
-        } else if (keepLast !== undefined && !keep.has(run.path)) {
-          candidates.push(run);
-        }
-      }
+    const { candidates, unknownStampWarnings } = selectCandidates(grouped, { olderThanMs, keepLast });
+    for (const warning of unknownStampWarnings) {
+      process.stdout.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
     }
     if (candidates.length === 0) {
       process.stdout.write('nothing to prune\n');
@@ -323,11 +284,49 @@ const runInteractivePrune = async (): Promise<void> => {
       process.stdout.write('aborted\n');
       return;
     }
-    rl.close();
     await performPrune(candidates);
   } finally {
     rl.close();
   }
+};
+
+/**
+ * Per-flow candidate selection. When both criteria are set, a dir qualifies only when it is
+ * older than the duration AND not among the N most-recent for its flow. When only one is set,
+ * only that criterion gates the dir. Non-conforming dir names (no embedded timestamp) cannot
+ * satisfy `--older-than`; they're surfaced via `unknownStampWarnings` so the caller can warn
+ * once, and skipped from the age branch but still considered for `--keep-last` ordering
+ * (they sort to the tail in groupByFlow).
+ */
+const selectCandidates = (
+  grouped: ReadonlyMap<string, readonly RunEntry[]>,
+  filters: { readonly olderThanMs: number | undefined; readonly keepLast: number | undefined }
+): { readonly candidates: readonly RunEntry[]; readonly unknownStampWarnings: readonly string[] } => {
+  const { olderThanMs, keepLast } = filters;
+  const candidates: RunEntry[] = [];
+  const unknownStampWarnings: string[] = [];
+  const nowMs = Date.now();
+  for (const [, runsForFlow] of grouped) {
+    let keep: Set<string> | undefined;
+    if (keepLast !== undefined) {
+      keep = new Set<string>();
+      for (const r of runsForFlow.slice(0, keepLast)) keep.add(r.path);
+    }
+    for (const run of runsForFlow) {
+      let ageQualifies = true;
+      if (olderThanMs !== undefined) {
+        if (run.timestamp === null) {
+          unknownStampWarnings.push(run.path);
+          ageQualifies = false;
+        } else {
+          ageQualifies = nowMs - run.timestamp.getTime() >= olderThanMs;
+        }
+      }
+      const keepQualifies = keep === undefined ? true : !keep.has(run.path);
+      if (ageQualifies && keepQualifies) candidates.push(run);
+    }
+  }
+  return { candidates, unknownStampWarnings };
 };
 
 const printCandidateSummary = (candidates: readonly RunEntry[]): void => {
@@ -372,13 +371,6 @@ const performPrune = async (candidates: readonly RunEntry[]): Promise<void> => {
     );
     process.exit(1);
   }
-};
-
-const parseKeepLastOption = (raw: string): string => {
-  // Commander invokes this when the operator passes --keep-last. We defer hard validation to the
-  // action handler so the error message is consistent with the duration-parser branch and we can
-  // emit a single error line ahead of any filesystem work.
-  return raw;
 };
 
 const question = (rl: ReturnType<typeof createInterface>, prompt: string): Promise<string> =>
