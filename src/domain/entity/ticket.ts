@@ -62,12 +62,18 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
     link = parsed.value;
   }
 
+  // Trim the external ref at intake so persisted tickets never carry whitespace-only refs;
+  // downstream renderers (commit trailer, PR body) treat those as absent anyway, so the
+  // persisted shape should match.
+  const trimmedRef = input.externalRef?.trim();
+  const externalRef = trimmedRef !== undefined && trimmedRef.length > 0 ? trimmedRef : undefined;
+
   return Result.ok({
     id: input.id ?? TicketId.generate(),
     title: title.value,
     ...(description.value !== undefined ? { description: description.value } : {}),
     ...(link !== undefined ? { link } : {}),
-    ...(input.externalRef !== undefined ? { externalRef: input.externalRef } : {}),
+    ...(externalRef !== undefined ? { externalRef } : {}),
     status: 'pending',
     requirements: undefined,
   });
