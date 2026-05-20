@@ -14,6 +14,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { buildCodexArgs, createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -306,6 +307,102 @@ describe('createCodexProvider', () => {
 
     await provider.generate(session());
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
+  });
+});
+
+describe('createCodexProvider — TokenUsageEvent emission', () => {
+  it('emits one TokenUsageEvent on clean exit even when the JSONL stream lacks usage counters', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // Bare config record — sessionId only; codex v0.130.x typically omits usage entirely.
+    const { spawn } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-tu","type":"config","model":"gpt-5.3-codex"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('openai-codex');
+    expect(evt.sessionId).toBe('sess-tu');
+    expect(evt.model).toBe('gpt-5.3-codex');
+    expect(evt.inputTokens).toBeUndefined();
+    expect(evt.outputTokens).toBeUndefined();
+    // Codex models are not in the static context-window table.
+    expect(evt.contextWindow).toBeUndefined();
+  });
+
+  it('includes usage counters when codex surfaces a usage object on a later record', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"session_id":"sess-u","type":"config","model":"gpt-5.3-codex"}\n',
+          '{"type":"task_complete","usage":{"input_tokens":900,"output_tokens":300}}\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.sessionId).toBe('sess-u');
+    expect(evt.inputTokens).toBe(900);
+    expect(evt.outputTokens).toBe(300);
+  });
+
+  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-fail","type":"config","model":"gpt-5.3-codex"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
   });
 });
 

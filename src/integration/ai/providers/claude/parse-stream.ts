@@ -25,6 +25,19 @@
  * the watchdog SIGTERMs healthy children mid-task.
  */
 
+/**
+ * Per-spawn token counts pulled from the final `{type:"result"}` event's `usage` object.
+ * Every field is optional because cache reads / creations are zero on a stateless spawn and
+ * Claude omits the field rather than emitting `0`. Cumulative — already the spawn total at
+ * the moment Claude emits the result event, no in-process aggregation needed.
+ */
+export interface ClaudeUsage {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+}
+
 export interface ClaudeEnvelope {
   /** Assistant body — `.result` from the `{type:"result"}` event, or `''` if none arrived. */
   readonly body: string;
@@ -32,6 +45,8 @@ export interface ClaudeEnvelope {
   readonly sessionId: string | undefined;
   /** Model name from the `system` init event, when present. */
   readonly model: string | undefined;
+  /** Token counts from the final `result` event's `usage` object, when present. */
+  readonly usage: ClaudeUsage;
 }
 
 export interface ClaudeStreamLine {
@@ -64,6 +79,16 @@ const stringField = (obj: Record<string, unknown>, ...names: readonly string[]):
   return undefined;
 };
 
+const numberField = (obj: Record<string, unknown>, ...names: readonly string[]): number | undefined => {
+  for (const name of names) {
+    const v = obj[name];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return undefined;
+};
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
 export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let buffer = '';
   // `body` is reassigned from the latest `result` event's `.result` field in `ingest` (one
@@ -72,6 +97,7 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let body = '';
   let sessionId: string | undefined;
   let model: string | undefined;
+  let usage: ClaudeUsage = {};
 
   const emit = (raw: string, onLine: (line: ClaudeStreamLine) => void): void => {
     if (raw.length === 0) return;
@@ -104,6 +130,23 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     if (type === 'result') {
       const r = stringField(json, 'result');
       if (r !== undefined) body = r;
+      // Token usage on the result event: `usage: { input_tokens, output_tokens,
+      // cache_read_input_tokens, cache_creation_input_tokens }`. Cumulative — already the
+      // spawn total. Stream-json never streams partial counts on intermediate events for `-p`
+      // mode, so a single read here is the authoritative figure.
+      const u = json['usage'];
+      if (isRecord(u)) {
+        const i = numberField(u, 'input_tokens', 'inputTokens');
+        const o = numberField(u, 'output_tokens', 'outputTokens');
+        const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
+        const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
+        usage = {
+          ...(i !== undefined ? { inputTokens: i } : {}),
+          ...(o !== undefined ? { outputTokens: o } : {}),
+          ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
+          ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
+        };
+      }
     }
   };
 
@@ -126,7 +169,7 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     },
     ingest,
     snapshot() {
-      return { body, sessionId, model };
+      return { body, sessionId, model, usage };
     },
   };
 };

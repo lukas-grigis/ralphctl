@@ -14,6 +14,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { buildCopilotArgs, createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -211,6 +212,74 @@ describe('createCopilotProvider', () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.code).toBe('rate-limit');
+  });
+});
+
+describe('createCopilotProvider — TokenUsageEvent emission', () => {
+  it('emits one TokenUsageEvent on clean exit even when the meta line lacks usage counters', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // Bare meta line — sessionId + model, no usage object. Honest about missing fields.
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-tu","model":"gpt-5.1"}\n', '<task-complete/>\n'],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('github-copilot');
+    expect(evt.sessionId).toBe('sess-tu');
+    expect(evt.model).toBe('gpt-5.1');
+    expect(evt.inputTokens).toBeUndefined();
+    expect(evt.outputTokens).toBeUndefined();
+    // Copilot models are not in the static context-window table.
+    expect(evt.contextWindow).toBeUndefined();
+  });
+
+  it('includes usage counters when the meta line surfaces a usage object', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const meta = JSON.stringify({
+      session_id: 'sess-u',
+      model: 'gpt-5.1',
+      usage: { input_tokens: 444, output_tokens: 222 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${meta}\n`, '<task-complete/>\n'], exitCode: 0 }]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.sessionId).toBe('sess-u');
+    expect(evt.inputTokens).toBe(444);
+    expect(evt.outputTokens).toBe(222);
+  });
+
+  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-fail","model":"gpt-5.1"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
   });
 });
 

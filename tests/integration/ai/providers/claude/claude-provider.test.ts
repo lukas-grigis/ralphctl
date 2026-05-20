@@ -14,6 +14,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { buildClaudeArgs, createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -277,6 +278,117 @@ describe('createClaudeProvider', () => {
     if (out.ok) return;
     expect(out.error.code).toBe('invalid-state');
     expect(calls.n).toBe(1);
+  });
+});
+
+describe('createClaudeProvider — TokenUsageEvent emission', () => {
+  it('emits one TokenUsageEvent on clean exit with usage from the result event', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sess-tu',
+      model: 'claude-opus-4-7',
+    });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '<task-complete/>',
+      session_id: 'sess-tu',
+      usage: {
+        input_tokens: 1234,
+        output_tokens: 567,
+        cache_read_input_tokens: 89,
+        cache_creation_input_tokens: 12,
+      },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('claude-code');
+    expect(evt.sessionId).toBe('sess-tu');
+    expect(evt.model).toBe('claude-opus-4-7');
+    expect(evt.inputTokens).toBe(1234);
+    expect(evt.outputTokens).toBe(567);
+    expect(evt.cacheReadTokens).toBe(89);
+    expect(evt.cacheCreationTokens).toBe(12);
+    // claude-opus-4-7 is in the static context-window table at 200k.
+    expect(evt.contextWindow).toBe(200_000);
+  });
+
+  it('omits contextWindow when the model is unknown to the lookup table', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    // Init carries an unknown model id; result event still surfaces usage.
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-mu', model: 'claude-future-9-9' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      result: '<task-complete/>',
+      session_id: 'sess-mu',
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.model).toBe('claude-future-9-9');
+    expect(tokenEvents[0]!.contextWindow).toBeUndefined();
+    expect(tokenEvents[0]!.inputTokens).toBe(100);
+  });
+
+  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-7' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const tokenEvents = cap.events.filter((e) => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(0);
+  });
+
+  it('emits the event without token counts when the result event lacks a usage object', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sess-nou',
+      model: 'claude-sonnet-4-6',
+    });
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-nou' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.sessionId).toBe('sess-nou');
+    expect(evt.model).toBe('claude-sonnet-4-6');
+    expect(evt.contextWindow).toBe(200_000);
+    expect(evt.inputTokens).toBeUndefined();
+    expect(evt.outputTokens).toBeUndefined();
+    expect(evt.cacheReadTokens).toBeUndefined();
+    expect(evt.cacheCreationTokens).toBeUndefined();
   });
 });
 
