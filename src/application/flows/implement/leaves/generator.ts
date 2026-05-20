@@ -4,6 +4,7 @@ import {
   type RunGeneratorTurnProps,
   runGeneratorTurnUseCase,
 } from '@src/business/task/run-generator-turn.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { type InProgressTask, latestCritique } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -53,6 +54,19 @@ export interface GeneratorLeafDeps {
   readonly checkScript?: string;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /**
+   * Application bus used to publish the discrete `task-round-started` boundary marker. The
+   * trace records back-to-back `generator-<id>` / `evaluator-<id>` leaves with no round number;
+   * this event lets the TUI's per-task round counter survive `chain.trace` ring eviction
+   * without counting trace entries (which silently shrink as eviction proceeds).
+   */
+  readonly eventBus: EventBus;
+  /**
+   * Configured gen-eval-loop budget (`settings.harness.maxTurns`). Stamped onto every
+   * `task-round-started` event so subscribers can render `round N/M` without a second config
+   * lookup; matches the value the surrounding `loop`'s `shouldContinue` predicate enforces.
+   */
+  readonly maxTurns: number;
 }
 
 interface GeneratorInput {
@@ -79,6 +93,28 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
         if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
         const signalsFile = signalsFilePath.value;
+
+        // Discrete boundary marker — fired BEFORE the AI call so the TUI's per-task round
+        // counter and the persistent `chain.log` see the round-start before any of its
+        // generator-leaf trace entries. `attemptN` is `task.attempts.length`: the running
+        // attempt was already started by `start-attempt-<taskId>` upstream, so this counts the
+        // n-th attempt-within-task (1-indexed; matches `task.maxAttempts`).
+        deps.eventBus.publish({
+          type: 'task-round-started',
+          taskId: String(taskId),
+          attemptN: input.task.attempts.length,
+          roundN: roundNum,
+          totalCap: deps.maxTurns,
+          at: deps.clock(),
+        });
+        deps.logger
+          .named('task.round-started')
+          .info(`round ${String(roundNum)}/${String(deps.maxTurns)} of attempt ${String(input.task.attempts.length)}`, {
+            taskId: input.task.id,
+            attemptN: input.task.attempts.length,
+            roundN: roundNum,
+            totalCap: deps.maxTurns,
+          });
 
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);

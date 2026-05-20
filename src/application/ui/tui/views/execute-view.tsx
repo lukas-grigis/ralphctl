@@ -37,6 +37,7 @@ import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
+import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { bucketTaskSignals, isPerTaskLeaf } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
@@ -153,22 +154,30 @@ export const ExecuteView = (): React.JSX.Element => {
     [session, chainEvents, signals]
   );
 
-  // Monotonic per-task round counter — survives the chain runner's MAX_TRACE_ENTRIES ring
-  // eviction. `countGeneratorTurns` inside bucketTaskSignals counts trace entries; on long runs
-  // the earliest `generator-<taskId>` entries get evicted and the count would silently shrink.
-  // Holding the high-water mark in a ref means `round N/M` only ever moves forward, regardless
-  // of trace truncation.
-  const roundsHighWaterRef = React.useRef<Map<string, number>>(new Map());
+  // Authoritative per-task round counter — sourced from `task-round-started` events on the
+  // bus rather than counted from the trace. The trace is a ring buffer
+  // (`MAX_TRACE_ENTRIES = 5_000`); counting `generator-<taskId>` entries silently
+  // undercounts once early ones get evicted. The hook holds a monotonic high-water in its
+  // own state so the event-driven source remains stable across re-renders, even if the bus's
+  // own subscription stream missed earlier events (the hook only goes forward).
+  const taskRounds = useTaskRoundTracker(eventBus);
   const bucketed = useMemo(() => {
     if (rawBucketed === undefined) return undefined;
     const tasks = rawBucketed.tasks.map((t) => {
-      const seen = roundsHighWaterRef.current.get(t.id) ?? 0;
-      if (t.genEvalRound <= seen) return { ...t, genEvalRound: seen };
-      roundsHighWaterRef.current.set(t.id, t.genEvalRound);
-      return t;
+      const tracked = taskRounds.get(t.id);
+      if (tracked === undefined) return t;
+      // Latest-event-wins, but never regress below whatever the trace count derived (e.g. a
+      // post-mortem view of an aborted runner with no incoming events still sees the bucketed
+      // count from the descriptor's frozen trace).
+      const roundN = Math.max(t.genEvalRound, tracked.roundN);
+      return {
+        ...t,
+        genEvalRound: roundN,
+        genEvalMaxRounds: tracked.totalCap,
+      };
     });
     return { ...rawBucketed, tasks };
-  }, [rawBucketed]);
+  }, [rawBucketed, taskRounds]);
 
   if (!session) {
     return (

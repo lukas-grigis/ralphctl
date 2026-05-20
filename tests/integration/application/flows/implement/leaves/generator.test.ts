@@ -1,11 +1,17 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { recordRunningAttemptCritique } from '@src/domain/entity/task.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
+import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -23,7 +29,7 @@ describe('generatorLeaf', () => {
     await root.cleanup();
   });
 
-  const buildDeps = () => ({
+  const buildDeps = (eventBus = createInMemoryEventBus()) => ({
     provider: createFakeAiProvider({ responses: { implement: '' } }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     signals: createInMemorySink<HarnessSignal>(),
@@ -31,6 +37,8 @@ describe('generatorLeaf', () => {
     model: 'test-model',
     clock: () => FIXED_NOW,
     logger: noopLogger,
+    eventBus,
+    maxTurns: 5,
   });
 
   const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({
@@ -86,5 +94,96 @@ describe('generatorLeaf', () => {
     const entries = await fs.readdir(dir);
     expect(entries).toContain('prompt.md');
     expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
+  });
+
+  it('emits task-round-started with the current round, attempt, and totalCap', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    const leaf = generatorLeaf({ ...buildDeps(eventBus), maxTurns: 7 }, task.id);
+    await leaf.execute(baseCtx(task));
+
+    const rounds = events.filter((e): e is TaskRoundStartedEvent => e.type === 'task-round-started');
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      type: 'task-round-started',
+      taskId: String(task.id),
+      attemptN: 1,
+      roundN: 1,
+      totalCap: 7,
+    });
+  });
+
+  it('emits a synthesised log event for the recent-events tail', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    // Real event-bus logger so the leaf's `logger.named('task.round-started').info(...)` call
+    // surfaces as a `log` AppEvent — matches production wiring (`wire()` always passes the
+    // bus logger).
+    const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
+    const leaf = generatorLeaf({ ...buildDeps(eventBus), logger }, task.id);
+    await leaf.execute(baseCtx(task));
+
+    const logs = events.filter((e) => e.type === 'log' && e.message.includes('round 1/5 of attempt 1'));
+    expect(logs.length).toBeGreaterThan(0);
+  });
+
+  it('emits monotonic round numbers across two iterations of the same task', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    const leaf = generatorLeaf(buildDeps(eventBus), task.id);
+
+    const first = await leaf.execute(baseCtx(task));
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // The leaf's `output` projection threads `currentTask`/`genEvalTurn`/`currentRoundNum`.
+    // Use it as the next call's ctx — that's exactly what the surrounding loop does.
+    const second = await leaf.execute(first.value.ctx);
+    expect(second.ok).toBe(true);
+
+    const rounds = events.filter((e): e is TaskRoundStartedEvent => e.type === 'task-round-started');
+    expect(rounds.map((r) => r.roundN)).toEqual([1, 2]);
+  });
+
+  it('publishes the round event regardless of the AI call outcome (event fires before the call)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      events.push(e);
+    });
+    const deps = {
+      ...buildDeps(eventBus),
+      // Provider that fails — the boundary event must still fire because it is emitted
+      // BEFORE `consumeSignals(...)` runs.
+      provider: {
+        async generate() {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'provider',
+              currentState: 'broken',
+              attemptedAction: 'generate',
+              message: 'simulated provider error',
+            })
+          );
+        },
+      } as unknown as ReturnType<typeof createFakeAiProvider>,
+    };
+    const leaf = generatorLeaf(deps, task.id);
+    await leaf.execute(baseCtx(task));
+
+    const rounds = events.filter((e) => e.type === 'task-round-started');
+    expect(rounds).toHaveLength(1);
   });
 });

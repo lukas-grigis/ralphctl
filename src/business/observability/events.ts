@@ -82,6 +82,29 @@ export interface TaskAttemptEvaluatedEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Fired once at the start of every gen-eval round for the in-flight task — the discrete
+ * boundary the chain trace lacks (back-to-back `generator-<id>` / `evaluator-<id>` entries
+ * carry no round number). Replaces the TUI's ref-based round-counter high-water mark with an
+ * authoritative source: the latest event's `roundN` is the round currently running.
+ *
+ *  - `roundN` is 1-indexed and matches the on-disk `rounds/<N>/` folder index used by the
+ *    generator + evaluator leaves.
+ *  - `totalCap` is the configured `settings.harness.maxTurns`, surfaced so subscribers can
+ *    render `round N/M` without a second config lookup.
+ *  - `attemptN` is the 1-indexed attempt-within-task counter — multiple attempts are gated by
+ *    `task.maxAttempts`; emitted here so the recent-log tail can disambiguate "round 2 of
+ *    attempt 1" vs. "round 1 of attempt 2".
+ */
+export interface TaskRoundStartedEvent {
+  readonly type: 'task-round-started';
+  readonly taskId: string;
+  readonly attemptN: number;
+  readonly roundN: number;
+  readonly totalCap: number;
+  readonly at: IsoTimestamp;
+}
+
 export interface FeedbackRoundAppliedEvent {
   readonly type: 'feedback-round-applied';
   readonly sprintId: string;
@@ -143,6 +166,7 @@ export type AppEvent =
   | ChainAbortedEvent
   | TaskAttemptStartedEvent
   | TaskAttemptEvaluatedEvent
+  | TaskRoundStartedEvent
   | FeedbackRoundAppliedEvent
   | LogEvent
   | MemoryPressureEvent

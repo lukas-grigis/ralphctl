@@ -241,6 +241,8 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       model: opts.model,
       clock: deps.clock,
       logger: deps.logger,
+      eventBus: deps.eventBus,
+      maxTurns: deps.config.harness.maxTurns,
       ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
     };
     return sequential<ImplementCtx>(`task-${String(taskId)}`, [
