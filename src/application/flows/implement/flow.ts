@@ -300,7 +300,13 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         `commit-task-guard-${String(taskId)}`,
         (ctx) => ctx.lastBlockReason === undefined,
         commitTaskLeaf(
-          { gitRunner: deps.gitRunner, taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger },
+          {
+            gitRunner: deps.gitRunner,
+            taskRepo: deps.taskRepo,
+            clock: deps.clock,
+            logger: deps.logger,
+            signals: deps.signals,
+          },
           { cwd: repo.path },
           taskId
         )

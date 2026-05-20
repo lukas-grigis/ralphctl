@@ -12,6 +12,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { COMMIT_MESSAGE_MAX_BYTES, gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { renderTicketRefsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
+import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export type CommitMessageFactory = (input: { readonly task: Task }) => string;
@@ -21,6 +22,12 @@ export interface CommitTaskLeafDeps {
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /**
+   * Re-emits the `commit-message` signal carrying the harness-resolved `fullMessage` (subject
+   * + body + deterministic `Closes …` trailer) so TUI surfaces show the commit as actually
+   * written to git, not the AI's pre-trailer proposal. See {@link CommitMessageSignal}.
+   */
+  readonly signals: HarnessSignalSink;
 }
 
 // Hard cap on the full commit message imported from the validator in `git-operations.ts` so
@@ -134,15 +141,30 @@ export const commitTaskLeaf = (
 
   return leaf<ImplementCtx, CommitInput, CommitOutput>(`commit-task-${String(taskId)}`, {
     useCase: {
-      execute: async (input) =>
-        commitTaskUseCase({
+      execute: async (input) => {
+        // Re-emit the commit-message signal with the harness-resolved `fullMessage` (subject
+        // + body + `Closes …` trailer). The AI's parse-time signal cannot carry the trailer
+        // because the AI never sees it; the TUI + audit-log consumers need the version that
+        // actually lands in git history.
+        const subject = input.message.split('\n', 1)[0] ?? input.message;
+        const blank = input.message.indexOf('\n\n');
+        const body = blank === -1 ? undefined : input.message.slice(blank + 2);
+        deps.signals.emit({
+          type: 'commit-message',
+          subject,
+          ...(body !== undefined && body.length > 0 ? { body } : {}),
+          fullMessage: input.message,
+          timestamp: deps.clock(),
+        });
+        return commitTaskUseCase({
           ...input,
           cwd: opts.cwd,
           gitCommit,
           taskRepo: deps.taskRepo,
           clock: deps.clock,
           logger: deps.logger,
-        }),
+        });
+      },
     },
     input: (ctx) => {
       if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {

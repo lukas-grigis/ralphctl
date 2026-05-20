@@ -215,6 +215,11 @@ export interface ProgressEntrySignal {
  *    trims it but does not enforce length — the harness clamps before committing.
  *  - `body` is optional and may span multiple paragraphs. Convention: wrap at 72 chars,
  *    explain the why, not the what.
+ *  - `fullMessage` is the resolved commit message AS WRITTEN TO GIT — subject + body +
+ *    deterministic trailers (`Closes #…`) appended by the harness. Populated by the
+ *    commit-task leaf when it re-emits the signal after the message is finalised; absent on
+ *    the parse-time signal (the AI never sees the trailer it cannot author). UI surfaces and
+ *    audit log consumers should prefer `fullMessage` when present.
  *
  * When the signal is absent the harness falls back to its auto-generated default
  * (`task(<short-id>): <task-name>`).
@@ -223,6 +228,7 @@ export interface CommitMessageSignal {
   readonly type: 'commit-message';
   readonly subject: string;
   readonly body?: string;
+  readonly fullMessage?: string;
   readonly timestamp: IsoTimestamp;
 }
 

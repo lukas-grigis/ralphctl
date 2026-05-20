@@ -21,6 +21,8 @@ import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 const CWD = absolutePath('/tmp/repo');
@@ -65,13 +67,23 @@ const fakeRepo = (): UpdateTask & { calls: number } => ({
   },
 });
 
+const captureSignals = (): HarnessSignalSink & { readonly emitted: HarnessSignal[] } => {
+  const emitted: HarnessSignal[] = [];
+  return {
+    emitted,
+    emit: (s) => {
+      emitted.push(s);
+    },
+  };
+};
+
 describe('commitTaskLeaf', () => {
   it('skips when working tree is clean', async () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt();
     const runner = scriptedRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -93,7 +105,7 @@ describe('commitTaskLeaf', () => {
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -124,7 +136,11 @@ describe('commitTaskLeaf', () => {
       { args: ['status', '--porcelain'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok('hook rejected', 1) },
     ]);
-    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, clock: () => NOW, logger }, { cwd: CWD }, task.id);
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger, signals: captureSignals() },
+      { cwd: CWD },
+      task.id
+    );
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(false);
     if (!out.ok) {
@@ -148,7 +164,7 @@ describe('commitTaskLeaf', () => {
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD, messageFactory: () => message },
       task.id
     );
@@ -174,7 +190,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -204,7 +220,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -236,7 +252,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -273,7 +289,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -303,7 +319,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -343,7 +359,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -382,7 +398,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -415,7 +431,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -443,7 +459,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -478,7 +494,7 @@ describe('commitTaskLeaf', () => {
       },
     };
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: captureSignals() },
       { cwd: CWD },
       task.id
     );
@@ -499,5 +515,45 @@ describe('commitTaskLeaf', () => {
     const lines = observedMessage!.split('\n');
     const trailerIdx = lines.lastIndexOf('Closes #9999');
     expect(lines[trailerIdx - 2]?.endsWith('...')).toBe(true);
+  });
+
+  it('re-emits a commit-message signal carrying the resolved fullMessage with the Closes trailer', async () => {
+    // The AI's parse-time `commit-message` signal cannot carry the deterministic `Closes …`
+    // trailer (the AI never sees the task's externalRefs). The TUI's commit row + audit-log
+    // consumers want to see the message AS WRITTEN TO GIT, so the leaf re-emits the signal
+    // with `fullMessage` populated after the harness assembles + appends the trailer.
+    const repo = fakeRepo();
+    const baseTask = makeInProgressTaskWithRunningAttempt();
+    const task: Task = { ...baseTask, externalRefs: ['#128'] };
+    const sha = '5'.repeat(40);
+    const signalsSink = captureSignals();
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') return ok();
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger, signals: signalsSink },
+      { cwd: CWD },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      proposedCommitMessage: { subject: 'feat(tui): show full commit message', body: 'Why this matters.' },
+    };
+    await leaf.execute(ctx);
+    const emitted = signalsSink.emitted.find(
+      (s): s is HarnessSignal & { type: 'commit-message' } => s.type === 'commit-message'
+    );
+    expect(emitted).toBeDefined();
+    expect(emitted?.subject).toBe('feat(tui): show full commit message');
+    expect(emitted?.fullMessage).toBeDefined();
+    expect(emitted?.fullMessage).toContain('Closes #128');
+    // The trailer lives on its own line — never inside the subject.
+    expect(emitted?.fullMessage?.endsWith('\n\nCloses #128')).toBe(true);
   });
 });

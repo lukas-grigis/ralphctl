@@ -107,8 +107,14 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
       return { label: 'learning', text: sig.text };
     case 'decision':
       return { label: 'decision', text: sig.text, bold: true };
-    case 'commit-message':
-      return { label: 'commit', text: sig.subject };
+    case 'commit-message': {
+      // Prefer the harness-resolved `fullMessage` (subject + body + `Closes …` trailer) — the
+      // AI's pre-trailer `subject` can diverge from what actually lands in git history if the
+      // harness clamped or rewrote it. Display the first line; the multi-line expansion UX
+      // lands in a follow-up.
+      const headline = sig.fullMessage !== undefined ? (sig.fullMessage.split('\n', 1)[0] ?? sig.subject) : sig.subject;
+      return { label: 'commit', text: headline };
+    }
     case 'note':
       return { label: 'note', text: sig.text };
     case 'progress':
