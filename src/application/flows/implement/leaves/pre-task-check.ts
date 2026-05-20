@@ -110,11 +110,27 @@ export const preTaskCheckLeaf = (
             message: `pre-task-check ${String(opts.cwd)}: baseline already red (exit=${String(run.exitCode)}) — task will start on broken baseline`,
             at: deps.clock(),
           });
+          deps.eventBus.publish({
+            type: 'banner-show',
+            id: `baseline-broken-${String(taskId)}`,
+            tier: 'warn',
+            message: 'Pre-task check baseline is red — task started on broken state',
+            cause: `task ${String(taskId)}`,
+            at: deps.clock(),
+          });
         } else if (run.outcome === 'spawn-error') {
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
             message: `pre-task-check ${String(opts.cwd)}: spawn-error — ${run.stdoutTailBytes}; attribution will be skipped`,
+            at: deps.clock(),
+          });
+        } else {
+          // Green pre-check — clear any stale baseline-broken banner from a prior attempt of
+          // this same task. No-op when no such banner exists.
+          deps.eventBus.publish({
+            type: 'banner-clear',
+            id: `baseline-broken-${String(taskId)}`,
             at: deps.clock(),
           });
         }

@@ -24,6 +24,8 @@ import {
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+).
@@ -165,6 +167,7 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
         }
         if (outcome.kind === 'rate-limit') {
           lastRateLimit = outcome.error;
+          const bannerId = `rate-limit-copilot-${outcome.error.sessionId ?? String(attempt + 1)}`;
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
@@ -182,7 +185,16 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
                 meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
                 at: IsoTimestamp.now(),
               });
+              deps.eventBus.publish({
+                type: 'banner-show',
+                id: bannerId,
+                tier: 'info',
+                message: `Rate limit (copilot) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
+                cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
+                at: IsoTimestamp.now(),
+              });
               await sleepCancellable(delayMs, session.abortSignal);
+              deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
               if (session.abortSignal?.aborted === true) {
                 return Result.error(
                   new InvalidStateError({
@@ -228,6 +240,8 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // in line count, observable on kilo-line streams. Do not reintroduce per-line concatenation.
   const bodyLines: string[] = [];
   let sessionId: string | undefined;
+  let model: string | undefined;
+  let usage: CopilotUsage = {};
   let stderrBuf = '';
 
   const onLine = (line: CopilotStreamLine): void => {
@@ -241,6 +255,14 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
           meta: { sessionId },
           at: IsoTimestamp.now(),
         });
+      }
+      if (line.model !== undefined && model === undefined) {
+        model = line.model;
+      }
+      // Last-write-wins on usage. Copilot occasionally emits multiple meta lines through a
+      // spawn; whichever lands last is the most current cumulative count.
+      if (line.usage !== undefined) {
+        usage = line.usage;
       }
       deps.eventBus.publish({
         type: 'log',
@@ -274,6 +296,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
         at: IsoTimestamp.now(),
       });
+      deps.eventBus.publish({
+        type: 'banner-show',
+        id: `watchdog-copilot-${String(child.pid ?? 'unknown')}`,
+        tier: 'warn',
+        message: `Watchdog killed stuck copilot process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
+        at: IsoTimestamp.now(),
+      });
     },
   });
   parser.flush(onLine);
@@ -297,6 +326,22 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    if (sessionId !== undefined) {
+      // Emit one TokenUsageEvent per clean-termination spawn — even when Copilot omits usage
+      // counters from the meta line, sessionId + provider + (maybe) model is still useful for
+      // a TUI widget that correlates rounds with provider sessions. Honest about absent fields.
+      const window = contextWindowFor(model);
+      deps.eventBus.publish({
+        type: 'token-usage',
+        sessionId,
+        provider: 'github-copilot',
+        ...(model !== undefined ? { model } : {}),
+        ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+        ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+        ...(window !== undefined ? { contextWindow: window } : {}),
+        at: IsoTimestamp.now(),
+      });
+    }
     // Persist captured session id as a sibling `sessionId` file. Copilot streams the id on a
     // leading JSON meta line; if it was missing (banner-only streams, crash before meta) we
     // skip rather than write an empty marker. See persistSessionIdFile for the contract.

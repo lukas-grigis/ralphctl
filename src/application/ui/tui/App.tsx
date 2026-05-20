@@ -33,6 +33,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
+import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 
 export interface AppProps {
@@ -125,6 +126,7 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
       <ChainLogDegradedBanner />
+      <StatusBanner />
       {ui.progressOpen ? <ProgressOverlay /> : children}
     </Box>
   );

@@ -156,6 +156,75 @@ export interface ChainLogDegradedEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Final token-usage figure for one provider spawn, emitted ONCE per spawn after the AI session
+ * finishes cleanly (non-zero exit / abort → no event). Lets the TUI show a budget widget,
+ * lets future telemetry sinks pipe spend to a backend, etc.
+ *
+ * Every numeric field is optional because what each provider reports varies — Claude's
+ * stream-json `result` event carries full `usage{ input_tokens, output_tokens, cache_* }`;
+ * Copilot's JSON meta line may or may not include any counter; Codex's JSONL config record
+ * historically carries none. The event is still emitted in the lean case (sessionId + provider
+ * + maybe model) so subscribers can correlate per-spawn telemetry without inferring
+ * "did the spawn succeed?" from the absence of a token field.
+ *
+ *  - `contextWindow` is the model's total budget — looked up from a static table in the
+ *    `_engine/context-window.ts` adapter when the provider reports a known model; omitted
+ *    otherwise. The TUI widget renders `(input + output) / contextWindow` when both are known.
+ */
+export interface TokenUsageEvent {
+  readonly type: 'token-usage';
+  readonly sessionId: string;
+  readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex';
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+  readonly contextWindow?: number;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * Tiered status banner — generic surface for "operator should know this is happening" signals
+ * that don't deserve their own bespoke banner component. Emitters publish a `banner-show`
+ * keyed by a stable `id` (e.g. `'rate-limit-<sessionId>'`, `'lock-<sprintId>'`); a matching
+ * `banner-clear` removes it. Re-publishing the same id replaces (not stacks) the prior banner,
+ * so emitters can refresh the visible state without bookkeeping a dedicated clear-then-show.
+ *
+ * Three tiers, ordered most-urgent-first:
+ *
+ *  - `error` — user action required (setup script failed, provider crash).
+ *  - `warn`  — operator should notice but harness can keep going (watchdog kill, lock
+ *               contention, baseline-broken).
+ *  - `info`  — transient state worth surfacing (rate-limit backoff, provider reconnect).
+ *
+ * The TUI's `StatusBanner` subscribes; emitters never reference the component directly.
+ */
+export interface BannerShowEvent {
+  readonly type: 'banner-show';
+  /** Stable key — re-publishing replaces; clears match on id. */
+  readonly id: string;
+  readonly tier: 'info' | 'warn' | 'error';
+  readonly message: string;
+  /** Optional supplementary detail rendered dim beside the message. */
+  readonly cause?: string;
+  readonly at: IsoTimestamp;
+}
+
+export interface BannerClearEvent {
+  readonly type: 'banner-clear';
+  readonly id: string;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * Discriminated union of the two banner events — exported as a type alias so emitters can
+ * type-narrow a single subscription handler over both variants without restating the union.
+ * @public
+ */
+export type BannerEvent = BannerShowEvent | BannerClearEvent;
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -170,4 +239,7 @@ export type AppEvent =
   | FeedbackRoundAppliedEvent
   | LogEvent
   | MemoryPressureEvent
-  | ChainLogDegradedEvent;
+  | ChainLogDegradedEvent
+  | TokenUsageEvent
+  | BannerShowEvent
+  | BannerClearEvent;

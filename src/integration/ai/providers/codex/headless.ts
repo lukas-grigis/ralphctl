@@ -23,6 +23,7 @@ import {
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
@@ -219,6 +220,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
           }
           if (outcome.kind === 'rate-limit') {
             lastRateLimit = outcome.error;
+            const bannerId = `rate-limit-codex-${outcome.error.sessionId ?? String(attempt + 1)}`;
             deps.eventBus.publish({
               type: 'log',
               level: 'warn',
@@ -236,7 +238,16 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
                   meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
                   at: IsoTimestamp.now(),
                 });
+                deps.eventBus.publish({
+                  type: 'banner-show',
+                  id: bannerId,
+                  tier: 'info',
+                  message: `Rate limit (codex) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
+                  cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
+                  at: IsoTimestamp.now(),
+                });
                 await sleepCancellable(delayMs, session.abortSignal);
+                deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
                 if (session.abortSignal?.aborted === true) {
                   return Result.error(
                     new InvalidStateError({
@@ -278,12 +289,24 @@ interface SpawnAttemptArgs {
   readonly outputFile: string;
 }
 
+interface CodexMetaUpdate {
+  readonly sessionId?: string;
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+}
+
 /**
- * Line-extract `session_id` (or `sessionId`) from codex's JSONL stdout. Returns the residual
- * tail (unterminated trailing chars). Invokes `onId` at most once per call per id seen; the
- * caller dedupes to "first wins."
+ * Line-extract `session_id` / `model` / token-usage fields from codex's JSONL stdout. Returns
+ * the residual tail (unterminated trailing chars). `onMeta` is invoked once per recognised
+ * line carrying any of the fields; the caller dedupes (sessionId / model = first wins; usage
+ * = last wins).
+ *
+ * Codex's `--json` stream is JSONL: the leading `{type:"config"}` record carries `session_id`,
+ * subsequent `{type:"task_complete"|"thread_meta"|...}` records may carry `model` and/or a
+ * token-count object. Schema-tolerant: any unrecognised structure is skipped silently.
  */
-const consumeSessionIdLines = (buffer: string, onId: (id: string) => void): string => {
+const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => void): string => {
   let remaining = buffer;
   while (true) {
     const nl = remaining.indexOf('\n');
@@ -295,7 +318,18 @@ const consumeSessionIdLines = (buffer: string, onId: (id: string) => void): stri
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
       const id = stringField(obj, 'session_id', 'sessionId');
-      if (id !== undefined) onId(id);
+      const model = stringField(obj, 'model');
+      const usageObj = obj['usage'];
+      const source = isRecord(usageObj) ? usageObj : obj;
+      const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
+      const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
+      if (id === undefined && model === undefined && i === undefined && o === undefined) continue;
+      onMeta({
+        ...(id !== undefined ? { sessionId: id } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(i !== undefined ? { inputTokens: i } : {}),
+        ...(o !== undefined ? { outputTokens: o } : {}),
+      });
     } catch {
       // non-JSON line — codex occasionally prints banner text alongside json records; skip
     }
@@ -310,6 +344,16 @@ const stringField = (obj: Record<string, unknown>, ...names: readonly string[]):
   return undefined;
 };
 
+const numberField = (obj: Record<string, unknown>, ...names: readonly string[]): number | undefined => {
+  for (const name of names) {
+    const v = obj[name];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return undefined;
+};
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session, readFile, outputFile } = input;
   const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const });
@@ -320,20 +364,30 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // Codex `exec` reads the prompt from stdin; codex streams tokens to stdout so we attach a
   // line-buffering session-id sniffer and wait for `'exit'` (no need to wait for streams to
   // flush after exit — the session id is captured inline).
+  let model: string | undefined;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
   const { code, signal } = await runHeadlessSpawn({
     child,
     onStdout: (chunk) => {
-      stdoutLineBuf = consumeSessionIdLines(stdoutLineBuf + chunk, (id) => {
-        if (sessionId === undefined) {
-          sessionId = id;
+      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, (update) => {
+        if (update.sessionId !== undefined && sessionId === undefined) {
+          sessionId = update.sessionId;
           deps.eventBus.publish({
             type: 'log',
             level: 'debug',
             message: 'codex-provider: session id captured',
-            meta: { sessionId: id },
+            meta: { sessionId: update.sessionId },
             at: IsoTimestamp.now(),
           });
         }
+        if (update.model !== undefined && model === undefined) {
+          model = update.model;
+        }
+        // Last-write-wins on usage — codex's `task_complete` record carries the cumulative
+        // figure; earlier records (config / streaming chunks) report partials or nothing.
+        if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
+        if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
       });
     },
     onStderr: (chunk) => {
@@ -350,6 +404,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         level: 'warn',
         message: `codex-provider: no stdio activity${idleMs !== undefined ? ` for ${String(idleMs)}ms` : ''} — killing wedged child`,
         ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
+        at: IsoTimestamp.now(),
+      });
+      deps.eventBus.publish({
+        type: 'banner-show',
+        id: `watchdog-codex-${String(child.pid ?? 'unknown')}`,
+        tier: 'warn',
+        message: `Watchdog killed stuck codex process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
         at: IsoTimestamp.now(),
       });
     },
@@ -411,6 +472,22 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
           at: IsoTimestamp.now(),
         });
       }
+    }
+    if (sessionId !== undefined) {
+      // Emit one TokenUsageEvent per clean-termination spawn. Codex commonly omits token counts
+      // from the JSONL records on v0.130.x; the event still fires so subscribers can correlate
+      // sessionId → provider without inferring success from token-field absence.
+      const window = contextWindowFor(model);
+      deps.eventBus.publish({
+        type: 'token-usage',
+        sessionId,
+        provider: 'openai-codex',
+        ...(model !== undefined ? { model } : {}),
+        ...(inputTokens !== undefined ? { inputTokens } : {}),
+        ...(outputTokens !== undefined ? { outputTokens } : {}),
+        ...(window !== undefined ? { contextWindow: window } : {}),
+        at: IsoTimestamp.now(),
+      });
     }
     return {
       kind: 'success',

@@ -21,6 +21,7 @@ import {
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -193,6 +194,7 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
         }
         if (outcome.kind === 'rate-limit') {
           lastRateLimit = outcome.error;
+          const bannerId = `rate-limit-claude-${outcome.error.sessionId ?? String(attempt + 1)}`;
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
@@ -213,7 +215,18 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
                 meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
                 at: IsoTimestamp.now(),
               });
+              deps.eventBus.publish({
+                type: 'banner-show',
+                id: bannerId,
+                tier: 'info',
+                message: `Rate limit (claude) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
+                cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
+                at: IsoTimestamp.now(),
+              });
               await sleepCancellable(delayMs, session.abortSignal);
+              // Clear once the wait completes (either elapsed or abort fired); the next attempt
+              // re-publishes if it also hits the rate-limit.
+              deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
               if (session.abortSignal?.aborted === true) {
                 return Result.error(
                   new InvalidStateError({
@@ -295,6 +308,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
         at: IsoTimestamp.now(),
       });
+      deps.eventBus.publish({
+        type: 'banner-show',
+        id: `watchdog-claude-${String(child.pid ?? 'unknown')}`,
+        tier: 'warn',
+        message: `Watchdog killed stuck claude process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
+        at: IsoTimestamp.now(),
+      });
     },
   });
   parser.flush(onLine);
@@ -323,6 +343,24 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         level: 'debug',
         message: 'claude-provider: session id captured',
         meta: { sessionId: envelope.sessionId },
+        at: IsoTimestamp.now(),
+      });
+      // Emit one TokenUsageEvent per clean-termination spawn — only when we have a sessionId
+      // (downstream subscribers correlate by it). Absence of usage counters is honest: the
+      // result event may carry zero usage subkeys on degenerate spawns.
+      const window = contextWindowFor(envelope.model);
+      deps.eventBus.publish({
+        type: 'token-usage',
+        sessionId: envelope.sessionId,
+        provider: 'claude-code',
+        ...(envelope.model !== undefined ? { model: envelope.model } : {}),
+        ...(envelope.usage.inputTokens !== undefined ? { inputTokens: envelope.usage.inputTokens } : {}),
+        ...(envelope.usage.outputTokens !== undefined ? { outputTokens: envelope.usage.outputTokens } : {}),
+        ...(envelope.usage.cacheReadTokens !== undefined ? { cacheReadTokens: envelope.usage.cacheReadTokens } : {}),
+        ...(envelope.usage.cacheCreationTokens !== undefined
+          ? { cacheCreationTokens: envelope.usage.cacheCreationTokens }
+          : {}),
+        ...(window !== undefined ? { contextWindow: window } : {}),
         at: IsoTimestamp.now(),
       });
     }

@@ -136,6 +136,14 @@ export const setupScriptRunnerLeaf = (
               message: `setup-script ${String(repo.path)}: spawn-error — ${spawnResult.error.message}`,
               at: deps.clock(),
             });
+            deps.eventBus.publish({
+              type: 'banner-show',
+              id: `setup-script-${String(repo.repositoryId)}`,
+              tier: 'error',
+              message: `Setup script failed for ${String(repo.path)}: ${command}`,
+              cause: `spawn-error — ${spawnResult.error.message}`,
+              at: deps.clock(),
+            });
             return Result.error(
               new InvalidStateError({
                 entity: 'sprint',
@@ -181,6 +189,14 @@ export const setupScriptRunnerLeaf = (
             type: 'log',
             level: 'error',
             message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
+            at: deps.clock(),
+          });
+          deps.eventBus.publish({
+            type: 'banner-show',
+            id: `setup-script-${String(repo.repositoryId)}`,
+            tier: 'error',
+            message: `Setup script failed for ${String(repo.path)}: ${command}`,
+            cause: `exit ${String(exitCode ?? 'null')}`,
             at: deps.clock(),
           });
           return Result.error(
