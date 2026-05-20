@@ -107,6 +107,13 @@ export interface TasksPanelProps {
    * and the live dashboard threads it once `taskState` is polled.
    */
   readonly sprintState?: SprintState;
+  /**
+   * Wall-clock reference in milliseconds — used by the idle-ticker to compute the gap between
+   * the latest stream signal and "now". The execute view polls every 1s and passes the latest
+   * `Date.now()`; tests pass a fixed value. Defaults to `Date.now()` at render-time so
+   * isolated unit renders work without explicit wiring (no ticker fires without elapsed gap).
+   */
+  readonly nowMs?: number;
 }
 
 const STATUS_PRESENTATION: Readonly<Record<TaskBucketStatus, { readonly color: string; readonly glyph: string }>> = {
@@ -741,6 +748,31 @@ const formatEtaChip = (
 };
 
 /**
+ * Idle-ticker threshold: render the muted ticker line when the active task is `running` AND
+ * the latest stream signal is older than this many milliseconds. Calibrated for the user's
+ * perceptual "is anything happening" window — a 5 s gap is normal between tool calls; 10 s
+ * starts to feel quiet.
+ */
+const IDLE_TICKER_THRESHOLD_MS = 10_000;
+
+/**
+ * Walk a task's signal list right-to-left and collect the last 1–2 `note` / `learning`
+ * signals' bodies. Returns the texts in newest-first order so the renderer can show a
+ * compact "last + previous" pair. Empty when the task has no such signal — the ticker then
+ * suppresses itself entirely rather than fabricating placeholder text.
+ */
+const latestIdleSnippets = (signals: readonly HarnessSignal[]): readonly string[] => {
+  const out: string[] = [];
+  for (let i = signals.length - 1; i >= 0 && out.length < 2; i -= 1) {
+    const s = signals[i];
+    if (s === undefined) continue;
+    if (s.type === 'note') out.push(s.text);
+    else if (s.type === 'learning') out.push(s.text);
+  }
+  return out;
+};
+
+/**
  * Number of criterion bullets to render in the collapsed-summary form. Three lines reads as a
  * glance preview without becoming a wall of text on tasks with many criteria; expanding via
  * `e` reveals the rest.
@@ -808,6 +840,7 @@ const TaskBlock = ({
   firstRun,
   cardExpanded,
   cardFocused,
+  nowMs,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -845,6 +878,8 @@ const TaskBlock = ({
   readonly cardExpanded: boolean;
   /** Card-level focus indicator — drives the leading cursor caret on the header row. */
   readonly cardFocused: boolean;
+  /** Wall-clock reference for the idle ticker (current time, ms epoch). */
+  readonly nowMs: number;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -865,6 +900,20 @@ const TaskBlock = ({
     return sha !== undefined ? String(sha).slice(0, 7) : undefined;
   }, [taskProjection]);
   const attemptsCount = taskProjection?.attemptsCount ?? 0;
+  // Idle ticker — surfaces the last 1–2 note / learning signals when the task is running and
+  // the most recent stream signal is older than IDLE_TICKER_THRESHOLD_MS. Provides reassurance
+  // that the harness is alive during long tool calls; hides immediately when a new signal
+  // lands. Active task only — completed / blocked cards have no use for "what's the AI been
+  // thinking about" hints.
+  const idleSnippets = useMemo<readonly string[]>(() => {
+    if (!isActive || !isSpinning) return [];
+    const latest = task.signals[task.signals.length - 1];
+    if (latest === undefined) return [];
+    const latestMs = new Date(String(latest.timestamp)).getTime();
+    if (!Number.isFinite(latestMs)) return [];
+    if (nowMs - latestMs < IDLE_TICKER_THRESHOLD_MS) return [];
+    return latestIdleSnippets(task.signals);
+  }, [task.signals, isActive, isSpinning, nowMs]);
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Box>
@@ -918,6 +967,15 @@ const TaskBlock = ({
             return <Text dimColor> {eta}</Text>;
           })()}
       </Box>
+      {cardExpanded && idleSnippets.length > 0 && (
+        <Box paddingLeft={2}>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text dimColor wrap="truncate-end">
+              {glyphs.activityArrow} {idleSnippets.map((s) => collapseWhitespace(s)).join(`  ${glyphs.bullet}  `)}
+            </Text>
+          </Box>
+        </Box>
+      )}
       {cardExpanded && recovering !== undefined && (
         <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />
       )}
@@ -1082,7 +1140,13 @@ export const TasksPanel = ({
   readDoneCriteria,
   showEvaluatorFailureUI = false,
   sprintState,
+  nowMs,
 }: TasksPanelProps): React.JSX.Element => {
+  // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
+  // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
+  // default, which freezes the clock at mount-time and so naturally suppresses the ticker
+  // unless a test explicitly supplies an old timestamp.
+  const effectiveNowMs = nowMs ?? Date.now();
   const flatKeys = useMemo(
     () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
     [bucketed, maxSignalsPerTask, maxOrphanSignals]
@@ -1322,6 +1386,7 @@ export const TasksPanel = ({
             firstRun={noSignalsYet}
             cardExpanded={isCardExpanded(task.id)}
             cardFocused={idx === effectiveCardCursor}
+            nowMs={effectiveNowMs}
             {...(recovering !== undefined ? { recovering } : {})}
             {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}

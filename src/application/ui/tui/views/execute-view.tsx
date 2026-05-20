@@ -15,7 +15,7 @@
  * "Chain steps" sections were duplicating the same data.
  *
  * Local keys:
- *   c — abort the running session
+ *   c — open the cancel-scope picker (1 = cancel attempt, 2 = cancel whole flow)
  *   D — detach (return to home; the runner keeps running in the background)
  */
 
@@ -51,6 +51,9 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
+import { join } from 'node:path';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
@@ -61,6 +64,9 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import { renderActiveTaskSummary } from '@src/application/ui/tui/runtime/render-active-task-summary.ts';
+import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
+import { cancelActiveTaskUseCase } from '@src/business/task/cancel-active-task.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
@@ -169,12 +175,24 @@ export const ExecuteView = (): React.JSX.Element => {
 
   const isRunning = session?.descriptor.status === 'running';
 
+  // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
+  // distinguishes "cancel current attempt" (keep task queued, retry next round) from "cancel
+  // whole flow" (mark current task blocked + exit chain). The overlay claims the keyboard
+  // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
+  const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
+
   useViewHints(
     isRunning
-      ? [
-          { keys: 'c', label: 'cancel' },
-          { keys: 'D', label: 'detach' },
-        ]
+      ? cancelScopeOpen
+        ? [
+            { keys: '1', label: 'cancel attempt' },
+            { keys: '2', label: 'cancel whole flow' },
+            { keys: 'esc', label: 'back to run' },
+          ]
+        : [
+            { keys: 'c', label: 'cancel' },
+            { keys: 'D', label: 'detach' },
+          ]
       : [{ keys: '↵', label: 'back' }]
   );
 
@@ -190,7 +208,7 @@ export const ExecuteView = (): React.JSX.Element => {
       }
       return;
     }
-    if (input === 'c') sessions.abort(sessionId);
+    if (input === 'c' && !cancelScopeOpen) setCancelScopeOpen(true);
     if (input === 'D') router.reset();
   });
 
@@ -304,6 +322,64 @@ export const ExecuteView = (): React.JSX.Element => {
     };
   }, [currentTask, currentTaskName, ui]);
 
+  // Elapsed time on the latest attempt of the active task — drives the cancel-scope overlay's
+  // "estimated wasted output" hint. Sourced from the most recent `task-attempt-started` event
+  // matching the current task id. Falls back to undefined when no attempt has started yet
+  // (e.g. preflight phase) — the overlay renders without the hint in that case.
+  const attemptElapsedMs = useMemo<number | undefined>(() => {
+    if (currentTask === undefined) return undefined;
+    let latestStartMs: number | undefined;
+    for (const ev of chainEvents) {
+      if (ev.type !== 'task-attempt-started') continue;
+      if (ev.taskId !== currentTask.id) continue;
+      const ms = new Date(String(ev.at)).getTime();
+      if (latestStartMs === undefined || ms > latestStartMs) latestStartMs = ms;
+    }
+    return latestStartMs !== undefined ? Math.max(0, now - latestStartMs) : undefined;
+  }, [chainEvents, currentTask, now]);
+
+  // Remaining tasks (including the in-flight one) — count of non-completed buckets. The
+  // overlay reads this to surface "N other tasks still queued" on the flow-cancel option.
+  const remainingTaskCount = useMemo<number>(() => {
+    if (bucketed === undefined) return 0;
+    return bucketed.tasks.reduce((n, t) => (t.status === 'completed' ? n : n + 1), 0);
+  }, [bucketed]);
+
+  // Cancel handlers — option 1 mirrors the previous `c` behaviour (chain-runner abort). Option
+  // 2 marks the current task blocked with a fixed user-cancel reason, then aborts the chain so
+  // the unwind is identical from the runner's perspective. The repo write happens BEFORE the
+  // abort so a follow-up settle-attempt in the same tick can't overwrite our pin to `blocked`.
+  const onCancelAttempt = React.useCallback(() => {
+    setCancelScopeOpen(false);
+    sessions.abort(sessionId);
+  }, [sessions, sessionId]);
+
+  const onCancelFlow = React.useCallback(() => {
+    setCancelScopeOpen(false);
+    void (async (): Promise<void> => {
+      const sprintId = selection.sprintId as SprintId | undefined;
+      const taskIdRaw = currentTask?.id;
+      if (sprintId !== undefined && taskIdRaw !== undefined && deps.taskRepo !== undefined) {
+        const taskId = taskIdRaw as TaskId;
+        const found = await deps.taskRepo.findById(sprintId, taskId);
+        if (found.ok) {
+          await cancelActiveTaskUseCase({
+            task: found.value,
+            sprintId,
+            reason: 'user cancel',
+            taskRepo: deps.taskRepo,
+            logger: deps.logger,
+          });
+        }
+      }
+      sessions.abort(sessionId);
+    })();
+  }, [sessions, sessionId, selection.sprintId, currentTask, deps.taskRepo, deps.logger]);
+
+  const onDismissCancelScope = React.useCallback(() => {
+    setCancelScopeOpen(false);
+  }, []);
+
   const headerCard = (
     <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
       <Box flexDirection="column">
@@ -397,6 +473,20 @@ export const ExecuteView = (): React.JSX.Element => {
   // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
   const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
 
+  // Lazy criteria loader bound to this sprint's audit workspace. The Tasks panel calls it once
+  // per non-pending task and caches the result for the mount lifetime. Tests that don't wire a
+  // sprint selection (or omit `readDoneCriteria` from the test bootstrap) fall through to
+  // `undefined` here, which makes the panel skip the criteria UI entirely — no crash.
+  const storage = useStorage();
+  const readCriteria = useMemo(() => {
+    const loader = deps.readDoneCriteria;
+    if (loader === undefined || selection.sprintId === undefined) return undefined;
+    const parsed = AbsolutePath.parse(join(String(storage.dataRoot), 'sprints', String(selection.sprintId)));
+    if (!parsed.ok) return undefined;
+    const sprintDir = parsed.value;
+    return async (taskId: string): Promise<string | undefined> => loader(sprintDir, taskId);
+  }, [deps.readDoneCriteria, selection.sprintId, storage.dataRoot]);
+
   const tasksPanel =
     bucketed !== undefined ? (
       <TasksPanel
@@ -404,8 +494,10 @@ export const ExecuteView = (): React.JSX.Element => {
         running={isRunning}
         maxSignalsPerTask={tasksMaxSignals}
         inputActive={tasksInputActive}
+        nowMs={now}
         {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
         {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
+        {...(readCriteria !== undefined ? { readDoneCriteria: readCriteria } : {})}
       />
     ) : null;
 
@@ -517,6 +609,20 @@ export const ExecuteView = (): React.JSX.Element => {
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
               <Spinner label="running…" />
             </Box>
+          )}
+
+          {/* Cancel-scope picker — mounted only while running AND the operator pressed `c`.
+              While mounted it claims keyboard input via its own useInput hook; the surrounding
+              view's `c` handler is gated behind `cancelScopeOpen` so the keystroke isn't
+              consumed twice. */}
+          {isRunning && cancelScopeOpen && (
+            <CancelScopeOverlay
+              attemptElapsedMs={attemptElapsedMs}
+              remainingTaskCount={remainingTaskCount}
+              onCancelAttempt={onCancelAttempt}
+              onCancelFlow={onCancelFlow}
+              onDismiss={onDismissCancelScope}
+            />
           )}
         </Box>
       )}
