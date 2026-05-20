@@ -369,6 +369,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   if (code === 0) {
     let body: string;
     try {
+      // Single-shot read of the codex output tempfile — no per-line in-process accumulation.
+      // Preserve that: any future streaming variant must use an O(N) accumulator (see the
+      // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts).
       body = await readFile(outputFile);
     } catch (err) {
       return {
