@@ -7,6 +7,7 @@ const harnessConfig: Settings['harness'] = {
   maxTurns: 5,
   maxAttempts: 3,
   rateLimitRetries: 2,
+  plateauThreshold: 2,
 };
 
 const claudeConfig: Settings['ai'] = {

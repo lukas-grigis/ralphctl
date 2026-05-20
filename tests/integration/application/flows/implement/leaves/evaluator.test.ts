@@ -33,6 +33,7 @@ describe('evaluatorLeaf', () => {
     signals: createInMemorySink<HarnessSignal>(),
     cwd: absolutePath('/tmp/ralph/fake-cwd'),
     model: 'test-model',
+    plateauThreshold: 2,
     clock: () => FIXED_NOW,
     logger: noopLogger,
   });

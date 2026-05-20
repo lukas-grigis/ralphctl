@@ -240,6 +240,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       logger: deps.logger,
       eventBus: deps.eventBus,
       maxTurns: deps.config.harness.maxTurns,
+      plateauThreshold: deps.config.harness.plateauThreshold,
       ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
     };
     return sequential<ImplementCtx>(`task-${String(taskId)}`, [

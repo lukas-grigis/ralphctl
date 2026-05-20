@@ -8,6 +8,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
+import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
 export type { GenEvalExit, RunTaskVerdict };
 
@@ -60,6 +61,13 @@ export interface ImplementCtx {
    */
   readonly currentRoundNum?: number | undefined;
   readonly lastEvaluation?: EvaluationSignal | undefined;
+  /**
+   * Append-only per-task history of completed evaluator turns — fed into the plateau
+   * predicate by the evaluator leaf so a configurable window of consecutive turns (see
+   * `settings.harness.plateauThreshold`) can be compared, not just the immediate prior one.
+   * Reset implicitly per task: a fresh `currentTask` starts with an empty array.
+   */
+  readonly plateauHistory?: readonly PlateauTurnRecord[] | undefined;
   readonly lastExit?: GenEvalExit | undefined;
   readonly lastVerdict?: RunTaskVerdict | undefined;
   readonly lastBlockReason?: string | undefined;

@@ -102,6 +102,12 @@ const buildEditableFields = (s: Settings): readonly EditableField[] => {
       label: 'Rate-limit retries',
       current: String(s.harness.rateLimitRetries),
     },
+    {
+      kind: 'text',
+      key: 'harness.plateauThreshold',
+      label: 'Plateau threshold',
+      current: String(s.harness.plateauThreshold),
+    },
     { kind: 'select', key: 'logging.level', label: 'Log level', options: LOG_LEVELS, current: s.logging.level },
     {
       kind: 'text',
@@ -304,6 +310,11 @@ export const SettingsView = (): React.JSX.Element => {
                     label: 'Rate-limit retries',
                     value: valueFor('harness.rateLimitRetries'),
                     hint: 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
+                  },
+                  {
+                    label: 'Plateau threshold',
+                    value: valueFor('harness.plateauThreshold'),
+                    hint: 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
                   },
                 ]}
               />

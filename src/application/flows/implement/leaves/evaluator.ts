@@ -27,6 +27,7 @@ import {
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
 /**
  * Chain leaf — one evaluator turn of the gen-eval loop. Wires the integration ports
@@ -40,8 +41,10 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * call the leaf reads the file, fans signals out to the sink, then passes the parsed array to
  * the use case. The leaf finishes by rendering `evaluation.md` for operator-facing replay.
  *
- * The leaf reads `ctx.lastEvaluation` as `priorEvaluation` for plateau comparison and writes
- * the new evaluation back to `ctx.lastEvaluation` for next turn. When the use case returns a
+ * The leaf reads `ctx.plateauHistory` (default `[]`) as `priorTurns` for plateau comparison,
+ * appends the new turn record on completion, and writes the new evaluation back to
+ * `ctx.lastEvaluation`. `ctx.proposedCommitMessage.subject` (the generator's same-round
+ * `<commit-message>` signal) flows in as `currentCommitSubject`. When the use case returns a
  * terminal `exit`, the leaf writes the matching ctx fields so the surrounding `loop`'s
  * `shouldStop` predicate exits cleanly.
  */
@@ -52,13 +55,16 @@ export interface EvaluatorLeafDeps {
   readonly cwd: AbsolutePath;
   readonly model: string;
   readonly checkScript?: string;
+  /** From `settings.harness.plateauThreshold` (2–5). */
+  readonly plateauThreshold: number;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
 
 interface EvaluatorInput {
   readonly task: InProgressTask;
-  readonly priorEvaluation?: EvaluationSignal;
+  readonly priorTurns: readonly PlateauTurnRecord[];
+  readonly currentCommitSubject?: string;
   readonly workspaceRoot: AbsolutePath;
   readonly roundNum: number;
 }
@@ -67,6 +73,7 @@ interface EvaluatorOutput {
   readonly task: InProgressTask;
   readonly evaluation?: EvaluationSignal;
   readonly exit?: EvaluatorTurnExit;
+  readonly turnRecord?: PlateauTurnRecord;
 }
 
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -101,7 +108,9 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
 
         const result = await runEvaluatorTurnUseCase({
           task: input.task,
-          ...(input.priorEvaluation !== undefined ? { priorEvaluation: input.priorEvaluation } : {}),
+          priorTurns: input.priorTurns,
+          plateauThreshold: deps.plateauThreshold,
+          ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
           callEvaluate,
           evaluationFile: roundEvaluationRelativePath(input.roundNum),
           logger: deps.logger,
@@ -114,6 +123,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           task: result.value.task,
           ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
           ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
+          ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
         });
       },
     },
@@ -142,20 +152,25 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           message: `evaluator-${String(taskId)}: ctx.taskWorkspaceRoot/currentRoundNum missing — generator leaf must run first`,
         });
       }
+      const currentCommitSubject = ctx.proposedCommitMessage?.subject;
       return {
         task: ctx.currentTask,
+        priorTurns: ctx.plateauHistory ?? [],
         workspaceRoot: ctx.taskWorkspaceRoot,
         roundNum: ctx.currentRoundNum,
-        ...(ctx.lastEvaluation !== undefined ? { priorEvaluation: ctx.lastEvaluation } : {}),
+        ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
       };
     },
     output: (ctx, out) => {
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
+      const nextHistory =
+        out.turnRecord !== undefined ? [...(ctx.plateauHistory ?? []), out.turnRecord] : ctx.plateauHistory;
       const next: ImplementCtx = {
         ...ctx,
         currentTask: out.task,
         tasks,
         ...(out.evaluation !== undefined ? { lastEvaluation: out.evaluation } : {}),
+        ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
       };
       if (out.exit === undefined) return next;
       return { ...next, lastExit: out.exit };
