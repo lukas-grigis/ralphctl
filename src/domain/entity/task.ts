@@ -2,10 +2,14 @@ import { Result } from '@src/domain/result.ts';
 import type { Entity } from '@src/domain/entity/_base/entity.ts';
 import {
   type AbortMetadata,
+  appendCheckRun,
   type Attempt,
   type AttemptWarning,
+  type Attribution,
+  type CheckRun,
   completeAttempt,
   type Evaluation,
+  markBaselineBroken,
   recordAttemptCommit,
   recordAttemptCritique,
   recordAttemptEvaluation,
@@ -13,6 +17,7 @@ import {
   recordAttemptWarning,
   type RecoveryContext,
   type RunningAttempt,
+  setAttribution,
   startAttempt,
   type VerifiedAttempt,
 } from '@src/domain/entity/attempt.ts';
@@ -30,7 +35,15 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 // Re-exports — these types conceptually belong to Attempt but were historically used
 // alongside Task. Kept here for ergonomic imports.
-export type { Evaluation, EvaluationStatus, Verification } from '@src/domain/entity/attempt.ts';
+export type {
+  Attribution,
+  CheckRun,
+  CheckRunOutcome,
+  CheckRunPhase,
+  Evaluation,
+  EvaluationStatus,
+  Verification,
+} from '@src/domain/entity/attempt.ts';
 
 interface TaskBase extends Entity<TaskId> {
   readonly name: string;
@@ -300,6 +313,43 @@ export const recordRunningAttemptWarning = (
   const guard = requireRunningAttempt(task);
   if (!guard.ok) return Result.error(guard.error);
   return Result.ok(replaceLastAttempt(task, recordAttemptWarning(guard.value.running, warning)));
+};
+
+/**
+ * Append a {@link CheckRun} row to the running attempt's audit array. Used by the harness
+ * pre/post check-script leaves to persist deterministic verification results independent of
+ * the AI's `task-verified` self-report.
+ */
+export const appendAttemptCheckRun = (
+  task: InProgressTask,
+  run: CheckRun
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, appendCheckRun(guard.value.running, run)));
+};
+
+/**
+ * Stamp the {@link Attribution} verdict on the running attempt. Set by post-task-check after
+ * comparing the pre and post check-script outcomes.
+ */
+export const setAttemptAttribution = (
+  task: InProgressTask,
+  attribution: Attribution
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, setAttribution(guard.value.running, attribution)));
+};
+
+/**
+ * Set the running attempt's `baselineBroken` flag — pre-task-check ran red before the AI got
+ * a chance to run, so a downstream red verdict may not be the AI's fault.
+ */
+export const markAttemptBaselineBroken = (task: InProgressTask): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, markBaselineBroken(guard.value.running)));
 };
 
 /**

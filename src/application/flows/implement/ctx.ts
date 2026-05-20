@@ -1,7 +1,7 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AttemptWarning, CheckRunOutcome } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -69,6 +69,12 @@ export interface ImplementCtx {
     | { readonly kind: 'passed' }
     | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string }
     | undefined;
+  /**
+   * Outcome of the pre-task-check leaf for the in-flight task — `'success' | 'failed' |
+   * 'spawn-error' | 'skipped'`. Read by `post-task-check` to compute attribution. Cleared
+   * by `settle-attempt` along with the rest of the per-task verdict state.
+   */
+  readonly lastPreCheckOutcome?: CheckRunOutcome | undefined;
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;
