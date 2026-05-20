@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
-import { createSprintExecution, SETUP_TAIL_BYTES, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -238,7 +239,7 @@ describe('setupScriptRunnerLeaf', () => {
   it('truncates stdout tails larger than SETUP_TAIL_BYTES with a marker', async () => {
     const repo = savingRepo();
     const bus = createCapturingBus();
-    const huge = 'A'.repeat(SETUP_TAIL_BYTES * 4) + 'FINAL_LINE';
+    const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 4) + 'FINAL_LINE';
     const leaf = setupScriptRunnerLeaf(
       {
         shellScriptRunner: passingShell({ output: huge }),
@@ -258,7 +259,7 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.stdoutTailBytes).toContain('FINAL_LINE');
     expect(row?.stdoutTailBytes).toContain('truncated');
     // Tail body itself is capped at the limit; the marker prefix adds a small overhead.
-    expect(Buffer.from(row?.stdoutTailBytes ?? '', 'utf8').length).toBeLessThan(SETUP_TAIL_BYTES + 200);
+    expect(Buffer.from(row?.stdoutTailBytes ?? '', 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
   });
 
   it('runs unconditionally — a pre-existing audit stamp does not skip the next run', async () => {

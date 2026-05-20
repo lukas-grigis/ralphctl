@@ -6,9 +6,9 @@ import {
   appendExecutionSetupRun,
   type SetupRun,
   type SetupRunOutcome,
-  SETUP_TAIL_BYTES,
   type SprintExecution,
 } from '@src/domain/entity/sprint-execution.ts';
+import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -152,7 +152,7 @@ export const setupScriptRunnerLeaf = (
           // existing post-task-check leaf relies on that shape. Treat the merged tail as
           // stdout for now and leave stderr empty for non-spawn failures — the structured
           // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
-          const outputTail = tailBytes(output, SETUP_TAIL_BYTES);
+          const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
           const normalisedExit = exitCode ?? -1;
           const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
           const run = makeSetupRun({
