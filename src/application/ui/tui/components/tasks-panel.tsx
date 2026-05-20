@@ -796,6 +796,7 @@ const TaskBlock = ({
   showEvaluatorFailureUI,
   taskProjection,
   isActive,
+  firstRun,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -819,6 +820,12 @@ const TaskBlock = ({
   readonly taskProjection?: TaskProjection;
   /** True for the active (running) task; gates ETA rendering to the operator's focus. */
   readonly isActive: boolean;
+  /**
+   * Run-wide first-run flag — true when no harness signal or evaluation has fired across any
+   * task in the panel. Surfaces a `waiting for first attempt…` line below the active task's
+   * spinner so the operator sees the run is alive but pre-signal.
+   */
+  readonly firstRun: boolean;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -869,6 +876,11 @@ const TaskBlock = ({
           })()}
       </Box>
       {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
+      {firstRun && isActive && isSpinning && (
+        <Box paddingLeft={2}>
+          <Text dimColor>{glyphs.activityArrow} waiting for first attempt…</Text>
+        </Box>
+      )}
       {criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
       {task.errorMessage !== undefined && (
         <Box paddingLeft={2}>
@@ -1130,10 +1142,19 @@ export const TasksPanel = ({
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return (
       <Box paddingX={spacing.indent}>
-        <Text dimColor>(no tasks yet)</Text>
+        <Text dimColor>
+          {glyphs.bullet} Tasks panel empty {glyphs.bullet} Run plan to generate tasks
+        </Text>
       </Box>
     );
   }
+  // First-run state — tasks exist but no harness signal has fired yet across the whole run.
+  // The kinds bar is suppressed (it's already empty when no signals are present) and the
+  // active-task block shows a `waiting for first attempt…` line below the spinner. Computed
+  // here so `TaskBlock` can pick it up via a single prop.
+  const noSignalsYet =
+    bucketed.orphanSignals.length === 0 &&
+    bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
   const kinds = collectKinds(bucketed);
   const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
   const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
@@ -1181,6 +1202,7 @@ export const TasksPanel = ({
             criteriaExpanded={criteriaExpandedIds.has(task.id)}
             showEvaluatorFailureUI={showEvaluatorFailureUI}
             isActive={isActive}
+            firstRun={noSignalsYet}
             {...(recovering !== undefined ? { recovering } : {})}
             {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}
