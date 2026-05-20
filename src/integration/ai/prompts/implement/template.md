@@ -56,6 +56,8 @@ completion.
 
 {{PRIOR_CRITIQUE_SECTION}}
 
+{{DECISIONS_GUIDANCE}}
+
 ## Check Script
 
 {{CHECK_SCRIPT_SECTION}}

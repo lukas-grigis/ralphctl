@@ -200,6 +200,13 @@ export interface ProjectSprintStateInput {
   readonly now: IsoTimestamp;
   /** Optional branch probe result, when the caller has it. Threads into `branch.actual`. */
   readonly actualBranch?: string;
+  /**
+   * Authoritative decision entries loaded from `<sprintDir>/decisions.log`. When present,
+   * these are merged with any in-band decisions mined from the chain log so the
+   * `## Decisions` section in `progress.md` reflects both sources. Empty / undefined →
+   * the projection falls back to the chain-log-mined decisions only.
+   */
+  readonly decisionsLogEntries?: readonly DecisionEntry[];
 }
 
 /**
@@ -210,7 +217,7 @@ export interface ProjectSprintStateInput {
  * @public
  */
 export const projectSprintState = (input: ProjectSprintStateInput): SprintState => {
-  const { sprint, execution, tasks, chainLogEntries, now, actualBranch } = input;
+  const { sprint, execution, tasks, chainLogEntries, now, actualBranch, decisionsLogEntries } = input;
 
   const counts = countTasks(tasks);
   const status = synthesiseStatus(sprint.status, counts);
@@ -219,7 +226,7 @@ export const projectSprintState = (input: ProjectSprintStateInput): SprintState 
   const dependencyCycles = findCycles(tasks);
   const runs = groupRuns(chainLogEntries);
   const lastRun = runs.length > 0 ? runs[runs.length - 1] : undefined;
-  const decisions = collectDecisions(chainLogEntries);
+  const decisions = mergeDecisions(collectDecisions(chainLogEntries), decisionsLogEntries);
   const staleTasks = collectStaleTasks(tasks, chainLogEntries, now);
 
   return {
@@ -595,9 +602,30 @@ const groupRuns = (entries: readonly ChainLogEntry[]): readonly RunBoundary[] =>
 };
 
 /**
+ * Merge decisions from two sources: those mined from the chain log (in-band) and those loaded
+ * authoritatively from `<sprintDir>/decisions.log`. Duplicates (same `at` + `message`) are
+ * collapsed; the decisions-log entry wins on tie because it carries the authoritative columns
+ * (taskId / commitSha) the chain log can't reconstruct. Output is sorted by `at` ascending so
+ * the rendered `## Decisions` section reads chronologically.
+ */
+const mergeDecisions = (
+  fromChainLog: readonly DecisionEntry[],
+  fromDecisionsLog: readonly DecisionEntry[] | undefined
+): readonly DecisionEntry[] => {
+  if (fromDecisionsLog === undefined || fromDecisionsLog.length === 0) return fromChainLog;
+  const dedupKey = (d: DecisionEntry): string => `${String(d.at)}|${d.message}`;
+  const merged = new Map<string, DecisionEntry>();
+  for (const d of fromChainLog) merged.set(dedupKey(d), d);
+  for (const d of fromDecisionsLog) merged.set(dedupKey(d), d); // decisions-log wins on tie
+  return [...merged.values()].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+};
+
+/**
  * Mine "decision" entries from the chain log. The current contract: an entry whose `event` field
- * is exactly `'decision'`, or whose `meta.signalKind === 'decision'`. No prompt emits this today
- * — the function is forward-compat for P3d once the prompts adapter starts publishing decisions.
+ * is exactly `'decision'`, or whose `meta.signalKind === 'decision'`. The authoritative source
+ * for AI-emitted `<decision>` signals is `<sprintDir>/decisions.log` (see
+ * `decisions-log-sink.ts`); this miner is a fallback for events that landed in the chain log
+ * via the bus rather than via the decisions sink.
  */
 const collectDecisions = (entries: readonly ChainLogEntry[]): readonly DecisionEntry[] => {
   const out: DecisionEntry[] = [];

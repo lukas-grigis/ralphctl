@@ -19,6 +19,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { ensureProgressFileLeaf } from '@src/application/flows/implement/leaves/ensure-progress-file.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const unwrap = <T>(r: { ok: true; value: T } | { ok: false; error: unknown }): T => {
@@ -50,15 +51,18 @@ describe('ensureProgressFileLeaf', () => {
   it('renders the initial snapshot of progress.md from the activated sprint state and writes ctx.progressFile', async () => {
     const progressPath = absolutePath(join(dir, 'progress.md'));
     const chainLogPath = absolutePath(join(dir, 'chain.log'));
+    const decisionsLogPath = absolutePath(join(dir, 'decisions.log'));
     const leafEl = ensureProgressFileLeaf(
       {
         loadChainLog: createFsChainLogLoader(),
+        loadDecisionsLog: createFsDecisionsLogLoader(),
         writeFile: createAtomicWriteFile(),
         clock: () => FIXED_NOW,
         logger: noopLogger,
       },
       progressPath,
-      chainLogPath
+      chainLogPath,
+      decisionsLogPath
     );
 
     const ctx = buildCtx();
@@ -80,15 +84,18 @@ describe('ensureProgressFileLeaf', () => {
     // Simulate legacy streaming-sink output sitting on disk.
     await fs.writeFile(String(progressPath), '# Sprint progress\n\n## Activity\n\n- old streaming bullet\n');
 
+    const decisionsLogPath = absolutePath(join(dir, 'decisions.log'));
     const leafEl = ensureProgressFileLeaf(
       {
         loadChainLog: createFsChainLogLoader(),
+        loadDecisionsLog: createFsDecisionsLogLoader(),
         writeFile: createAtomicWriteFile(),
         clock: () => FIXED_NOW,
         logger: noopLogger,
       },
       progressPath,
-      chainLogPath
+      chainLogPath,
+      decisionsLogPath
     );
 
     const result = await leafEl.execute(buildCtx());
@@ -101,15 +108,18 @@ describe('ensureProgressFileLeaf', () => {
   it('returns InvalidStateError when upstream load leaves did not populate ctx', async () => {
     const progressPath = absolutePath(join(dir, 'progress.md'));
     const chainLogPath = absolutePath(join(dir, 'chain.log'));
+    const decisionsLogPath = absolutePath(join(dir, 'decisions.log'));
     const leafEl = ensureProgressFileLeaf(
       {
         loadChainLog: createFsChainLogLoader(),
+        loadDecisionsLog: createFsDecisionsLogLoader(),
         writeFile: createAtomicWriteFile(),
         clock: () => FIXED_NOW,
         logger: noopLogger,
       },
       progressPath,
-      chainLogPath
+      chainLogPath,
+      decisionsLogPath
     );
     const result = await leafEl.execute({ sprintId: 'sprint-x' as SprintId } satisfies ImplementCtx);
     expect(result.ok).toBe(false);
@@ -132,15 +142,18 @@ describe('ensureProgressFileLeaf', () => {
       ].join('\n')
     );
 
+    const decisionsLogPath = absolutePath(join(dir, 'decisions.log'));
     const leafEl = ensureProgressFileLeaf(
       {
         loadChainLog: createFsChainLogLoader(),
+        loadDecisionsLog: createFsDecisionsLogLoader(),
         writeFile: createAtomicWriteFile(),
         clock: () => FIXED_NOW,
         logger: noopLogger,
       },
       progressPath,
-      chainLogPath
+      chainLogPath,
+      decisionsLogPath
     );
 
     const result = await leafEl.execute(buildCtx());

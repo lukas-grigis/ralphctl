@@ -130,6 +130,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
     SIGNALS: 'signals-task',
+    DECISIONS_GUIDANCE: 'decisions',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.

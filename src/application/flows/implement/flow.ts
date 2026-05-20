@@ -213,10 +213,19 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   const chainLogPathParsed = AbsolutePath.parse(`${String(opts.sprintDir)}/chain.log`);
   if (!chainLogPathParsed.ok) throw chainLogPathParsed.error;
   const chainLogPath = chainLogPathParsed.value;
+  const decisionsLogPathParsed = AbsolutePath.parse(`${String(opts.sprintDir)}/decisions.log`);
+  if (!decisionsLogPathParsed.ok) throw decisionsLogPathParsed.error;
+  const decisionsLogPath = decisionsLogPathParsed.value;
   const snapshotLeaf = (name: string): Element<ImplementCtx> =>
     writeProgressSnapshotLeaf(
-      { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
-      { progressFile: opts.progressFile, chainLogPath, name }
+      {
+        loadChainLog: deps.loadChainLog,
+        loadDecisionsLog: deps.loadDecisionsLog,
+        writeFile: deps.writeFile,
+        clock: deps.clock,
+        logger: deps.logger,
+      },
+      { progressFile: opts.progressFile, chainLogPath, decisionsLogPath, name }
     );
 
   // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
@@ -388,9 +397,16 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
     ensureProgressFileLeaf(
-      { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+      {
+        loadChainLog: deps.loadChainLog,
+        loadDecisionsLog: deps.loadDecisionsLog,
+        writeFile: deps.writeFile,
+        clock: deps.clock,
+        logger: deps.logger,
+      },
       opts.progressFile,
-      chainLogPath
+      chainLogPath,
+      decisionsLogPath
     ),
     setupScriptRunnerLeaf(
       {

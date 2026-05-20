@@ -8,6 +8,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
+import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
 import { writeProgressSnapshot } from '@src/business/sprint/write-progress-snapshot.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -32,6 +33,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export interface WriteProgressSnapshotLeafDeps {
   readonly loadChainLog: LoadChainLog;
+  readonly loadDecisionsLog: LoadDecisionsLog;
   readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -40,6 +42,7 @@ export interface WriteProgressSnapshotLeafDeps {
 export interface WriteProgressSnapshotLeafOpts {
   readonly progressFile: AbsolutePath;
   readonly chainLogPath: AbsolutePath;
+  readonly decisionsLogPath: AbsolutePath;
   readonly name: string;
 }
 
@@ -67,12 +70,19 @@ export const writeProgressSnapshotLeaf = (
           ) as Result<void, StorageError | InvalidStateError>;
         }
         const result = await writeProgressSnapshot(
-          { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+          {
+            loadChainLog: deps.loadChainLog,
+            loadDecisionsLog: deps.loadDecisionsLog,
+            writeFile: deps.writeFile,
+            clock: deps.clock,
+            logger: deps.logger,
+          },
           {
             sprint: input.sprint,
             execution: input.execution,
             tasks: input.tasks,
             chainLogPath: opts.chainLogPath,
+            decisionsLogPath: opts.decisionsLogPath,
             progressFile: opts.progressFile,
           }
         );

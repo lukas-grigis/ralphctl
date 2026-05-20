@@ -8,6 +8,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
+import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
 import { writeProgressSnapshot } from '@src/business/sprint/write-progress-snapshot.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -29,6 +30,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export interface EnsureProgressFileLeafDeps {
   readonly loadChainLog: LoadChainLog;
+  readonly loadDecisionsLog: LoadDecisionsLog;
   readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -40,12 +42,14 @@ interface LeafInput {
   readonly tasks: ImplementCtx['tasks'];
   readonly progressFile: AbsolutePath;
   readonly chainLogPath: AbsolutePath;
+  readonly decisionsLogPath: AbsolutePath;
 }
 
 export const ensureProgressFileLeaf = (
   deps: EnsureProgressFileLeafDeps,
   progressFile: AbsolutePath,
-  chainLogPath: AbsolutePath
+  chainLogPath: AbsolutePath,
+  decisionsLogPath: AbsolutePath
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, LeafInput, void>('ensure-progress-file', {
     useCase: {
@@ -64,12 +68,19 @@ export const ensureProgressFileLeaf = (
           ) as Result<void, StorageError | InvalidStateError>;
         }
         return writeProgressSnapshot(
-          { loadChainLog: deps.loadChainLog, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+          {
+            loadChainLog: deps.loadChainLog,
+            loadDecisionsLog: deps.loadDecisionsLog,
+            writeFile: deps.writeFile,
+            clock: deps.clock,
+            logger: deps.logger,
+          },
           {
             sprint: input.sprint,
             execution: input.execution,
             tasks: input.tasks,
             chainLogPath: input.chainLogPath,
+            decisionsLogPath: input.decisionsLogPath,
             progressFile: input.progressFile,
           }
         ) as Promise<Result<void, StorageError | InvalidStateError>>;
@@ -81,6 +92,7 @@ export const ensureProgressFileLeaf = (
       tasks: ctx.tasks,
       progressFile,
       chainLogPath,
+      decisionsLogPath,
     }),
     output: (ctx) => ({ ...ctx, progressFile }),
   });

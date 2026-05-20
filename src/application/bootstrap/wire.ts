@@ -50,6 +50,8 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
+import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 import type { ReadDoneCriteria } from '@src/business/sprint/read-done-criteria.ts';
 import { createFsReadDoneCriteria } from '@src/integration/persistence/sprint/read-done-criteria.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
@@ -170,6 +172,12 @@ export interface AppDeps {
    * settle-attempt, sprint transition). Tolerant by contract: missing file → empty list.
    */
   readonly loadChainLog: LoadChainLog;
+  /**
+   * Loader for `<sprintDir>/decisions.log` — read by the snapshot renderer to populate the
+   * `## Decisions` section in `progress.md` from the authoritative decisions-log sink output.
+   * Tolerant by contract: missing file → empty list.
+   */
+  readonly loadDecisionsLog: LoadDecisionsLog;
   /**
    * Reader for a task's materialised `done-criteria.md` under the implement audit workspace.
    * The TUI's Tasks panel calls this lazily when the operator expands a task's criteria block —
@@ -313,6 +321,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
     loadChainLog: createFsChainLogLoader({ logger }),
+    loadDecisionsLog: createFsDecisionsLogLoader({ logger }),
     readDoneCriteria: createFsReadDoneCriteria(),
     notificationDispatcher,
   };

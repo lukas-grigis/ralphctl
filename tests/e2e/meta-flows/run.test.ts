@@ -40,6 +40,7 @@ import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fake
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -246,6 +247,7 @@ describe('createRunFlow', () => {
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
           loadChainLog: createFsChainLogLoader(),
+          loadDecisionsLog: createFsDecisionsLogLoader(),
           writeFile: createAtomicWriteFile(),
         },
         review: {
@@ -318,6 +320,7 @@ describe('createRunFlow', () => {
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
           loadChainLog: createFsChainLogLoader(),
+          loadDecisionsLog: createFsDecisionsLogLoader(),
           writeFile: createAtomicWriteFile(),
         },
         review: {

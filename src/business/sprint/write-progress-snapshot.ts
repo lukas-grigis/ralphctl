@@ -7,7 +7,8 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
-import { projectSprintState } from '@src/business/sprint/state-projection.ts';
+import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
+import { type DecisionEntry, projectSprintState } from '@src/business/sprint/state-projection.ts';
 import { renderProgressMarkdown } from '@src/business/sprint/render-progress-markdown.ts';
 
 /**
@@ -53,6 +54,12 @@ export type WriteProgressFile = (path: AbsolutePath, content: string) => Promise
  */
 export interface WriteProgressSnapshotDeps {
   readonly loadChainLog: LoadChainLog;
+  /**
+   * Loader for `<sprintDir>/decisions.log` — optional so existing callers / tests that
+   * don't care about decisions can omit it. When absent the snapshot still renders; the
+   * `## Decisions` section falls back to whatever the chain log miner found in-band.
+   */
+  readonly loadDecisionsLog?: LoadDecisionsLog;
   readonly writeFile: WriteProgressFile;
   readonly clock: () => IsoTimestamp;
   readonly logger?: Logger;
@@ -63,6 +70,12 @@ export interface WriteProgressSnapshotInput {
   readonly execution: SprintExecution;
   readonly tasks: readonly Task[];
   readonly chainLogPath: AbsolutePath;
+  /**
+   * Path to `<sprintDir>/decisions.log`. Optional — when the snapshot writer is built
+   * without a `loadDecisionsLog` adapter (e.g. unit tests that only exercise the chain log
+   * path), this input is ignored.
+   */
+  readonly decisionsLogPath?: AbsolutePath;
   readonly progressFile: AbsolutePath;
   /** Optional caller-supplied current branch — passed through to the projection. */
   readonly actualBranch?: string;
@@ -86,6 +99,22 @@ export const writeProgressSnapshot = async (
     });
   }
 
+  // Decisions log — authoritative source for AI-emitted `<decision>` signals. Same tolerance
+  // policy as the chain log: missing file → empty list; a read error degrades to empty so a
+  // bad permission bit can't block the snapshot.
+  let decisionsLogEntries: readonly DecisionEntry[] = [];
+  if (deps.loadDecisionsLog !== undefined && input.decisionsLogPath !== undefined) {
+    const loadedDecisions = await deps.loadDecisionsLog(input.decisionsLogPath);
+    if (loadedDecisions.ok) {
+      decisionsLogEntries = loadedDecisions.value;
+    } else {
+      log?.warn('decisions.log read failed; falling back to chain-log-mined decisions only', {
+        path: String(input.decisionsLogPath),
+        error: loadedDecisions.error.message,
+      });
+    }
+  }
+
   const state = projectSprintState({
     sprint: input.sprint,
     execution: input.execution,
@@ -93,6 +122,7 @@ export const writeProgressSnapshot = async (
     chainLogEntries: entries,
     now: deps.clock(),
     ...(input.actualBranch !== undefined ? { actualBranch: input.actualBranch } : {}),
+    ...(decisionsLogEntries.length > 0 ? { decisionsLogEntries } : {}),
   });
 
   const content = renderProgressMarkdown(state);

@@ -42,6 +42,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
+import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -307,6 +308,7 @@ const buildDeps = (
   skillSource: emptySkillSource,
   interactive: unusedInteractive,
   loadChainLog: createFsChainLogLoader(),
+  loadDecisionsLog: createFsDecisionsLogLoader(),
   writeFile: createAtomicWriteFile(),
 });
 

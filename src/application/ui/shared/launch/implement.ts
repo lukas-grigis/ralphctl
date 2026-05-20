@@ -7,9 +7,13 @@ import {
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { HarnessSignal } from '@src/domain/signal.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
+import { createDecisionsLogSink } from '@src/integration/observability/sinks/decisions-log-sink.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
@@ -37,10 +41,30 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
   const chainLogPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'chain.log'));
   if (!chainLogPath.ok) return { ok: false, reason: chainLogPath.error.message };
+  const decisionsLogPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'decisions.log'));
+  if (!decisionsLogPath.ok) return { ok: false, reason: decisionsLogPath.error.message };
 
   // Tee every AppEvent on the bus to <sprintDir>/chain.log for postmortem debugging.
   // Stopped when the runner exits (success or fail) — wired below via subscribe().
   const chainLog = startFileLogSink({ file: chainLogPath.value, bus: deps.app.eventBus });
+
+  // Per-sprint decisions.log: tracks `<decision>` signals from the harness signal stream.
+  // The taskId column tracks the most recent `task-attempt-started` event so decisions
+  // emitted mid-attempt carry the right id. Commit sha is best-effort `?` — decisions are
+  // emitted during the generator turn, before the per-task commit; a future enhancement can
+  // backfill once the commit-task leaf settles.
+  let currentTaskId: string | undefined;
+  const unsubTaskTracker = deps.app.eventBus.subscribe((event) => {
+    if (event.type === 'task-attempt-started') currentTaskId = event.taskId;
+  });
+  const decisionsSink = createDecisionsLogSink({
+    file: decisionsLogPath.value,
+    resolveContext: () => (currentTaskId !== undefined ? { taskId: currentTaskId } : {}),
+  });
+  // Fan out every harness signal to both the existing app sink (TUI bus + any other
+  // subscribers) AND the decisions log sink. The decisions sink filters internally — only
+  // `decision` signals produce a write.
+  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, decisionsSink]);
 
   const repositories = new Map<RepositoryId, RepoExecConfig>();
   for (const r of snapshot.project.repositories) {
@@ -58,7 +82,7 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       taskRepo: deps.app.taskRepo,
       provider,
       templateLoader: deps.app.templateLoader,
-      signals: deps.app.signals,
+      signals,
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
       clock: deps.app.clock,
@@ -71,6 +95,7 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       skillSource,
       interactive: deps.interactive,
       loadChainLog: deps.app.loadChainLog,
+      loadDecisionsLog: deps.app.loadDecisionsLog,
       writeFile: deps.app.writeFile,
     },
     {
@@ -87,12 +112,14 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
     element,
     initialCtx: { sprintId: snapshot.sprint.id },
   });
-  // Stop the file-log subscription when the runner reaches a terminal state. Pending writes
-  // still drain in the background — the file remains consistent post-exit.
+  // Stop the file-log + decisions-log subscriptions when the runner reaches a terminal state.
+  // Pending writes still drain in the background — both files remain consistent post-exit.
   runner.subscribe((evt) => {
     if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
       chainLog.stop();
       void chainLog.flush();
+      unsubTaskTracker();
+      void decisionsSink.flush();
     }
   });
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));

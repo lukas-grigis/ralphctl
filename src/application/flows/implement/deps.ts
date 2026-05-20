@@ -16,6 +16,7 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
+import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 
 /**
@@ -61,6 +62,12 @@ export interface ImplementDeps {
    * point (sprint start, settle-attempt, sprint transition).
    */
   readonly loadChainLog: LoadChainLog;
+  /**
+   * Loader for `<sprintDir>/decisions.log`. Read by the snapshot renderer to populate the
+   * `## Decisions` section in `progress.md` from the authoritative decisions-log sink output.
+   * Tolerant by contract: missing file → empty list.
+   */
+  readonly loadDecisionsLog: LoadDecisionsLog;
   /**
    * Atomic file writer used by the progress.md snapshot renderer. Production wires the
    * tmp+rename adapter (`createAtomicWriteFile`); tests pass an in-memory fake.
