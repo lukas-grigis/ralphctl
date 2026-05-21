@@ -115,7 +115,7 @@ its alt-screen behaviour differs.
 12. Open Sessions list, press Enter on the session
 13. **Expected:** routed back to Execute view with the live trace + the per-task panel + recent-events tail
 14. Watch a task settle:
-    - **Expected:** pre-task-check runs, generator runs, evaluator runs, post-task-check runs (attribution
+    - **Expected:** pre-task-verify runs, generator runs, evaluator runs, post-task-verify runs (attribution
       chip: `clean`), task transitions to `DONE`. `TokenBudgetCard` updates in the context column.
 15. Press `c` (cancel-scope picker)
 16. **Expected:** overlay appears offering "cancel attempt" vs "cancel whole flow". Press `Esc` to dismiss.
@@ -203,7 +203,7 @@ For every prompt context (an editor, a select, an input):
 2. **Expected:** routed to Execute view, the multi-line editor prompt appears asking for feedback
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
-5. AI exits; check scripts re-run; evaluator re-runs
+5. AI exits; verify scripts re-run; evaluator re-runs
 6. **Expected:** progress.md gets the new round's entries; chain.log captures the trace
 7. From the same flow, submit an EMPTY input (just Ctrl+D)
 8. **Expected:** the loop exits cleanly, sprint stays in `review`

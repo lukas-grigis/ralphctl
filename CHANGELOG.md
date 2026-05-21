@@ -7,6 +7,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Domain rename: `checkScript` → `verifyScript` everywhere.** Aligns the field name with the user-facing
+  verb the harness emits in prompts (`<verify-script>`). Touches `Repository.{checkScript,checkTimeout}` →
+  `{verifyScript,verifyTimeout}`, the `CheckRun` / `CheckRunOutcome` / `CheckRunPhase` types →
+  `VerifyRun` / `VerifyRunOutcome` / `VerifyRunPhase`, the `Attempt.checkRuns` field → `verifyRuns`, the
+  `pre-task-check.ts` / `post-task-check.ts` leaves → `pre-task-verify.ts` / `post-task-verify.ts`, the
+  `run-check-script.ts` use case → `run-verify-script.ts`, the prompt section `## Check Script` →
+  `## Verify Script` (placeholder `{{CHECK_SCRIPT_SECTION}}` → `{{VERIFY_SCRIPT_SECTION}}`), and every TUI
+  label / log message in that domain. Persisted `project.json` and per-task `tasks.json` records written
+  before the rename continue to load via lazy migration in the Zod schema: legacy `checkScript` /
+  `checkTimeout` / `checkRuns` fields are read once, migrated to the new field names in the in-memory
+  entity, and dropped on the next save. No manual migration step.
+
 ### Added
 
 - **Three-column Implement layout with responsive breakpoints.** At ≥180 cols the execute view splits into a

@@ -76,7 +76,7 @@ on every settlement. The split keeps planning mutations isolated from execution-
 list does not lose the sprint plan.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
-of repositories (each with `setupScript`, `checkScript`, `onboardedAt`); mutating a repo goes through
+of repositories (each with `setupScript`, `verifyScript`, `onboardedAt`); mutating a repo goes through
 `ProjectRepository.save()`.
 
 `Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
@@ -282,7 +282,7 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 | `plan`                         | chain    | no                            | Interactive AI handoff; TUI only                    |
 | `ideate`                       | chain    | no                            | Interactive AI handoff; TUI only                    |
 | `readiness`                    | chain    | no                            | Multi-step with confirm gates; TUI only             |
-| `detect-scripts`               | chain    | no                            | Setup/check script discovery; TUI only              |
+| `detect-scripts`               | chain    | no                            | Setup/verify script discovery; TUI only             |
 | `detect-skills`                | chain    | no                            | Skill discovery; TUI only                           |
 | `implement`                    | chain    | no                            | Genuinely needs the chain (gen-eval + retry)        |
 | `review`                       | chain    | no                            | Apply-feedback loop; TUI only                       |
@@ -385,7 +385,7 @@ smart constructors. Read the source for the field list; this section names each 
 and the non-obvious mutators.
 
 - **`Project`** (`project.ts`) — identified by `ProjectId`; carries an array of `Repository` value objects (each
-  with `setupScript`, `checkScript`, `checkTimeout`, `onboardedAt`).
+  with `setupScript`, `verifyScript`, `verifyTimeout`, `onboardedAt`).
 - **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → active → review → done`; carries
   `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
@@ -398,7 +398,7 @@ and the non-obvious mutators.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references
   `Sprint` via `ticketId` and DAG edges via `blockedBy`. Carries an `attempts[]` history — each `Attempt`
   has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
-  `fixed-baseline` from pre/post check-script comparison), optional `abortCause` (`AbortCause` discriminated
+  `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
   union), and optional `recoveryContext` (resume-from-aborted metadata). Optional `extraDimensions` is the
   planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
   Consistency). Optional `maxAttempts` overrides the global cap.
@@ -423,7 +423,7 @@ stdout-parsing path; signals are now a structured contract, not a regex over CLI
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `ProgressSignal`                         | Append to `<sprintDir>/progress.md`; emit on the EventBus                                                          |
 | `EvaluationSignal`                       | Per-round critique persisted on the `Task.attempts[]` history                                                      |
-| `TaskCompleteSignal`                     | Per-task subchain transitions the task to `done` (after `checkScript` passes)                                      |
+| `TaskCompleteSignal`                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                     |
 | `TaskVerifiedSignal`                     | Use case sets `verified` on the task entity                                                                        |
 | `TaskBlockedSignal`                      | Use case transitions task to `blocked`                                                                             |
 | `NoteSignal`                             | Append to `progress.md`                                                                                            |
@@ -433,7 +433,7 @@ stdout-parsing path; signals are now a structured contract, not a regex over CLI
 | `CommitMessageSignal`                    | Used by `commit-task` leaf to author commit message                                                                |
 | `ProgressEntrySignal`                    | Long-form progress entry, written to `progress.md`                                                                 |
 | `SetupScriptSignal`                      | `detect-scripts` flow persists on `Repository.setupScript`                                                         |
-| `VerifyScriptSignal`                     | `detect-scripts` flow persists on `Repository.checkScript`                                                         |
+| `VerifyScriptSignal`                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                        |
 | `AgentsMdProposalSignal`                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md) |
 | `SetupSkillSignal` / `VerifySkillSignal` | `detect-skills` flow surfaces suggestions                                                                          |
 | `ContextCompactedSignal`                 | Emitted when the AI CLI compacts its own context window; TUI renders a marker in the step trace                    |

@@ -12,8 +12,8 @@ stateDiagram-v2
 
   todo --> in_progress: implement —\nstart-attempt-leaf
 
-  in_progress --> done: evaluator passes\n+ post-task check passes
-  in_progress --> blocked: evaluator fails\n+ maxAttempts exhausted\n— or — branch-preflight fails\n— or — check-script fails
+  in_progress --> done: evaluator passes\n+ post-task verify passes
+  in_progress --> blocked: evaluator fails\n+ maxAttempts exhausted\n— or — branch-preflight fails\n— or — verify-script fails
   in_progress --> todo: resume after crash\n(reset-stale-in-progress)
 
   blocked --> todo: manual unblock\n(future)
@@ -55,7 +55,7 @@ flowchart TB
     check -->|no, budget exhausted| exit_fail([exit loop — settlement decides blocked])
   end
 
-  exit_pass --> postCheck[postTaskCheckLeaf<br/>run repo's checkScript]
+  exit_pass --> postCheck[postTaskVerifyLeaf<br/>run repo's verifyScript]
   exit_fail --> settle
   postCheck --> checkRes{exit code}
   checkRes -->|0| commit[commitTaskLeaf<br/>git commit on sprint branch]
@@ -63,9 +63,9 @@ flowchart TB
   commit --> settle[settleAttemptLeaf]
 
   settle --> outcome{outcome}
-  outcome -->|evaluator passed<br/>+ check passed| markDone[markTaskDone]
+  outcome -->|evaluator passed<br/>+ verify passed| markDone[markTaskDone]
   outcome -->|evaluator failed<br/>maxAttempts hit| markBlocked[markTaskBlocked]
-  outcome -->|check-script failed| markBlocked2[markTaskBlocked]
+  outcome -->|verify-script failed| markBlocked2[markTaskBlocked]
 
   markDone --> taskDone(((done)))
   markBlocked --> taskBlocked(((blocked)))

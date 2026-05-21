@@ -169,13 +169,15 @@ single-column below `md`. Rail grows fluidly 28→40 cols at `xl`+ via `resolveR
 `useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
 `y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` done-criteria, `c` cancel-scope.
 
-**`setupScript` vs `checkScript`.** Setup runs unconditionally once per affected repo at sprint start;
+**`setupScript` vs `verifyScript`.** Setup runs unconditionally once per affected repo at sprint start;
 each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
 `skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
-chain. Check runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
+chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
 algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
 pre-existing failures. Failure transitions the task to `blocked`, never `done`. Both scripts are collected
-during `detect-scripts` and persisted on `Repository.{setupScript,checkScript}`.
+during `detect-scripts` and persisted on `Repository.{setupScript,verifyScript}`. Persisted
+`project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
+legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /

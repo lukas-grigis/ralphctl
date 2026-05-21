@@ -107,7 +107,7 @@ Status flow: `draft → active → review → done`.
 - [x] **`setupScript` runs unconditionally once per affected repo at sprint start** — outcome recorded as a
       structured `SetupRun` on `SprintExecution.setupRanAt`; any failure hard-aborts the chain with the
       failing repo named.
-- [x] **`checkScript` gates per-task settlement with pre/post attribution** — runs before the AI (pre-task)
+- [x] **`verifyScript` gates per-task settlement with pre/post attribution** — runs before the AI (pre-task)
       and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` / `fixed-baseline`.
       A `baseline-broken` result does not block the AI; a `regressed` result transitions task to `blocked`.
 - [ ] **Branch management** — `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
