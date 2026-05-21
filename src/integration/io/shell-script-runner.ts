@@ -76,7 +76,20 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
           cwd: String(cwd),
           shell: true,
           detached: process.platform !== 'win32',
-          env: { ...process.env, ...opts.env },
+          // Narrow non-interactive defaults — applied per-tool so we don't silently change the
+          // meaning of user-authored scripts. Setting blanket `CI=true` would trip
+          // `@DisabledIfEnvironmentVariable("CI")` test skips in Spring Boot, change Maven
+          // Surefire behaviour, and toggle countless other toolchain heuristics. Each entry
+          // below is read by exactly one tool family:
+          //
+          //   npm_config_confirm_modules_purge=false   — pnpm only; suppresses the
+          //     `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` prompt when pnpm decides to wipe
+          //     `node_modules/` (lockfile / store mismatch). The same setting is also exposed
+          //     as `.npmrc:confirm-modules-purge=false` and `--config.confirm-modules-purge=false`.
+          //
+          // Add more entries here as we hit narrow per-tool prompts; do NOT reach for `CI=true`.
+          // Caller-supplied `opts.env` and the user's own env still take precedence.
+          env: { npm_config_confirm_modules_purge: 'false', ...process.env, ...opts.env },
         });
       } catch (cause) {
         resolve(
