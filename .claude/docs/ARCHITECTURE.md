@@ -87,10 +87,13 @@ of repositories (each with `setupScript`, `checkScript`, `onboardedAt`); mutatin
 
 Five factory functions under `src/application/chain/`:
 
-- `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `children`
-  (for composite walk), and `execute(ctx, signal?, onTrace?): Promise<ElementResult<TCtx>>`.
-- `build/leaf.ts` — `leaf(name, { useCase, input, output })`. The only seam to a business use case. `input`
-  projects ctx → use-case input; `output` merges use-case output → new ctx.
+- `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `label`
+  (human-friendly display string for UI surfaces — see below), optional `children` (for composite walk), and
+  `execute(ctx, signal?, onTrace?): Promise<ElementResult<TCtx>>`.
+- `build/leaf.ts` — `leaf(name, { useCase, input, output }, opts?)`. The only seam to a business use case.
+  `input` projects ctx → use-case input; `output` merges use-case output → new ctx. Optional `opts.label`
+  sets a human-friendly display label on the element and every `TraceEntry` it emits — `name` stays the
+  canonical identifier; the TUI rail renders `label` when present and falls back to `name`.
 - `build/sequential.ts` — `sequential(name, [elements])`. Threads ctx; aborts remaining on first failure.
 - `build/loop.ts` — `loop(name, body, opts)`. Generator-evaluator primitive. `shouldContinue` (pre-iteration)
   and `shouldStop` (post-iteration) predicates exit naturally; `maxIterations` (default 1000) is a hard cap.
@@ -505,10 +508,14 @@ Cross-cutting TUI features:
   type. Edits save immediately.
 - **Doctor view** — runs `runDoctor()` on mount; renders per-check status rows + an aggregate result card.
   `!` opens it from anywhere.
-- **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at ≥180 cols,
-  two-column at ≥140 cols, compact-rail at 100–139 cols, single-column below 100 cols. Global keys `g`
-  (progress overlay), `y` (yank task summary), `b` (banner toggle). Execute-local: `j`/`k` card nav,
-  `e` done-criteria, `c` cancel-scope picker (attempt vs flow). Task cards are collapsed by default.
+- **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at `xl` (≥180),
+  two-column at `lg` (≥140), compact-rail at `md` (100–139), single-column below `md`. The rail is fixed
+  24 cols below `xl`; at `xl`+ it grows fluidly to 40 cols via `resolveRailWidth`. All width decisions use
+  the named breakpoints (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) from `theme/tokens.ts` — no
+  hardcoded column literals. `StepTrace` renders `Element.label` when present; long labels are mid-truncated
+  to fit the rail column budget. Global keys `g` (progress overlay), `y` (yank task summary), `b` (banner
+  toggle), `P` (project picker), `S` (sprint picker). Execute-local: `j`/`k` card nav, `e` done-criteria,
+  `c` cancel-scope picker (attempt vs flow). Task cards are collapsed by default.
 - **`TokenBudgetCard`** and **`BaselineHealthCard`** in the context column subscribe to `TokenUsageEvent`
   and the `SetupRun` history respectively. **`StatusBanner`** (tiered `info`/`warn`/`error`) replaces the
   old `RateLimitBanner`. **`MultiFlowStrip`** renders concurrent session status above the tasks panel.
