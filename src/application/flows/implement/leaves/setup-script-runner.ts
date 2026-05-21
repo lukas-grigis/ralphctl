@@ -157,7 +157,7 @@ export const setupScriptRunnerLeaf = (
 
           const { passed, exitCode, output, durationMs } = spawnResult.value;
           // ShellScriptRunner merges stdout + stderr into a single combined buffer; the
-          // existing post-task-check leaf relies on that shape. Treat the merged tail as
+          // existing post-task-verify leaf relies on that shape. Treat the merged tail as
           // stdout for now and leave stderr empty for non-spawn failures — the structured
           // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
           const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);

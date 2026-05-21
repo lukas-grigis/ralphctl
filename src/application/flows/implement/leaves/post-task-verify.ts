@@ -2,9 +2,9 @@ import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { Attribution, CheckRun, CheckRunOutcome } from '@src/domain/entity/attempt.ts';
-import { attributeCheck, runCheckScriptUseCase } from '@src/business/task/run-check-script.ts';
-import { appendAttemptCheckRun, setAttemptAttribution } from '@src/domain/entity/task.ts';
+import type { Attribution, VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
+import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
+import { appendAttemptVerifyRun, setAttemptAttribution } from '@src/domain/entity/task.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -19,12 +19,12 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
  * Post-task verify gate — the harness's AUTHORITATIVE independent verification. Runs the
- * project's `checkScript` after the AI commits its work, regardless of any `task-verified`
+ * project's `verifyScript` after the AI commits its work, regardless of any `task-verified`
  * signal the AI may have emitted. Belt-and-braces: the AI's self-report is advisory; this
  * leaf's outcome is what drives the task transition.
  *
- * Captures a `phase: 'post'` {@link CheckRun} row on the running attempt and pairs it with
- * the `phase: 'pre'` row from `pre-task-check` to compute {@link Attribution}:
+ * Captures a `phase: 'post'` {@link VerifyRun} row on the running attempt and pairs it with
+ * the `phase: 'pre'` row from `pre-task-verify` to compute {@link Attribution}:
  *
  *  - pre=success, post=success → `'clean'`           — accept the AI's verdict as-is.
  *  - pre=success, post=failed  → `'regressed'`       — the AI broke a green baseline; block.
@@ -45,7 +45,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * verify script itself via the prompt, but the harness is the source of truth.
  */
 
-export interface PostTaskCheckLeafDeps {
+export interface PostTaskVerifyLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
@@ -53,60 +53,60 @@ export interface PostTaskCheckLeafDeps {
   readonly logger: Logger;
 }
 
-export interface PostTaskCheckLeafOpts {
+export interface PostTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly timeoutMs?: number;
 }
 
 interface LeafInput {
   readonly task: InProgressTask;
   readonly sprintId: SprintId;
-  readonly preOutcome?: CheckRunOutcome;
+  readonly preOutcome?: VerifyRunOutcome;
 }
 
 interface LeafOutput {
   readonly task: InProgressTask;
-  readonly run: CheckRun;
+  readonly run: VerifyRun;
   readonly attribution?: Attribution;
 }
 
 /**
  * Derive the legacy `lastVerifyResult` shape (`'skipped' | 'passed' | 'verify-failed'`) from
- * the structured {@link CheckRun} so `settle-attempt` keeps deriving its existing
+ * the structured {@link VerifyRun} so `settle-attempt` keeps deriving its existing
  * `verify-failed` {@link AttemptWarning} without rewiring. `spawn-error` is folded into
  * `'verify-failed'` (exitCode = -1) — same legacy behaviour as the prior implementation.
  */
-const legacyVerifyResult = (run: CheckRun): NonNullable<ImplementCtx['lastVerifyResult']> => {
+const legacyVerifyResult = (run: VerifyRun): NonNullable<ImplementCtx['lastVerifyResult']> => {
   if (run.outcome === 'skipped') return { kind: 'skipped' };
   if (run.outcome === 'success') return { kind: 'passed' };
   return { kind: 'verify-failed', exitCode: run.exitCode, stderr: run.stdoutTailBytes };
 };
 
-export const postTaskCheckLeaf = (
-  deps: PostTaskCheckLeafDeps,
-  opts: PostTaskCheckLeafOpts,
+export const postTaskVerifyLeaf = (
+  deps: PostTaskVerifyLeafDeps,
+  opts: PostTaskVerifyLeafOpts,
   taskId: TaskId
 ): Element<ImplementCtx> =>
-  leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-check-${String(taskId)}`, {
+  leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
-        const run = await runCheckScriptUseCase({
+        const run = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'post',
-          ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+          ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
           ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           clock: deps.clock,
           runShellScript: (cwd, script, scriptOpts) => deps.shellScriptRunner.run(cwd, script, scriptOpts),
           logger: deps.logger,
         });
 
-        let updated = appendAttemptCheckRun(input.task, run);
+        let updated = appendAttemptVerifyRun(input.task, run);
         if (!updated.ok) return Result.error(updated.error);
 
         // Attribution requires both pre and post outcomes. If pre was spawn-error or skipped,
-        // `attributeCheck` returns undefined and we leave the field unset.
-        const attribution = input.preOutcome !== undefined ? attributeCheck(input.preOutcome, run.outcome) : undefined;
+        // `attributeVerify` returns undefined and we leave the field unset.
+        const attribution = input.preOutcome !== undefined ? attributeVerify(input.preOutcome, run.outcome) : undefined;
         if (attribution !== undefined) {
           const stamped = setAttemptAttribution(updated.value, attribution);
           if (!stamped.ok) return Result.error(stamped.error);
@@ -118,7 +118,7 @@ export const postTaskCheckLeaf = (
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
-            message: `post-task-check audit persist failed for task ${String(taskId)} — ${persisted.error.message}`,
+            message: `post-task-verify audit persist failed for task ${String(taskId)} — ${persisted.error.message}`,
             at: deps.clock(),
           });
         }
@@ -127,28 +127,28 @@ export const postTaskCheckLeaf = (
           deps.eventBus.publish({
             type: 'log',
             level: 'error',
-            message: `post-task-check ${String(opts.cwd)}: regressed baseline (exit=${String(run.exitCode)}) — blocking task`,
+            message: `post-task-verify ${String(opts.cwd)}: regressed baseline (exit=${String(run.exitCode)}) — blocking task`,
             at: deps.clock(),
           });
         } else if (attribution === 'baseline-broken') {
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
-            message: `post-task-check ${String(opts.cwd)}: baseline still red but task started on broken baseline — preserving verdict`,
+            message: `post-task-verify ${String(opts.cwd)}: baseline still red but task started on broken baseline — preserving verdict`,
             at: deps.clock(),
           });
         } else if (attribution === 'fixed-baseline') {
           deps.eventBus.publish({
             type: 'log',
             level: 'info',
-            message: `post-task-check ${String(opts.cwd)}: fixed pre-existing failure (exit=0)`,
+            message: `post-task-verify ${String(opts.cwd)}: fixed pre-existing failure (exit=0)`,
             at: deps.clock(),
           });
         } else if (run.outcome === 'spawn-error') {
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
-            message: `post-task-check ${String(opts.cwd)}: spawn-error — ${run.stdoutTailBytes}; attribution skipped`,
+            message: `post-task-verify ${String(opts.cwd)}: spawn-error — ${run.stdoutTailBytes}; attribution skipped`,
             at: deps.clock(),
           });
         }
@@ -164,29 +164,29 @@ export const postTaskCheckLeaf = (
       if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-post-task-check',
-          attemptedAction: `post-task-check-${String(taskId)}`,
-          message: `post-task-check-${String(taskId)}: ctx.currentTask is missing or mismatched`,
+          currentState: 'pre-post-task-verify',
+          attemptedAction: `post-task-verify-${String(taskId)}`,
+          message: `post-task-verify-${String(taskId)}: ctx.currentTask is missing or mismatched`,
         });
       }
       if (ctx.currentTask.status !== 'in_progress') {
         throw new InvalidStateError({
           entity: 'task',
           currentState: ctx.currentTask.status,
-          attemptedAction: `post-task-check-${String(taskId)}`,
-          message: `post-task-check-${String(taskId)}: expected in_progress task — got '${ctx.currentTask.status}'`,
+          attemptedAction: `post-task-verify-${String(taskId)}`,
+          message: `post-task-verify-${String(taskId)}: expected in_progress task — got '${ctx.currentTask.status}'`,
         });
       }
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
-        ...(ctx.lastPreCheckOutcome !== undefined ? { preOutcome: ctx.lastPreCheckOutcome } : {}),
+        ...(ctx.lastPreVerifyOutcome !== undefined ? { preOutcome: ctx.lastPreVerifyOutcome } : {}),
       };
     },
     output: (ctx, out) => {
       const verifyResult = legacyVerifyResult(out.run);
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? (out.task as Task) : t));
-      // Default policy: a red post-check blocks the task — the AI's `task-verified`
+      // Default policy: a red post-verify blocks the task — the AI's `task-verified`
       // self-report is overruled by the harness's independent verdict. The ONE escape hatch
       // is `attribution === 'baseline-broken'`: when both pre and post ran red, we have
       // explicit evidence the failure pre-existed the AI's work, so we preserve the AI's
@@ -196,7 +196,7 @@ export const postTaskCheckLeaf = (
       //   - regressed       — BLOCK with explicit "regressed baseline" reason
       //   - fixed-baseline  — no block (post is green)
       //   - baseline-broken — no block (escape hatch; preserve AI's verdict)
-      //   - undefined       — BLOCK on raw red post (no pre-check evidence to clear it)
+      //   - undefined       — BLOCK on raw red post (no pre-verify evidence to clear it)
       const isRed = out.run.outcome === 'failed' || out.run.outcome === 'spawn-error';
       const shouldBlock = isRed && out.attribution !== 'baseline-broken';
       const blockReason = shouldBlock

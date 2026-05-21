@@ -4,19 +4,19 @@
  *
  * Four signals collapse onto one card:
  *
- *  - `Setup`         — latest harness-side setup-script row per affected repo
- *                      (`SprintExecution.setupRanAt[last]`).
- *  - `Check (pre)`   — most recent pre-task-check row across every running/settled attempt.
- *  - `Check (post)`  — most recent post-task-check row.
- *  - `Attribution`   — count of `clean` / `regressed` / `fixed-baseline` / `baseline-broken`
- *                      verdicts across the sprint's attempts.
+ *  - `Setup`          — latest harness-side setup-script row per affected repo
+ *                       (`SprintExecution.setupRanAt[last]`).
+ *  - `Verify (pre)`   — most recent pre-task-verify row across every running/settled attempt.
+ *  - `Verify (post)`  — most recent post-task-verify row.
+ *  - `Attribution`    — count of `clean` / `regressed` / `fixed-baseline` / `baseline-broken`
+ *                       verdicts across the sprint's attempts.
  *
  * The card aggregates data from the sources rather than depending on the (not-yet-wired)
  * `SprintState` projection. Once P1c wires `projectSprintState` into the TUI we can swap to
  * reading directly off that — for now we derive in-place from the entities the dashboard
  * already has access to.
  *
- * Renders `EmptyState`-style copy when no setup or check has run yet (fresh sprint, first
+ * Renders `EmptyState`-style copy when no setup or verify has run yet (fresh sprint, first
  * launch). The chip variant in {@link BaselineHealthChip} is the single-line companion that
  * sits next to the breadcrumb.
  */
@@ -24,7 +24,7 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { Attribution, CheckRun } from '@src/domain/entity/attempt.ts';
+import type { Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -118,15 +118,15 @@ const setupSummary = (execution: SprintExecution | undefined, now: number): RowS
 };
 
 /**
- * Walk every attempt across every task and return the most recent {@link CheckRun} for the
+ * Walk every attempt across every task and return the most recent {@link VerifyRun} for the
  * given phase. Ordered by `ranAt`. Returns `undefined` when no row exists.
  */
-const latestCheckRun = (tasks: readonly Task[], phase: 'pre' | 'post'): CheckRun | undefined => {
-  let latest: CheckRun | undefined;
+const latestVerifyRun = (tasks: readonly Task[], phase: 'pre' | 'post'): VerifyRun | undefined => {
+  let latest: VerifyRun | undefined;
   for (const task of tasks) {
     for (const attempt of task.attempts) {
-      if (attempt.checkRuns === undefined) continue;
-      for (const row of attempt.checkRuns) {
+      if (attempt.verifyRuns === undefined) continue;
+      for (const row of attempt.verifyRuns) {
         if (row.phase !== phase) continue;
         if (latest === undefined || row.ranAt > latest.ranAt) latest = row;
       }
@@ -135,8 +135,8 @@ const latestCheckRun = (tasks: readonly Task[], phase: 'pre' | 'post'): CheckRun
   return latest;
 };
 
-const checkRowSummary = (run: CheckRun | undefined, now: number, phaseLabel: string): RowSummary => {
-  if (run === undefined) return { tier: 'unknown', label: `no ${phaseLabel} check yet` };
+const verifyRowSummary = (run: VerifyRun | undefined, now: number, phaseLabel: string): RowSummary => {
+  if (run === undefined) return { tier: 'unknown', label: `no ${phaseLabel} verify yet` };
   const ago = fmtElapsed(new Date(run.ranAt).getTime(), now);
   if (run.outcome === 'success') return { tier: 'green', label: 'green', detail: `${ago} ago` };
   if (run.outcome === 'failed')
@@ -202,10 +202,10 @@ export const BaselineHealthCard = ({ execution, tasks, now }: BaselineHealthCard
   const taskList = tasks ?? [];
 
   const setup = useMemo(() => setupSummary(execution, tNow), [execution, tNow]);
-  const preRow = useMemo(() => latestCheckRun(taskList, 'pre'), [taskList]);
-  const postRow = useMemo(() => latestCheckRun(taskList, 'post'), [taskList]);
-  const preSummary = checkRowSummary(preRow, tNow, 'pre');
-  const postSummary = checkRowSummary(postRow, tNow, 'post');
+  const preRow = useMemo(() => latestVerifyRun(taskList, 'pre'), [taskList]);
+  const postRow = useMemo(() => latestVerifyRun(taskList, 'post'), [taskList]);
+  const preSummary = verifyRowSummary(preRow, tNow, 'pre');
+  const postSummary = verifyRowSummary(postRow, tNow, 'post');
   const counts = useMemo(() => countAttributions(taskList), [taskList]);
 
   const tone = cardTone([setup, preSummary, postSummary]);

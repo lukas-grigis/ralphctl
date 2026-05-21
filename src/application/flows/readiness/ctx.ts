@@ -42,7 +42,7 @@ export interface ReadinessCtx {
     /**
      * AI-suggested verify script (one shell line chaining typecheck / lint / test with `&&`).
      * Undefined when the project exposes none of those. Downstream wiring lands it on
-     * `Repository.checkScript` — the harness's post-task gate.
+     * `Repository.verifyScript` — the harness's post-task gate.
      */
     readonly proposedVerifyScript?: string;
   };

@@ -51,7 +51,7 @@ export interface GeneratorLeafDeps {
   readonly signals: HarnessSignalSink;
   readonly cwd: AbsolutePath;
   readonly model: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
@@ -122,7 +122,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             task,
             projectPath: String(deps.cwd),
             progressFile: String(input.progressFile),
-            ...(deps.checkScript !== undefined ? { checkScript: deps.checkScript } : {}),
+            ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;

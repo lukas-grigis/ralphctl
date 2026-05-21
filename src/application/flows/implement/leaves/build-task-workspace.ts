@@ -38,7 +38,7 @@ export interface BuildTaskWorkspaceLeafOpts {
   readonly sprintDir: AbsolutePath;
   readonly cwd: AbsolutePath;
   readonly progressFile: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
 }
 
 interface LeafInput {
@@ -90,7 +90,7 @@ export const buildTaskWorkspaceLeaf = (
           task: input.task,
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
-          ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+          ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });
         if (!prompt.ok) return Result.error(prompt.error);
 

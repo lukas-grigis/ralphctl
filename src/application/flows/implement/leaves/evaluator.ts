@@ -54,7 +54,7 @@ export interface EvaluatorLeafDeps {
   readonly signals: HarnessSignalSink;
   readonly cwd: AbsolutePath;
   readonly model: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
   readonly clock: () => IsoTimestamp;
@@ -89,7 +89,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           const prompt = await buildEvaluatePrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
-            ...(deps.checkScript !== undefined ? { checkScript: deps.checkScript } : {}),
+            ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI

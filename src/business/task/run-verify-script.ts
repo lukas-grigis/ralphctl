@@ -1,14 +1,14 @@
 import type { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { CheckRun, CheckRunOutcome, CheckRunPhase } from '@src/domain/entity/attempt.ts';
+import type { VerifyRun, VerifyRunOutcome, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * Generic helper that runs the project's `checkScript` once and projects the spawn result
- * into a structured {@link CheckRun} row. Phase-agnostic — callers stamp `phase: 'pre'` or
+ * Generic helper that runs the project's `verifyScript` once and projects the spawn result
+ * into a structured {@link VerifyRun} row. Phase-agnostic — callers stamp `phase: 'pre'` or
  * `phase: 'post'` per call site.
  *
  * Belt-and-braces independent verification: this is the harness's authoritative read on
@@ -27,10 +27,10 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Truncation uses {@link SCRIPT_TAIL_BYTES} (shared with `SetupRun`) so both audit shapes
  * stay aligned.
  */
-export interface RunCheckScriptProps {
+export interface RunVerifyScriptProps {
   readonly cwd: AbsolutePath;
-  readonly phase: CheckRunPhase;
-  readonly checkScript?: string;
+  readonly phase: VerifyRunPhase;
+  readonly verifyScript?: string;
   readonly timeoutMs?: number;
   readonly clock: () => IsoTimestamp;
   readonly runShellScript: (
@@ -51,7 +51,7 @@ export interface RunCheckScriptProps {
   readonly logger: Logger;
 }
 
-export type RunCheckScriptOutput = CheckRun;
+export type RunVerifyScriptOutput = VerifyRun;
 
 /**
  * Total over its inputs — never returns `Result.error`. Even spawn-level failures are folded
@@ -59,12 +59,12 @@ export type RunCheckScriptOutput = CheckRun;
  * including the ones the harness couldn't start. Caller decides whether the outcome blocks the
  * chain (it doesn't, by policy — see the leaves).
  */
-export const runCheckScriptUseCase = async (props: RunCheckScriptProps): Promise<RunCheckScriptOutput> => {
-  const log = props.logger.named('task.check-script');
-  const command = props.checkScript?.trim() ?? '';
+export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promise<RunVerifyScriptOutput> => {
+  const log = props.logger.named('task.verify-script');
+  const command = props.verifyScript?.trim() ?? '';
 
   if (command.length === 0) {
-    log.debug('no check script configured, recording skipped row', { cwd: props.cwd, phase: props.phase });
+    log.debug('no verify script configured, recording skipped row', { cwd: props.cwd, phase: props.phase });
     return {
       phase: props.phase,
       ranAt: props.clock(),
@@ -76,7 +76,7 @@ export const runCheckScriptUseCase = async (props: RunCheckScriptProps): Promise
     };
   }
 
-  log.debug(`running ${props.phase}-task check`, { cwd: props.cwd, timeoutMs: props.timeoutMs });
+  log.debug(`running ${props.phase}-task verify`, { cwd: props.cwd, timeoutMs: props.timeoutMs });
 
   const startedAt = props.clock();
   const result = await props.runShellScript(props.cwd, command, {
@@ -88,7 +88,11 @@ export const runCheckScriptUseCase = async (props: RunCheckScriptProps): Promise
     // Spawn-level failure (binary missing, permission denied, …). Folded into the structured
     // row as `'spawn-error'` rather than propagated as a Result.error — the leaf treats it as
     // an unknown-state signal and skips attribution.
-    log.warn('check script could not be executed', { cwd: props.cwd, phase: props.phase, error: result.error.message });
+    log.warn('verify script could not be executed', {
+      cwd: props.cwd,
+      phase: props.phase,
+      error: result.error.message,
+    });
     return {
       phase: props.phase,
       ranAt: startedAt,
@@ -101,8 +105,8 @@ export const runCheckScriptUseCase = async (props: RunCheckScriptProps): Promise
   }
 
   const { passed, exitCode, output, durationMs } = result.value;
-  const outcome: CheckRunOutcome = passed ? 'success' : 'failed';
-  log.info(`${props.phase}-task check ${outcome}`, { cwd: props.cwd, exitCode, durationMs });
+  const outcome: VerifyRunOutcome = passed ? 'success' : 'failed';
+  log.info(`${props.phase}-task verify ${outcome}`, { cwd: props.cwd, exitCode, durationMs });
   return {
     phase: props.phase,
     ranAt: startedAt,
@@ -124,7 +128,7 @@ const tailBytes = (s: string, limit: number): string => {
 
 /**
  * Attribution truth table — pure derivation from the two outcomes. Returns `undefined` when
- * attribution can't be determined: pre-check is `'spawn-error'` (we can't trust the baseline
+ * attribution can't be determined: pre-verify is `'spawn-error'` (we can't trust the baseline
  * snapshot at all) or either side is `'skipped'` (no script configured — nothing to attribute).
  *
  * Truth table:
@@ -139,9 +143,9 @@ const tailBytes = (s: string, limit: number): string => {
  *
  * @public
  */
-export const attributeCheck = (
-  pre: CheckRun['outcome'],
-  post: CheckRun['outcome']
+export const attributeVerify = (
+  pre: VerifyRun['outcome'],
+  post: VerifyRun['outcome']
 ): 'clean' | 'regressed' | 'fixed-baseline' | 'baseline-broken' | undefined => {
   if (pre === 'spawn-error' || post === 'spawn-error') return undefined;
   if (pre === 'skipped' || post === 'skipped') return undefined;

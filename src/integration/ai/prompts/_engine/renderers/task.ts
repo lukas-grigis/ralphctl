@@ -4,7 +4,7 @@ import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 /**
  * Shared task-section renderers used by both the implement (P02) and evaluate (P03) prompt
  * definitions. The two templates surface identical task-shaped sections (description / steps
- * / verification criteria) plus the per-repo check-script and project-tooling slots, so the
+ * / verification criteria) plus the per-repo verify-script and project-tooling slots, so the
  * renderers live here once instead of being duplicated. Each helper produces an empty string
  * for the "absent" branch so the surrounding template collapses cleanly without leaving an
  * orphan heading.
@@ -39,17 +39,17 @@ export const renderVerificationCriteriaSection = (task: Task): string => {
 };
 
 /**
- * Render the body of the "## Check Script" section.
+ * Render the body of the "## Verify Script" section.
  *
  *  - With a configured command, embed it as a fenced shell block so the agent runs the exact
  *    command the harness will run as the post-task gate.
- *  - When undefined / empty, state explicitly that no check script is configured. The
+ *  - When undefined / empty, state explicitly that no verify script is configured. The
  *    surrounding template prose already tells the agent how to fall back; we don't repeat it.
  */
-export const renderCheckScriptSection = (checkScript: string | undefined): string => {
-  if (checkScript === undefined) return 'No check script configured for this repo.';
-  const trimmed = checkScript.trim();
-  if (trimmed.length === 0) return 'No check script configured for this repo.';
+export const renderVerifyScriptSection = (verifyScript: string | undefined): string => {
+  if (verifyScript === undefined) return 'No verify script configured for this repo.';
+  const trimmed = verifyScript.trim();
+  if (trimmed.length === 0) return 'No verify script configured for this repo.';
   return ['The harness will run this command as the post-task gate:', '', '```sh', trimmed, '```'].join('\n');
 };
 

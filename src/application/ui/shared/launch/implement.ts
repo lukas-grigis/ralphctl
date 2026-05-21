@@ -70,7 +70,7 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
   for (const r of snapshot.project.repositories) {
     repositories.set(r.id, {
       path: r.path,
-      ...(r.checkScript !== undefined ? { checkScript: r.checkScript } : {}),
+      ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
       ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
     });
   }

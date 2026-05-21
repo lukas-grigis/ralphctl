@@ -95,7 +95,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
-      checkScript: 'npm run check',
+      verifyScript: 'npm run check',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -126,7 +126,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).not.toContain('## Description');
     // Sanity: the rest of the prompt still rendered.
     expect(result.value).toContain('# Code Review: short task');
-    expect(result.value).toContain('No check script configured for this repo.');
+    expect(result.value).toContain('No verify script configured for this repo.');
   });
 
   it('uses the task name from a default fixture without crashing when no overrides are supplied', async () => {
@@ -183,7 +183,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
     });
@@ -199,7 +199,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
     });

@@ -14,8 +14,8 @@
  *  - `log` event with `meta.delayMs ≥ 60_000`        → `paused`  ("Waiting for rate limit").
  *      (The headless AI adapters publish a log info with `{ delayMs, nextAttempt, maxAttempts }`
  *      before sleeping; a delay ≥ 60s is the operator-visible "ralphctl is asleep" threshold.)
- *  - `log` warn message containing `'baseline already red'` → `attention` ("Pre-check red").
- *      (The pre-task-check leaf publishes this when the working tree is broken before the AI
+ *  - `log` warn message containing `'baseline already red'` → `attention` ("Pre-verify red").
+ *      (The pre-task-verify leaf publishes this when the working tree is broken before the AI
  *      gets to touch it.)
  *
  * Notes for future maintainers:
@@ -39,7 +39,7 @@ import type { NotificationDispatcher } from '@src/business/observability/notific
 /** Rate-limit pauses shorter than this don't disturb the operator. */
 const PAUSE_NOTIFY_THRESHOLD_MS = 60_000;
 
-/** Substring published by `pre-task-check.ts` when the baseline is broken at task start. */
+/** Substring published by `pre-task-verify.ts` when the baseline is broken at task start. */
 const BASELINE_RED_MARKER = 'baseline already red';
 
 /** Element name of the setup-script leaf. Substring-matched so future suffixes (`-1`, etc.) work. */
@@ -121,12 +121,12 @@ const classifyLog = (event: LogEvent): NotificationDecision | undefined => {
       body: 'Waiting for rate limit',
     };
   }
-  // Baseline-broken at task start: pre-task-check.ts publishes a `warn` log when the baseline
+  // Baseline-broken at task start: pre-task-verify.ts publishes a `warn` log when the baseline
   // is red. Substring-match the canonical message so renames here flag in tests.
   if (event.level === 'warn' && event.message.includes(BASELINE_RED_MARKER)) {
     return {
       level: 'attention',
-      title: 'Pre-check red',
+      title: 'Pre-verify red',
       body: extractTaskHint(event.message),
     };
   }
@@ -140,7 +140,7 @@ const readNumber = (meta: LogEvent['meta'], key: string): number | undefined => 
 };
 
 /**
- * Trim `pre-task-check <path>: baseline already red (...) — task will start on broken baseline`
+ * Trim `pre-task-verify <path>: baseline already red (...) — task will start on broken baseline`
  * down to the path-shaped prefix. Best-effort; if the producer message changes the body falls
  * back to the full message, which is still useful to the operator.
  */

@@ -5,7 +5,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -19,7 +19,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 // `renderers/task.ts`. The originals lived here historically; the actual implementations are
 // now in the shared module.
 export {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -32,7 +32,7 @@ export {
  * produce each block from domain types; callers can also build the strings by hand for tests.
  *
  * The implement template tells one task implementer agent how to execute a single
- * pre-planned task: read the description / steps / verification criteria, run the check
+ * pre-planned task: read the description / steps / verification criteria, run the verify
  * script as the post-task gate, append a learnings entry to the progress file, then signal
  * completion. Every slot below is a typed string the chain leaf renders before calling
  * `buildPrompt`.
@@ -51,10 +51,10 @@ export interface ImplementPromptParams {
   /** Markdown block "## Verification Criteria\n\n- …" or empty when there are none. */
   readonly verificationCriteriaSection: string;
   /**
-   * Markdown body for the "## Check Script" section — either a fenced shell block with the
-   * configured command or the explicit "no check script configured" line. Always non-empty.
+   * Markdown body for the "## Verify Script" section — either a fenced shell block with the
+   * configured command or the explicit "no verify script configured" line. Always non-empty.
    */
-  readonly checkScriptSection: string;
+  readonly verifyScriptSection: string;
   /** Detected subagents / skills / MCP servers the implementer can route to, or fallback. */
   readonly projectTooling: string;
   /** Absolute path to `progress.md` for this sprint — `{{PROGRESS_FILE}}`. */
@@ -75,7 +75,7 @@ const requireNonEmpty =
 export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   templateName: 'implement',
   description:
-    'One-shot task execution. The agent reads the task body, runs the check script, appends a progress entry, and emits harness signals.',
+    'One-shot task execution. The agent reads the task body, runs the verify script, appends a progress entry, and emits harness signals.',
   parameters: {
     taskName: {
       placeholder: 'TASK_NAME',
@@ -104,13 +104,13 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
       description: '"## Verification Criteria" bullet list, or empty when none are declared.',
     },
-    checkScriptSection: {
-      placeholder: 'CHECK_SCRIPT_SECTION',
+    verifyScriptSection: {
+      placeholder: 'VERIFY_SCRIPT_SECTION',
       description:
-        'Body of the "## Check Script" section — fenced shell block when configured, explicit "no check script configured" otherwise.',
+        'Body of the "## Verify Script" section — fenced shell block when configured, explicit "no verify script configured" otherwise.',
       validate: requireNonEmpty(
-        'checkScriptSection',
-        'check-script section must not be empty (renderCheckScriptSection always emits a body)'
+        'verifyScriptSection',
+        'verify-script section must not be empty (renderVerifyScriptSection always emits a body)'
       ),
     },
     projectTooling: {
@@ -140,7 +140,7 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
 export interface BuildImplementPromptInput {
   readonly task: Task;
   readonly projectPath: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly progressFile: string;
   readonly projectTooling?: string;
   /**
@@ -167,7 +167,7 @@ export const buildImplementPrompt = async (
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
-    checkScriptSection: renderCheckScriptSection(input.checkScript),
+    verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),

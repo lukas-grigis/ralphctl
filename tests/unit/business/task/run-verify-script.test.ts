@@ -2,21 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
-import { attributeCheck, runCheckScriptUseCase } from '@src/business/task/run-check-script.ts';
+import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
 import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 const CWD = absolutePath('/tmp/repo');
 
-const passingShell: Parameters<typeof runCheckScriptUseCase>[0]['runShellScript'] = async () =>
+const passingShell: Parameters<typeof runVerifyScriptUseCase>[0]['runShellScript'] = async () =>
   Result.ok({ passed: true, exitCode: 0, output: 'OK', durationMs: 100 });
 
-const spawnErrorShell: Parameters<typeof runCheckScriptUseCase>[0]['runShellScript'] = async () =>
+const spawnErrorShell: Parameters<typeof runVerifyScriptUseCase>[0]['runShellScript'] = async () =>
   Result.error(new StorageError({ subCode: 'io', message: 'spawn ENOENT: command not found' }));
 
-describe('runCheckScriptUseCase', () => {
+describe('runVerifyScriptUseCase', () => {
   it('returns outcome="skipped" when no script configured', async () => {
-    const row = await runCheckScriptUseCase({
+    const row = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       clock: () => FIXED_NOW,
@@ -30,10 +30,10 @@ describe('runCheckScriptUseCase', () => {
   });
 
   it('returns outcome="skipped" when script is whitespace-only', async () => {
-    const row = await runCheckScriptUseCase({
+    const row = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
-      checkScript: '   \n\t ',
+      verifyScript: '   \n\t ',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
@@ -42,10 +42,10 @@ describe('runCheckScriptUseCase', () => {
   });
 
   it('returns outcome="success" with stdoutTail when script exits 0', async () => {
-    const row = await runCheckScriptUseCase({
+    const row = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
@@ -59,10 +59,10 @@ describe('runCheckScriptUseCase', () => {
 
   it('returns outcome="failed" with truncated stdoutTail when script exits non-zero', async () => {
     const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
-    const row = await runCheckScriptUseCase({
+    const row = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
       clock: () => FIXED_NOW,
       runShellScript: async () => Result.ok({ passed: false, exitCode: 1, output: huge, durationMs: 50 }),
       logger: noopLogger,
@@ -76,10 +76,10 @@ describe('runCheckScriptUseCase', () => {
   });
 
   it('returns outcome="spawn-error" with exit=-1 when the shell could not start', async () => {
-    const row = await runCheckScriptUseCase({
+    const row = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
-      checkScript: 'missing-binary',
+      verifyScript: 'missing-binary',
       clock: () => FIXED_NOW,
       runShellScript: spawnErrorShell,
       logger: noopLogger,
@@ -91,7 +91,7 @@ describe('runCheckScriptUseCase', () => {
 
   it('does NOT call the shell when the script is skipped (no side effects on no-op)', async () => {
     let called = false;
-    await runCheckScriptUseCase({
+    await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       clock: () => FIXED_NOW,
@@ -105,39 +105,39 @@ describe('runCheckScriptUseCase', () => {
   });
 });
 
-describe('attributeCheck — truth table', () => {
+describe('attributeVerify — truth table', () => {
   it('pre=success, post=success → clean', () => {
-    expect(attributeCheck('success', 'success')).toBe('clean');
+    expect(attributeVerify('success', 'success')).toBe('clean');
   });
 
   it('pre=success, post=failed → regressed', () => {
-    expect(attributeCheck('success', 'failed')).toBe('regressed');
+    expect(attributeVerify('success', 'failed')).toBe('regressed');
   });
 
   it('pre=failed, post=success → fixed-baseline', () => {
-    expect(attributeCheck('failed', 'success')).toBe('fixed-baseline');
+    expect(attributeVerify('failed', 'success')).toBe('fixed-baseline');
   });
 
   it('pre=failed, post=failed → baseline-broken', () => {
-    expect(attributeCheck('failed', 'failed')).toBe('baseline-broken');
+    expect(attributeVerify('failed', 'failed')).toBe('baseline-broken');
   });
 
   it('pre=spawn-error → undefined (unknown baseline state)', () => {
-    expect(attributeCheck('spawn-error', 'success')).toBeUndefined();
-    expect(attributeCheck('spawn-error', 'failed')).toBeUndefined();
-    expect(attributeCheck('spawn-error', 'spawn-error')).toBeUndefined();
+    expect(attributeVerify('spawn-error', 'success')).toBeUndefined();
+    expect(attributeVerify('spawn-error', 'failed')).toBeUndefined();
+    expect(attributeVerify('spawn-error', 'spawn-error')).toBeUndefined();
   });
 
   it('post=spawn-error → undefined (verdict could not run)', () => {
-    expect(attributeCheck('success', 'spawn-error')).toBeUndefined();
-    expect(attributeCheck('failed', 'spawn-error')).toBeUndefined();
+    expect(attributeVerify('success', 'spawn-error')).toBeUndefined();
+    expect(attributeVerify('failed', 'spawn-error')).toBeUndefined();
   });
 
   it('either side=skipped → undefined (nothing to attribute)', () => {
-    expect(attributeCheck('skipped', 'skipped')).toBeUndefined();
-    expect(attributeCheck('skipped', 'success')).toBeUndefined();
-    expect(attributeCheck('skipped', 'failed')).toBeUndefined();
-    expect(attributeCheck('success', 'skipped')).toBeUndefined();
-    expect(attributeCheck('failed', 'skipped')).toBeUndefined();
+    expect(attributeVerify('skipped', 'skipped')).toBeUndefined();
+    expect(attributeVerify('skipped', 'success')).toBeUndefined();
+    expect(attributeVerify('skipped', 'failed')).toBeUndefined();
+    expect(attributeVerify('success', 'skipped')).toBeUndefined();
+    expect(attributeVerify('failed', 'skipped')).toBeUndefined();
   });
 });

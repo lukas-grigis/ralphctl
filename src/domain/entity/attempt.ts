@@ -109,28 +109,28 @@ export interface RecoveryContext {
  */
 export type AttemptStatus = 'running' | 'verified' | 'failed' | 'malformed' | 'aborted';
 
-/** Outcome bucket for one harness-side check-script attempt. Mirrors {@link SetupRunOutcome}. */
-export type CheckRunOutcome =
+/** Outcome bucket for one harness-side verify-script attempt. Mirrors {@link SetupRunOutcome}. */
+export type VerifyRunOutcome =
   /** Script ran and exited 0. */
   | 'success'
   /** Script spawned and ran but exited non-zero. */
   | 'failed'
   /** The shell could not spawn the command (ENOENT, EACCES, missing binary). `exitCode === -1`. */
   | 'spawn-error'
-  /** Repository has no `checkScript` configured. Recorded as explicit evidence of a deliberate no-op. */
+  /** Repository has no `verifyScript` configured. Recorded as explicit evidence of a deliberate no-op. */
   | 'skipped';
 
 /**
- * Discriminates whether a {@link CheckRun} was captured BEFORE the AI generator turn
+ * Discriminates whether a {@link VerifyRun} was captured BEFORE the AI generator turn
  * (the baseline-state snapshot) or AFTER it (the harness's authoritative verdict over the
  * AI's `task-verified` self-report).
  * @public
  */
-export type CheckRunPhase = 'pre' | 'post';
+export type VerifyRunPhase = 'pre' | 'post';
 
 /**
- * One structured row from the harness-side check-script gate. Belt-and-braces independent
- * verification — the AI may emit a `task-verified` signal, but the harness re-runs the check
+ * One structured row from the harness-side verify-script gate. Belt-and-braces independent
+ * verification — the AI may emit a `task-verified` signal, but the harness re-runs the verify
  * script and records its own outcome here. Captured twice per attempt:
  *
  *   - `phase: 'pre'`  — before the generator turn. Captures the baseline state of the working
@@ -143,8 +143,8 @@ export type CheckRunPhase = 'pre' | 'post';
  * for stdout truncation and the same outcome vocabulary.
  * @public
  */
-export interface CheckRun {
-  readonly phase: CheckRunPhase;
+export interface VerifyRun {
+  readonly phase: VerifyRunPhase;
   /** Wall-clock time at which the harness *recorded* the outcome (not script start). */
   readonly ranAt: IsoTimestamp;
   /** Verbatim shell command the harness invoked. Empty string for `outcome: 'skipped'`. */
@@ -158,11 +158,11 @@ export interface CheckRun {
   readonly durationMs: number;
   /** Last `SCRIPT_TAIL_BYTES` bytes of merged stdout / stderr. Empty for `'skipped'` / `'spawn-error'`. */
   readonly stdoutTailBytes: string;
-  readonly outcome: CheckRunOutcome;
+  readonly outcome: VerifyRunOutcome;
 }
 
 /**
- * Attribution verdict for one attempt, derived from the pre/post check-script outcomes:
+ * Attribution verdict for one attempt, derived from the pre/post verify-script outcomes:
  *
  *  - `clean`            — pre=green, post=green. The AI's work landed cleanly.
  *  - `regressed`        — pre=green, post=red. The AI broke the baseline; blame this attempt.
@@ -210,20 +210,20 @@ interface AttemptBase {
    */
   readonly recovering?: RecoveryContext;
   /**
-   * Append-only audit of every harness-side check-script run for this attempt. At most one
+   * Append-only audit of every harness-side verify-script run for this attempt. At most one
    * `phase: 'pre'` row (taken before the generator turn) and one `phase: 'post'` row (after
    * the AI commits) per attempt under the current flow; the array shape is forward-compatible
-   * with future per-round checks. See {@link CheckRun}.
+   * with future per-round verify runs. See {@link VerifyRun}.
    */
-  readonly checkRuns?: readonly CheckRun[];
+  readonly verifyRuns?: readonly VerifyRun[];
   /**
-   * Attribution verdict derived by post-task-check from the pre/post outcomes. Absent until
-   * the post-check leaf runs, or when attribution can't be determined (pre-check spawn-error,
+   * Attribution verdict derived by post-task-verify from the pre/post outcomes. Absent until
+   * the post-verify leaf runs, or when attribution can't be determined (pre-verify spawn-error,
    * skipped script). See {@link Attribution}.
    */
   readonly attribution?: Attribution;
   /**
-   * Warning flag set by pre-task-check when the working-tree baseline was already red before
+   * Warning flag set by pre-task-verify when the working-tree baseline was already red before
    * the AI got a chance to run. Surfaced in the TUI so operators know a downstream failure
    * may not be the AI's fault.
    */
@@ -370,16 +370,16 @@ export const completeAttempt = (
 /** True iff `att` is a {@link VerifiedAttempt}. Useful for narrowing without a switch. */
 export const isVerifiedAttempt = (att: Attempt): att is VerifiedAttempt => att.status === 'verified';
 
-// ───────────────────────── check-run + attribution helpers ─────────────────────────
+// ───────────────────────── verify-run + attribution helpers ─────────────────────────
 
 /**
- * Append a {@link CheckRun} row to a running attempt's `checkRuns` array. Pure structural
+ * Append a {@link VerifyRun} row to a running attempt's `verifyRuns` array. Pure structural
  * mutation — callers pass the result to {@link replaceLastAttempt} via the task-level
- * `appendAttemptCheckRun` helper.
+ * `appendAttemptVerifyRun` helper.
  */
-export const appendCheckRun = (att: RunningAttempt, run: CheckRun): RunningAttempt => ({
+export const appendVerifyRun = (att: RunningAttempt, run: VerifyRun): RunningAttempt => ({
   ...att,
-  checkRuns: [...(att.checkRuns ?? []), run],
+  verifyRuns: [...(att.verifyRuns ?? []), run],
 });
 
 /** Stamp the {@link Attribution} verdict on a running attempt. */

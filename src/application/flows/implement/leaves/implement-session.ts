@@ -16,7 +16,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  *  - `sandboxCwd` is mounted as an additional root with `--add-dir`. The per-task workspace
  *    under `<sprintDir>/implement/<task-id>/` carries the harness's handoff files
  *    (`prompt.md`, `done-criteria.md`, `rounds/<N>/…/signals.json`); the AI reads / writes
- *    them via that path. Git operations (`commit-task`, `branch-preflight`, `post-task-check`)
+ *    them via that path. Git operations (`commit-task`, `branch-preflight`, `post-task-verify`)
  *    keep targeting `repoPath` — "AI cwd" and "git working tree" are now the same path.
  *
  * Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-<name>/` (the
@@ -24,7 +24,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * appends one wildcard line to `.git/info/exclude` on first install so they never show up
  * in `git status` or `git add -A`.
  *
- * Both calls run full-auto; the harness's branch / dirty-tree / post-task-check layer is the
+ * Both calls run full-auto; the harness's branch / dirty-tree / post-task-verify layer is the
  * safety gate, not Claude's per-tool prompts.
  */
 export const implementSession = (

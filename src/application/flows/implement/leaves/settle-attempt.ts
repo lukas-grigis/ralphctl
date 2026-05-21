@@ -150,7 +150,7 @@ export const settleAttemptLeaf = (
         lastExit: undefined,
         lastWarning: undefined,
         lastVerifyResult: undefined,
-        lastPreCheckOutcome: undefined,
+        lastPreVerifyOutcome: undefined,
         lastCommitSha: undefined,
       };
     },

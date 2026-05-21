@@ -14,7 +14,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import type { SprintExecution, SetupRun } from '@src/domain/entity/sprint-execution.ts';
-import type { Attempt, CheckRun, Attribution } from '@src/domain/entity/attempt.ts';
+import type { Attempt, VerifyRun, Attribution } from '@src/domain/entity/attempt.ts';
 import type { Task, InProgressTask } from '@src/domain/entity/task.ts';
 import {
   FIXED_NOW,
@@ -45,7 +45,7 @@ const executionWith = (setupRanAt: readonly SetupRun[]): SprintExecution => ({
   setupRanAt,
 });
 
-const checkRun = (phase: 'pre' | 'post', outcome: CheckRun['outcome'], minutesAgo: number): CheckRun => {
+const verifyRun = (phase: 'pre' | 'post', outcome: VerifyRun['outcome'], minutesAgo: number): VerifyRun => {
   const ranAt = isoTimestamp(new Date(new Date(FIXED_NOW).getTime() - minutesAgo * 60_000).toISOString());
   return {
     phase,
@@ -58,12 +58,16 @@ const checkRun = (phase: 'pre' | 'post', outcome: CheckRun['outcome'], minutesAg
   };
 };
 
-const taskWithAttempt = (checkRuns: readonly CheckRun[], attribution?: Attribution, baselineBroken?: boolean): Task => {
+const taskWithAttempt = (
+  verifyRuns: readonly VerifyRun[],
+  attribution?: Attribution,
+  baselineBroken?: boolean
+): Task => {
   const base = makeInProgressTaskWithRunningAttempt() as InProgressTask;
   const lastAttempt = base.attempts.at(-1) as Attempt;
   const next: Attempt = {
     ...lastAttempt,
-    checkRuns,
+    verifyRuns,
     ...(attribution !== undefined ? { attribution } : {}),
     ...(baselineBroken !== undefined ? { baselineBroken } : {}),
   };
@@ -83,7 +87,7 @@ describe('BaselineHealthCard', () => {
   });
 
   it('renders the clean state — green setup, green pre, green post, clean attribution count', () => {
-    const task = taskWithAttempt([checkRun('pre', 'success', 2), checkRun('post', 'success', 1)], 'clean');
+    const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'success', 1)], 'clean');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
@@ -96,7 +100,7 @@ describe('BaselineHealthCard', () => {
   });
 
   it('renders the regressed state — pre=green, post=red, attribution surfaces the red', () => {
-    const task = taskWithAttempt([checkRun('pre', 'success', 2), checkRun('post', 'failed', 1)], 'regressed');
+    const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'failed', 1)], 'regressed');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
@@ -107,7 +111,7 @@ describe('BaselineHealthCard', () => {
 
   it('renders the baseline-broken state — pre=red, post=red, "broken-base" count surfaces', () => {
     const task = taskWithAttempt(
-      [checkRun('pre', 'failed', 2), checkRun('post', 'failed', 1)],
+      [verifyRun('pre', 'failed', 2), verifyRun('post', 'failed', 1)],
       'baseline-broken',
       true
     );
@@ -119,7 +123,7 @@ describe('BaselineHealthCard', () => {
   });
 
   it('renders the fixed-baseline state — pre=red, post=green, "fixed" count surfaces', () => {
-    const task = taskWithAttempt([checkRun('pre', 'failed', 2), checkRun('post', 'success', 1)], 'fixed-baseline');
+    const task = taskWithAttempt([verifyRun('pre', 'failed', 2), verifyRun('post', 'success', 1)], 'fixed-baseline');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );

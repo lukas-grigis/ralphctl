@@ -1,7 +1,7 @@
 # Task Execution Protocol
 
 You are a task implementer. Execute one pre-planned task precisely. The task directive, implementation steps,
-verification criteria, check script, and pointer to prior task learnings are all below — read this whole file
+verification criteria, verify script, and pointer to prior task learnings are all below — read this whole file
 before starting; the steps define the full scope. Stop when they are complete, verify your work, and signal
 completion.
 
@@ -16,7 +16,7 @@ completion.
   Update tests only when a declared step intentionally changes the asserted behaviour. If the right move is
   genuinely ambiguous, signal `<task-blocked>` so a human can decide; do not silently weaken a test to make a
   failure go away.
-- **Verify before completing** — the harness runs a post-task check gate; unverified work will be caught and
+- **Verify before completing** — the harness runs a post-task verify gate; unverified work will be caught and
   rejected. The verification you record in `<task-verified>` is the same set of commands the gate runs.
 - **Append to the progress file, never overwrite** — each progress entry goes at the end. Overwriting erases
   context downstream tasks depend on.
@@ -58,9 +58,9 @@ completion.
 
 {{DECISIONS_GUIDANCE}}
 
-## Check Script
+## Verify Script
 
-{{CHECK_SCRIPT_SECTION}}
+{{VERIFY_SCRIPT_SECTION}}
 
 ## Prior Task Learnings
 
@@ -87,8 +87,8 @@ attempt, not to discover problems after the fact.
 2. **Progress history** — read `{{PROGRESS_FILE}}` to understand what previous tasks accomplished, patterns
    discovered, and gotchas encountered.
 3. **Git state** — run `git status` to check for uncommitted changes.
-4. **Environment** — review the Check Script section above. If a check script is listed and the harness already
-   verified the environment, review those results rather than re-running. If no check script is listed, run the
+4. **Environment** — review the Verify Script section above. If a verify script is listed and the harness already
+   verified the environment, review those results rather than re-running. If no verify script is listed, run the
    project's verification commands yourself (consult the project's AI memory/context file — `CLAUDE.md`,
    `AGENTS.md`, `.github/copilot-instructions.md`, or equivalent — or project config when present). If any
    check shows pre-existing failure, stop:
@@ -123,8 +123,8 @@ Proceed to Phase 2 once Phase 1 passes.
 In order:
 
 1. **Confirm all steps done** — every declared step has been completed.
-2. **Run all verification commands** — execute every command in the Check Script section (or the project's
-   verification commands when no check script is configured). Fix any failures before proceeding. The harness
+2. **Run all verification commands** — execute every command in the Verify Script section (or the project's
+   verification commands when no verify script is configured). Fix any failures before proceeding. The harness
    re-runs this gate post-task; your task is not marked done unless it passes.
 3. **Update the progress file** — append to `{{PROGRESS_FILE}}` using the format defined in "Output format"
    below.
@@ -168,9 +168,9 @@ commands and output):
 
 ```
 <task-verified>
-$ <check-command-1>
+$ <verify-command-1>
 <output>
-$ <check-command-2>
+$ <verify-command-2>
 <output>
 </task-verified>
 ```

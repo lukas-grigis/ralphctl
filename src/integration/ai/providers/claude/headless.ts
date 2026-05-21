@@ -113,7 +113,7 @@ const RATE_LIMIT_RE = /rate.?limit/i;
  *  - **Full-auto chains** (implement / apply-feedback) still need `bypassPermissions` because
  *    `acceptEdits` only auto-approves Read/Write/Edit and prompts for `Bash`, which hangs
  *    `claude -p` forever waiting on stdin. Safety is enforced at the branch / dirty-tree /
- *    post-task-check layer, not at the per-tool prompt.
+ *    post-task-verify layer, not at the per-tool prompt.
  *
  * Docs: https://code.claude.com/docs/en/agent-sdk/permissions
  *  - bypassPermissions auto-approves every tool; `allowedTools` does NOT constrain it.

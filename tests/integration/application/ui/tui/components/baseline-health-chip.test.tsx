@@ -2,7 +2,7 @@
  * Baseline-Health Chip — the single-line companion to BaselineHealthCard. Renders above the
  * active-task header. Verifies tier synthesis:
  *
- *   - red    — any regression, any red setup, any red CheckRun.
+ *   - red    — any regression, any red setup, any red VerifyRun.
  *   - amber  — broken-baseline attempts OR stale (last check > STALE_MS ago).
  *   - green  — at least one check has run and nothing's red.
  *   - unknown — no setup, no checks (initial state).
@@ -12,7 +12,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
 import type { SprintExecution, SetupRun } from '@src/domain/entity/sprint-execution.ts';
-import type { Attempt, CheckRun, Attribution } from '@src/domain/entity/attempt.ts';
+import type { Attempt, VerifyRun, Attribution } from '@src/domain/entity/attempt.ts';
 import type { Task, InProgressTask } from '@src/domain/entity/task.ts';
 import {
   FIXED_NOW,
@@ -42,7 +42,7 @@ const executionWith = (setupRanAt: readonly SetupRun[]): SprintExecution => ({
   setupRanAt,
 });
 
-const checkRun = (phase: 'pre' | 'post', outcome: CheckRun['outcome'], minutesAgo: number): CheckRun => ({
+const verifyRun = (phase: 'pre' | 'post', outcome: VerifyRun['outcome'], minutesAgo: number): VerifyRun => ({
   phase,
   ranAt: isoTimestamp(new Date(new Date(FIXED_NOW).getTime() - minutesAgo * 60_000).toISOString()),
   command: 'pnpm test',
@@ -52,12 +52,16 @@ const checkRun = (phase: 'pre' | 'post', outcome: CheckRun['outcome'], minutesAg
   outcome,
 });
 
-const taskWithAttempt = (checkRuns: readonly CheckRun[], attribution?: Attribution, baselineBroken?: boolean): Task => {
+const taskWithAttempt = (
+  verifyRuns: readonly VerifyRun[],
+  attribution?: Attribution,
+  baselineBroken?: boolean
+): Task => {
   const base = makeInProgressTaskWithRunningAttempt() as InProgressTask;
   const lastAttempt = base.attempts.at(-1) as Attempt;
   const next: Attempt = {
     ...lastAttempt,
-    checkRuns,
+    verifyRuns,
     ...(attribution !== undefined ? { attribution } : {}),
     ...(baselineBroken !== undefined ? { baselineBroken } : {}),
   };
@@ -76,7 +80,7 @@ describe('BaselineHealthChip', () => {
   });
 
   it('renders green when at least one check has run and nothing is red', () => {
-    const task = taskWithAttempt([checkRun('pre', 'success', 2), checkRun('post', 'success', 1)], 'clean');
+    const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'success', 1)], 'clean');
     const { lastFrame } = render(
       <BaselineHealthChip execution={executionWith([setupRow('success')])} tasks={[task]} now={now} />
     );
@@ -84,7 +88,7 @@ describe('BaselineHealthChip', () => {
   });
 
   it('renders red when there is a regression', () => {
-    const task = taskWithAttempt([checkRun('pre', 'success', 2), checkRun('post', 'failed', 1)], 'regressed');
+    const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'failed', 1)], 'regressed');
     const { lastFrame } = render(
       <BaselineHealthChip execution={executionWith([setupRow('success')])} tasks={[task]} now={now} />
     );
@@ -94,7 +98,7 @@ describe('BaselineHealthChip', () => {
 
   it('renders amber for broken-baseline attempts', () => {
     const task = taskWithAttempt(
-      [checkRun('pre', 'failed', 2), checkRun('post', 'failed', 1)],
+      [verifyRun('pre', 'failed', 2), verifyRun('post', 'failed', 1)],
       'baseline-broken',
       true
     );

@@ -11,8 +11,8 @@ import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import {
   type Repository,
-  setRepositoryCheckScript,
-  setRepositoryCheckTimeout,
+  setRepositoryVerifyScript,
+  setRepositoryVerifyTimeout,
   setRepositoryName,
   setRepositoryPath,
   setRepositorySetupScript,
@@ -60,7 +60,7 @@ export interface ProjectCreateInput {
 export type RepositoryUpdate = Partial<
   Pick<
     Repository,
-    'name' | 'slug' | 'path' | 'checkScript' | 'checkTimeout' | 'setupScript' | 'setupSkill' | 'verifySkill'
+    'name' | 'slug' | 'path' | 'verifyScript' | 'verifyTimeout' | 'setupScript' | 'setupSkill' | 'verifySkill'
   >
 > & {
   /** Path is an `AbsolutePath` value object — re-typed here for clarity. */
@@ -225,13 +225,13 @@ export const updateRepository = (
   if (partial.path !== undefined) {
     updated = setRepositoryPath(updated, partial.path);
   }
-  if ('checkScript' in partial) {
-    const r = setRepositoryCheckScript(updated, partial.checkScript);
+  if ('verifyScript' in partial) {
+    const r = setRepositoryVerifyScript(updated, partial.verifyScript);
     if (!r.ok) return Result.error(r.error);
     updated = r.value;
   }
-  if ('checkTimeout' in partial) {
-    const r = setRepositoryCheckTimeout(updated, partial.checkTimeout);
+  if ('verifyTimeout' in partial) {
+    const r = setRepositoryVerifyTimeout(updated, partial.verifyTimeout);
     if (!r.ok) return Result.error(r.error);
     updated = r.value;
   }

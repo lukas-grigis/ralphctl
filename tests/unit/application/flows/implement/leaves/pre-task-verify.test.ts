@@ -5,7 +5,7 @@ import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { preTaskCheckLeaf } from '@src/application/flows/implement/leaves/pre-task-check.ts';
+import { preTaskVerifyLeaf } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -52,11 +52,11 @@ const fakeTaskRepo = (): FakeRepo => {
 
 interface Fixture {
   readonly ctx: ImplementCtx;
-  readonly leaf: ReturnType<typeof preTaskCheckLeaf>;
+  readonly leaf: ReturnType<typeof preTaskVerifyLeaf>;
   readonly repo: FakeRepo;
 }
 
-const fixture = (runner: ShellScriptRunner, opts: { checkScript?: string } = {}): Fixture => {
+const fixture = (runner: ShellScriptRunner, opts: { verifyScript?: string } = {}): Fixture => {
   const task = makeInProgressTaskWithRunningAttempt();
   const ctx: ImplementCtx = {
     sprintId: SPRINT_ID,
@@ -66,7 +66,7 @@ const fixture = (runner: ShellScriptRunner, opts: { checkScript?: string } = {})
   };
   const repo = fakeTaskRepo();
   const bus = createCapturingBus();
-  const leaf = preTaskCheckLeaf(
+  const leaf = preTaskVerifyLeaf(
     {
       shellScriptRunner: runner,
       taskRepo: repo,
@@ -74,75 +74,75 @@ const fixture = (runner: ShellScriptRunner, opts: { checkScript?: string } = {})
       eventBus: bus.bus,
       logger: noopLogger,
     },
-    { cwd: CWD, ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}) },
+    { cwd: CWD, ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}) },
     task.id
   );
   return { ctx, leaf, repo };
 };
 
-describe('preTaskCheckLeaf', () => {
-  it('skipped row when no checkScript configured — no baselineBroken, lastPreCheckOutcome="skipped"', async () => {
+describe('preTaskVerifyLeaf', () => {
+  it('skipped row when no verifyScript configured — no baselineBroken, lastPreVerifyOutcome="skipped"', async () => {
     const { ctx, leaf, repo } = fixture(fakeRunner({ passed: true, exitCode: 0, output: '' }));
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
-    expect(out.value.ctx.lastPreCheckOutcome).toBe('skipped');
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('skipped');
     const att = out.value.ctx.currentTask?.attempts.at(-1);
-    expect(att?.checkRuns?.[0]?.phase).toBe('pre');
-    expect(att?.checkRuns?.[0]?.outcome).toBe('skipped');
+    expect(att?.verifyRuns?.[0]?.phase).toBe('pre');
+    expect(att?.verifyRuns?.[0]?.outcome).toBe('skipped');
     expect(att?.baselineBroken).toBeUndefined();
     expect(repo.updates).toHaveLength(1);
   });
 
   it('records pre-row outcome="success" when script runs green', async () => {
     const { ctx, leaf, repo } = fixture(fakeRunner({ passed: true, exitCode: 0, output: 'OK' }), {
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
-    expect(out.value.ctx.lastPreCheckOutcome).toBe('success');
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
     const att = out.value.ctx.currentTask?.attempts.at(-1);
-    expect(att?.checkRuns?.[0]?.outcome).toBe('success');
+    expect(att?.verifyRuns?.[0]?.outcome).toBe('success');
     expect(att?.baselineBroken).toBeUndefined();
     expect(repo.updates).toHaveLength(1);
   });
 
   it('records pre-row outcome="failed" AND stamps baselineBroken=true when script runs red — NEVER blocks', async () => {
     const { ctx, leaf, repo } = fixture(fakeRunner({ passed: false, exitCode: 1, output: 'broken' }), {
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
-    expect(out.value.ctx.lastPreCheckOutcome).toBe('failed');
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('failed');
     const att = out.value.ctx.currentTask?.attempts.at(-1);
-    expect(att?.checkRuns?.[0]?.outcome).toBe('failed');
+    expect(att?.verifyRuns?.[0]?.outcome).toBe('failed');
     expect(att?.baselineBroken).toBe(true);
-    // Pre-check is NEVER blocking — it just records baseline state.
+    // Pre-verify is NEVER blocking — it just records baseline state.
     expect(out.value.ctx.lastBlockReason).toBeUndefined();
     expect(repo.updates).toHaveLength(1);
   });
 
   it('records pre-row outcome="spawn-error" when shell could not start — no baselineBroken (unknown state)', async () => {
-    const { ctx, leaf, repo } = fixture(errorRunner('command not found'), { checkScript: 'missing-binary' });
+    const { ctx, leaf, repo } = fixture(errorRunner('command not found'), { verifyScript: 'missing-binary' });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
-    expect(out.value.ctx.lastPreCheckOutcome).toBe('spawn-error');
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('spawn-error');
     const att = out.value.ctx.currentTask?.attempts.at(-1);
-    expect(att?.checkRuns?.[0]?.outcome).toBe('spawn-error');
-    expect(att?.checkRuns?.[0]?.stdoutTailBytes).toContain('command not found');
+    expect(att?.verifyRuns?.[0]?.outcome).toBe('spawn-error');
+    expect(att?.verifyRuns?.[0]?.stdoutTailBytes).toContain('command not found');
     // spawn-error is NOT known-bad baseline — leave the flag unset so attribution is skipped
     // downstream rather than mis-attributing.
     expect(att?.baselineBroken).toBeUndefined();
     expect(repo.updates).toHaveLength(1);
   });
 
-  it('persists the running attempt with the appended CheckRun via taskRepo.update', async () => {
+  it('persists the running attempt with the appended VerifyRun via taskRepo.update', async () => {
     const { ctx, leaf, repo } = fixture(fakeRunner({ passed: true, exitCode: 0, output: 'ok' }), {
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
     expect(repo.updates).toHaveLength(1);
-    const persistedRows = repo.updates[0]?.attempts.at(-1)?.checkRuns;
+    const persistedRows = repo.updates[0]?.attempts.at(-1)?.verifyRuns;
     expect(persistedRows).toHaveLength(1);
     expect(persistedRows?.[0]?.phase).toBe('pre');
   });

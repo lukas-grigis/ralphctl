@@ -35,8 +35,8 @@ interface WriteInput {
  *   proposed (tag omitted) are left untouched on the existing repo.
  *
  * Mapping note: the AI emits `<verify-script>` (the post-task gate); the repository field that
- * holds it is `checkScript`. We translate at the boundary so the domain entity keeps its
- * historical naming and the prompt template stays aligned with `readiness`.
+ * holds it is `verifyScript`. The prompt-tag wire name and the domain field name are aligned
+ * after the v0.7.0 rename.
  */
 const writeUseCase = async (
   deps: WriteDetectScriptsLeafDeps,
@@ -52,7 +52,7 @@ const writeUseCase = async (
 
   const updated = updateRepository(input.project, input.repository.id, {
     ...(input.proposal.proposedSetupScript !== undefined ? { setupScript: input.proposal.proposedSetupScript } : {}),
-    ...(input.proposal.proposedVerifyScript !== undefined ? { checkScript: input.proposal.proposedVerifyScript } : {}),
+    ...(input.proposal.proposedVerifyScript !== undefined ? { verifyScript: input.proposal.proposedVerifyScript } : {}),
   });
   if (!updated.ok) return Result.error(updated.error);
 

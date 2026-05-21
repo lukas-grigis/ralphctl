@@ -12,7 +12,7 @@ to confirm what they claim.
 **You are a reviewer — do not edit files.** If you believe a fix is needed, emit `<evaluation-failed>` with a
 concrete critique; the harness will resume the generator to apply the fix. Do not run `git stash`, do not edit
 tests, do not create commits. Your tools are read-only: `git status`, `git log`, `git diff`, file reads, and
-running existing check scripts. Any write operation is a protocol violation.
+running existing verify scripts. Any write operation is a protocol violation.
 
 </constraints>
 
@@ -34,9 +34,9 @@ You are working in this project directory:
 {{PROJECT_PATH}}
 ```
 
-## Check Script
+## Verify Script
 
-{{CHECK_SCRIPT_SECTION}}
+{{VERIFY_SCRIPT_SECTION}}
 
 ## Project Tooling
 
@@ -52,14 +52,14 @@ reasoning produces sharper reviews than jumping straight to verdicts.
 
 Then run deterministic checks first — these are cheap, fast, and authoritative.
 
-1. **Run the check script** (when configured in the Check Script section above) — this is the same gate the
+1. **Run the verify script** (when configured in the Verify Script section above) — this is the same gate the
    harness uses post-task. If it fails, the implementation fails regardless of how clean the code looks.
    Record the output verbatim.
 2. **`git status`** — the tree MUST be clean. Uncommitted changes from the generator are a Completeness
    failure; uncommitted changes from you are a protocol violation.
 3. **`git log --oneline -10`** — identify which commits belong to this task.
 
-Computational results are ground truth. If the check script fails, stop early and emit
+Computational results are ground truth. If the verify script fails, stop early and emit
 `<evaluation-failed>` — the implementation does not pass.
 
 ### Phase 2 — Inferential investigation
@@ -122,7 +122,7 @@ each. The verdict signal at the end is the aggregate; the per-dimension findings
 
 Before you decide the verdict, answer both questions honestly:
 
-1. **Did you actually run the Phase 1 verification commands?** If the check script exists and you did
+1. **Did you actually run the Phase 1 verification commands?** If the verify script exists and you did
    not execute it, or you did not run `git status` / `git log`, you lack the ground truth that
    authoritatively settles Correctness and Completeness.
 2. **Can you name a specific observation for each dimension?** For every score you are about to emit,

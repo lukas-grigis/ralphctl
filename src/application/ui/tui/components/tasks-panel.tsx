@@ -202,7 +202,6 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
       return { label: 'verified', text: collapseWhitespace(sig.output) };
     case 'task-blocked':
       return { label: 'blocked', text: sig.reason };
-    case 'check-script-discovery':
     case 'setup-script':
     case 'verify-script':
       return { label: 'script', text: `${sig.type}: ${sig.command}` };

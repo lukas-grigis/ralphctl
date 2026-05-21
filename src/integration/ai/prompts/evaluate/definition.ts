@@ -5,7 +5,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderExtraDimensionsSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -21,7 +21,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * PROGRESS_FILE) and uses the `signals-evaluation` partial instead of `signals-task`.
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
- * steps / verification criteria, runs the check script as authoritative ground truth, scores
+ * steps / verification criteria, runs the verify script as authoritative ground truth, scores
  * four floor dimensions (correctness, completeness, safety, consistency), and emits exactly
  * one verdict signal — `<evaluation-passed>` or `<evaluation-failed>critique</evaluation-failed>`.
  */
@@ -37,10 +37,10 @@ export interface EvaluatePromptParams {
   /** Markdown block "## Verification Criteria\n\n- …" or empty when there are none. */
   readonly verificationCriteriaSection: string;
   /**
-   * Markdown body for the "## Check Script" section — either a fenced shell block with the
-   * configured command or the explicit "no check script configured" line. Always non-empty.
+   * Markdown body for the "## Verify Script" section — either a fenced shell block with the
+   * configured command or the explicit "no verify script configured" line. Always non-empty.
    */
-  readonly checkScriptSection: string;
+  readonly verifyScriptSection: string;
   /** Detected subagents / skills / MCP servers the reviewer can route to, or fallback. */
   readonly projectTooling: string;
   /**
@@ -82,13 +82,13 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
       description: '"## Verification Criteria" bullet list, or empty when none are declared.',
     },
-    checkScriptSection: {
-      placeholder: 'CHECK_SCRIPT_SECTION',
+    verifyScriptSection: {
+      placeholder: 'VERIFY_SCRIPT_SECTION',
       description:
-        'Body of the "## Check Script" section — fenced shell block when configured, explicit "no check script configured" otherwise.',
+        'Body of the "## Verify Script" section — fenced shell block when configured, explicit "no verify script configured" otherwise.',
       validate: requireNonEmpty(
-        'checkScriptSection',
-        'check-script section must not be empty (renderCheckScriptSection always emits a body)'
+        'verifyScriptSection',
+        'verify-script section must not be empty (renderVerifyScriptSection always emits a body)'
       ),
     },
     projectTooling: {
@@ -113,7 +113,7 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
 export interface BuildEvaluatePromptInput {
   readonly task: Task;
   readonly projectPath: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly projectTooling?: string;
 }
 
@@ -132,7 +132,7 @@ export const buildEvaluatePrompt = async (
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
-    checkScriptSection: renderCheckScriptSection(input.checkScript),
+    verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
   });

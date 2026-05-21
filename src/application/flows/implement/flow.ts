@@ -22,8 +22,8 @@ import { writeProgressSnapshotLeaf } from '@src/application/flows/implement/leav
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
-import { postTaskCheckLeaf } from '@src/application/flows/implement/leaves/post-task-check.ts';
-import { preTaskCheckLeaf } from '@src/application/flows/implement/leaves/pre-task-check.ts';
+import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
+import { preTaskVerifyLeaf } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import { preflightTaskLeaf, type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -52,7 +52,7 @@ export const IMPLEMENT_TASK_TERMINAL_LEAF = 'uninstall-skills';
  */
 export interface RepoExecConfig {
   readonly path: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly setupScript?: string;
 }
 
@@ -71,7 +71,7 @@ export interface CreateImplementFlowOpts {
   readonly todoTasks: readonly Task[];
   /**
    * Project repositories keyed by id. Every `Task.repositoryId` must resolve through this map;
-   * the per-task sub-chain pulls the cwd / check-script / setup-script from the entry for the
+   * the per-task sub-chain pulls the cwd / verify-script / setup-script from the entry for the
    * task's repo so the implement chain works correctly on multi-repo projects.
    */
   readonly repositories: ReadonlyMap<RepositoryId, RepoExecConfig>;
@@ -120,7 +120,7 @@ export interface CreateImplementFlowOpts {
  *             start-attempt-<id>,
  *             gen-eval-loop-<id>,
  *             commit-task-<id>,
- *             post-task-check,
+ *             post-task-verify,
  *             settle-attempt-<id>,
  *             uninstall-skills-<id>,
  *           ]),
@@ -187,7 +187,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     Promise.resolve({ maxTurns: deps.config.harness.maxTurns });
 
   // Resolve every task's repository config at construction time so per-task leaves can inject
-  // the right `cwd` / `checkScript`. A task that references an unknown repo id is a planning
+  // the right `cwd` / `verifyScript`. A task that references an unknown repo id is a planning
   // bug — fail loudly here rather than mid-run with a confusing "missing cwd" surface.
   const resolveRepo = (task: Task): RepoExecConfig => {
     const repo = opts.repositories.get(task.repositoryId);
@@ -262,7 +262,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       eventBus: deps.eventBus,
       maxTurns: deps.config.harness.maxTurns,
       plateauThreshold: deps.config.harness.plateauThreshold,
-      ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
+      ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
     };
     return sequential<ImplementCtx>(`task-${String(taskId)}`, [
       branchPreflightLeaf(
@@ -276,7 +276,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           sprintDir: opts.sprintDir,
           cwd: repo.path,
           progressFile: opts.progressFile,
-          ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
         },
         taskId
       ),
@@ -285,12 +285,12 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
       ),
       startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
-      // PRE-task check — captures the baseline state of the working tree BEFORE the AI runs
-      // so the post-task-check can attribute correctly: a red post on a green pre means the
+      // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
+      // so the post-task-verify can attribute correctly: a red post on a green pre means the
       // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
       // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
       // attempt and lets the AI try anyway.
-      preTaskCheckLeaf(
+      preTaskVerifyLeaf(
         {
           shellScriptRunner: deps.shellScriptRunner,
           taskRepo: deps.taskRepo,
@@ -298,7 +298,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           eventBus: deps.eventBus,
           logger: deps.logger,
         },
-        { cwd: repo.path, ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}) },
+        { cwd: repo.path, ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}) },
         taskId
       ),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
@@ -323,12 +323,12 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         }
       ),
       finalizeGenEvalLeaf({ taskRepo: deps.taskRepo, readConfig, logger: deps.logger }, taskId),
-      // Verify gate sits BEFORE commit so a red checkScript blocks the task instead of landing
+      // Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
       // broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
       // the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
       // The AI is told to run the verify script itself via the prompt; this leaf is the
       // harness-side enforcement.
-      postTaskCheckLeaf(
+      postTaskVerifyLeaf(
         {
           shellScriptRunner: deps.shellScriptRunner,
           taskRepo: deps.taskRepo,
@@ -336,7 +336,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           eventBus: deps.eventBus,
           logger: deps.logger,
         },
-        { cwd: repo.path, ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}) },
+        { cwd: repo.path, ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}) },
         taskId
       ),
       guard<ImplementCtx>(

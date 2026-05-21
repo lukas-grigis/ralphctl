@@ -135,7 +135,7 @@ export const ExecuteView = (): React.JSX.Element => {
   const term = useTerminalSize();
 
   // Baseline-health data — Sprint Execution + Task list, polled while the run is live so the
-  // Card / Chip reflect the latest pre/post check-script rows as they land. We re-read on a
+  // Card / Chip reflect the latest pre/post verify-script rows as they land. We re-read on a
   // tight interval rather than wiring a dedicated bus channel because the persisted entities
   // are the source of truth (the chain leaves write to taskRepo / sprintExecutionRepo before
   // the bus event fires); polling keeps the wiring simple.
@@ -163,7 +163,7 @@ export const ExecuteView = (): React.JSX.Element => {
       if (tasksR.ok) setTaskState(tasksR.value);
     };
     void load();
-    // 3s cadence — fast enough that a fresh CheckRun row lands within the operator's reading
+    // 3s cadence — fast enough that a fresh VerifyRun row lands within the operator's reading
     // window, slow enough that the disk + JSON parse cost stays trivial even on a wide sprint.
     const id = setInterval(() => {
       void load();

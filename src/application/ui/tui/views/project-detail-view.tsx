@@ -245,8 +245,8 @@ const Body = ({ project, cursorIdx, feedback }: BodyProps): React.JSX.Element =>
                   ),
                 },
                 {
-                  label: 'Check',
-                  value: repo.checkScript ?? (
+                  label: 'Verify',
+                  value: repo.verifyScript ?? (
                     <Text dimColor italic>
                       (none)
                     </Text>

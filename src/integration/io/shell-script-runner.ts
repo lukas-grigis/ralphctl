@@ -7,7 +7,7 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
 /**
  * Run a project-configured shell script. Used by the implement chain leaves:
  *   - `setup-script-runner` (sprint-start environment prep)
- *   - `post-task-check`    (verify the working tree after a commit)
+ *   - `post-task-verify`    (verify the working tree after a commit)
  *
  * Scripts are user-configured in repository settings; they are not arbitrary AI-generated
  * commands. They run through a shell so user-friendly forms like `pnpm install && pnpm
@@ -16,7 +16,7 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
  * Output handling:
  *   - stdout + stderr are captured into a single combined buffer (consumers render them as
  *     one stream and order matters).
- *   - 50 MB hard cap on buffered output. Real check scripts on big monorepos can legitimately
+ *   - 50 MB hard cap on buffered output. Real verify scripts on big monorepos can legitimately
  *     emit several MB; the cap exists so a runaway loop can't OOM the harness. When the cap
  *     is hit the child is killed and a truncation marker is appended.
  *   - Default 5-minute timeout, override per-call. Timeouts also kill the child and append a

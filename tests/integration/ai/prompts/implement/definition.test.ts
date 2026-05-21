@@ -9,7 +9,7 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildImplementPrompt,
   implementPromptDef,
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -138,21 +138,21 @@ describe('renderVerificationCriteriaSection', () => {
   });
 });
 
-describe('renderCheckScriptSection', () => {
+describe('renderVerifyScriptSection', () => {
   it('embeds the configured command as a fenced shell block', () => {
-    const out = renderCheckScriptSection('npm run check');
+    const out = renderVerifyScriptSection('npm run check');
     expect(out).toContain('```sh');
     expect(out).toContain('npm run check');
     expect(out).toContain('post-task gate');
   });
 
   it('returns the explicit "no check script configured" line when undefined', () => {
-    expect(renderCheckScriptSection(undefined)).toBe('No check script configured for this repo.');
+    expect(renderVerifyScriptSection(undefined)).toBe('No verify script configured for this repo.');
   });
 
   it('returns the explicit "no check script configured" line when empty / whitespace', () => {
-    expect(renderCheckScriptSection('')).toBe('No check script configured for this repo.');
-    expect(renderCheckScriptSection('   \n\t')).toBe('No check script configured for this repo.');
+    expect(renderVerifyScriptSection('')).toBe('No verify script configured for this repo.');
+    expect(renderVerifyScriptSection('   \n\t')).toBe('No verify script configured for this repo.');
   });
 });
 
@@ -191,7 +191,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
-      checkScript: 'npm run check',
+      verifyScript: 'npm run check',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
     });
     expect(result.ok).toBe(true);
@@ -223,7 +223,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.value).not.toContain('## Description');
     // Sanity: the rest of the prompt still rendered.
     expect(result.value).toContain('# short task');
-    expect(result.value).toContain('No check script configured for this repo.');
+    expect(result.value).toContain('No verify script configured for this repo.');
   });
 
   it('renders the prior critique section verbatim on fix turns', async () => {
@@ -264,7 +264,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
@@ -282,7 +282,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',

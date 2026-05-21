@@ -100,10 +100,10 @@ Then orient before editing:
 
 ### Phase 3 — Verification
 
-1. **Run the check script** (when one is configured in the Project Tooling section). Record its
+1. **Run the verify script** (when one is configured in the Project Tooling section). Record its
    output verbatim for `<task-verified>`.
-2. **When no check script is configured**, emit
-   `<task-verified>no check script configured; change applied</task-verified>` so the harness can
+2. **When no verify script is configured**, emit
+   `<task-verified>no verify script configured; change applied</task-verified>` so the harness can
    record that the round produced changes without a verification gate.
 3. **Signal completion** with `<task-complete>` once the change is applied and verification (if
    any) passed.

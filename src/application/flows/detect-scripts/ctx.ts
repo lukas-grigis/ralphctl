@@ -35,7 +35,7 @@ export interface DetectScriptsCtx {
     readonly proposedSetupScript?: string;
     /**
      * AI-suggested verify script (one shell line chaining typecheck / lint / test with `&&`).
-     * Undefined when the project exposes no such commands. Maps to `Repository.checkScript`
+     * Undefined when the project exposes no such commands. Maps to `Repository.verifyScript`
      * on accept — the harness's post-task gate.
      */
     readonly proposedVerifyScript?: string;

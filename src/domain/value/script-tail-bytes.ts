@@ -3,7 +3,7 @@
  * preserves. 4 KB is enough to capture the last "pnpm install" summary block or the final
  * stack frame of a spawn failure without bloating the on-disk JSON when a script is noisy.
  *
- * Shared between {@link SetupRun} (`sprint-execution.ts`) and {@link CheckRun} (`attempt.ts`)
+ * Shared between {@link SetupRun} (`sprint-execution.ts`) and {@link VerifyRun} (`attempt.ts`)
  * so both audit shapes use the same truncation point — one constant, one place to retune.
  * @public
  */

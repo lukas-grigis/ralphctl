@@ -5,8 +5,8 @@ import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { CheckRunOutcome } from '@src/domain/entity/attempt.ts';
-import { postTaskCheckLeaf } from '@src/application/flows/implement/leaves/post-task-check.ts';
+import type { VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
+import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -54,12 +54,12 @@ const fakeTaskRepo = (): { repo: FakeRepo; mutator: (next: Task) => void } => {
 
 interface Fixture {
   readonly ctx: ImplementCtx;
-  readonly leaf: ReturnType<typeof postTaskCheckLeaf>;
+  readonly leaf: ReturnType<typeof postTaskVerifyLeaf>;
 }
 
 const fixture = (
   runner: ShellScriptRunner,
-  opts: { preOutcome?: CheckRunOutcome; checkScript?: string } = {}
+  opts: { preOutcome?: VerifyRunOutcome; verifyScript?: string } = {}
 ): Fixture => {
   const task = makeInProgressTaskWithRunningAttempt();
   const ctx: ImplementCtx = {
@@ -67,11 +67,11 @@ const fixture = (
     currentTask: task,
     currentTaskId: task.id,
     tasks: [task],
-    ...(opts.preOutcome !== undefined ? { lastPreCheckOutcome: opts.preOutcome } : {}),
+    ...(opts.preOutcome !== undefined ? { lastPreVerifyOutcome: opts.preOutcome } : {}),
   };
   const { repo } = fakeTaskRepo();
   const bus = createCapturingBus();
-  const leaf = postTaskCheckLeaf(
+  const leaf = postTaskVerifyLeaf(
     {
       shellScriptRunner: runner,
       taskRepo: repo,
@@ -79,14 +79,14 @@ const fixture = (
       eventBus: bus.bus,
       logger: noopLogger,
     },
-    { cwd: CWD, ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}) },
+    { cwd: CWD, ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}) },
     task.id
   );
   return { ctx, leaf };
 };
 
-describe('postTaskCheckLeaf', () => {
-  it('skips when no checkScript configured — `lastVerifyResult` is "skipped", no attribution', async () => {
+describe('postTaskVerifyLeaf', () => {
+  it('skips when no verifyScript configured — `lastVerifyResult` is "skipped", no attribution', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: true, exitCode: 0, output: '' }), { preOutcome: 'success' });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -94,15 +94,15 @@ describe('postTaskCheckLeaf', () => {
     expect(out.value.ctx.currentTask?.attempts.at(-1)?.attribution).toBeUndefined();
   });
 
-  it('marks passed when script runs green and persists a CheckRun row', async () => {
+  it('marks passed when script runs green and persists a VerifyRun row', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: true, exitCode: 0, output: 'OK' }), {
       preOutcome: 'success',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
     expect(out.value.ctx.lastVerifyResult?.kind).toBe('passed');
-    const row = out.value.ctx.currentTask?.attempts.at(-1)?.checkRuns?.[0];
+    const row = out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns?.[0];
     expect(row?.phase).toBe('post');
     expect(row?.outcome).toBe('success');
     expect(row?.exitCode).toBe(0);
@@ -112,7 +112,7 @@ describe('postTaskCheckLeaf', () => {
     const longOutput = `${'x'.repeat(5000)}\nFINAL_LINE`;
     const { ctx, leaf } = fixture(fakeRunner({ passed: false, exitCode: 1, output: longOutput }), {
       preOutcome: 'success',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -128,7 +128,7 @@ describe('postTaskCheckLeaf', () => {
   it('attribution truth table — pre=green, post=green → clean (no block)', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: true, exitCode: 0, output: '' }), {
       preOutcome: 'success',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -139,7 +139,7 @@ describe('postTaskCheckLeaf', () => {
   it('attribution truth table — pre=green, post=red → regressed (block)', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: false, exitCode: 7, output: 'broke it' }), {
       preOutcome: 'success',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -151,7 +151,7 @@ describe('postTaskCheckLeaf', () => {
   it('attribution truth table — pre=red, post=red → baseline-broken (preserve verdict, NO block)', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: false, exitCode: 1, output: 'still red' }), {
       preOutcome: 'failed',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -164,7 +164,7 @@ describe('postTaskCheckLeaf', () => {
   it('attribution truth table — pre=red, post=green → fixed-baseline (no block, credit)', async () => {
     const { ctx, leaf } = fixture(fakeRunner({ passed: true, exitCode: 0, output: 'fixed' }), {
       preOutcome: 'failed',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
@@ -172,30 +172,30 @@ describe('postTaskCheckLeaf', () => {
     expect(out.value.ctx.lastBlockReason).toBeUndefined();
   });
 
-  it('spawn-error pre-check → attribution skipped, post row still recorded as spawn-error', async () => {
+  it('spawn-error pre-verify → attribution skipped, post row still recorded as spawn-error', async () => {
     const { ctx, leaf } = fixture(errorRunner('binary missing'), {
       preOutcome: 'spawn-error',
-      checkScript: 'pnpm test',
+      verifyScript: 'pnpm test',
     });
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
     expect(out.value.ctx.currentTask?.attempts.at(-1)?.attribution).toBeUndefined();
-    const row = out.value.ctx.currentTask?.attempts.at(-1)?.checkRuns?.[0];
+    const row = out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns?.[0];
     expect(row?.outcome).toBe('spawn-error');
   });
 
-  it('persists the running attempt with the appended CheckRun via taskRepo.update', async () => {
+  it('persists the running attempt with the appended VerifyRun via taskRepo.update', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const ctx: ImplementCtx = {
       sprintId: SPRINT_ID,
       currentTask: task,
       currentTaskId: task.id,
       tasks: [task],
-      lastPreCheckOutcome: 'success',
+      lastPreVerifyOutcome: 'success',
     };
     const { repo } = fakeTaskRepo();
     const bus = createCapturingBus();
-    const leaf = postTaskCheckLeaf(
+    const leaf = postTaskVerifyLeaf(
       {
         shellScriptRunner: fakeRunner({ passed: true, exitCode: 0, output: 'ok' }),
         taskRepo: repo,
@@ -203,13 +203,13 @@ describe('postTaskCheckLeaf', () => {
         eventBus: bus.bus,
         logger: noopLogger,
       },
-      { cwd: CWD, checkScript: 'pnpm test' },
+      { cwd: CWD, verifyScript: 'pnpm test' },
       task.id
     );
     const out = await leaf.execute(ctx);
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
     expect(repo.updates).toHaveLength(1);
-    const persistedRows = repo.updates[0]?.attempts.at(-1)?.checkRuns;
+    const persistedRows = repo.updates[0]?.attempts.at(-1)?.verifyRuns;
     expect(persistedRows).toHaveLength(1);
     expect(persistedRows?.[0]?.phase).toBe('post');
     expect(persistedRows?.[0]?.outcome).toBe('success');

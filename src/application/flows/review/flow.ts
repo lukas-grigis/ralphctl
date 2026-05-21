@@ -17,7 +17,7 @@ export interface CreateReviewFlowOpts {
   readonly cwd: AbsolutePath;
   readonly feedbackFile: AbsolutePath;
   readonly progressFile?: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   /** Safety cap on rounds; production runs hit this only on a UI bug. Default 50. */
   readonly maxRounds?: number;
 }
@@ -51,7 +51,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
     },
     {
       cwd: opts.cwd,
-      ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+      ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
     }
   );
 

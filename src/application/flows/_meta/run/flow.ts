@@ -44,7 +44,7 @@ export interface CreateRunFlowOpts {
   readonly sprintDir: AbsolutePath;
   readonly feedbackFile: AbsolutePath;
   readonly model: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
 }
@@ -72,7 +72,7 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
     cwd: opts.cwd,
     feedbackFile: opts.feedbackFile,
     progressFile: opts.progressFile,
-    ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+    ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
   });
 
   return {

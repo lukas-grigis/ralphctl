@@ -19,9 +19,9 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
     join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'progress.md')
   );
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
-  // Reuse the check-script wired on the project so review verifies the same way implement did —
+  // Reuse the verify-script wired on the project so review verifies the same way implement did —
   // keeps the "done means green" invariant intact across the two phases.
-  const checkScript = snapshot.project?.repositories.find((r) => r.checkScript !== undefined)?.checkScript;
+  const verifyScript = snapshot.project?.repositories.find((r) => r.verifyScript !== undefined)?.verifyScript;
 
   const element: Element<ReviewCtx> = createReviewFlow(
     {
@@ -47,7 +47,7 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
       cwd,
       feedbackFile: feedbackPath.value,
       progressFile: progressPath.value,
-      ...(checkScript !== undefined ? { checkScript } : {}),
+      ...(verifyScript !== undefined ? { verifyScript } : {}),
     }
   );
   const runner = createRunner<ReviewCtx>({

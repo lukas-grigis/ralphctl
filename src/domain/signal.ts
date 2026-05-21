@@ -109,16 +109,6 @@ export interface DecisionSignal {
 }
 
 /**
- * Setup-time signal from a one-shot AI session (`project add` / `project repo add`). Carries the
- * raw shell command the AI proposes as the verification gate. Empty/missing means no proposal.
- */
-export interface CheckScriptDiscoverySignal {
-  readonly type: 'check-script-discovery';
-  readonly command: string;
-  readonly timestamp: IsoTimestamp;
-}
-
-/**
  * Context-file proposal from `project readiness`. Body becomes a provider-native context file
  * (`CLAUDE.md` for Claude, `.github/copilot-instructions.md` for Copilot, `AGENTS.md` for
  * Codex). The originating wire tag (`<claude-md>` / `<copilot-instructions>` / `<agents-md>`)
@@ -282,7 +272,6 @@ export type HarnessSignal =
   | LearningSignal
   | ChangeSignal
   | DecisionSignal
-  | CheckScriptDiscoverySignal
   | AgentsMdProposalSignal
   | SetupScriptSignal
   | VerifyScriptSignal

@@ -1063,7 +1063,7 @@ describe('createImplementFlow — gen-eval loop', () => {
   // The harness's safety contract: even if the AI says `<task-verified>` and the evaluator
   // passes, a failing post-task verify script must BLOCK the task — no commit on the sprint
   // branch, no quiet pass. This is the primary "go-off-the-computer" guardrail and the
-  // composition that powers it (post-task-check → guard → commit-task → settle-attempt) only
+  // composition that powers it (post-task-verify → guard → commit-task → settle-attempt) only
   // gets exercised end-to-end here.
   it('regressed baseline (pre=green, post=red) blocks the task and prevents the commit', async () => {
     const f = await buildFixture(1);
@@ -1078,15 +1078,15 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
-    // The shell runner is invoked once per setup-script, once per pre-task-check, once per
-    // post-task-check. We need to return GREEN for the first pre-check (baseline is good) and
+    // The shell runner is invoked once per setup-script, once per pre-task-verify, once per
+    // post-task-verify. We need to return GREEN for the first pre-check (baseline is good) and
     // RED for the post-check — that's a `regressed` attribution, which DOES block. Setup is
     // skipped (no `setupScript`).
     let shellCallCount = 0;
     const regressingShell: ShellScriptRunner = {
       async run() {
         shellCallCount += 1;
-        // Call 1 = pre-task-check (green baseline). Call 2 = post-task-check (red — regression).
+        // Call 1 = pre-task-verify (green baseline). Call 2 = post-task-verify (red — regression).
         const isPost = shellCallCount >= 2;
         if (isPost) {
           return Result.ok({ passed: false, exitCode: 1, output: 'tests failed: 3 of 7\n', durationMs: 12 });
@@ -1095,8 +1095,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     };
 
-    // Wire a checkScript on the repo so pre/post checks actually run.
-    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, checkScript: 'pnpm test' }]]);
+    // Wire a verifyScript on the repo so pre/post checks actually run.
+    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
 
     const git = commitCapturingGit(1);
     const deps: ImplementDeps = {
@@ -1163,7 +1163,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     };
 
-    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, checkScript: 'pnpm test' }]]);
+    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
 
     const git = commitCapturingGit(1);
     const deps: ImplementDeps = {
@@ -1269,7 +1269,7 @@ describe('createImplementFlow — gen-eval loop', () => {
   //
   // A project with two repositories has two task pools. `createImplementFlow` resolves the
   // repo per task via `resolveRepo(task)` and threads its `cwd` into branch-preflight,
-  // generator/evaluator, post-task-check, commit-task, settle-attempt. The unique-repo set
+  // generator/evaluator, post-task-verify, commit-task, settle-attempt. The unique-repo set
   // also drives `resolveBranchLeaf` (one checkout per repo) and `preflightTaskLeaf` (one
   // dirty-tree gate per repo). End-to-end coverage protects that wiring from regressing into
   // "everything points at the first repo" — a silent failure mode that would land commits
@@ -1317,7 +1317,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     // Custom git runner that tracks (cwd, args) per call so we can assert resolve-branch
     // and preflight-task fan out to each unique repo cwd. The fake tree is always clean —
     // no commits captured here; per-task cwd wiring is proved by the shell-runner probe
-    // below (post-task-check fires per-task with the task's repo cwd).
+    // below (post-task-verify fires per-task with the task's repo cwd).
     interface GitCall {
       readonly cwd: string;
       readonly args: readonly string[];
@@ -1351,7 +1351,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     };
 
-    // Shell runner captures (cwd, command). post-task-check invokes this once per task with
+    // Shell runner captures (cwd, command). post-task-verify invokes this once per task with
     // the task's repo cwd — that's the per-task cwd-wiring smoking gun.
     interface ShellCall {
       readonly cwd: string;
@@ -1374,8 +1374,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: sprint.id,
       todoTasks: tasks,
       repositories: new Map([
-        [REPO_A_ID, { path: CWD_A, checkScript: 'pnpm test' }],
-        [REPO_B_ID, { path: CWD_B, checkScript: 'pnpm test' }],
+        [REPO_A_ID, { path: CWD_A, verifyScript: 'pnpm test' }],
+        [REPO_B_ID, { path: CWD_B, verifyScript: 'pnpm test' }],
       ]),
       model: 'claude-opus-4-7',
       progressFile: absolutePath(progressFile),
@@ -1414,7 +1414,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(statusCwds.has(String(CWD_A))).toBe(true);
     expect(statusCwds.has(String(CWD_B))).toBe(true);
 
-    // Per-task cwd-wiring: pre-task-check + post-task-check each fire once per task against
+    // Per-task cwd-wiring: pre-task-verify + post-task-verify each fire once per task against
     // the task's repo, proving resolveRepo(task) wires the right cwd into the per-task
     // sub-chain (not "first repo wins for everything"). Two tasks × two checks = 4 calls.
     const shellCwds = shellCalls.map((c) => c.cwd);

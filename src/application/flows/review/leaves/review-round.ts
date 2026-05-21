@@ -54,7 +54,7 @@ export interface ReviewRoundLeafDeps {
 
 export interface ReviewRoundLeafOpts {
   readonly cwd: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
 }
 
 interface ReviewRoundInput {
@@ -189,10 +189,10 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             if (!commit.ok) return Result.error(commit.error) as Result<{ readonly committed: boolean }, DomainError>;
             return Result.ok({ committed: commit.value.committed });
           },
-          ...(opts.checkScript !== undefined && opts.checkScript.trim().length > 0
+          ...(opts.verifyScript !== undefined && opts.verifyScript.trim().length > 0
             ? {
                 verifyRound: async () => {
-                  const verify = await deps.shellScriptRunner.run(opts.cwd, opts.checkScript!, {
+                  const verify = await deps.shellScriptRunner.run(opts.cwd, opts.verifyScript!, {
                     env: { RALPHCTL_LIFECYCLE_EVENT: 'feedback' },
                   });
                   if (!verify.ok) return Result.error(verify.error);

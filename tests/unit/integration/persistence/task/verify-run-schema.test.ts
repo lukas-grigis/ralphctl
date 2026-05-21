@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { fromJsonAttempt } from '@src/integration/persistence/task/attempt.schema.ts';
 
 /**
- * Schema round-trip for the new {@link CheckRun} + {@link Attribution} fields on an attempt.
- * Pre-existing attempt records (no `checkRuns` / `attribution` / `baselineBroken`) must still
+ * Schema round-trip for {@link VerifyRun} + {@link Attribution} fields on an attempt.
+ * Pre-existing attempt records (no `verifyRuns` / `attribution` / `baselineBroken`) must still
  * load — the fields are optional and additive.
  */
 
-describe('attempt schema — CheckRun round-trip', () => {
-  it('parses an attempt carrying pre + post CheckRun rows', () => {
+describe('attempt schema — VerifyRun round-trip', () => {
+  it('parses an attempt carrying pre + post VerifyRun rows', () => {
     const raw = {
       n: 1,
       startedAt: '2026-05-08T10:00:00.000Z',
       status: 'running' as const,
       finishedAt: null,
-      checkRuns: [
+      verifyRuns: [
         {
           phase: 'pre',
           ranAt: '2026-05-08T10:00:00.000Z',
@@ -40,9 +40,9 @@ describe('attempt schema — CheckRun round-trip', () => {
     const parsed = fromJsonAttempt(raw);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.value.checkRuns).toHaveLength(2);
-    expect(parsed.value.checkRuns?.[0]?.phase).toBe('pre');
-    expect(parsed.value.checkRuns?.[1]?.phase).toBe('post');
+    expect(parsed.value.verifyRuns).toHaveLength(2);
+    expect(parsed.value.verifyRuns?.[0]?.phase).toBe('pre');
+    expect(parsed.value.verifyRuns?.[1]?.phase).toBe('post');
     expect(parsed.value.attribution).toBe('regressed');
   });
 
@@ -52,7 +52,7 @@ describe('attempt schema — CheckRun round-trip', () => {
       startedAt: '2026-05-08T10:00:00.000Z',
       status: 'running' as const,
       finishedAt: null,
-      checkRuns: [
+      verifyRuns: [
         {
           phase: 'pre',
           ranAt: '2026-05-08T10:00:00.000Z',
@@ -73,13 +73,13 @@ describe('attempt schema — CheckRun round-trip', () => {
     expect(parsed.value.attribution).toBe('baseline-broken');
   });
 
-  it('parses spawn-error CheckRun with exitCode=-1', () => {
+  it('parses spawn-error VerifyRun with exitCode=-1', () => {
     const raw = {
       n: 1,
       startedAt: '2026-05-08T10:00:00.000Z',
       status: 'running' as const,
       finishedAt: null,
-      checkRuns: [
+      verifyRuns: [
         {
           phase: 'pre',
           ranAt: '2026-05-08T10:00:00.000Z',
@@ -94,12 +94,12 @@ describe('attempt schema — CheckRun round-trip', () => {
     const parsed = fromJsonAttempt(raw);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.value.checkRuns?.[0]?.outcome).toBe('spawn-error');
-    expect(parsed.value.checkRuns?.[0]?.exitCode).toBe(-1);
+    expect(parsed.value.verifyRuns?.[0]?.outcome).toBe('spawn-error');
+    expect(parsed.value.verifyRuns?.[0]?.exitCode).toBe(-1);
     expect(parsed.value.attribution).toBeUndefined();
   });
 
-  it('parses a pre-existing attempt with NO checkRuns / attribution (backward compat)', () => {
+  it('parses a pre-existing attempt with NO verifyRuns / attribution (backward compat)', () => {
     const raw = {
       n: 1,
       startedAt: '2026-05-08T10:00:00.000Z',
@@ -110,7 +110,7 @@ describe('attempt schema — CheckRun round-trip', () => {
     const parsed = fromJsonAttempt(raw);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.value.checkRuns).toBeUndefined();
+    expect(parsed.value.verifyRuns).toBeUndefined();
     expect(parsed.value.attribution).toBeUndefined();
     expect(parsed.value.baselineBroken).toBeUndefined();
   });
@@ -127,13 +127,13 @@ describe('attempt schema — CheckRun round-trip', () => {
     expect(parsed.ok).toBe(false);
   });
 
-  it('rejects an unknown CheckRun outcome', () => {
+  it('rejects an unknown VerifyRun outcome', () => {
     const raw = {
       n: 1,
       startedAt: '2026-05-08T10:00:00.000Z',
       status: 'running' as const,
       finishedAt: null,
-      checkRuns: [
+      verifyRuns: [
         {
           phase: 'pre',
           ranAt: '2026-05-08T10:00:00.000Z',
@@ -147,5 +147,33 @@ describe('attempt schema — CheckRun round-trip', () => {
     };
     const parsed = fromJsonAttempt(raw);
     expect(parsed.ok).toBe(false);
+  });
+
+  // ── legacy on-disk migration ──────────────────────────────────────────────────────────
+  it('migrates legacy `checkRuns` field to `verifyRuns` (pre-v0.7.0 records)', () => {
+    const raw = {
+      n: 1,
+      startedAt: '2026-05-08T10:00:00.000Z',
+      status: 'running' as const,
+      finishedAt: null,
+      checkRuns: [
+        {
+          phase: 'pre',
+          ranAt: '2026-05-08T10:00:00.000Z',
+          command: 'pnpm test',
+          exitCode: 0,
+          durationMs: 100,
+          stdoutTailBytes: 'OK',
+          outcome: 'success',
+        },
+      ],
+    };
+    const parsed = fromJsonAttempt(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.verifyRuns).toHaveLength(1);
+    expect(parsed.value.verifyRuns?.[0]?.command).toBe('pnpm test');
+    // Legacy alias is dropped — the only field in the parsed entity is the new one.
+    expect((parsed.value as { checkRuns?: unknown }).checkRuns).toBeUndefined();
   });
 });

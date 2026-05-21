@@ -132,11 +132,11 @@ describe('classifyEventForNotification', () => {
     const decision = classifyEventForNotification({
       type: 'log',
       level: 'warn',
-      message: 'pre-task-check /repos/app: baseline already red (exit=1) — task will start on broken baseline',
+      message: 'pre-task-verify /repos/app: baseline already red (exit=1) — task will start on broken baseline',
       at: NOW,
     });
     expect(decision?.level).toBe('attention');
-    expect(decision?.title).toBe('Pre-check red');
+    expect(decision?.title).toBe('Pre-verify red');
     // Body should contain the path-shaped hint extracted from the message.
     expect(decision?.body).toContain('/repos/app');
   });
