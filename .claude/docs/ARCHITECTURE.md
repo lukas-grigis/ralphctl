@@ -225,12 +225,20 @@ ChainStarted |
   ChainAborted |
   TaskAttemptStarted |
   TaskAttemptEvaluated |
+  TaskRoundStarted |
   FeedbackRoundApplied |
+  TokenUsageEvent |
+  BannerShowEvent |
+  BannerClearEvent |
+  MemoryPressureEvent |
+  ChainLogDegradedEvent |
   LogEvent;
 ```
 
-TUI panels subscribe; the persistent `<sprintDir>/chain.log` sink (`integration/observability/sinks/file-log-sink.ts`)
-subscribes. The same bus is the fan-out point for any future telemetry adapter.
+TUI panels subscribe; the persistent `<sprintDir>/chain.log` sink
+(`integration/observability/sinks/file-log-sink.ts`) and the decisions-log sink
+(`integration/observability/sinks/decisions-log-sink.ts`) subscribe. The same bus is the fan-out point
+for any future telemetry adapter.
 
 `AppDeps.logger` is created via `createEventBusLogger({ eventBus, clock: IsoTimestamp.now })` — every
 `logger.info(...)` publishes a `LogEvent` AppEvent. Console sinks, file appenders, and TUI tail panels all
@@ -282,6 +290,8 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 | `doctor`                       | use-case | yes                           | Environment health check                            |
 | `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                  |
 | `ticket-add` / `ticket-remove` | use-case | yes                           | Per `docs/api.md`                                   |
+| —                              | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts        |
+| —                              | CLI-only | `snapshot`                    | Render one static text frame of the active sprint   |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. See
 `docs/api.md` (in this repo's docs at the v2 source) for flag-level detail on the CLI commands.
@@ -324,10 +334,11 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │   └── sprints/
 │       └── <sprint-id>/
 │           ├── sprint.json          ← planning: tickets, requirements, status, project ref
-│           ├── execution.json       ← runtime audit: branch, PR URL, setup script timestamps
+│           ├── execution.json       ← runtime audit: branch, PR URL, structured setup-run history
 │           ├── tasks.json           ← task list with status, attempts, evaluations
-│           ├── chain.log            ← persistent EventBus trace (every chain run appends)
-│           ├── progress.md          ← append-only signal log (Progress / Note signals)
+│           ├── chain.log            ← persistent EventBus trace (each run bracketed by === … === lines)
+│           ├── decisions.log        ← AI-emitted <decision> tags, one JSON line each
+│           ├── progress.md          ← snapshot-rendered from SprintState; regenerated on each settle
 │           ├── refinement/<ticket-slug>/  ← per-ticket sandbox for refine AI session
 │           │   ├── prompt.md
 │           │   └── requirements.md  ← AI writes; harness reads back
@@ -335,12 +346,19 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           │   ├── prompt.md
 │           │   └── plan.json
 │           ├── ideation/<unit-slug>/      ← sandbox for ideate AI session
-│           ├── implement/<unit-slug>/     ← per-task sandbox for evaluator
-│           │   └── rounds/<N>/{generator,evaluator}/
-│           │       ├── prompt.md
-│           │       ├── session.md
-│           │       ├── signals.json
-│           │       └── sessionId
+│           ├── implement/<unit-slug>/     ← per-task sandbox
+│           │   ├── prompt.md
+│           │   ├── done-criteria.md
+│           │   └── rounds/<N>/
+│           │       ├── outcome.md              ← settle-attempt verdict (written after settlement)
+│           │       ├── generator/
+│           │       │   ├── prompt.md           ← rendered generator prompt (written before spawn)
+│           │       │   ├── signals.json
+│           │       │   └── sessionId
+│           │       └── evaluator/
+│           │           ├── prompt.md           ← rendered evaluator prompt (written before spawn)
+│           │           ├── signals.json
+│           │           └── sessionId
 │           └── review/<unit-slug>/        ← apply-feedback sandbox
 └── state/
     └── locks/
@@ -369,19 +387,25 @@ and the non-obvious mutators.
   `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
-  `pullRequestUrl`, `setupRunAt` (map of repo path → ISO timestamp). Separate from `Sprint` so the
-  runtime-mutating fields don't collide with planning writes.
+  `pullRequestUrl`, `setupRanAt` (array of `SetupRun` — one structured entry per repo per chain run,
+  outcome: `success` / `failed` / `spawn-error` / `skipped`). Separate from `Sprint` so runtime-mutating
+  fields don't collide with planning writes.
 - **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `requirementStatus: pending → approved`
   flipped by the refine flow.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references
-  `Sprint` via `ticketId` and DAG edges via `blockedBy`. Carries an `attempts[]` history (one entry per
-  generator-evaluator round) — each `Attempt` has `evaluation` + `verification` sub-records. Optional
-  `extraDimensions` is the planner's per-task grading rubric beyond the four floor dimensions
-  (Correctness / Completeness / Safety / Consistency). Optional `maxAttempts` overrides the global cap.
-- **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields: `schemaVersion`,
-  `ai: { provider, models }`, `harness: { maxTurns, maxAttempts, rateLimitRetries }`, `logging: { level }`,
-  `concurrency: { maxParallelTasks }`. `ai.provider` is one of `'claude-code' | 'github-copilot' | 'openai-codex'`;
-  `ai.models` is an object keyed by chain (`refine` / `plan` / `implement` / `readiness` / `ideate`).
+  `Sprint` via `ticketId` and DAG edges via `blockedBy`. Carries an `attempts[]` history — each `Attempt`
+  has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
+  `fixed-baseline` from pre/post check-script comparison), optional `abortCause` (`AbortCause` discriminated
+  union), and optional `recoveryContext` (resume-from-aborted metadata). Optional `extraDimensions` is the
+  planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
+  Consistency). Optional `maxAttempts` overrides the global cap.
+- **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
+  `schemaVersion`, `ai: { provider, models }`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold }`, `logging: { level }`,
+  `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
+  `developer: { showEvaluatorFailureUI }`. `ai.provider` is one of
+  `'claude-code' | 'github-copilot' | 'openai-codex'`; `ai.models` is an object keyed by chain
+  (`refine` / `plan` / `implement` / `readiness` / `ideate`).
 
 ## Harness Signals
 
@@ -409,10 +433,13 @@ stdout-parsing path; signals are now a structured contract, not a regex over CLI
 | `VerifyScriptSignal`                     | `detect-scripts` flow persists on `Repository.checkScript`                                                         |
 | `AgentsMdProposalSignal`                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md) |
 | `SetupSkillSignal` / `VerifySkillSignal` | `detect-skills` flow surfaces suggestions                                                                          |
+| `ContextCompactedSignal`                 | Emitted when the AI CLI compacts its own context window; TUI renders a marker in the step trace                    |
 
-EventBus events emitted by the chain runner (not parsed from AI output): `ChainStarted`, `ChainStepStarted`,
-`ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`, `ChainAborted`,
-`TaskAttemptStarted`, `TaskAttemptEvaluated`, `FeedbackRoundApplied`, `LogEvent`.
+EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
+`ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,
+`ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
+`FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
+`MemoryPressureEvent`, `ChainLogDegradedEvent`, `LogEvent`.
 
 ## Error Classes
 
@@ -470,7 +497,7 @@ terminal like vim/htop/less. Restoration is guaranteed via explicit exit + `proc
 Cross-cutting TUI features:
 
 - **Persistent banner** + **help overlay** (`?`). The banner quote stabilises at module load so navigation
-  doesn't jitter.
+  doesn't jitter. `b` toggles banner compact ↔ full.
 - **Centralised keyboard map** — all shortcuts in one table; the help overlay generates from the same source.
 - **Multi-flow nav** — Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump; `SessionsView` lists every
   runner with status + age.
@@ -478,6 +505,17 @@ Cross-cutting TUI features:
   type. Edits save immediately.
 - **Doctor view** — runs `runDoctor()` on mount; renders per-check status rows + an aggregate result card.
   `!` opens it from anywhere.
+- **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at ≥180 cols,
+  two-column at ≥140 cols, compact-rail at 100–139 cols, single-column below 100 cols. Global keys `g`
+  (progress overlay), `y` (yank task summary), `b` (banner toggle). Execute-local: `j`/`k` card nav,
+  `e` done-criteria, `c` cancel-scope picker (attempt vs flow). Task cards are collapsed by default.
+- **`TokenBudgetCard`** and **`BaselineHealthCard`** in the context column subscribe to `TokenUsageEvent`
+  and the `SetupRun` history respectively. **`StatusBanner`** (tiered `info`/`warn`/`error`) replaces the
+  old `RateLimitBanner`. **`MultiFlowStrip`** renders concurrent session status above the tasks panel.
+  **`EvaluatorFailurePanel`** is fixture-gated behind `settings.developer.showEvaluatorFailureUI`.
+- **`ProgressOverlay`** (`g`) reads `progress.md` from disk on demand — no live tail, snapshot-on-open.
+- **`CancelScopeOverlay`** (`c`) lets the operator cancel either the current AI attempt or the whole flow.
+- **`glyphFor(signalKind)`** — adds shape-redundant glyphs for every signal kind under `NO_COLOR=1`.
 
 For tokens / components / state surfaces / copy rules see [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md).
 

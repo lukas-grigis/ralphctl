@@ -44,22 +44,24 @@ it done; when a behaviour regresses, untick it.
 
 ## Observability
 
-- [ ] **EventBus** — one bus per `wire()` call; bus state isolates between app instances. AppEvent variants:
+- [x] **EventBus** — one bus per `wire()` call; bus state isolates between app instances. AppEvent variants:
       `ChainStarted`, `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`,
-      `ChainFailed`, `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `FeedbackRoundApplied`,
-      `LogEvent`.
+      `ChainFailed`, `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
+      `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
+      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
-- [ ] **Persistent chain.log** — every `Implement` (and other long-running) chain run streams its trace to
-      `<sprintDir>/chain.log`. Survives TUI exit; `tail -f`-friendly.
+- [x] **Persistent chain.log** — every `Implement` (and other long-running) chain run appends its trace to
+      `<sprintDir>/chain.log`, bracketed by `=== chain-run <id> <flowId> started <iso> ===` /
+      `… completed/failed/aborted …` delimiters. Survives TUI exit; `tail -f`-friendly.
 - [ ] **Session scoping** — `AsyncLocalStorage` tags every log / signal emission with the owning chain's
       session id. Outside any chain, `currentSessionId()` returns `undefined`.
 - [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler level;
       one sibling parser per variant under `integration/ai/signals/<variant>/`; unrecognised signals log a
       warning and continue.
-- [ ] **Harness-owned output writes** — `progress.md`, the per-round evaluator outputs, `tasks.json` are
-      written by the harness, never by the AI. Append-only writes use the `FileLocker` port for cross-process
-      safety.
+- [x] **Harness-owned output writes** — `progress.md` (snapshot-rendered, not streamed), per-round
+      `prompt.md` and `outcome.md`, `decisions.log`, and `tasks.json` are written by the harness, never by
+      the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
 
 ## Flow registry
 
@@ -102,25 +104,43 @@ Status flow: `draft → active → review → done`.
       per round. Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
 - [ ] **Per-flow model selection** — `settings.ai.models.implement` selects the model used for the generator;
       `settings.ai.models.implement` (same key, but evaluator may be a different ladder rung internally).
-- [ ] **`setupScript` runs once per affected repo at sprint start** — any failure hard-aborts the chain with
-      the failing repo named.
-- [ ] **`checkScript` (a.k.a. `verifyScript`) gates per-task settlement** — non-zero exit transitions task to
-      `blocked`, never `done`.
+- [x] **`setupScript` runs unconditionally once per affected repo at sprint start** — outcome recorded as a
+      structured `SetupRun` on `SprintExecution.setupRanAt`; any failure hard-aborts the chain with the
+      failing repo named.
+- [x] **`checkScript` gates per-task settlement with pre/post attribution** — runs before the AI (pre-task)
+      and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` / `fixed-baseline`.
+      A `baseline-broken` result does not block the AI; a `regressed` result transitions task to `blocked`.
 - [ ] **Branch management** — `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
       per-task preflight verifies the right branch is checked out.
-- [ ] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash reset to `todo` and re-enter
-      the queue on next launch.
+- [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash reset to `todo` and
+      re-enter the queue on next launch. The resume-from-aborted header surfaces in the TUI as
+      "attempt N · resumed from aborted M at HH:MM (cause)" using the `AbortCause` discriminated union.
 - [ ] **Rate-limit retry** — adapter-side exponential backoff on `RateLimitError`; capped by
       `settings.harness.rateLimitRetries`.
 - [ ] **Idle-stdout watchdog** — wedged headless AI children get killed after a configurable idle threshold.
-- [ ] **EventBus emissions** — chain runner emits `ChainStarted` → per-step `ChainStepStarted/Completed/Failed`
-      → `ChainCompleted/Failed/Aborted`; per-task `TaskAttemptStarted` / `TaskAttemptEvaluated`.
+- [x] **EventBus emissions** — chain runner emits `ChainStarted` → per-step `ChainStepStarted/Completed/Failed`
+      → `ChainCompleted/Failed/Aborted`; per-task `TaskAttemptStarted` / `TaskAttemptEvaluated` /
+      `TaskRoundStarted` (carrying `roundN`, `attemptN`, `totalCap`).
+- [x] **Plateau predicate** — consecutive evaluator rounds flagging the same failed-dimension set exit the
+      loop with a plateau warning after `settings.harness.plateauThreshold` (2–5, default 2) rounds.
+      Score improvement, commit-message change, or critique-Jaccard shift exempts a round.
+- [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (model, context window,
+      input/output, cache tokens). TUI `TokenBudgetCard` subscribes.
+- [x] **Per-round artifacts** — generator and evaluator prompts written to
+      `rounds/<N>/{generator,evaluator}/prompt.md` before each spawn; `outcome.md` written to
+      `rounds/<N>/outcome.md` after settlement.
+- [x] **Decisions log** — `<sprintDir>/decisions.log` captures AI-emitted `<decision>` tags;
+      merged into `progress.md § Decisions`.
+- [x] **Notifications** — terminal bell + macOS `osascript` fire on attention events when
+      `settings.ui.notifications.enabled` is `true` (default).
+- [x] **Snapshot CLI** — `ralphctl snapshot [--sprint <id>]` renders one deterministic text frame of the
+      active sprint's `SprintState` to stdout.
 
 ## Review flow (apply-feedback)
 
 - [ ] **Distinct chain** — `review` flow lives in `application/flows/review/`; not embedded inside `implement`.
 - [ ] **Free-form feedback** — multi-line editor prompt; empty submission terminates the loop.
-- [ ] **AI session resumes via session id** — the harness reads back the per-task `sessionId` file from
+- [x] **AI session resumes via session id** — the harness reads back the per-task `sessionId` file from
       `<sprintDir>/implement/<unit>/rounds/<N>/generator/sessionId` and resumes the relevant task's session.
 - [ ] **EventBus emits `FeedbackRoundApplied`** per round.
 
@@ -128,8 +148,8 @@ Status flow: `draft → active → review → done`.
 
 - [ ] **Three providers** — `claude-code`, `github-copilot`, `openai-codex`, each with its own adapter under
       `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through `providers/_engine/`.
-- [ ] **File-based contract** — providers write `signals.json` and `sessionId` files per spawn; the harness
-      reads them post-spawn. No stdout parsing for signals or session IDs.
+- [x] **File-based contract** — providers write `signals.json` and `sessionId` files per spawn (both under
+      `rounds/<N>/<role>/`); the harness reads them post-spawn. No stdout parsing for signals or session IDs.
 - [ ] **Idle-stdout watchdog** — wedged children get reaped.
 - [ ] **Exponential backoff** — rate-limit retries use `rate-limit-backoff.ts` (`integration/ai/providers/_engine/`).
 - [ ] **Interactive variant** — `InteractiveAiProvider` hands over the terminal (alt-screen swap to the AI's
@@ -169,12 +189,13 @@ Status flow: `draft → active → review → done`.
 
 ## CLI surface
 
-- [ ] **Surface is deliberately smaller than v0.6.x** — interactive flows (refine / plan / ideate / implement /
+- [x] **Surface is deliberately smaller than v0.6.x** — interactive flows (refine / plan / ideate / implement /
       readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands + one-shot operations:
       `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
       `settings {show,set}`, `project {list,show,remove}`,
       `sprint {list,show,set-current,activate,close,remove,progress}`,
-      `ticket {list,show,add,remove}`, `task {list,show}`.
+      `ticket {list,show,add,remove}`, `task {list,show}`,
+      `runs {list,prune}`, `snapshot`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.
 - [ ] **Exit codes** — `0` success, `1` error, `130` interrupted.
 
@@ -197,6 +218,24 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       prompt queue idles past `SEQUENCE_IDLE_MS`.
 - [ ] **Form retry loop** — sprint-create / project-add / ticket-add / project-edit views retry on validation
       errors instead of popping back to home.
+- [x] **Responsive Execute view** — three-column (rail / tasks / context) at ≥180 cols; two-column at ≥140
+      cols; compact-rail at 100–139 cols; single-column below 100 cols.
+- [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
+      demand); `y` yank active-task summary to clipboard; `j`/`k` task-card navigation; `e` expand
+      done-criteria for active card; `c` cancel-scope picker (attempt vs whole flow).
+- [x] **Baseline-health card + chip** — `BaselineHealthCard` and `BaselineHealthChip` surface
+      `SprintExecution.setupRanAt` history in the context column.
+- [x] **Token-budget card** — `TokenBudgetCard` subscribes to `TokenUsageEvent`; renders
+      `(input + output) / contextWindow` when both are known.
+- [x] **Status banner** — tiered `info` / `warn` / `error` `StatusBanner` replaces the old
+      single-purpose `RateLimitBanner`. Driven by `BannerShowEvent` / `BannerClearEvent`.
+- [x] **Evaluator-failure panel** — `EvaluatorFailurePanel` shows per-dimension scores with expand
+      affordance. Gated behind `settings.developer.showEvaluatorFailureUI` (default `false`).
+- [x] **NO_COLOR accessibility** — `glyphFor(signalKind)` adds shape-redundant glyphs so signal kinds
+      remain visually distinguishable when `NO_COLOR=1` suppresses colour encoding.
+- [x] **Idle-state ticker** — tasks panel shows last-note signals when no task is `in_progress`.
+- [x] **ETA estimate** — attempt header shows a median-round-duration ETA derived from past settled
+      attempts for the same task.
 
 ## Build & Distribution
 

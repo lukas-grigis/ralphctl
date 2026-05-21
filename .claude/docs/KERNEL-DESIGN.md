@@ -200,10 +200,10 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
   - Aborted mid-run: `started → step* → aborted`
 - **Late-subscriber replay**: a listener added after a terminal state receives every recorded `step` event
   plus the matching terminal event. UI re-attach is lossless.
-- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 20_000` to bound memory on
-  multi-task implement runs. Live subscribers still see every event; the cap only bounds the snapshot
-  late subscribers replay from. The TUI's per-task round counter holds a monotonic high-water mark in a
-  React ref so the displayed `round N/M` survives eviction.
+- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (in
+  `src/application/ui/tui/views/execute-view.tsx`, not in the runner itself) to bound the per-component
+  replay snapshot. Live subscribers still see every event; the cap only bounds the snapshot late
+  subscribers replay from.
 - **Session scope**: the runner enters the `runWithSession(id, …)` scope before calling
   `element.execute(...)`. Deep adapter code can read `currentSessionId()` to tag logs / signals.
 
@@ -240,21 +240,22 @@ const perTask = sequential('task-<id>', [
   buildTaskWorkspaceLeaf,
   installSkillsLeaf, // copies bundled skills into <repo>; git-excludes via ralphctl-*
   startAttemptLeaf,
+  preTaskCheckLeaf, // pre-check before AI runs; result stored for attribution
   loop(
     'gen-eval-<id>',
     sequential('gen-eval-turn-<id>', [
-      generatorLeaf,
+      generatorLeaf, // writes rounds/<N>/generator/prompt.md before spawn
       guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
-    ]),
+    ]), // evaluator writes rounds/<N>/evaluator/prompt.md before spawn
     {
       shouldStop: (ctx) => ctx.lastExit !== undefined,
       maxIterations: settings.harness.maxTurns,
     }
   ),
   finalizeGenEvalLeaf,
-  postTaskCheckLeaf,
+  postTaskCheckLeaf, // post-check; attributes outcome (clean/regressed/baseline-broken/fixed-baseline)
   guard('commit-task-guard-<id>', (ctx) => ctx.lastBlockReason === undefined, commitTaskLeaf),
-  settleAttemptLeaf,
+  settleAttemptLeaf, // writes rounds/<N>/outcome.md + triggers progress.md snapshot
   uninstallSkillsLeaf, // removes harness-installed ralphctl-* skills from <repo>
 ]);
 
@@ -265,15 +266,25 @@ const orderedTasks = topologicalReorder(tasks);
 sequential('implement', [
   loadSprintLeaf,
   activateSprintLeaf,
+  loadSprintExecutionLeaf,
+  loadTasksLeaf,
+  ensureProgressFileLeaf, // snapshot-renders progress.md from SprintState (no streaming sink)
+  setupScriptRunnerLeaf, // unconditional; appends SetupRun entries to SprintExecution.setupRanAt
   resolveBranchLeaf,
-  ensureProgressFileLeaf,
-  setupScriptRunnerLeaf,
+  sequential('preflight-tasks', preflightLeaves),
   sequential(
-    'execute-tasks',
-    orderedTasks.map(() => perTask) // each perTask brackets with install-skills-<id> / uninstall-skills-<id>
+    'implement-tasks',
+    orderedTasks.map(() => perTask)
   ),
-  flushProgressSinkLeaf,
-  transitionSprintToReviewLeaf,
+  saveTasksLeaf,
+  guard(
+    'transition-sprint-to-review-when-any-done',
+    (ctx) => ctx.tasks?.some((t) => t.status === 'done'),
+    sequential('transition-to-review-and-snapshot', [
+      transitionSprintToReviewLeaf,
+      writeProgressSnapshotLeaf, // final snapshot after status transition
+    ])
+  ),
 ]);
 ```
 

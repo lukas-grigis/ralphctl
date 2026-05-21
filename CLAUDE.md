@@ -69,7 +69,8 @@ Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
 
 **EventBus** (`business/observability/event-bus.ts`, impl `integration/observability/in-memory-event-bus.ts`)
 is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
-`Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `FeedbackRoundApplied`, `LogEvent`).
+`Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `TaskRoundStarted`,
+`FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShow/Clear`, `LogEvent`).
 TUI panels subscribe live; `<sprintDir>/chain.log` sink subscribes for durable post-hoc trace. **One bus per
 `wire()` call** — production / test bus state cannot cross-talk.
 
@@ -88,14 +89,14 @@ signals without explicit threading.
 **Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
 takeover (vim/htop-style), restored on every exit path (`exit`, `SIGINT`, `SIGTERM`, `SIGHUP`,
 `uncaughtException`). Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount. Tokens are the single source of
-visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. List renders
-sliced before `.map()`; spinner state lives in the leaf `<Spinner />` so 90 ms timer re-renders don't
-propagate. See DESIGN-SYSTEM.md.
+visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. `glyphFor(signalKind)`
+adds shape-redundancy under `NO_COLOR=1`. List renders sliced before `.map()`; spinner state lives in the
+leaf `<Spinner />` so 90 ms timer re-renders don't propagate. See DESIGN-SYSTEM.md.
 
 **CLI** at `src/application/ui/cli/`. Interactive flows (`refine` / `plan` / `ideate` / `implement` /
 `readiness` / `create-sprint`) stay TUI-only by design. The CLI exposes `doctor`, `completion`,
-`export-{context,requirements}`, `create-pr`, `settings`, `project`, `sprint`, `ticket`, `task` —
-inspection + one-shot operations.
+`export-{context,requirements}`, `create-pr`, `settings`, `project`, `sprint`, `ticket`, `task`,
+`runs` (`list` / `prune`), `snapshot` — inspection + one-shot operations.
 
 ## Implementation Style
 
@@ -161,11 +162,17 @@ fires (the task then transitions to `blocked`). Per-flow model from `settings.ai
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
 `SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
-**`setupScript` vs `checkScript`.** Setup is the one-shot env preparation (e.g. `pnpm install`); runs once
-per affected repo at sprint start; non-zero exit or spawn failure hard-aborts the chain. Check is the
-per-task verification gate run after every AI task and inside the apply-feedback loop. Failure transitions
-the task to `blocked`, never `done`. Both are collected during `detect-scripts` and persisted on
-`Repository.{setupScript,checkScript}`.
+Execute view: three-column (rail / tasks / context) at ≥180 cols, two-column at ≥140, compact-rail at
+100–139, single-column below 100. New global keys: `b` banner toggle, `g` progress overlay, `y` yank
+task. Execute-view keys: `j`/`k` card nav, `e` done-criteria, `c` cancel-scope picker.
+
+**`setupScript` vs `checkScript`.** Setup runs unconditionally once per affected repo at sprint start;
+each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
+`skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
+chain. Check runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
+algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
+pre-existing failures. Failure transitions the task to `blocked`, never `done`. Both scripts are collected
+during `detect-scripts` and persisted on `Repository.{setupScript,checkScript}`.
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
@@ -218,9 +225,10 @@ bundled copy is skipped and the project copy is left untouched. The skills adapt
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
 those entries.
 
-**File-based AI provider contract** — providers write `signals.json` + `sessionId` files per spawn; the
-harness reads them post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing
-brittleness vector when CLI vendors tweak JSON shape.
+**File-based AI provider contract** — providers write `signals.json` and a `sessionId` file per spawn
+(both persisted to `<sprintDir>/implement/<unit-slug>/rounds/<N>/<role>/`); the harness reads them
+post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing brittleness vector
+when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
@@ -231,7 +239,8 @@ is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred)
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
 retries. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). Coordinator pause / resume
-events bridge to the EventBus so the TUI's `RateLimitBanner` reflects state.
+events bridge to the EventBus; the TUI's `StatusBanner` (tiered `info` / `warn` / `error`) replaces the
+old single-purpose `RateLimitBanner`.
 
 **Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
 / Copilot / Codex process cannot strand the harness.
@@ -244,17 +253,29 @@ launch and re-enter the queue. No double-execution.
 - `maxTurns` (1–10) — generator-evaluator turns budgeted per attempt
 - `maxAttempts` (1–10) — cap on attempts per task before transitioning to `blocked`
 - `rateLimitRetries` (0–10) — adapter-side 429 retries
+- `plateauThreshold` (2–5, default 2) — consecutive evaluator rounds flagging the same failed-dimension
+  set before the loop exits with a plateau warning; score improvement, commit-progress, or
+  critique-Jaccard shift can exempt a round from counting
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
-**Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 20_000`
-(`src/application/chain/run/runner.ts`). Live subscribers see every event; the cap bounds only the snapshot
-late subscribers replay from. The TUI's per-task round counter holds a monotonic high-water mark in a React
-ref so the displayed `round N/M` survives eviction.
+**Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
+(`src/application/ui/tui/views/execute-view.tsx`). The `TaskRoundStarted` event (carrying `roundN`,
+`attemptN`, `totalCap`) drives the `round N/M` display — replacing the old React-ref high-water mark.
 
-**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace to disk. Survives
-TUI exit; `tail -f`-friendly.
+**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace, bracketed by
+`=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters. `tail -f`-friendly.
+
+**`progress.md` is snapshot-rendered**, not streaming. `renderProgressMarkdown(state)` regenerates from
+the `SprintState` projection at sprint start, after every `settle-attempt-leaf`, and on status transitions.
+The old `progress-file-sink` is removed.
+
+**Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
+before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
+
+**`<sprintDir>/decisions.log`** captures AI-emitted `<decision>` tags; merged into `progress.md §
+Decisions`. `settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 
 **Environment variables.**
 
