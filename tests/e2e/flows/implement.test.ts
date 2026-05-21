@@ -172,7 +172,8 @@ interface CommitCapturingGit {
  * `status --porcelain` post-commit must return clean, otherwise settle (correctly) refuses
  * to mark the task done. Sequence for one task:
  *
- *   outer preflight `status` → clean (the harness expects a clean working tree)
+ *   working-tree-clean-check `status` → clean (pre-setup hard gate)
+ *   preflight-task `status`           → clean (interactive dirty-tree gate; clean → no prompt)
  *   commit-task `status` (gate 1) → dirty   (the AI just wrote files)
  *   commit-task `add -A`
  *   commit-task `status` (gate 2) → dirty   (staged but not committed yet)
@@ -183,11 +184,13 @@ interface CommitCapturingGit {
 const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
   const messages: string[] = [];
   let taskCommits = 0;
-  // Worktree starts clean (outer preflight passes). After preflight we're "in a per-task
-  // window": status returns dirty until commit-task's `commit -m` lands, then clean again
-  // (settle-attempt's worktree-clean guardrail relies on the clean response). The next task
-  // re-enters the dirty window when its status calls start.
-  let preflightSeen = false;
+  // Worktree starts clean — the chain's pre-setup hard gate (working-tree-clean-check) +
+  // post-setup interactive gate (preflight-task) both expect a clean tree at sprint start.
+  // After those upfront preflight calls we're "in a per-task window": status returns dirty
+  // until commit-task's `commit -m` lands, then clean again (settle-attempt's worktree-clean
+  // guardrail relies on the clean response). The next task re-enters the dirty window when
+  // its status calls start.
+  let preflightStatusesRemaining = 2;
   let cleanAfterCommit = false;
   const sha = (i: number): string =>
     String(i)
@@ -199,9 +202,9 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
   const runner: GitRunner = {
     async run(_, args) {
       if (args[0] === 'status' && args[1] === '--porcelain') {
-        if (!preflightSeen) {
-          preflightSeen = true;
-          return okGit('', 0); // outer preflight: clean
+        if (preflightStatusesRemaining > 0) {
+          preflightStatusesRemaining -= 1;
+          return okGit('', 0); // upfront preflight (working-tree-clean-check + preflight-task): clean
         }
         // After a successful commit the tree is clean (settle guardrail check). The next
         // task's first status starts a new dirty window automatically because we flip the
@@ -642,6 +645,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const idxLoadExec = elementNames.indexOf('load-sprint-execution');
     const idxLoadTasks = elementNames.indexOf('load-tasks');
     const idxEnsure = elementNames.indexOf('ensure-progress-file');
+    const idxResolveBranch = elementNames.indexOf('resolve-branch');
+    const idxWorkingTreeClean = elementNames.findIndex((n) => n.startsWith('working-tree-clean-check-'));
+    const idxSetupScript = elementNames.indexOf('setup-script-runner');
     const idxSaveTasks = elementNames.indexOf('save-tasks');
     const idxTransition = elementNames.indexOf('transition-sprint-to-review');
     expect(idxLoadSprint).toBeGreaterThanOrEqual(0);
@@ -649,7 +655,13 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(idxLoadExec).toBeGreaterThan(idxAssert);
     expect(idxLoadTasks).toBeGreaterThan(idxLoadExec);
     expect(idxEnsure).toBeGreaterThan(idxLoadTasks);
-    expect(idxSaveTasks).toBeGreaterThan(idxEnsure);
+    // Pre-setup gate: resolve-branch + working-tree-clean-check land BEFORE setup-script-runner
+    // so the user sees branch + dirty-tree problems surfaced before a multi-minute setup script
+    // runs. The interactive preflight-task gate stays downstream of setup as a recovery seam.
+    expect(idxResolveBranch).toBeGreaterThan(idxEnsure);
+    expect(idxWorkingTreeClean).toBeGreaterThan(idxResolveBranch);
+    expect(idxSetupScript).toBeGreaterThan(idxWorkingTreeClean);
+    expect(idxSaveTasks).toBeGreaterThan(idxSetupScript);
     expect(idxTransition).toBeGreaterThan(idxSaveTasks);
 
     // Per-task entries appear in factory order — task-<id1> before task-<id2>.

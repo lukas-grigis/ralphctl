@@ -32,6 +32,7 @@ import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
+import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
@@ -107,9 +108,10 @@ export interface CreateImplementFlowOpts {
  *         load-sprint-execution,
  *         load-tasks,
  *         ensure-progress-file,
- *         setup-script-runner,
  *         resolve-branch,                  // assigns ralphctl/<id> on first run, persists, checks out
- *         preflight-task,                  // one-shot, before per-task subchains
+ *         working-tree-clean-check-*,      // one per repo: hard-abort if dirty (no recovery menu)
+ *         setup-script-runner,             // runs only after branch + clean check pass
+ *         preflight-task,                  // interactive dirty-tree menu — one-shot, before per-task
  *         sequential('implement-tasks', [
  *           sequential('task-<id>', [
  *             branch-preflight-<id>,       // halt if working tree drifted off the sprint branch
@@ -140,6 +142,15 @@ export interface CreateImplementFlowOpts {
  * each task. Between tasks the tree is clean (commit-task commits each task's work), so a
  * per-task check just re-asserts what's already known. Running preflight ONCE at the outer level
  * also lets `install-skills` materialise its files afterwards without tripping the check.
+ *
+ * Pre-setup gate rationale: branch resolution + a hard `working-tree-clean-check` (no recovery
+ * menu) run BEFORE `setup-script-runner`. Setup commands typically assume a "ready" tree —
+ * `pnpm install --frozen-lockfile`, schema migrations, etc — and can fail in confusing ways
+ * against a dirty repo. Front-loading the branch + clean check means the user kicks off the
+ * implement chain, sees branch + setup turn green, and can step away from the computer with
+ * confidence the run won't fail at a stupid place. The interactive preflight-task leaf (Keep /
+ * Stash / Reset / Cancel) still runs downstream of setup so the user has a recovery seam for
+ * any drift that arose between sprint creation and implement launch.
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -400,6 +411,21 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     )
   );
 
+  // Pre-setup hard gate — one leaf per affected repo. Fails the chain when any repo's working
+  // tree is dirty so the user sees the problem before setup-script spends multiple minutes
+  // running `pnpm install` / migrations etc against a tree that may make setup fail anyway.
+  // Sequenced together across ALL repos before any setup leaf runs: a dirty repo 2 should not
+  // wait for repo 1's setup to finish. ID + label mirror the preflight-task pattern so the rail
+  // disambiguates per-repo entries without leaking the absolute path into the label.
+  const workingTreeCleanLeaves = uniqueRepoCwds.map((cwd, i) =>
+    workingTreeCleanCheckLeaf(
+      { gitRunner: deps.gitRunner, logger: deps.logger },
+      cwd,
+      `working-tree-clean-check-${String(i + 1)}-${String(cwd)}`,
+      { label: `working-tree clean · ${basename(String(cwd))}` }
+    )
+  );
+
   const inner = sequential<ImplementCtx>('implement-locked', [
     loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
@@ -417,6 +443,16 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       chainLogPath,
       decisionsLogPath
     ),
+    resolveBranchLeaf(
+      {
+        gitRunner: deps.gitRunner,
+        sprintExecutionRepo: deps.sprintExecutionRepo,
+        interactive: deps.interactive,
+        logger: deps.logger,
+      },
+      { cwds: uniqueRepoCwds }
+    ),
+    sequential<ImplementCtx>('working-tree-clean-checks', workingTreeCleanLeaves),
     setupScriptRunnerLeaf(
       {
         shellScriptRunner: deps.shellScriptRunner,
@@ -426,15 +462,6 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         logger: deps.logger,
       },
       { repos: setupRepoEntries }
-    ),
-    resolveBranchLeaf(
-      {
-        gitRunner: deps.gitRunner,
-        sprintExecutionRepo: deps.sprintExecutionRepo,
-        interactive: deps.interactive,
-        logger: deps.logger,
-      },
-      { cwds: uniqueRepoCwds }
     ),
     sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     sequential<ImplementCtx>('implement-tasks', perTaskChains),
