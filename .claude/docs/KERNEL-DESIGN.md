@@ -37,6 +37,7 @@ Design constraints:
 ```ts
 interface Element<TCtx> {
   readonly name: string;
+  readonly label?: string;
   readonly children?: ReadonlyArray<Element<TCtx>>;
   execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace): Promise<ElementResult<TCtx>>;
 }
@@ -47,6 +48,11 @@ type ElementResult<TCtx> = Result<{ ctx: TCtx; trace: Trace }, { error: DomainEr
 That is the entire interface. `leaf`, `sequential`, `loop`, and `guard` all return values that satisfy it.
 A chain is an Element. A sub-chain is just an Element passed where another Element would be — composition
 is implicit.
+
+`name` is the canonical identifier — used for dedupe, trace correlation, and plan/trace merge. **`label`**
+is an optional human-friendly display string; UI surfaces (e.g. the Execute-view rail) render `label` when
+present and fall back to `name`. Flow authors use `label` to avoid leaking structural data (e.g. absolute
+repo paths) into the rendered rail without losing the stable name underneath.
 
 `children` exposes composite structure so callers can walk the tree without executing it. Leaves omit
 `children`; composites set it to their immediate children; `loop` returns `[body]` (one element — operators
@@ -66,6 +72,15 @@ leaf<TCtx, UInput, UOutput>(name, {
   input: (ctx) => ({ sprintId: ctx.sprintId }),
   output: (ctx, sprint) => ({ ...ctx, sprint }),
 });
+```
+
+An optional third argument `opts?: { label?: string }` attaches a display label to the resulting element and
+every `TraceEntry` it emits. `name` stays the canonical identifier; `label` is purely a UI hint. Omitting
+opts or omitting `label` within opts leaves the field absent — callers fall back to `name`:
+
+```ts
+leaf('preflight-task-1-/abs/path/my-repo', config, { label: 'preflight · my-repo' });
+// rail shows "preflight · my-repo"; trace correlation still uses the full name
 ```
 
 `input` projects ctx → use-case input. `output` merges use-case output → new ctx. Both projections may throw
@@ -162,6 +177,7 @@ type TraceStatus = 'completed' | 'failed' | 'skipped' | 'aborted';
 
 interface TraceEntry {
   readonly elementName: string;
+  readonly label?: string; // copied from Element.label when present; absent otherwise
   readonly status: TraceStatus;
   readonly durationMs: number;
   readonly error?: DomainError; // populated when status is 'failed' or 'aborted'
@@ -172,6 +188,9 @@ type Trace = readonly TraceEntry[];
 
 This is the architectural fence: every chain definition has an integration test asserting
 `trace.map(s => s.elementName)` for happy + failure paths. Step-order regressions break the build.
+
+`label` in a `TraceEntry` is copied verbatim from the source `Element.label` at the moment the entry is
+recorded. Synthetic entries (`skipped`, `aborted`) constructed without an originating element omit it.
 
 ### Progressive emission
 
