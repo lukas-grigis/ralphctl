@@ -18,3 +18,7 @@
 ## Modal Overlays
 
 - [../implementer/project_global_modal_overlay_pattern.md](../implementer/project_global_modal_overlay_pattern.md) — Per-view inline vs App-Layout-level overlay — when to use each
+
+## Status Card Patterns
+
+- [feedback_baseline_card_row_pattern.md](feedback_baseline_card_row_pattern.md) — One row pattern for status cards: status always on sub-line; compact all-clean variant as single string; title accent rules
