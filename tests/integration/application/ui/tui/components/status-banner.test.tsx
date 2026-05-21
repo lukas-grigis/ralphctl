@@ -208,6 +208,42 @@ describe('StatusBanner', () => {
     r.unmount();
   });
 
+  it('caps retained banners and evicts non-error entries first under sustained churn', async () => {
+    const bus = createInMemoryEventBus();
+    const r = renderBanner(bus);
+
+    // Publish 60 distinct ids — past the MAX_RETAINED = 50 cap. One error early in the stream
+    // MUST survive eviction while the lower-tier flood drops the oldest non-error entries first.
+    bus.publish({
+      type: 'banner-show',
+      id: 'err-keep',
+      tier: 'error',
+      message: 'critical issue',
+      at: IsoTimestamp.now(),
+    });
+    for (let i = 0; i < 60; i += 1) {
+      bus.publish({
+        type: 'banner-show',
+        id: `info-${String(i)}`,
+        tier: 'info',
+        message: `noise ${String(i)}`,
+        at: IsoTimestamp.now(),
+      });
+    }
+    await flush();
+
+    const frame = r.lastFrame() ?? '';
+    // The early error MUST still render (it was never evicted).
+    expect(frame).toContain('critical issue');
+    // Retained count is the cap (50): 1 error + 49 most-recent infos. The oldest infos are
+    // evicted; `noise 0` through `noise 10` are gone (49 infos retained → noise 11..noise 59).
+    // The "+N more" row reports overflow past MAX_VISIBLE — 50 retained - 3 visible = 47 more.
+    expect(frame).toContain('+47 more');
+    expect(frame).not.toContain('noise 0 ');
+    expect(frame).not.toContain('noise 10 ');
+    r.unmount();
+  });
+
   it('renders the optional cause beside the message', async () => {
     const bus = createInMemoryEventBus();
     const r = renderBanner(bus);

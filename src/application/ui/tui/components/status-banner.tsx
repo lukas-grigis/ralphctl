@@ -38,6 +38,17 @@ import type { BannerShowEvent } from '@src/business/observability/events.ts';
 /** Hard cap on visible banners before the collapse marker takes over. */
 const MAX_VISIBLE = 3;
 
+/**
+ * Hard cap on retained banners regardless of visibility. Banner ids from the AI provider
+ * adapters embed per-spawn / per-pid suffixes (`rate-limit-claude-<sessionId>`,
+ * `watchdog-claude-<pid>`) and so do not dedupe across a long-running sprint; without this cap
+ * a Rate-limit-heavy or watchdog-thrash run would accumulate one entry per occurrence for the
+ * TUI's lifetime. The cap is well above MAX_VISIBLE so the collapse marker ("+N more") still
+ * communicates depth while drop-oldest keeps memory bounded. Re-published ids continue to
+ * replace in place (see `upsert`); only truly distinct ids hit the cap.
+ */
+const MAX_RETAINED = 50;
+
 type Tier = 'info' | 'warn' | 'error';
 
 interface ActiveBanner {
@@ -70,14 +81,24 @@ const toActive = (event: BannerShowEvent): ActiveBanner => ({
 
 /**
  * Update strategy: re-publishing an id replaces the existing entry in place (preserves
- * insertion position so the visual order is stable across refreshes). A new id appends.
+ * insertion position so the visual order is stable across refreshes). A new id appends; once
+ * the retained-cap is hit the oldest *non-error* entry is dropped (errors get priority retention
+ * because they are the entry most likely to need operator attention). A pathological all-error
+ * burst still drops oldest-first because we fall back to the front of the array.
  */
 const upsert = (current: readonly ActiveBanner[], next: ActiveBanner): readonly ActiveBanner[] => {
   const idx = current.findIndex((b) => b.id === next.id);
-  if (idx === -1) return [...current, next];
-  const copy = [...current];
-  copy[idx] = next;
-  return copy;
+  if (idx !== -1) {
+    const copy = [...current];
+    copy[idx] = next;
+    return copy;
+  }
+  if (current.length < MAX_RETAINED) return [...current, next];
+  // Drop-oldest: prefer evicting non-error first so a true failure isn't shadowed by a flood of
+  // info/warn churn (e.g. dozens of rate-limit retries).
+  const evictIdx = current.findIndex((b) => b.tier !== 'error');
+  const trimmed = evictIdx === -1 ? current.slice(1) : [...current.slice(0, evictIdx), ...current.slice(evictIdx + 1)];
+  return [...trimmed, next];
 };
 
 export const StatusBanner = (): React.JSX.Element | null => {
