@@ -213,6 +213,50 @@ from the TUI.
 
 ---
 
+## Scenario 11 — step-label rendering in Execute view
+
+**Setup:** a sprint with at least one multi-repo preflight step (so the implement flow generates preflight
+leaves whose `name` contains an absolute repo path).
+
+1. Start the **Implement** flow on the sprint
+2. Watch the flow-steps rail as preflight tasks fire
+3. **Expected:** the rail shows short labels (e.g. `preflight · my-repo`) — NOT the raw element name
+   that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not appear in the
+   rendered rail.
+4. Resize the terminal narrower (below `xl`, i.e. < 180 cols) so the three-column layout collapses
+5. **Expected:** rail width shrinks to 24 fixed cols; labels that exceed the budget are mid-truncated with
+   `…` rather than wrapping mid-word or overflowing into the adjacent column.
+6. Resize back to ≥ 180 cols
+7. **Expected:** rail grows fluidly (up to ~40 cols at wide widths) and the labels breathe without any
+   layout jitter.
+
+---
+
+## Scenario 12 — cross-project sprint picker
+
+**Setup:** at least two projects registered, each with at least one sprint.
+
+1. From any view, press `S`
+2. **Expected:** a cross-project sprint picker opens showing sprints from the current project (if one is
+   set) or all sprints when no project is selected. Picker is a modal overlay — global shortcuts must NOT
+   fire through it.
+3. Press `t` inside the picker
+4. **Expected:** scope toggles — if the picker was showing current-project sprints, it now shows all
+   sprints across every project; pressing `t` again returns to project scope.
+5. Navigate the list with `↑`/`↓`, select a sprint from a different project with `Enter`
+6. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
+   new project/sprint combination, and no partial state is visible mid-transition.
+7. Press `S` again from Home with NO project loaded
+8. **Expected:** picker opens in all-projects scope; `t` still toggles without crashing.
+
+**Negative tests:**
+
+- Press `b`, `g`, `h`, `?`, etc. while the picker is open → must be absorbed by the picker, not the
+  underlying view.
+- Press `Esc` → picker closes; the previously selected project/sprint is unchanged.
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)
