@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { addRepository, createProject, removeRepository, updateRepository } from '@src/domain/entity/project.ts';
-import { absolutePath, FIXED_REPOSITORY_ID, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
+import {
+  addRepository,
+  createProject,
+  removeRepository,
+  setProjectDisplayName,
+  setProjectSlug,
+  updateRepository,
+} from '@src/domain/entity/project.ts';
+import { absolutePath, FIXED_REPOSITORY_ID, makeProject, makeRepository, slug } from '@tests/fixtures/domain.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 
@@ -68,6 +75,28 @@ describe('removeRepository', () => {
   it("returns ValidationError when id doesn't exist", () => {
     const r = removeRepository(makeProject(), RepositoryId.generate());
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('setProjectDisplayName', () => {
+  it('renames the project', () => {
+    const r = setProjectDisplayName(makeProject(), 'New Label');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.displayName).toBe('New Label');
+  });
+
+  it('rejects whitespace-only input', () => {
+    const r = setProjectDisplayName(makeProject(), '   ');
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('setProjectSlug', () => {
+  it('replaces the slug verbatim', () => {
+    const r = setProjectSlug(makeProject(), slug('new-handle'));
+    expect(r.slug).toBe('new-handle');
+    void r;
   });
 });
 

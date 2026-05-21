@@ -176,6 +176,26 @@ export const removeRepository = (project: Project, id: RepositoryId): Result<Pro
   return Result.ok({ ...project, repositories: next });
 };
 
+/**
+ * Rename a project's human-readable label. Free-form trimmed string. Does not touch `slug` —
+ * slug renames go via {@link setProjectSlug} so the operator can fix typos on `displayName`
+ * without losing the existing CLI handle.
+ */
+export const setProjectDisplayName = (project: Project, name: string): Result<Project, ValidationError> => {
+  const parsed = parseRequiredString('project.displayName', name);
+  if (!parsed.ok) return Result.error(parsed.error);
+  return Result.ok({ ...project, displayName: parsed.value });
+};
+
+/**
+ * Rename the project's CLI handle. Caller is responsible for uniqueness across the
+ * project repository — this helper is a pure setter; the persistence layer rejects collisions.
+ */
+export const setProjectSlug = (project: Project, slug: Slug): Project => ({
+  ...project,
+  slug,
+});
+
 export const updateRepository = (
   project: Project,
   id: RepositoryId,

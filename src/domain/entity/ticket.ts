@@ -97,6 +97,55 @@ export function setTicketLink(ticket: Ticket, url: string | undefined): Result<T
   return Result.ok({ ...ticket, link: parsed.value });
 }
 
+/**
+ * Rename the ticket. Allowed on both `pending` and `approved` tickets — typo fixes shouldn't
+ * require re-opening refinement. The sprint aggregate is responsible for its own status guard
+ * (e.g. `replaceTicket` rejects on non-draft sprints).
+ */
+export function setTicketTitle(ticket: PendingTicket, title: string): Result<PendingTicket, ValidationError>;
+export function setTicketTitle(ticket: ApprovedTicket, title: string): Result<ApprovedTicket, ValidationError>;
+export function setTicketTitle(ticket: Ticket, title: string): Result<Ticket, ValidationError> {
+  const parsed = parseRequiredString('ticket.title', title);
+  if (!parsed.ok) return Result.error(parsed.error);
+  return Result.ok({ ...ticket, title: parsed.value } as Ticket);
+}
+
+/**
+ * Set or clear the ticket's free-form description. `undefined` clears the field. Allowed on
+ * both `pending` and `approved` tickets — see {@link setTicketTitle} for the same rationale.
+ */
+export function setTicketDescription(
+  ticket: PendingTicket,
+  description: string | undefined
+): Result<PendingTicket, ValidationError>;
+export function setTicketDescription(
+  ticket: ApprovedTicket,
+  description: string | undefined
+): Result<ApprovedTicket, ValidationError>;
+export function setTicketDescription(ticket: Ticket, description: string | undefined): Result<Ticket, ValidationError> {
+  const parsed = parseOptionalString('ticket.description', description);
+  if (!parsed.ok) return Result.error(parsed.error);
+  if (parsed.value === undefined) {
+    const { description: _drop, ...rest } = ticket;
+    void _drop;
+    return Result.ok(rest as Ticket);
+  }
+  return Result.ok({ ...ticket, description: parsed.value } as Ticket);
+}
+
+/**
+ * Replace an approved ticket's requirements body. Only valid on `approved` — pending tickets
+ * have no requirements yet; refine the ticket via the refine flow first.
+ */
+export const setTicketRequirements = (
+  ticket: ApprovedTicket,
+  requirements: string
+): Result<ApprovedTicket, ValidationError> => {
+  const parsed = parseRequiredString('ticket.requirements', requirements);
+  if (!parsed.ok) return Result.error(parsed.error);
+  return Result.ok({ ...ticket, requirements: parsed.value });
+};
+
 export const approveTicketRequirements = (ticket: Ticket, text: string): Result<ApprovedTicket, InvalidStateError> => {
   const guard = requireStatus(
     'ticket',

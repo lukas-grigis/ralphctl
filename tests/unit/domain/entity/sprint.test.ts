@@ -5,6 +5,7 @@ import {
   createSprintWithExecution,
   planSprint,
   renameSprint,
+  setSprintSlug,
   type Sprint,
   transitionSprintToDone,
   transitionSprintToReview,
@@ -20,6 +21,7 @@ import {
   makePendingTicket,
   makePlannedSprint,
   makeReviewSprint,
+  slug,
 } from '@tests/fixtures/domain.ts';
 
 describe('createSprint', () => {
@@ -119,6 +121,20 @@ describe('transitionSprintToDone', () => {
     expect(transitionSprintToDone(makeDraftSprint(), FIXED_LATEST).ok).toBe(false);
     expect(transitionSprintToDone(makePlannedSprint(), FIXED_LATEST).ok).toBe(false);
     expect(transitionSprintToDone(makeDoneSprint(), FIXED_LATEST).ok).toBe(false);
+  });
+});
+
+describe('setSprintSlug', () => {
+  it('replaces the slug on a draft sprint', () => {
+    const r = setSprintSlug(makeDraftSprint(), slug('alt-handle'));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.slug).toBe('alt-handle');
+  });
+
+  it('rejects done sprints', () => {
+    const r = setSprintSlug(makeDoneSprint(), slug('alt-handle'));
+    expect(r.ok).toBe(false);
   });
 });
 
