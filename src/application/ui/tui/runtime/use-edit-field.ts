@@ -16,7 +16,7 @@
  * consistent across every consumer.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { PromptQueue, PendingPromptInput } from '@src/application/ui/tui/prompts/prompt-queue.ts';
@@ -66,7 +66,24 @@ const enqueueText = (queue: PromptQueue, title: string, kind: EditFieldKind, ini
 export const useEditField = (): UseEditFieldState => {
   const queue = usePromptQueue();
   const ui = useUiState();
-  const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const [feedback, setFeedbackState] = useState<string | undefined>(undefined);
+
+  // Mounted-ref guard: `openEditPrompt` is async and the host view can unmount between the
+  // initial keystroke and the prompt's resolution. Calling setState on an unmounted component
+  // is a no-op in React 18+ but emits a dev warning and indicates a closure that survived
+  // teardown. The ref is set false on cleanup; every state mutation routes through
+  // `setFeedback` which checks it. `release()` in the finally block is unconditional — the
+  // claim counter must always decrement even if the view is gone.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
+  const setFeedback = useCallback((value: string | undefined): void => {
+    if (mountedRef.current) setFeedbackState(value);
+  }, []);
 
   const openEditPrompt = useCallback(
     async (input: OpenEditPromptInput): Promise<void> => {
@@ -98,12 +115,12 @@ export const useEditField = (): UseEditFieldState => {
         release();
       }
     },
-    [queue, ui.claimPrompt]
+    [queue, ui.claimPrompt, setFeedback]
   );
 
   const reset = useCallback((): void => {
     setFeedback(undefined);
-  }, []);
+  }, [setFeedback]);
 
   return { feedback, openEditPrompt, reset };
 };
