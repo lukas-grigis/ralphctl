@@ -324,6 +324,10 @@ export const SprintDetailView = (): React.JSX.Element => {
   // Mute global keys while the confirm prompt is mounted.
   useEffect(() => (confirmRemove !== undefined ? ui.claimPrompt() : undefined), [confirmRemove, ui.claimPrompt]);
 
+  // Claim `esc` while the detail card is open so the local handler can close the card without
+  // the global `router.pop()` racing it and dumping the user back to the Sprints list.
+  useEffect(() => (inDetail ? ui.claimEscape() : undefined), [inDetail, ui.claimEscape]);
+
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);
     if (!confirmed || sprint === undefined) return;
@@ -415,7 +419,6 @@ const Body = ({
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   const action = phaseAction(sprint, tasks);
-  const ticketCount = sprint.tickets.length;
   if (openIdx !== undefined) {
     const focused = focusList[openIdx];
     return (
@@ -472,14 +475,7 @@ const Body = ({
         ticketsEditable={ticketsEditable}
         feedback={feedback}
       />
-      <TasksSection
-        sprint={sprint}
-        tasks={tasks}
-        focusList={focusList}
-        cursorIdx={cursorIdx}
-        project={project}
-        offset={ticketCount}
-      />
+      <TasksSection sprint={sprint} tasks={tasks} focusList={focusList} cursorIdx={cursorIdx} project={project} />
 
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
         <Text dimColor>
@@ -753,18 +749,9 @@ interface TasksSectionProps {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly project: Project | undefined;
-  /** Position in `focusList` of the first task entry (== ticket count). */
-  readonly offset: number;
 }
 
-const TasksSection = ({
-  sprint,
-  tasks,
-  focusList,
-  cursorIdx,
-  project,
-  offset,
-}: TasksSectionProps): React.JSX.Element => (
+const TasksSection = ({ sprint, tasks, focusList, cursorIdx, project }: TasksSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tasks</Text>
     {tasks.length === 0 ? (
@@ -785,7 +772,7 @@ const TasksSection = ({
               ticketTitle={ticket?.title}
               repoName={repoName}
               focused={focused}
-              index={offset + idx + 1}
+              index={idx + 1}
             />
           );
         })}

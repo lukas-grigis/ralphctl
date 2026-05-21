@@ -82,7 +82,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
       return;
     }
 
-    if (key.escape) {
+    if (key.escape && !ui.escapeClaimed) {
       router.pop();
       return;
     }

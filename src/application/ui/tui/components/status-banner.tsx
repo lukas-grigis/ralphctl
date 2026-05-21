@@ -172,16 +172,36 @@ interface BannerRowProps {
   readonly banner: ActiveBanner;
 }
 
+/**
+ * Threshold above which a `cause` string forces the two-line layout — headline on row 1,
+ * cause + dismiss hint on a dim row 2. Inline rendering wraps mid-word at typical terminal
+ * widths once the cause runs ~150 chars (e.g. the pnpm no-TTY hint), so we promote to a column
+ * before Ink hits its own wrap. Threshold is conservative; short toasts (`Copied to
+ * clipboard`, dozens of chars) stay inline so the typical case keeps its single-row footprint.
+ */
+const LONG_CAUSE_THRESHOLD = 60;
+
 const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
   const color = tierColor(banner.tier);
   const glyph = tierGlyph(banner.tier);
   // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so
   // they punch above the surrounding chrome.
   //
-  // Padding is intentionally minimal: each row is one line, so paddingY would just inflate
-  // the bottom-of-screen footprint without adding scannability. The horizontal indent matches
-  // the rest of the view chrome so the glyph aligns with section bullets above it.
+  // Padding is intentionally minimal: rows have no paddingY so the bottom-of-screen footprint
+  // stays calm. The horizontal indent matches the rest of the view chrome so the glyph aligns
+  // with section bullets above it. The multi-line variant is the two-line budget — no third.
   const isInfo = banner.tier === 'info';
+  const isMultiline = banner.cause !== undefined && banner.cause.length > LONG_CAUSE_THRESHOLD;
+  if (isMultiline) {
+    return (
+      <Box paddingX={spacing.indent} flexDirection="column">
+        <Text color={color} bold={!isInfo} dimColor={isInfo}>
+          {glyph} {banner.message}
+        </Text>
+        <Text dimColor>{banner.cause} (press d to dismiss)</Text>
+      </Box>
+    );
+  }
   return (
     <Box paddingX={spacing.indent} flexDirection="row">
       <Text color={color} bold={!isInfo} dimColor={isInfo}>

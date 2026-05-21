@@ -10,6 +10,10 @@
  * hold a claim, and the global handler stays muted while at least one is live. Earlier we had
  * a single boolean which raced when two callers fought to set it true vs. false on the same
  * commit — the typed-character "n" leaking through to the flows hotkey is exactly that race.
+ *
+ * `claimEscape` is the same shape but narrower — only the `esc` key is muted, not the entire
+ * global handler. A view (e.g. sprint detail's detail card) flips it on while it wants to own
+ * `esc` for a local close action; the global `router.pop()` stands down for the duration.
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
@@ -34,6 +38,8 @@ interface UiStateApi {
   readonly progressOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
+  /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
+  readonly escapeClaimed: boolean;
   /**
    * User-toggle override for the banner mode. `false` (default) defers to the view's
    * `compactBanner` prop; `true` forces the compact strip everywhere until the user toggles
@@ -61,6 +67,18 @@ interface UiStateApi {
    * ```
    */
   claimPrompt(): () => void;
+  /**
+   * Claim the `esc` keystroke for a view-local handler; the global `router.pop()` stays out
+   * of the way until every claim is released. Counter-based (same shape as {@link claimPrompt})
+   * so multiple overlapping claims are safe. Use this when a view wants `esc` to close an
+   * inline panel rather than navigate up the breadcrumb stack — every other global hotkey
+   * (`?`, `b`, `g`, `y`, navigation) keeps working.
+   *
+   * ```tsx
+   * useEffect(() => inDetail ? ui.claimEscape() : undefined, [inDetail, ui.claimEscape]);
+   * ```
+   */
+  claimEscape(): () => void;
   /**
    * Session-scoped pin for the repository the user most recently picked inside one of the
    * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
@@ -94,6 +112,7 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
   const [progressOpen, setProgressOpen] = useState(false);
   const [bannerCompact, setBannerCompact] = useState(false);
   const [claims, setClaims] = useState(0);
+  const [escapeClaims, setEscapeClaims] = useState(0);
   const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
 
   const toggleHelp = useCallback(() => {
@@ -115,6 +134,16 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       if (released) return;
       released = true;
       setClaims((c) => Math.max(0, c - 1));
+    };
+  }, []);
+
+  const claimEscape = useCallback((): (() => void) => {
+    setEscapeClaims((c) => c + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setEscapeClaims((c) => Math.max(0, c - 1));
     };
   }, []);
 
@@ -146,11 +175,13 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       helpOpen,
       progressOpen,
       promptActive: claims > 0,
+      escapeClaimed: escapeClaims > 0,
       bannerCompact,
       toggleHelp,
       toggleProgress,
       toggleBanner,
       claimPrompt,
+      claimEscape,
       sessionRepositoryId,
       setSessionRepositoryId,
       setActiveTaskSummaryProvider,
@@ -160,11 +191,13 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       helpOpen,
       progressOpen,
       claims,
+      escapeClaims,
       bannerCompact,
       toggleHelp,
       toggleProgress,
       toggleBanner,
       claimPrompt,
+      claimEscape,
       sessionRepositoryId,
       setSessionRepositoryId,
       setActiveTaskSummaryProvider,
