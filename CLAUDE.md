@@ -57,7 +57,9 @@ with execution-time writes.
 
 **Chain primitives** in `src/application/chain/`: `element` (interface), `leaf`, `sequential`, `loop`,
 `guard` (factory functions). **No `retry` or `onError`** — retry-on-429 is an adapter concern
-(`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`.
+(`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`. `leaf(name, config,
+{ label? })` — optional display label forwarded to `Element` and every `TraceEntry`; TUI rail renders it
+when present; `name` stays the canonical identifier for dedupe and trace correlation.
 
 **Flow registry** in `src/application/registry.ts` — every user-launchable flow declared as a `FlowManifest`
 with `triggers` (pre-launch predicates). CLI command builder, TUI menu, and launcher consume from this one
@@ -87,11 +89,10 @@ signals without explicit threading.
 (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
 
 **Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
-takeover (vim/htop-style), restored on every exit path (`exit`, `SIGINT`, `SIGTERM`, `SIGHUP`,
-`uncaughtException`). Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount. Tokens are the single source of
-visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. `glyphFor(signalKind)`
-adds shape-redundancy under `NO_COLOR=1`. List renders sliced before `.map()`; spinner state lives in the
-leaf `<Spinner />` so 90 ms timer re-renders don't propagate. See DESIGN-SYSTEM.md.
+takeover (vim/htop-style), restored on every exit path. Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the
+mount. `theme/tokens.ts` is the single source of visual truth — no inline hex / glyph / spacing.
+`glyphFor(signalKind)` adds shape-redundancy under `NO_COLOR=1`. List renders sliced before `.map()`;
+spinner state lives in the leaf `<Spinner />` so 90 ms timer re-renders don't propagate. See DESIGN-SYSTEM.md.
 
 **CLI** at `src/application/ui/cli/`. Interactive flows (`refine` / `plan` / `ideate` / `implement` /
 `readiness` / `create-sprint`) stay TUI-only by design. The CLI exposes `doctor`, `completion`,
@@ -162,9 +163,11 @@ fires (the task then transitions to `blocked`). Per-flow model from `settings.ai
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
 `SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
-Execute view: three-column (rail / tasks / context) at ≥180 cols, two-column at ≥140, compact-rail at
-100–139, single-column below 100. New global keys: `b` banner toggle, `g` progress overlay, `y` yank
-task. Execute-view keys: `j`/`k` card nav, `e` done-criteria, `c` cancel-scope picker.
+Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
+single-column below `md`. Rail grows fluidly 28→40 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
+`useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
+`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` done-criteria, `c` cancel-scope.
 
 **`setupScript` vs `checkScript`.** Setup runs unconditionally once per affected repo at sprint start;
 each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
@@ -294,7 +297,4 @@ Decisions`. `settings.ui.notifications.enabled` (default `true`) gates terminal 
 `package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces
 it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
 
-**References** —
-[Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents),
-[Anthropic — Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps),
-[Martin Fowler — Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html).
+**References** — [Anthropic — Effective Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [Anthropic — Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Martin Fowler — Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).
