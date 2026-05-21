@@ -164,7 +164,7 @@ Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `
 `SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
-single-column below `md`. Rail grows fluidly 28→40 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
 `useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
 `y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` done-criteria, `c` cancel-scope.

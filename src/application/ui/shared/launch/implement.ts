@@ -141,7 +141,16 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       abortedAt: nowAtLaunch,
     });
   }
-  const plannedLeaves = flattenLeaves(element).map((e) => e.name);
+  const flattened = flattenLeaves(element);
+  const plannedLeaves = flattened.map((e) => e.name);
+  // Plan-time label lookup — keyed by element name so the rail can render friendly labels for
+  // rows that haven't traced yet (pending / running). Once a leaf executes, the trace entry's
+  // own `label` carries the same value and supersedes this lookup. Only leaves that supplied
+  // a non-empty label are entered; lookups fall through to the raw name for everything else.
+  const planLabelByName = new Map<string, string>();
+  for (const leaf of flattened) {
+    if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
+  }
   return {
     ok: true,
     runner: bridge(runner) as Runner<unknown>,
@@ -149,6 +158,7 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
     taskNames,
     maxTurns: settings.harness.maxTurns,
     plannedLeaves,
+    ...(planLabelByName.size > 0 ? { planLabelByName } : {}),
     terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
   };

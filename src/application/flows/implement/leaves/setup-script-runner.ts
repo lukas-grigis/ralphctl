@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -81,59 +82,143 @@ interface LeafOutput {
 export const setupScriptRunnerLeaf = (
   deps: SetupScriptRunnerLeafDeps,
   opts: SetupScriptRunnerLeafOpts
-): Element<ImplementCtx> =>
-  leaf<ImplementCtx, LeafInput, LeafOutput>('setup-script-runner', {
-    useCase: {
-      execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
-        let execution = input.execution;
-        for (const repo of opts.repos) {
-          const command = repo.setupScript?.trim() ?? '';
-          if (command.length === 0) {
+): Element<ImplementCtx> => {
+  // Friendly rail label. Single-repo runs render as `setup-script · <repo>`; multi-repo runs
+  // keep it generic (`setup-script`) so the row doesn't lie about which repo is in flight —
+  // per-row attribution lives in the chain log and the BaselineHealthCard.
+  const repoLabel =
+    opts.repos.length === 1 && opts.repos[0] !== undefined ? ` · ${basename(String(opts.repos[0].path))}` : '';
+  return leaf<ImplementCtx, LeafInput, LeafOutput>(
+    'setup-script-runner',
+    {
+      useCase: {
+        execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
+          let execution = input.execution;
+          for (const repo of opts.repos) {
+            const command = repo.setupScript?.trim() ?? '';
+            if (command.length === 0) {
+              // No script configured is NOT a failure — the chain continues. But it is also not
+              // a silent pass: the operator deserves to know that *nothing was validated* before
+              // the AI starts touching the tree. Surface as a warn-tier banner (dismissible) and
+              // a warn-level log row so it lands in both the Recent-log tail and the persistent
+              // chain.log. Banner id is repo-keyed so re-runs replace rather than stack.
+              const run = makeSetupRun({
+                repositoryId: repo.repositoryId,
+                ranAt: deps.clock(),
+                command: '',
+                exitCode: 0,
+                durationMs: 0,
+                stdoutTail: '',
+                stderrTail: '',
+                outcome: 'skipped',
+              });
+              execution = await persistRun(execution, run, deps);
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'warn',
+                message: `setup-script ${String(repo.path)}: skipped — no script configured (nothing was validated)`,
+                at: deps.clock(),
+              });
+              deps.eventBus.publish({
+                type: 'banner-show',
+                id: `setup-script-skipped-${String(repo.repositoryId)}`,
+                tier: 'warn',
+                message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
+                cause: 'configure one via `project` settings to gate the working tree',
+                at: deps.clock(),
+              });
+              continue;
+            }
+
+            const startedAt = deps.clock();
+            const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
+              ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+              env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
+            });
+
+            if (!spawnResult.ok) {
+              // Spawn-time failure: the shell could not start the command at all (ENOENT, etc).
+              // Recorded with `exitCode: -1` so consumers can distinguish "ran and failed" from
+              // "could not run" without parsing the message string.
+              const run = makeSetupRun({
+                repositoryId: repo.repositoryId,
+                ranAt: deps.clock(),
+                command,
+                exitCode: -1,
+                durationMs: 0,
+                stdoutTail: '',
+                stderrTail: spawnResult.error.message,
+                outcome: 'spawn-error',
+              });
+              await persistRun(execution, run, deps);
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'error',
+                message: `setup-script ${String(repo.path)}: spawn-error — ${spawnResult.error.message}`,
+                at: deps.clock(),
+              });
+              deps.eventBus.publish({
+                type: 'banner-show',
+                id: `setup-script-${String(repo.repositoryId)}`,
+                tier: 'error',
+                message: `Setup script failed for ${String(repo.path)}: ${command}`,
+                cause: `spawn-error — ${spawnResult.error.message}`,
+                at: deps.clock(),
+              });
+              return Result.error(
+                new InvalidStateError({
+                  entity: 'sprint',
+                  currentState: 'pre-implement',
+                  attemptedAction: 'setup-script',
+                  message: `setup-script (${basename(String(repo.path))}) could not spawn: ${spawnResult.error.message}`,
+                  hint: 'Ensure the setup command is on PATH and is executable from the repo root.',
+                })
+              );
+            }
+
+            const { passed, exitCode, output, durationMs } = spawnResult.value;
+            // ShellScriptRunner merges stdout + stderr into a single combined buffer; the
+            // existing post-task-verify leaf relies on that shape. Treat the merged tail as
+            // stdout for now and leave stderr empty for non-spawn failures — the structured
+            // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
+            const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
+            const normalisedExit = exitCode ?? -1;
+            const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
             const run = makeSetupRun({
               repositoryId: repo.repositoryId,
-              ranAt: deps.clock(),
-              command: '',
-              exitCode: 0,
-              durationMs: 0,
-              stdoutTail: '',
+              ranAt: startedAt,
+              command,
+              exitCode: normalisedExit,
+              durationMs,
+              stdoutTail: outputTail,
               stderrTail: '',
-              outcome: 'skipped',
+              outcome,
             });
             execution = await persistRun(execution, run, deps);
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'info',
-              message: `setup-script ${String(repo.path)}: skipped — no script configured`,
-              at: deps.clock(),
-            });
-            continue;
-          }
 
-          const startedAt = deps.clock();
-          const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
-            ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-            env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
-          });
+            if (passed) {
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'info',
+                message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
+                at: deps.clock(),
+              });
+              continue;
+            }
 
-          if (!spawnResult.ok) {
-            // Spawn-time failure: the shell could not start the command at all (ENOENT, etc).
-            // Recorded with `exitCode: -1` so consumers can distinguish "ran and failed" from
-            // "could not run" without parsing the message string.
-            const run = makeSetupRun({
-              repositoryId: repo.repositoryId,
-              ranAt: deps.clock(),
-              command,
-              exitCode: -1,
-              durationMs: 0,
-              stdoutTail: '',
-              stderrTail: spawnResult.error.message,
-              outcome: 'spawn-error',
-            });
-            await persistRun(execution, run, deps);
+            // Heuristic hint for the most common no-TTY trap: pnpm's
+            // `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` happens when node_modules is out of
+            // sync with the lockfile and pnpm refuses to wipe it without an interactive
+            // confirmation. Detect the marker in the tail and surface an actionable hint —
+            // `npm_config_confirm_modules_purge=false` does NOT cover this code path in current
+            // pnpm releases, so users need to fix it on the project side.
+            const pnpmTtyHint = outputTail.includes('ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY')
+              ? 'pnpm refuses to wipe node_modules without a TTY. Either run `pnpm install` once in a terminal to resync, add `--force` to the failing pnpm command, or launch ralphctl with `CI=1`.'
+              : undefined;
             deps.eventBus.publish({
               type: 'log',
               level: 'error',
-              message: `setup-script ${String(repo.path)}: spawn-error — ${spawnResult.error.message}`,
+              message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
               at: deps.clock(),
             });
             deps.eventBus.publish({
@@ -141,7 +226,10 @@ export const setupScriptRunnerLeaf = (
               id: `setup-script-${String(repo.repositoryId)}`,
               tier: 'error',
               message: `Setup script failed for ${String(repo.path)}: ${command}`,
-              cause: `spawn-error — ${spawnResult.error.message}`,
+              cause:
+                pnpmTtyHint !== undefined
+                  ? `exit ${String(exitCode ?? 'null')} — ${pnpmTtyHint}`
+                  : `exit ${String(exitCode ?? 'null')}`,
               at: deps.clock(),
             });
             return Result.error(
@@ -149,84 +237,36 @@ export const setupScriptRunnerLeaf = (
                 entity: 'sprint',
                 currentState: 'pre-implement',
                 attemptedAction: 'setup-script',
-                message: `setup-script could not spawn for ${String(repo.path)}: ${spawnResult.error.message}`,
-                hint: 'Ensure the setup command is on PATH and is executable from the repo root.',
+                // Basename so the rail's error line stays scannable; the full path lives in the
+                // banner / log / execution.json audit row already.
+                message: `setup-script (${basename(String(repo.path))}) exited ${String(exitCode ?? 'null')}`,
+                hint:
+                  pnpmTtyHint ??
+                  'Inspect the setup-script tail in execution.json for the failing repo and fix the environment.',
               })
             );
           }
-
-          const { passed, exitCode, output, durationMs } = spawnResult.value;
-          // ShellScriptRunner merges stdout + stderr into a single combined buffer; the
-          // existing post-task-verify leaf relies on that shape. Treat the merged tail as
-          // stdout for now and leave stderr empty for non-spawn failures — the structured
-          // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
-          const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
-          const normalisedExit = exitCode ?? -1;
-          const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
-          const run = makeSetupRun({
-            repositoryId: repo.repositoryId,
-            ranAt: startedAt,
-            command,
-            exitCode: normalisedExit,
-            durationMs,
-            stdoutTail: outputTail,
-            stderrTail: '',
-            outcome,
-          });
-          execution = await persistRun(execution, run, deps);
-
-          if (passed) {
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'info',
-              message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
-              at: deps.clock(),
-            });
-            continue;
-          }
-
-          deps.eventBus.publish({
-            type: 'log',
-            level: 'error',
-            message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
-            at: deps.clock(),
-          });
-          deps.eventBus.publish({
-            type: 'banner-show',
-            id: `setup-script-${String(repo.repositoryId)}`,
-            tier: 'error',
-            message: `Setup script failed for ${String(repo.path)}: ${command}`,
-            cause: `exit ${String(exitCode ?? 'null')}`,
-            at: deps.clock(),
-          });
-          return Result.error(
-            new InvalidStateError({
-              entity: 'sprint',
-              currentState: 'pre-implement',
-              attemptedAction: 'setup-script',
-              message: `setup-script for ${String(repo.path)} exited ${String(exitCode ?? 'null')}`,
-              hint: 'Inspect the setup-script tail in execution.json for the failing repo and fix the environment.',
-            })
-          );
-        }
-        return Result.ok({ execution });
+          return Result.ok({ execution });
+        },
       },
+      input: (ctx) => {
+        if (ctx.execution === undefined) {
+          throw new InvalidStateError({
+            entity: 'chain',
+            currentState: 'pre-setup-script',
+            attemptedAction: 'setup-script-runner',
+            message: 'setup-script-runner: ctx.execution is undefined — load-sprint-execution must run first',
+          });
+        }
+        return { execution: ctx.execution };
+      },
+      // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like
+      // `resolveBranchLeaf` see the audit-appended value.
+      output: (ctx, out) => ({ ...ctx, execution: out.execution }),
     },
-    input: (ctx) => {
-      if (ctx.execution === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-setup-script',
-          attemptedAction: 'setup-script-runner',
-          message: 'setup-script-runner: ctx.execution is undefined — load-sprint-execution must run first',
-        });
-      }
-      return { execution: ctx.execution };
-    },
-    // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like
-    // `resolveBranchLeaf` see the audit-appended value.
-    output: (ctx, out) => ({ ...ctx, execution: out.execution }),
-  });
+    { label: `setup-script${repoLabel}` }
+  );
+};
 
 interface MakeSetupRunInput {
   readonly repositoryId: RepositoryId;

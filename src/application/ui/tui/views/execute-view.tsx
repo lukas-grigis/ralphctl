@@ -3,9 +3,10 @@
  *
  * Layout:
  *  - Header card (flow id, elapsed, steps, tasks done/total, status).
- *  - Wide (≥180 cols): three-column dashboard — fixed-width Flow Steps rail (left), flex-grow
- *    Tasks stream (centre), fixed-width Context column (right). The context column is empty
- *    on day-one and populated by later tasks (P2b token meter, P3a ETA, P1k baseline health).
+ *  - Wide (≥180 cols): three-column dashboard — fluid-width Flow Steps rail (left), flex-grow
+ *    Tasks stream (centre), fixed-width Context column (right). The rail grows 36→56 cols via
+ *    `resolveRailWidth` so long element labels (e.g. `setup-script-runner` plus its error tail)
+ *    don't wrap mid-word on wide terminals; the Tasks column absorbs whatever the rail leaves.
  *  - Mid (≥140 cols): two-column — rail + flex Tasks stream. No context column.
  *  - Narrow (<140 cols): single-column stack — header, flow steps, tasks, log. Below 100 cols
  *    the Flow Steps section drops to `maxRows={4}` so the Tasks section keeps room to breathe.
@@ -232,6 +233,13 @@ export const ExecuteView = (): React.JSX.Element => {
             ...(session.descriptor.maxTurns !== undefined ? { maxTurns: session.descriptor.maxTurns } : {}),
             ...(session.descriptor.terminalSubstepName !== undefined
               ? { terminalSubstepName: session.descriptor.terminalSubstepName }
+              : {}),
+            // taskNames carries every task the launcher knew about — surfacing the ids here
+            // makes pending rows appear in the panel even when the chain failed before per-task
+            // work started (e.g. setup-script-runner abort). Without this, a sprint with real
+            // tasks renders the misleading "panel empty · Run plan" empty state.
+            ...(session.descriptor.taskNames !== undefined
+              ? { knownTaskIds: [...session.descriptor.taskNames.keys()] }
               : {}),
           })
         : undefined,
@@ -461,6 +469,7 @@ export const ExecuteView = (): React.JSX.Element => {
       maxRows={flowStepsRows}
       railWidth={labelledRailWidth}
       {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
+      {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
       {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}
     />
   );
@@ -476,6 +485,7 @@ export const ExecuteView = (): React.JSX.Element => {
       maxRows={flowStepsRows}
       compact
       {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
+      {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
     />
   );
 
@@ -547,7 +557,7 @@ export const ExecuteView = (): React.JSX.Element => {
             // intrinsic content width and the Tasks column's `flexGrow={1}` resolves against an
             // un-budgeted parent — leaving a band of unused space on the right at ≥180 cols.
             // Anchoring the row to the full terminal width gives the centre column a real
-            // budget to grow into. The rail uses `resolveRailWidth` (fluid 28..40 at xl+) so
+            // budget to grow into. The rail uses `resolveRailWidth` (fluid 36..56 at xl+) so
             // long step labels no longer wrap mid-word on wide terminals.
             <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
               <Box flexDirection="column" width={threeColRailWidth} marginRight={spacing.section} flexShrink={0}>
@@ -575,7 +585,7 @@ export const ExecuteView = (): React.JSX.Element => {
             </Box>
           ) : twoColumn ? (
             // Same width-budget guard as the three-column branch; rail keeps the fixed
-            // `RAIL_WIDTH` (24) because at 140-179 cols there's no context column to compete
+            // `RAIL_WIDTH` (28) because at 140-179 cols there's no context column to compete
             // with the Tasks stream — a wider rail would just steal pixels from the main column.
             <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
               <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>

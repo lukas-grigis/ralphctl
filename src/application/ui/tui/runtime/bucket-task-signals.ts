@@ -281,6 +281,16 @@ export interface BucketOptions {
    * via the launcher without breaking the UI.
    */
   readonly terminalSubstepName?: string;
+  /**
+   * Tasks the launcher knows about up front (e.g. from `tasks.json`) — used to synthesise
+   * `pending` buckets for ids that have NO trace entries yet. Without this hint, a chain that
+   * fails before any per-task leaf runs (e.g. `setup-script-runner` aborts the chain) leaves
+   * `bucketed.tasks` empty and the Tasks panel renders its "panel empty · Run plan" empty
+   * state — which is misleading when tasks DO exist in the sprint, they just haven't started.
+   * Listed ids appear in input order at the END of the bucket list so already-traced tasks
+   * keep their event-order position.
+   */
+  readonly knownTaskIds?: readonly string[];
 }
 
 export const bucketTaskSignals = (
@@ -305,6 +315,17 @@ export const bucketTaskSignals = (
     if (!seen.has(id)) {
       seen.add(id);
       ids.push(id);
+    }
+  }
+  // Append any known task ids that haven't traced yet so the panel shows pending rows instead
+  // of collapsing to the "panel empty" state when a chain fails before per-task work starts.
+  // These get an empty substep list → `resolveStatusFromSubSteps` returns 'pending'.
+  if (opts.knownTaskIds !== undefined) {
+    for (const id of opts.knownTaskIds) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
     }
   }
 

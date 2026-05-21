@@ -58,6 +58,13 @@ export type LaunchResult =
        */
       readonly plannedLeaves?: readonly string[];
       /**
+       * Display label per planned leaf name (keyed by element `name`). Used by the Flow-steps
+       * panel so pending / running rows render the friendly label instead of falling back to
+       * the raw name (which embeds the absolute path for per-repo leaves). Once a leaf
+       * executes, the trace entry's own label takes over.
+       */
+      readonly planLabelByName?: ReadonlyMap<string, string>;
+      /**
        * Name of the per-task subchain's final leaf — when this name (with the task uuid suffix
        * stripped) appears in the trace for a task, the UI flips that task to `completed`.
        * Threaded so a flow that renames its terminal leaf doesn't silently leave tasks stuck on
@@ -119,12 +126,14 @@ export const sessionHintsFromLaunchResult = (
   readonly taskNames?: ReadonlyMap<string, string>;
   readonly maxTurns?: number;
   readonly plannedLeaves?: readonly string[];
+  readonly planLabelByName?: ReadonlyMap<string, string>;
   readonly terminalSubstepName?: string;
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
   ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
+  ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
   ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
 });

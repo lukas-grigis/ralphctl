@@ -1,11 +1,13 @@
 /**
- * Frame every view shares — four explicit zones modelled after a standard webpage layout:
+ * Frame every view shares — five explicit zones modelled after a standard webpage layout:
  *
  *   ┌─────────────────────────────────────────────┐
  *   │ HEADER  (fixed, never scrolls, never shrinks)│   ← banner + rule + breadcrumb
  *   ├─────────────────────────────────────────────┤
  *   │ CONTENT (scrolls when it overflows the      │   ← section stamp + page body
  *   │          viewport; clipped at the edges)    │     inside a ScrollRegion
+ *   ├─────────────────────────────────────────────┤
+ *   │ STATUS  (fixed; collapses when no banner)   │   ← dismissible StatusBanner stack
  *   ├─────────────────────────────────────────────┤
  *   │ PROMPT  (fixed; collapses when no prompt)   │   ← modal Question card from PromptHost
  *   ├─────────────────────────────────────────────┤
@@ -19,6 +21,12 @@
  * The prompt slot pins the queued Question card above the footer so the keyboard hints stay
  * visible while the user answers. The PromptHost returns null when the queue is empty so this
  * row collapses to zero height between prompts.
+ *
+ * The status slot sits between content and the prompt so the dismissible banner stack lands
+ * next to the other footer-adjacent surfaces (PromptHost, StatusBar). Detaching it from the
+ * top of the screen keeps it close to the keyboard hints (`press d to dismiss`) and the
+ * footer hotkey rail. StatusBanner returns null when no banners are active, so this row
+ * collapses too.
  *
  * The section stamp lives INSIDE the scroll region rather than the header — it's per-view
  * metadata that scrolls with the page body. The banner + breadcrumb are global anchors that
@@ -34,6 +42,7 @@ import { Banner } from '@src/application/ui/tui/components/banner.tsx';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
+import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -77,6 +86,14 @@ export const ViewShell = ({ title, subtitle, right, compactBanner, children }: V
         <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>
+
+      {/* ── STATUS ─────────────────────────────────────────────────────────────────────── */}
+      {/* Dismissible banner stack — sits above the prompt so it lands next to the other
+          footer-adjacent surfaces (the keyboard hint `press d to dismiss` is closer to the
+          footer hotkey rail), and collapses to zero height when nothing is published. */}
+      <Box flexDirection="column" flexShrink={0}>
+        <StatusBanner />
+      </Box>
 
       {/* ── PROMPT ─────────────────────────────────────────────────────────────────────── */}
       {/* Sits above the footer so the modal isn't pushed off the bottom of the screen.

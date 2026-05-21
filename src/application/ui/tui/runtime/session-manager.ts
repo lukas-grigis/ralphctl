@@ -53,6 +53,14 @@ export interface SessionDescriptor {
    */
   readonly plannedLeaves?: readonly string[];
   /**
+   * Display label per planned leaf name, captured at chain construction time so the rail can
+   * render pending / running rows with their friendly label instead of falling back to the
+   * raw element name (which embeds the absolute path for per-repo leaves like
+   * `preflight-task-1-/abs/path/to/repo`). Once a leaf executes, the trace entry's own label
+   * supersedes this lookup.
+   */
+  readonly planLabelByName?: ReadonlyMap<string, string>;
+  /**
    * Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). When
    * the bucketing sees this leaf for a task id it flips the task to `completed`. Threaded from
    * the launcher so flows with a different terminal leaf — or future renames — don't break the
@@ -92,6 +100,7 @@ export interface SessionManager {
     readonly taskNames?: ReadonlyMap<string, string>;
     readonly maxTurns?: number;
     readonly plannedLeaves?: readonly string[];
+    readonly planLabelByName?: ReadonlyMap<string, string>;
     readonly terminalSubstepName?: string;
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   }): SessionRecord;
@@ -174,6 +183,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       taskNames,
       maxTurns,
       plannedLeaves,
+      planLabelByName,
       terminalSubstepName,
       taskRecovering,
     }): SessionRecord {
@@ -188,6 +198,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(taskNames !== undefined ? { taskNames } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(plannedLeaves !== undefined ? { plannedLeaves } : {}),
+        ...(planLabelByName !== undefined ? { planLabelByName } : {}),
         ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),
         ...(taskRecovering !== undefined ? { taskRecovering } : {}),
       };

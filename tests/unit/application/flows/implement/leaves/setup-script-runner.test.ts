@@ -211,6 +211,46 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.stderrTailBytes).toBe('');
   });
 
+  it('surfaces a warn-level log + warn banner when a repo has no setupScript', async () => {
+    // "No script configured" is a successful continuation, NOT a silent skip — the operator
+    // needs to know nothing was validated. The leaf publishes a warn-tier log line for the
+    // Recent-log tail and a warn-tier banner (repo-keyed id) so the dismissible banner stack
+    // surfaces it.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: {
+          async run() {
+            throw new Error('shell must not run for skipped repos');
+          },
+        },
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    if (!result.ok) throw new Error('expected ok');
+
+    // Warn log lands in the bus log buffer (the tail will render it yellow).
+    expect(bus.logs.some((l) => l.level === 'warn' && l.message.includes('no script configured'))).toBe(true);
+    // Banner is repo-keyed so re-runs replace rather than stack indefinitely.
+    const banner = bus.events.find(
+      (e) => e.type === 'banner-show' && e.id === `setup-script-skipped-${String(FIXED_REPOSITORY_ID)}`
+    );
+    expect(banner).toBeDefined();
+    if (banner?.type !== 'banner-show') throw new Error('expected banner-show');
+    expect(banner.tier).toBe('warn');
+    expect(banner.message).toContain('No setup script configured');
+    expect(banner.message).toContain(String(REPO_PATH));
+  });
+
   it('treats a whitespace-only setupScript as skipped', async () => {
     const repo = savingRepo();
     const bus = createCapturingBus();

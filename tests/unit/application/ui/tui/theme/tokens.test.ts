@@ -2,8 +2,8 @@
  * Tokens unit tests — covers the responsive helpers exported from theme/tokens.ts.
  *
  * `resolveRailWidth` is the Execute view's authoritative rail-width decision. Verified across
- * the breakpoint thresholds so a regression in either the `lg` floor (fixed 24) or the `xl`
- * fluid curve (28..40, ratio 0.18) surfaces here, not in a downstream rendering test.
+ * the breakpoint thresholds so a regression in either the `lg` floor (fixed 28) or the `xl`
+ * fluid curve (36..56, ratio 0.22) surfaces here, not in a downstream rendering test.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -49,14 +49,16 @@ describe('resolveRailWidth', () => {
     expect(resolveRailWidth(179)).toBe(RAIL_WIDTH);
   });
 
-  it('grows fluidly at xl+ (180 → 32, 240 → 40 cap)', () => {
-    // 180 * 0.18 = 32.4 → floor 32. The first xl tick lands here.
-    expect(resolveRailWidth(180)).toBe(32);
-    // 220 * 0.18 = 39.6 → floor 39.
-    expect(resolveRailWidth(220)).toBe(39);
-    // 240 * 0.18 = 43.2 → clamped to max (40).
-    expect(resolveRailWidth(240)).toBe(40);
+  it('grows fluidly at xl+ (180 → 39, 260 → 56 cap)', () => {
+    // 180 * 0.22 = 39.6 → floor 39. The first xl tick lands here.
+    expect(resolveRailWidth(180)).toBe(39);
+    // 200 * 0.22 = 44 — exact integer.
+    expect(resolveRailWidth(200)).toBe(44);
+    // 220 * 0.22 = 48.4 → floor 48.
+    expect(resolveRailWidth(220)).toBe(48);
+    // 260 * 0.22 = 57.2 → clamped to max (56).
+    expect(resolveRailWidth(260)).toBe(56);
     // Asymptote check — any extreme width still clamps.
-    expect(resolveRailWidth(5000)).toBe(40);
+    expect(resolveRailWidth(5000)).toBe(56);
   });
 });

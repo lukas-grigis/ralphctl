@@ -133,8 +133,8 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
 
 ```
 resolveRailWidth(columns):
-  < xl  (< 180)  →  RAIL_WIDTH = 24       (fixed; lg uses two-column, no context column)
-  ≥ xl  (≥ 180)  →  fluid(cols, { min: 28, max: 40, ratio: 0.18 })
+  < xl  (< 180)  →  RAIL_WIDTH = 28       (fixed; lg uses two-column, no context column)
+  ≥ xl  (≥ 180)  →  fluid(cols, { min: 36, max: 56, ratio: 0.22 })
 ```
 
 `COMPACT_RAIL_WIDTH = 6` applies at `md` (100–139); only status glyphs are shown, no labels.

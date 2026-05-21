@@ -510,7 +510,7 @@ Cross-cutting TUI features:
   `!` opens it from anywhere.
 - **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at `xl` (≥180),
   two-column at `lg` (≥140), compact-rail at `md` (100–139), single-column below `md`. The rail is fixed
-  24 cols below `xl`; at `xl`+ it grows fluidly to 40 cols via `resolveRailWidth`. All width decisions use
+  28 cols below `xl`; at `xl`+ it grows fluidly up to 56 cols via `resolveRailWidth`. All width decisions use
   the named breakpoints (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) from `theme/tokens.ts` — no
   hardcoded column literals. `StepTrace` renders `Element.label` when present; long labels are mid-truncated
   to fit the rail column budget. Global keys `g` (progress overlay), `y` (yank task summary), `b` (banner

@@ -160,7 +160,7 @@ export const PROMPT_VISIBLE_ROWS = 8;
  *   - {@link CONTEXT_WIDTH} — right context column; baseline health (P1k), token meter
  *     (P2b), and ETA (P3a) cards stack here at ≥180 cols.
  */
-export const RAIL_WIDTH = 24;
+export const RAIL_WIDTH = 28;
 export const COMPACT_RAIL_WIDTH = 6;
 export const CONTEXT_WIDTH = 28;
 
@@ -169,15 +169,20 @@ export const CONTEXT_WIDTH = 28;
  * so step labels don't wrap mid-word on wide terminals. Below `xl` the fixed {@link RAIL_WIDTH}
  * applies (`lg`) or the compact rail kicks in (`md`).
  *
- *   < lg (≥ 140)  →  RAIL_WIDTH      (24)
- *   ≥ lg, < xl    →  RAIL_WIDTH      (24)   — two-column layout, no context column to compete
- *   ≥ xl  (≥ 180) →  fluid(28..40, 0.18)  — three-column layout; rail grows up to 40 cols
+ *   < lg (≥ 140)  →  RAIL_WIDTH      (28)
+ *   ≥ lg, < xl    →  RAIL_WIDTH      (28)   — two-column layout, no context column to compete
+ *   ≥ xl  (≥ 180) →  fluid(36..56, 0.22) — three-column layout; rail grows up to 56 cols
+ *
+ * The xl ratio / cap were bumped (0.18→0.22, 40→56) so long element labels — e.g.
+ * `setup-script-runner — setup-script for <abs-path> exited 1` — keep their error tail on a
+ * single row on wide terminals (≥200 cols). The Tasks column still has flex-grow so any
+ * extra width the rail doesn't claim flows there.
  *
  * @public
  */
 export const resolveRailWidth = (columns: number): number => {
   if (columns < breakpoints.xl) return RAIL_WIDTH;
-  return fluid(columns, { min: 28, max: 40, ratio: 0.18 });
+  return fluid(columns, { min: 36, max: 56, ratio: 0.22 });
 };
 
 /**

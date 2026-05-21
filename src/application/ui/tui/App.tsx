@@ -33,7 +33,6 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
-import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
 
 export interface AppProps {
@@ -117,7 +116,11 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
   // for input. The prompt's own component owns Esc / Enter / etc. while it's mounted.
   useGlobalKeys({ disabled: ui.promptActive });
   // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
-  // prompt-host → footer, with header / prompt / footer pinned via `flexShrink={0}`.
+  // status banner → prompt-host → footer, with header / banner / prompt / footer pinned via
+  // `flexShrink={0}`. The dismissible StatusBanner sits inside ViewShell so it lands next to
+  // the other footer-adjacent surfaces (PromptHost, StatusBar) rather than detaching from the
+  // running view at the top of the screen. Memory + chain-log banners stay at the top because
+  // they signal harness-level degradations that the operator should see immediately.
   //
   // The progress overlay is a true modal — it replaces the active view's body so no parallel
   // ScrollRegion / list cursor races for the same keystrokes. The global handler closes it
@@ -126,7 +129,6 @@ const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
       <ChainLogDegradedBanner />
-      <StatusBanner />
       {ui.progressOpen ? <ProgressOverlay /> : children}
     </Box>
   );

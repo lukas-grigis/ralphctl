@@ -106,7 +106,12 @@ export const StatusBanner = (): React.JSX.Element | null => {
   const [banners, setBanners] = useState<readonly ActiveBanner[]>([]);
 
   useEffect(() => {
-    const unsub = deps.eventBus.subscribe((event) => {
+    // ViewShell mounts this banner inside every view, including ones whose tests pass a
+    // partial AppDeps without a real EventBus. Guard so the banner is a no-op (renders null)
+    // rather than crashing the host view when the bus isn't wired.
+    const bus = deps.eventBus;
+    if (bus === undefined) return undefined;
+    const unsub = bus.subscribe((event) => {
       if (event.type === 'banner-show') {
         setBanners((prev) => upsert(prev, toActive(event)));
         return;
@@ -148,12 +153,12 @@ export const StatusBanner = (): React.JSX.Element | null => {
   const overflow = Math.max(0, sorted.length - MAX_VISIBLE);
 
   return (
-    <Box flexDirection="column" flexShrink={0} marginY={spacing.section}>
+    <Box flexDirection="column" flexShrink={0}>
       {visible.map((banner) => (
         <BannerRow key={banner.id} banner={banner} />
       ))}
       {overflow > 0 ? (
-        <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Box paddingX={spacing.indent}>
           <Text dimColor>
             {glyphs.bullet} +{overflow} more
           </Text>
@@ -172,9 +177,13 @@ const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
   const glyph = tierGlyph(banner.tier);
   // Info tier renders dim to read as "ambient" rather than "alarm"; warn/error stay bold so
   // they punch above the surrounding chrome.
+  //
+  // Padding is intentionally minimal: each row is one line, so paddingY would just inflate
+  // the bottom-of-screen footprint without adding scannability. The horizontal indent matches
+  // the rest of the view chrome so the glyph aligns with section bullets above it.
   const isInfo = banner.tier === 'info';
   return (
-    <Box paddingX={spacing.indent} paddingY={spacing.section} flexDirection="row">
+    <Box paddingX={spacing.indent} flexDirection="row">
       <Text color={color} bold={!isInfo} dimColor={isInfo}>
         {glyph} {banner.message}
       </Text>

@@ -4,8 +4,8 @@
  *
  *   < 100 cols       → single-column stack — "Flow steps" section header rendered.
  *   100–139 cols     → compact two-column — rail collapses to glyph spine, no "Flow steps" label.
- *   140–179 cols     → labelled rail (fixed RAIL_WIDTH = 24).
- *   ≥ 180 cols       → labelled rail (fluid resolveRailWidth — grows up to 40 at 240+ cols).
+ *   140–179 cols     → labelled rail (fixed RAIL_WIDTH = 28).
+ *   ≥ 180 cols       → labelled rail (fluid resolveRailWidth — grows up to 56 at 260+ cols).
  *
  * `useTerminalSize` is mocked so we can drive the layout decisions independent of the
  * ink-testing-library stdout (which hardcodes `columns = 100`).
