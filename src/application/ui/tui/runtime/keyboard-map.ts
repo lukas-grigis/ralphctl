@@ -30,8 +30,21 @@ export const globalKeys = {
   bannerToggle: { keys: ['b'], label: 'toggle banner' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
   yankTask: { keys: ['y'], label: 'copy active task summary' },
+  pickProject: { keys: ['P'], label: 'pick project' },
+  pickSprint: { keys: ['S'], label: 'pick sprint' },
   help: { keys: ['?'], label: 'help' },
   quit: { keys: ['q', 'ctrl+c'], label: 'quit' },
+} as const satisfies Record<string, KeyBinding>;
+
+/**
+ * Bindings local to the sprint picker — the cross-project sprint list mounted from `S`.
+ *
+ * `t` toggles between "all projects" (the default) and the current project only. Free across
+ * the global / list / execute / tasks-panel maps. Surfaced here so the help overlay groups
+ * the picker's lone view-local key alongside the rest of its bindings.
+ */
+export const pickerKeys = {
+  toggleScope: { keys: ['t'], label: 'toggle project scope' },
 } as const satisfies Record<string, KeyBinding>;
 
 /** Vertical-list bindings — used by every list view + action menu. */
@@ -122,6 +135,7 @@ const signalReference: KeySection = {
 export const keySections: readonly KeySection[] = [
   toSection('Global', globalKeys),
   toSection('Lists', listKeys),
+  toSection('Sprint picker', pickerKeys),
   toSection('Execute', executeKeys),
   toSection('Tasks panel', tasksPanelKeys),
   signalReference,
