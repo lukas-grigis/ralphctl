@@ -47,6 +47,18 @@ export const pickerKeys = {
   toggleScope: { keys: ['t'], label: 'toggle project scope' },
 } as const satisfies Record<string, KeyBinding>;
 
+/**
+ * Contextual bindings — active only when a focused row supports the action. Surfaced in the
+ * help overlay so the operator knows the chord exists; gated per-view by checking the focused
+ * entity / field. `e` is the universal "fix a typo" shortcut for Project, Sprint, Ticket, Task,
+ * and Repository entity fields. It overlaps with the Tasks-panel's `e` (expand done criteria) by
+ * design — those keys live on different surfaces (browse views vs the live execute view) and
+ * never collide at runtime.
+ */
+export const contextualKeys = {
+  editField: { keys: ['e'], label: 'edit focused field' },
+} as const satisfies Record<string, KeyBinding>;
+
 /** Vertical-list bindings — used by every list view + action menu. */
 export const listKeys = {
   up: { keys: ['↑', 'k'], label: 'up' },
@@ -135,6 +147,7 @@ const signalReference: KeySection = {
 export const keySections: readonly KeySection[] = [
   toSection('Global', globalKeys),
   toSection('Lists', listKeys),
+  toSection('Contextual', contextualKeys),
   toSection('Sprint picker', pickerKeys),
   toSection('Execute', executeKeys),
   toSection('Tasks panel', tasksPanelKeys),
