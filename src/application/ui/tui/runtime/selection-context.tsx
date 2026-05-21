@@ -19,6 +19,13 @@ interface SelectionApi {
   readonly sprintLabel: string | undefined;
   setProject(id: ProjectId | undefined, label?: string): void;
   setSprint(id: SprintId | undefined, label?: string): void;
+  /**
+   * Atomic project + sprint switch — used by the cross-project sprint picker so picking a
+   * sprint from a different project updates both ids in a single state batch. Going through
+   * `setProject` then `setSprint` would clear the sprint mid-flight (setProject zeroes the
+   * sprint cursor as a side effect) and fire `onChange` twice; this setter fires it once.
+   */
+  setProjectAndSprint(projectId: ProjectId, projectLabel: string, sprintId: SprintId, sprintLabel: string): void;
 }
 
 const SelectionContext = createContext<SelectionApi | undefined>(undefined);
@@ -74,9 +81,26 @@ export const SelectionProvider = ({ children, seed, onChange }: SelectionProvide
     setSprintLabel(id === undefined ? undefined : label);
   }, []);
 
+  const setProjectAndSprint = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
+    // React batches the four setState calls inside a single event handler — onChange's
+    // effect runs once after the batch, with both ids visible together.
+    setProjectId(pId);
+    setProjectLabel(pLabel);
+    setSprintId(sId);
+    setSprintLabel(sLabel);
+  }, []);
+
   const api = useMemo<SelectionApi>(
-    () => ({ projectId, sprintId, projectLabel, sprintLabel, setProject, setSprint }),
-    [projectId, sprintId, projectLabel, sprintLabel, setProject, setSprint]
+    () => ({
+      projectId,
+      sprintId,
+      projectLabel,
+      sprintLabel,
+      setProject,
+      setSprint,
+      setProjectAndSprint,
+    }),
+    [projectId, sprintId, projectLabel, sprintLabel, setProject, setSprint, setProjectAndSprint]
   );
 
   return <SelectionContext.Provider value={api}>{children}</SelectionContext.Provider>;
