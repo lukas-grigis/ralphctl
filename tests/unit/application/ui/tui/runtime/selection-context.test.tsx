@@ -1,0 +1,146 @@
+/**
+ * SelectionProvider unit tests. The `setProjectAndSprint` atomic setter MUST fire `onChange`
+ * exactly once per call and surface both ids together — chaining `setProject` then `setSprint`
+ * would fire it twice and briefly nullify `sprintId` in between (setProject clears the sprint
+ * cursor as a side effect). The cross-project sprint picker depends on the atomic setter to
+ * avoid a flicker + double persistence write.
+ */
+
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { Text } from 'ink';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  SelectionProvider,
+  useSelection,
+  type SelectionSeed,
+} from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { projectId } from '@tests/fixtures/domain.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+
+const sprintId = (s: string): SprintId => {
+  const r = SprintId.parse(s);
+  if (!r.ok) throw new Error(`bad sprint id fixture: ${r.error.message}`);
+  return r.value;
+};
+
+const PID_A = projectId('01900000-0000-7000-8000-0000000000a1');
+const PID_B = projectId('01900000-0000-7000-8000-0000000000a2');
+const SID_X = sprintId('01900000-0000-7000-8000-0000000000b1');
+const SID_Y = sprintId('01900000-0000-7000-8000-0000000000b2');
+
+/**
+ * Mounts inside the provider and fires the atomic setter once after a microtask. The action
+ * is deferred via setTimeout so the provider's initial-mount onChange completes (and is
+ * captured by the `onMounted` baseline hook) before the setter fires — child useEffect runs
+ * before parent useEffect, so calling the setter inside useEffect would otherwise race with
+ * the provider's persistence effect.
+ */
+const makeTrigger = (
+  triggered: { current: boolean },
+  onMounted: () => void,
+  action: (api: ReturnType<typeof useSelection>) => void
+): (() => React.JSX.Element) => {
+  return function Trigger(): React.JSX.Element {
+    const api = useSelection();
+    const apiRef = React.useRef(api);
+    apiRef.current = api;
+    React.useEffect(() => {
+      if (triggered.current) return;
+      triggered.current = true;
+      // Defer one microtask so the provider's mount effect (which fires onChange once) has
+      // run before we sample the baseline.
+      setTimeout(() => {
+        onMounted();
+        action(apiRef.current);
+      }, 0);
+    }, []);
+    return (
+      <Text>
+        p={String(api.projectId)} s={String(api.sprintId)}
+      </Text>
+    );
+  };
+};
+
+describe('SelectionProvider.setProjectAndSprint', () => {
+  it('fires onChange exactly once for the atomic write and sets both ids in one shot', async () => {
+    const onChange = vi.fn<(s: SelectionSeed) => void>();
+    const triggered = { current: false };
+    let baselineCalls = -1;
+    const Trigger = makeTrigger(
+      triggered,
+      () => {
+        baselineCalls = onChange.mock.calls.length;
+      },
+      (api) => api.setProjectAndSprint(PID_B, 'Project B', SID_Y, 'Sprint Y')
+    );
+
+    const r = render(
+      <SelectionProvider onChange={onChange}>
+        <Trigger />
+      </SelectionProvider>
+    );
+
+    await new Promise((res) => setTimeout(res, 30));
+
+    expect(baselineCalls).toBeGreaterThanOrEqual(0);
+    // Exactly one additional onChange after baseline — the four state setters batched into one
+    // commit, one effect run, one persistence write.
+    expect(onChange.mock.calls.length - baselineCalls).toBe(1);
+    const lastSeed = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+    expect(lastSeed).toEqual({
+      projectId: PID_B,
+      projectLabel: 'Project B',
+      sprintId: SID_Y,
+      sprintLabel: 'Sprint Y',
+    });
+    r.unmount();
+  });
+
+  it('does not transiently clear sprintId between project and sprint writes', async () => {
+    // Seed the provider with an existing project + sprint, then atomically switch to a new
+    // project + sprint. If the implementation regressed to chaining setProject() then
+    // setSprint(), onChange would be invoked with a missing sprintId between the two writes.
+    const onChange = vi.fn<(s: SelectionSeed) => void>();
+    const seeds: SelectionSeed[] = [];
+    onChange.mockImplementation((s) => {
+      seeds.push(s);
+    });
+    const triggered = { current: false };
+    const Trigger = makeTrigger(
+      triggered,
+      () => {
+        /* baseline captured implicitly via seeds[] */
+      },
+      (api) => api.setProjectAndSprint(PID_B, 'Project B', SID_Y, 'Sprint Y')
+    );
+
+    const r = render(
+      <SelectionProvider
+        seed={{ projectId: PID_A, projectLabel: 'Project A', sprintId: SID_X, sprintLabel: 'Sprint X' }}
+        onChange={onChange}
+      >
+        <Trigger />
+      </SelectionProvider>
+    );
+
+    await new Promise((res) => setTimeout(res, 30));
+
+    // The intermediate seeds (initial + post-setter) must never have a defined projectId with an
+    // undefined sprintId — that would be the "setProject clears sprint" leak we are guarding.
+    for (const s of seeds) {
+      if (s.projectId !== undefined && s.sprintId === undefined) {
+        throw new Error(`leaked intermediate state: projectId set, sprintId cleared`);
+      }
+    }
+    // Final state is the new pair.
+    expect(seeds[seeds.length - 1]).toEqual({
+      projectId: PID_B,
+      projectLabel: 'Project B',
+      sprintId: SID_Y,
+      sprintLabel: 'Sprint Y',
+    });
+    r.unmount();
+  });
+});
