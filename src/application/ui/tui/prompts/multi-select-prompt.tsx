@@ -8,9 +8,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Choice } from '@src/business/interactive/prompt.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-
-const VISIBLE_ROWS = 8;
+import { glyphs, inkColors, PROMPT_VISIBLE_ROWS, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
 
@@ -70,9 +68,9 @@ export const MultiSelectPrompt = ({
     else if (key.downArrow || input === 'j') setCursor((c) => clamp(c + 1, 0, options.length - 1));
   });
 
-  const half = Math.floor(VISIBLE_ROWS / 2);
-  const start = clamp(cursor - half, 0, Math.max(0, options.length - VISIBLE_ROWS));
-  const end = Math.min(options.length, start + VISIBLE_ROWS);
+  const half = Math.floor(PROMPT_VISIBLE_ROWS / 2);
+  const start = clamp(cursor - half, 0, Math.max(0, options.length - PROMPT_VISIBLE_ROWS));
+  const end = Math.min(options.length, start + PROMPT_VISIBLE_ROWS);
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
@@ -101,7 +99,7 @@ export const MultiSelectPrompt = ({
           );
         })}
       </Box>
-      {options.length > VISIBLE_ROWS && (
+      {options.length > PROMPT_VISIBLE_ROWS && (
         <Text dimColor>
           {String(cursor + 1)} of {String(options.length)}
         </Text>

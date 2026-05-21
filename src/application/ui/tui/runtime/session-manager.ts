@@ -108,22 +108,29 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
     }
   };
 
+  // Age key for ordering / TTL: prefer the descriptor's `finishedAt`. Terminal records
+  // registered via the synthetic-replay path (runner reaches terminal before `register()` runs)
+  // will have `finishedAt` populated during the sync replay — but if a future runner contract
+  // change drops that guarantee, fall back to `startedAt` so the record is still LRU-eligible
+  // instead of becoming an un-evictable leak.
+  const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
+
   const evict = (now: number): boolean => {
     let removed = false;
-    // TTL pass: drop terminal records whose `finishedAt` is older than the window.
+    // TTL pass: drop terminal records older than the window.
     for (const [id, rec] of records) {
-      const { status, finishedAt } = rec.descriptor;
-      if (isTerminal(status) && finishedAt !== undefined && now - finishedAt > SESSION_RECORD_TTL_MS) {
+      const { status } = rec.descriptor;
+      if (isTerminal(status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
         records.delete(id);
         removed = true;
       }
     }
-    // LRU pass: while above cap, drop the oldest terminal record (by finishedAt asc). Running /
+    // LRU pass: while above cap, drop the oldest terminal record (by ageKey asc). Running /
     // queued records are never evicted — the cap is best-effort under that constraint.
     if (records.size > SESSION_LRU_CAP) {
       const terminals = [...records.values()]
-        .filter((rec) => isTerminal(rec.descriptor.status) && rec.descriptor.finishedAt !== undefined)
-        .sort((a, b) => (a.descriptor.finishedAt ?? 0) - (b.descriptor.finishedAt ?? 0));
+        .filter((rec) => isTerminal(rec.descriptor.status))
+        .sort((a, b) => ageKey(a) - ageKey(b));
       for (const rec of terminals) {
         if (records.size <= SESSION_LRU_CAP) break;
         records.delete(rec.descriptor.id);

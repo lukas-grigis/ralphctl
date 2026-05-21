@@ -53,12 +53,13 @@ export interface Runner<TCtx> {
  * still see every event (the trace cap only bounds the snapshot late subscribers replay from).
  *
  * Sized at ~1 MB worst case (each entry is ~200 bytes → 5000 × 200 B ≈ 1 MB). The durable
- * `<sprintDir>/chain.log` sink captures the full trace on disk, so post-mortem analysis does
- * not depend on the in-memory snapshot. The execute view's per-task round counter (in
- * execute-view.tsx) holds a monotonic high-water mark in a ref so the displayed `round N/M`
- * survives eviction here; downstream consumers that scan the trace (StepTrace's plan-merge,
- * sprint-detail's attempt history) read whatever the trace holds and reach for `chain.log`
- * when they need entries that have already aged out.
+ * `<sprintDir>/chain.log` sink captures the full trace on disk, so post-mortem analysis can
+ * always recover the full history outside of the in-memory snapshot. The execute view's
+ * per-task round counter (in execute-view.tsx) holds a monotonic high-water mark in a ref so
+ * the displayed `round N/M` survives eviction here. Other downstream consumers that scan
+ * `runner.trace` directly (StepTrace's plan-merge, sprint-detail's attempt history) see only
+ * what the trace currently holds — if a regression around truncated tails surfaces in one of
+ * those views, the fix is to fall back to `chain.log` on disk rather than raising this cap.
  */
 const MAX_TRACE_ENTRIES = 5_000;
 

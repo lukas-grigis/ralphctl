@@ -91,12 +91,18 @@ describe('startFileLogSink', () => {
     const TOTAL = 10_010;
     for (let i = 0; i < TOTAL; i++) bus.publish(makeLog(i));
 
+    // Flush microtasks so the degradation event subscribers have run even if the bus ever
+    // switches to async delivery. The in-memory bus is synchronous today; this drain insulates
+    // the assertion against future bus refactors without changing what the test verifies.
+    await new Promise((resolve) => setImmediate(resolve));
+
     // At least one drop must have fired — once degraded latches we do not re-emit.
     expect(degradations).toHaveLength(1);
     expect(degradations[0]?.reason).toBe('queue-full');
 
     // Subsequent overflows must NOT re-emit (the one-shot latch).
     for (let i = 0; i < 100; i++) bus.publish(makeLog(TOTAL + i));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(degradations).toHaveLength(1);
 
     // Release the stalled write so the sink can shut down cleanly.

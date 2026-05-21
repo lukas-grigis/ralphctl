@@ -49,6 +49,12 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  */
 const MAX_QUEUE = 10_000;
 
+const isMissingPathError = (err: unknown): boolean => {
+  if (err === null || typeof err !== 'object') return false;
+  const code = (err as { readonly code?: unknown }).code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 export interface FileLogSinkDeps {
   /** Absolute path to the JSONL file. Parent directory is created on first write. */
   readonly file: AbsolutePath;
@@ -86,6 +92,10 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
       } catch (err) {
         // Best-effort write — never take down the chain. But fire the one-shot degradation
         // marker so the operator knows the on-disk trace is incomplete.
+        // If the parent directory disappeared after our initial mkdir (tmpfs cleanup, fuse
+        // remount, operator `rm -rf` of the sprint dir), `dirEnsured` is stale — drop it so
+        // the next iteration re-creates the directory before retrying the append.
+        if (isMissingPathError(err)) dirEnsured = false;
         if (!degraded) {
           degraded = true;
           deps.bus.publish({

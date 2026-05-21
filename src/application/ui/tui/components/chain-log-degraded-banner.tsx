@@ -11,6 +11,16 @@
  * warning strip — minimal screen real estate so it doesn't fight with the rest of the
  * chrome. The strip itself stays brief because the actionable detail (which sprint, which
  * reason) belongs in the JSONL on disk, not the banner.
+ *
+ * Subscription timing: the EventBus contract is explicitly no-replay (subscribers see only
+ * events published after they attach). The banner subscribes in `useEffect` on mount, so any
+ * `chain-log-degraded` event published between the banner's commit and the effect run would
+ * be missed. In practice this is a sub-millisecond window that closes before the file-log
+ * sink has had time to enqueue, write, and fail — degradations require either >10_000 events
+ * in flight or a real disk-write failure, neither of which can happen synchronously inside
+ * `wire()`. If a future code path ever surfaces a synchronous degradation before mount, the
+ * fix is at the bus / sink layer (e.g. an exposed `isDegraded()` snapshot on the sink that
+ * the banner reads as initial state), not here.
  */
 
 import React, { useEffect, useState } from 'react';
