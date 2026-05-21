@@ -66,4 +66,28 @@ describe('createFsChainLogLoader', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toHaveLength(1);
   });
+
+  it('caps the read at the tail bytes and drops the leading partial line on truncation', async () => {
+    const path = join(dir, 'chain.log');
+    // Fill the file with junk past the 8 MiB cap, then append a known sequence so a tail-read
+    // recovers the recent events while discarding the (now-mid-line) leading garbage.
+    const junk = `${'x'.repeat(1024 * 1024 - 1)}\n`; // 1 MiB minus newline + newline
+    await fs.writeFile(path, junk.repeat(9));
+    await fs.appendFile(
+      path,
+      [
+        JSON.stringify({ type: 'chain-started', chainId: 'rN', flowId: 'implement', at: '2026-05-08T10:00:00.000Z' }),
+        JSON.stringify({ type: 'chain-completed', chainId: 'rN', at: '2026-05-08T10:00:05.000Z' }),
+        '',
+      ].join('\n')
+    );
+    const load = createFsChainLogLoader();
+    const result = await load(absolutePath(path));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The most-recent two structured events MUST come through; whatever leading partial line the
+    // 8 MiB window cut into is discarded.
+    const events = result.value.map((e) => e.event);
+    expect(events.slice(-2)).toEqual(['chain-started', 'chain-completed']);
+  });
 });
