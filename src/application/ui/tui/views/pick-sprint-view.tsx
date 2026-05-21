@@ -28,6 +28,7 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
@@ -37,6 +38,45 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 
 const UNKNOWN_PROJECT_KEY = '__unknown__';
 const UNKNOWN_PROJECT_LABEL = 'Unknown project';
+
+/**
+ * Vertical chrome the picker reserves above + below the row list: title bar (≈3), subtitle (1),
+ * summary header + spacing (≈3), footer hint (≈2), scroll indicators (≈2), bottom margin (≈1).
+ * The window slice consumes `terminalRows - VERTICAL_CHROME_ROWS`, bounded by
+ * {@link MIN_VISIBLE_ROWS} so very short terminals still render a usable list.
+ */
+const VERTICAL_CHROME_ROWS = 12;
+const MIN_VISIBLE_ROWS = 8;
+
+/** @public */
+export interface RowWindow {
+  readonly start: number;
+  readonly end: number;
+  readonly hiddenAbove: number;
+  readonly hiddenBelow: number;
+}
+
+/**
+ * Compute a cursor-centred slice of the flat row list. Keeps the focused row near the middle of
+ * the window so the user always sees one screen of context above and below. Clamps to row-list
+ * bounds; if total rows fit within `visible`, returns the full list with no overflow indicators.
+ *
+ * Defined as a pure function (test-friendly) — the view memoises the call against `rows`,
+ * `cursor`, `visible`.
+ *
+ * @public
+ */
+export const computeWindow = (totalRows: number, cursor: number, visible: number): RowWindow => {
+  if (totalRows <= visible) return { start: 0, end: totalRows, hiddenAbove: 0, hiddenBelow: 0 };
+  const half = Math.floor(visible / 2);
+  let start = Math.max(0, cursor - half);
+  let end = start + visible;
+  if (end > totalRows) {
+    end = totalRows;
+    start = Math.max(0, end - visible);
+  }
+  return { start, end, hiddenAbove: start, hiddenBelow: totalRows - end };
+};
 
 interface PickerData {
   readonly sprints: readonly Sprint[];
@@ -193,20 +233,33 @@ export const PickSprintView = (): React.JSX.Element => {
     { keys: 'r', label: 'reload' },
   ]);
 
-  const { state, reload } = useAsyncLoad<PickerData>(async () => {
-    const [sprintsR, projectsR] = await Promise.all([deps.sprintRepo.list(), deps.projectRepo.list()]);
-    if (!sprintsR.ok) throw new Error(sprintsR.error.message);
-    if (!projectsR.ok) throw new Error(projectsR.error.message);
-    const projectsById = new Map<ProjectId, Project>();
-    for (const p of projectsR.value) projectsById.set(p.id, p);
-    return { sprints: sprintsR.value, projectsById };
-  }, []);
+  const { state, reload } = useAsyncLoad<PickerData>(
+    async (signal) => {
+      const [sprintsR, projectsR] = await Promise.all([deps.sprintRepo.list(), deps.projectRepo.list()]);
+      // Short-circuit on unmount / re-fetch: the underlying repo calls don't yet accept a signal,
+      // so we can't truly cancel the I/O — but bailing here avoids parsing a stale result and
+      // lets `useAsyncLoad` swallow the AbortError as a silent cancel.
+      signal.throwIfAborted();
+      if (!sprintsR.ok) throw new Error(sprintsR.error.message);
+      if (!projectsR.ok) throw new Error(projectsR.error.message);
+      const projectsById = new Map<ProjectId, Project>();
+      for (const p of projectsR.value) projectsById.set(p.id, p);
+      return { sprints: sprintsR.value, projectsById };
+    },
+    [deps.sprintRepo, deps.projectRepo]
+  );
 
   const data: PickerData = state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map() };
 
   const groups = useMemo(() => buildGroups(data, selection.projectId, scopeAll), [data, selection.projectId, scopeAll]);
   const rows = useMemo(() => flatten(groups), [groups]);
   const sprintCount = useMemo(() => rows.reduce((acc, r) => (r.kind === 'sprint' ? acc + 1 : acc), 0), [rows]);
+
+  // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
+  // pay an Ink reconciliation cost proportional to the full row list. Capacity tracks terminal
+  // height so the visible slice always fills the viewport without overflowing it.
+  const bp = useBreakpoint();
+  const visibleRows = Math.max(MIN_VISIBLE_ROWS, bp.rows - VERTICAL_CHROME_ROWS);
 
   // Pre-seed the cursor to the already-selected sprint so Enter is a one-keystroke confirm.
   const initialIdx = useMemo(() => {
@@ -356,20 +409,7 @@ export const PickSprintView = (): React.JSX.Element => {
               )}
             </Text>
           </Box>
-          <Box flexDirection="column">
-            {rows.map((row, i) =>
-              row.kind === 'header' ? (
-                <HeaderRowView key={`h-${row.groupKey}`} row={row} />
-              ) : (
-                <SprintRowView
-                  key={row.sprint.id}
-                  sprint={row.sprint}
-                  focused={i === cursor}
-                  isCurrent={selection.sprintId === row.sprint.id}
-                />
-              )
-            )}
-          </Box>
+          <RowWindowView rows={rows} cursor={cursor} visibleRows={visibleRows} currentSprintId={selection.sprintId} />
           <Box marginTop={spacing.section} paddingX={spacing.indent}>
             <Text dimColor>
               {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} + create a new
@@ -384,6 +424,45 @@ export const PickSprintView = (): React.JSX.Element => {
         </Box>
       )}
     </ViewShell>
+  );
+};
+
+interface RowWindowViewProps {
+  readonly rows: readonly FlatRow[];
+  readonly cursor: number;
+  readonly visibleRows: number;
+  readonly currentSprintId: string | undefined;
+}
+
+const RowWindowView = ({ rows, cursor, visibleRows, currentSprintId }: RowWindowViewProps): React.JSX.Element => {
+  const window = useMemo(() => computeWindow(rows.length, cursor, visibleRows), [rows.length, cursor, visibleRows]);
+  const slice = rows.slice(window.start, window.end);
+  return (
+    <Box flexDirection="column">
+      {window.hiddenAbove > 0 && (
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>▲ {String(window.hiddenAbove)} more above</Text>
+        </Box>
+      )}
+      {slice.map((row, i) => {
+        const absoluteIndex = i + window.start;
+        return row.kind === 'header' ? (
+          <HeaderRowView key={`h-${row.groupKey}-${String(absoluteIndex)}`} row={row} />
+        ) : (
+          <SprintRowView
+            key={row.sprint.id}
+            sprint={row.sprint}
+            focused={absoluteIndex === cursor}
+            isCurrent={currentSprintId === row.sprint.id}
+          />
+        );
+      })}
+      {window.hiddenBelow > 0 && (
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>▼ {String(window.hiddenBelow)} more below</Text>
+        </Box>
+      )}
+    </Box>
   );
 };
 

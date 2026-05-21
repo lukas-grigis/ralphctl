@@ -4,6 +4,5 @@
   "project": ["src/**/*.{ts,tsx}"],
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": ["ralphctl"],
-  "tags": ["-public"],
-  "ignore": ["src/application/ui/tui/runtime/use-breakpoint.ts"]
+  "tags": ["-public"]
 }
