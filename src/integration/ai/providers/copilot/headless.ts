@@ -222,7 +222,10 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   const { deps, spawnFn, command, args, session } = input;
   const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const });
   const parser = createCopilotStreamParser();
-  let body = '';
+  // Body accumulator: push raw plain-text lines, single .join('\n') at end (see below). A
+  // per-line `body = ${body}\n${raw}` form rebuilds the entire string each iteration — O(N²)
+  // in line count, observable on kilo-line streams. Do not reintroduce per-line concatenation.
+  const bodyLines: string[] = [];
   let sessionId: string | undefined;
   let stderrBuf = '';
 
@@ -247,7 +250,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
       return;
     }
-    body = body.length === 0 ? line.raw : `${body}\n${line.raw}`;
+    bodyLines.push(line.raw);
   };
 
   // Copilot reads the prompt from -p argv (no stdin payload). Tokens stream to stdout via the
@@ -287,6 +290,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   }
 
   if (code === 0) {
+    // Single join at end: empty → '', one entry → that string, many → joined with '\n', no
+    // trailing newline. Byte-identical to the prior per-line concatenation.
+    const body = bodyLines.join('\n');
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };

@@ -12,6 +12,20 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 
+/**
+ * Terminal SessionRecords older than this are eligible for TTL eviction. Bounds the descriptor
+ * map for long-running TUI sessions that fire many runs back-to-back.
+ */
+const SESSION_RECORD_TTL_MS = 30 * 60 * 1000;
+/**
+ * Hard cap on the descriptor map. Only terminal records are dropped to honour the cap; running
+ * and queued records are kept regardless of pressure so the operator never loses the live view.
+ */
+const SESSION_LRU_CAP = 50;
+
+const isTerminal = (status: RunnerStatus): boolean =>
+  status === 'completed' || status === 'failed' || status === 'aborted';
+
 export interface SessionDescriptor {
   readonly id: string;
   /** Stable flow identifier — drives the title shown in panels. */
@@ -79,7 +93,8 @@ export interface SessionManager {
   subscribe(fn: SessionListener): () => void;
 }
 
-export const createSessionManager = (): SessionManager => {
+export const createSessionManager = (opts?: { readonly clock?: () => number }): SessionManager => {
+  const clock = opts?.clock ?? Date.now;
   const records = new Map<string, SessionRecord>();
   const listeners = new Set<SessionListener>();
 
@@ -93,10 +108,45 @@ export const createSessionManager = (): SessionManager => {
     }
   };
 
+  // Age key for ordering / TTL: prefer the descriptor's `finishedAt`. Terminal records
+  // registered via the synthetic-replay path (runner reaches terminal before `register()` runs)
+  // will have `finishedAt` populated during the sync replay — but if a future runner contract
+  // change drops that guarantee, fall back to `startedAt` so the record is still LRU-eligible
+  // instead of becoming an un-evictable leak.
+  const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
+
+  const evict = (now: number): boolean => {
+    let removed = false;
+    // TTL pass: drop terminal records older than the window.
+    for (const [id, rec] of records) {
+      const { status } = rec.descriptor;
+      if (isTerminal(status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
+        records.delete(id);
+        removed = true;
+      }
+    }
+    // LRU pass: while above cap, drop the oldest terminal record (by ageKey asc). Running /
+    // queued records are never evicted — the cap is best-effort under that constraint.
+    if (records.size > SESSION_LRU_CAP) {
+      const terminals = [...records.values()]
+        .filter((rec) => isTerminal(rec.descriptor.status))
+        .sort((a, b) => ageKey(a) - ageKey(b));
+      for (const rec of terminals) {
+        if (records.size <= SESSION_LRU_CAP) break;
+        records.delete(rec.descriptor.id);
+        removed = true;
+      }
+    }
+    return removed;
+  };
+
   const update = (id: string, patch: Partial<SessionDescriptor>): void => {
     const cur = records.get(id);
     if (!cur) return;
     records.set(id, { ...cur, descriptor: { ...cur.descriptor, ...patch } });
+    if (patch.status !== undefined && isTerminal(patch.status)) {
+      evict(clock());
+    }
     notify();
   };
 
@@ -108,12 +158,13 @@ export const createSessionManager = (): SessionManager => {
       return records.get(id);
     },
     register({ runner, flowId, title, taskNames, maxTurns, plannedLeaves, terminalSubstepName }): SessionRecord {
+      evict(clock());
       const descriptor: SessionDescriptor = {
         id: runner.id,
         flowId,
         title,
         status: runner.status,
-        startedAt: Date.now(),
+        startedAt: clock(),
         trace: runner.trace,
         ...(taskNames !== undefined ? { taskNames } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
@@ -149,20 +200,20 @@ export const createSessionManager = (): SessionManager => {
             update(runner.id, { trace: runner.trace });
             return;
           case 'completed':
-            update(runner.id, { status: 'completed', finishedAt: Date.now(), trace: runner.trace });
+            update(runner.id, { status: 'completed', finishedAt: clock(), trace: runner.trace });
             detach();
             return;
           case 'failed':
             update(runner.id, {
               status: 'failed',
-              finishedAt: Date.now(),
+              finishedAt: clock(),
               trace: runner.trace,
               error: event.error,
             });
             detach();
             return;
           case 'aborted':
-            update(runner.id, { status: 'aborted', finishedAt: Date.now(), trace: runner.trace });
+            update(runner.id, { status: 'aborted', finishedAt: clock(), trace: runner.trace });
             detach();
         }
       });

@@ -310,6 +310,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     };
   }
 
+  // `envelope.body` is sourced from `parser.snapshot()` in O(1) — the parser holds a single
+  // string reassigned from the latest `result` event. No per-line concatenation in this
+  // adapter; preserve that invariant.
   const envelope = parser.snapshot();
 
   if (code === 0) {

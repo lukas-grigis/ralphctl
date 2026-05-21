@@ -117,6 +117,22 @@ export interface MemoryPressureEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Signals that the persistent `<sprintDir>/chain.log` sink can no longer keep up with the
+ * event-bus firehose — either because its in-memory queue hit the back-pressure cap
+ * (`reason: 'queue-full'`) or because an actual `fs.appendFile` write rejected
+ * (`reason: 'write-failed'`). Emitted EXACTLY ONCE per sink lifetime: once the first
+ * degradation fires the sink stops re-emitting, because the contract is "tell the operator
+ * the log is no longer trustworthy", not "spam the bus every time a write fails". The TUI
+ * latches a banner from this event and only clears it when the TUI restarts.
+ */
+export interface ChainLogDegradedEvent {
+  readonly type: 'chain-log-degraded';
+  readonly reason: 'queue-full' | 'write-failed';
+  readonly meta?: Readonly<Record<string, unknown>>;
+  readonly at: IsoTimestamp;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -129,4 +145,5 @@ export type AppEvent =
   | TaskAttemptEvaluatedEvent
   | FeedbackRoundAppliedEvent
   | LogEvent
-  | MemoryPressureEvent;
+  | MemoryPressureEvent
+  | ChainLogDegradedEvent;

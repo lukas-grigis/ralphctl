@@ -70,3 +70,10 @@ export const spacing = {
 
 /** Standard label width for field lists (`Repositories:` is the longest label). */
 export const FIELD_LABEL_WIDTH = 14;
+
+/**
+ * Visible-row budget for windowed list prompts (multi-select today; single-select / pickers in
+ * future). Keep all scrolling prompts to the same window height so the prompt frame stays a
+ * predictable size across the TUI.
+ */
+export const PROMPT_VISIBLE_ROWS = 8;

@@ -66,6 +66,9 @@ const stringField = (obj: Record<string, unknown>, ...names: readonly string[]):
 
 export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let buffer = '';
+  // `body` is reassigned from the latest `result` event's `.result` field in `ingest` (one
+  // O(1) write), never built by per-line concatenation. Keep it that way — see the analogous
+  // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts for why.
   let body = '';
   let sessionId: string | undefined;
   let model: string | undefined;
