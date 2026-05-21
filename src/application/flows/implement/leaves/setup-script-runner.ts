@@ -212,13 +212,98 @@ export const setupScriptRunnerLeaf = (
             // confirmation. Detect the marker in the tail and surface an actionable hint —
             // `npm_config_confirm_modules_purge=false` does NOT cover this code path in current
             // pnpm releases, so users need to fix it on the project side.
-            const pnpmTtyHint = outputTail.includes('ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY')
-              ? 'pnpm refuses to wipe node_modules without a TTY. Either run `pnpm install` once in a terminal to resync, add `--force` to the failing pnpm command, or launch ralphctl with `CI=1`.'
+            const noTtyDetected = outputTail.includes('ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY');
+
+            // Auto-retry once with CI=true when the no-TTY abort fires. CI=true flips pnpm into
+            // non-interactive mode where `removeModulesDirSafe` auto-confirms — bypassing the
+            // abort that surfaced above. This is the same workaround the operator was running
+            // manually (`CI=1 pnpm dev`), now automated.
+            //
+            // Trade-off: CI=true also changes behaviour for any co-located JVM tooling run by
+            // the same setup script — Maven Surefire respects it, and Spring Boot's
+            // `@DisabledIfEnvironmentVariable("CI")` gate may skip tests during the retry. The
+            // retry is logged loudly (warn) so the operator sees what happened and can correlate
+            // any oddly-skipped JVM tests with the auto-retry row in execution.json.
+            let finalExitCode = exitCode;
+            let finalOutputTail = outputTail;
+            let retryAttempted = false;
+            let retrySpawnErrorMessage: string | undefined;
+            if (noTtyDetected) {
+              retryAttempted = true;
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'warn',
+                message: `setup-script ${String(repo.path)}: pnpm no-TTY abort detected — auto-retrying once with CI=true (may alter Maven Surefire / Spring Boot @DisabledIfEnvironmentVariable("CI") behaviour for this run)`,
+                at: deps.clock(),
+              });
+
+              const retryStartedAt = deps.clock();
+              const retryResult = await deps.shellScriptRunner.run(repo.path, command, {
+                ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+                env: { RALPHCTL_LIFECYCLE_EVENT: 'setup', CI: 'true' },
+              });
+
+              if (!retryResult.ok) {
+                retrySpawnErrorMessage = retryResult.error.message;
+                const retryRun = makeSetupRun({
+                  repositoryId: repo.repositoryId,
+                  ranAt: deps.clock(),
+                  command,
+                  exitCode: -1,
+                  durationMs: 0,
+                  stdoutTail: '',
+                  stderrTail: retrySpawnErrorMessage,
+                  outcome: 'spawn-error',
+                });
+                // Audit row appended; the returned execution is intentionally discarded because
+                // we are about to return Result.error and the chain will not consume the value.
+                await persistRun(execution, retryRun, deps);
+              } else {
+                const retryValue = retryResult.value;
+                const retryOutputTail = tailBytes(retryValue.output, SCRIPT_TAIL_BYTES);
+                const retryExit = retryValue.exitCode ?? -1;
+                const retryOutcome: SetupRunOutcome = retryValue.passed ? 'success' : 'failed';
+                const retryRun = makeSetupRun({
+                  repositoryId: repo.repositoryId,
+                  ranAt: retryStartedAt,
+                  command,
+                  exitCode: retryExit,
+                  durationMs: retryValue.durationMs,
+                  stdoutTail: retryOutputTail,
+                  stderrTail: '',
+                  outcome: retryOutcome,
+                });
+                execution = await persistRun(execution, retryRun, deps);
+
+                if (retryValue.passed) {
+                  deps.eventBus.publish({
+                    type: 'log',
+                    level: 'info',
+                    message: `setup-script ${String(repo.path)}: succeeded on retry with CI=true (exit=0, ${String(retryValue.durationMs)}ms)`,
+                    at: deps.clock(),
+                  });
+                  continue;
+                }
+
+                // Retry ran but still failed — fall through to the existing failure flow using
+                // the retry's exit code + tail (operator wants to see what the retry actually
+                // did, not the first attempt).
+                finalExitCode = retryValue.exitCode;
+                finalOutputTail = retryOutputTail;
+              }
+            }
+
+            const pnpmTtyHint = noTtyDetected
+              ? retrySpawnErrorMessage !== undefined
+                ? `pnpm no-TTY abort triggered an auto-retry with CI=true, but the retry could not spawn (${retrySpawnErrorMessage}). Manual project-side fix required: run \`pnpm install\` once in a terminal to resync, or pin the lockfile.`
+                : 'pnpm no-TTY abort triggered an auto-retry with CI=true; the retry also failed. Manual project-side fix required: run `pnpm install` once in a terminal to resync, or pin the lockfile.'
               : undefined;
             deps.eventBus.publish({
               type: 'log',
               level: 'error',
-              message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
+              message: retryAttempted
+                ? `setup-script ${String(repo.path)}: failed after CI=true auto-retry (exit=${String(finalExitCode ?? 'null')})`
+                : `setup-script ${String(repo.path)}: failed (exit=${String(finalExitCode ?? 'null')})`,
               at: deps.clock(),
             });
             // Surface the last few lines of script output as error-level logs so the TUI's
@@ -226,8 +311,10 @@ export const setupScriptRunnerLeaf = (
             // capped to SCRIPT_TAIL_BYTES; further cap per line (200 chars) + line count (20)
             // so a chatty failure does not flood the buffer. Placed after the headline so
             // chronological log order reads headline-then-detail. Spawn-error / skipped
-            // branches have nothing to surface — both are exempt.
-            const tailLines = outputTail
+            // branches have nothing to surface — both are exempt. When a retry ran, the tail
+            // reflects the retry's output (not the first attempt's) — operators want to see
+            // what the retry actually did.
+            const tailLines = finalOutputTail
               .split('\n')
               .map((l) => l.trimEnd())
               .filter((l) => l.length > 0)
@@ -248,8 +335,8 @@ export const setupScriptRunnerLeaf = (
               message: `Setup script failed for ${String(repo.path)}: ${command}`,
               cause:
                 pnpmTtyHint !== undefined
-                  ? `exit ${String(exitCode ?? 'null')} — ${pnpmTtyHint}`
-                  : `exit ${String(exitCode ?? 'null')}`,
+                  ? `exit ${String(finalExitCode ?? 'null')} — ${pnpmTtyHint}`
+                  : `exit ${String(finalExitCode ?? 'null')}`,
               at: deps.clock(),
             });
             return Result.error(
@@ -262,8 +349,8 @@ export const setupScriptRunnerLeaf = (
                 // command + path are in the banner / log / execution.json audit row.
                 message:
                   pnpmTtyHint !== undefined
-                    ? `exited ${String(exitCode ?? 'null')} (no-tty pnpm)`
-                    : `exited ${String(exitCode ?? 'null')}`,
+                    ? `exited ${String(finalExitCode ?? 'null')} (no-tty pnpm)`
+                    : `exited ${String(finalExitCode ?? 'null')}`,
                 hint:
                   pnpmTtyHint ??
                   'Inspect the setup-script tail in execution.json for the failing repo and fix the environment.',

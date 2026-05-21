@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
-import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
+import type { ShellRunOptions, ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -79,6 +79,41 @@ const spawnErrorShell = (message = 'spawn ENOENT'): ShellScriptRunner => ({
   },
 });
 
+interface MultiCallShellCall {
+  readonly env: NodeJS.ProcessEnv | undefined;
+}
+
+interface MultiCallShell {
+  readonly runner: ShellScriptRunner;
+  readonly calls: readonly MultiCallShellCall[];
+}
+
+/**
+ * Per-call scripted shell. Each entry is either a `ShellScriptResult` (ok) or a `StorageError`
+ * (spawn-error). Calls past the last entry throw — the test should assert the call count.
+ */
+const multiCallShell = (results: ReadonlyArray<Partial<ShellScriptResult> | StorageError>): MultiCallShell => {
+  const calls: MultiCallShellCall[] = [];
+  let i = 0;
+  const runner: ShellScriptRunner = {
+    async run(_cwd, _script, opts?: ShellRunOptions) {
+      calls.push({ env: opts?.env });
+      const next = results[i];
+      i += 1;
+      if (next === undefined) throw new Error(`multiCallShell: unexpected call #${String(i)}`);
+      if (next instanceof StorageError) return Result.error(next);
+      return Result.ok({
+        passed: false,
+        exitCode: 1,
+        output: '',
+        durationMs: 50,
+        ...next,
+      });
+    },
+  };
+  return { runner, calls };
+};
+
 const baseExecution = (): SprintExecution => createSprintExecution({ sprintId });
 
 const initialCtx = (execution: SprintExecution): ImplementCtx => ({ sprintId, execution });
@@ -149,6 +184,100 @@ describe('setupScriptRunnerLeaf', () => {
     expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('compile error'))).toBe(true);
     // Error message no longer repeats the repo name (the rail row already prefixes it).
     expect(result.error.error.message).toBe('exited 7');
+  });
+
+  it('auto-retries with CI=true when pnpm aborts on missing TTY', async () => {
+    // Operator-supplied workaround for `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` (pnpm refuses
+    // to wipe node_modules without an interactive confirmation) is `CI=true`. The leaf now
+    // auto-retries once when the marker is detected — first attempt fails, retry passes.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const shell = multiCallShell([
+      { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY: stuff' },
+      { passed: true, exitCode: 0, output: 'ok' },
+    ]);
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    if (!result.ok) throw new Error(`expected ok: ${result.error.error.message}`);
+
+    // Both rows appended to execution.setupRanAt — the first failure is preserved alongside the
+    // retry's success so the audit trail shows what actually happened.
+    const exec = result.value.ctx.execution as SprintExecution;
+    expect(exec.setupRanAt).toHaveLength(2);
+    expect(exec.setupRanAt[0]?.outcome).toBe('failed');
+    expect(exec.setupRanAt[1]?.outcome).toBe('success');
+    expect(repo.saves).toHaveLength(2);
+
+    // Operator-visible warn log surfaces the auto-retry so JVM @DisabledIfEnvironmentVariable("CI")
+    // skips during the retry are explainable, plus an info log on success.
+    expect(
+      bus.logs.some((l) => l.level === 'warn' && l.message.includes('auto-retrying') && l.message.includes('CI=true'))
+    ).toBe(true);
+    expect(
+      bus.logs.some((l) => l.level === 'info' && l.message.includes('retry') && l.message.includes('CI=true'))
+    ).toBe(true);
+
+    // Spawn called twice; second call's env contains CI=true.
+    expect(shell.calls).toHaveLength(2);
+    expect(shell.calls[0]?.env?.CI).toBeUndefined();
+    expect(shell.calls[1]?.env?.CI).toBe('true');
+  });
+
+  it("fails when even the CI=true retry can't recover", async () => {
+    // When the no-TTY abort survives the auto-retry the chain still aborts, with both rows
+    // persisted and the hint text updated to reflect that the retry was already attempted.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const shell = multiCallShell([
+      { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY first try' },
+      { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY retry too' },
+    ]);
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.error).toBeInstanceOf(InvalidStateError);
+    // Both attempts persisted, both failed.
+    expect(repo.saves).toHaveLength(2);
+    const finalExec = repo.saves[repo.saves.length - 1];
+    expect(finalExec?.setupRanAt).toHaveLength(2);
+    expect(finalExec?.setupRanAt[0]?.outcome).toBe('failed');
+    expect(finalExec?.setupRanAt[1]?.outcome).toBe('failed');
+    // Error message keeps the no-tty pnpm trim form even after a failed retry.
+    expect(result.error.error.message).toBe('exited 1 (no-tty pnpm)');
+    // Hint must mention the auto-retry was attempted (no longer suggests trying CI=1).
+    const invalidStateError = result.error.error as InvalidStateError;
+    expect(invalidStateError.hint ?? '').toContain('auto-retry');
+    expect(invalidStateError.hint ?? '').toContain('CI=true');
+    // Retry's tail is what gets surfaced to the Recent log (not the first attempt's).
+    expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('retry too'))).toBe(true);
+    expect(shell.calls).toHaveLength(2);
+    expect(shell.calls[1]?.env?.CI).toBe('true');
   });
 
   it('records a spawn-error row with exitCode -1 and aborts when the shell cannot start', async () => {
