@@ -10,12 +10,25 @@
  * out of the view.
  *
  * Mirrors {@link useTaskRoundTracker} — same Map-per-update referential-equality pattern so
- * React consumers re-render on every change.
+ * React consumers re-render on every change. Unlike the round tracker (keyed by stable
+ * `taskId`), the token-usage Map is keyed by per-spawn `sessionId` and so is capped at
+ * {@link TOKEN_USAGE_SESSION_CAP} entries (LRU on insertion order) — a long Implement run with
+ * many rounds × tasks × rate-limit retries could otherwise grow the Map unboundedly.
  */
 
 import { useEffect, useState } from 'react';
 import type { AppEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+
+/**
+ * Hard cap on retained per-session token-usage entries. Each entry is small (~100 bytes) but
+ * the keying is per-spawn (sessionId comes from the AI CLI's `system.init` event), so a
+ * multi-hundred-round implement run can accumulate hundreds of sessions across the TUI's
+ * lifetime. 100 keeps roughly the most recent runner's worth of spawns hot for display while
+ * preventing the Map from becoming a slow leak — the TokenBudgetCard only ever reads the
+ * current session, so dropping stale entries is harmless.
+ */
+const TOKEN_USAGE_SESSION_CAP = 100;
 
 /** @public */
 export interface TokenUsage {
@@ -53,7 +66,16 @@ export const useTokenUsage = (bus: EventBus): ReadonlyMap<string, TokenUsage> =>
       if (!isTokenUsage(event)) return;
       setUsage((prev) => {
         const next = new Map(prev);
+        // Delete + re-set so an updated session jumps to the end of insertion order; the LRU
+        // eviction below then drops the actually-oldest entry, not whichever sessionId hashed
+        // first in Map's insertion order.
+        next.delete(event.sessionId);
         next.set(event.sessionId, toUsage(event));
+        while (next.size > TOKEN_USAGE_SESSION_CAP) {
+          const oldest = next.keys().next().value;
+          if (oldest === undefined) break;
+          next.delete(oldest);
+        }
         return next;
       });
     });

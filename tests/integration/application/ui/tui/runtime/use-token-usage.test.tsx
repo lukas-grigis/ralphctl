@@ -109,4 +109,30 @@ describe('useTokenUsage', () => {
     expect(last.size).toBe(0);
     r.unmount();
   });
+
+  it('caps retained sessions at the LRU limit and evicts the oldest on overflow', async () => {
+    const bus = createInMemoryEventBus();
+    let last: ReadonlyMap<string, TokenUsage> = new Map();
+    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+
+    // Publish 105 distinct sessions; the cap is 100. Expect the 5 oldest to be evicted.
+    for (let i = 0; i < 105; i += 1) {
+      bus.publish({
+        type: 'token-usage',
+        sessionId: `sess-${String(i)}`,
+        provider: 'claude-code',
+        inputTokens: i,
+        at: NOW,
+      });
+    }
+    await new Promise((res) => setTimeout(res, 5));
+
+    expect(last.size).toBe(100);
+    // The 5 oldest (sess-0..sess-4) were evicted; the 5 most-recent (sess-100..sess-104) remain.
+    expect(last.has('sess-0')).toBe(false);
+    expect(last.has('sess-4')).toBe(false);
+    expect(last.has('sess-5')).toBe(true);
+    expect(last.has('sess-104')).toBe(true);
+    r.unmount();
+  });
 });
