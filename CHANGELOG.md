@@ -158,6 +158,32 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   trailer). A disclosure glyph (`▸` / `▾`) replaces one leading space; degenerate subject-only rows suppress
   the caret.
 
+- **Named responsive breakpoints + `useBreakpoint` hook.** `theme/tokens.ts` now exports a full web-style
+  breakpoint vocabulary for terminal widths: `sm` (80), `md` (100), `lg` (140), `xl` (180), `xxl` (220).
+  Pure helpers `breakpointFor`, `fluid`, and `responsive` let views resolve layout values without
+  hardcoding column literals. `useBreakpoint()` hook re-derives on every `SIGWINCH` via the underlying
+  terminal-size subscription, so any view that calls it reacts cleanly on resize.
+
+- **Fluid Execute-view rail width at `xl`+.** `resolveRailWidth(columns)` returns a fixed 24-col rail
+  below `xl` (< 180) and a `fluid`-grown 28→40-col rail at `xl`+ (ratio 0.18 of terminal width). The
+  compact-rail `COMPACT_RAIL_WIDTH = 6` continues to apply at `md` (100–139).
+
+- **`Element.label` + `TraceEntry.label` — human-friendly display labels for chain elements.** Flow
+  authors can pass `leaf(name, config, { label })` to attach a display label without changing the
+  canonical element name used for dedupe and trace correlation. The TUI `StepTrace` component renders
+  `label` when present and mid-truncates to fit the rail column budget, preventing path-jammed element
+  names from appearing in the rail.
+
+- **Cross-project sprint picker (`S`) and project picker (`P`).** Two new global hotkeys open modal
+  overlay pickers that work from any view. The sprint picker's `t` key toggles scope between the current
+  project and all projects. `setProjectAndSprint` on the `SelectionApi` updates project and sprint
+  atomically — no partial state visible mid-transition.
+
+- **Copilot `session.cwd` forwarded to spawned child process.** Provider adapters now pass
+  `AiSession.cwd` as the child process working directory so context-file autoload
+  (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), agents, and `.mcp.json` resolve
+  correctly from the repo root rather than ralphctl's own cwd.
+
 ### Fixed
 
 - **Commit-message signal deduplication.** The AI's parse-time signal (no `fullMessage`) is dropped from the
@@ -167,6 +193,22 @@ generate tasks`; on the first round before any signal fires, the active-task spi
 - **Signal body truncation replaced with flex-driven ellision.** The hardcoded 60/80-char clip is replaced by
   `<Text wrap="truncate-end">` inside a `flexGrow={1}` box so Ink ellides at actual rendered width. Multi-line
   payloads are pre-collapsed to one line before ellision.
+
+- **Preflight-task step IDs cleaned up via `Element.label`.** The implement flow now attaches a short
+  human-readable `label` (e.g. `preflight · my-repo`) to per-repo preflight leaves whose element `name`
+  embeds an absolute path. Path-jammed names no longer appear in the step rail.
+
+- **Copilot body-file capture honoured.** The Copilot headless adapter now respects `session.bodyFile`
+  for forensic diagnostic capture so the response body is written to the configured path rather than
+  discarded.
+
+- **Copilot unrecognised JSON events preserved + body-text parser broadened.** Unknown JSON event
+  objects are forwarded to the log instead of dropped; the body-text parser now matches a wider range
+  of Copilot CLI output shapes for more robust signal extraction.
+
+- **Shell scripts use narrow pnpm flag.** Setup and check scripts no longer set `CI=true` when
+  invoking pnpm — the narrower `--reporter=default` flag is used instead, avoiding accidental CI
+  detection in downstream tooling.
 
 ### Changed
 
