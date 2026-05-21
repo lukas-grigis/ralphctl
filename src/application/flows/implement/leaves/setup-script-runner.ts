@@ -221,6 +221,26 @@ export const setupScriptRunnerLeaf = (
               message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
               at: deps.clock(),
             });
+            // Surface the last few lines of script output as error-level logs so the TUI's
+            // Recent-log tail renders the actionable bit alongside the headline. Bytes already
+            // capped to SCRIPT_TAIL_BYTES; further cap per line (200 chars) + line count (20)
+            // so a chatty failure does not flood the buffer. Placed after the headline so
+            // chronological log order reads headline-then-detail. Spawn-error / skipped
+            // branches have nothing to surface — both are exempt.
+            const tailLines = outputTail
+              .split('\n')
+              .map((l) => l.trimEnd())
+              .filter((l) => l.length > 0)
+              .slice(-20);
+            const repoBasename = basename(String(repo.path));
+            for (const line of tailLines) {
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'error',
+                message: `setup-script (${repoBasename}): ${line.slice(0, 200)}`,
+                at: deps.clock(),
+              });
+            }
             deps.eventBus.publish({
               type: 'banner-show',
               id: `setup-script-${String(repo.repositoryId)}`,
@@ -237,9 +257,13 @@ export const setupScriptRunnerLeaf = (
                 entity: 'sprint',
                 currentState: 'pre-implement',
                 attemptedAction: 'setup-script',
-                // Basename so the rail's error line stays scannable; the full path lives in the
-                // banner / log / execution.json audit row already.
-                message: `setup-script (${basename(String(repo.path))}) exited ${String(exitCode ?? 'null')}`,
+                // The rail row already prefixes `setup-script · <repo>`; the message stays
+                // minimal so the operator's eye is not retracing the same name. The full
+                // command + path are in the banner / log / execution.json audit row.
+                message:
+                  pnpmTtyHint !== undefined
+                    ? `exited ${String(exitCode ?? 'null')} (no-tty pnpm)`
+                    : `exited ${String(exitCode ?? 'null')}`,
                 hint:
                   pnpmTtyHint ??
                   'Inspect the setup-script tail in execution.json for the failing repo and fix the environment.',

@@ -144,6 +144,11 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.stdoutTailBytes).toContain('compile error');
     // Error-level log fires so the TUI surfaces the failure.
     expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('failed'))).toBe(true);
+    // Tail surfacing: the leaf also publishes the last lines of script output as error-level
+    // logs so the operator sees the failing line in the Recent-log tail.
+    expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('compile error'))).toBe(true);
+    // Error message no longer repeats the repo name (the rail row already prefixes it).
+    expect(result.error.error.message).toBe('exited 7');
   });
 
   it('records a spawn-error row with exitCode -1 and aborts when the shell cannot start', async () => {
