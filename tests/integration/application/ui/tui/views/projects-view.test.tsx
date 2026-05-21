@@ -3,7 +3,7 @@
  * populated row + footer when one exists, and `c` pushes the create-project route.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { ProjectsView } from '@src/application/ui/tui/views/projects-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -12,6 +12,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import { makeProject } from '@tests/fixtures/domain.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 
 const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
   ({
@@ -59,6 +60,39 @@ describe('ProjectsView', () => {
     result.stdin.write('c');
     await tick();
     expect(routeIds()).toContain('create-project');
+    result.unmount();
+  });
+
+  it("pressing 'e' opens a rename prompt and persists the new displayName", async () => {
+    const project = makeProject({ displayName: 'Old Label' });
+    const save = vi.fn(async (p: Project) => Result.ok<Project>(p));
+    const repo = {
+      async list() {
+        return Result.ok([project] as readonly Project[]);
+      },
+      async findById() {
+        return Result.ok(project);
+      },
+      save,
+      async remove() {
+        return Result.ok(undefined);
+      },
+    } as unknown as ProjectRepository;
+    const queue = createPromptQueue();
+    const deps = stubDeps([project]);
+    (deps as unknown as { projectRepo: ProjectRepository }).projectRepo = repo;
+    const { result } = renderView(<ProjectsView />, { deps, initial: { id: 'projects' }, queue });
+    await tick(40);
+    result.stdin.write('e');
+    await tick(40);
+    expect(queue.head?.kind).toBe('text');
+    if (queue.head?.kind === 'text') {
+      expect(queue.head.initial).toBe('Old Label');
+    }
+    queue.resolveHead('New Label');
+    await tick(40);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]?.[0]?.displayName).toBe('New Label');
     result.unmount();
   });
 });
