@@ -34,6 +34,17 @@ export type ElementResult<TCtx> = Result<ElementSuccess<TCtx>, ElementFailure>;
  */
 export interface Element<TCtx> {
   readonly name: string;
+  /**
+   * Optional human-friendly display label. The chain framework treats `name` as the canonical
+   * identifier (used for dedupe, trace correlation, plan/trace merge) — `label` exists purely so
+   * UI surfaces can render something more readable without forcing flow authors to bake display
+   * concerns into the element name. When absent, callers fall back to `name`.
+   *
+   * Example: a per-repo preflight leaf keeps `name = 'preflight-task-1-/abs/path'` (stable +
+   * unique across the multi-repo iteration) but exposes `label = 'preflight · my-repo'` for the
+   * TUI rail.
+   */
+  readonly label?: string;
   readonly children?: ReadonlyArray<Element<TCtx>>;
   execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace): Promise<ElementResult<TCtx>>;
 }

@@ -13,6 +13,13 @@ export type TraceStatus = 'completed' | 'failed' | 'skipped' | 'aborted';
 
 export interface TraceEntry {
   readonly elementName: string;
+  /**
+   * Optional human-friendly display label, copied from the source `Element.label` at the moment
+   * the entry is recorded. `elementName` remains the canonical identifier; UIs render `label`
+   * when present and fall back to `elementName`. Synthetic entries (`skipped`, `aborted`)
+   * constructed without an originating element omit this field.
+   */
+  readonly label?: string;
   readonly status: TraceStatus;
   readonly durationMs: number;
   readonly error?: DomainError;
