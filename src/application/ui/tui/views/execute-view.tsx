@@ -33,6 +33,7 @@ import {
   COMPACT_RAIL_WIDTH,
   CONTEXT_WIDTH,
   RAIL_WIDTH,
+  fluid,
   glyphs,
   inkColors,
   resolveRailWidth,
@@ -449,6 +450,8 @@ export const ExecuteView = (): React.JSX.Element => {
   // whichever column actually renders.
   const threeColRailWidth = resolveRailWidth(term.columns);
   const labelledRailWidth = threeColumn ? threeColRailWidth : RAIL_WIDTH;
+  // Context column grows slightly at xxl so the baseline card has a little more breathing room.
+  const contextWidth = fluid(term.columns, { min: CONTEXT_WIDTH, max: 36, ratio: 0.14 });
 
   const flowStepsPanel = (
     <StepTrace
@@ -556,12 +559,14 @@ export const ExecuteView = (): React.JSX.Element => {
                 {tasksPanel}
               </Box>
               {/* Right context column — baseline-health card (P1k) on top, token-budget card
-                  (P2b) below. P3a ETA stacks here in a later wave. */}
-              <Box flexDirection="column" width={CONTEXT_WIDTH} flexShrink={0}>
+                  (P2b) below. P3a ETA stacks here in a later wave.
+                  `contextWidth` grows slightly at xxl (fluid 28→36 at 0.14× columns). */}
+              <Box flexDirection="column" width={contextWidth} flexShrink={0}>
                 <BaselineHealthCard
                   {...(executionState !== undefined ? { execution: executionState } : {})}
                   {...(taskState !== undefined ? { tasks: taskState } : {})}
                   now={now}
+                  width={contextWidth}
                 />
                 <Box marginTop={spacing.section}>
                   <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />

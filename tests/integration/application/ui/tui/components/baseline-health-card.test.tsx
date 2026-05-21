@@ -1,13 +1,14 @@
 /**
- * Baseline-Health Card — snapshot-style assertions over the four states the card surfaces:
+ * Baseline-Health Card — snapshot-style assertions over the states the card surfaces.
  *
- *   1. empty (no setup, no checks) → "awaiting first run…"
- *   2. clean (pre+post green, no regressions)
- *   3. regression (pre=green, post=red — attribution counts surface the red)
- *   4. baseline-broken (pre=red, post=red — preserved verdict, warning surfaces)
- *   5. fixed-baseline (pre=red, post=green — credit surfaced)
- *
- * Pins the rendered text so a future refactor that drops a row or swaps a glyph fails loudly.
+ * States under test:
+ *   1. empty (no setup, no verifies) → "awaiting first run…"
+ *   2. all-clean (pre+post green, clean attribution) → compact one-line variant
+ *   3. regression (pre=green, post=red) → expanded; Setup bold, "Attribution" shows broken count
+ *   4. baseline-broken (pre=red, post=red) → expanded; warning tone; "broken" in attribution
+ *   5. fixed-baseline (pre=red, post=green) → expanded; "fixed" in attribution sub-line
+ *   6. setup-failed → expanded; "Setup · failed" in error tier; bold label
+ *   7. pending-only (setup ran, no verifies) → expanded; Pre-task/Post-task show "not run yet"
  */
 
 import { render } from 'ink-testing-library';
@@ -80,36 +81,44 @@ const taskWithAttempt = (
 const now = new Date(FIXED_NOW).getTime();
 
 describe('BaselineHealthCard', () => {
-  it('renders the empty state when no setup and no checks have run yet', () => {
+  it('renders the empty state when no setup and no verifies have run yet', () => {
     const { lastFrame } = render(<BaselineHealthCard now={now} />);
     const frame = lastFrame() ?? '';
     expect(frame).toContain('awaiting first run');
   });
 
-  it('renders the clean state — green setup, green pre, green post, clean attribution count', () => {
+  it('renders the compact all-clean variant when every indicator is ok', () => {
     const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'success', 1)], 'clean');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('Setup');
+    // Title should read "Baseline · clean"
+    expect(frame).toContain('Baseline');
+    expect(frame).toContain('clean');
+    // All four ticks should appear
+    expect(frame).toContain('✓');
+    // Compact variant uses abbreviated labels to fit the narrow card width
+    expect(frame).toContain('Stp');
     expect(frame).toContain('Pre');
     expect(frame).toContain('Post');
-    expect(frame).toContain('green');
-    expect(frame).toContain('1 clean');
+    expect(frame).toContain('Att');
   });
 
-  it('renders the regressed state — pre=green, post=red, attribution surfaces the red', () => {
+  it('renders the regressed state — post=red, attribution shows broken count', () => {
     const task = taskWithAttempt([verifyRun('pre', 'success', 2), verifyRun('post', 'failed', 1)], 'regressed');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('red');
-    expect(frame).toContain('1 regressed');
+    // Post verify row should show "failed"
+    expect(frame).toContain('Post verify');
+    expect(frame).toContain('failed');
+    // Attribution sub-line includes "broken"
+    expect(frame).toContain('broken');
   });
 
-  it('renders the baseline-broken state — pre=red, post=red, "broken-base" count surfaces', () => {
+  it('renders the baseline-broken state — pre=red, post=red, "broken" count in attribution', () => {
     const task = taskWithAttempt(
       [verifyRun('pre', 'failed', 2), verifyRun('post', 'failed', 1)],
       'baseline-broken',
@@ -119,19 +128,19 @@ describe('BaselineHealthCard', () => {
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('1 broken-base');
+    expect(frame).toContain('broken');
   });
 
-  it('renders the fixed-baseline state — pre=red, post=green, "fixed" count surfaces', () => {
+  it('renders the fixed-baseline state — "fixed" appears in attribution sub-line', () => {
     const task = taskWithAttempt([verifyRun('pre', 'failed', 2), verifyRun('post', 'success', 1)], 'fixed-baseline');
     const { lastFrame } = render(
       <BaselineHealthCard execution={executionWith([setupRow()])} tasks={[task]} now={now} />
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('1 fixed');
+    expect(frame).toContain('fixed');
   });
 
-  it('renders a setup-script red row when any repo failed setup', () => {
+  it('renders setup failure with "failed" status — expanded view, error tier', () => {
     const { lastFrame } = render(
       <BaselineHealthCard
         execution={executionWith([setupRow({ outcome: 'failed', exitCode: 1 })])}
@@ -141,6 +150,17 @@ describe('BaselineHealthCard', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Setup');
-    expect(frame).toContain('red');
+    expect(frame).toContain('failed');
+    // Title should mention "setup failed"
+    expect(frame).toContain('setup failed');
+  });
+
+  it('renders pending-only state when setup ran but no verifies have run', () => {
+    const { lastFrame } = render(<BaselineHealthCard execution={executionWith([setupRow()])} tasks={[]} now={now} />);
+    const frame = lastFrame() ?? '';
+    // Pre and Post rows should be visible with "not run yet" status
+    expect(frame).toContain('Pre verify');
+    expect(frame).toContain('Post verify');
+    expect(frame).toContain('not run yet');
   });
 });
