@@ -39,15 +39,12 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  *   | additionalRoots: [a, b]                               | `--add-dir=a --add-dir=b`                          |
  *   | permissions {autoApprove,canEditFiles,canRunShell}    | `--allow-all`                                      |
  *   | permissions read-only (no edit, no shell)             | `--deny-tool=write --deny-tool=shell`              |
- *   | resume: <any>                                         | `InvalidStateError` — `-p` cannot resume           |
+ *   | resume: <id>                                          | `--resume=<id>`                                    |
  *   | prompt                                                | argv: `-p <prompt>`                                |
  *
- * Resume note: Copilot's `--resume[=VALUE]` is documented as interactive-only ("Resume a
- * previous interactive session by choosing from a list"), and the official CLI reference
- * does not allow it alongside `-p` / `--prompt`. Per the {@link AiSession} fail-loud advisory
- * contract, this adapter surfaces `InvalidStateError` when a caller threads `resume` rather
- * than silently emitting a flag the CLI rejects. See
- * https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference.
+ * Resume note: current Copilot CLI accepts `--resume[=VALUE]` with `-p` / `--prompt`.
+ * The adapter forwards {@link AiSession.resume} when present so headless runs can re-attach
+ * to a prior session id.
  *
  * Copilot's prompt is passed as a CLI argument (`-p <text>`) rather than piped via stdin.
  * Argv length is the OS limit (~2MB on macOS); revisit if a chain hits it.
@@ -107,23 +104,10 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
       })
     );
   }
-  if (session.resume !== undefined) {
-    return Result.error(
-      new InvalidStateError({
-        entity: 'copilot-provider',
-        currentState: 'resume-with-print',
-        attemptedAction: 'build argv',
-        message:
-          'copilot-provider: --resume is interactive-only and cannot combine with -p; AiSession.resume is not supported on the Copilot headless path',
-      })
-    );
-  }
   // `--autopilot` is required for autonomous continuation; without it Copilot may pause
   // between actions in non-interactive mode and never finish the turn. v1's working headless
   // adapter sets this flag too — keeping the patterns aligned across versions.
-  // `--model` and `--add-dir` are equals-only per the Copilot CLI reference; the space form
-  // leaves the parser without a bound value and corrupts argv enough that the prompt seed
-  // silently fails (interactive: empty input box; headless: no execution). Use `=value`.
+  // We use `--model=<value>` / `--add-dir=<value>` for deterministic argv construction.
   const args: string[] = [
     '--output-format=json',
     '--autopilot',
@@ -131,6 +115,9 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
     '--no-ask-user',
     `--model=${session.model}`,
   ];
+  if (session.resume !== undefined) {
+    args.push(`--resume=${String(session.resume)}`);
+  }
   if (isFullAuto(session.permissions)) {
     args.push('--allow-all');
   } else {
@@ -264,10 +251,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       if (line.usage !== undefined) {
         usage = line.usage;
       }
+      if (line.bodyText !== undefined && line.bodyText.length > 0) {
+        bodyLines.push(line.bodyText);
+      }
       deps.eventBus.publish({
         type: 'log',
         level: 'debug',
-        message: 'copilot-provider: stdout meta line',
+        message: 'copilot-provider: stdout json line',
         meta: { raw: line.raw },
         at: IsoTimestamp.now(),
       });

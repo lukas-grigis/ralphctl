@@ -3,8 +3,8 @@
  * `parse-claude-stream.ts` so the Copilot adapter can drive the same accumulation pattern.
  *
  * The Copilot CLI emits one JSON object per line; non-JSON lines (rare; usually banner /
- * status) pass through as raw text. Tools are not consuming the structured events at the
- * moment — the adapter just accumulates plain-text lines into the response body.
+ * status) pass through as raw text. We parse metadata (session/model/usage) and conservatively
+ * extract assistant body text from known event shapes.
  */
 
 /**
@@ -29,6 +29,11 @@ export interface CopilotStreamLine {
   readonly model?: string;
   /** Convenience: token counters pulled from any `usage` sub-object on the meta line. */
   readonly usage?: CopilotUsage;
+  /**
+   * Assistant body text extracted from a known JSON event shape.
+   * Absent for metadata-only records.
+   */
+  readonly bodyText?: string;
 }
 
 export interface CopilotStreamParser {
@@ -78,6 +83,20 @@ const extractUsage = (json: Record<string, unknown>): CopilotUsage | undefined =
   };
 };
 
+const extractBodyText = (json: Record<string, unknown>): string | undefined => {
+  const eventType = stringField(json, 'type');
+  const data = json['data'];
+  if (!isRecord(data)) return undefined;
+  // Conservative extraction: only known assistant-content events.
+  if (eventType === 'assistant.message_delta') {
+    return stringField(data, 'deltaContent');
+  }
+  if (eventType === 'assistant.message') {
+    return stringField(data, 'content');
+  }
+  return undefined;
+};
+
 export const createCopilotStreamParser = (): CopilotStreamParser => {
   let buffer = '';
   const emit = (raw: string, onLine: (line: CopilotStreamLine) => void): void => {
@@ -88,12 +107,14 @@ export const createCopilotStreamParser = (): CopilotStreamParser => {
         const sessionId = stringField(json, 'session_id', 'sessionId');
         const model = stringField(json, 'model');
         const usage = extractUsage(json);
+        const bodyText = extractBodyText(json);
         const line: CopilotStreamLine = {
           raw,
           json,
           ...(sessionId !== undefined ? { sessionId } : {}),
           ...(model !== undefined ? { model } : {}),
           ...(usage !== undefined ? { usage } : {}),
+          ...(bodyText !== undefined ? { bodyText } : {}),
         };
         onLine(line);
         return;

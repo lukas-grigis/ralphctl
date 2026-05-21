@@ -213,6 +213,28 @@ describe('createCopilotProvider', () => {
     if (out.ok) return;
     expect(out.error.code).toBe('rate-limit');
   });
+
+  it('parses harness signals from JSON-only assistant delta events', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"session_id":"sess-json","model":"gpt-5.1"}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"<progress>json working</progress>"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"<task-verified>json ok</task-verified>"}}\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const signals = await readSignals(String(out.value.signalsFile));
+    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+  });
 });
 
 describe('createCopilotProvider — TokenUsageEvent emission', () => {
@@ -284,10 +306,9 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
 });
 
 describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
-  it.each(COPILOT_MODELS.map((m) => [m]))('passes through --model=%s (equals-only per CLI ref)', (model) => {
+  it.each(COPILOT_MODELS.map((m) => [m]))('passes through --model=%s', (model) => {
     const args = unwrapArgs(session({ model }));
     expect(args).toContain(`--model=${model}`);
-    // Belt-and-braces: the space form silently corrupts argv parsing in v1.0.48+.
     expect(args).not.toContain('--model');
   });
 
@@ -326,13 +347,12 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(args).not.toContain('--allow-all');
   });
 
-  it('emits one --add-dir=<path> per additionalRoots entry, in declared order (equals-only)', () => {
+  it('emits one --add-dir=<path> per additionalRoots entry, in declared order', () => {
     const a = absolutePath('/tmp/repo-a');
     const b = absolutePath('/tmp/repo-b');
     const args = unwrapArgs(session({ additionalRoots: [a, b] }));
     const addDirEntries = args.filter((s) => s.startsWith('--add-dir'));
     expect(addDirEntries).toEqual(['--add-dir=/tmp/repo-a', '--add-dir=/tmp/repo-b']);
-    // Belt-and-braces: the space form silently corrupts argv parsing in v1.0.48+.
     expect(args).not.toContain('--add-dir');
   });
 
@@ -341,13 +361,10 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(unwrapArgs(session({ additionalRoots: [] })).some((s) => s.startsWith('--add-dir'))).toBe(false);
   });
 
-  it('rejects session.resume with InvalidStateError — --resume cannot combine with -p', () => {
+  it('passes through session.resume as --resume=<id>', () => {
     const id = 'sess-abc' as unknown as SessionId;
-    const r = buildCopilotArgs(session({ resume: id }));
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.message).toContain('--resume is interactive-only');
+    const args = unwrapArgs(session({ resume: id }));
+    expect(args).toContain('--resume=sess-abc');
   });
 
   it('emits the prompt as the trailing -p argv pair', () => {
