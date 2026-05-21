@@ -218,11 +218,14 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       prompt queue idles past `SEQUENCE_IDLE_MS`.
 - [ ] **Form retry loop** — sprint-create / project-add / ticket-add / project-edit views retry on validation
       errors instead of popping back to home.
-- [x] **Responsive Execute view** — three-column (rail / tasks / context) at ≥180 cols; two-column at ≥140
-      cols; compact-rail at 100–139 cols; single-column below 100 cols.
+- [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail
+      at `md` (100–139), single-column below `md`. Rail grows fluidly 28→40 cols at `xl`+ via
+      `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to
+      fit the rail column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
-      demand); `y` yank active-task summary to clipboard; `j`/`k` task-card navigation; `e` expand
-      done-criteria for active card; `c` cancel-scope picker (attempt vs whole flow).
+      demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
+      cross-project sprint picker (with `t` toggle-scope inside the picker); `j`/`k` task-card navigation;
+      `e` expand done-criteria for active card; `c` cancel-scope picker (attempt vs whole flow).
 - [x] **Baseline-health card + chip** — `BaselineHealthCard` and `BaselineHealthChip` surface
       `SprintExecution.setupRanAt` history in the context column.
 - [x] **Token-budget card** — `TokenBudgetCard` subscribes to `TokenUsageEvent`; renders
