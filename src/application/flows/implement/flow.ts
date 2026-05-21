@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -377,6 +378,13 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   // so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires; the business-layer
   // default stays 'cancel' for non-interactive callers in isolation.
   const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
+  // Per-repo preflight step ID. The cwd is baked into the name so each leaf in the per-repo
+  // iteration has a unique trace identifier (plan/trace merge keys on element name). The label
+  // strips the absolute path back down to its basename for the rail — the rail's job is "which
+  // repo are we preflighting?", not "what's the full filesystem layout?". On a single-repo
+  // sprint the discriminator is redundant; on a multi-repo sprint dropping it would collapse
+  // every preflight entry into the same row in the plan/trace merge and the operator could not
+  // tell at a glance which repo a failure belongs to.
   const preflightLeaves = uniqueRepoCwds.map((cwd, i) =>
     preflightTaskLeaf(
       {
@@ -387,7 +395,8 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         dirtyTreePolicy,
       },
       cwd,
-      `preflight-task-${String(i + 1)}-${String(cwd)}`
+      `preflight-task-${String(i + 1)}-${String(cwd)}`,
+      { label: `preflight · ${basename(String(cwd))}` }
     )
   );
 

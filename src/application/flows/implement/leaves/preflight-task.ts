@@ -13,7 +13,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { leaf } from '@src/application/chain/build/leaf.ts';
+import { leaf, type LeafOpts } from '@src/application/chain/build/leaf.ts';
 import { gitResetHard, gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -42,7 +42,8 @@ const ELEMENT_NAME = 'preflight-task';
 export const preflightTaskLeaf = (
   deps: PreflightTaskLeafDeps,
   cwd: AbsolutePath,
-  name = 'preflight-task'
+  name = 'preflight-task',
+  opts?: LeafOpts
 ): Element<ImplementCtx> => {
   const gitStatusEntryCount: PreflightTaskProps['gitStatusEntryCount'] = async (path) => {
     const status = await gitStatusPorcelain(deps.gitRunner, path);
@@ -85,22 +86,26 @@ export const preflightTaskLeaf = (
     return Result.ok(choice.value);
   };
 
-  return leaf<ImplementCtx, PreflightTaskInput, void>(name, {
-    useCase: {
-      execute: async (input) =>
-        preflightTaskUseCase({
-          cwd,
-          gitStatusEntryCount,
-          gitStash,
-          gitReset,
-          askDirtyTreeChoice,
-          clock: deps.clock,
-          sprintId: input.sprintId,
-          logger: deps.logger,
-          ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
-        }),
+  return leaf<ImplementCtx, PreflightTaskInput, void>(
+    name,
+    {
+      useCase: {
+        execute: async (input) =>
+          preflightTaskUseCase({
+            cwd,
+            gitStatusEntryCount,
+            gitStash,
+            gitReset,
+            askDirtyTreeChoice,
+            clock: deps.clock,
+            sprintId: input.sprintId,
+            logger: deps.logger,
+            ...(deps.dirtyTreePolicy !== undefined ? { dirtyTreePolicy: deps.dirtyTreePolicy } : {}),
+          }),
+      },
+      input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
+      output: (ctx) => ctx,
     },
-    input: (ctx) => ({ sprintId: String(ctx.sprintId) }),
-    output: (ctx) => ctx,
-  });
+    opts
+  );
 };
