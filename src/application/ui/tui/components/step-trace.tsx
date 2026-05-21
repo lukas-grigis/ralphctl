@@ -40,12 +40,24 @@ export interface StepTraceProps {
    * need. Default `false`.
    */
   readonly compact?: boolean;
+  /**
+   * Optional rail-column width (in characters). When provided, displayed labels longer than the
+   * available text budget (`railWidth - 4` to leave room for the leading glyph, padding, and an
+   * ellipsis) are mid-truncated with an `…` suffix so a single long name can't push the rail
+   * wider than its resolved width. Omit the prop for callers that aren't laying the trace out
+   * inside a fixed-width column (default behaviour: no truncation, preserving callers in
+   * non-Execute contexts).
+   */
+  readonly railWidth?: number;
 }
 
 type RowStatus = TraceEntry['status'] | 'pending' | 'running';
 
 interface MergedRow {
   readonly name: string;
+  /** Optional display label sourced from `Element.label` / `TraceEntry.label`; renderer prefers
+   * this over `name`. */
+  readonly label?: string;
   readonly status: RowStatus;
   readonly durationMs?: number;
   readonly errorMessage?: string;
@@ -113,6 +125,7 @@ const mergePlanWithTrace = (plan: readonly string[], trace: Trace, running: bool
     if (entry !== undefined) {
       return {
         name,
+        ...(entry.label !== undefined ? { label: entry.label } : {}),
         status: entry.status,
         durationMs: entry.durationMs,
         ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
@@ -129,10 +142,23 @@ const mergePlanWithTrace = (plan: readonly string[], trace: Trace, running: bool
 const traceToRows = (trace: Trace): readonly MergedRow[] =>
   trace.map((entry) => ({
     name: entry.elementName,
+    ...(entry.label !== undefined ? { label: entry.label } : {}),
     status: entry.status,
     durationMs: entry.durationMs,
     ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
   }));
+
+/**
+ * Mid-truncate a display string so it fits inside `budget` characters, suffixed with `…`. When
+ * `budget` is too small (≤ 1) or the string already fits, returns the input unchanged. Callers
+ * pass the column's *text* budget (rail width minus glyph + padding + ellipsis gutter).
+ */
+const truncateLabel = (text: string, budget: number): string => {
+  if (budget <= 1) return text;
+  if (text.length <= budget) return text;
+  // Reserve one char for the ellipsis itself; the visible run is `budget - 1`.
+  return `${text.slice(0, budget - 1)}…`;
+};
 
 export const StepTrace = ({
   trace,
@@ -142,6 +168,7 @@ export const StepTrace = ({
   inFlightLabel,
   plan,
   compact = false,
+  railWidth,
 }: StepTraceProps): React.JSX.Element => {
   // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
   // lookup Map on every call. For long running sessions (5k+ trace entries) re-allocating that
@@ -169,12 +196,21 @@ export const StepTrace = ({
       ? filtered.slice(Math.max(0, runningIdx - Math.floor(maxRows / 2))).slice(0, maxRows)
       : filtered.slice(-maxRows);
 
+  // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading
+  // glyph (1), its trailing space (1), the column's `paddingX={spacing.indent}` left edge (2).
+  // The trailing-label / duration / error tail is rendered AFTER the truncated name; on the
+  // wide breakpoints (≥180 cols) that tail typically fits on the same row, and on tighter
+  // layouts the line wraps cleanly inside the rail column rather than pushing it sideways.
+  const textBudget = railWidth !== undefined ? Math.max(1, railWidth - 4) : undefined;
+
   return (
     <Box flexDirection="column">
       {rows.map((row, i) => {
         const instruction = glyphFor(row.status);
         const trailing = trailingLabelFor(row.status);
         const dimRow = row.status === 'pending';
+        const displayName = row.label ?? row.name;
+        const shownName = textBudget !== undefined ? truncateLabel(displayName, textBudget) : displayName;
         return (
           <Box key={`${row.name}-${String(i)}`} paddingX={spacing.indent}>
             {instruction.kind === 'spinner' ? (
@@ -186,7 +222,7 @@ export const StepTrace = ({
             )}
             {!compact && (
               <>
-                <Text dimColor={dimRow}> {row.name}</Text>
+                <Text dimColor={dimRow}> {shownName}</Text>
                 {row.durationMs !== undefined && (
                   <Text dimColor>
                     {' '}

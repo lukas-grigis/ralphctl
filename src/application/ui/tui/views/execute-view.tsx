@@ -444,12 +444,19 @@ export const ExecuteView = (): React.JSX.Element => {
   // failure, in which case the failure surfaces through the Recent-log panel anyway.
   const outerFlowFilter = (name: string): boolean => !isPerTaskLeaf(name) && !name.startsWith('with-repo-lock(');
 
+  // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the rail
+  // fluidly. We compute once and reuse so the truncation budget passed to StepTrace matches
+  // whichever column actually renders.
+  const threeColRailWidth = resolveRailWidth(term.columns);
+  const labelledRailWidth = threeColumn ? threeColRailWidth : RAIL_WIDTH;
+
   const flowStepsPanel = (
     <StepTrace
       trace={descriptor.trace}
       running={isRunning}
       filter={outerFlowFilter}
       maxRows={flowStepsRows}
+      railWidth={labelledRailWidth}
       {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
       {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}
     />
@@ -540,12 +547,7 @@ export const ExecuteView = (): React.JSX.Element => {
             // budget to grow into. The rail uses `resolveRailWidth` (fluid 28..40 at xl+) so
             // long step labels no longer wrap mid-word on wide terminals.
             <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
-              <Box
-                flexDirection="column"
-                width={resolveRailWidth(term.columns)}
-                marginRight={spacing.section}
-                flexShrink={0}
-              >
+              <Box flexDirection="column" width={threeColRailWidth} marginRight={spacing.section} flexShrink={0}>
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
               </Box>
