@@ -70,14 +70,18 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 interface CapturingSpawnState {
   readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
+  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const spawn: ProviderSpawn = (command, args, options) => {
+    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -152,6 +156,21 @@ describe('createClaudeProvider', () => {
     expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
     const sessionEntry = cap.logs.find((e) => e.message.includes('session id'));
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
+  });
+
+  it('forwards session.cwd to the spawned child (context-file autoload)', async () => {
+    const cap = createCapturingBus();
+    const cwd = absolutePath('/tmp/claude-target-repo');
+    const sess = session({ cwd });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cwd', model: 'sonnet' });
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-cwd' });
+    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cwd).toBe('/tmp/claude-target-repo');
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {

@@ -223,7 +223,12 @@ interface SpawnAttemptArgs {
 
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session } = input;
-  const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const });
+  // `cwd` is critical — the Copilot CLI only auto-discovers `.github/copilot-instructions.md`,
+  // skills, agents, and `.mcp.json` from the child's `process.cwd()`. Without this, the
+  // native context-file pipeline silently misses and the AI runs without project guidance.
+  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
+  // auto-discover their context file from cwd."
+  const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
   const parser = createCopilotStreamParser();
   // Body accumulator: push raw plain-text lines, single .join('\n') at end (see below). A
   // per-line `body = ${body}\n${raw}` form rebuilds the entire string each iteration — O(N²)
@@ -397,4 +402,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: [...options.stdio] }) as ChildProcessWithoutNullStreams;
+  nodeSpawn(command, [...args], {
+    stdio: [...options.stdio],
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+  }) as ChildProcessWithoutNullStreams;

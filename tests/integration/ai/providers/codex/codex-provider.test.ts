@@ -61,14 +61,18 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 interface CapturingSpawnState {
   readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
+  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const spawn: ProviderSpawn = (command, args, options) => {
+    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -165,6 +169,30 @@ describe('createCodexProvider', () => {
     const signals = await readSignals(String(out.value.signalsFile));
     expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
+  });
+
+  it('forwards session.cwd to the spawned child (context-file autoload, parity with claude/copilot)', async () => {
+    const cap = createCapturingBus();
+    const cwd = absolutePath('/tmp/codex-target-repo');
+    const sess = session({ cwd });
+    const { spawn, calls } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-cwd","type":"config"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cwd).toBe('/tmp/codex-target-repo');
   });
 
   it('mirrors raw body to session.bodyFile when requested (diagnostic capture)', async () => {

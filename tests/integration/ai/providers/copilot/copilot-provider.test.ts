@@ -61,14 +61,18 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 interface CapturingSpawnState {
   readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
+  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const spawn: ProviderSpawn = (command, args, options) => {
+    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -286,6 +290,21 @@ describe('createCopilotProvider', () => {
     expect(signals).toEqual([]);
     const contents = await fs.readFile(String(bodyFile), 'utf8');
     expect(contents).toContain('did not find conclusive scripts');
+  });
+
+  it('forwards session.cwd to the spawned child (context-file autoload)', async () => {
+    const cap = createCapturingBus();
+    const cwd = absolutePath('/tmp/some-target-repo');
+    const sess = session({ cwd });
+    const { spawn, calls } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-cwd","model":"gpt-5.1"}\n', '<task-complete/>\n'], exitCode: 0 },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cwd).toBe('/tmp/some-target-repo');
   });
 
   it('overwrites an already-existing bodyFile target (atomic write does not crash)', async () => {

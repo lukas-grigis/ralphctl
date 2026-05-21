@@ -272,8 +272,14 @@ interface SpawnAttemptArgs {
  */
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session } = input;
+  // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
+  // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
+  // pipeline silently misses and the AI runs without project guidance.
+  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
+  // auto-discover their context file from cwd."
   const child = spawnFn(command, args, {
     stdio: ['pipe', 'pipe', 'pipe'] as const,
+    cwd: String(session.cwd),
   });
   const parser = createClaudeStreamParser();
   let stderrBuf = '';
@@ -429,4 +435,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: [...options.stdio] }) as ChildProcessWithoutNullStreams;
+  nodeSpawn(command, [...args], {
+    stdio: [...options.stdio],
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+  }) as ChildProcessWithoutNullStreams;

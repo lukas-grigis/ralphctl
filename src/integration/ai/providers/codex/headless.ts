@@ -356,7 +356,11 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session, readFile, outputFile } = input;
-  const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const });
+  // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on `exec resume`
+  // (which does not accept `-C`) and is consistent with the other two adapters.
+  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
+  // auto-discover their context file from cwd."
+  const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
   let stderrBuf = '';
   let sessionId: string | undefined;
   let stdoutLineBuf = '';
@@ -522,4 +526,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: [...options.stdio] }) as ChildProcessWithoutNullStreams;
+  nodeSpawn(command, [...args], {
+    stdio: [...options.stdio],
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+  }) as ChildProcessWithoutNullStreams;
