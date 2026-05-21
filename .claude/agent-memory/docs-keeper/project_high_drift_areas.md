@@ -23,10 +23,19 @@ Based on the P0–P4 harness overhaul audit (2026-05-21), sections that had the 
 8. **DESIGN-SYSTEM.md § 4.3** — entire new class of Execute-view components (TokenBudgetCard,
    BaselineHealthCard/Chip, StatusBanner, MultiFlowStrip, EvaluatorFailurePanel, ProgressOverlay,
    CancelScopeOverlay) not documented.
-9. **DESIGN-SYSTEM.md § 6.1** — new global keys (`b`, `g`, `y`) not listed.
+9. **DESIGN-SYSTEM.md § 6.1** — new global keys not listed; added `b`, `g`, `y` in prior pass; `P`, `S`
+   added in 2026-05-21 session (cross-project pickers).
 10. **REQUIREMENTS.md** — many [x] items not ticked even after code shipped.
+11. **DESIGN-SYSTEM.md** — missing responsive breakpoints section entirely until 2026-05-21 session;
+    breakpoints shipped as named constants but the design doc had no vocabulary for them.
+12. **CLAUDE.md § Workflows & State — Execute view widths** — hardcoded column numbers become stale when
+    the breakpoint system evolves; always express as named breakpoints now.
+13. **KERNEL-DESIGN.md — Element interface** — any interface field additions (like `label?`) need to be
+    reflected in both the code block and the prose; `TraceEntry` too.
 
-**Why:** These areas cluster around the observability/TUI surface, which evolves in every sprint.
+**Why:** These areas cluster around the observability/TUI surface and the chain framework primitives,
+both of which evolve in every sprint.
 
 **How to apply:** On the next feature drop, check these sections first before reading git log. In
-particular, always grep `events.ts` for the AppEvent union and compare to every doc that lists it.
+particular, always grep `events.ts` for the AppEvent union (compare to every doc that lists it),
+and diff `element.ts` + `trace.ts` against the KERNEL-DESIGN.md interface blocks.
