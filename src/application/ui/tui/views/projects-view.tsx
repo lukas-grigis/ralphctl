@@ -11,8 +11,10 @@ import { CardList } from '@src/application/ui/tui/components/card-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import type { Project } from '@src/domain/entity/project.ts';
+import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { Result } from '@src/domain/result.ts';
 import { spacing, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -30,9 +32,11 @@ export const ProjectsView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
+    { keys: 'e', label: 'rename' },
     { keys: 'd', label: 'delete' },
     { keys: 'r', label: 'reload' },
   ]);
+  const edit = useEditField();
 
   const [cursorId, setCursorId] = useState<ProjectId | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState<Project | undefined>(undefined);
@@ -46,10 +50,34 @@ export const ProjectsView = (): React.JSX.Element => {
 
   const items = state.kind === 'ok' ? state.value : [];
 
+  const handleRename = (target: Project): void => {
+    setFeedback(undefined);
+    void edit.openEditPrompt({
+      title: `Rename project "${target.displayName}"`,
+      kind: 'short',
+      currentValue: target.displayName,
+      onSave: async (value) => {
+        const renamed = setProjectDisplayName(target, value);
+        if (!renamed.ok) return Result.error(renamed.error);
+        const saved = await deps.projectRepo.save(renamed.value);
+        if (!saved.ok) return Result.error(saved.error);
+        if (selection.projectId === target.id) selection.setProject(target.id, renamed.value.displayName);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ renamed "${target.displayName}"`,
+    });
+  };
+
   useInput((input) => {
     if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
     if (input === 'c') {
       router.push({ id: 'create-project' });
+      return;
+    }
+    if (input === 'e') {
+      const target = items.find((p) => p.id === cursorId) ?? items[0];
+      if (target !== undefined) handleRename(target);
       return;
     }
     if (input === 'd') {
@@ -153,12 +181,14 @@ export const ProjectsView = (): React.JSX.Element => {
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} project(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
             </Text>
           </Box>
-          {feedback !== undefined && (
+          {(feedback ?? edit.feedback) !== undefined && (
             <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+              <Text color={(feedback ?? edit.feedback)?.startsWith('✗') ? inkColors.error : inkColors.primary}>
+                {feedback ?? edit.feedback}
+              </Text>
             </Box>
           )}
         </Box>

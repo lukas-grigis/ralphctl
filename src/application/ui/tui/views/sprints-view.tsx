@@ -17,7 +17,9 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { Result } from '@src/domain/result.ts';
 import { spacing, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -45,9 +47,11 @@ export const SprintsView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
+    { keys: 'e', label: 'rename' },
     { keys: 'd', label: 'delete' },
     { keys: 'r', label: 'reload' },
   ]);
+  const edit = useEditField();
 
   const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
     const r = await deps.sprintRepo.list();
@@ -105,10 +109,34 @@ export const SprintsView = (): React.JSX.Element => {
     router.push({ id: 'execute', props: { sessionId: result.runner.id } });
   };
 
+  const handleRename = (target: Sprint): void => {
+    setFeedback(undefined);
+    void edit.openEditPrompt({
+      title: `Rename sprint "${target.name}"`,
+      kind: 'short',
+      currentValue: target.name,
+      onSave: async (value) => {
+        const renamed = renameSprint(target, value);
+        if (!renamed.ok) return Result.error(renamed.error);
+        const saved = await deps.sprintRepo.save(renamed.value);
+        if (!saved.ok) return Result.error(saved.error);
+        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim());
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ renamed "${target.name}"`,
+    });
+  };
+
   useInput((input) => {
     if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
     if (input === 'c') {
       void launchCreateSprint();
+      return;
+    }
+    if (input === 'e') {
+      const target = items.find((s) => s.id === cursorId) ?? items[0];
+      if (target !== undefined && target.status !== 'done') handleRename(target);
       return;
     }
     if (input === 'd') {
@@ -229,12 +257,14 @@ export const SprintsView = (): React.JSX.Element => {
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} sprint(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
             </Text>
           </Box>
-          {feedback !== undefined && (
+          {(feedback ?? edit.feedback) !== undefined && (
             <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+              <Text color={(feedback ?? edit.feedback)?.startsWith('✗') ? inkColors.error : inkColors.primary}>
+                {feedback ?? edit.feedback}
+              </Text>
             </Box>
           )}
         </Box>

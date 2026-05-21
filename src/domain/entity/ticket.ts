@@ -104,6 +104,7 @@ export function setTicketLink(ticket: Ticket, url: string | undefined): Result<T
  */
 export function setTicketTitle(ticket: PendingTicket, title: string): Result<PendingTicket, ValidationError>;
 export function setTicketTitle(ticket: ApprovedTicket, title: string): Result<ApprovedTicket, ValidationError>;
+export function setTicketTitle(ticket: Ticket, title: string): Result<Ticket, ValidationError>;
 export function setTicketTitle(ticket: Ticket, title: string): Result<Ticket, ValidationError> {
   const parsed = parseRequiredString('ticket.title', title);
   if (!parsed.ok) return Result.error(parsed.error);
@@ -122,6 +123,7 @@ export function setTicketDescription(
   ticket: ApprovedTicket,
   description: string | undefined
 ): Result<ApprovedTicket, ValidationError>;
+export function setTicketDescription(ticket: Ticket, description: string | undefined): Result<Ticket, ValidationError>;
 export function setTicketDescription(ticket: Ticket, description: string | undefined): Result<Ticket, ValidationError> {
   const parsed = parseOptionalString('ticket.description', description);
   if (!parsed.ok) return Result.error(parsed.error);

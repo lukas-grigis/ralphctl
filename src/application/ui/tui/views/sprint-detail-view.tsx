@@ -23,6 +23,17 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { Result } from '@src/domain/result.ts';
+import { replaceTicket } from '@src/domain/entity/sprint.ts';
+import {
+  setTicketDescription,
+  setTicketRequirements,
+  setTicketTitle,
+  type ApprovedTicket,
+} from '@src/domain/entity/ticket.ts';
+import { updateTask } from '@src/domain/entity/task.ts';
+import { useEditField, type OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -154,6 +165,14 @@ export const SprintDetailView = (): React.JSX.Element => {
   const focusedBlockedTask =
     focusedNow?.kind === 'task' && focusedNow.task.status === 'blocked' ? focusedNow.task : undefined;
 
+  const edit = useEditField();
+  const queue = usePromptQueue();
+
+  const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
+  const focusedTodoTask =
+    focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
+  const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
+
   useViewHints(
     inDetail
       ? [{ keys: 'esc', label: 'back to list' }]
@@ -161,10 +180,110 @@ export const SprintDetailView = (): React.JSX.Element => {
           { keys: 'n', label: 'flows' },
           { keys: '↵/o', label: 'open' },
           { keys: 'a', label: 'add ticket' },
+          ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
           { keys: 'd', label: 'remove ticket' },
           ...(focusedBlockedTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
         ]
   );
+
+  type TicketFieldKey = 'title' | 'description' | 'requirements';
+  type TaskFieldKey = 'name' | 'description';
+
+  const buildTicketEdit = (ticket: Ticket, field: TicketFieldKey): OpenEditPromptInput | undefined => {
+    if (sprint === undefined) return undefined;
+    if (field === 'requirements' && ticket.status !== 'approved') {
+      return undefined;
+    }
+    const current =
+      field === 'title'
+        ? ticket.title
+        : field === 'description'
+          ? (ticket.description ?? '')
+          : (ticket as ApprovedTicket).requirements;
+    return {
+      title: `Edit ticket ${field} — "${ticket.title}"`,
+      kind: field === 'title' ? 'short' : 'long',
+      currentValue: current,
+      onSave: async (value) => {
+        const updated =
+          field === 'title'
+            ? setTicketTitle(ticket, value)
+            : field === 'description'
+              ? setTicketDescription(ticket, value.length === 0 ? undefined : value)
+              : ticket.status === 'approved'
+                ? setTicketRequirements(ticket, value)
+                : Result.ok(ticket);
+        if (!updated.ok) return Result.error(updated.error);
+        const replaced = replaceTicket(sprint, ticket.id, updated.value);
+        if (!replaced.ok) return Result.error(replaced.error);
+        const saved = await deps.sprintRepo.save(replaced.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ updated ticket ${field}`,
+    };
+  };
+
+  const buildTaskEdit = (task: Task, field: TaskFieldKey): OpenEditPromptInput | undefined => {
+    if (sprint === undefined || task.status !== 'todo') return undefined;
+    const current = field === 'name' ? task.name : (task.description ?? '');
+    return {
+      title: `Edit task ${field} — "${task.name}"`,
+      kind: field === 'name' ? 'short' : 'long',
+      currentValue: current,
+      onSave: async (value) => {
+        const update = field === 'name' ? { name: value } : { description: value.length === 0 ? null : value };
+        const next = updateTask(task, update);
+        if (!next.ok) return Result.error(next.error);
+        const saved = await deps.taskRepo.update(sprint.id, next.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ updated task ${field}`,
+    };
+  };
+
+  const handleEdit = (): void => {
+    if (focusedTicket !== undefined) {
+      const options: ReadonlyArray<{ readonly label: string; readonly value: TicketFieldKey }> = [
+        { label: 'title', value: 'title' },
+        { label: 'description', value: 'description' },
+        ...(focusedTicket.status === 'approved'
+          ? ([{ label: 'requirements', value: 'requirements' as const }] as const)
+          : []),
+      ];
+      if (options.length === 1) {
+        const cfg = buildTicketEdit(focusedTicket, 'title');
+        if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        return;
+      }
+      new Promise<TicketFieldKey>((resolve, reject) => {
+        queue.enqueue({ kind: 'choice', message: 'Edit which ticket field?', options, resolve, reject });
+      })
+        .then((field) => {
+          const cfg = buildTicketEdit(focusedTicket, field);
+          if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (focusedTodoTask !== undefined) {
+      const options: ReadonlyArray<{ readonly label: string; readonly value: TaskFieldKey }> = [
+        { label: 'name', value: 'name' },
+        { label: 'description', value: 'description' },
+      ];
+      new Promise<TaskFieldKey>((resolve, reject) => {
+        queue.enqueue({ kind: 'choice', message: 'Edit which task field?', options, resolve, reject });
+      })
+        .then((field) => {
+          const cfg = buildTaskEdit(focusedTodoTask, field);
+          if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        })
+        .catch(() => undefined);
+    }
+  };
 
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || sprint === undefined) return;
@@ -174,6 +293,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     }
     if (input === 'a' && ticketsEditable) {
       router.push({ id: 'add-ticket', props: { sprintId: sprint.id } });
+      return;
+    }
+    if (input === 'e' && canEdit) {
+      handleEdit();
       return;
     }
     if ((key.downArrow || input === 'j') && focusList.length > 0) {
@@ -264,7 +387,7 @@ export const SprintDetailView = (): React.JSX.Element => {
           cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
           openIdx={openIdx}
           ticketsEditable={ticketsEditable}
-          feedback={feedback}
+          feedback={feedback ?? edit.feedback}
         />
       )}
     </ViewShell>
