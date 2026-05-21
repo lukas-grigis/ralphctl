@@ -35,6 +35,7 @@ import {
   RAIL_WIDTH,
   glyphs,
   inkColors,
+  resolveRailWidth,
   spacing,
 } from '@src/application/ui/tui/theme/tokens.ts';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
@@ -532,8 +533,19 @@ export const ExecuteView = (): React.JSX.Element => {
           {headerCard}
 
           {threeColumn ? (
-            <Box flexDirection="row" marginTop={spacing.section}>
-              <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+            // `width={term.columns}` is load-bearing: without it the outer row inherits its
+            // intrinsic content width and the Tasks column's `flexGrow={1}` resolves against an
+            // un-budgeted parent — leaving a band of unused space on the right at ≥180 cols.
+            // Anchoring the row to the full terminal width gives the centre column a real
+            // budget to grow into. The rail uses `resolveRailWidth` (fluid 28..40 at xl+) so
+            // long step labels no longer wrap mid-word on wide terminals.
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
+              <Box
+                flexDirection="column"
+                width={resolveRailWidth(term.columns)}
+                marginRight={spacing.section}
+                flexShrink={0}
+              >
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
               </Box>
@@ -555,7 +567,10 @@ export const ExecuteView = (): React.JSX.Element => {
               </Box>
             </Box>
           ) : twoColumn ? (
-            <Box flexDirection="row" marginTop={spacing.section}>
+            // Same width-budget guard as the three-column branch; rail keeps the fixed
+            // `RAIL_WIDTH` (24) because at 140-179 cols there's no context column to compete
+            // with the Tasks stream — a wider rail would just steal pixels from the main column.
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
               <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
@@ -569,7 +584,7 @@ export const ExecuteView = (): React.JSX.Element => {
             // 100–139 col breakpoint — compact rail (icons only, ~6 cols wide) + Tasks stream.
             // The rail's SectionHeader is dropped because "Flow steps" overflows the narrow
             // column; the glyph-only column reads as a status spine.
-            <Box flexDirection="row" marginTop={spacing.section}>
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
               <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
                 {compactFlowStepsPanel}
               </Box>
