@@ -148,12 +148,12 @@ export const StatusBanner = (): React.JSX.Element | null => {
   const overflow = Math.max(0, sorted.length - MAX_VISIBLE);
 
   return (
-    <Box flexDirection="column" flexShrink={0}>
+    <Box flexDirection="column" flexShrink={0} marginY={spacing.section}>
       {visible.map((banner) => (
         <BannerRow key={banner.id} banner={banner} />
       ))}
       {overflow > 0 ? (
-        <Box paddingX={spacing.indent}>
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>
             {glyphs.bullet} +{overflow} more
           </Text>
@@ -174,7 +174,7 @@ const BannerRow = ({ banner }: BannerRowProps): React.JSX.Element => {
   // they punch above the surrounding chrome.
   const isInfo = banner.tier === 'info';
   return (
-    <Box paddingX={spacing.indent} flexDirection="row">
+    <Box paddingX={spacing.indent} paddingY={spacing.section} flexDirection="row">
       <Text color={color} bold={!isInfo} dimColor={isInfo}>
         {glyph} {banner.message}
       </Text>
