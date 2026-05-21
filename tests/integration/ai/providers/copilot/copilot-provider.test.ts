@@ -235,6 +235,82 @@ describe('createCopilotProvider', () => {
     const signals = await readSignals(String(out.value.signalsFile));
     expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
   });
+
+  it('mirrors accumulated body to session.bodyFile when set (detect-scripts forensic surface)', async () => {
+    const cap = createCapturingBus();
+    const signalsFile = tempSignalsFile();
+    const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
+    const sess = session({ signalsFile, bodyFile });
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"session_id":"sess-body","model":"gpt-5.1"}\n',
+          'plain text body line\n',
+          '<task-complete/>\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const contents = await fs.readFile(String(bodyFile), 'utf8');
+    expect(contents).toContain('plain text body line');
+    expect(contents).toContain('<task-complete/>');
+  });
+
+  it('writes body even when no harness signals were emitted (empty proposal forensic capture)', async () => {
+    const cap = createCapturingBus();
+    const signalsFile = tempSignalsFile();
+    const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
+    const sess = session({ signalsFile, bodyFile });
+    // No recognised tags — parseHarnessSignals returns []. The forensic body.txt is exactly
+    // the surface operators need to debug why detect-scripts produced an empty proposal.
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"session_id":"sess-empty","model":"gpt-5.1"}\n',
+          'I considered the repo but did not find conclusive scripts.\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const signals = await readSignals(String(signalsFile));
+    expect(signals).toEqual([]);
+    const contents = await fs.readFile(String(bodyFile), 'utf8');
+    expect(contents).toContain('did not find conclusive scripts');
+  });
+
+  it('overwrites an already-existing bodyFile target (atomic write does not crash)', async () => {
+    const cap = createCapturingBus();
+    const signalsFile = tempSignalsFile();
+    const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
+    // Pre-create the target so the rename-based atomic write must clobber, not refuse.
+    await fs.mkdir(dirname(String(bodyFile)), { recursive: true });
+    await fs.writeFile(String(bodyFile), 'stale prior content\n', 'utf8');
+    const sess = session({ signalsFile, bodyFile });
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-clobber","model":"gpt-5.1"}\n', 'fresh body\n'],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const contents = await fs.readFile(String(bodyFile), 'utf8');
+    expect(contents).toContain('fresh body');
+    expect(contents).not.toContain('stale prior content');
+  });
 });
 
 describe('createCopilotProvider — TokenUsageEvent emission', () => {

@@ -22,7 +22,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-stream.ts';
@@ -57,8 +57,11 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  * Output handling — file-based contract: stdout JSONL is consumed by
  * {@link createCopilotStreamParser}. Plain-text lines accumulate into a transient body buffer;
  * JSON records expose the `session_id` (logged + returned). On exit, the body is fed to
- * {@link parseHarnessSignals} and the parsed array written to `session.signalsFile`. The body
- * goes out of scope at function return — never retained on a domain entity.
+ * {@link parseHarnessSignals} and the parsed array written to `session.signalsFile`. When
+ * `session.bodyFile` is set (one-shot flows like detect-scripts that may surface an empty
+ * signal set), the raw accumulated body is mirrored there for forensic capture — best-effort,
+ * a write failure here is logged but does not fail the spawn. The body itself goes out of
+ * scope at function return — never retained on a domain entity.
  *
  * Test seam: `spawn` is a {@link ProviderSpawn} override so tests script stdout / stderr /
  * exit code without launching the real binary.
@@ -316,6 +319,22 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     const signals = parseHarnessSignals(body, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
+    // debugging). Best-effort: a write failure here is logged but does not fail the session.
+    // Critically, the body is captured even when `parseHarnessSignals` returns an empty array,
+    // so operators can see what the model actually produced when no recognised tag landed.
+    if (session.bodyFile !== undefined) {
+      const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
+      if (!bodyWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: `copilot-provider: failed to write body file — diagnostic capture skipped`,
+          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+    }
     if (sessionId !== undefined) {
       // Emit one TokenUsageEvent per clean-termination spawn — even when Copilot omits usage
       // counters from the meta line, sessionId + provider + (maybe) model is still useful for
