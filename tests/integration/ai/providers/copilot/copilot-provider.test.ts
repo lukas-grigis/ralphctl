@@ -307,6 +307,35 @@ describe('createCopilotProvider', () => {
     expect(calls[0]!.cwd).toBe('/tmp/some-target-repo');
   });
 
+  it('preserves unrecognised JSON event raw form in body.txt (forensic fall-through)', async () => {
+    const cap = createCapturingBus();
+    const signalsFile = tempSignalsFile();
+    const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
+    const sess = session({ signalsFile, bodyFile });
+    // Mix of: a session-id meta line (should NOT appear in body), an unrecognised event
+    // shape (SHOULD appear raw — this is the forensic capture path), and a recognised
+    // assistant delta (SHOULD appear as its extracted bodyText).
+    const unknownEvt = '{"type":"tool_call.delta","data":{"name":"Read","args":{"path":"/x"}}}';
+    const knownDelta = '{"type":"assistant.message_delta","data":{"deltaContent":"<task-complete/>"}}';
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [`{"session_id":"sess-mix","model":"gpt-5.1"}\n${unknownEvt}\n${knownDelta}\n`],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const contents = await fs.readFile(String(bodyFile), 'utf8');
+    expect(contents).toContain(unknownEvt);
+    expect(contents).toContain('<task-complete/>');
+    // The pure meta line (sessionId + model only) is NOT body — keep it out so it can't
+    // bias signal parsing or confuse a human reading body.txt.
+    expect(contents).not.toContain('"session_id":"sess-mix"');
+  });
+
   it('overwrites an already-existing bodyFile target (atomic write does not crash)', async () => {
     const cap = createCapturingBus();
     const signalsFile = tempSignalsFile();

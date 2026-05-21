@@ -261,6 +261,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       }
       if (line.bodyText !== undefined && line.bodyText.length > 0) {
         bodyLines.push(line.bodyText);
+      } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
+        // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
+        // captures Copilot's actual stream shapes. Without this, the parser silently swallows
+        // any line that doesn't match a known event type, and detect-scripts forensics show
+        // nothing of what the AI emitted. Once we have a real Copilot CLI capture we can
+        // broaden `extractBodyText` precisely; until then, raw preservation is the safety net.
+        bodyLines.push(line.raw);
       }
       deps.eventBus.publish({
         type: 'log',

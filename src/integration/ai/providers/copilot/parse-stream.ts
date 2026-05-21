@@ -83,16 +83,52 @@ const extractUsage = (json: Record<string, unknown>): CopilotUsage | undefined =
   };
 };
 
+/**
+ * Conservative best-effort extraction of assistant-emitted text from a single Copilot JSONL
+ * event. Recognised shapes today:
+ *
+ *   - `{ type: 'assistant.message_delta', data: { deltaContent: string } }` — observed Copilot CLI
+ *   - `{ type: 'assistant.message',       data: { content: string } }`      — observed Copilot CLI
+ *   - `{ type: 'response.output_text.delta', delta: string }`               — OpenAI Responses API
+ *   - `{ type: 'content_block_delta',     delta: { text: string } }`        — Anthropic SSE protocol
+ *   - `{ type: 'message',                 content: string }`                — generic shape
+ *
+ * A "fall back on any top-level `content`/`text` string" branch was considered and rejected —
+ * tool-call payloads and debug-echo events sometimes carry those keys without being assistant
+ * body, so blindly accepting them would corrupt signal parsing. Every branch above matches its
+ * protocol's `type` discriminator AND structure precisely; we never blindly stringify unknown
+ * JSON. Returns `undefined` when no branch matches; the adapter then pushes the raw line into
+ * the body buffer so nothing is silently dropped from the forensic body.txt capture.
+ *
+ * Until we capture a real `copilot --output-format=json` stream, the speculative branches are
+ * inert (no Copilot release emits them today). Their value is the forensic safety net + a
+ * cheap typecheck-friendly broadening when we do see them.
+ */
 const extractBodyText = (json: Record<string, unknown>): string | undefined => {
   const eventType = stringField(json, 'type');
   const data = json['data'];
-  if (!isRecord(data)) return undefined;
-  // Conservative extraction: only known assistant-content events.
-  if (eventType === 'assistant.message_delta') {
+
+  // 1. Copilot CLI v1 assistant delta — `{ type, data: { deltaContent } }`
+  if (eventType === 'assistant.message_delta' && isRecord(data)) {
     return stringField(data, 'deltaContent');
   }
-  if (eventType === 'assistant.message') {
+  // 2. Copilot CLI v1 assistant final — `{ type, data: { content } }`
+  if (eventType === 'assistant.message' && isRecord(data)) {
     return stringField(data, 'content');
+  }
+  // 3. OpenAI Responses API — `{ type: 'response.output_text.delta', delta: '<text>' }`
+  if (eventType === 'response.output_text.delta') {
+    return stringField(json, 'delta');
+  }
+  // 4. Anthropic streaming SSE — `{ type: 'content_block_delta', delta: { text: '<text>' } }`
+  if (eventType === 'content_block_delta') {
+    const delta = json['delta'];
+    if (isRecord(delta)) return stringField(delta, 'text');
+  }
+  // 5. Generic message envelope — `{ type: 'message', content: '<text>' }`
+  if (eventType === 'message') {
+    const c = stringField(json, 'content');
+    if (c !== undefined) return c;
   }
   return undefined;
 };
