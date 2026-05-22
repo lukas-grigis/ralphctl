@@ -56,9 +56,10 @@ describe('TasksPanel verification-criteria summary', () => {
     expect(frame).toContain('Add canvas-confetti dependency');
     expect(frame).toContain('Wire confetti to landing-page mount');
     expect(frame).toContain('Gate on prefers-reduced-motion');
-    // 4th bullet hidden in collapsed mode; the "X more" tail surfaces the overflow count.
+    // 4th bullet hidden in collapsed mode; the `▼ more (N)` tail (audit-[03] multi-line
+    // collapse marker — expand affordance available via `e`) surfaces the overflow count.
     expect(frame).not.toContain('Document the feature in README');
-    expect(frame).toContain('1 more');
+    expect(frame).toContain('▼ more (1)');
 
     r.unmount();
   });

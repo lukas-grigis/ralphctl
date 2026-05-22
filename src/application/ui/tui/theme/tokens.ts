@@ -52,6 +52,15 @@ export const glyphs = {
   inlineDot: '·',
   emDash: '—',
   pipe: '│',
+  // Display-clip markers (audit-[03]). `clipEllipsis` is the one-char trailing marker
+  // appended after a width / char-count clip; `collapseExpand` is the multi-line affordance
+  // suggesting that an expand hotkey reveals the hidden tail. Both are common-Unicode and
+  // render on vt220-class emulators; ASCII fallback isn't wired because every emitter we
+  // ship today (Ink's truncate-end via cli-truncate, our manual clips below) already uses
+  // U+2026. If a downstream terminal ever shows the literal `…` as a `?`, this is the one
+  // place to introduce a switch.
+  clipEllipsis: '…',
+  collapseExpand: '▼ more',
 } as const;
 
 /** Spacing rhythm. Use these everywhere in lieu of magic numbers. */

@@ -1169,7 +1169,7 @@ const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
 
 const firstLine = (s: string): string => {
   const line = s.split('\n').find((l) => l.trim().length > 0) ?? '';
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  return line.length > 120 ? `${line.slice(0, 119)}${glyphs.clipEllipsis}` : line;
 };
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────────────────────

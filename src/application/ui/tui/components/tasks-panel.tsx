@@ -783,8 +783,11 @@ const CriteriaBlock = ({
           </Box>
         ))}
         {overflow > 0 && (
+          // Multi-line collapse marker (audit-[03]): explicit `▼ more` glyph denotes that
+          // a user-expand affordance exists — the `press e to expand` hint on the heading
+          // names the hotkey.
           <Text dimColor>
-            {glyphs.emDash} {String(overflow)} more
+            {glyphs.collapseExpand} ({String(overflow)})
           </Text>
         )}
       </Box>
@@ -856,6 +859,7 @@ const TaskBlock = ({
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
   const signalRows = task.signals.slice(-maxSignals);
+  const signalsElided = task.signals.length - signalRows.length;
   const subStepRows = task.subSteps.slice(-maxSubSteps);
   const subStepElided = task.subSteps.length - subStepRows.length;
   const evalRows = task.evaluations.slice(-maxEvaluations);
@@ -963,7 +967,9 @@ const TaskBlock = ({
       )}
       {cardExpanded && subStepRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2}>
-          {subStepElided > 0 && <Text dimColor>{`… ${String(subStepElided)} earlier sub-steps`}</Text>}
+          {subStepElided > 0 && (
+            <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>
+          )}
           {subStepRows.map((s, i) => (
             <SubStepLine key={`${task.id}-sub-${String(i)}`} sub={s} running={running} />
           ))}
@@ -971,7 +977,7 @@ const TaskBlock = ({
       )}
       {cardExpanded && evalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {evalElided > 0 && <Text dimColor>{`… ${String(evalElided)} earlier evaluations`}</Text>}
+          {evalElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(evalElided)} earlier evaluations`}</Text>}
           {evalRows.map((e, i) => {
             // Dev-gated: failed evaluations render via the dedicated per-dimension panel when
             // the flag is on. Anything else (passed / malformed) keeps the canonical compact
@@ -1003,6 +1009,11 @@ const TaskBlock = ({
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           <Text dimColor>signals</Text>
           <Box flexDirection="column" paddingLeft={2}>
+            {signalsElided > 0 && (
+              <Text
+                dimColor
+              >{`${glyphs.clipEllipsis} ${String(signalsElided)} earlier signal${signalsElided === 1 ? '' : 's'}`}</Text>
+            )}
             {signalRows.map((s, i) => {
               const key = focusKey(scopeId, sliceStart + i);
               return (
@@ -1037,12 +1048,21 @@ const OrphanSignals = ({
 }): React.JSX.Element | null => {
   if (signals.length === 0) return null;
   const rows = signals.slice(-max);
+  // Display-clip marker (audit-[03]): when the orphan-signals list is longer than the
+  // render budget, surface the count of elided rows so the operator knows earlier notes
+  // exist beyond the window.
+  const orphansElided = signals.length - rows.length;
   return (
     <Box flexDirection="column" marginBottom={spacing.section}>
       <Text dimColor bold>
         {glyphs.bullet} Cross-task notes
       </Text>
       <Box flexDirection="column" paddingLeft={2}>
+        {orphansElided > 0 && (
+          <Text
+            dimColor
+          >{`${glyphs.clipEllipsis} ${String(orphansElided)} earlier note${orphansElided === 1 ? '' : 's'}`}</Text>
+        )}
         {rows.map((s, i) => {
           const key = focusKey('orphan', sliceStart + i);
           return (
@@ -1299,7 +1319,7 @@ export const TasksPanel = ({
         // the header readable when the launcher hasn't supplied a friendly name. The friendly
         // name path goes through `nameById` and renders verbatim; if a future design makes
         // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
-        const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}…`;
+        const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
         const recovering = recoveringByTaskId?.get(task.id);
         const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
         const sliceStart = task.signals.length - sliceLen;

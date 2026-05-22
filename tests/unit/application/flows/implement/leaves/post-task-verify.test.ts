@@ -108,7 +108,10 @@ describe('postTaskVerifyLeaf', () => {
     expect(row?.exitCode).toBe(0);
   });
 
-  it('marks verify-failed with exitCode + truncated stderr when red', async () => {
+  it('marks verify-failed with exitCode + verbatim stderr when red (audit-[03] — no persistence-time clip)', async () => {
+    // Audit-[03]: the full spawn output rounds-trip onto ctx.lastVerifyResult.stderr.
+    // Truncation, when needed, happens at the display boundary (e.g. sprint-detail-view
+    // takes the first non-blank line + a 120-char display clip with a `…` marker).
     const longOutput = `${'x'.repeat(5000)}\nFINAL_LINE`;
     const { ctx, leaf } = fixture(fakeRunner({ passed: false, exitCode: 1, output: longOutput }), {
       preOutcome: 'success',
@@ -120,8 +123,8 @@ describe('postTaskVerifyLeaf', () => {
     expect(v?.kind).toBe('verify-failed');
     if (v?.kind === 'verify-failed') {
       expect(v.exitCode).toBe(1);
-      expect(v.stderr).toContain('FINAL_LINE');
-      expect(v.stderr).toContain('truncated');
+      // Full body, no synthetic `truncated` marker — verbatim round-trip.
+      expect(v.stderr).toBe(longOutput);
     }
   });
 

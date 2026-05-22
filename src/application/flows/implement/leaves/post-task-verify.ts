@@ -14,7 +14,6 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
@@ -88,14 +87,16 @@ interface LeafOutput {
 }
 
 /**
- * Derive the legacy `lastVerifyResult` shape (`'skipped' | 'passed' | 'verify-failed'`) from
- * the structured {@link VerifyRun} so `settle-attempt` keeps deriving its existing
+ * Project the structured {@link VerifyRun} into the legacy `lastVerifyResult` ctx shape
+ * (`'skipped' | 'passed' | 'verify-failed'`) so `settle-attempt` keeps deriving its existing
  * `verify-failed` {@link AttemptWarning} without rewiring. `spawn-error` is folded into
  * `'verify-failed'` (exitCode = -1) — same legacy behaviour as the prior implementation.
  *
- * The `stderr` field carries a tail-capped excerpt of the spawn output (or the shell's spawn
- * error message). It feeds the persisted `AttemptWarning.verify-failed.stderr` audit field;
- * the full untruncated body lives at `<sprintDir>/logs/verify/<task-id>/...` (audit-[01]).
+ * `stderr` carries the full untruncated spawn output (or the shell's spawn-error message)
+ * verbatim per audit-[03]: truncation happens at the display boundary (sprint-detail-view
+ * already clips to the first non-blank line + 120 chars when surfacing the warning), never
+ * at write time. The on-disk source of truth is `<sprintDir>/logs/verify/<task-id>/...`
+ * (audit-[01]); the ctx field is for the in-process settle handoff.
  */
 const legacyVerifyResult = (
   run: VerifyRun,
@@ -104,16 +105,8 @@ const legacyVerifyResult = (
 ): NonNullable<ImplementCtx['lastVerifyResult']> => {
   if (run.outcome === 'skipped') return { kind: 'skipped' };
   if (run.outcome === 'success') return { kind: 'passed' };
-  const stderr = run.outcome === 'spawn-error' ? (spawnErrorMessage ?? '') : tailBytes(rawOutput, SCRIPT_TAIL_BYTES);
+  const stderr = run.outcome === 'spawn-error' ? (spawnErrorMessage ?? '') : rawOutput;
   return { kind: 'verify-failed', exitCode: run.exitCode, stderr };
-};
-
-/** Return the last `limit` bytes of `s` (utf-8), prefixing an ellipsis marker if truncated. */
-const tailBytes = (s: string, limit: number): string => {
-  const buf = Buffer.from(s, 'utf8');
-  if (buf.length <= limit) return s;
-  const tail = buf.subarray(buf.length - limit).toString('utf8');
-  return `…[truncated ${String(buf.length - limit)} bytes]\n${tail}`;
 };
 
 export const postTaskVerifyLeaf = (

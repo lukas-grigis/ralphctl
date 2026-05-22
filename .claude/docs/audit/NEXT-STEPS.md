@@ -58,6 +58,22 @@ render-sidecars.ts, render-contract-section.ts, render-evaluation-markdown.ts}`.
   `taskState` (already polled). `parseCriteriaBullets` deleted.
 - CLAUDE.md updated.
 
+### Step 8 — [03] truncation sweep
+
+- `src/domain/value/script-tail-bytes.ts` deleted; both `tailBytes(...)` call sites in
+  `setup-script-runner.ts` + `post-task-verify.ts` removed (verbatim round-trip per audit).
+- `SINK_BODY_CAP` already absent (Wave 7 removed `decisions-log-sink.ts`); stale doc
+  reference in `events.ts` cleaned.
+- Display-clip glyph tokens added to `theme/tokens.ts` (`clipEllipsis` U+2026 and
+  `collapseExpand` `▼ more`). Marker rule applied to TUI clip sites: step-trace label
+  truncation, evaluator-failure critique excerpt, sprint-detail first-line clip,
+  multi-flow strip title, execute-view task name, tasks-panel signals / orphan signals /
+  criteria collapse, field-list over-wide label, issue-pusher stdout excerpt.
+- Banner-clip unit decision: JS `String.prototype.length` (UTF-16 code units) at the
+  setup-script tail emitter — documented inline at the call site; grapheme clipping is
+  overkill for shell stdout in practice. Round-trip test fixtures cover ASCII +
+  multi-byte UTF-8 + emoji edges.
+
 ## Remaining
 
 The work below was scoped but not landed. Each block names its blocker so the next
@@ -110,13 +126,6 @@ from chain.log mining).
 - Provide shared `src/integration/persistence/_engine/run-migrations.ts` helper.
 - TUI banner / log rendering: lazy-read the last N bytes of the matching log
   file on hover / expand instead of from the audit row.
-
-### Step 8 — [03] truncation sweep
-
-- Delete `src/domain/value/script-tail-bytes.ts` and every `tailBytes(...)` call site.
-- Delete `SINK_BODY_CAP` (and `decisions-log-sink.ts` itself per step 6).
-- Apply display-clip marker rule (`…` / `▼ more`) at every TUI clip site.
-- Audit banner-clip unit (bytes vs code-units vs graphemes).
 
 ## How to resume
 

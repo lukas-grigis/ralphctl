@@ -228,16 +228,13 @@ export type BannerEvent = BannerShowEvent | BannerClearEvent;
 
 /**
  * Per-task harness signal — published when the AI emits a `<change>`, `<learning>`, or
- * `<note>` tag during an in-flight task. The harness fans out the underlying
- * `HarnessSignal` to its existing sinks (TUI bus, decisions-log) AND mirrors a structured
- * event onto the {@link EventBus} so the persistent `<sprintDir>/chain.log` retains a
- * machine-readable record of the per-task narrative. `progress.md` then reconstructs the
- * per-task sub-sections from these chain-log entries on every snapshot regenerate.
+ * `<note>` tag during an in-flight task. The harness mirrors the validated `HarnessSignal`
+ * onto the {@link EventBus} so the TUI's per-task panel + the persistent `<sprintDir>/chain.log`
+ * retain a machine-readable record of the per-task narrative.
  *
- * Decisions deliberately stay on their own dedicated path — the `decisions-log-sink`
- * already owns that contract and double-publishing would just create dedup work for the
- * miner. The three variants here are the signals `progress.md` actually surfaces but did
- * not previously persist anywhere queryable.
+ * Decisions stay on their own dedicated event (see {@link AiSignalEvent}) — they're surfaced
+ * to the operator with extra emphasis (`progress.md` Decisions section) so flattening them
+ * into this stream would lose that affordance.
  */
 export interface HarnessSignalEvent {
   readonly type: 'harness-signal';

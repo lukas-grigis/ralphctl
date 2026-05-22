@@ -306,7 +306,7 @@ export const ExecuteView = (): React.JSX.Element => {
   const currentTask = currentTaskIdx >= 0 ? bucketed?.tasks[currentTaskIdx] : undefined;
   const currentTaskName =
     currentTask !== undefined
-      ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}…`)
+      ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
       : undefined;
   const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
 

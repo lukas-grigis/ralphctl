@@ -56,7 +56,9 @@ const Chip = ({
   // Title is plain-clipped (not Ink-truncated) because chips sit on one row separated by `|`
   // and per-chip truncate-end boxes would each claim flexGrow, fighting each other for width.
   const title =
-    descriptor.title.length > maxTitleChars ? `${descriptor.title.slice(0, maxTitleChars - 1)}…` : descriptor.title;
+    descriptor.title.length > maxTitleChars
+      ? `${descriptor.title.slice(0, maxTitleChars - 1)}${glyphs.clipEllipsis}`
+      : descriptor.title;
   const color = active ? inkColors.highlight : inkColors.muted;
   return (
     <Text color={color} bold={active}>

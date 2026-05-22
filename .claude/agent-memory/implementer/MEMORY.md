@@ -6,3 +6,4 @@
 - [project_session_md_audit.md](project_session_md_audit.md) — per-spawn session.md audit pack is written by the AI session adapter (not chain leaves) when SessionOptions.sessionMdPath is set
 - [project_clipboard_yank_pattern.md](project_clipboard_yank_pattern.md) — global `y` hotkey + clipboard adapter; uses ref-based ActiveTaskSummaryProvider on UiState to avoid re-rendering every consumer
 - [project_global_modal_overlay_pattern.md](project_global_modal_overlay_pattern.md) — per-view inline vs App-Layout-level overlay modal; Layout-level wins for sprint-scoped overlays (~3 files vs 15)
+- [project_display_clip_markers.md](project_display_clip_markers.md) — audit-[03] display-clip marker tokens (`…` / `▼ more`); truncate at display boundary, never at persistence

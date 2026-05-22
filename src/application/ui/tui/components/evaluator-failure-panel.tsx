@@ -59,11 +59,14 @@ export interface EvaluatorFailurePanelProps {
   readonly interactive?: boolean;
 }
 
-/** Truncate the critique body to {@link CRITIQUE_EXCERPT_CHARS}, appending `…` if needed. */
+/**
+ * Truncate the critique body to {@link CRITIQUE_EXCERPT_CHARS}, appending the `clipEllipsis`
+ * token (audit-[03] display-clip marker) when the clip fires.
+ */
 const excerpt = (text: string): string => {
   const collapsed = text.replace(/\s+/g, ' ').trim();
   if (collapsed.length <= CRITIQUE_EXCERPT_CHARS) return collapsed;
-  return `${collapsed.slice(0, CRITIQUE_EXCERPT_CHARS).trimEnd()}…`;
+  return `${collapsed.slice(0, CRITIQUE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
 };
 
 /** @public */

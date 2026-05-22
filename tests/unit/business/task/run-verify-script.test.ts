@@ -3,8 +3,11 @@ import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+
+/** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
+ *  persistence-time cap on rawOutput; the test asserts verbatim round-trip). */
+const HUGE_OUTPUT_BYTES = 4096;
 
 const CWD = absolutePath('/tmp/repo');
 
@@ -62,7 +65,7 @@ describe('runVerifyScriptUseCase', () => {
   });
 
   it('returns outcome="failed" with full rawOutput when script exits non-zero', async () => {
-    const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
+    const huge = 'A'.repeat(HUGE_OUTPUT_BYTES * 2) + 'FINAL_LINE';
     const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',

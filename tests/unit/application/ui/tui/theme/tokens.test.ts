@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { breakpointFor, fluid, resolveRailWidth, RAIL_WIDTH } from '@src/application/ui/tui/theme/tokens.ts';
+import { breakpointFor, fluid, glyphs, resolveRailWidth, RAIL_WIDTH } from '@src/application/ui/tui/theme/tokens.ts';
 
 describe('breakpointFor', () => {
   it('floors at sm for any non-negative width below the md threshold', () => {
@@ -36,6 +36,18 @@ describe('fluid', () => {
   it('returns floor(columns * ratio) inside the band', () => {
     // 200 * 0.18 = 36 — inside [28, 40].
     expect(fluid(200, { min: 28, max: 40, ratio: 0.18 })).toBe(36);
+  });
+});
+
+describe('glyphs.clipMarkers (audit-[03])', () => {
+  it('exposes the single-line clip marker as U+2026 (horizontal ellipsis)', () => {
+    expect(glyphs.clipEllipsis).toBe('…');
+    expect(glyphs.clipEllipsis).toHaveLength(1);
+    expect(glyphs.clipEllipsis.codePointAt(0)).toBe(0x2026);
+  });
+
+  it('exposes the multi-line collapse marker as `▼ more` (expand affordance)', () => {
+    expect(glyphs.collapseExpand).toBe('▼ more');
   });
 });
 

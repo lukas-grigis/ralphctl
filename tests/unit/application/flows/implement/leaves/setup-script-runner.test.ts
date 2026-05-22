@@ -6,8 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { ShellRunOptions, ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
+
+/** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
+ *  persistence-time cap on the bus emitter; the test asserts the full body lands on disk). */
+const HUGE_OUTPUT_BYTES = 4096;
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -405,7 +408,7 @@ describe('setupScriptRunnerLeaf', () => {
     // separate `logs/ persistence` describe-block covers that path.
     const repo = savingRepo();
     const bus = createCapturingBus();
-    const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 4) + 'FINAL_LINE';
+    const huge = 'A'.repeat(HUGE_OUTPUT_BYTES * 4) + 'FINAL_LINE';
     const leaf = setupScriptRunnerLeaf(
       {
         shellScriptRunner: passingShell({ output: huge }),
@@ -698,8 +701,8 @@ describe('setupScriptRunnerLeaf', () => {
       const repo = savingRepo();
       const bus = createCapturingBus();
       const sprintDir = absolutePath(dir);
-      // Output larger than SCRIPT_TAIL_BYTES so the tail-vs-full distinction is observable.
-      const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
+      // Output deliberately larger than a few KB so the audit-row-vs-disk distinction is observable.
+      const huge = 'A'.repeat(HUGE_OUTPUT_BYTES * 2) + 'FINAL_LINE';
       const leaf = setupScriptRunnerLeaf(
         {
           shellScriptRunner: passingShell({ output: huge, durationMs: 100 }),
@@ -776,6 +779,173 @@ describe('setupScriptRunnerLeaf', () => {
       expect(result.ok).toBe(true);
       // No logs/ tree on the test dir — the leaf never tried to write.
       await expect(fs.access(join(dir, 'logs'))).rejects.toThrow();
+    });
+  });
+
+  describe('banner / tail-row clip (audit-[03] display-clip markers)', () => {
+    // The setup-script failure path surfaces the last 20 non-blank output lines as error-level
+    // bus events. The display clip is applied at two levels:
+    //
+    //   1. Per-line: lines longer than 200 chars get the trailing `…` ellipsis.
+    //   2. Per-count: when more than 20 non-blank lines exist, an `… N earlier line(s) elided`
+    //      header row tells the operator how many lines were dropped (full body on disk).
+    //
+    // Clip unit is JS `String.prototype.length` (UTF-16 code units) — an explicit decision
+    // documented inline at the call site. ralphctl's setup output is shell stdout (paths /
+    // exit codes / npm-pnpm diagnostics); grapheme clipping via Intl.Segmenter would be
+    // overkill. The tests below pin this contract for ASCII + multi-byte UTF-8 + emoji
+    // inputs so a future refactor doesn't silently change the unit.
+
+    it('appends a `…` marker to a single tail row that exceeds 200 chars', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      // One line, 250 chars — must be clipped + ellipsised on the bus emit.
+      const longLine = 'x'.repeat(250);
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: longLine }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      const tailMessages = bus.logs.filter((l) => l.message.includes('setup-script (')).map((l) => l.message);
+      const xLine = tailMessages.find((m) => m.includes('xxx'));
+      expect(xLine).toBeDefined();
+      // Marker present + total length within the budget + the original 250-char run
+      // not rendered in full.
+      expect(xLine).toContain('…');
+      // The headline includes the basename + 200-char body + `…`; the original 250-char run
+      // must NOT appear verbatim.
+      expect(xLine).not.toContain('x'.repeat(250));
+    });
+
+    it('omits the `…` marker when a tail row fits inside 200 chars', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      const shortLine = 'COMPILE ERROR: cannot find module foo';
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: shortLine }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      // The tail row carries the unclipped message; no `…` glyph in the line.
+      const tailRow = bus.logs.find((l) => l.message.endsWith(shortLine));
+      expect(tailRow).toBeDefined();
+      expect(tailRow?.message).not.toContain('…');
+    });
+
+    it('emits a multi-line elision marker when more than 20 non-blank lines exist', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      // 25 non-blank lines — 5 should be elided, 20 surface as tail rows.
+      const many = Array.from({ length: 25 }, (_, i) => `line-${String(i + 1)}`).join('\n');
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: many }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      // The elision header must surface the exact dropped count.
+      const elidedHeader = bus.logs.find((l) => l.message.includes('earlier line') && l.message.includes('elided'));
+      expect(elidedHeader).toBeDefined();
+      expect(elidedHeader?.message).toContain('5 earlier lines');
+      // The first 5 lines are dropped; line-6..line-25 surface verbatim.
+      expect(bus.logs.some((l) => l.message.includes(': line-6'))).toBe(true);
+      expect(bus.logs.some((l) => l.message.includes(': line-25'))).toBe(true);
+      expect(bus.logs.some((l) => l.message.endsWith(': line-1'))).toBe(false);
+    });
+
+    it('omits the multi-line elision marker when ≤20 non-blank lines exist', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      const few = Array.from({ length: 4 }, (_, i) => `line-${String(i + 1)}`).join('\n');
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: few }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      const elidedHeader = bus.logs.find((l) => l.message.includes('elided'));
+      expect(elidedHeader).toBeUndefined();
+    });
+
+    it('clip unit is JS string code units — ASCII / multi-byte UTF-8 round-trip cleanly', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      // Mix ASCII + a Cyrillic word (multi-byte UTF-8, but 1 code unit per char). Total < 200
+      // code units → no clip applied. The full line must appear verbatim on the bus.
+      const mixed = 'compile error: модуль foo не найден';
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: mixed }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      const matched = bus.logs.find((l) => l.message.endsWith(mixed));
+      expect(matched).toBeDefined();
+      expect(matched?.message).not.toContain('…');
+    });
+
+    it('clip unit is JS string code units — clip fires once the 200-cu budget is exceeded (emoji input)', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      // Each 🎉 is one Unicode code point but 2 UTF-16 code units. 110 emoji = 220 code units,
+      // which exceeds the 200-cu cap. The clip will fire and `…` must be appended. A surrogate
+      // pair MAY be split mid-pair (cli-truncate / Intl.Segmenter is out of scope for this
+      // emitter — see the inline comment on the call site). The contract we pin: clip applied,
+      // marker present, the verbatim 110-emoji string never lands.
+      const emoji = '🎉'.repeat(110);
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: emoji }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+        }
+      );
+      await leaf.execute(initialCtx(baseExecution()));
+      const tail = bus.logs.find((l) => l.message.includes('setup-script (') && l.message.includes('…'));
+      expect(tail).toBeDefined();
+      expect(tail?.message).not.toContain(emoji);
     });
   });
 });

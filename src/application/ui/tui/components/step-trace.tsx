@@ -172,15 +172,16 @@ const traceToRows = (trace: Trace): readonly MergedRow[] =>
   }));
 
 /**
- * Mid-truncate a display string so it fits inside `budget` characters, suffixed with `…`. When
- * `budget` is too small (≤ 1) or the string already fits, returns the input unchanged. Callers
- * pass the column's *text* budget (rail width minus glyph + padding + ellipsis gutter).
+ * Mid-truncate a display string so it fits inside `budget` characters, suffixed with the
+ * `clipEllipsis` token (audit-[03] display-clip marker). When `budget` is too small (≤ 1) or
+ * the string already fits, returns the input unchanged. Callers pass the column's *text*
+ * budget (rail width minus glyph + padding + ellipsis gutter).
  */
 const truncateLabel = (text: string, budget: number): string => {
   if (budget <= 1) return text;
   if (text.length <= budget) return text;
   // Reserve one char for the ellipsis itself; the visible run is `budget - 1`.
-  return `${text.slice(0, budget - 1)}…`;
+  return `${text.slice(0, budget - 1)}${glyphs.clipEllipsis}`;
 };
 
 export const StepTrace = ({

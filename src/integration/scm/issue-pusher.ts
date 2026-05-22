@@ -101,7 +101,7 @@ const createGitHub = async (
     return Result.error(
       new StorageError({
         subCode: 'parse',
-        message: `gh issue create succeeded but no URL found in stdout: ${r.value.stdout.slice(0, 200)}`,
+        message: `gh issue create succeeded but no URL found in stdout: ${r.value.stdout.length > 200 ? `${r.value.stdout.slice(0, 199)}…` : r.value.stdout}`,
       })
     );
   }
@@ -134,7 +134,7 @@ const createGitLab = async (
     return Result.error(
       new StorageError({
         subCode: 'parse',
-        message: `glab issue create succeeded but no URL found in stdout: ${r.value.stdout.slice(0, 200)}`,
+        message: `glab issue create succeeded but no URL found in stdout: ${r.value.stdout.length > 200 ? `${r.value.stdout.slice(0, 199)}…` : r.value.stdout}`,
       })
     );
   }

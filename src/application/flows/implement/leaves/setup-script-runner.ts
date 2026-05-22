@@ -10,7 +10,6 @@ import {
   type SetupRunOutcome,
   type SprintExecution,
 } from '@src/domain/entity/sprint-execution.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -20,6 +19,15 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+/** Per-line cap for setup-script tail rows surfaced to the TUI. JS code units; see comment
+ *  on the call site for why graphemes are overkill for ralphctl's actual content. */
+const BANNER_LINE_MAX = 200;
+/** Number of recent non-blank lines kept on the bus when a setup-script fails. */
+const MAX_TAIL_LINES = 20;
+/** Display-clip marker (audit-[03]). Mirrors `glyphs.clipEllipsis` in TUI tokens — duplicated
+ *  here because the chains layer cannot import from UI (ESLint fence). One char, U+2026. */
+const CLIP_ELLIPSIS = '…';
 
 /**
  * Harness-side setup-script gate. The leaf runs at the start of every implement chain —
@@ -224,11 +232,6 @@ export const setupScriptRunnerLeaf = (
             }
 
             const { passed, exitCode, output, durationMs } = spawnResult.value;
-            // ShellScriptRunner merges stdout + stderr into a single combined buffer. We slice
-            // a small tail for the failure bus events (log lines, banner cause, pnpm-marker
-            // detection) but never persist it onto the audit row — the full body lives in
-            // `<sprintDir>/logs/setup/<repo-id>.log` and TUI surfaces lazy-read from there.
-            const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
 
             // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
             // so the operator can grep / tail the real failure. Best-effort — a write failure
@@ -276,7 +279,7 @@ export const setupScriptRunnerLeaf = (
             // `@DisabledIfEnvironmentVariable("CI")` gates, pnpm's frozen-lockfile semantics,
             // and assorted other toolchain heuristics, so a "green" retry could mask drift from
             // the real baseline the post-task verify gate later runs without `CI=true`.
-            const noTtyDetected = outputTail.includes(PNPM_NO_TTY_ERROR_MARKER);
+            const noTtyDetected = output.includes(PNPM_NO_TTY_ERROR_MARKER);
             const pnpmTtyHint = noTtyDetected
               ? 'pnpm no-TTY abort detected. Fix project-side: pin pnpm < 11 in mise.toml / package.json#packageManager (pnpm/pnpm#9966), run `pnpm install` once in a terminal to resync, or add `confirm-modules-purge=false` to .npmrc.'
               : undefined;
@@ -287,22 +290,45 @@ export const setupScriptRunnerLeaf = (
               at: deps.clock(),
             });
             // Surface the last few lines of script output as error-level logs so the TUI's
-            // Recent-log tail renders the actionable bit alongside the headline. Bytes already
-            // capped to SCRIPT_TAIL_BYTES; further cap per line (200 chars) + line count (20)
-            // so a chatty failure does not flood the buffer. Placed after the headline so
-            // chronological log order reads headline-then-detail. Spawn-error / skipped
-            // branches have nothing to surface — both are exempt.
-            const tailLines = outputTail
+            // Recent-log tail renders the actionable bit alongside the headline. The full
+            // output already landed verbatim at `<sprintDir>/logs/setup/<repo-id>.log` (above);
+            // these bus events are a *display* surface, so per-line + per-count clipping is
+            // valid here (audit-[03]: clip at display, never at persistence). Headline first,
+            // detail rows after.
+            //
+            // Clip unit: JS string `.length` (UTF-16 code units) at the per-line cap. ralphctl's
+            // setup output is shell stdout — overwhelmingly ASCII (paths, exit codes, npm/pnpm
+            // diagnostic strings); grapheme-aware clipping via Intl.Segmenter would be
+            // overkill for the actual content. A pathological emoji-in-script string could be
+            // split mid-surrogate, in which case Ink renders the broken pair as a replacement
+            // glyph — still visually obvious that the line was clipped. If/when we surface
+            // user-authored prose through this path, switch to Intl.Segmenter and update the
+            // banner-clip unit test fixtures.
+            const tailLines = output
               .split('\n')
               .map((l) => l.trimEnd())
               .filter((l) => l.length > 0)
-              .slice(-20);
+              .slice(-MAX_TAIL_LINES);
+            const totalCount = output.split('\n').filter((l) => l.trim().length > 0).length;
+            const elided = Math.max(0, totalCount - tailLines.length);
             const repoBasename = basename(String(repo.path));
-            for (const line of tailLines) {
+            if (elided > 0) {
+              // Multi-line collapse marker: signals to the operator that earlier lines were
+              // dropped from this surface (the full log is on disk).
               deps.eventBus.publish({
                 type: 'log',
                 level: 'error',
-                message: `setup-script (${repoBasename}): ${line.slice(0, 200)}`,
+                message: `setup-script (${repoBasename}): ${CLIP_ELLIPSIS} ${String(elided)} earlier line${elided === 1 ? '' : 's'} elided — full log at logs/setup/${String(repo.repositoryId)}.log`,
+                at: deps.clock(),
+              });
+            }
+            for (const line of tailLines) {
+              const clipped =
+                line.length > BANNER_LINE_MAX ? `${line.slice(0, BANNER_LINE_MAX - 1)}${CLIP_ELLIPSIS}` : line;
+              deps.eventBus.publish({
+                type: 'log',
+                level: 'error',
+                message: `setup-script (${repoBasename}): ${clipped}`,
                 at: deps.clock(),
               });
             }
@@ -396,14 +422,4 @@ const persistRun = async (
     });
   }
   return next;
-};
-
-/** Return the last `limit` bytes of `s` (utf-8), prefixing an ellipsis marker if truncated. */
-const tailBytes = (s: string, limit: number): string => {
-  const buf = Buffer.from(s, 'utf8');
-  if (buf.length <= limit) return s;
-  // Slicing in the middle of a multi-byte char is harmless — `toString('utf8')` replaces the
-  // partial bytes with the replacement char, which is visually obvious in the audit log.
-  const tail = buf.subarray(buf.length - limit).toString('utf8');
-  return `…[truncated ${String(buf.length - limit)} bytes]\n${tail}`;
 };
