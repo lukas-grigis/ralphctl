@@ -117,7 +117,13 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         });
         if (!result.ok) return Result.error(result.error);
 
-        await writeEvaluatorRoundArtifacts(input.workspaceRoot, input.roundNum, lastSignals, deps.logger);
+        await writeEvaluatorRoundArtifacts(
+          input.workspaceRoot,
+          input.roundNum,
+          lastSignals,
+          deps.logger,
+          input.task.name
+        );
 
         return Result.ok({
           task: result.value.task,

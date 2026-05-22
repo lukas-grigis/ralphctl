@@ -66,10 +66,19 @@ export const writeEvaluatorRoundArtifacts = async (
   workspaceRoot: AbsolutePath,
   round: number,
   signals: readonly HarnessSignal[],
-  logger?: Logger
+  logger?: Logger,
+  /**
+   * Optional task name interpolated into the H1 of `evaluation.md` (`# Evaluation — <name>`) so
+   * the rendered file is self-identifying when an operator opens it post-hoc. Omitted in tests
+   * and in callers that don't have the task name handy — the H1 falls back to plain `# Evaluation`.
+   */
+  taskName?: string
 ): Promise<void> => {
   const base = roundDir(workspaceRoot, round, 'evaluator');
-  const evaluation = await writeTextAtomic(join(base, 'evaluation.md'), renderEvaluation(findEvaluation(signals)));
+  const evaluation = await writeTextAtomic(
+    join(base, 'evaluation.md'),
+    renderEvaluation(findEvaluation(signals), taskName)
+  );
   if (!evaluation.ok) {
     logger?.warn('failed to write evaluator round artifact', { round, base, error: evaluation.error.message });
   }
@@ -104,32 +113,99 @@ export const writeRoundPrompt = async (
 const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | undefined =>
   signals.find((s): s is EvaluationSignal => s.type === 'evaluation');
 
-const renderEvaluation = (e: EvaluationSignal | undefined): string => {
+/**
+ * Title-case helper for dimension headings. The signal carries arbitrary lowercase strings
+ * (`correctness`, `error-handling`, …) — uppercasing the first letter is good enough to read
+ * as an H2 without inventing rules for hyphenated or multi-word names.
+ */
+const titleCase = (s: string): string => (s.length === 0 ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`);
+
+const verdictSignal = (status: EvaluationSignal['status']): string => {
+  switch (status) {
+    case 'passed':
+      return '`<evaluation-passed>`';
+    case 'failed':
+      return '`<evaluation-failed>`';
+    case 'malformed':
+      return '_malformed — no verdict emitted_';
+  }
+};
+
+/**
+ * Split a dimension's `finding` string into rendered bullets. The AI typically emits multi-bullet
+ * findings — either newline-separated (`- a\n- b\n- c`) or, when the AI condenses onto one line,
+ * with ` - ` separators between adjacent points. We honour both so the rendered evaluation reads
+ * as a clean bullet list under each H2 rather than a single run-on paragraph.
+ *
+ * Falls back to a single one-line bullet for findings with no detectable bullet structure —
+ * preserves the content without inventing fake list items.
+ */
+const splitFindingBullets = (finding: string): readonly string[] => {
+  const trimmed = finding.trim();
+  if (trimmed.length === 0) return [];
+  if (/(^|\n)\s*-\s/.test(trimmed)) {
+    return trimmed
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*-\s+/, '').trim())
+      .filter((line) => line.length > 0);
+  }
+  if (!trimmed.includes('\n') && / - /.test(trimmed)) {
+    return trimmed
+      .split(/ - /)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  return [trimmed.replace(/\s+/g, ' ')];
+};
+
+/**
+ * Split the critique into bullet entries — one bullet per paragraph. The evaluator's calibration
+ * examples prefix each paragraph with a `[Dimension]` tag, so paragraph boundaries (`\n\n`) are
+ * the natural split point. Whitespace inside each paragraph is collapsed so a soft-wrapped entry
+ * renders cleanly as one bullet.
+ */
+const splitCritiqueBullets = (critique: string): readonly string[] => {
+  const trimmed = critique.trim();
+  if (trimmed.length === 0) return [];
+  return trimmed
+    .split(/\n{2,}/)
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length > 0);
+};
+
+const renderEvaluation = (e: EvaluationSignal | undefined, taskName?: string): string => {
   if (e === undefined) {
     return '# Evaluation\n\n_No `<evaluation-passed>` or `<evaluation-failed>` verdict emitted by the evaluator._\n';
   }
   const score = e.overallScore !== undefined ? e.overallScore.toFixed(1) : 'n/a';
+  const title = taskName !== undefined && taskName.length > 0 ? `# Evaluation — ${taskName}` : '# Evaluation';
   const lines: string[] = [
-    '# Evaluation',
+    title,
     '',
-    `- **Status:** ${e.status}`,
-    `- **Overall score:** ${score}`,
-    '',
-    '## Dimensions',
+    `**Status:** ${e.status} · **Overall:** ${score} / 5 · **Verdict signal:** ${verdictSignal(e.status)}`,
     '',
   ];
   if (e.dimensions.length === 0) {
-    lines.push('_No dimensions._');
+    lines.push('## Dimensions', '', '_No dimensions emitted._', '');
   } else {
     for (const d of e.dimensions) {
       const verdict = d.passed ? 'passed' : 'failed';
-      lines.push(`- **${d.dimension}** (${String(d.score)}/5, ${verdict}): ${d.finding}`);
+      lines.push(`## ${titleCase(d.dimension)} — ${verdict} (${String(d.score)}/5)`, '');
+      const bullets = splitFindingBullets(d.finding);
+      if (bullets.length === 0) {
+        lines.push('_No finding emitted._', '');
+      } else {
+        for (const b of bullets) lines.push(`- ${b}`);
+        lines.push('');
+      }
     }
   }
   const critique = e.critique?.trim();
   if (critique !== undefined && critique.length > 0) {
-    lines.push('', '## Critique', '', critique);
+    lines.push('## Critique', '');
+    const items = splitCritiqueBullets(critique);
+    for (const item of items) lines.push(`- ${item}`);
+    lines.push('');
   }
-  lines.push('');
-  return lines.join('\n');
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`;
 };
