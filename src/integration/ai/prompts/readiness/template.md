@@ -43,11 +43,11 @@ with concrete checks ("Use 2-space indentation"; "Run `pnpm verify` before commi
 - Credentials, user-specific paths, or commands that touch remote services.
 - Standard language conventions the agent already knows.
 
-**Existing-context rule (the most important when an existing file is supplied).** When `EXISTING_CONTEXT_FILE`
-below carries a body, that prose is **authoritative**. Your `<{{WIRE_TAG}}>` MUST contain the existing body
-**byte-for-byte verbatim** at the start, in its original order, with NO rewording, summarising, or reformatting.
-Append any proposed additions as new H2 sections at the bottom. Do not modify, prune, or merge into existing
-sections. When you have nothing to add, still emit `<{{WIRE_TAG}}>` with the existing body unchanged.
+**Existing-context rule (the most important when an existing file is supplied).** When the "Existing context
+file" section below carries a body, that prose is **authoritative**. Your `<{{WIRE_TAG}}>` MUST contain the
+existing body **byte-for-byte verbatim** at the start, in its original order, with NO rewording, summarising, or
+reformatting. Append any proposed additions as new H2 sections at the bottom. Do not modify, prune, or merge into
+existing sections. When you have nothing to add, still emit `<{{WIRE_TAG}}>` with the existing body unchanged.
 
 **Script safety (applies to setup and verify).** Every command must resolve in this repo: cite `pnpm install`
 only when `package.json` is present, `pip install -r requirements.txt` only when that file exists, `cargo fetch`
@@ -105,8 +105,8 @@ directories, or generated output.
 Draft each candidate H2 section against the inclusion test. Drop any section that an experienced engineer
 could derive by reading the manifest or the directory tree. Keep what survives short and verifiable.
 
-When `EXISTING_CONTEXT_FILE` carries a body, the existing prose comes first, byte-for-byte. Your additions
-go as new H2 sections at the bottom — never inline.
+When the "Existing context file" section carries a body, the existing prose comes first, byte-for-byte. Your
+additions go as new H2 sections at the bottom — never inline.
 
 ### Phase 3 — Output
 

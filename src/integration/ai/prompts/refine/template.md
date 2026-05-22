@@ -61,8 +61,10 @@ Then identify, in order:
 
 ### Step 2 — Interview the user
 
-Ask focused questions one at a time using `AskUserQuestion`, starting with the most critical
-gap. Work through these dimensions in priority order; skip any the ticket already nails down.
+Ask focused questions one at a time as **structured multiple-choice** prompts — one question
+with a header, 2–4 labelled options, and a one-line description per option. Start with the most
+critical gap and work through the dimensions below in priority order; skip any the ticket already
+nails down.
 
 **Dimension A — Problem and scope.** What problem are we solving and for whom? What is in
 scope vs explicitly out of scope? What is deferred to future work?
@@ -85,15 +87,17 @@ limits. Phrase as observable constraints, not implementation hints.
 
 #### Asking clarifying questions
 
-Use `AskUserQuestion` with 2–4 options per question:
+Every question is a structured multiple-choice prompt with 2–4 options. Use whichever interactive
+question-asking tool your runtime exposes (Claude Code uses `AskUserQuestion`; other runtimes have
+equivalents) — the shape stays the same:
 
 - First option = your recommendation (label ends with " (Recommended)").
 - Descriptions explain trade-offs or implications.
 - Ask one question at a time.
 - Labels: 1–5 words (UI rendering constraint).
 - Headers: 12 characters or fewer (UI rendering constraint).
-- `multiSelect: true` when choices are not mutually exclusive.
-- Users automatically get an "Other" option — do not add your own.
+- Allow multiple selections when choices are not mutually exclusive.
+- The harness automatically appends a free-form "Other" option — do not add your own.
 
 #### Example interactions
 
@@ -148,7 +152,7 @@ should we split?"
 Present the complete requirements in readable markdown. Use proper headers, bullets, and
 formatting. Make it easy to scan.
 
-Then ask for approval using `AskUserQuestion`:
+Then ask for approval as a structured multiple-choice prompt:
 
 ```
 Question: "Does this look correct? Any changes needed?"

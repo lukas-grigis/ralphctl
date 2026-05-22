@@ -71,8 +71,10 @@ ambiguous. The harness strips thinking blocks before persisting.
 
 ### Step 1.1 — Interview
 
-Ask focused questions one at a time using `AskUserQuestion`. Work through these
-dimensions in priority order; skip any the idea description already answers:
+Ask focused questions one at a time as structured multiple-choice prompts (header, 2–4 labelled
+options, recommendation first). Use whichever interactive question tool your runtime exposes —
+Claude Code's `AskUserQuestion` or its equivalent. Work through these dimensions in priority
+order; skip any the idea description already answers:
 
 - **Problem & scope** — what problem? for whom? in scope vs out of scope?
 - **Functional behaviour** — what should it do, observable as user-visible behaviour?
@@ -131,14 +133,15 @@ pick up cold. For each task:
 - **`name`** — imperative, short.
 - **`description`** — optional longer-form context.
 - **`projectPath`** — absolute path matching one of the Selected Repositories above.
-- **`steps`** — concrete implementation steps in order. End with the verification
-  command (e.g. "run `pnpm test` in <repo>").
+- **`steps`** — concrete implementation steps in order. End with the project's verification
+  command (read the project's AI context file or manifest for the exact command — e.g. typecheck
+  / lint / tests chained with `&&` — and name the repository the command runs in).
 - **`verificationCriteria`** — observable checks an evaluator can run.
 - **`blockedBy`** — `id`s of tasks that must complete before this one starts.
 - **`id`** — short string for `blockedBy` references (e.g. `"1"`, `"api-shape"`).
 
-Use `AskUserQuestion` for genuinely contested implementation decisions (library
-choice, architecture). Don't ask routine questions.
+For genuinely contested implementation decisions (library choice, architecture), ask a structured
+multiple-choice question. Don't ask routine questions the manifest / project conventions answer.
 
 ### Step 2.3 — Present + approve
 

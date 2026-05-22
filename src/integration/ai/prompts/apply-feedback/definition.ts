@@ -62,9 +62,9 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-task',
+    SIGNALS: 'signals-feedback',
   },
-  expectedSignals: ['task-verified', 'task-complete', 'task-blocked'],
+  expectedSignals: ['task-complete', 'task-blocked'],
 };
 
 export interface BuildApplyFeedbackPromptInput {

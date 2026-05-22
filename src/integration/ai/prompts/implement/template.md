@@ -32,8 +32,8 @@ completion.
     there. The file is a contract — silent reflows surprise reviewers and erode trust.
   - **Include only what an unfamiliar engineer would get wrong without being told.** Anything derivable from
     the code itself does not belong here — empirical studies show redundancy reduces agent success.
-  - **Be specific and verifiable.** "Use 2-space indentation" beats "format properly"; "Run `pnpm verify`
-    before committing" beats "test your changes".
+  - **Be specific and verifiable.** "Use 2-space indentation" beats "format properly"; "Run the project's
+    verification command before committing" beats "test your changes".
   - **Stay under 200 lines, max 7 H2 sections, no H4+.** Adherence degrades past that.
   - **Never embed slash commands, hooks, MCP server config, IDE settings, secrets, or credentials.** Those
     have dedicated locations (e.g. `.claude/`, `.cursor/`, `settings.json`).
@@ -175,9 +175,9 @@ When finished, emit a signal from the `<signals>` block below.
 
 ## References
 
-- Anthropic, _Claude Code Memory (CLAUDE.md)_ — empirical basis for the 200-line / 7-H2 caps and the
-  adherence-degradation claim: https://code.claude.com/docs/en/memory
-- Anthropic, _Claude Code Best Practices_ — source of the "no slash commands / hooks / MCP / IDE settings
-  in the project context file" rule: https://code.claude.com/docs/en/best-practices
+- Anthropic agent-memory guidance — empirical basis for the 200-line / 7-H2 caps and the
+  adherence-degradation claim.
+- Anthropic coding-agent best practices — source of the "no slash commands / hooks / MCP / IDE settings
+  in the project context file" rule.
 - Gloaguen et al., _Evaluating AGENTS.md_ (arXiv 2602.11988) — redundant context measurably reduces agent
-  success rate
+  success rate.

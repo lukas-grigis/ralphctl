@@ -212,7 +212,7 @@ Good — precise steps with file paths and pattern references:
     "Create useAuth hook in src/hooks/useAuth.ts exposing auth state and actions",
     "Add ProtectedRoute wrapper component in src/components/ProtectedRoute.tsx",
     "Write unit tests in src/services/__tests__/auth.test.ts — follow test patterns in src/services/__tests__/user.test.ts",
-    "Run the project's verification commands (e.g. `pnpm test`, `pnpm typecheck`) — all must pass"
+    "Run the project's verification commands (read the project's AI context file or manifest for the exact commands — typecheck, lint, and tests) — all must pass"
   ],
   "verificationCriteria": [
     "TypeScript compiles with no errors",
@@ -272,8 +272,10 @@ Don't write JSON yet. Build the plan in your head (or a markdown sketch) first.
 
 ### Step 3 — Interview the user
 
-Use `AskUserQuestion` for genuinely contested decisions. One question at a time, 2–4 options,
-recommendation as the first option. Stop when you have what you need.
+For genuinely contested decisions, ask the user a structured multiple-choice question — one at a
+time, 2–4 labelled options per question, recommendation as the first option. Use whichever
+interactive question tool your runtime exposes (Claude Code surfaces `AskUserQuestion`; other
+runtimes have equivalents). Stop when you have what you need.
 
 Good questions:
 
@@ -312,9 +314,10 @@ Present the proposed task list in readable markdown:
 
 Show the dependency graph as a list under the tasks; explain why each dependency exists.
 
-Then ask for approval via `AskUserQuestion` — **do not** ask in prose ("does this look right?",
-"want me to split X?", "say the word and I'll write the plan"). Prose answers are ambiguous and
-the harness cannot act on them; the tool produces a structured choice.
+Then ask for approval via a structured multiple-choice prompt — **do not** ask in prose ("does this
+look right?", "want me to split X?", "say the word and I'll write the plan"). Prose answers are
+ambiguous and the harness cannot act on them; a structured choice produces a verdict the harness
+can route.
 
 - **Question:** "Does this task breakdown look correct?"
 - **Header:** "Approval"
@@ -324,8 +327,9 @@ the harness cannot act on them; the tool produces a structured choice.
   - "Give feedback" — Type specific corrections in my own words.
 
 If the user picks "Needs changes" / "Give feedback" (or uses "Other"), apply their input, revise
-the tasks, re-present the full plan + dependency graph, then re-ask the same `AskUserQuestion`.
-Iterate until the user picks "Approved, write it". Only after that approval proceed to Step 5.
+the tasks, re-present the full plan + dependency graph, then re-ask the same structured approval
+question. Iterate until the user picks "Approved, write it". Only after that approval proceed to
+Step 5.
 
 ### Step 5 — Validate before output
 
