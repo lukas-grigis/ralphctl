@@ -8,6 +8,7 @@ export const ErrorCode = {
   Storage: 'storage-error',
   Probe: 'probe-error',
   Aborted: 'aborted',
+  MigrationGap: 'migration-gap',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -257,9 +257,14 @@ export interface CommitMessageSignal {
 }
 
 /**
- * Discriminated union of every harness signal type. Narrows by the `type` tag; exhaustive
- * `switch` statements should close with `const _exhaustive: never = signal` so adding a variant
- * is a compile error at every consumer until handled.
+ * Discriminated union of every signal type the harness understands. Narrows by the `type` tag;
+ * exhaustive `switch` statements should close with `const _exhaustive: never = signal` so
+ * adding a variant is a compile error at every consumer until handled.
+ *
+ * Naming: this used to be called `HarnessSignal`. The new contract ([09]) names them
+ * `AiSignal` to clarify that the AI session is the producer. The alias below carries the
+ * legacy name forward for in-flight consumers; per-leaf migration progressively replaces
+ * `HarnessSignal` references with `AiSignal`.
  */
 export type HarnessSignal =
   | ProgressSignal
@@ -280,3 +285,10 @@ export type HarnessSignal =
   | SkillSuggestionsSignal
   | CommitMessageSignal
   | ContextCompactedSignal;
+
+/**
+ * Canonical name for the AI-produced signal union under the [09] contract. Currently aliased
+ * to {@link HarnessSignal}; per-leaf migration ([09] step 5) progressively swaps consumers
+ * over and a later pass collapses the union back into a single name.
+ */
+export type AiSignal = HarnessSignal;

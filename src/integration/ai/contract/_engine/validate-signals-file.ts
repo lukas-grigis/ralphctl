@@ -1,0 +1,104 @@
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
+import { Result } from '@src/domain/result.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
+import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { AiSignal } from '@src/domain/signal.ts';
+import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
+import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
+
+const SIGNALS_FILENAME = 'signals.json';
+
+/**
+ * Per-spawn contract loader. Reads `<outputDir>/signals.json`, walks the migration chain
+ * forward to the contract's current `schemaVersion`, then Zod-parses the final shape.
+ *
+ * Failure shapes the leaf surfaces:
+ *
+ *   - `InvalidStateError` (`signals-missing`)  — file absent. Leaf escalates so the chain
+ *     surfaces a clear "AI did not produce signals.json" message.
+ *   - `ParseError`         (`invalid-json`)    — file exists but is malformed JSON.
+ *   - `ParseError`         (`schema-mismatch`) — Zod rejected the migrated shape; the issue
+ *     path lives in `cause` for callers to extract.
+ *   - `MigrationGapError`                       — file declares a version older than the
+ *     contract expects and the chain is missing a step for the gap.
+ *   - `StorageError`                            — other I/O failures (EACCES, etc.).
+ *
+ * Returns the validated `AiSignal[]` on success — the precise sub-union per the contract's
+ * generic argument.
+ */
+export const validateSignalsFile = async <TSig extends AiSignal>(
+  outputDir: AbsolutePath,
+  contract: AiOutputContract<TSig>
+): Promise<Result<readonly TSig[], InvalidStateError | ParseError | MigrationGapError | StorageError>> => {
+  const path = join(String(outputDir), SIGNALS_FILENAME);
+
+  let bytes: string;
+  try {
+    bytes = await fs.readFile(path, 'utf8');
+  } catch (cause) {
+    if (isNodeErrnoCode(cause, 'ENOENT') || isNodeErrnoCode(cause, 'ENOTDIR')) {
+      return Result.error(
+        new InvalidStateError({
+          entity: 'ai-session',
+          currentState: 'post-spawn',
+          attemptedAction: 'validate-signals',
+          message: `signals-missing: ${path}`,
+          hint: 'The AI exited without writing signals.json. Inspect the per-spawn directory for stdout / sessionId and re-run.',
+        })
+      );
+    }
+    return Result.error(new StorageError({ subCode: 'io', message: `read failed: ${path}`, path, cause }));
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(bytes);
+  } catch (cause) {
+    return Result.error(
+      new ParseError({
+        subCode: 'invalid-json',
+        message: `signals-invalid (malformed JSON) at ${path}: ${describeJsonError(cause)}`,
+        cause,
+        hint: 'The spawn wrote signals.json but the body was not valid JSON. Inspect the file directly.',
+      })
+    );
+  }
+
+  const fileVersion =
+    typeof raw === 'object' && raw !== null && typeof (raw as { schemaVersion?: unknown }).schemaVersion === 'number'
+      ? (raw as { schemaVersion: number }).schemaVersion
+      : 0;
+
+  let current: unknown = raw;
+  for (let v = fileVersion; v < contract.schemaVersion; v++) {
+    const step = contract.migrations[v];
+    if (step === undefined) {
+      return Result.error(new MigrationGapError({ from: v, to: contract.schemaVersion, file: path }));
+    }
+    current = step(current);
+  }
+
+  const wrapper = current as { signals?: unknown };
+  const inner = wrapper.signals;
+  const parsed = contract.signalsSchema.safeParse(inner);
+  if (!parsed.success) {
+    return Result.error(
+      new ParseError({
+        subCode: 'schema-mismatch',
+        message: `signals-invalid (schema) at ${path}: ${parsed.error.message}`,
+        cause: parsed.error,
+        hint: 'The AI wrote signals.json but the shape failed the leaf contract. Issue path is in cause.issues.',
+      })
+    );
+  }
+  return Result.ok(parsed.data);
+};
+
+const describeJsonError = (cause: unknown): string => {
+  if (cause instanceof Error) return cause.message;
+  return String(cause);
+};

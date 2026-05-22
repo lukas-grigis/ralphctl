@@ -3,6 +3,7 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import type { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
@@ -14,6 +15,7 @@ export type DomainError =
   | NotFoundError
   | ConflictError
   | InvalidStateError
+  | MigrationGapError
   | ParseError
   | ProbeError
   | RateLimitError
