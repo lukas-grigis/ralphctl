@@ -149,8 +149,9 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.exitCode).toBe(0);
     expect(row?.command).toBe('pnpm install');
     expect(row?.durationMs).toBe(1500);
-    expect(row?.stdoutTailBytes).toBe('install complete');
-    expect(row?.stderrTailBytes).toBe('');
+    // Audit-[06]: the audit row carries structured metadata only; no embedded tail bytes.
+    expect((row as unknown as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
+    expect((row as unknown as Record<string, unknown> | undefined)?.['stderrTailBytes']).toBeUndefined();
     expect(repo.saves).toHaveLength(1);
   });
 
@@ -180,7 +181,6 @@ describe('setupScriptRunnerLeaf', () => {
     const row = repo.saves[0]?.setupRanAt[0];
     expect(row?.outcome).toBe('failed');
     expect(row?.exitCode).toBe(7);
-    expect(row?.stdoutTailBytes).toContain('compile error');
     // Error-level log fires so the TUI surfaces the failure.
     expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('failed'))).toBe(true);
     // Tail surfacing: the leaf also publishes the last lines of script output as error-level
@@ -297,8 +297,8 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.outcome).toBe('spawn-error');
     expect(row?.exitCode).toBe(-1);
     expect(row?.command).toBe('missing-binary');
-    expect(row?.stdoutTailBytes).toBe('');
-    expect(row?.stderrTailBytes).toContain('command not found');
+    // Spawn-error message now lands on the abort log + banner cause; not on the audit row.
+    expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('command not found'))).toBe(true);
   });
 
   it('records a skipped row (not silent) when a repo has no setupScript', async () => {
@@ -332,8 +332,6 @@ describe('setupScriptRunnerLeaf', () => {
     expect(row?.command).toBe('');
     expect(row?.exitCode).toBe(0);
     expect(row?.durationMs).toBe(0);
-    expect(row?.stdoutTailBytes).toBe('');
-    expect(row?.stderrTailBytes).toBe('');
   });
 
   it('surfaces a warn-level log + warn banner when a repo has no setupScript', async () => {
@@ -401,7 +399,10 @@ describe('setupScriptRunnerLeaf', () => {
     expect(result.value.ctx.execution?.setupRanAt[0]?.outcome).toBe('skipped');
   });
 
-  it('truncates stdout tails larger than SETUP_TAIL_BYTES with a marker', async () => {
+  it('persists structured metadata only — no embedded tail bytes on the audit row (Wave 8)', async () => {
+    // Wave-8 / audit-[06]: the audit row carries structured metadata only. The full
+    // untruncated body lives under `<sprintDir>/logs/setup/<repo-id>.log`; the
+    // separate `logs/ persistence` describe-block covers that path.
     const repo = savingRepo();
     const bus = createCapturingBus();
     const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 4) + 'FINAL_LINE';
@@ -421,10 +422,10 @@ describe('setupScriptRunnerLeaf', () => {
     const result = await leaf.execute(initialCtx(baseExecution()));
     if (!result.ok) throw new Error('expected ok');
     const row = result.value.ctx.execution?.setupRanAt[0];
-    expect(row?.stdoutTailBytes).toContain('FINAL_LINE');
-    expect(row?.stdoutTailBytes).toContain('truncated');
-    // Tail body itself is capped at the limit; the marker prefix adds a small overhead.
-    expect(Buffer.from(row?.stdoutTailBytes ?? '', 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
+    expect(row?.outcome).toBe('success');
+    // Tail-bytes fields are gone — `'stdoutTailBytes' in row` is false.
+    expect((row as unknown as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
+    expect((row as unknown as Record<string, unknown> | undefined)?.['stderrTailBytes']).toBeUndefined();
   });
 
   it('skips a repo on resume when a prior success row exists for the same command', async () => {
@@ -442,8 +443,6 @@ describe('setupScriptRunnerLeaf', () => {
           command: 'pnpm install',
           exitCode: 0,
           durationMs: 100,
-          stdoutTailBytes: '',
-          stderrTailBytes: '',
           outcome: 'success',
         },
       ],
@@ -493,8 +492,6 @@ describe('setupScriptRunnerLeaf', () => {
           command: 'pnpm install',
           exitCode: 1,
           durationMs: 100,
-          stdoutTailBytes: 'broke',
-          stderrTailBytes: '',
           outcome: 'failed',
         },
       ],
@@ -542,8 +539,6 @@ describe('setupScriptRunnerLeaf', () => {
           command: 'pnpm install',
           exitCode: 0,
           durationMs: 100,
-          stdoutTailBytes: '',
-          stderrTailBytes: '',
           outcome: 'success',
         },
       ],
@@ -594,8 +589,6 @@ describe('setupScriptRunnerLeaf', () => {
           command: 'pnpm install',
           exitCode: 0,
           durationMs: 100,
-          stdoutTailBytes: '',
-          stderrTailBytes: '',
           outcome: 'success',
         },
       ],
@@ -729,10 +722,11 @@ describe('setupScriptRunnerLeaf', () => {
       // Full body landed on disk — no truncation at the persistence boundary.
       expect(logContent.length).toBe(huge.length);
       expect(logContent).toBe(huge);
-      // Audit row still carries a truncated tail for the TUI banner (kept for backward compat).
+      // Wave 8 / audit-[06]: audit row carries structured metadata only — the body lives
+      // on disk. TUI surfaces lazy-load via the `LogTailReader` port.
       const row = result.ok ? (result.value.ctx.execution?.setupRanAt[0] ?? undefined) : undefined;
-      expect(row?.stdoutTailBytes).toContain('FINAL_LINE');
-      expect(row?.stdoutTailBytes).toContain('truncated');
+      expect(row?.outcome).toBe('success');
+      expect((row as unknown as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
     });
 
     it('writes the full output even when the script fails', async () => {

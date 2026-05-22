@@ -128,7 +128,7 @@ describe('preTaskVerifyLeaf', () => {
     expect(out.value.ctx.lastPreVerifyOutcome).toBe('spawn-error');
     const att = out.value.ctx.currentTask?.attempts.at(-1);
     expect(att?.verifyRuns?.[0]?.outcome).toBe('spawn-error');
-    expect(att?.verifyRuns?.[0]?.stdoutTailBytes).toContain('command not found');
+    // Wave 8: spawn-error message lands on the bus log (not on the audit row).
     // spawn-error is NOT known-bad baseline — leave the flag unset so attribution is skipped
     // downstream rather than mis-attributing.
     expect(att?.baselineBroken).toBeUndefined();

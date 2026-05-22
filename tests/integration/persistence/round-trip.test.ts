@@ -75,8 +75,6 @@ describe('codec round-trip', () => {
       command: 'pnpm install',
       exitCode: 0,
       durationMs: 1500,
-      stdoutTailBytes: 'install complete',
-      stderrTailBytes: '',
       outcome: 'success',
     });
     const withPr = (() => {

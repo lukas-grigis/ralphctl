@@ -32,8 +32,6 @@ const setupRow = (overrides: Partial<SetupRun> = {}): SetupRun => ({
   command: 'pnpm install',
   exitCode: 0,
   durationMs: 100,
-  stdoutTailBytes: '',
-  stderrTailBytes: '',
   outcome: 'success',
   ...overrides,
 });
@@ -54,7 +52,6 @@ const verifyRun = (phase: 'pre' | 'post', outcome: VerifyRun['outcome'], minutes
     command: 'pnpm test',
     exitCode: outcome === 'success' ? 0 : outcome === 'spawn-error' ? -1 : 1,
     durationMs: 50,
-    stdoutTailBytes: outcome === 'failed' ? 'broken' : '',
     outcome,
   };
 };

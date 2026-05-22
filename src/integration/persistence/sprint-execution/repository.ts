@@ -33,7 +33,7 @@ export const createFsSprintExecutionRepository = (
       }
       return Result.error(json.error);
     }
-    return decode(fromJsonSprintExecution, json.value, { entity: 'sprint-execution', path });
+    return decode((input) => fromJsonSprintExecution(input, path), json.value, { entity: 'sprint-execution', path });
   },
 
   async save(execution: SprintExecution) {

@@ -48,8 +48,9 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *   - `'success'`     — script ran and exited 0.
  *   - `'failed'`      — script spawned but exited non-zero. The chain aborts.
  *   - `'spawn-error'` — the shell could not start the command (missing binary, permission
- *                       denied, etc). `exitCode === -1`; the error message lands in
- *                       `stderrTailBytes`. The chain aborts.
+ *                       denied, etc). `exitCode === -1`. The spawn error message lands on
+ *                       the abort log / banner but is no longer persisted on the audit row
+ *                       (Wave 8 / audit-[06]). The chain aborts.
  *
  * The resume-path skip does NOT append a new audit row; the prior success entry stays
  * canonical. Each fresh run appends one row.
@@ -86,10 +87,10 @@ export interface SetupScriptRunnerLeafOpts {
   readonly timeoutMs?: number;
   /**
    * Per-sprint state directory. When set, the leaf writes the full untruncated setup-script
-   * output to `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03]. The audit row's
-   * `stdoutTailBytes` field still carries the trailing slice for the TUI banner — operators
-   * read the full body from the log file. Absent → no file written (test paths that don't
-   * care about disk logs still work).
+   * output to `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03]. The audit row
+   * itself carries structured metadata only — operators read the full body from the log
+   * file or via the `LogTailReader` port for lazy display. Absent → no file written (test
+   * paths that don't care about disk logs still work).
    */
   readonly sprintDir?: AbsolutePath;
 }
@@ -157,8 +158,6 @@ export const setupScriptRunnerLeaf = (
                 command: '',
                 exitCode: 0,
                 durationMs: 0,
-                stdoutTail: '',
-                stderrTail: '',
                 outcome: 'skipped',
               });
               execution = await persistRun(execution, run, deps);
@@ -188,15 +187,14 @@ export const setupScriptRunnerLeaf = (
             if (!spawnResult.ok) {
               // Spawn-time failure: the shell could not start the command at all (ENOENT, etc).
               // Recorded with `exitCode: -1` so consumers can distinguish "ran and failed" from
-              // "could not run" without parsing the message string.
+              // "could not run" without parsing the message string. The spawn error message is
+              // surfaced on the abort log + banner cause (no longer persisted on the row).
               const run = makeSetupRun({
                 repositoryId: repo.repositoryId,
                 ranAt: deps.clock(),
                 command,
                 exitCode: -1,
                 durationMs: 0,
-                stdoutTail: '',
-                stderrTail: spawnResult.error.message,
                 outcome: 'spawn-error',
               });
               await persistRun(execution, run, deps);
@@ -226,10 +224,10 @@ export const setupScriptRunnerLeaf = (
             }
 
             const { passed, exitCode, output, durationMs } = spawnResult.value;
-            // ShellScriptRunner merges stdout + stderr into a single combined buffer; the
-            // existing post-task-verify leaf relies on that shape. Treat the merged tail as
-            // stdout for now and leave stderr empty for non-spawn failures — the structured
-            // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
+            // ShellScriptRunner merges stdout + stderr into a single combined buffer. We slice
+            // a small tail for the failure bus events (log lines, banner cause, pnpm-marker
+            // detection) but never persist it onto the audit row — the full body lives in
+            // `<sprintDir>/logs/setup/<repo-id>.log` and TUI surfaces lazy-read from there.
             const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
 
             // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
@@ -255,8 +253,6 @@ export const setupScriptRunnerLeaf = (
               command,
               exitCode: normalisedExit,
               durationMs,
-              stdoutTail: outputTail,
-              stderrTail: '',
               outcome,
             });
             execution = await persistRun(execution, run, deps);
@@ -335,7 +331,7 @@ export const setupScriptRunnerLeaf = (
                     : `exited ${String(exitCode ?? 'null')}`,
                 hint:
                   pnpmTtyHint ??
-                  'Inspect the setup-script tail in execution.json for the failing repo and fix the environment.',
+                  'Inspect <sprintDir>/logs/setup/<repo-id>.log for the failing repo and fix the environment.',
               })
             );
           }
@@ -367,8 +363,6 @@ interface MakeSetupRunInput {
   readonly command: string;
   readonly exitCode: number;
   readonly durationMs: number;
-  readonly stdoutTail: string;
-  readonly stderrTail: string;
   readonly outcome: SetupRunOutcome;
 }
 
@@ -378,8 +372,6 @@ const makeSetupRun = (input: MakeSetupRunInput): SetupRun => ({
   command: input.command,
   exitCode: input.exitCode,
   durationMs: input.durationMs,
-  stdoutTailBytes: input.stdoutTail,
-  stderrTailBytes: input.stderrTail,
   outcome: input.outcome,
 });
 

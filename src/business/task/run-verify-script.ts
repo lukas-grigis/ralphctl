@@ -3,7 +3,6 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunOutcome, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
@@ -22,10 +21,11 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  *  - `'success'`     — script exited 0.
  *  - `'failed'`      — script exited non-zero.
  *  - `'spawn-error'` — shell could not start the command. `exitCode = -1`; the spawn error
- *                      message lands in `stdoutTailBytes` since the row carries only one tail.
+ *                      message lands in `spawnErrorMessage` (rather than inside the audit row).
  *
- * Truncation uses {@link SCRIPT_TAIL_BYTES} (shared with `SetupRun`) so both audit shapes
- * stay aligned.
+ * The audit row carries structured metadata only; the full untruncated output is returned
+ * separately so the caller can persist it to `<sprintDir>/logs/verify/<task-id>/...` per
+ * audit-[01].
  */
 export interface RunVerifyScriptProps {
   readonly cwd: AbsolutePath;
@@ -52,14 +52,20 @@ export interface RunVerifyScriptProps {
 }
 
 /**
- * Use-case output. `run` is the persisted-shape audit row; `rawOutput` carries the full
- * untruncated stdout+stderr so the leaf can persist it to `<sprintDir>/logs/verify/...` per
- * audit [01] / [03]. Empty string for `skipped` / `spawn-error` outcomes — there's no spawn
- * output to capture.
+ * Use-case output.
+ *
+ *  - `run` — the persisted-shape audit row (no stdout body).
+ *  - `rawOutput` — the full untruncated stdout+stderr from the spawn. Empty string for
+ *    `skipped` / `spawn-error` outcomes. The leaf persists this to
+ *    `<sprintDir>/logs/verify/<task-id>/{pre,post}-attempt-<N>.log` per audit-[01].
+ *  - `spawnErrorMessage` — present only for `outcome: 'spawn-error'`; carries the shell
+ *    runner's error message so the leaf can surface an actionable log line and a short
+ *    excerpt onto `lastVerifyResult.stderr`.
  */
 export interface RunVerifyScriptOutput {
   readonly run: VerifyRun;
   readonly rawOutput: string;
+  readonly spawnErrorMessage?: string;
 }
 
 /**
@@ -81,7 +87,6 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
         command: '',
         exitCode: 0,
         durationMs: 0,
-        stdoutTailBytes: '',
         outcome: 'skipped',
       },
       rawOutput: '',
@@ -112,10 +117,10 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
         command,
         exitCode: -1,
         durationMs: 0,
-        stdoutTailBytes: result.error.message,
         outcome: 'spawn-error',
       },
       rawOutput: '',
+      spawnErrorMessage: result.error.message,
     };
   }
 
@@ -129,19 +134,10 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
       command,
       exitCode: exitCode ?? -1,
       durationMs,
-      stdoutTailBytes: tailBytes(output, SCRIPT_TAIL_BYTES),
       outcome,
     },
     rawOutput: output,
   };
-};
-
-/** Return the last `limit` bytes of `s` (utf-8), prefixing an ellipsis marker if truncated. */
-const tailBytes = (s: string, limit: number): string => {
-  const buf = Buffer.from(s, 'utf8');
-  if (buf.length <= limit) return s;
-  const tail = buf.subarray(buf.length - limit).toString('utf8');
-  return `…[truncated ${String(buf.length - limit)} bytes]\n${tail}`;
 };
 
 /**

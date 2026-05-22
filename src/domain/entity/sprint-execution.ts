@@ -5,7 +5,6 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
-import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import { type ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 /**
@@ -49,10 +48,10 @@ export type SetupRunOutcome =
  * One entry in {@link SprintExecution.setupRanAt} — full structured row for a single
  * setup-script attempt against a single repository.
  *
- * `stdoutTailBytes` / `stderrTailBytes` carry the trailing portion of the captured output
- * (last {@link SCRIPT_TAIL_BYTES} bytes). The full output is not persisted; runaway scripts
- * would blow the JSON file otherwise. For spawn failures the error message lands in
- * `stderrTailBytes` so the audit row is self-explanatory.
+ * The audit row carries structured metadata only — exit code, duration, outcome. The full
+ * untruncated stdout/stderr body lives at `<sprintDir>/logs/setup/<repository-id>.log`
+ * (per audit-[01]); readers derive the path from `repositoryId` and lazy-load via the
+ * `LogTailReader` port when an operator hovers / expands the row.
  */
 export interface SetupRun {
   readonly repositoryId: RepositoryId;
@@ -68,20 +67,8 @@ export interface SetupRun {
   readonly exitCode: number;
   /** Total wall-clock duration in ms. `0` for `'skipped'`. */
   readonly durationMs: number;
-  /** Last {@link SCRIPT_TAIL_BYTES} bytes of stdout. Empty for `'skipped'` / `'spawn-error'`. */
-  readonly stdoutTailBytes: string;
-  /** Last {@link SCRIPT_TAIL_BYTES} bytes of stderr (or the spawn error message). */
-  readonly stderrTailBytes: string;
   readonly outcome: SetupRunOutcome;
 }
-
-/**
- * @deprecated Re-export of the shared {@link SCRIPT_TAIL_BYTES} constant. Prefer importing
- * `SCRIPT_TAIL_BYTES` directly from `@src/domain/value/script-tail-bytes.ts` — the alias is
- * retained so callers that hard-coded the setup-only name continue to compile.
- * @public
- */
-export const SETUP_TAIL_BYTES = SCRIPT_TAIL_BYTES;
 
 export interface SprintExecutionCreateInput {
   readonly sprintId: SprintId;

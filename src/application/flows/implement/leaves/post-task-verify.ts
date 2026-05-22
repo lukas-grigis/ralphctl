@@ -14,6 +14,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { SCRIPT_TAIL_BYTES } from '@src/domain/value/script-tail-bytes.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
@@ -76,6 +77,14 @@ interface LeafOutput {
   readonly task: InProgressTask;
   readonly run: VerifyRun;
   readonly attribution?: Attribution;
+  /**
+   * Carried into the leaf's `output` projection so {@link legacyVerifyResult} can derive
+   * `lastVerifyResult.stderr` from the spawn output rather than from a persisted tail-bytes
+   * field on the audit row. Wave 8 dropped the latter (audit-[06]); the full untruncated
+   * body now lives in `<sprintDir>/logs/verify/...`.
+   */
+  readonly rawOutput: string;
+  readonly spawnErrorMessage?: string;
 }
 
 /**
@@ -83,11 +92,28 @@ interface LeafOutput {
  * the structured {@link VerifyRun} so `settle-attempt` keeps deriving its existing
  * `verify-failed` {@link AttemptWarning} without rewiring. `spawn-error` is folded into
  * `'verify-failed'` (exitCode = -1) — same legacy behaviour as the prior implementation.
+ *
+ * The `stderr` field carries a tail-capped excerpt of the spawn output (or the shell's spawn
+ * error message). It feeds the persisted `AttemptWarning.verify-failed.stderr` audit field;
+ * the full untruncated body lives at `<sprintDir>/logs/verify/<task-id>/...` (audit-[01]).
  */
-const legacyVerifyResult = (run: VerifyRun): NonNullable<ImplementCtx['lastVerifyResult']> => {
+const legacyVerifyResult = (
+  run: VerifyRun,
+  rawOutput: string,
+  spawnErrorMessage?: string
+): NonNullable<ImplementCtx['lastVerifyResult']> => {
   if (run.outcome === 'skipped') return { kind: 'skipped' };
   if (run.outcome === 'success') return { kind: 'passed' };
-  return { kind: 'verify-failed', exitCode: run.exitCode, stderr: run.stdoutTailBytes };
+  const stderr = run.outcome === 'spawn-error' ? (spawnErrorMessage ?? '') : tailBytes(rawOutput, SCRIPT_TAIL_BYTES);
+  return { kind: 'verify-failed', exitCode: run.exitCode, stderr };
+};
+
+/** Return the last `limit` bytes of `s` (utf-8), prefixing an ellipsis marker if truncated. */
+const tailBytes = (s: string, limit: number): string => {
+  const buf = Buffer.from(s, 'utf8');
+  if (buf.length <= limit) return s;
+  const tail = buf.subarray(buf.length - limit).toString('utf8');
+  return `…[truncated ${String(buf.length - limit)} bytes]\n${tail}`;
 };
 
 export const postTaskVerifyLeaf = (
@@ -98,7 +124,7 @@ export const postTaskVerifyLeaf = (
   leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
-        const { run, rawOutput } = await runVerifyScriptUseCase({
+        const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'post',
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
@@ -177,7 +203,7 @@ export const postTaskVerifyLeaf = (
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
-            message: `post-task-verify ${String(opts.cwd)}: spawn-error — ${run.stdoutTailBytes}; attribution skipped`,
+            message: `post-task-verify ${String(opts.cwd)}: spawn-error — ${spawnErrorMessage ?? 'unknown spawn error'}; attribution skipped`,
             at: deps.clock(),
           });
         }
@@ -185,6 +211,8 @@ export const postTaskVerifyLeaf = (
         return Result.ok({
           task: updated.value,
           run,
+          rawOutput,
+          ...(spawnErrorMessage !== undefined ? { spawnErrorMessage } : {}),
           ...(attribution !== undefined ? { attribution } : {}),
         });
       },
@@ -213,7 +241,7 @@ export const postTaskVerifyLeaf = (
       };
     },
     output: (ctx, out) => {
-      const verifyResult = legacyVerifyResult(out.run);
+      const verifyResult = legacyVerifyResult(out.run, out.rawOutput, out.spawnErrorMessage);
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? (out.task as Task) : t));
       // Default policy: a red post-verify blocks the task — the AI's `task-verified`
       // self-report is overruled by the harness's independent verdict. The ONE escape hatch

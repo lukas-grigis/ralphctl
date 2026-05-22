@@ -49,13 +49,18 @@ const RecoveryContextSchema = z.object({
 
 const VerifyRunOutcomeSchema = z.enum(['success', 'failed', 'spawn-error', 'skipped']);
 const VerifyRunPhaseSchema = z.enum(['pre', 'post']);
+/**
+ * Persistent shape of one {@link VerifyRun}. The audit row carries structured metadata only.
+ * Pre-Wave-8 rows carried `stdoutTailBytes`; the per-entity migration chain strips that
+ * field at load time (full output now lives at `<sprintDir>/logs/verify/<task-id>/...` per
+ * audit-[01]).
+ */
 const VerifyRunSchema = z.object({
   phase: VerifyRunPhaseSchema,
   ranAt: IsoTimestampSchema,
   command: z.string(),
   exitCode: z.number().int(),
   durationMs: z.number().int().nonnegative(),
-  stdoutTailBytes: z.string(),
   outcome: VerifyRunOutcomeSchema,
 });
 const AttributionSchema = z.enum(['clean', 'regressed', 'baseline-broken', 'fixed-baseline']);
@@ -75,11 +80,10 @@ const AttemptBaseShape = {
   signalOrExitCode: z.union([z.string(), z.number()]).optional(),
   // Set at attempt creation time when opening as a resume of a prior aborted attempt.
   recovering: RecoveryContextSchema.optional(),
-  // Harness-side pre/post verify-script audit + derived attribution verdict. The `checkRuns`
-  // alias accepts on-disk records persisted before the v0.7.0 verify rename; it is dropped at
-  // the boundary and only `verifyRuns` flows into the domain.
+  // Harness-side pre/post verify-script audit + derived attribution verdict. The pre-rename
+  // `checkRuns` field is migrated to `verifyRuns` upstream by the per-entity tasks-file
+  // migration chain (see `task/migrations.ts`), so this schema only sees the canonical key.
   verifyRuns: z.array(VerifyRunSchema).readonly().optional(),
-  checkRuns: z.array(VerifyRunSchema).readonly().optional(),
   attribution: AttributionSchema.optional(),
   baselineBroken: z.boolean().optional(),
 };
@@ -103,21 +107,11 @@ const SettledFailedAttemptSchema = z.object({
   finishedAt: IsoTimestampSchema,
 });
 
-/**
- * Discriminated-union schema with a post-parse legacy-field migration: if an on-disk record
- * carried the pre-rename `checkRuns` array (and no `verifyRuns`), lift it to `verifyRuns` and
- * drop the legacy key so the rest of the codebase sees a clean entity.
- */
-export const AttemptSchema = z
-  .discriminatedUnion('status', [RunningAttemptSchema, VerifiedAttemptSchema, SettledFailedAttemptSchema])
-  .transform((att) => {
-    const { checkRuns, verifyRuns, ...rest } = att;
-    const runs = verifyRuns ?? checkRuns;
-    return {
-      ...rest,
-      ...(runs !== undefined ? { verifyRuns: runs } : {}),
-    };
-  });
+export const AttemptSchema = z.discriminatedUnion('status', [
+  RunningAttemptSchema,
+  VerifiedAttemptSchema,
+  SettledFailedAttemptSchema,
+]);
 
 export const fromJsonAttempt = (input: unknown): Result<Attempt, ParseError> => safeParseToResult(AttemptSchema, input);
 

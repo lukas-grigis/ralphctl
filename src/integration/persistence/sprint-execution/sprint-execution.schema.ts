@@ -1,17 +1,29 @@
 import { z } from 'zod';
 import type { Result } from '@src/domain/result.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { HttpUrlSchema, SprintIdSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import { SetupRunSchema } from '@src/integration/persistence/sprint-execution/setup-run.schema.ts';
-import { type Compatible, safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
+import {
+  SPRINT_EXECUTION_SCHEMA_VERSION,
+  sprintExecutionMigrations,
+} from '@src/integration/persistence/sprint-execution/migrations.ts';
+import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
+import { type Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
+/**
+ * On-disk shape for `execution.json` at the current schema version. The `schemaVersion`
+ * field is a literal — older shapes get migrated forward by
+ * {@link sprintExecutionMigrations} before this schema sees them, so the parse always
+ * succeeds against the post-migration form.
+ *
+ * `id` and `sprintId` carry the same value — execution is keyed by the partner sprint.
+ * Both fields are persisted so the on-disk record satisfies `Entity<SprintId>` without
+ * losing the historical `sprintId` field name.
+ */
 export const SprintExecutionSchema = z.object({
-  /**
-   * `id` and `sprintId` carry the same value — execution is keyed by the partner sprint.
-   * Both fields are persisted so the on-disk record satisfies `Entity<SprintId>` without
-   * losing the historical `sprintId` field name.
-   */
+  schemaVersion: z.literal(SPRINT_EXECUTION_SCHEMA_VERSION).default(SPRINT_EXECUTION_SCHEMA_VERSION),
   id: SprintIdSchema,
   sprintId: SprintIdSchema,
   branch: z.union([z.string(), z.null()]),
@@ -20,58 +32,42 @@ export const SprintExecutionSchema = z.object({
 });
 
 /**
- * Decode a persisted sprint-execution payload. Two forward-compat shims fire before zod
- * validation so legacy on-disk files load without operator intervention:
- *
- *  1. The earliest format carried `sprintId` only (no `id`); the `Entity<SprintId>` base
- *     contract added `id` later. Fill it in from `sprintId`.
- *  2. The v0.7.0 setup-script-runner expanded `SetupRun` from `{ repositoryId, ranAt }` to a
- *     structured row carrying command / exit / outcome / stdoutTail / stderrTail. Upgrade
- *     legacy two-field rows by populating the new fields with neutral defaults
- *     (`outcome: 'success'`, empty command + tails, `exitCode: 0`, `durationMs: 0`). This
- *     preserves the historical fact "setup ran at this time on this repo" without
- *     fabricating output the harness didn't observe.
- *
- * Both shims self-heal on the next save — new writes always emit the current shape.
+ * Decode a persisted `execution.json` payload. Walks the per-entity migration chain forward
+ * to the current `SPRINT_EXECUTION_SCHEMA_VERSION`, then Zod-parses the final shape. Returns
+ * `MigrationGapError` when a step is missing for an unrecognised version, `ParseError` when
+ * the final shape doesn't validate.
  */
-export const fromJsonSprintExecution = (input: unknown): Result<SprintExecution, ParseError> => {
-  const withId = upgradeMissingId(input);
-  const withMigratedRuns = upgradeLegacySetupRuns(withId);
-  return safeParseToResult(SprintExecutionSchema, withMigratedRuns);
-};
+export const fromJsonSprintExecution = (
+  input: unknown,
+  filePath = 'execution.json'
+): Result<SprintExecution, MigrationGapError | ParseError> =>
+  runMigrations<SprintExecution>(
+    input,
+    SPRINT_EXECUTION_SCHEMA_VERSION,
+    sprintExecutionMigrations,
+    PersistedSchema,
+    filePath
+  );
 
-const upgradeMissingId = (input: unknown): unknown => {
-  if (typeof input !== 'object' || input === null) return input;
-  const obj = input as Record<string, unknown>;
-  if ('id' in obj || !('sprintId' in obj)) return input;
-  return { ...obj, id: obj.sprintId };
-};
+/**
+ * The persisted file carries `schemaVersion`; the in-memory domain entity does not. Strip
+ * the field at the schema boundary so the rest of the codebase consumes a pure domain shape.
+ */
+const PersistedSchema = SprintExecutionSchema.transform((value) => {
+  const next: Record<string, unknown> = { ...value };
+  delete next.schemaVersion;
+  return next as unknown as SprintExecution;
+});
 
-const upgradeLegacySetupRuns = (input: unknown): unknown => {
-  if (typeof input !== 'object' || input === null) return input;
-  const obj = input as Record<string, unknown>;
-  const runs = obj.setupRanAt;
-  if (!Array.isArray(runs)) return input;
-  const migrated = runs.map((run) => {
-    if (typeof run !== 'object' || run === null) return run;
-    const entry = run as Record<string, unknown>;
-    // Already in the new shape — keep it. A persisted `outcome` is the unambiguous marker.
-    if ('outcome' in entry) return entry;
-    return {
-      ...entry,
-      command: typeof entry.command === 'string' ? entry.command : '',
-      exitCode: typeof entry.exitCode === 'number' ? entry.exitCode : 0,
-      durationMs: typeof entry.durationMs === 'number' ? entry.durationMs : 0,
-      stdoutTailBytes: typeof entry.stdoutTailBytes === 'string' ? entry.stdoutTailBytes : '',
-      stderrTailBytes: typeof entry.stderrTailBytes === 'string' ? entry.stderrTailBytes : '',
-      outcome: 'success',
-    };
-  });
-  return { ...obj, setupRanAt: migrated };
-};
+/**
+ * Re-stamp the file with the current `schemaVersion` so an old file written without the
+ * field heals on the next save. The in-memory entity does not carry the version.
+ */
+export const toJsonSprintExecution = (execution: SprintExecution): unknown => ({
+  schemaVersion: SPRINT_EXECUTION_SCHEMA_VERSION,
+  ...execution,
+});
 
-export const toJsonSprintExecution = (execution: SprintExecution): unknown => execution;
-
-type _checkSprintExecution = Compatible<SprintExecution, z.infer<typeof SprintExecutionSchema>>;
+type _checkSprintExecution = Compatible<SprintExecution, Omit<z.infer<typeof SprintExecutionSchema>, 'schemaVersion'>>;
 const _typeChecks: [_checkSprintExecution] = [true];
 void _typeChecks;

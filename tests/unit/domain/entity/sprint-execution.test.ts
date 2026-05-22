@@ -19,8 +19,6 @@ const makeRun = (overrides: Partial<SetupRun> = {}): SetupRun => ({
   command: 'pnpm install',
   exitCode: 0,
   durationMs: 1234,
-  stdoutTailBytes: 'install complete',
-  stderrTailBytes: '',
   outcome: 'success',
   ...overrides,
 });
@@ -88,7 +86,7 @@ describe('appendExecutionSetupRun', () => {
     expect(roundTripped.setupRanAt[0]?.command).toBe('pnpm install');
   });
 
-  it('records a spawn-error row with exitCode -1 and message in stderrTailBytes', () => {
+  it('records a spawn-error row with exitCode -1', () => {
     const seed = createSprintExecution({ sprintId });
     const next = appendExecutionSetupRun(
       seed,
@@ -96,22 +94,17 @@ describe('appendExecutionSetupRun', () => {
         outcome: 'spawn-error',
         exitCode: -1,
         command: 'missing-binary',
-        stdoutTailBytes: '',
-        stderrTailBytes: 'spawn ENOENT',
       })
     );
     const row = next.setupRanAt[0];
     expect(row?.outcome).toBe('spawn-error');
     expect(row?.exitCode).toBe(-1);
-    expect(row?.stderrTailBytes).toBe('spawn ENOENT');
+    expect(row?.command).toBe('missing-binary');
   });
 
   it('records a skipped row with empty command for repos without a setup script', () => {
     const seed = createSprintExecution({ sprintId });
-    const next = appendExecutionSetupRun(
-      seed,
-      makeRun({ outcome: 'skipped', command: '', stdoutTailBytes: '', stderrTailBytes: '', durationMs: 0 })
-    );
+    const next = appendExecutionSetupRun(seed, makeRun({ outcome: 'skipped', command: '', durationMs: 0 }));
     const row = next.setupRanAt[0];
     expect(row?.outcome).toBe('skipped');
     expect(row?.command).toBe('');

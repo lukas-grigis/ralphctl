@@ -29,8 +29,6 @@ const setupRow = (outcome: SetupRun['outcome']): SetupRun => ({
   command: 'pnpm install',
   exitCode: outcome === 'success' ? 0 : -1,
   durationMs: 0,
-  stdoutTailBytes: '',
-  stderrTailBytes: '',
   outcome,
 });
 
@@ -48,7 +46,6 @@ const verifyRun = (phase: 'pre' | 'post', outcome: VerifyRun['outcome'], minutes
   command: 'pnpm test',
   exitCode: outcome === 'success' ? 0 : 1,
   durationMs: 0,
-  stdoutTailBytes: '',
   outcome,
 });
 

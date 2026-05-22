@@ -76,7 +76,7 @@ export const preTaskVerifyLeaf = (
   leaf<ImplementCtx, LeafInput, LeafOutput>(`pre-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
-        const { run, rawOutput } = await runVerifyScriptUseCase({
+        const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'pre',
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
@@ -152,7 +152,7 @@ export const preTaskVerifyLeaf = (
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
-            message: `pre-task-verify ${String(opts.cwd)}: spawn-error — ${run.stdoutTailBytes}; attribution will be skipped`,
+            message: `pre-task-verify ${String(opts.cwd)}: spawn-error — ${spawnErrorMessage ?? 'unknown spawn error'}; attribution will be skipped`,
             at: deps.clock(),
           });
         } else {

@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import type { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { RepositoryIdSchema, TaskIdSchema, TicketIdSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import { AttemptSchema } from '@src/integration/persistence/task/attempt.schema.ts';
+import { TASKS_FILE_SCHEMA_VERSION, tasksFileMigrations } from '@src/integration/persistence/task/migrations.ts';
+import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
 import { safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
 
 const TaskBaseShape = {
@@ -73,3 +76,45 @@ export const fromJsonTask = (input: unknown): Result<Task, ParseError> =>
   safeParseToResult(TaskSchema, input) as Result<Task, ParseError>;
 
 export const toJsonTask = (task: Task): unknown => task;
+
+/**
+ * Versioned envelope for `tasks.json`. The file root is `{ schemaVersion, tasks }` post-Wave-8;
+ * pre-Wave-8 files used a bare `Task[]` root, which {@link tasksFileMigrations} v0 lifts into
+ * this shape.
+ */
+const TasksFileSchema = z.object({
+  schemaVersion: z.literal(TASKS_FILE_SCHEMA_VERSION).default(TASKS_FILE_SCHEMA_VERSION),
+  tasks: z.array(TaskSchema).readonly(),
+});
+
+/**
+ * Decode a `tasks.json` payload. Walks the per-entity migration chain forward to
+ * `TASKS_FILE_SCHEMA_VERSION` (lifting the legacy bare-array root + dropping per-row
+ * `stdoutTailBytes`), then Zod-parses the envelope and returns the inner `Task[]`.
+ */
+export const fromJsonTasksFile = (
+  input: unknown,
+  filePath = 'tasks.json'
+): Result<readonly Task[], MigrationGapError | ParseError> => {
+  const parsed = runMigrations<{ schemaVersion: typeof TASKS_FILE_SCHEMA_VERSION; tasks: readonly Task[] }>(
+    input,
+    TASKS_FILE_SCHEMA_VERSION,
+    tasksFileMigrations,
+    TasksFileSchema as unknown as z.ZodType<{
+      schemaVersion: typeof TASKS_FILE_SCHEMA_VERSION;
+      tasks: readonly Task[];
+    }>,
+    filePath
+  );
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: parsed.value.tasks } as Result<readonly Task[], MigrationGapError | ParseError>;
+};
+
+/**
+ * Wrap an in-memory `Task[]` into the versioned envelope. Old files written without
+ * `schemaVersion` heal on the next save.
+ */
+export const toJsonTasksFile = (tasks: readonly Task[]): unknown => ({
+  schemaVersion: TASKS_FILE_SCHEMA_VERSION,
+  tasks: tasks.map(toJsonTask),
+});

@@ -125,7 +125,8 @@ describe('createFsSprintExecutionRepository', () => {
     expect(row?.command).toBe('');
     expect(row?.exitCode).toBe(0);
     expect(row?.durationMs).toBe(0);
-    expect(row?.stdoutTailBytes).toBe('');
-    expect(row?.stderrTailBytes).toBe('');
+    // Tail-bytes fields removed in Wave 8 / audit-[06]; the migration drops them silently.
+    expect((row as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
+    expect((row as Record<string, unknown> | undefined)?.['stderrTailBytes']).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fromJsonAttempt } from '@src/integration/persistence/task/attempt.schema.ts';
+import { fromJsonTasksFile } from '@src/integration/persistence/task/task.schema.ts';
 
 /**
  * Schema round-trip for {@link VerifyRun} + {@link Attribution} fields on an attempt.
@@ -150,30 +151,58 @@ describe('attempt schema — VerifyRun round-trip', () => {
   });
 
   // ── legacy on-disk migration ──────────────────────────────────────────────────────────
-  it('migrates legacy `checkRuns` field to `verifyRuns` (pre-v0.7.0 records)', () => {
-    const raw = {
-      n: 1,
-      startedAt: '2026-05-08T10:00:00.000Z',
-      status: 'running' as const,
-      finishedAt: null,
-      checkRuns: [
-        {
-          phase: 'pre',
-          ranAt: '2026-05-08T10:00:00.000Z',
-          command: 'pnpm test',
-          exitCode: 0,
-          durationMs: 100,
-          stdoutTailBytes: 'OK',
-          outcome: 'success',
-        },
-      ],
-    };
-    const parsed = fromJsonAttempt(raw);
+  // The pre-v0.7.0 `checkRuns` → `verifyRuns` lift used to live on the attempt schema's
+  // own transform. Wave 8 moved it to the tasks-file migration chain (`migrations[0]`),
+  // along with the `stdoutTailBytes` removal — both target the same row shape, so they
+  // share one step. The test exercises the migration via `fromJsonTasksFile`.
+  it('migrates legacy `checkRuns` field to `verifyRuns` and drops `stdoutTailBytes` (pre-Wave-8 records)', () => {
+    const raw = [
+      {
+        id: '01900000-0000-7000-8000-000000000001',
+        name: 'task-a',
+        steps: [],
+        verificationCriteria: [],
+        order: 1,
+        ticketId: '01900000-0000-7000-8000-000000000002',
+        dependsOn: [],
+        repositoryId: '01900000-0000-7000-8000-00000000abcd',
+        status: 'todo' as const,
+        attempts: [
+          {
+            n: 1,
+            startedAt: '2026-05-08T10:00:00.000Z',
+            status: 'running' as const,
+            finishedAt: null,
+            checkRuns: [
+              {
+                phase: 'pre',
+                ranAt: '2026-05-08T10:00:00.000Z',
+                command: 'pnpm test',
+                exitCode: 0,
+                durationMs: 100,
+                stdoutTailBytes: 'OK',
+                outcome: 'success',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const parsed = fromJsonTasksFile(raw);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.value.verifyRuns).toHaveLength(1);
-    expect(parsed.value.verifyRuns?.[0]?.command).toBe('pnpm test');
-    // Legacy alias is dropped — the only field in the parsed entity is the new one.
-    expect((parsed.value as { checkRuns?: unknown }).checkRuns).toBeUndefined();
+    expect(parsed.value).toHaveLength(1);
+    const task = parsed.value[0];
+    if (task === undefined) throw new Error('expected task');
+    expect(task.attempts).toHaveLength(1);
+    const att = task.attempts[0];
+    if (att === undefined) throw new Error('expected attempt');
+    expect(att.verifyRuns).toHaveLength(1);
+    expect(att.verifyRuns?.[0]?.command).toBe('pnpm test');
+    // Legacy `checkRuns` alias dropped; embedded tail bytes dropped.
+    expect((att as { checkRuns?: unknown }).checkRuns).toBeUndefined();
+    expect(
+      (att.verifyRuns?.[0] as unknown as Record<string, unknown> | undefined)?.['stdoutTailBytes']
+    ).toBeUndefined();
   });
 });

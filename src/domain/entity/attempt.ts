@@ -139,8 +139,10 @@ export type VerifyRunPhase = 'pre' | 'post';
  *   - `phase: 'post'` — after the generator commits. Authoritative: the harness's verdict
  *                       drives the task transition, NOT the AI's `task-verified` self-report.
  *
- * Schema deliberately mirrors `SetupRun`; the two audit shapes share `SCRIPT_TAIL_BYTES`
- * for stdout truncation and the same outcome vocabulary.
+ * Schema deliberately mirrors `SetupRun`; both audit shapes carry structured metadata only.
+ * The full untruncated stdout/stderr lives at
+ * `<sprintDir>/logs/verify/<task-id>/{pre,post}-attempt-<N>.log` (per audit-[01]); readers
+ * derive the path from `taskId + attemptN + phase` and lazy-load via the `LogTailReader` port.
  * @public
  */
 export interface VerifyRun {
@@ -156,8 +158,6 @@ export interface VerifyRun {
   readonly exitCode: number;
   /** Total wall-clock duration in ms. `0` for `'skipped'`. */
   readonly durationMs: number;
-  /** Last `SCRIPT_TAIL_BYTES` bytes of merged stdout / stderr. Empty for `'skipped'` / `'spawn-error'`. */
-  readonly stdoutTailBytes: string;
   readonly outcome: VerifyRunOutcome;
 }
 

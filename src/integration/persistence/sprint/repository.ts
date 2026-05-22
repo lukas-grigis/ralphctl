@@ -41,7 +41,7 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
         if (json.error instanceof NotFoundError) continue; // race or stray dir without sprint.json
         return Result.error(json.error);
       }
-      const decoded = decode(fromJsonSprint, json.value, { entity: 'sprint', path });
+      const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
       if (!decoded.ok) return Result.error(decoded.error);
       items.push(decoded.value);
     }
@@ -58,7 +58,7 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
         }
         return Result.error(json.error);
       }
-      return decode(fromJsonSprint, json.value, { entity: 'sprint', path });
+      return decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
     },
 
     async findBySlug(slug, projectId: ProjectId) {

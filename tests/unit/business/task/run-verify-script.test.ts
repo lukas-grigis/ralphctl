@@ -42,7 +42,7 @@ describe('runVerifyScriptUseCase', () => {
     expect(run.outcome).toBe('skipped');
   });
 
-  it('returns outcome="success" with stdoutTail and rawOutput when script exits 0', async () => {
+  it('returns outcome="success" with rawOutput when script exits 0 (audit row carries no body)', async () => {
     const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',
@@ -55,12 +55,13 @@ describe('runVerifyScriptUseCase', () => {
     expect(run.phase).toBe('post');
     expect(run.exitCode).toBe(0);
     expect(run.durationMs).toBe(100);
-    expect(run.stdoutTailBytes).toBe('OK');
-    // Audit [01] / [03]: full raw output is the leaf's input for the logs/ persistence.
+    // Audit-[06]: the audit row carries structured metadata only; no embedded tail bytes.
+    expect((run as unknown as Record<string, unknown>)['stdoutTailBytes']).toBeUndefined();
+    // Audit-[01]: full raw output is the leaf's input for the logs/ persistence.
     expect(rawOutput).toBe('OK');
   });
 
-  it('returns outcome="failed" with truncated stdoutTail and full rawOutput when script exits non-zero', async () => {
+  it('returns outcome="failed" with full rawOutput when script exits non-zero', async () => {
     const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
     const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
@@ -72,17 +73,13 @@ describe('runVerifyScriptUseCase', () => {
     });
     expect(run.outcome).toBe('failed');
     expect(run.exitCode).toBe(1);
-    expect(run.stdoutTailBytes).toContain('FINAL_LINE');
-    expect(run.stdoutTailBytes).toContain('truncated');
-    // Tail body itself is capped at the limit; the marker prefix adds a small overhead.
-    expect(Buffer.from(run.stdoutTailBytes, 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
-    // rawOutput preserves the full body verbatim — no truncation at the persistence boundary.
+    // rawOutput preserves the full body verbatim — no truncation at the use-case boundary.
     expect(rawOutput.length).toBe(huge.length);
     expect(rawOutput).toBe(huge);
   });
 
-  it('returns outcome="spawn-error" with exit=-1 when the shell could not start', async () => {
-    const { run, rawOutput } = await runVerifyScriptUseCase({
+  it('returns outcome="spawn-error" with exit=-1 and spawnErrorMessage when the shell could not start', async () => {
+    const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       verifyScript: 'missing-binary',
@@ -92,8 +89,7 @@ describe('runVerifyScriptUseCase', () => {
     });
     expect(run.outcome).toBe('spawn-error');
     expect(run.exitCode).toBe(-1);
-    expect(run.stdoutTailBytes).toContain('spawn ENOENT');
-    // No spawn output to capture for the logs/ side; tail still carries the spawn-error message.
+    expect(spawnErrorMessage).toContain('spawn ENOENT');
     expect(rawOutput).toBe('');
   });
 
