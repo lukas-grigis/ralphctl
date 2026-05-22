@@ -16,7 +16,9 @@ import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makePendingTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { failCurrentAttempt, startNextAttempt } from '@src/domain/entity/task.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -329,6 +331,116 @@ describe('SprintDetailView — phase workspace', () => {
     // if the label does not exist, not even the start of the word appears anywhere in the frame.
     expect(frame).toContain('not-stuck');
     expect(frame).not.toMatch(/unbl/);
+    result.unmount();
+  });
+
+  it("shows 'u unblock' hint when focused on an in_progress task (crashed/aborted)", async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    // Build an in_progress task with a settled (aborted) last attempt — the "stuck after kill" shape.
+    const todo = makeTodoTask({ name: 'in-progress-stuck' });
+    const inProgress = (() => {
+      const r = startNextAttempt(todo, IsoTimestamp.now(), 'session-x');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      return r.value;
+    })();
+    // Settle the attempt as aborted so the last attempt is no longer running.
+    const settled = (() => {
+      const r = failCurrentAttempt(inProgress, IsoTimestamp.now(), 'aborted');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      if (r.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after single-attempt abort');
+      return r.value;
+    })();
+
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([settled] as unknown as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    // Cursor starts on the ticket; press 'j' to land on the in_progress task.
+    result.stdin.write('j');
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('in-progress-stuck');
+    // The 'u unblock' hint must appear for in_progress tasks, same as for blocked.
+    expect(frame).toMatch(/unbl/);
+    result.unmount();
+  });
+
+  it('pressing u on an in_progress task with settled attempt resets it to todo', async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const todo = makeTodoTask({ name: 'crashed-task' });
+    const inProgress = (() => {
+      const r = startNextAttempt(todo, IsoTimestamp.now(), 'session-y');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      return r.value;
+    })();
+    const settled = (() => {
+      const r = failCurrentAttempt(inProgress, IsoTimestamp.now(), 'aborted');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      if (r.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after single-attempt abort');
+      return r.value;
+    })();
+
+    const updateCalls: Task[] = [];
+    let storedStatus: 'in_progress' | 'todo' = 'in_progress';
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(
+            storedStatus === 'todo'
+              ? [{ ...(settled as object), status: 'todo' } as unknown as Task]
+              : [settled as unknown as Task]
+          );
+        },
+        async update(_sprintId: SprintId, task: Task) {
+          updateCalls.push(task);
+          storedStatus = task.status === 'todo' ? 'todo' : storedStatus;
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    // Cursor starts on the ticket; press 'j' to land on the in_progress task.
+    result.stdin.write('j');
+    await tick(40);
+    result.stdin.write('u');
+    await tick(80);
+    const frame = result.lastFrame() ?? '';
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.status).toBe('todo');
+    expect(frame).toContain('✓ unblocked');
+    expect(frame).toContain('crashed-task');
     result.unmount();
   });
 

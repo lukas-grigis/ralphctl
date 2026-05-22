@@ -55,12 +55,15 @@ export const pickerKeys = {
  * design — those keys live on different surfaces (browse views vs the live execute view) and
  * never collide at runtime.
  *
- * `u` unblocks a task left in `blocked` state by a prior watchdog kill or failed verify.
- * Only active when the cursor is on a blocked task in the sprint-detail view.
+ * `u` resets a stuck task to `todo`. "Stuck" covers `blocked` (maxAttempts exhausted / verify
+ * failed) and `in_progress` with a settled last attempt (crash recovery after Ctrl-C / watchdog
+ * kill). Only active when the cursor is on a blocked or crashed-in-progress task in the
+ * sprint-detail view.
  */
 export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
-  unblockTask: { keys: ['u'], label: 'unblock focused task' },
+  unblockTask: { keys: ['u'], label: 'unblock stuck task (blocked or crashed in-progress)' },
+  bulkUnblockSprintTasks: { keys: ['u'], label: 'unblock all stuck tasks in focused sprint' },
 } as const satisfies Record<string, KeyBinding>;
 
 /** Vertical-list bindings — used by every list view + action menu. */

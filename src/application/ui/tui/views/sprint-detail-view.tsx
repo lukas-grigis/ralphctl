@@ -162,8 +162,13 @@ export const SprintDetailView = (): React.JSX.Element => {
   const ticketsEditable = sprint?.status === 'draft';
   const inDetail = openIdx !== undefined;
   const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
-  const focusedBlockedTask =
-    focusedNow?.kind === 'task' && focusedNow.task.status === 'blocked' ? focusedNow.task : undefined;
+  // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
+  // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
+  // same operator action: press `u` to reset to `todo` and retry on the next implement run.
+  const focusedStuckTask =
+    focusedNow?.kind === 'task' && (focusedNow.task.status === 'blocked' || focusedNow.task.status === 'in_progress')
+      ? focusedNow.task
+      : undefined;
 
   const edit = useEditField();
   const queue = usePromptQueue();
@@ -182,7 +187,7 @@ export const SprintDetailView = (): React.JSX.Element => {
           { keys: 'a', label: 'add ticket' },
           ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
           { keys: 'd', label: 'remove ticket' },
-          ...(focusedBlockedTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
+          ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
         ]
   );
 
@@ -316,8 +321,8 @@ export const SprintDetailView = (): React.JSX.Element => {
       if (focused?.kind === 'ticket') setConfirmRemove(focused.ticket);
       return;
     }
-    if (input === 'u' && focusedBlockedTask !== undefined) {
-      void handleUnblock(focusedBlockedTask);
+    if (input === 'u' && focusedStuckTask !== undefined) {
+      void handleUnblock(focusedStuckTask);
     }
   });
 
