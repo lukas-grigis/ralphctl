@@ -64,6 +64,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 
@@ -101,6 +102,40 @@ export const SprintDetailView = (): React.JSX.Element => {
     if (!tasksR.ok) throw new Error(tasksR.error.message);
     return { sprint: sprintR.value, tasks: tasksR.value };
   }, [sprintId]);
+
+  // Reload sprint + tasks whenever a flow session transitions (registered, running →
+  // completed / failed / aborted, or removed). Without this, cancelling, finishing, or failing a
+  // flow leaves sprint-detail frozen on its mount-time snapshot — the operator can't see that
+  // the active task flipped to `blocked` or that subsequent tasks landed `done`. We diff
+  // session statuses rather than reloading on every notify() because the session manager fires
+  // on every chain `step`; the trace-only updates would otherwise hammer the disk.
+  // `reload` is a fresh closure each render (no useCallback in useAsyncLoad), so we route it
+  // through a ref to keep the subscription stable.
+  const sessionMgr = useSessionManager();
+  const reloadRef = React.useRef(reload);
+  reloadRef.current = reload;
+  React.useEffect(() => {
+    const snapshot = (): Map<string, string> => {
+      const m = new Map<string, string>();
+      for (const rec of sessionMgr.list()) m.set(rec.descriptor.id, rec.descriptor.status);
+      return m;
+    };
+    let prev = snapshot();
+    return sessionMgr.subscribe(() => {
+      const next = snapshot();
+      let changed = prev.size !== next.size;
+      if (!changed) {
+        for (const [id, status] of next) {
+          if (prev.get(id) !== status) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      prev = next;
+      if (changed) reloadRef.current();
+    });
+  }, [sessionMgr]);
 
   // Project lookup is a separate, best-effort fetch — used only to resolve `repositoryId → name`
   // for task cards / detail views. Failing this (test stubs without a real projectRepo, or a
