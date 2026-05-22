@@ -52,6 +52,13 @@ export interface AiOutputContract<TSig extends AiSignal = AiSignal> {
   readonly signalsSchema: z.ZodType<readonly TSig[]>;
   readonly sidecars: ReadonlyArray<SidecarRule<TSig['type']>>;
   readonly migrations: Readonly<Record<number, AiSignalsFileMigration>>;
+  /**
+   * Representative signal payload embedded in the rendered `{{OUTPUT_CONTRACT_SECTION}}` block.
+   * One example per contract (one per leaf), hand-authored to cover the kinds the AI is most
+   * likely to emit. Prompt unit tests round-trip this through `signalsSchema` to catch drift
+   * the moment the schema's accepted shape diverges from what the prompt documents.
+   */
+  readonly exampleSignals: readonly TSig[];
 }
 
 /**

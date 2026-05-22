@@ -8,13 +8,8 @@ implementation tasks in one session. Two phases — refine then plan — both in
 
 ## Output target
 
-When BOTH phases are approved by the user, write a JSON object to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Single object, no array wrapper around the top level. Use exactly this shape:
+When BOTH phases are approved by the user, emit an `ideated-tickets` signal whose
+`outputJson` field carries a JSON-encoded object with this shape:
 
 ```json
 {
@@ -42,7 +37,8 @@ Single object, no array wrapper around the top level. Use exactly this shape:
 `projectPath` MUST match one of the absolute paths under "Selected Repositories" below.
 `blockedBy` references other task `id`s in the same array.
 
-Write only after the user approves both phases. No code, no other files.
+Write only after the user approves both phases. The Output contract section at the bottom of
+this prompt documents the exact `signals.json` shape. No code, no other files.
 
 ## Idea
 
@@ -160,16 +156,18 @@ Iterate until approved.
 
 ## Output rules
 
-- Write a single JSON object to `{{OUTPUT_FILE}}`.
-- The object has exactly two top-level keys: `requirements` (string) and `tasks` (array).
+- Write a single `ideated-tickets` signal into `signals.json` per the Output contract section
+  below. The `outputJson` field holds a JSON-encoded object.
+- The encoded object has exactly two top-level keys: `requirements` (string) and `tasks` (array).
 - `requirements` is the approved markdown body from Phase 1, verbatim.
 - `tasks` is the approved array from Phase 2.
-- Do not include any commentary in the file — just the JSON.
 - Do not write code, do not modify other files.
 
 ## Failure modes
 
 If the idea cannot be turned into a plan (contradictory requirements, missing context
-that can't be extracted from the user), still write a JSON object — `requirements` may
-contain whatever you've gathered, and `tasks` may be empty `[]`. End the chat with a
-final note explaining the gap so the user knows the output is partial.
+that can't be extracted from the user), still emit the `ideated-tickets` signal —
+`requirements` may contain whatever you've gathered, and `tasks` may be empty `[]`. End the
+chat with a final note explaining the gap so the user knows the output is partial.
+
+{{OUTPUT_CONTRACT_SECTION}}

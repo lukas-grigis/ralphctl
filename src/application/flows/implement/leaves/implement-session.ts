@@ -6,7 +6,8 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 /**
  * Per-call AiSession profile for implement and evaluate calls. The session "plugs onto" the
- * repo: the user's repo is the foundation; the harness extends it with the per-task sandbox.
+ * repo: the user's repo is the foundation; the harness extends it with the per-task sandbox
+ * AND the wider sprint directory.
  *
  *  - `repoPath` is the AI session's working directory. Claude / Copilot / Codex only
  *    auto-discover their context files (`CLAUDE.md` / `.github/copilot-instructions.md` /
@@ -16,9 +17,17 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  *
  *  - `sandboxCwd` is mounted as an additional root with `--add-dir`. The per-task workspace
  *    under `<sprintDir>/implement/<task-id>/` carries the harness's handoff files
- *    (`prompt.md`, `done-criteria.md`, `rounds/<N>/…/signals.json`); the AI reads / writes
- *    them via that path. Git operations (`commit-task`, `branch-preflight`, `post-task-verify`)
- *    keep targeting `repoPath` — "AI cwd" and "git working tree" are now the same path.
+ *    (`prompt.md`, `rounds/<N>/…/signals.json`); the AI reads / writes them via that path.
+ *    Git operations (`commit-task`, `branch-preflight`, `post-task-verify`) keep targeting
+ *    `repoPath` — "AI cwd" and "git working tree" are now the same path.
+ *
+ *  - `sprintDir` is mounted as a SECOND additional root so the AI can read sprint-wide
+ *    artifacts the sandbox doesn't contain — primarily `<sprintDir>/progress.md`, which the
+ *    audit-[09] contract expects every implement spawn to consult. The sandbox is nested
+ *    UNDER `sprintDir`, but adapters declare additional roots non-recursively; mounting
+ *    `sprintDir` explicitly is the only way to surface its sibling files. Refine / plan /
+ *    ideate / readiness already cwd inside `<sprintDir>/<flow>/<unit-slug>/` and reach
+ *    progress.md via cwd-relative traversal — only implement (cwd = repo) needs this.
  *
  * Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-<name>/` (the
  * `ralphctl-` prefix is set in the bundled / project skill sources). The skills adapter
@@ -38,6 +47,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 export const implementSession = (
   sandboxCwd: AbsolutePath,
   repoPath: AbsolutePath,
+  sprintDir: AbsolutePath,
   prompt: Prompt,
   model: string,
   signalsFile: AbsolutePath,
@@ -45,7 +55,7 @@ export const implementSession = (
 ): AiSession => ({
   prompt,
   cwd: repoPath,
-  additionalRoots: [sandboxCwd],
+  additionalRoots: [sandboxCwd, sprintDir],
   model,
   permissions: FULL_AUTO,
   signalsFile,

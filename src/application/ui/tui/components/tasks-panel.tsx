@@ -181,12 +181,11 @@ const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     case 'decision':
       return { label: 'decision', text: sig.text, bold: true };
     case 'commit-message': {
-      // Prefer the harness-resolved `fullMessage` (subject + body + `Closes …` trailer) — the
-      // AI's pre-trailer `subject` can diverge from what actually lands in git history if the
-      // harness clamped or rewrote it. Display the first line; body + trailer are revealed by
-      // the `<CommitSignalLine>` collapsible row when the user expands the focused row.
-      const headline = sig.fullMessage !== undefined ? (sig.fullMessage.split('\n', 1)[0] ?? sig.subject) : sig.subject;
-      return { label: 'commit', text: headline };
+      // The subject is the source of truth — the harness owns the trailer-appending logic and
+      // re-emits the signal with the resolved body, but the subject is what reviewers read first
+      // and what `git log --oneline` shows. Body + trailers are revealed by the
+      // `<CommitSignalLine>` collapsible row when the user expands the focused row.
+      return { label: 'commit', text: sig.subject };
     }
     case 'note':
       return { label: 'note', text: sig.text };
@@ -281,13 +280,13 @@ const SignalLine = ({
 /**
  * Collapsible variant for `commit-message` signals. Default state is collapsed: only the
  * commit subject line shows, identical in layout to {@link SignalLine}. When expanded (the
- * row is focused and the user pressed Enter / Space), the body paragraphs and any
- * harness-appended `Closes #…` trailer render indented under the signal label column.
+ * row is focused and the user pressed Enter / Space), the body paragraphs render indented
+ * under the signal label column.
  *
- * Source of truth for the multi-line body is `sig.fullMessage` when present — the harness
- * re-emits the commit-message signal with `fullMessage` populated after the commit-task leaf
- * runs `assembleCommitMessage` (subject + body + trailers). On the parse-time signal where
- * `fullMessage` is absent, the row falls back to `sig.body` and shows no trailer block.
+ * Source of truth for the multi-line body is `signal.body` when present. The harness-appended
+ * deterministic trailers (`Closes #…`) are added by the commit-task leaf when calling
+ * `git commit -F` but are not threaded back onto the signal — the TUI shows the AI's proposed
+ * message, not the post-trailer resolved form.
  *
  * Width handling: every body line uses the same `wrap="truncate-end"` discipline as the
  * subject row, so a 200-col commit body still ellides cleanly at narrow widths instead of
@@ -302,26 +301,21 @@ const CommitSignalLine = ({
   readonly focused: boolean;
   readonly expanded: boolean;
 }): React.JSX.Element => {
-  const headline =
-    signal.fullMessage !== undefined ? (signal.fullMessage.split('\n', 1)[0] ?? signal.subject) : signal.subject;
+  const headline = signal.subject;
   const color = SIGNAL_LABEL_COLOR['commit'] ?? inkColors.info;
-  // Lines below the subject — body paragraphs + trailers — derived from `fullMessage` when
-  // available (authoritative), or from `body` alone otherwise. We drop the first line (it is
-  // the subject already rendered above) and any leading blank separators so the indented
-  // block reads as a tight prose block.
+  // Lines below the subject — body paragraphs — derived from `signal.body`. We trim leading
+  // / trailing blanks but preserve interior blank lines so the body's paragraph structure
+  // survives.
   const tailLines = useMemo<readonly string[]>(() => {
-    const raw = signal.fullMessage ?? (signal.body !== undefined ? `${signal.subject}\n\n${signal.body}` : '');
-    if (raw.length === 0) return [];
-    const parts = raw.split('\n').slice(1);
-    // Trim contiguous leading / trailing blanks but preserve interior blank lines so the
-    // body's paragraph structure (and the blank separator before a `Closes #…` trailer)
-    // survives.
+    const body = signal.body;
+    if (body === undefined || body.length === 0) return [];
+    const parts = body.split('\n');
     let start = 0;
     let end = parts.length;
     while (start < end && parts[start]?.trim() === '') start += 1;
     while (end > start && parts[end - 1]?.trim() === '') end -= 1;
     return parts.slice(start, end);
-  }, [signal.fullMessage, signal.body, signal.subject]);
+  }, [signal.body]);
   const canExpand = tailLines.length > 0;
   const disclosure = canExpand ? (expanded ? EXPANDED_DISCLOSURE : COLLAPSED_DISCLOSURE) : ' ';
   return (

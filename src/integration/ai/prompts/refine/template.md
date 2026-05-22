@@ -10,16 +10,11 @@ focused questions, and stop when acceptance criteria are unambiguous.
 
 ## Output target
 
-When approved by the user, write your final markdown body to this file:
+When approved by the user, emit your final markdown body in the `refined-ticket` signal's `body`
+field, written into `signals.json` per the Output contract section at the bottom of this prompt.
+The harness reads the validated signal and stores its `body` on the ticket aggregate.
 
-```
-{{OUTPUT_FILE}}
-```
-
-Write a single markdown document — no JSON wrapper, no commentary, no code fence around the
-document body. The harness reads this file verbatim and stores it on the ticket aggregate.
-
-The expected document shape is at the bottom of this prompt under "Output format".
+The expected markdown shape for the `body` is at the bottom of this prompt under "Output format".
 
 <constraints>
 
@@ -168,7 +163,7 @@ Iterate until approved.
 
 ### Step 5 — Pre-output quality check
 
-Before writing to file, verify ALL of these are true:
+Before emitting the signal, verify ALL of these are true:
 
 - [ ] Problem statement is clear and agreed.
 - [ ] Every requirement has acceptance criteria covering happy path + edge / error cases.
@@ -178,16 +173,12 @@ Before writing to file, verify ALL of these are true:
 - [ ] Given/When/Then format used where it fits.
 - [ ] Multi-topic tickets use numbered headings (`# 1.`, `# 2.`, …) with `---` dividers.
 
-### Step 6 — Write to file
+### Step 6 — Write `signals.json`
 
-Once approved AND every checklist item is true, write the markdown body to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Write the markdown document only — no JSON wrapper, no surrounding fence, no chat commentary
-after the write.
+Once approved AND every checklist item is true, write the validated `refined-ticket` signal into
+`signals.json` as documented in the Output contract section at the bottom of this prompt. The
+markdown body goes into the signal's `body` field verbatim — no JSON wrapper inside the body, no
+surrounding code fence.
 
 ## Output format
 
@@ -253,6 +244,8 @@ separate them with `---`:
 ## Failure modes
 
 If, after the interview, you determine the ticket cannot be refined as stated (contradictory
-requirements, missing information you cannot extract from the user), still write to
-`{{OUTPUT_FILE}}` with whatever you have, ending with a final section explaining the gap.
-Do not silently invent requirements.
+requirements, missing information you cannot extract from the user), still emit the
+`refined-ticket` signal with whatever you have, ending the body with a final section explaining
+the gap. Do not silently invent requirements.
+
+{{OUTPUT_CONTRACT_SECTION}}

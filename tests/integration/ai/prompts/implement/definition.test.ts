@@ -185,6 +185,8 @@ describe('renderPriorCritiqueSection', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildImplementPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and progress file', async () => {
     const task = makeTaskWith({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
@@ -193,6 +195,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       projectPath: '/tmp/ralph/main-repo',
       verifyScript: 'npm run check',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -217,6 +220,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -233,6 +237,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritique: '## Completeness\n- step 3 verification missing\n- error handling untested',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -247,6 +252,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -268,6 +274,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -286,6 +293,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

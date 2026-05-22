@@ -14,22 +14,17 @@ that need user input rather than silently assuming.
 - **Do not** modify, create, or delete any file inside the listed repositories. Exploration is
   read-only (read / search / grep). Files inside the repos must be left exactly as you found
   them — no scaffolding, no stubs, no fixups, no "while I was here" cleanups.
-- **The only file you may write in this session is `{{OUTPUT_FILE}}`** — the JSON task array
-  described under "Output target" below. Writing anything else is a protocol violation.
+- **The only file you may write in this session is `signals.json`** — see the Output contract
+  section at the bottom of this prompt. Writing anything else is a protocol violation.
 - If you catch yourself reaching for an edit tool on a repo file, stop. Capture the change as a
   step inside a task instead. The implementing agent will perform it.
 
 ## Output target
 
-When the plan is approved by the user, write a JSON array to:
+When the plan is approved by the user, emit a `task-plan` signal whose `tasksJson` field carries
+the JSON task array (a single JSON-encoded string of the array — no wrapper object inside).
 
-```
-{{OUTPUT_FILE}}
-```
-
-Single array — no wrapper object, no commentary, no surrounding fence.
-
-`tasks` array conforms to:
+The `tasksJson` payload conforms to:
 
 ```json
 {{SCHEMA}}
@@ -56,7 +51,8 @@ Each task entry uses these fields:
   capture (e.g. `accessibility`, `performance`, `migration-safety`, `i18n`). Omit the field
   entirely when the floor dimensions are enough. Cap: 2–3 per task in practice; hard max 6.
 
-If you cannot produce a sound plan, write a single object instead of an array:
+If you cannot produce a sound plan, emit the `task-plan` signal with `tasksJson` set to the
+single-object JSON form below (instead of an array):
 
 ```json
 { "blocked": "concrete reason — what's missing or contradictory, what would unblock you" }
@@ -335,20 +331,17 @@ Step 5.
 
 {{VALIDATION_CHECKLIST}}
 
-### Step 6 — Write to file
+### Step 6 — Write `signals.json`
 
 Once the user has answered "Approved, write it" in Step 4 AND every checklist item is true,
-write the JSON array to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Write the array only — no surrounding fence, no chat commentary after.
+write the `task-plan` signal into `signals.json` per the Output contract at the bottom of this
+prompt. The task array goes into the signal's `tasksJson` field as a JSON-encoded string.
 
 ## Failure modes
 
 If the inputs are contradictory, requirements are missing critical information, or the
 affected repositories cannot accommodate the work as scoped, do NOT emit speculative tasks.
-Output the `{ "blocked": "reason" }` object instead. The harness records this verbatim and
-surfaces it to the operator.
+Emit the `task-plan` signal with `tasksJson` set to the `{ "blocked": "reason" }` object
+instead. The harness records this verbatim and surfaces it to the operator.
+
+{{OUTPUT_CONTRACT_SECTION}}

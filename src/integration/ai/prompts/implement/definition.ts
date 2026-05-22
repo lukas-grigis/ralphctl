@@ -66,6 +66,13 @@ export interface ImplementPromptParams {
    * the generator's fix attempt addresses the same dimensions the evaluator flagged.
    */
   readonly priorCritiqueSection: string;
+  /**
+   * Audit-[09] output contract section — rendered from the generator's `AiOutputContract` by
+   * `renderContractSectionFor(generatorOutputContract)`. Tells the AI to write exactly one
+   * file (`signals.json`) matching the documented shape and to not write any other files.
+   * The leaf composes this string before calling `buildImplementPrompt`.
+   */
+  readonly outputContractSection: string;
 }
 
 const requireNonEmpty =
@@ -128,10 +135,18 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the generator contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty(
+        'outputContractSection',
+        'output-contract section must not be empty (renderContractSectionFor always emits a body)'
+      ),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-task',
     DECISIONS_GUIDANCE: 'decisions',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
@@ -152,6 +167,12 @@ export interface BuildImplementPromptInput {
    * fix attempt sees the same dimensions the evaluator graded last.
    */
   readonly priorCritique?: string;
+  /**
+   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * `renderContractSectionFor(generatorOutputContract)` before calling the builder so the
+   * prompt module stays agnostic of the per-leaf contract.
+   */
+  readonly outputContractSection: string;
 }
 
 /**
@@ -173,4 +194,5 @@ export const buildImplementPrompt = async (
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    outputContractSection: input.outputContractSection,
   });

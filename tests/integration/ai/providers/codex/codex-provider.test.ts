@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -114,11 +113,6 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   ...overrides,
 });
 
-const readSignals = async (path: string): Promise<readonly HarnessSignal[]> => {
-  const raw = await fs.readFile(path, 'utf8');
-  return JSON.parse(raw) as readonly HarnessSignal[];
-};
-
 const FIXED_OUT = '/tmp/ralphctl-codex-fixed.txt';
 const stubFs = (
   body: string
@@ -146,11 +140,13 @@ const unwrapArgs = (s: AiSession, outputFile = FIXED_OUT): readonly string[] => 
 };
 
 describe('createCodexProvider', () => {
-  it('happy path: reads response from output tempfile, parses signals, captures sessionId from stdout JSONL', async () => {
+  it('happy path: captures sessionId from stdout JSONL and unlinks codex tempfile WITHOUT writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
-    const fsStub = stubFs('<progress>working</progress>\n<task-verified>all good</task-verified>');
+    // The AI's natural-language body is no longer parsed for signals — audit-[09] makes the AI
+    // write `signals.json` directly via its Write tool. The body remains for forensic capture.
+    const fsStub = stubFs('completed task; wrote signals.json.');
 
     const provider = createCodexProvider({
       rateLimitRetries: 2,
@@ -166,8 +162,8 @@ describe('createCodexProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBe('sess-1');
     expect(out.value.exitCode).toBe(0);
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    // Provider must NOT touch signals.json — that's the AI's job under audit-[09].
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
   });
 

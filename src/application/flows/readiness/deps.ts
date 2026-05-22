@@ -1,6 +1,5 @@
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { ReadinessProbeRegistry } from '@src/integration/ai/readiness/_engine/probe.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -19,7 +18,8 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
  *  - `projectRepo` — load the project so the user can pick which repo to set up readiness for.
  *  - `probes` — registry of filesystem probes keyed by tool. The chain dispatches on the picked
  *    tool to discover existing artefacts before the AI call.
- *  - `provider` / `templateLoader` / `signals` / `log` — standard AI-call quartet.
+ *  - `provider` / `templateLoader` / `logger` — standard AI-call trio (audit-[09]: the AI
+ *    writes signals.json directly; no signal sink is needed on this layer).
  *  - `interactive` — port for the three interactive leaves (pick-repo, pick-tool, confirm).
  *  - `writeFile` — the {@link WriteFile} port used by the terminal write leaf.
  *  - `clock` — injected so tests pin the backup-file timestamp suffix to a fixed value.
@@ -29,7 +29,6 @@ export interface SetupReadinessDeps {
   readonly probes: ReadinessProbeRegistry;
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
-  readonly signals: HarnessSignalSink;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly interactive: InteractivePrompt;

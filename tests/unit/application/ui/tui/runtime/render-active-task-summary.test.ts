@@ -48,33 +48,20 @@ describe('renderActiveTaskSummary', () => {
     expect(out).toContain('- attempts: 1 (last: failed)');
   });
 
-  it('counts focusable signal kinds and surfaces the sha from the harness-resolved commit', () => {
+  it('counts focusable signal kinds across the bucket', () => {
     const signals: HarnessSignal[] = [
       { type: 'change', text: 'edit x', timestamp: ts('2026-05-08T10:00:00.000Z') },
       { type: 'change', text: 'edit y', timestamp: ts('2026-05-08T10:00:01.000Z') },
       { type: 'learning', text: 'l', timestamp: ts('2026-05-08T10:00:02.000Z') },
       { type: 'decision', text: 'd', timestamp: ts('2026-05-08T10:00:03.000Z') },
-      {
-        type: 'commit-message',
-        subject: 'feat: x',
-        fullMessage: 'feat: x\n\nbody\n\ncommit deadbeefcafef00d1234567890abcdef12345678',
-        timestamp: ts('2026-05-08T10:00:04.000Z'),
-      },
+      { type: 'commit-message', subject: 'feat: x', timestamp: ts('2026-05-08T10:00:04.000Z') },
     ];
     const out = renderActiveTaskSummary({
       task: baseBucket({ signals }),
       displayName: 'task',
     });
-    expect(out).toContain('- last commit: deadbeefcafef00d1234567890abcdef12345678');
     expect(out).toContain('- signals: change 2, learning 1, decision 1, verified 0, blocked 0, commit 1');
-  });
-
-  it('ignores commit-message signals that have not been resolved by the harness yet', () => {
-    const signals: HarnessSignal[] = [
-      { type: 'commit-message', subject: 'parse-time only', timestamp: ts('2026-05-08T10:00:04.000Z') },
-    ];
-    const out = renderActiveTaskSummary({ task: baseBucket({ signals }), displayName: 'task' });
+    // SHA is not threaded through the bucket post-Wave-6 — drop the line entirely.
     expect(out).not.toContain('- last commit:');
-    expect(out).toContain('- signals: change 0, learning 0, decision 0, verified 0, blocked 0, commit 1');
   });
 });

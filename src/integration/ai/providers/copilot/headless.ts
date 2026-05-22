@@ -9,7 +9,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import {
   createCopilotStreamParser,
@@ -22,7 +21,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-stream.ts';
@@ -54,14 +53,13 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  * the parenthesised argument on a `--deny-tool=<Kind>` matches all tools of that kind. Deny
  * rules take precedence over allow rules.
  *
- * Output handling — file-based contract: stdout JSONL is consumed by
+ * Output handling — audit-[09] contract: stdout JSONL is consumed by
  * {@link createCopilotStreamParser}. Plain-text lines accumulate into a transient body buffer;
- * JSON records expose the `session_id` (logged + returned). On exit, the body is fed to
- * {@link parseHarnessSignals} and the parsed array written to `session.signalsFile`. When
- * `session.bodyFile` is set (one-shot flows like detect-scripts that may surface an empty
- * signal set), the raw accumulated body is mirrored there for forensic capture — best-effort,
- * a write failure here is logged but does not fail the spawn. The body itself goes out of
- * scope at function return — never retained on a domain entity.
+ * JSON records expose the `session_id` (logged + returned). The AI writes `signals.json`
+ * directly via its Write tool into `session.outputDir`; the harness validates it post-spawn —
+ * the provider never touches signals.json. When `session.bodyFile` is set, the raw accumulated
+ * body is mirrored there for forensic capture — best-effort, a write failure here is logged
+ * but does not fail the spawn.
  *
  * Test seam: `spawn` is a {@link ProviderSpawn} override so tests script stdout / stderr /
  * exit code without launching the real binary.
@@ -327,20 +325,15 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   }
 
   if (code === 0) {
-    // Assistant body: feeds signal parsing. Forensic body: superset for body.txt, preserves
-    // stream order so a human reading the file sees exactly what the CLI produced.
-    const assistantBody = events
-      .filter((e) => e.assistant)
-      .map((e) => e.text)
-      .join('\n');
+    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
+    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
+    // signals.json itself. The forensic body buffer below stays — operators inspect it when
+    // a proposal comes back empty to decide whether the prompt, the AI, or the validator is
+    // at fault.
     const forensicBody = events.map((e) => e.text).join('\n');
-    const signals = parseHarnessSignals(assistantBody, IsoTimestamp.now());
-    const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
-    if (!wrote.ok) return { kind: 'error', error: wrote.error };
-    // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
-    // debugging). Best-effort: a write failure here is logged but does not fail the session.
-    // Critically, the body is captured even when `parseHarnessSignals` returns an empty array,
-    // so operators can see what the model actually produced when no recognised tag landed.
+    // Mirror raw body for diagnostic capture. Best-effort: a write failure here is logged but
+    // does not fail the session. Critically, the body is captured even when the AI emits no
+    // signals, so operators can see what the model actually produced.
     if (session.bodyFile !== undefined) {
       const bodyWrote = await writeTextAtomic(String(session.bodyFile), forensicBody);
       if (!bodyWrote.ok) {

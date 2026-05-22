@@ -1,7 +1,9 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -22,20 +24,39 @@ describe('evaluatorLeaf', () => {
     await root.cleanup();
   });
 
+  /**
+   * The audit-[09] evaluator contract REQUIRES exactly one `evaluation` signal per spawn. We
+   * inject a minimal passing evaluation through `signals['evaluate']` so the post-spawn
+   * `validateSignalsFile` step succeeds; these tests cover the leaf's pre-spawn prompt-write
+   * side effect, not the contract-validation branches (those live in `evaluator-contract.test.ts`).
+   */
   const buildDeps = () => ({
     provider: createFakeAiProvider({
-      // The fake provider parses the body for signals; an empty body returns zero signals,
-      // which `runEvaluatorTurnUseCase` treats as a malformed exit. That terminates the loop
-      // cleanly without affecting our concern (the rendered prompt has already been written).
       responses: { evaluate: '' },
+      signals: {
+        evaluate: [
+          {
+            type: 'evaluation',
+            status: 'passed',
+            dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: 'all good' }],
+            overallScore: 5,
+            timestamp: FIXED_NOW,
+          },
+        ],
+      },
     }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     signals: createInMemorySink<HarnessSignal>(),
+    // The contract-driven evaluator renders `evaluation.md` via the WriteFile port. These
+    // legacy tests cover prompt persistence (pre-spawn); a no-op writer is sufficient here.
+    writeFile: async () => Result.ok(undefined),
     cwd: absolutePath('/tmp/ralph/fake-cwd'),
+    sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
     model: 'test-model',
     plateauThreshold: 2,
     clock: () => FIXED_NOW,
     logger: noopLogger,
+    eventBus: createInMemoryEventBus(),
   });
 
   it('persists evaluator prompt.md under rounds/<N>/evaluator/', async () => {

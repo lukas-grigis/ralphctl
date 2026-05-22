@@ -301,7 +301,32 @@ const chainsLayerRule: Linter.RuleEntry = [
         message:
           'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. Bootstrap selects concrete skills.',
       },
+      {
+        group: ['**/integration/ai/contract/_engine/signals/**'],
+        message:
+          'Chains may not import per-signal Zod schemas directly — go through the leaf contract (validateSignalsFile / renderSidecars / renderContractSection) under integration/ai/contract/_engine/. Per-signal schemas are private to the contract engine.',
+      },
     ],
+  },
+];
+
+/**
+ * Ban direct `fs.appendFile` / `fs.promises.appendFile` calls outside `integration/io/`. The
+ * harness routes every append-stream write through the `AppendFile` port (audit-[07]); a
+ * stray `fs.appendFile` would silently bypass the atomicity + structured-error guarantees
+ * the port adds. Matches both `fs.appendFile(...)` and `fs.promises.appendFile(...)` shapes.
+ */
+const noFsAppendFile: Linter.RuleEntry = [
+  'error',
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name='appendFile'][callee.object.name='fs']",
+    message: 'fs.appendFile is banned outside integration/io/ — go through the AppendFile port instead.',
+  },
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name='appendFile'][callee.object.type='MemberExpression'][callee.object.property.name='promises']",
+    message: 'fs.promises.appendFile is banned outside integration/io/ — go through the AppendFile port instead.',
   },
 ];
 
@@ -367,6 +392,18 @@ export default [
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': noBarrels,
+    },
+  },
+
+  // ── fs.appendFile is fenced to integration/io/ ──────────────────────────────
+  // The harness routes every append-stream write through the `AppendFile` port. A stray
+  // `fs.appendFile` outside `integration/io/` silently bypasses the port's structured-error
+  // guarantees.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/integration/io/**'],
+    rules: {
+      'no-restricted-syntax': [noFsAppendFile[0], noFsAppendFile[1], noFsAppendFile[2], noBarrels[1]],
     },
   },
 

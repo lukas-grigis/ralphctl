@@ -154,6 +154,9 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
           await fs.mkdir(dirname(String(deps.file)), { recursive: true });
           dirEnsured = true;
         }
+        // TODO(wave-7): route via the AppendFile port (audit-[07]). Pre-existing call site
+        // grandfathered ahead of Wave 6's fs.appendFile fence.
+        // eslint-disable-next-line no-restricted-syntax
         await fs.appendFile(String(deps.file), next, 'utf8');
       } catch (err) {
         // Best-effort write — never take down the chain. But fire the one-shot degradation

@@ -15,6 +15,8 @@ import type { RefineDeps } from '@src/application/flows/refine/deps.ts';
 import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
 import { refineTicketInteractiveLeaf } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
 import { buildRefinePrompt } from '@src/integration/ai/prompts/refine/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
@@ -77,7 +79,10 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         slug: () => ticketSlug(ticket),
         write: (ctx, root) => {
           const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-          const outputPath = AbsolutePath.parse(join(String(root), 'requirements.md'));
+          // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
+          // validates that file via the refine contract. The legacy `requirements.md` body
+          // file is gone.
+          const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
           if (!promptPath.ok || !outputPath.ok) {
             // Rare — `root` is already an AbsolutePath, so joining a basename produces an
             // absolute path. If the parser disagrees, surface as a chain abort.
@@ -100,11 +105,9 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
             return ctx.currentPromptFile;
           },
           buildPrompt: (ctx) => {
-            const outputFilePath = ctx.currentOutputFile;
-            if (outputFilePath === undefined) throw new Error('currentOutputFile missing');
             return buildRefinePrompt(deps.templateLoader, {
               ticket,
-              outputFilePath: String(outputFilePath),
+              outputContractSection: renderContractSectionFor(refineOutputContract),
               ...(ctx.currentIssueContext !== undefined ? { issueContext: ctx.currentIssueContext } : {}),
             });
           },
@@ -134,6 +137,8 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           interactiveAi: deps.interactiveAi,
           runInTerminal: deps.runInTerminal,
           logger: deps.logger,
+          writeFile: deps.writeFile,
+          eventBus: deps.eventBus,
           model: opts.model,
           ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
           ...(deps.issuePusher !== undefined ? { issuePusher: deps.issuePusher } : {}),

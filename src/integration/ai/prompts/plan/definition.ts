@@ -23,10 +23,14 @@ export interface PlanPromptParams {
   readonly repositories: string;
   /** Optional: existing tasks block, when replanning. */
   readonly existingTasks?: string;
-  /** Absolute path the AI must write its JSON answer to. */
-  readonly outputFilePath: string;
   /** JSON Schema string substituted as `{{SCHEMA}}` for the planner to anchor on. */
   readonly schema: string;
+  /**
+   * Audit-[09] output contract section — rendered from the plan `AiOutputContract` by
+   * `renderContractSectionFor(planOutputContract)`. Tells the AI to write `signals.json`
+   * directly with one `task-plan` signal whose `tasksJson` carries the planner output.
+   */
+  readonly outputContractSection: string;
 }
 
 const nonEmpty =
@@ -61,22 +65,23 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
       description: 'Replan-mode block listing existing tasks; empty when planning fresh.',
       optional: true,
     },
-    outputFilePath: {
-      placeholder: 'OUTPUT_FILE',
-      description: 'Absolute path the AI must write its JSON task array to.',
-      validate: nonEmpty('outputFilePath'),
-    },
     schema: {
       placeholder: 'SCHEMA',
       description: 'JSON Schema string the task array conforms to.',
       validate: nonEmpty('schema'),
+    },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the plan contract — instructs the AI to write `signals.json` directly with one `task-plan` signal.',
+      validate: nonEmpty('outputContractSection'),
     },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
     VALIDATION_CHECKLIST: 'validation-checklist',
   },
-  expectedSignals: [],
+  expectedSignals: ['task-plan'],
 };
 
 export const renderSprintContext = (sprint: Sprint): string => {
@@ -129,7 +134,7 @@ export interface BuildPlanPromptInput {
   readonly sprint: Sprint;
   readonly project: Project;
   readonly existingTasks?: readonly Task[];
-  readonly outputFilePath: string;
+  readonly outputContractSection: string;
 }
 
 export const buildPlanPrompt = async (
@@ -141,8 +146,8 @@ export const buildPlanPrompt = async (
     sprintContext: renderSprintContext(input.sprint),
     approvedTickets: renderApprovedTickets(input.sprint),
     repositories: renderRepositories(input.project),
-    outputFilePath: input.outputFilePath,
     schema: TASK_IMPORT_JSON_SCHEMA,
+    outputContractSection: input.outputContractSection,
     ...(existing.length > 0 ? { existingTasks: existing } : {}),
   });
 };

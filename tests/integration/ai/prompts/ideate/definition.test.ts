@@ -21,6 +21,8 @@ describe('ideatePromptDef — completeness', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildIdeatePrompt — end-to-end', () => {
   it('renders a fully-substituted prompt', async () => {
     const project = makeProject({ displayName: 'Demo' });
@@ -28,13 +30,13 @@ describe('buildIdeatePrompt — end-to-end', () => {
       ideaTitle: 'CSV export',
       ideaDescription: 'Add CSV export to reports.',
       project,
-      outputFilePath: '/tmp/out.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
     expect(result.value).toContain('CSV export');
-    expect(result.value).toContain('/tmp/out.json');
+    expect(result.value).toContain('## Output contract');
   });
 
   it('rejects empty ideaTitle', async () => {
@@ -43,7 +45,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
       ideaTitle: '   ',
       ideaDescription: 'desc',
       project,
-      outputFilePath: '/tmp/out.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

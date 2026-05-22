@@ -136,12 +136,16 @@ const passingShell: ShellScriptRunner = {
   },
 };
 
+// Per-role signal sets. The audit-[09] generator contract rejects `evaluation` signals
+// (only the evaluator emits those); emitting both on the generator's signalsFile would
+// now fail Zod validation. Dispatch by path so each role's signalsFile carries the
+// signals its leaf accepts.
 const passingProvider: HeadlessAiProvider = {
   async generate(session) {
-    const signals = [
-      { type: 'task-verified' as const, output: 'tests pass', timestamp: NOW },
-      { type: 'evaluation' as const, status: 'passed' as const, dimensions: [], timestamp: NOW },
-    ];
+    const isEvaluator = String(session.signalsFile).includes('/evaluator/');
+    const signals = isEvaluator
+      ? [{ type: 'evaluation' as const, status: 'passed' as const, dimensions: [], timestamp: NOW }]
+      : [{ type: 'task-verified' as const, output: 'tests pass', timestamp: NOW }];
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return Result.error(wrote.error);
     return Result.ok({ signalsFile: session.signalsFile, exitCode: 0, sessionId: 'sess-1' });

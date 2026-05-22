@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import {
   type GeneratorTurnExit,
@@ -6,22 +7,26 @@ import {
 } from '@src/business/task/run-generator-turn.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import { type InProgressTask, latestCritique } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { AiSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
-import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
+import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
+import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import {
   nextRoundNum,
   readRoundSessionId,
@@ -51,7 +56,20 @@ export interface GeneratorLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   readonly signals: HarnessSignalSink;
+  /**
+   * Output port used to write harness-rendered sidecars (`commit-message.txt`) post-spawn.
+   * Per audit-[09], the AI only writes `signals.json`; the harness derives every other on-
+   * disk artifact from the validated signal array. Threaded through from the flow factory's
+   * `deps.writeFile` (atomic write-to-temp+rename in production; in-memory recorder in tests).
+   */
+  readonly writeFile: WriteFile;
   readonly cwd: AbsolutePath;
+  /**
+   * Sprint directory — mounted as a second `--add-dir` on every implement spawn so the AI
+   * can read sprint-wide artifacts (`progress.md` in particular) that live outside the
+   * per-task sandbox. Threaded down from the flow factory.
+   */
+  readonly sprintDir: AbsolutePath;
   readonly model: string;
   readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
@@ -132,12 +150,21 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             totalCap: deps.maxTurns,
           });
 
+        // `outputDir` is the per-round directory (`rounds/<N>/generator/`); `validateSignalsFile`
+        // resolves `<outputDir>/signals.json` and `renderSidecars` writes harness-rendered
+        // sidecars into the same directory. We derive it once from `signalsFile` so the two
+        // paths stay structurally coupled.
+        const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
+        if (!outputDirPath.ok) return Result.error(outputDirPath.error);
+        const outputDir = outputDirPath.value;
+
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);
           const prompt = await buildImplementPrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
             progressFile: String(input.progressFile),
+            outputContractSection: renderContractSectionFor(generatorOutputContract),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
           });
@@ -147,18 +174,48 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           // post-hoc replay. Best-effort: the writer logs and swallows on failure (the audit
           // trail must never take down the chain).
           await writeRoundPrompt(input.workspaceRoot, roundNum, 'generator', String(prompt.value), deps.logger);
-          return consumeSignals(
-            deps.provider,
+
+          const spawn = await deps.provider.generate(
             implementSession(
               input.workspaceRoot,
               deps.cwd,
+              deps.sprintDir,
               prompt.value,
               deps.model,
               signalsFile,
               input.priorGeneratorSessionId
-            ),
-            deps.signals
+            )
           );
+          if (!spawn.ok) return Result.error(spawn.error);
+
+          // Validate `signals.json` against the generator contract. Failure surfaces a
+          // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
+          // with a precise hint — the surrounding loop's critique injection picks it up on
+          // the next round.
+          const validated = await validateSignalsFile(outputDir, generatorOutputContract);
+          if (!validated.ok) return Result.error(validated.error);
+          const signals = validated.value;
+
+          // Fan out to BOTH the legacy `HarnessSignalSink` (TUI panels, decisions-log) and
+          // the application bus's typed `ai-signal` event. The bus carries every kind the
+          // contract accepts; the sink keeps its existing per-kind consumers happy until
+          // Wave 6 collapses the two paths.
+          for (const sig of signals) {
+            deps.signals.emit(sig);
+            deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
+          }
+
+          // Render harness-owned sidecars (`commit-message.txt` when present). Write
+          // failures log warn inside `renderSidecars`; the helper always returns
+          // `Result.ok` (sidecars are operator UX only — downstream leaves read in-memory
+          // signals from ctx, never the sidecar file).
+          await renderSidecars(deps.writeFile, outputDir, signals, generatorOutputContract.sidecars, deps.logger);
+
+          // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
+          // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
+          // that automatically — cast through `AiSignal[]` (the canonical union alias) to
+          // keep the call site honest about the underlying domain shape.
+          return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
         };
 
         const result = await runGeneratorTurnUseCase({

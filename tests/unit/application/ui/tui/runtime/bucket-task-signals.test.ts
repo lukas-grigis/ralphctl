@@ -153,36 +153,10 @@ describe('bucketTaskSignals — status derivation', () => {
   });
 });
 
-describe('bucketTaskSignals — commit-message dedup', () => {
-  // Regression: the implement chain emits TWO commit-message signals per task — the AI's
-  // parse-time preview (no `fullMessage`) and the harness's re-emission with the resolved
-  // `fullMessage` (subject + body + `Closes …` trailer). The TUI must show exactly one row.
-  it('drops the AI parse-time commit-message when a resolved version exists for the same task', () => {
-    const events: AppEvent[] = [
-      stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
-      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
-    ];
-    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
-    const aiSignal: HarnessSignal = {
-      type: 'commit-message',
-      subject: 'feat(auth): rotate refresh tokens',
-      timestamp: '2026-05-09T10:00:10.000Z' as never,
-    };
-    const harnessSignal: HarnessSignal = {
-      type: 'commit-message',
-      subject: 'feat(auth): rotate refresh tokens',
-      fullMessage: 'feat(auth): rotate refresh tokens\n\nWHY\n\nCloses #128',
-      timestamp: '2026-05-09T10:00:50.000Z' as never,
-    };
-    const result = bucketTaskSignals(trace, events, [aiSignal, harnessSignal]);
-    const commitRows = result.tasks[0]?.signals.filter((s) => s.type === 'commit-message') ?? [];
-    expect(commitRows).toHaveLength(1);
-    expect(commitRows[0]?.type === 'commit-message' ? commitRows[0].fullMessage : undefined).toBeDefined();
-  });
-
-  it('keeps the AI parse-time commit-message when the harness has not re-emitted yet', () => {
-    // Mid-task: the AI just emitted its preview; commit-task leaf has not run. The UI must
-    // show the preview rather than nothing.
+describe('bucketTaskSignals — commit-message attribution', () => {
+  // Post-Wave-6: only the AI's signal reaches the bus (via the validated signals.json contract).
+  // The commit-task leaf does not re-emit; trailer-appending happens at `git commit -F` only.
+  it('keeps the AI commit-message signal verbatim in the task bucket', () => {
     const events: AppEvent[] = [
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
       stepCompleted(`generator-${TASK}`, '2026-05-09T10:01:00.000Z'),
@@ -191,11 +165,13 @@ describe('bucketTaskSignals — commit-message dedup', () => {
     const aiSignal: HarnessSignal = {
       type: 'commit-message',
       subject: 'feat: add login form',
+      body: 'Add a basic email + password form.',
       timestamp: '2026-05-09T10:00:30.000Z' as never,
     };
     const result = bucketTaskSignals(trace, events, [aiSignal]);
     const commitRows = result.tasks[0]?.signals.filter((s) => s.type === 'commit-message') ?? [];
     expect(commitRows).toHaveLength(1);
+    expect(commitRows[0]?.type === 'commit-message' ? commitRows[0].subject : undefined).toBe('feat: add login form');
   });
 });
 

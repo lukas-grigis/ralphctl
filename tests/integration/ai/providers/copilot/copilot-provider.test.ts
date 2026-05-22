@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -106,11 +105,6 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   ...overrides,
 });
 
-const readSignals = async (path: string): Promise<readonly HarnessSignal[]> => {
-  const raw = await fs.readFile(path, 'utf8');
-  return JSON.parse(raw) as readonly HarnessSignal[];
-};
-
 const unwrapArgs = (s: AiSession): readonly string[] => {
   const r = buildCopilotArgs(s);
   if (!r.ok) throw new Error(`buildCopilotArgs failed: ${r.error.message}`);
@@ -118,7 +112,7 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
 };
 
 describe('createCopilotProvider', () => {
-  it('happy path: parses harness signals from streamed assistant events, captures sessionId, writes signalsFile', async () => {
+  it('happy path: captures sessionId from streamed events WITHOUT writing signals.json (AI Write tool owns it)', async () => {
     const cap = createCapturingBus();
     const sess = session();
 
@@ -126,8 +120,8 @@ describe('createCopilotProvider', () => {
       {
         stdoutChunks: [
           '{"session_id":"sess-1","model":"gpt-5.1"}\n',
-          '{"type":"assistant.message_delta","data":{"deltaContent":"<progress>working</progress>"}}\n',
-          '{"type":"assistant.message_delta","data":{"deltaContent":"<task-verified>all good</task-verified>"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"completed task"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"; wrote signals.json."}}\n',
         ],
         exitCode: 0,
       },
@@ -139,8 +133,8 @@ describe('createCopilotProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBe('sess-1');
     expect(out.value.exitCode).toBe(0);
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    // Provider must NOT touch signals.json — that's the AI's job under audit-[09].
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     const sessionEntry = cap.logs.find((e) => e.message.includes('session id'));
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
   });
@@ -218,15 +212,15 @@ describe('createCopilotProvider', () => {
     expect(out.error.code).toBe('rate-limit');
   });
 
-  it('parses harness signals from JSON-only assistant delta events', async () => {
+  it('consumes JSON-only assistant delta events without writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
           '{"session_id":"sess-json","model":"gpt-5.1"}\n',
-          '{"type":"assistant.message_delta","data":{"deltaContent":"<progress>json working</progress>"}}\n',
-          '{"type":"assistant.message_delta","data":{"deltaContent":"<task-verified>json ok</task-verified>"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"working"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"; verified."}}\n',
         ],
         exitCode: 0,
       },
@@ -236,8 +230,9 @@ describe('createCopilotProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    expect(out.value.sessionId).toBe('sess-json');
+    // Provider never writes signals.json post-audit-[09].
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('mirrors accumulated body to session.bodyFile when set (detect-scripts forensic surface)', async () => {
@@ -265,13 +260,13 @@ describe('createCopilotProvider', () => {
     expect(contents).toContain('<task-complete/>');
   });
 
-  it('writes body even when no harness signals were emitted (empty proposal forensic capture)', async () => {
+  it('writes body even when no signals.json appeared (empty proposal forensic capture)', async () => {
     const cap = createCapturingBus();
     const signalsFile = tempSignalsFile();
     const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
     const sess = session({ signalsFile, bodyFile });
-    // No recognised tags — parseHarnessSignals returns []. The forensic body.txt is exactly
-    // the surface operators need to debug why detect-scripts produced an empty proposal.
+    // The AI did not emit anything that would lead it to write `signals.json`. The forensic
+    // body.txt is exactly the surface operators need to debug an empty proposal.
     const { spawn } = makeSpawn([
       {
         stdoutChunks: [
@@ -286,8 +281,8 @@ describe('createCopilotProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
 
-    const signals = await readSignals(String(signalsFile));
-    expect(signals).toEqual([]);
+    // Provider never writes signals.json — only the AI does (via its Write tool).
+    await expect(fs.access(String(signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     const contents = await fs.readFile(String(bodyFile), 'utf8');
     expect(contents).toContain('did not find conclusive scripts');
   });
@@ -336,21 +331,19 @@ describe('createCopilotProvider', () => {
     expect(contents).not.toContain('"session_id":"sess-mix"');
   });
 
-  it('does not match harness signals embedded in a user.message prompt-echo event', async () => {
-    // Regression for the prompt-echo bug: Copilot mirrors the user prompt back as a
-    // `user.message` event whose `data.content` contains the verbatim prompt text. The prompt
-    // itself documents the `<task-blocked>` tag literally, so before the fix the raw JSONL
-    // line of the user.message event leaked into the signal parser and produced a fake
-    // `task-blocked` signal, short-circuiting the implement loop. The fix splits assistant
-    // body from forensic capture; user.message stays in body.txt but never reaches the
-    // signal parser.
+  it('captures the user.message prompt-echo line in body.txt without writing signals.json', async () => {
+    // Pre-audit-[09] regression record: Copilot mirrors the user prompt back as a `user.message`
+    // event whose `data.content` echoes prompt text verbatim. Before the audit, that line could
+    // leak into the legacy signal parser and produce a fake signal. Post-audit the provider
+    // never parses signals at all — but the forensic body.txt still keeps the line so operators
+    // can audit what Copilot streamed.
     const cap = createCapturingBus();
     const signalsFile = tempSignalsFile();
     const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
     const sess = session({ signalsFile, bodyFile });
     const userEcho = JSON.stringify({
       type: 'user.message',
-      data: { content: 'Tools available — emit <task-blocked>fake reason</task-blocked> when stuck.' },
+      data: { content: 'Tools available — emit a task-blocked signal when stuck.' },
     });
     const assistantTurn = JSON.stringify({
       type: 'assistant.message',
@@ -367,37 +360,12 @@ describe('createCopilotProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
 
-    const signals = await readSignals(String(signalsFile));
-    expect(signals.filter((s) => s.type === 'task-blocked')).toEqual([]);
-
-    // Forensic capture still includes the user.message line (so operators can see what
-    // Copilot streamed), but it does not poison signal parsing.
+    // Provider never writes signals.json — only the AI does.
+    await expect(fs.access(String(signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
+    // Forensic capture still includes the user.message line so operators see what Copilot
+    // actually streamed.
     const contents = await fs.readFile(String(bodyFile), 'utf8');
     expect(contents).toContain(userEcho);
-  });
-
-  it('still emits a task-blocked signal when an assistant.message carries the tag (positive control)', async () => {
-    const cap = createCapturingBus();
-    const sess = session();
-    const assistantBlock = JSON.stringify({
-      type: 'assistant.message',
-      data: { content: '<task-blocked>real reason</task-blocked>' },
-    });
-    const { spawn } = makeSpawn([
-      {
-        stdoutChunks: [`{"session_id":"sess-real-block","model":"gpt-5.1"}\n${assistantBlock}\n`],
-        exitCode: 0,
-      },
-    ]);
-
-    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
-    const out = await provider.generate(sess);
-    expect(out.ok).toBe(true);
-
-    const signals = await readSignals(String(sess.signalsFile));
-    const blocked = signals.filter((s) => s.type === 'task-blocked');
-    expect(blocked).toHaveLength(1);
-    expect((blocked[0] as { type: 'task-blocked'; reason: string }).reason).toBe('real reason');
   });
 
   it('overwrites an already-existing bodyFile target (atomic write does not crash)', async () => {

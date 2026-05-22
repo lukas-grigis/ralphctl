@@ -1,11 +1,11 @@
 /**
  * TasksPanel — commit-message row expansion.
  *
- * A `commit-message` signal carries `subject`, optional `body`, and (after the harness
- * re-emits it post-`assembleCommitMessage`) `fullMessage` — subject + body + `Closes #…`
- * trailer. The TUI default is collapsed: subject only. When the cursor focuses a commit row
- * and the user presses Enter or Space, the body + trailer expand under the signal label
- * column. Multiple rows can be expanded; expansion state persists across re-renders.
+ * A `commit-message` signal carries `subject` + optional `body`. The TUI default is collapsed:
+ * subject only. When the cursor focuses a commit row and the user presses Enter or Space, the
+ * body expands under the signal label column. Multiple rows can be expanded; expansion state
+ * persists across re-renders. Deterministic `Closes #…` trailers are appended by the harness
+ * at `git commit -F` time and are not surfaced back onto the signal.
  */
 
 import { render } from 'ink-testing-library';
@@ -43,25 +43,21 @@ describe('TasksPanel commit-message expansion', () => {
   it('renders only the subject in the default (collapsed) state', () => {
     const sig = commit({
       body: 'Adds a one-shot canvas-confetti burst on initial page mount.\nGated on prefers-reduced-motion.',
-      fullMessage:
-        'feat(web-ui): add confetti to landing page\n\nAdds a one-shot canvas-confetti burst on initial page mount.\nGated on prefers-reduced-motion.\n\nCloses #42',
     });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} />);
     const frame = r.lastFrame() ?? '';
 
     expect(frame).toContain('feat(web-ui): add confetti to landing page');
-    // Body and trailer are hidden when collapsed.
+    // Body is hidden when collapsed.
     expect(frame).not.toContain('canvas-confetti burst');
-    expect(frame).not.toContain('Closes #42');
 
     r.unmount();
   });
 
-  it('expands body + Closes trailer when Enter is pressed on the focused commit row', async () => {
+  it('expands body when Enter is pressed on the focused commit row', async () => {
     const sig = commit({
-      fullMessage:
-        'feat(web-ui): add confetti to landing page\n\nAdds a one-shot canvas-confetti burst on initial page mount.\nGated on prefers-reduced-motion.\n\nCloses #42',
+      body: 'Adds a one-shot canvas-confetti burst on initial page mount.\nGated on prefers-reduced-motion.',
     });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={true} />);
@@ -73,15 +69,12 @@ describe('TasksPanel commit-message expansion', () => {
 
     expect(frame).toContain('canvas-confetti burst');
     expect(frame).toContain('prefers-reduced-motion');
-    expect(frame).toContain('Closes #42');
 
     r.unmount();
   });
 
   it('Space toggles expansion (equivalent to Enter)', async () => {
-    const sig = commit({
-      fullMessage: 'feat(web-ui): add confetti to landing page\n\nBody line.\n\nCloses #42',
-    });
+    const sig = commit({ body: 'Body line.' });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={true} />);
     r.stdin.write(' ');
@@ -96,10 +89,10 @@ describe('TasksPanel commit-message expansion', () => {
     r.unmount();
   });
 
-  it('does not expand when the row carries no body or fullMessage (degenerate case)', async () => {
-    // AI emitted only a subject — no body, no harness-resolved fullMessage. The expansion is
-    // a no-op rather than rendering a phantom empty block. The disclosure indicator is also
-    // suppressed (it would lie about expandability).
+  it('does not expand when the row carries no body (degenerate case)', async () => {
+    // AI emitted only a subject — no body. The expansion is a no-op rather than rendering a
+    // phantom empty block. The disclosure indicator is also suppressed (it would lie about
+    // expandability).
     const sig = commit({ subject: 'fix: typo' });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={true} />);
@@ -115,9 +108,7 @@ describe('TasksPanel commit-message expansion', () => {
   });
 
   it('expansion state persists across an unrelated re-render (panel-local state)', async () => {
-    const sig = commit({
-      fullMessage: 'feat(web-ui): add confetti to landing page\n\nBody line one.\n\nCloses #42',
-    });
+    const sig = commit({ body: 'Body line one.' });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={true} />);
     r.stdin.write(ENTER);
@@ -136,12 +127,12 @@ describe('TasksPanel commit-message expansion', () => {
   it('expansion handles multiple commits independently', async () => {
     const c1 = commit({
       subject: 'feat: first',
-      fullMessage: 'feat: first\n\nFirst body.\n\nCloses #1',
+      body: 'First body.',
       timestamp: ts(0),
     });
     const c2 = commit({
       subject: 'feat: second',
-      fullMessage: 'feat: second\n\nSecond body.\n\nCloses #2',
+      body: 'Second body.',
       timestamp: ts(10),
     });
 
@@ -168,9 +159,7 @@ describe('TasksPanel commit-message expansion', () => {
 
   it('long body wraps cleanly within the available column width (truncate-end)', async () => {
     const longBody = 'x'.repeat(500);
-    const sig = commit({
-      fullMessage: `feat(web-ui): add confetti to landing page\n\n${longBody}\n\nCloses #42`,
-    });
+    const sig = commit({ body: longBody });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={true} />);
     r.stdin.write(ENTER);
@@ -190,7 +179,7 @@ describe('TasksPanel commit-message expansion', () => {
   });
 
   it('input is ignored when inputActive is false (cursor and expansion no-op)', async () => {
-    const sig = commit({ fullMessage: 'feat: x\n\nHidden body.\n\nCloses #42' });
+    const sig = commit({ body: 'Hidden body.' });
 
     const r = render(<TasksPanel bucketed={bucketWithSignals([sig])} running={true} inputActive={false} />);
     r.stdin.write(ENTER);

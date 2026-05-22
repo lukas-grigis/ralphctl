@@ -53,6 +53,11 @@ import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load
 import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
 import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
+import {
+  startFileLogSink,
+  type FileLogSink,
+  type FileLogSinkDeps,
+} from '@src/integration/observability/sinks/file-log-sink.ts';
 
 /**
  * Wired application dependencies. Composition root assembles these once at startup; everything
@@ -183,6 +188,17 @@ export interface AppDeps {
    * NotificationCenter / Linux libnotify. Tests: a no-op stub unless one is injected.
    */
   readonly notificationDispatcher: NotificationDispatcher;
+  /**
+   * Per-launch factory for the `<sprintDir>/chain.log` tee subscriber. Returns an opaque
+   * `{ stop, flush }` handle the launcher attaches and tears down at terminal events.
+   *
+   * Gated by `RALPHCTL_DEBUG_TRACE`: when the env var is set to a truthy value `wire()`
+   * binds the real {@link startFileLogSink}; otherwise a no-op factory returns idempotent
+   * stubs so callers don't need to branch. Keeping the env read here means integration
+   * adapters never reach for `process.env` directly — the bootstrap layer owns the
+   * "is debug tracing on?" question.
+   */
+  readonly chainLogSink: (deps: FileLogSinkDeps) => FileLogSink;
 }
 
 /**
@@ -210,7 +226,32 @@ export interface WireOptions {
    * when they exercise a chain that fires an attention event.
    */
   readonly notificationDispatcher?: NotificationDispatcher;
+  /**
+   * Test seam for `process.env` lookups (currently `RALPHCTL_DEBUG_TRACE`). Defaults to the
+   * live `process.env`. Tests pass a frozen record so they can flip the debug trace flag
+   * without touching the ambient process state.
+   */
+  readonly env?: NodeJS.ProcessEnv;
 }
+
+/** Env var that enables persistent `<sprintDir>/chain.log` file-log sink writes. */
+export const RALPHCTL_DEBUG_TRACE_ENV = 'RALPHCTL_DEBUG_TRACE';
+
+/**
+ * No-op chain-log sink — returned by the factory when `RALPHCTL_DEBUG_TRACE` is unset. The
+ * launcher's `subscribe()` callback still calls `stop()` + `flush()` at terminal events,
+ * so the shape has to match {@link FileLogSink} exactly even when nothing is being written.
+ */
+const NOOP_CHAIN_LOG_SINK: FileLogSink = {
+  stop(): void {
+    // intentionally no-op
+  },
+  async flush(): Promise<void> {
+    // intentionally no-op
+  },
+};
+
+const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value === 'string' && value.length > 0;
 
 /**
  * Build the wired dependency graph. Pure — does not touch the filesystem or `os`. Production
@@ -254,6 +295,15 @@ const noopNotificationDispatcher: NotificationDispatcher = {
 
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn = (opts.spawn ?? defaultPipeSpawn) as unknown as Spawn;
+  // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
+  // (`startFileLogSink`) pure — it never needs to know whether tracing is enabled, only
+  // whether to wire up. The no-op factory matches the live shape so callers can call
+  // `stop()` / `flush()` unconditionally at terminal events.
+  const env = opts.env ?? process.env;
+  const debugTrace = isTruthyEnvFlag(env[RALPHCTL_DEBUG_TRACE_ENV]);
+  const chainLogSink: (deps: FileLogSinkDeps) => FileLogSink = debugTrace
+    ? startFileLogSink
+    : () => NOOP_CHAIN_LOG_SINK;
   // One bus per `wire()` call — bus state isolates between concurrent app
   // instances. Adapters publish 'log' AppEvents directly; the bus is the
   // unified pipe TUI panels, file appenders, and webhooks all subscribe to.
@@ -314,5 +364,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     loadChainLog: createFsChainLogLoader({ logger }),
     loadDecisionsLog: createFsDecisionsLogLoader({ logger }),
     notificationDispatcher,
+    chainLogSink,
   };
 };

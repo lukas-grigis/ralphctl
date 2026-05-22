@@ -1,5 +1,6 @@
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AiSignal } from '@src/domain/signal.ts';
 
 /**
  * Application-wide structured events. Producers (chain runner, use cases,
@@ -251,6 +252,26 @@ export interface HarnessSignalEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json`
+ * was parsed by `validateSignalsFile` under the audit-[09] contract. Subscribers (TUI,
+ * persistent `chain.log`, future progress.md miners) receive the typed signal verbatim
+ * along with the originating leaf's short name in `source` so a multi-leaf flow's events
+ * stay attributable.
+ *
+ * Distinct from {@link HarnessSignalEvent}: that one is a derived per-task slice carrying
+ * only the three text-bearing kinds; this one carries every validated signal kind the
+ * leaf accepted. Both coexist while the migration is in flight — `HarnessSignalEvent` is
+ * still produced by the legacy stdout-parser path and consumed by the per-task chain-log
+ * miner; `AiSignalEvent` is produced by the new file-contract leaves.
+ */
+export interface AiSignalEvent {
+  readonly type: 'ai-signal';
+  readonly signal: AiSignal;
+  /** Short name of the AI-spawning leaf that produced the signal (e.g. `'generator'`). */
+  readonly source: string;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -269,4 +290,5 @@ export type AppEvent =
   | TokenUsageEvent
   | BannerShowEvent
   | BannerClearEvent
-  | HarnessSignalEvent;
+  | HarnessSignalEvent
+  | AiSignalEvent;

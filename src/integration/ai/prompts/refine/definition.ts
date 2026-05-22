@@ -18,8 +18,12 @@ export interface RefinePromptParams {
   readonly ticket: string;
   /** Optional `<context>...</context>` block with the upstream issue body or bare link. */
   readonly issueContext?: string;
-  /** Absolute path the AI is told to write the refined requirements to. */
-  readonly outputFilePath: string;
+  /**
+   * Audit-[09] output contract section — rendered from the refine `AiOutputContract` by
+   * `renderContractSectionFor(refineOutputContract)`. Tells the AI to write `signals.json`
+   * directly with one `refined-ticket` signal whose `body` carries the requirements markdown.
+   */
+  readonly outputContractSection: string;
 }
 
 export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
@@ -43,14 +47,18 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
         '`<context>...</context>` block with pre-fetched upstream issue body, bare link fallback, or empty when neither is available.',
       optional: true,
     },
-    outputFilePath: {
-      placeholder: 'OUTPUT_FILE',
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Absolute path where the AI must write its final markdown answer. The harness reads this file after the AI exits.',
+        'Audit-[09] output contract block rendered from the refine contract — instructs the AI to write `signals.json` directly with one `refined-ticket` signal.',
       validate: (v: string) =>
         v.trim().length === 0
           ? Result.error(
-              new ValidationError({ field: 'outputFilePath', value: v, message: 'output file path must not be empty' })
+              new ValidationError({
+                field: 'outputContractSection',
+                value: v,
+                message: 'output-contract section must not be empty',
+              })
             )
           : Result.ok(v),
     },
@@ -58,7 +66,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: [], // refine writes a file; no harness signals expected.
+  expectedSignals: ['refined-ticket'],
 };
 
 /** Render a {@link Ticket} into the markdown block the refine template's `{{TICKET}}` slot expects. */
@@ -90,12 +98,16 @@ export const renderIssueContextSection = (ticket: Ticket, fetched: string | unde
 /** Top-level builder — accepts domain types, renders them into params, calls `buildPrompt`. */
 export const buildRefinePrompt = async (
   deps: TemplateLoader,
-  input: { readonly ticket: Ticket; readonly outputFilePath: string; readonly issueContext?: string }
+  input: {
+    readonly ticket: Ticket;
+    readonly outputContractSection: string;
+    readonly issueContext?: string;
+  }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const issueContext = renderIssueContextSection(input.ticket, input.issueContext);
   return buildPrompt(deps, refinePromptDef, {
     ticket: renderTicket(input.ticket),
-    outputFilePath: input.outputFilePath,
+    outputContractSection: input.outputContractSection,
     ...(issueContext.length > 0 ? { issueContext } : {}),
   });
 };

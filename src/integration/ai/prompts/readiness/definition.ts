@@ -33,6 +33,13 @@ export interface ReadinessPromptParams {
   readonly wireTag: string;
   readonly existingContextFile: string;
   readonly detectedArtefacts: string;
+  /**
+   * Audit-[09] output contract section — rendered from the readiness `AiOutputContract` by
+   * `renderContractSectionFor(readinessOutputContract)`. Tells the AI to write `signals.json`
+   * directly with one or more of `agents-md-proposal`, `setup-skill-proposal`,
+   * `verify-skill-proposal`, plus optional `skill-suggestions` / `note` / `learning`.
+   */
+  readonly outputContractSection: string;
 }
 
 /**
@@ -99,11 +106,26 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
       placeholder: 'DETECTED_ARTEFACTS',
       description: 'Bullet list of artefact paths discovered by the probe, or "no artefacts detected".',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the readiness contract — instructs the AI to write `signals.json` directly with the proposal signals.',
+      validate: (v: string) =>
+        v.trim().length === 0
+          ? Result.error(
+              new ValidationError({
+                field: 'outputContractSection',
+                value: v,
+                message: 'output-contract section must not be empty',
+              })
+            )
+          : Result.ok(v),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['agents-md-proposal', 'setup-script', 'verify-script', 'note'],
+  expectedSignals: ['agents-md-proposal', 'setup-skill-proposal', 'verify-skill-proposal', 'skill-suggestions', 'note'],
 };
 
 /** Render the `currentTool` parameter as the same string the AssistantTool variant carries. */
@@ -162,6 +184,11 @@ export interface BuildReadinessPromptInput {
   readonly probedState: ReadinessState;
   /** Existing context file body, when present. Supplied by the chain leaf when probe → present. */
   readonly existingContextFile?: string;
+  /**
+   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * `renderContractSectionFor(readinessOutputContract)` before calling the builder.
+   */
+  readonly outputContractSection: string;
 }
 
 /**
@@ -178,4 +205,5 @@ export const buildReadinessPrompt = async (
     wireTag: wireTagFor(input.currentTool),
     existingContextFile: renderExistingContextFile(input.existingContextFile),
     detectedArtefacts: renderDetectedArtefacts(collectArtefactPaths(input.probedState)),
+    outputContractSection: input.outputContractSection,
   });

@@ -1,5 +1,5 @@
 import type { AiSignal } from '@src/domain/signal.ts';
-import type { SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
+import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 export interface RenderContractSectionParams {
   /** Current contract version — embedded in the rendered example's `schemaVersion` field. */
@@ -17,6 +17,23 @@ export interface RenderContractSectionParams {
    */
   readonly sidecars: readonly SidecarRule[];
 }
+
+/**
+ * Convenience overload — render the prompt section directly from an {@link AiOutputContract}.
+ * The contract carries the canonical `exampleSignals` so callers (leaf prompt builders) never
+ * hand-build the params bag. Generic over the contract's signal sub-union so it accepts any
+ * per-leaf `AiOutputContract<TSig>` without an upcast at the call site.
+ */
+export const renderContractSectionFor = <TSig extends AiSignal>(contract: AiOutputContract<TSig>): string =>
+  renderContractSection({
+    schemaVersion: contract.schemaVersion,
+    exampleSignals: contract.exampleSignals,
+    // The per-kind sidecar rules narrow `extract` to one variant; the runtime branches by
+    // `signalKind` before calling `extract`, so the wider parameter type the unparameterised
+    // `SidecarRule` admits is harmless here. The cast keeps the prompt-renderer signature
+    // agnostic of the per-leaf signal union.
+    sidecars: contract.sidecars as readonly SidecarRule[],
+  });
 
 /**
  * Render the `{{OUTPUT_CONTRACT_SECTION}}` block embedded in every AI-spawning prompt

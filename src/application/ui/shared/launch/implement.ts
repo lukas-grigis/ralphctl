@@ -16,7 +16,6 @@ import type { Sink } from '@src/business/observability/sink.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import { createDecisionsLogSink } from '@src/integration/observability/sinks/decisions-log-sink.ts';
-import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
@@ -48,7 +47,10 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
 
   // Tee every AppEvent on the bus to <sprintDir>/chain.log for postmortem debugging.
   // Stopped when the runner exits (success or fail) — wired below via subscribe().
-  const chainLog = startFileLogSink({ file: chainLogPath.value, bus: deps.app.eventBus });
+  // The factory is env-gated at `wire()` time: when `RALPHCTL_DEBUG_TRACE` is unset the
+  // returned handle is a no-op, so production runs no longer write chain.log unless the
+  // operator explicitly opts in.
+  const chainLog = deps.app.chainLogSink({ file: chainLogPath.value, bus: deps.app.eventBus });
 
   // Per-sprint decisions.log: tracks `<decision>` signals from the harness signal stream.
   // The taskId column tracks the most recent `task-attempt-started` event so decisions

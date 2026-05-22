@@ -10,6 +10,8 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -85,6 +87,7 @@ export const buildTaskWorkspaceLeaf = (
           task: input.task,
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
+          outputContractSection: renderContractSectionFor(generatorOutputContract),
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });
         if (!prompt.ok) return Result.error(prompt.error);

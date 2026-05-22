@@ -255,7 +255,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       provider: deps.provider,
       templateLoader: deps.templateLoader,
       signals: deps.signals,
+      // Threaded into both gen-eval leaves so harness-owned sidecars (audit-[09]
+      // `commit-message.txt` for the generator, `evaluation.md` for the evaluator) land via
+      // the atomic-write port. The leaves never write these files directly.
+      writeFile: deps.writeFile,
       cwd: repo.path,
+      // Threaded into `implementSession()` as a second `--add-dir` so the AI can read
+      // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
+      sprintDir: opts.sprintDir,
       model: opts.model,
       clock: deps.clock,
       logger: deps.logger,
@@ -356,7 +363,6 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
             taskRepo: deps.taskRepo,
             clock: deps.clock,
             logger: deps.logger,
-            signals: deps.signals,
           },
           { cwd: repo.path },
           taskId

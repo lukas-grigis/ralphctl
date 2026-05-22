@@ -235,15 +235,14 @@ export interface ContextCompactedSignal {
  * actual `git commit` call (commit-task leaf); this signal lets the generator influence the
  * message without taking control of the operation.
  *
- *  - `subject` is the first line. Convention: imperative present-tense, ≤72 chars; the parser
- *    trims it but does not enforce length — the harness clamps before committing.
+ *  - `subject` is the first line. Convention: imperative present-tense, ≤72 chars; the harness
+ *    clamps before committing.
  *  - `body` is optional and may span multiple paragraphs. Convention: wrap at 72 chars,
  *    explain the why, not the what.
- *  - `fullMessage` is the resolved commit message AS WRITTEN TO GIT — subject + body +
- *    deterministic trailers (`Closes #…`) appended by the harness. Populated by the
- *    commit-task leaf when it re-emits the signal after the message is finalised; absent on
- *    the parse-time signal (the AI never sees the trailer it cannot author). UI surfaces and
- *    audit log consumers should prefer `fullMessage` when present.
+ *
+ * Deterministic trailers (`Closes #…`) are appended by the commit-task leaf at `git commit -F`
+ * time — they are not threaded back onto the signal. UI surfaces show the AI-authored subject +
+ * body; reviewers see the trailered version in `git log`.
  *
  * When the signal is absent the harness falls back to its auto-generated default
  * (`task(<short-id>): <task-name>`).
@@ -252,7 +251,54 @@ export interface CommitMessageSignal {
   readonly type: 'commit-message';
   readonly subject: string;
   readonly body?: string;
-  readonly fullMessage?: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * One refined-ticket proposal — produced by the refine flow's AI session. Carries the
+ * AI-authored requirements body verbatim; the harness projects the body onto the
+ * `PendingTicket` entity via `refineTicketUseCase` (which gates approval through an optional
+ * reviewer callback). No sidecar — the harness mutates the ticket directly.
+ *
+ *  - `body` is markdown prose; uncapped on persistence per audit [03].
+ */
+export interface RefinedTicketSignal {
+  readonly type: 'refined-ticket';
+  readonly body: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * One plan proposal — produced by the plan flow's AI session. Carries the structured task
+ * envelope the planner emitted; downstream code resolves cross-references (projectPath →
+ * Repository, blockedBy → TaskId) via `parseTaskList`. No sidecar; the harness projects the
+ * tasks onto the sprint's task list via `planSprintUseCase`.
+ *
+ *  - `tasksJson` is the raw JSON body the AI wrote, retained verbatim so the existing
+ *    domain-aware parser (`parsePlanOutput` → `parseTaskList`) keeps owning cross-reference
+ *    resolution. When Wave 6 swaps the prompt to ask for the structured shape directly, this
+ *    field will be replaced by the validated `TaskImportSpec[]` payload; until then the
+ *    string preserves the legacy round-trip.
+ */
+export interface TaskPlanSignal {
+  readonly type: 'task-plan';
+  readonly tasksJson: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * One ideate proposal — produced by the ideate flow's AI session. Carries the requirements
+ * body plus the structured task envelope; downstream code resolves cross-references and
+ * approves the ticket via `addApprovedTicketUseCase`. No sidecar; the harness projects both
+ * onto the sprint.
+ *
+ *  - `outputJson` is the raw JSON body the AI wrote, retained verbatim so the existing
+ *    parser (`parseIdeateOutput` → `parseTaskList`) keeps owning ticket / task resolution.
+ *    Wave 6 replaces this with structured fields when the prompt-side contract lands.
+ */
+export interface IdeatedTicketsSignal {
+  readonly type: 'ideated-tickets';
+  readonly outputJson: string;
   readonly timestamp: IsoTimestamp;
 }
 
@@ -284,7 +330,10 @@ export type HarnessSignal =
   | VerifySkillProposalSignal
   | SkillSuggestionsSignal
   | CommitMessageSignal
-  | ContextCompactedSignal;
+  | ContextCompactedSignal
+  | RefinedTicketSignal
+  | TaskPlanSignal
+  | IdeatedTicketsSignal;
 
 /**
  * Canonical name for the AI-produced signal union under the [09] contract. Currently aliased

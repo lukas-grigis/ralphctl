@@ -12,7 +12,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
@@ -21,7 +20,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 
@@ -49,12 +48,11 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * codex would treat the piped data as side context and wait for a positional prompt arg —
  * causing the call to hang. See https://github.com/openai/codex/blob/main/docs/exec.md.
  *
- * Output handling — file-based contract: codex's `-o <tmpfile>` writes the final assistant
- * message to a tempfile; after exit the adapter reads it, runs {@link parseHarnessSignals},
- * and writes the result array to `session.signalsFile`. When `session.bodyFile` is set, the
- * adapter also mirrors the raw body there for diagnostic capture (best-effort). Every tag
- * downstream flows care about (`<task-verified>`, `<setup-script>`, `<claude-md>`, …) has a
- * registered parser, so signals.json is the single uniform read-path.
+ * Output handling — audit-[09] contract: codex's `-o <tmpfile>` writes the final assistant
+ * message to a tempfile; after exit the adapter reads it for forensic body capture. The AI
+ * writes `signals.json` directly via its Write tool into `session.outputDir`; the harness
+ * validates it post-spawn — the provider never touches signals.json. When `session.bodyFile`
+ * is set, the adapter mirrors the raw body there for diagnostic capture (best-effort).
  *
  * Session id capture: codex emits JSONL meta events on stdout that carry `session_id` on the
  * leading config / startup record. The adapter line-buffers stdout, picks the first id out,
@@ -450,9 +448,10 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         }),
       };
     }
-    const signals = parseHarnessSignals(body, IsoTimestamp.now());
-    const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
-    if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
+    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
+    // signals.json itself. The codex output tempfile body remains the forensic source for
+    // `session.bodyFile` mirroring below.
     // Persist captured session id as a sibling `sessionId` file. Codex emits the id on the
     // leading JSONL config record; missing → skip (no empty marker). See persistSessionIdFile.
     const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);

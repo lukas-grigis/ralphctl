@@ -49,25 +49,6 @@ const kindOf = (signal: HarnessSignal): CountedKind | undefined => {
 };
 
 /**
- * Pick the most-recent commit-message signal whose harness-resolved `fullMessage` carries a
- * `commit <sha>` trailer. The harness writes the resolved sha back onto the signal once the
- * `commit-task` leaf finishes — earlier `commit-message` signals (the AI's parse-time emission)
- * do not have one. Returns the full 40-char sha, or undefined if none recorded yet.
- */
-const findLastCommitSha = (signals: readonly HarnessSignal[]): string | undefined => {
-  for (let i = signals.length - 1; i >= 0; i -= 1) {
-    const sig = signals[i];
-    if (sig?.type !== 'commit-message') continue;
-    const full = sig.fullMessage;
-    if (typeof full !== 'string') continue;
-    // Conventional-commits trailer format: `\ncommit <sha>` appended by the commit-task leaf.
-    const match = /(?:^|\n)commit\s+([0-9a-f]{7,40})\b/i.exec(full);
-    if (match?.[1] !== undefined) return match[1];
-  }
-  return undefined;
-};
-
-/**
  * Count signals belonging to the most-recent generator turn within the bucket. Generator turns
  * are not delimited on the signal stream itself — we slice from the latest substep index that
  * has the `generator` leafName forwards. When no generator turn has happened yet (still in
@@ -128,11 +109,6 @@ export const renderActiveTaskSummary = ({ task, displayName }: ActiveTaskSummary
     lines.push(`- attempts: ${String(attempts)} (last: ${verdict})`);
   } else {
     lines.push(`- attempts: ${String(attempts)}`);
-  }
-
-  const commitSha = findLastCommitSha(task.signals);
-  if (commitSha !== undefined) {
-    lines.push(`- last commit: ${commitSha}`);
   }
 
   const counts = countByKind(sliceCurrentAttemptSignals(task));

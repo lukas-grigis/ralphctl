@@ -817,7 +817,9 @@ describe('createImplementFlow — gen-eval loop', () => {
       evalSignals.some((s: { type: string; status?: string }) => s.type === 'evaluation' && s.status === 'passed')
     ).toBe(true);
     const evaluationMd = await fs.readFile(join(workspace, 'rounds', '1', 'evaluator', 'evaluation.md'), 'utf8');
-    expect(evaluationMd).toContain('**Status:** passed');
+    // Under the audit-[09] evaluator contract, `evaluation.md` is rendered via
+    // `renderEvaluationMarkdown` — the H1 carries the status (`# Evaluation — passed`).
+    expect(evaluationMd).toContain('# Evaluation — passed');
     await expect(fs.access(join(workspace, 'rounds', '1', 'evaluator', 'session.md'))).rejects.toThrow();
   });
 
@@ -1206,9 +1208,12 @@ describe('createImplementFlow — gen-eval loop', () => {
   // ─── Resilience: AI emits no recognisable signals at all ──────────────────────────
   //
   // An overnight run could hit a model output that's plain prose with no harness tags —
-  // missed prompt cue, model degradation, etc. The chain must not hang or crash; it should
-  // surface a sensible terminal state so the operator sees what happened.
-  it('AI emits zero harness signals: budget exhausts cleanly with a malformed warning, no infinite loop', async () => {
+  // missed prompt cue, model degradation, etc. Under the audit-[09] contract, the evaluator's
+  // `signals.json` MUST carry exactly one `evaluation` signal (`exactlyOne('evaluation')`
+  // refinement). A silent evaluator violates the schema; the leaf surfaces a ParseError and
+  // the chain terminates cleanly without running away. Wave 6 will swap the prompt to push
+  // the AI toward the new contract; until then, the failure surface is the operator's signal.
+  it('AI emits zero harness signals: chain terminates with a schema failure, no infinite loop', async () => {
     const f = await buildFixture(1, 1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1248,21 +1253,16 @@ describe('createImplementFlow — gen-eval loop', () => {
     });
     await runner.start();
 
-    expect(runner.status).toBe('completed');
-    // Bounded number of turns — exactly what maxTurns says, no runaway.
+    // Schema violation in the evaluator surfaces as a ParseError — chain terminates failed,
+    // not completed. The point of THIS test is that the chain doesn't hang in a runaway loop:
+    // each role is called at most maxTurns (3) times.
+    expect(runner.status).toBe('failed');
     expect(implCalls).toBeLessThanOrEqual(3);
     expect(evalCalls).toBeLessThanOrEqual(3);
-    const finalTask = taskRepo.tasks()[0];
-    // Policy: only `<task-blocked>` from the generator → blocked. Everything else (incl. a
-    // silent evaluator → malformed exit → budget collapses) → done with a structured warning.
-    // The operator inspects the warning on next launch instead of the chain hanging or
-    // crashing. That's the contract the resilience tests need to pin.
-    expect(finalTask?.status).toBe('done');
-    if (finalTask?.status === 'done') {
-      const lastAttempt = finalTask.attempts.at(-1);
-      // At least one attempt carries a non-pass warning so the operator sees what happened.
-      expect(lastAttempt?.warning?.kind).toBeDefined();
-    }
+    // Generator runs at least once; evaluator runs at least once (it's what surfaces the
+    // schema error). Confirms the chain didn't short-circuit before invoking the AI at all.
+    expect(implCalls).toBeGreaterThanOrEqual(1);
+    expect(evalCalls).toBeGreaterThanOrEqual(1);
   });
 
   // ─── Multi-repo project: each task gets its repo's cwd ────────────────────────────

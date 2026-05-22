@@ -14,6 +14,8 @@ import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
@@ -74,7 +76,9 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       slug: () => slug,
       write: (ctx, root) => {
         const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        const outputPath = AbsolutePath.parse(join(String(root), 'plan.json'));
+        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
+        // validates that file via the plan contract.
+        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
         if (!promptPath.ok) throw promptPath.error;
         if (!outputPath.ok) throw outputPath.error;
         return {
@@ -96,11 +100,10 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         buildPrompt: (ctx) => {
           if (ctx.sprint === undefined) throw new Error('sprint missing');
           if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentOutputFile === undefined) throw new Error('currentOutputFile missing');
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,
-            outputFilePath: String(ctx.currentOutputFile),
+            outputContractSection: renderContractSectionFor(planOutputContract),
             ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
           });
         },
@@ -132,6 +135,8 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       interactiveAi: deps.interactiveAi,
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
+      writeFile: deps.writeFile,
+      eventBus: deps.eventBus,
       clock: deps.clock,
       model: opts.model,
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0

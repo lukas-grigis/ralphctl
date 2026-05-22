@@ -50,8 +50,14 @@ describe('readinessPromptDef — completeness', () => {
     }
   });
 
-  it('expectedSignals advertises agents-md-proposal, setup-script, verify-script, and note', () => {
-    expect(readinessPromptDef.expectedSignals).toEqual(['agents-md-proposal', 'setup-script', 'verify-script', 'note']);
+  it('expectedSignals advertises the audit-[09] readiness sub-union', () => {
+    expect(readinessPromptDef.expectedSignals).toEqual([
+      'agents-md-proposal',
+      'setup-skill-proposal',
+      'verify-skill-proposal',
+      'skill-suggestions',
+      'note',
+    ]);
   });
 });
 
@@ -113,12 +119,15 @@ describe('collectArtefactPaths', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildReadinessPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt for an absent probe state', async () => {
     const result = await buildReadinessPrompt(deps, {
       repositoryPath: '/repo/main',
       currentTool: 'claude-code',
       probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -138,6 +147,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
       currentTool: 'claude-code',
       probedState: absentState(FIXED_NOW),
       existingContextFile: existing,
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -155,50 +165,53 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
       wireTag: 'claude-md',
       existingContextFile: 'x',
       detectedArtefacts: 'x',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
 
-  it('renders <claude-md>...</claude-md> for the claude-code tool', async () => {
+  it('embeds the WIRE_TAG = "claude-md" identifier for the claude-code tool', async () => {
     const result = await buildReadinessPrompt(deps, {
       repositoryPath: '/repo/main',
       currentTool: 'claude-code',
       probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
     const body = result.value as unknown as string;
-    expect(body).toContain('<claude-md>');
-    expect(body).toContain('</claude-md>');
-    expect(body).not.toContain('<agents-md>');
-    expect(body).not.toContain('<copilot-instructions>');
+    // The Wave-6 template instructs the AI to use `tag: "claude-md"` on its signal — no
+    // XML wrappers. The wire-tag identifier appears as the quoted string value.
+    expect(body).toContain('"claude-md"');
+    expect(body).not.toContain('"agents-md"');
+    expect(body).not.toContain('"copilot-instructions"');
   });
 
-  it('renders <copilot-instructions>...</copilot-instructions> for the copilot tool', async () => {
+  it('embeds the WIRE_TAG = "copilot-instructions" identifier for the copilot tool', async () => {
     const result = await buildReadinessPrompt(deps, {
       repositoryPath: '/repo/main',
       currentTool: 'copilot',
       probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
     const body = result.value as unknown as string;
-    expect(body).toContain('<copilot-instructions>');
-    expect(body).toContain('</copilot-instructions>');
-    expect(body).not.toContain('<agents-md>');
-    expect(body).not.toContain('<claude-md>');
+    expect(body).toContain('"copilot-instructions"');
+    expect(body).not.toContain('"agents-md"');
+    expect(body).not.toContain('"claude-md"');
   });
 
-  it('renders <agents-md>...</agents-md> for the codex tool', async () => {
+  it('embeds the WIRE_TAG = "agents-md" identifier for the codex tool', async () => {
     const result = await buildReadinessPrompt(deps, {
       repositoryPath: '/repo/main',
       currentTool: 'codex',
       probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
     const body = result.value as unknown as string;
-    expect(body).toContain('<agents-md>');
-    expect(body).toContain('</agents-md>');
-    expect(body).not.toContain('<claude-md>');
-    expect(body).not.toContain('<copilot-instructions>');
+    expect(body).toContain('"agents-md"');
+    expect(body).not.toContain('"claude-md"');
+    expect(body).not.toContain('"copilot-instructions"');
   });
 });

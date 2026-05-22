@@ -24,6 +24,7 @@ const sampleContract: AiOutputContract<ChangeSignal | DecisionSignal> = {
   signalsSchema: z.array(z.union([changeSignalSchema, decisionSignalSchema])),
   sidecars: [],
   migrations: {},
+  exampleSignals: [],
 };
 
 const v2Contract: AiOutputContract<ChangeSignal | DecisionSignal> = {
@@ -37,6 +38,7 @@ const v2Contract: AiOutputContract<ChangeSignal | DecisionSignal> = {
       return { schemaVersion: 2, signals: w.signals ?? [] };
     },
   },
+  exampleSignals: [],
 };
 
 describe('validateSignalsFile', () => {
@@ -122,6 +124,7 @@ describe('validateSignalsFile', () => {
         // 1→2 exists; 2→3 missing — should trip the gap.
         1: (raw) => ({ ...(raw as object), schemaVersion: 2 }),
       },
+      exampleSignals: [],
     };
     writeFileSync(
       join(tmp, 'signals.json'),
@@ -149,6 +152,7 @@ describe('validateSignalsFile', () => {
           return { schemaVersion: 1, signals: r.signals ?? [] };
         },
       },
+      exampleSignals: [],
     };
     writeFileSync(
       join(tmp, 'signals.json'),

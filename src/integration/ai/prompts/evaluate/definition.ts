@@ -18,7 +18,8 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * Pre-rendered string parameters for the evaluate template. Mirrors the implement
  * definition's task-shaped slots — the evaluator reviews the same task spec the implementer
  * just executed against — but omits the implementer-specific identifiers (TASK_ID,
- * PROGRESS_FILE) and uses the `signals-evaluation` partial instead of `signals-task`.
+ * PROGRESS_FILE) and substitutes the audit-[09] `{{OUTPUT_CONTRACT_SECTION}}` produced from the
+ * evaluator's `AiOutputContract`.
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
  * steps / verification criteria, runs the verify script as authoritative ground truth, scores
@@ -48,6 +49,12 @@ export interface EvaluatePromptParams {
    * string when the planner didn't attach extras to this task — keeps the template stable.
    */
   readonly extraDimensionsSection: string;
+  /**
+   * Audit-[09] output contract section — rendered from the evaluator's `AiOutputContract` by
+   * `renderContractSectionFor(evaluatorOutputContract)`. Tells the AI to write exactly one
+   * file (`signals.json`) matching the documented shape.
+   */
+  readonly outputContractSection: string;
 }
 
 const requireNonEmpty =
@@ -99,10 +106,18 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       placeholder: 'EXTRA_DIMENSIONS_SECTION',
       description: 'Optional task-specific dimensions block appended after the floor dimensions.',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the evaluator contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty(
+        'outputContractSection',
+        'output-contract section must not be empty (renderContractSectionFor always emits a body)'
+      ),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-evaluation',
   },
   // The single `evaluation` signal type covers both verdict shapes (`<evaluation-passed>` and
   // `<evaluation-failed>critique</evaluation-failed>`). The body / critique distinction is
@@ -115,6 +130,11 @@ export interface BuildEvaluatePromptInput {
   readonly projectPath: string;
   readonly verifyScript?: string;
   readonly projectTooling?: string;
+  /**
+   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * `renderContractSectionFor(evaluatorOutputContract)` before calling the builder.
+   */
+  readonly outputContractSection: string;
 }
 
 /**
@@ -135,4 +155,5 @@ export const buildEvaluatePrompt = async (
     verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
+    outputContractSection: input.outputContractSection,
   });

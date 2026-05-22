@@ -12,6 +12,8 @@ import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
@@ -65,7 +67,9 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       slug: () => slug,
       write: (ctx, root) => {
         const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        const outputPath = AbsolutePath.parse(join(String(root), 'ideate.json'));
+        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
+        // validates that file via the ideate contract.
+        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
         if (!promptPath.ok) throw promptPath.error;
         if (!outputPath.ok) throw outputPath.error;
         return {
@@ -86,12 +90,11 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
         },
         buildPrompt: (ctx) => {
           if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentOutputFile === undefined) throw new Error('currentOutputFile missing');
           return buildIdeatePrompt(deps.templateLoader, {
             ideaTitle: opts.ideaTitle,
             ideaDescription: opts.ideaText,
             project: ctx.project,
-            outputFilePath: String(ctx.currentOutputFile),
+            outputContractSection: renderContractSectionFor(ideateOutputContract),
           });
         },
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
@@ -110,6 +113,8 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       interactiveAi: deps.interactiveAi,
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
+      writeFile: deps.writeFile,
+      eventBus: deps.eventBus,
       model: opts.model,
     }),
     uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),

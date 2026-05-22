@@ -27,12 +27,31 @@ export interface SkillsAdapter {
    * Install the given skills into the AI session's sandbox at `sessionDir`. Returns ok on
    * every path including "this provider has no skills concept" (the adapter logs and
    * no-ops). Project skills already at the destination are preserved.
+   *
+   * This is the **bundled-skills** path — adapter prepends `ralphctl-*` tracking (so
+   * `uninstall` removes only those entries) and appends the `ralphctl-*` wildcard to
+   * `.git/info/exclude` (so bundled folders don't show in `git status`). Use
+   * {@link installBareSkill} for project-tracked, AI-authored skills (readiness).
    */
   install(sessionDir: AbsolutePath, skills: readonly Skill[]): Promise<Result<void, StorageError>>;
   /**
+   * Install one bare-name skill — written to `<sessionDir>/<parentDir>/skills/<skill.name>/
+   * SKILL.md` with NO `ralphctl-` prefix and NO `.git/info/exclude` entry, so the folder is
+   * **deliberately tracked by git** as a project asset. Used by the readiness flow to land
+   * the AI-authored setup / verify skill bodies after operator approval.
+   *
+   * Bare-name installs are NOT recorded in the adapter's manifest; {@link uninstall} leaves
+   * them in place. The operator owns their lifecycle (commit, edit, delete).
+   *
+   * Idempotent: when the destination already contains a `SKILL.md`, the existing file is
+   * left untouched (same project-wins rule as {@link install}). Returns ok on a provider
+   * whose adapter has no skills concept — the call is a logged no-op.
+   */
+  installBareSkill(sessionDir: AbsolutePath, skill: Skill): Promise<Result<void, StorageError>>;
+  /**
    * Remove only the skills `install` placed at `sessionDir` (manifest-tracked). Pre-existing
-   * project copies are never touched. Idempotent — calling without a prior install (or after
-   * a previous uninstall) is a no-op.
+   * project copies and {@link installBareSkill}-placed skills are never touched. Idempotent —
+   * calling without a prior install (or after a previous uninstall) is a no-op.
    */
   uninstall(sessionDir: AbsolutePath): Promise<Result<void, StorageError>>;
   /**

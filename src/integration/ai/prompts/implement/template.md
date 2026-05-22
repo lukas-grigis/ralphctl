@@ -19,8 +19,8 @@ completion.
 - **Verify before completing** — the harness runs a post-task verify gate; unverified work will be caught and
   rejected. The verification you record in `<task-verified>` is the same set of commands the gate runs.
 - **Do not write to the progress file** — the harness regenerates it from your signals after every round.
-  Anything you write there is overwritten in seconds. Emit `<change>`, `<learning>`, `<note>`, and
-  `<decision>` signals; the harness merges them into the file's per-task sections.
+  Anything you write there is overwritten in seconds. Emit `change`, `learning`, `note`, and `decision`
+  signals (see the Output contract section below); the harness merges them into the file's per-task sections.
 - **No sprint-local identifiers in committed artefacts** — do not mention acceptance-criterion labels (`AC1`,
   `AC2`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test names, commit
   messages, or any other committed artefact. These identifiers are ephemeral sprint metadata and become stale
@@ -129,49 +129,34 @@ In order:
 2. **Run all verification commands** — execute every command in the Verify Script section (or the project's
    verification commands when no verify script is configured). Fix any failures before proceeding. The harness
    re-runs this gate post-task; your task is not marked done unless it passes.
-3. **Output verification results** in the `<task-verified>` shape defined in "Output format" below, using the
-   actual commands the harness ran.
-4. **Propose the commit message** — emit `<commit-message>` (shape below in `<signals>`) with a real subject
-   and a body explaining WHY the change exists, what alternatives you weighed, and any follow-ups a reviewer
-   should know about. The harness runs `git commit` after this turn and uses your wording verbatim; the
-   fallback when you omit the signal is just the task name + the task's description paragraph, which is
-   thin context, so emit the signal on every task that touched any file. Omit only when the task was a pure
-   investigation that wrote nothing.
-5. **Signal completion** — emit `<task-complete>` ONLY after all the above steps pass.
-
-## Output format
-
-The verification block you emit in Phase 3 step 3 (the example below is illustrative only — use the actual
-commands and output):
-
-```
-<task-verified>
-$ <verify-command-1>
-<output>
-$ <verify-command-2>
-<output>
-</task-verified>
-```
+3. **Record verification results** in a `task-verified` signal (see the Output contract section below). The
+   `output` field captures the verbatim commands you ran and their stdout/stderr — the same output the
+   harness's post-task verify gate produces.
+4. **Propose the commit message** — emit a `commit-message` signal with a real subject and a body
+   explaining WHY the change exists, what alternatives you weighed, and any follow-ups a reviewer should
+   know about. The harness runs `git commit` after this turn and uses your wording verbatim; the fallback
+   when you omit the signal is just the task name + the task's description paragraph, which is thin context,
+   so emit the signal on every task that touched any file. Omit only when the task was a pure investigation
+   that wrote nothing.
+5. **Signal completion** — emit a `task-complete` signal ONLY after all the above steps pass.
 
 ## Failure modes
 
 **A step fails.** Read the error carefully. Determine if pre-existing or caused by your changes. Fix and
-re-verify. If unfixable after a reasonable attempt, signal `<task-blocked>` with the concrete failure.
+re-verify. If unfixable after a reasonable attempt, emit a `task-blocked` signal with the concrete failure
+as the `reason`.
 
 **Tests break.** Determine if your changes or pre-existing caused the failure. Fix the implementation, not the
-test. If pre-existing: `<task-blocked>Pre-existing test failure: [details]</task-blocked>`.
+test. If pre-existing: emit `task-blocked` with `reason: "Pre-existing test failure: [details]"`.
 
-**Blocked by another task.** `<task-blocked>Missing dependency: [what is missing and which task should produce
-it]</task-blocked>`. Do NOT stub or mock the missing piece.
+**Blocked by another task.** Emit `task-blocked` with `reason: "Missing dependency: [what is missing and which
+task should produce it]"`. Do NOT stub or mock the missing piece.
 
 **Scope seems wrong.** Declared steps take priority over project patterns when they conflict — the planner may
 have scoped narrowly on purpose. If the steps force a clear pattern violation or seem incomplete relative to
-the ticket, surface the judgment to a human with `<task-blocked>Steps incomplete: [what appears
-missing]</task-blocked>` rather than expanding scope yourself.
+the ticket, surface the judgment to a human with `task-blocked` rather than expanding scope yourself.
 
-When finished, emit a signal from the `<signals>` block below.
-
-{{SIGNALS}}
+{{OUTPUT_CONTRACT_SECTION}}
 
 ## References
 

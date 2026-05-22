@@ -77,6 +77,9 @@ const readProgressSnippet = async (path: AbsolutePath | undefined): Promise<stri
 const appendNewRound = async (path: AbsolutePath, nextIndex: number): Promise<Result<void, StorageError>> => {
   const block = `\n\n${renderEmptyRound(nextIndex)}${ROUND_SEPARATOR}\n`;
   try {
+    // TODO(wave-7): route via the AppendFile port (audit-[07]). Pre-existing call site
+    // grandfathered ahead of Wave 6's fs.appendFile fence.
+    // eslint-disable-next-line no-restricted-syntax
     await fs.appendFile(String(path), block, 'utf8');
     return Result.ok(undefined);
   } catch (cause) {

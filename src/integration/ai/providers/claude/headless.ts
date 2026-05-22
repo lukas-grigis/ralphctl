@@ -9,7 +9,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { createClaudeStreamParser, type ClaudeStreamLine } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -19,7 +18,7 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 
@@ -41,12 +40,11 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * everything until end-of-session and SIGTERM'd healthy children mid-task.
  *
  * After `'close'` fires (stdio drained), the parser's accumulated envelope (body = the `result`
- * event's `.result` string; session_id = earliest seen on any line) is read out, the body is
- * fed to {@link parseHarnessSignals}, and the parsed signal array is written to
- * `session.signalsFile`. The body itself goes out of scope at function return — never retained
- * on a domain entity. When `session.bodyFile` is set (one-shot flows that extract custom tags
- * outside the harness-signal registry), the body is also written there for the caller to read
- * inline.
+ * event's `.result` string; session_id = earliest seen on any line) is read out. Per the
+ * audit-[09] contract, the AI writes `signals.json` directly via its Write tool into
+ * `session.outputDir`; the harness validates that file post-spawn — the provider never writes
+ * `signals.json` itself. When `session.bodyFile` is set, the body is mirrored there for
+ * forensic capture (empty-proposal diagnostics).
  *
  * Rate-limit detection is a lean stderr regex (`/rate.?limit/i`); on match, retry up to
  * `rateLimitRetries` then surface {@link RateLimitError}. `abortSignal` propagates to SIGTERM
@@ -370,9 +368,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         at: IsoTimestamp.now(),
       });
     }
-    const signals = parseHarnessSignals(envelope.body, IsoTimestamp.now());
-    const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
-    if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
+    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
+    // signals.json itself — every leaf consumes the contract path.
     // Persist captured session id as a sibling `sessionId` file so `--resume` / forensic
     // re-attach works without parsing chain.log. Skipped when the stream never carried an id
     // (process crashed mid-init) — see persistSessionIdFile for the contract.

@@ -16,8 +16,8 @@
  *
  * Failure modes are deliberately lenient (matches the Copilot parser shape): non-JSON lines,
  * blank lines, banner / ANSI noise — all skipped silently. A truly empty / malformed stream
- * yields `body=''` and `sessionId=undefined`, so callers' `parseHarnessSignals('')` still runs
- * (and trivially returns no signals) rather than throwing.
+ * yields `body=''` and `sessionId=undefined`, so callers receive a well-shaped envelope even on
+ * truly empty input rather than throwing.
  *
  * Replaces the prior single-envelope `--output-format json` parser: stream-json is required so
  * the idle-stdout watchdog at `src/integration/ai/providers/_engine/idle-watchdog.ts` sees

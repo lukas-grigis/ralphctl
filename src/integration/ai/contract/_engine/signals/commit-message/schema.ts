@@ -6,17 +6,14 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
 /**
  * Zod schema for the `commit-message` AI signal — generator-proposed message the
  * `commit-task` leaf threads into `git commit -F`. The harness still owns the actual commit;
- * the signal is advisory.
- *
- * `body` and `fullMessage` are both optional — `fullMessage` is harness-populated post-
- * finalisation and never present at AI write time. The schema accepts both for round-trip.
+ * the signal is advisory. Deterministic trailers (`Closes #…`) are appended by the harness at
+ * commit time and not surfaced back onto the signal.
  */
 /** @public */
 export const commitMessageSignalSchema = z.object({
   type: z.literal('commit-message'),
   subject: z.string(),
   body: z.string().optional(),
-  fullMessage: z.string().optional(),
   timestamp: IsoTimestampSchema,
 });
 

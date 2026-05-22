@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -115,11 +114,6 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   ...overrides,
 });
 
-const readSignals = async (path: string): Promise<readonly HarnessSignal[]> => {
-  const raw = await fs.readFile(path, 'utf8');
-  return JSON.parse(raw) as readonly HarnessSignal[];
-};
-
 const unwrapArgs = (s: AiSession): readonly string[] => {
   const r = buildClaudeArgs(s);
   if (!r.ok) throw new Error(`buildClaudeArgs failed: ${r.error.message}`);
@@ -127,7 +121,7 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
 };
 
 describe('createClaudeProvider', () => {
-  it('happy path: parses harness signals from the stream-json result event and writes them to signalsFile', async () => {
+  it('happy path: captures sessionId and returns ProviderOutput WITHOUT writing signals.json (AI Write tool owns it)', async () => {
     const cap = createCapturingBus();
     const sess = session();
 
@@ -135,7 +129,9 @@ describe('createClaudeProvider', () => {
     const resultEvt = JSON.stringify({
       type: 'result',
       subtype: 'success',
-      result: '<progress>working</progress>\n<task-verified>all good</task-verified>',
+      // The AI's natural-language body is no longer scraped for signals — audit-[09] makes the AI
+      // write `signals.json` directly via its Write tool. The body stays as-is for forensic capture.
+      result: 'completed task; wrote signals.json.',
       session_id: 'sess-1',
       num_turns: 4,
     });
@@ -152,8 +148,8 @@ describe('createClaudeProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBe('sess-1');
     expect(out.value.exitCode).toBe(0);
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    // Provider must NOT touch signals.json — that's the AI's job under the audit-[09] contract.
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     const sessionEntry = cap.logs.find((e) => e.message.includes('session id'));
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
   });
@@ -223,8 +219,10 @@ describe('createClaudeProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['task-complete']);
+    expect(out.value.sessionId).toBe('sess-2');
+    expect(out.value.exitCode).toBe(0);
+    // Provider does not write signals.json post-audit-[09]; the AI's Write tool does.
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {

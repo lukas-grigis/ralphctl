@@ -33,7 +33,13 @@ describe('generatorLeaf', () => {
     provider: createFakeAiProvider({ responses: { implement: '' } }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     signals: createInMemorySink<HarnessSignal>(),
+    // The contract-driven generator renders sidecars via the WriteFile port. The legacy
+    // tests below cover the leaf's pre-spawn behaviour (prompt persistence, round-event
+    // boundary) so a no-op writer is sufficient — the new audit-[10] grid lives in
+    // generator-contract.test.ts and exercises the sidecar render path end-to-end.
+    writeFile: async () => Result.ok(undefined),
     cwd: absolutePath('/tmp/ralph/fake-cwd'),
+    sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
     model: 'test-model',
     clock: () => FIXED_NOW,
     logger: noopLogger,

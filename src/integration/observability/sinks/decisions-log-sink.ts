@@ -97,6 +97,9 @@ export const createDecisionsLogSink = (deps: DecisionsLogSinkDeps): DecisionsLog
           await fs.mkdir(dirname(String(deps.file)), { recursive: true });
           dirEnsured = true;
         }
+        // TODO(wave-7): route via the AppendFile port (audit-[07]). Pre-existing call site
+        // grandfathered ahead of Wave 6's fs.appendFile fence.
+        // eslint-disable-next-line no-restricted-syntax
         await fs.appendFile(String(deps.file), next, 'utf8');
       } catch {
         // Best-effort. The decisions log is a derived artefact; a disk-write error must not

@@ -142,34 +142,10 @@ false PASS is a shipped bug.
 
 ## Output format
 
-Markdown body, then exactly one verdict signal at the end:
-
-```markdown
-## Findings
-
-### Correctness — passed (5)
-
-{1–3 specific observations citing files / lines / functions.}
-
-### Completeness — failed (3)
-
-{1–3 specific observations. Be concrete about what's missing.}
-
-### Safety — passed (4)
-
-{...}
-
-### Consistency — passed (5)
-
-{...}
-
-<evaluation-failed>
-{Actionable critique. The generator will see this and resume to fix it. Be specific:
-which dimension failed, what the gap is, what change would close it.}
-</evaluation-failed>
-```
-
-When every dimension passes, end with `<evaluation-passed>` (no body).
+Capture your per-dimension findings in the `evaluation` signal's `dimensions` array (one entry per
+dimension with `dimension`, `score`, `passed`, `finding`). When any dimension scores 3 or below set
+`status: "failed"` and supply a `critique` — the actionable summary the generator sees on the next
+round. When every dimension scores 4 or 5 set `status: "passed"` (the `critique` may be omitted).
 
 ### Calibration examples
 
@@ -180,60 +156,38 @@ When every dimension passes, end with `<evaluation-passed>` (no body).
 > Task: "Add date validation to export endpoint"
 > Verification criteria: "GET /exports?startDate=invalid returns 400", "Valid range returns filtered results"
 >
-> ### Correctness — passed (5)
+> Dimensions:
 >
-> Both criteria verified: invalid dates return 400 with error body; valid range filters correctly per
-> integration test at `src/routes/exports.test.ts:88`.
+> - Correctness — 5 — both criteria verified: invalid dates return 400 with error body; valid range
+>   filters correctly per integration test at `src/routes/exports.test.ts:88`.
+> - Completeness — 4 — schema, controller, and tests all implemented per steps; one minor TODO comment
+>   left but unrelated to this task's criteria.
+> - Safety — 5 — input validated via Zod at `src/routes/exports.ts:12` before reaching the database.
+> - Consistency — 4 — follows existing endpoint patterns in `controllers/`; uses the project's error
+>   response format from `src/lib/errors.ts`.
 >
-> ### Completeness — passed (4)
->
-> Schema, controller, and tests all implemented per steps; one minor TODO comment left but unrelated to
-> this task's criteria.
->
-> ### Safety — passed (5)
->
-> Input validated via Zod at `src/routes/exports.ts:12` before reaching the database layer.
->
-> ### Consistency — passed (4)
->
-> Follows existing endpoint patterns in `controllers/`; uses the project's error response format from
-> `src/lib/errors.ts`.
->
-> <evaluation-passed>
+> → `status: "passed"`, no critique.
 
 **Example of a correct FAIL (one or more dimensions scored 1–3):**
 
 > Task: "Add user search with pagination"
 > Verification criteria: "Returns paginated results", "Supports name filter", "Returns 400 for invalid page number"
 >
-> ### Correctness — failed (2)
+> Dimensions:
 >
-> Invalid page number returns 500 (unhandled exception at `src/controllers/users.ts:47`) instead of 400
-> as required by criterion 3.
+> - Correctness — 2 — invalid page number returns 500 (unhandled exception at `src/controllers/users.ts:47`)
+>   instead of 400 as required by criterion 3.
+> - Completeness — 4 — all three features implemented across controller, service, and tests.
+> - Safety — 1 — `src/repositories/users.ts:23` interpolates `query` directly into a SQL string; SQL
+>   injection is possible on any search input.
+> - Consistency — 4 — follows existing controller patterns and uses the shared pagination helper.
 >
-> ### Completeness — passed (4)
->
-> All three features implemented across controller, service, and tests.
->
-> ### Safety — failed (1)
->
-> `src/repositories/users.ts:23` interpolates `query` directly into a SQL string; SQL injection is
-> possible on any search input.
->
-> ### Consistency — passed (4)
->
-> Follows existing controller patterns and uses the shared pagination helper.
->
-> <evaluation-failed>
-> [Correctness] `src/controllers/users.ts:47` — `parseInt(page)` returns NaN for non-numeric input,
+> → `status: "failed"`, critique:
+> "[Correctness] `src/controllers/users.ts:47` — `parseInt(page)` returns NaN for non-numeric input,
 > causing an unhandled exception. Add validation before the query.
->
 > [Safety] `src/repositories/users.ts:23` — `WHERE name LIKE '%${query}%'` is SQL injection. Use a
-> parameterised query: `WHERE name LIKE $1` with `%${query}%` as the parameter.
-> </evaluation-failed>
+> parameterised query: `WHERE name LIKE $1` with `%${query}%` as the parameter."
 
 </examples>
 
-When finished, emit a verdict signal from the `<signals>` block below.
-
-{{SIGNALS}}
+{{OUTPUT_CONTRACT_SECTION}}
