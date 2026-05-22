@@ -51,6 +51,14 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * turns that into a failed trace entry and short-circuits the remaining elements.
  */
 
+/**
+ * Marker emitted by pnpm 11's `removeModulesDirSafe` when it wants to wipe `node_modules`
+ * but can't prompt for confirmation. Tracked separately so the dependency on pnpm's error
+ * shape is explicit — when pnpm renames or restructures the error, only this constant moves.
+ * See pnpm/pnpm#9966 for the breaking-change context.
+ */
+const PNPM_NO_TTY_ERROR_MARKER = 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY';
+
 export interface SetupScriptRunnerLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
   readonly clock: () => IsoTimestamp;
@@ -206,13 +214,12 @@ export const setupScriptRunnerLeaf = (
               continue;
             }
 
-            // Heuristic hint for the most common no-TTY trap: pnpm's
-            // `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` happens when node_modules is out of
-            // sync with the lockfile and pnpm refuses to wipe it without an interactive
-            // confirmation. Detect the marker in the tail and surface an actionable hint —
-            // `npm_config_confirm_modules_purge=false` does NOT cover this code path in current
-            // pnpm releases, so users need to fix it on the project side.
-            const noTtyDetected = outputTail.includes('ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY');
+            // pnpm 11 hardened `removeModulesDirSafe` to abort on missing TTY rather than
+            // silently re-creating `node_modules` (pnpm/pnpm#9966). When the marker fires we
+            // know the failure is the regression — `npm_config_confirm_modules_purge=false`
+            // does NOT cover this code path, so the env shim in shell-script-runner.ts is
+            // insufficient on its own; the auto-retry below carries the rest.
+            const noTtyDetected = outputTail.includes(PNPM_NO_TTY_ERROR_MARKER);
 
             // Auto-retry once with CI=true when the no-TTY abort fires. CI=true flips pnpm into
             // non-interactive mode where `removeModulesDirSafe` auto-confirms — bypassing the
@@ -230,14 +237,14 @@ export const setupScriptRunnerLeaf = (
             let retrySpawnErrorMessage: string | undefined;
             if (noTtyDetected) {
               retryAttempted = true;
+              const retryStartedAt = deps.clock();
               deps.eventBus.publish({
                 type: 'log',
                 level: 'warn',
                 message: `setup-script ${String(repo.path)}: pnpm no-TTY abort detected — auto-retrying once with CI=true (may alter Maven Surefire / Spring Boot @DisabledIfEnvironmentVariable("CI") behaviour for this run)`,
-                at: deps.clock(),
+                at: retryStartedAt,
               });
 
-              const retryStartedAt = deps.clock();
               const retryResult = await deps.shellScriptRunner.run(repo.path, command, {
                 ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
                 env: { RALPHCTL_LIFECYCLE_EVENT: 'setup', CI: 'true' },
@@ -247,7 +254,7 @@ export const setupScriptRunnerLeaf = (
                 retrySpawnErrorMessage = retryResult.error.message;
                 const retryRun = makeSetupRun({
                   repositoryId: repo.repositoryId,
-                  ranAt: deps.clock(),
+                  ranAt: retryStartedAt,
                   command,
                   exitCode: -1,
                   durationMs: 0,
@@ -295,8 +302,8 @@ export const setupScriptRunnerLeaf = (
 
             const pnpmTtyHint = noTtyDetected
               ? retrySpawnErrorMessage !== undefined
-                ? `pnpm no-TTY abort triggered an auto-retry with CI=true, but the retry could not spawn (${retrySpawnErrorMessage}). Manual project-side fix required: run \`pnpm install\` once in a terminal to resync, or pin the lockfile.`
-                : 'pnpm no-TTY abort triggered an auto-retry with CI=true; the retry also failed. Manual project-side fix required: run `pnpm install` once in a terminal to resync, or pin the lockfile.'
+                ? `pnpm no-TTY abort triggered an auto-retry with CI=true, but the retry could not spawn (${retrySpawnErrorMessage}). Fix project-side: pin pnpm < 11 in mise.toml / package.json#packageManager (pnpm/pnpm#9966), run \`pnpm install\` once in a terminal to resync, or add \`confirm-modules-purge=false\` to .npmrc.`
+                : 'pnpm no-TTY abort triggered an auto-retry with CI=true; the retry also failed. Fix project-side: pin pnpm < 11 in mise.toml / package.json#packageManager (pnpm/pnpm#9966), run `pnpm install` once in a terminal to resync, or add `confirm-modules-purge=false` to .npmrc.'
               : undefined;
             deps.eventBus.publish({
               type: 'log',
