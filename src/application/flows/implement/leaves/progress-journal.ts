@@ -40,16 +40,28 @@ interface JournalInput {
   readonly progressFile: AbsolutePath;
   readonly task: Task;
   readonly roundN: number;
-  readonly decisionsCount: number;
+  readonly changes: readonly string[];
+  readonly decisions: readonly string[];
+  readonly learnings: readonly string[];
+  readonly notes: readonly string[];
 }
 
-const collectDecisionSignals = (decisions: readonly string[] | undefined): number => {
-  if (decisions === undefined || decisions.length === 0) return 0;
+/**
+ * Trim + dedupe a per-attempt signal-text accumulator. Returns the deduped list in first-seen
+ * order. Empty / undefined input → empty array; the renderer drops empty subsections.
+ */
+const dedupeTexts = (texts: readonly string[] | undefined): readonly string[] => {
+  if (texts === undefined || texts.length === 0) return [];
   const seen = new Set<string>();
-  for (const d of decisions) {
-    seen.add(d.trim());
+  const out: string[] = [];
+  for (const t of texts) {
+    const trimmed = t.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
   }
-  return seen.size;
+  return out;
 };
 
 const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): string => {
@@ -101,7 +113,10 @@ export const progressJournalLeaf = (
           roundN: input.roundN,
           totalRounds: opts.totalRounds,
           ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
-          decisionsCount: input.decisionsCount,
+          changes: input.changes,
+          decisions: input.decisions,
+          learnings: input.learnings,
+          notes: input.notes,
           ...(attempt?.commitSha !== undefined ? { commitSha: String(attempt.commitSha) } : {}),
           timestamp: deps.clock(),
         });
@@ -127,16 +142,23 @@ export const progressJournalLeaf = (
         });
       }
       const roundN = ctx.currentRoundNum ?? task.attempts.length;
-      const decisionsCount = collectDecisionSignals(ctx.currentAttemptDecisions);
       return {
         progressFile: opts.progressFile,
         task,
         roundN,
-        decisionsCount,
+        changes: dedupeTexts(ctx.currentAttemptChanges),
+        decisions: dedupeTexts(ctx.currentAttemptDecisions),
+        learnings: dedupeTexts(ctx.currentAttemptLearnings),
+        notes: dedupeTexts(ctx.currentAttemptNotes),
       };
     },
-    // settle-attempt cleared `currentAttemptDecisions` already? No — settle clears its own
-    // per-attempt fields but leaves the decisions accumulator for us to read. We clear it here
-    // so the next task starts with an empty accumulator.
-    output: (ctx) => ({ ...ctx, currentAttemptDecisions: undefined }),
+    // settle-attempt clears its own per-attempt fields but leaves the signal accumulators for
+    // us to read. We clear all four here so the next task starts with empty accumulators.
+    output: (ctx) => ({
+      ...ctx,
+      currentAttemptDecisions: undefined,
+      currentAttemptChanges: undefined,
+      currentAttemptLearnings: undefined,
+      currentAttemptNotes: undefined,
+    }),
   });

@@ -55,6 +55,13 @@ export interface EvaluatePromptParams {
    * file (`signals.json`) matching the documented shape.
    */
   readonly outputContractSection: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress` section so the
+   * reviewer can judge this round's work against what already shipped on the sprint. Empty
+   * string when the journal file is absent — the template's surrounding prose handles the
+   * empty case without a per-flow special branch.
+   */
+  readonly priorProgress: string;
 }
 
 const requireNonEmpty =
@@ -115,6 +122,11 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
       ),
     },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description:
+        'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -135,6 +147,12 @@ export interface BuildEvaluatePromptInput {
    * `renderContractSectionFor(evaluatorOutputContract)` before calling the builder.
    */
   readonly outputContractSection: string;
+  /**
+   * Current `progress.md` body — inlined into the prompt's "## Prior progress" section so the
+   * reviewer can judge this round's work against what already shipped. Defaults to the empty
+   * string when omitted (test fixtures); production leaves always read the on-disk body.
+   */
+  readonly priorProgress?: string;
 }
 
 /**
@@ -156,4 +174,5 @@ export const buildEvaluatePrompt = async (
     projectTooling: renderProjectToolingSection(input.projectTooling),
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
     outputContractSection: input.outputContractSection,
+    priorProgress: input.priorProgress ?? '',
   });

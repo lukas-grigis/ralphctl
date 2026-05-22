@@ -91,6 +91,11 @@ describe('evaluatePromptDef — completeness', () => {
     const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
     expect(placeholders).toContain('OUTPUT_CONTRACT_SECTION');
   });
+
+  it('declares the PRIOR_PROGRESS placeholder so the reviewer sees the sprint journal body', () => {
+    const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
+    expect(placeholders).toContain('PRIOR_PROGRESS');
+  });
 });
 
 const SAMPLE_CONTRACT_SECTION =
@@ -161,6 +166,20 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('**Consistency**');
   });
 
+  it('inlines the priorProgress body into the `## Prior progress` section', async () => {
+    const task = makeTaskWith({ name: 'with-prior' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '## Task: shipped-earlier — Attempt 1\n\nTask completed successfully.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Prior progress');
+    expect(result.value).toContain('## Task: shipped-earlier — Attempt 1');
+  });
+
   it('renders extra dimensions after the floor dimensions when planner attached them', async () => {
     const ticket = makeApprovedTicket();
     const task = unwrap(
@@ -205,6 +224,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -222,6 +242,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

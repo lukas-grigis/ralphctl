@@ -3,9 +3,12 @@
  *
  * The leaf is the sole writer of `<sprintDir>/progress.md` post-wave-7 — it appends one
  * task-attempt section after every settle-attempt completes. Validates:
- *  - section shape (the heading + verdict + round + decisions count)
+ *  - section shape (heading + verdict / round / duration / commit metadata bullets)
  *  - appends preserve prior journal content verbatim (no rewrites)
- *  - decision signals accumulated on ctx are deduped and counted
+ *  - per-attempt signal accumulators (changes / decisions / learnings / notes) render as
+ *    dedicated subsections with deduped + trimmed bullets
+ *  - empty signal lists drop their subsection entirely
+ *  - all four accumulators clear on the output ctx
  *  - missing task on ctx throws an InvalidStateError (chain-shape contract)
  */
 
@@ -52,10 +55,14 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain('## Task: export-csv — Attempt 1');
     expect(written).toContain('- Verdict: pass');
     expect(written).toContain('- Round: round 1 of 5');
-    expect(written).toContain('- Decisions: 0');
     // The done-task fixture does not stamp a commit sha; the journal renders em-dash for the
     // missing value.
     expect(written).toContain('- Commit: —');
+    // Empty signal lists drop their subsections entirely — no orphaned headings.
+    expect(written).not.toContain('### Changes');
+    expect(written).not.toContain('### Decisions');
+    expect(written).not.toContain('### Learnings');
+    expect(written).not.toContain('### Notes');
   });
 
   it('renders verdict=blocked with the blocked reason as the outcome paragraph', async () => {
@@ -106,7 +113,7 @@ describe('progressJournalLeaf', () => {
     expect(t2Idx).toBeGreaterThan(t1Idx);
   });
 
-  it('dedupes ctx-accumulated decision signals into a single count', async () => {
+  it('dedupes + trims ctx-accumulated decision signals and renders one bullet per unique entry', async () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'with-decisions' });
     const leaf = progressJournalLeaf(
@@ -120,18 +127,78 @@ describe('progressJournalLeaf', () => {
       currentRoundNum: 1,
       currentAttemptDecisions: [
         'use json for the on-disk format',
-        'use json for the on-disk format',
+        '  use json for the on-disk format  ',
         'switch to streaming reads',
       ],
     };
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
     const written = append.read(PROGRESS_FILE) ?? '';
-    // Two unique decisions despite three signals.
-    expect(written).toContain('- Decisions: 2');
+    // The subsection renders, and the two unique decisions appear as separate bullets.
+    expect(written).toContain('### Decisions');
+    expect(written).toContain('- use json for the on-disk format');
+    expect(written).toContain('- switch to streaming reads');
+    // Dedupe: only TWO `- ` bullets in the Decisions subsection block.
+    const decisionsBlock = written.slice(written.indexOf('### Decisions'));
+    const bullets = decisionsBlock.split('\n').filter((line) => line.startsWith('- '));
+    expect(bullets).toHaveLength(2);
   });
 
-  it('clears the accumulated decisions on the output ctx so the next task starts fresh', async () => {
+  it('renders all four signal subsections (changes / decisions / learnings / notes) when populated', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'rich-signals' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentRoundNum: 1,
+      currentAttemptChanges: ['added src/foo.ts', 'renamed bar → baz'],
+      currentAttemptDecisions: ['use json on-disk'],
+      currentAttemptLearnings: ['providers ship different flags'],
+      currentAttemptNotes: ['follow-up: trim retry log lines'],
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('### Changes');
+    expect(written).toContain('- added src/foo.ts');
+    expect(written).toContain('- renamed bar → baz');
+    expect(written).toContain('### Decisions');
+    expect(written).toContain('- use json on-disk');
+    expect(written).toContain('### Learnings');
+    expect(written).toContain('- providers ship different flags');
+    expect(written).toContain('### Notes');
+    expect(written).toContain('- follow-up: trim retry log lines');
+  });
+
+  it('all four signal lists empty → only the metadata block renders (no signal subsections)', async () => {
+    // Regression for the confetti-task case: a settled attempt that emitted no
+    // change/decision/learning/note signals must still produce a clean section with no
+    // empty `### Foo` headings. This is the original wave-7 follow-up complaint distilled
+    // into a single test.
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'confetti' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [task], currentRoundNum: 1 });
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('## Task: confetti — Attempt 1');
+    expect(written).toContain('- Verdict: pass');
+    expect(written).not.toContain('### Changes');
+    expect(written).not.toContain('### Decisions');
+    expect(written).not.toContain('### Learnings');
+    expect(written).not.toContain('### Notes');
+  });
+
+  it('clears all four signal accumulators on the output ctx so the next task starts fresh', async () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'clears' });
     const leaf = progressJournalLeaf(
@@ -143,11 +210,17 @@ describe('progressJournalLeaf', () => {
       sprintId: SPRINT_ID,
       tasks: [task],
       currentRoundNum: 1,
-      currentAttemptDecisions: ['something'],
+      currentAttemptDecisions: ['d'],
+      currentAttemptChanges: ['c'],
+      currentAttemptLearnings: ['l'],
+      currentAttemptNotes: ['n'],
     };
     const result = await leaf.execute(ctx);
     if (!result.ok) throw result.error;
     expect(result.value.ctx.currentAttemptDecisions).toBeUndefined();
+    expect(result.value.ctx.currentAttemptChanges).toBeUndefined();
+    expect(result.value.ctx.currentAttemptLearnings).toBeUndefined();
+    expect(result.value.ctx.currentAttemptNotes).toBeUndefined();
   });
 
   it('best-effort: a write failure is swallowed and the chain continues', async () => {

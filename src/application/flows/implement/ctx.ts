@@ -110,9 +110,28 @@ export interface ImplementCtx {
   /**
    * Per-attempt decision accumulator — every `decision` signal the generator/evaluator emits
    * during the gen-eval loop is pushed onto this array by the leaves. Read by
-   * `progress-journal-<taskId>` to surface a deduped count in the journal section, then
-   * cleared on the same leaf so the next task starts with an empty accumulator. Wave 7
-   * (audit-[07]) replaces the on-disk `decisions.log` sink with this in-memory aggregate.
+   * `progress-journal-<taskId>` to render the `### Decisions` subsection of the journal
+   * entry, then cleared on the same leaf so the next task starts with an empty accumulator.
+   * Wave 7 (audit-[07]) replaces the on-disk `decisions.log` sink with this in-memory
+   * aggregate.
    */
   readonly currentAttemptDecisions?: readonly string[] | undefined;
+  /**
+   * Per-attempt `change` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Changes` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptChanges?: readonly string[] | undefined;
+  /**
+   * Per-attempt `learning` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Learnings` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptLearnings?: readonly string[] | undefined;
+  /**
+   * Per-attempt `note` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Notes` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptNotes?: readonly string[] | undefined;
 }

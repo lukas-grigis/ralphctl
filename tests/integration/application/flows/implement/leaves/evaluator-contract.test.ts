@@ -76,6 +76,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+      progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
       clock: () => FIXED_NOW,

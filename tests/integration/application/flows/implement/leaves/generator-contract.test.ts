@@ -112,6 +112,9 @@ describe('generatorLeaf — audit-[09] contract', () => {
             schemaVersion: 1,
             signals: [
               { type: 'change', text: 'added foo', timestamp: '2026-05-22T10:00:00.000Z' },
+              { type: 'decision', text: 'use json on-disk', timestamp: '2026-05-22T10:00:00.500Z' },
+              { type: 'learning', text: 'providers differ on flags', timestamp: '2026-05-22T10:00:00.750Z' },
+              { type: 'note', text: 'follow-up: tighten log', timestamp: '2026-05-22T10:00:00.900Z' },
               { type: 'task-verified', output: 'tests pass', timestamp: '2026-05-22T10:00:01.000Z' },
               {
                 type: 'commit-message',
@@ -137,15 +140,36 @@ describe('generatorLeaf — audit-[09] contract', () => {
 
     // Bus fan-out: every validated signal carried as a typed `ai-signal` event.
     const aiSignals = events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
-    expect(aiSignals.map((e) => e.signal.type)).toEqual(['change', 'task-verified', 'commit-message']);
+    expect(aiSignals.map((e) => e.signal.type)).toEqual([
+      'change',
+      'decision',
+      'learning',
+      'note',
+      'task-verified',
+      'commit-message',
+    ]);
     for (const ev of aiSignals) expect(ev.source).toBe('generator');
 
     // The legacy sink still sees the same signals (TUI consumers stay happy until Wave 6).
-    expect(sink.entries.map((s: HarnessSignal) => s.type)).toEqual(['change', 'task-verified', 'commit-message']);
+    expect(sink.entries.map((s: HarnessSignal) => s.type)).toEqual([
+      'change',
+      'decision',
+      'learning',
+      'note',
+      'task-verified',
+      'commit-message',
+    ]);
 
     // Ctx projection threads the validated commit-message into proposedCommitMessage.
     if (!result.ok) return;
     expect(result.value.ctx.proposedCommitMessage).toEqual({ subject: 'feat(foo): bar', body: 'why this matters' });
+
+    // Per-attempt signal accumulators land on ctx so the journal leaf can render dedicated
+    // `### Changes` / `### Decisions` / `### Learnings` / `### Notes` subsections.
+    expect(result.value.ctx.currentAttemptChanges).toEqual(['added foo']);
+    expect(result.value.ctx.currentAttemptDecisions).toEqual(['use json on-disk']);
+    expect(result.value.ctx.currentAttemptLearnings).toEqual(['providers differ on flags']);
+    expect(result.value.ctx.currentAttemptNotes).toEqual(['follow-up: tighten log']);
   });
 
   // ── 6. Optional sidecar absent ────────────────────────────────────────────────

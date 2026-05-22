@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import {
   type EvaluatorTurnExit,
@@ -77,6 +78,13 @@ export interface EvaluatorLeafDeps {
    * per-task sandbox. Threaded down from the flow factory.
    */
   readonly sprintDir: AbsolutePath;
+  /**
+   * Absolute path to `<sprintDir>/progress.md` — the reviewer reads the current journal body
+   * pre-spawn and inlines it into the `## Prior progress` section of the evaluator prompt so
+   * the reviewer can judge this round's work against what already shipped (mirrors the
+   * generator's prior-progress wiring).
+   */
+  readonly progressFile: AbsolutePath;
   readonly model: string;
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
@@ -120,6 +128,20 @@ interface EvaluatorOutput {
   readonly capturedSessionId?: SessionId;
 }
 
+/**
+ * Read the current `progress.md` body to inline into the evaluator prompt. Best-effort: a
+ * missing / unreadable file returns the empty string so the template's surrounding prose
+ * handles the empty case without a per-flow special branch. Mirrors the generator-leaf
+ * helper of the same name so both sides of the gen-eval loop see the same journal body.
+ */
+const readProgressFile = async (path: string): Promise<string> => {
+  try {
+    return await fs.readFile(path, 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, EvaluatorInput, EvaluatorOutput>(`evaluator-${String(taskId)}`, {
     useCase: {
@@ -137,10 +159,15 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         const outputDir = outputDirPath.value;
 
         const callEvaluate: RunEvaluatorTurnProps['callEvaluate'] = async (task) => {
+          // Inline the current progress.md body into the prompt. Best-effort — a missing or
+          // unreadable file degrades to empty, which the template's surrounding prose handles
+          // without a special branch. Mirrors the generator-leaf wiring.
+          const priorProgress = await readProgressFile(String(deps.progressFile));
           const prompt = await buildEvaluatePrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
             outputContractSection: renderContractSectionFor(evaluatorOutputContract, outputDir),
+            priorProgress,
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;

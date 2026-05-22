@@ -38,6 +38,18 @@ You are working in this project directory:
 
 {{VERIFY_SCRIPT_SECTION}}
 
+## Prior progress
+
+Below is the sprint's `progress.md` body so you can judge this round's work against what
+already shipped — prior tasks' decisions, changes, learnings, and notes. Use it to spot
+inconsistencies with established direction and to avoid critiquing the generator for
+following a decision already recorded in earlier rounds.
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded — this is the first
+task-attempt of the sprint.
+
 ## Project Tooling
 
 {{PROJECT_TOOLING}}

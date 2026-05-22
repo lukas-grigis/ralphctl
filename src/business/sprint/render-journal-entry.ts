@@ -4,21 +4,38 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * Render a single task-attempt section into the append-only `<sprintDir>/progress.md`
  * journal (audit-[07]). Pure — same inputs always produce the same string.
  *
- * Section shape (wave-7 minimal cut — keeps the journal readable as a chronological log
- * without re-deriving anything from chain.log):
+ * Section shape — the metadata block carries the verdict / round / duration / commit at a
+ * glance; below it, one subsection per non-empty signal kind surfaces the actual signal text.
+ * Empty subsections are dropped entirely (no heading-with-no-bullets):
  *
  *   ## Task: <task name> — Attempt <N>
+ *
+ *   _<iso timestamp>_
  *
  *   <outcome paragraph>
  *
  *   - Verdict: <pass | blocked>
  *   - Round: <round N of M>
  *   - Duration: <elapsed>
- *   - Decisions: <count>
  *   - Commit: <sha-or-em-dash>
+ *
+ *   ### Changes
+ *   - <change 1>
+ *
+ *   ### Decisions
+ *   - <decision 1>
+ *
+ *   ### Learnings
+ *   - <learning 1>
+ *
+ *   ### Notes
+ *   - <note 1>
  *
  * The leading newline + trailing newline make the section concatenate cleanly when appended
  * to a non-empty journal — readers see a blank line separating consecutive sections.
+ *
+ * Lists are emitted verbatim — dedupe / trim happen at the leaf-call site so the renderer
+ * stays a pure formatter.
  *
  * @public
  */
@@ -32,8 +49,14 @@ export interface JournalEntryInput {
   readonly totalRounds: number;
   /** Total round duration in milliseconds. `undefined` → renders as `—`. */
   readonly durationMs?: number;
-  /** Deduped count of `decision` signals emitted across the attempt. */
-  readonly decisionsCount: number;
+  /** Deduped change-signal bodies emitted across the attempt. Empty → no `### Changes` subsection. */
+  readonly changes: readonly string[];
+  /** Deduped decision-signal bodies emitted across the attempt. Empty → no `### Decisions` subsection. */
+  readonly decisions: readonly string[];
+  /** Deduped learning-signal bodies emitted across the attempt. Empty → no `### Learnings` subsection. */
+  readonly learnings: readonly string[];
+  /** Deduped note-signal bodies emitted across the attempt. Empty → no `### Notes` subsection. */
+  readonly notes: readonly string[];
   /** Commit sha that landed (truncated). Missing when the attempt blocked. */
   readonly commitSha?: string;
   readonly timestamp: IsoTimestamp;
@@ -66,6 +89,19 @@ const formatDuration = (ms: number | undefined): string => {
 const SHA_DISPLAY_LENGTH = 7;
 
 /**
+ * Append a `### <heading>` subsection with one bullet per entry. No-op when the list is empty
+ * — the journal omits the heading entirely so readers don't see hollow placeholders.
+ */
+const appendSubsection = (lines: string[], heading: string, entries: readonly string[]): void => {
+  if (entries.length === 0) return;
+  lines.push(`### ${heading}`);
+  for (const entry of entries) {
+    lines.push(`- ${entry}`);
+  }
+  lines.push('');
+};
+
+/**
  * Render one journal section. The string is intended to be appended verbatim to an existing
  * journal file via the `AppendFile` port — it carries its own leading + trailing whitespace
  * so consecutive sections never abut.
@@ -86,9 +122,12 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
   lines.push(`- Verdict: ${input.verdict}`);
   lines.push(`- Round: round ${String(input.roundN)} of ${String(input.totalRounds)}`);
   lines.push(`- Duration: ${formatDuration(input.durationMs)}`);
-  lines.push(`- Decisions: ${String(input.decisionsCount)}`);
   lines.push(`- Commit: ${sha}`);
   lines.push('');
+  appendSubsection(lines, 'Changes', input.changes);
+  appendSubsection(lines, 'Decisions', input.decisions);
+  appendSubsection(lines, 'Learnings', input.learnings);
+  appendSubsection(lines, 'Notes', input.notes);
   return lines.join('\n');
 };
 

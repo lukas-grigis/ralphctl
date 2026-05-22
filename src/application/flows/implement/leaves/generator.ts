@@ -127,10 +127,26 @@ interface GeneratorOutput {
   /**
    * Decision-signal bodies emitted by this turn. Empty array when the generator emitted no
    * `<decision>` signals. Accumulates onto `ctx.currentAttemptDecisions` so the journal leaf
-   * can render a deduped count for the attempt (audit-[07] — replaces the deleted
-   * `decisions-log` sink with an in-memory aggregate).
+   * can render a deduped `### Decisions` subsection for the attempt (audit-[07] — replaces
+   * the deleted `decisions-log` sink with an in-memory aggregate).
    */
   readonly decisionsEmitted: readonly string[];
+  /**
+   * Change-signal bodies emitted by this turn — accumulates onto `ctx.currentAttemptChanges`
+   * so the journal leaf can render the per-attempt `### Changes` subsection.
+   */
+  readonly changesEmitted: readonly string[];
+  /**
+   * Learning-signal bodies emitted by this turn — accumulates onto
+   * `ctx.currentAttemptLearnings` so the journal leaf can render the per-attempt
+   * `### Learnings` subsection.
+   */
+  readonly learningsEmitted: readonly string[];
+  /**
+   * Note-signal bodies emitted by this turn — accumulates onto `ctx.currentAttemptNotes`
+   * so the journal leaf can render the per-attempt `### Notes` subsection.
+   */
+  readonly notesEmitted: readonly string[];
 }
 
 /**
@@ -185,10 +201,13 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         if (!outputDirPath.ok) return Result.error(outputDirPath.error);
         const outputDir = outputDirPath.value;
 
-        // Per-turn decision accumulator — closure-captured so the leaf can stamp the
-        // emitted decisions onto ctx in `output(...)`. The journal leaf reads the aggregate
+        // Per-turn signal accumulators — closure-captured so the leaf can stamp the
+        // emitted texts onto ctx in `output(...)`. The journal leaf reads the aggregate
         // across all gen-eval rounds for the attempt.
         const decisionsEmitted: string[] = [];
+        const changesEmitted: string[] = [];
+        const learningsEmitted: string[] = [];
+        const notesEmitted: string[] = [];
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);
           // Inline the current progress.md body into the prompt (audit-[07]). Best-effort —
@@ -240,6 +259,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             deps.signals.emit(sig);
             deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
             if (sig.type === 'decision') decisionsEmitted.push(sig.text);
+            else if (sig.type === 'change') changesEmitted.push(sig.text);
+            else if (sig.type === 'learning') learningsEmitted.push(sig.text);
+            else if (sig.type === 'note') notesEmitted.push(sig.text);
           }
 
           // Render harness-owned sidecars (`commit-message.txt` when present). Write
@@ -273,6 +295,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           turn: input.turn,
           roundNum,
           decisionsEmitted,
+          changesEmitted,
+          learningsEmitted,
+          notesEmitted,
           ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
           ...(result.value.proposedCommitMessage !== undefined
             ? { proposedCommitMessage: result.value.proposedCommitMessage }
@@ -323,11 +348,24 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       // prior turn captured so the next round still has a thread to resume.
       const sessionCarry =
         out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
-      // Accumulate this turn's decisions onto the per-attempt aggregate. Cleared by the
-      // progress-journal leaf after the attempt settles.
+      // Accumulate this turn's signal texts onto the per-attempt aggregates. Cleared by the
+      // progress-journal leaf after the attempt settles. Each kind has its own field on ctx so
+      // the journal renderer can drop empty subsections without inspecting the signal type.
       const decisionsCarry =
         out.decisionsEmitted.length > 0
           ? { currentAttemptDecisions: [...(ctx.currentAttemptDecisions ?? []), ...out.decisionsEmitted] }
+          : {};
+      const changesCarry =
+        out.changesEmitted.length > 0
+          ? { currentAttemptChanges: [...(ctx.currentAttemptChanges ?? []), ...out.changesEmitted] }
+          : {};
+      const learningsCarry =
+        out.learningsEmitted.length > 0
+          ? { currentAttemptLearnings: [...(ctx.currentAttemptLearnings ?? []), ...out.learningsEmitted] }
+          : {};
+      const notesCarry =
+        out.notesEmitted.length > 0
+          ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
           : {};
       if (out.exit !== undefined) {
         return {
@@ -341,6 +379,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           ...carry,
           ...sessionCarry,
           ...decisionsCarry,
+          ...changesCarry,
+          ...learningsCarry,
+          ...notesCarry,
         };
       }
       return {
@@ -352,6 +393,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         ...carry,
         ...sessionCarry,
         ...decisionsCarry,
+        ...changesCarry,
+        ...learningsCarry,
+        ...notesCarry,
       };
     },
   });
