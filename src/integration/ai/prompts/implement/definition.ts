@@ -33,9 +33,10 @@ export {
  *
  * The implement template tells one task implementer agent how to execute a single
  * pre-planned task: read the description / steps / verification criteria, run the verify
- * script as the post-task gate, append a learnings entry to the progress file, then signal
- * completion. Every slot below is a typed string the chain leaf renders before calling
- * `buildPrompt`.
+ * script as the post-task gate, then emit signals plus `<task-complete>`. The harness
+ * renders those signals into `progress.md` on the next snapshot — the agent must NOT write
+ * to the file directly. Every slot below is a typed string the chain leaf renders before
+ * calling `buildPrompt`.
  */
 export interface ImplementPromptParams {
   /** Task display name — `{{TASK_NAME}}` (the level-1 heading body in the rendered prompt). */
@@ -75,7 +76,7 @@ const requireNonEmpty =
 export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   templateName: 'implement',
   description:
-    'One-shot task execution. The agent reads the task body, runs the verify script, appends a progress entry, and emits harness signals.',
+    'One-shot task execution. The agent reads the task body, runs the verify script, and emits harness signals; the harness snapshots those signals into progress.md.',
   parameters: {
     taskName: {
       placeholder: 'TASK_NAME',
@@ -119,7 +120,8 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     },
     progressFile: {
       placeholder: 'PROGRESS_FILE',
-      description: 'Absolute path to the sprint progress.md file the implementer appends to.',
+      description:
+        'Absolute path to the sprint progress.md file the implementer reads at the start of Phase 1 for cross-session context.',
       validate: requireNonEmpty('progressFile', 'progress file path must not be empty'),
     },
     priorCritiqueSection: {

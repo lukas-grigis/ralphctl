@@ -18,8 +18,9 @@ completion.
   failure go away.
 - **Verify before completing** — the harness runs a post-task verify gate; unverified work will be caught and
   rejected. The verification you record in `<task-verified>` is the same set of commands the gate runs.
-- **Append to the progress file, never overwrite** — each progress entry goes at the end. Overwriting erases
-  context downstream tasks depend on.
+- **Do not write to the progress file** — the harness regenerates it from your signals after every round.
+  Anything you write there is overwritten in seconds. Emit `<change>`, `<learning>`, `<note>`, and
+  `<decision>` signals; the harness merges them into the file's per-task sections.
 - **No sprint-local identifiers in committed artefacts** — do not mention acceptance-criterion labels (`AC1`,
   `AC2`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test names, commit
   messages, or any other committed artefact. These identifiers are ephemeral sprint metadata and become stale
@@ -64,8 +65,10 @@ completion.
 
 ## Prior Task Learnings
 
-Read `{{PROGRESS_FILE}}` for accumulated learnings, gotchas, and patterns recorded by previous tasks in this
-sprint. Skip the file when it does not exist (first task of the sprint).
+Read `{{PROGRESS_FILE}}` to understand what previous tasks in this sprint accomplished and learned. The file
+contains the sprint status table, a per-task block for each completed task (Changes, Learnings, Notes
+sub-sections), and a top-level Decisions section. Skip the file when it does not exist (first task of the
+sprint).
 
 ## Project Tooling
 
@@ -126,44 +129,19 @@ In order:
 2. **Run all verification commands** — execute every command in the Verify Script section (or the project's
    verification commands when no verify script is configured). Fix any failures before proceeding. The harness
    re-runs this gate post-task; your task is not marked done unless it passes.
-3. **Update the progress file** — append to `{{PROGRESS_FILE}}` using the format defined in "Output format"
-   below.
-4. **Output verification results** in the `<task-verified>` shape defined in "Output format" below, using the
+3. **Output verification results** in the `<task-verified>` shape defined in "Output format" below, using the
    actual commands the harness ran.
-5. **Propose the commit message** — emit `<commit-message>` (shape below in `<signals>`) with a real subject
+4. **Propose the commit message** — emit `<commit-message>` (shape below in `<signals>`) with a real subject
    and a body explaining WHY the change exists, what alternatives you weighed, and any follow-ups a reviewer
    should know about. The harness runs `git commit` after this turn and uses your wording verbatim; the
    fallback when you omit the signal is just the task name + the task's description paragraph, which is
    thin context, so emit the signal on every task that touched any file. Omit only when the task was a pure
    investigation that wrote nothing.
-6. **Signal completion** — emit `<task-complete>` ONLY after all the above steps pass.
+5. **Signal completion** — emit `<task-complete>` ONLY after all the above steps pass.
 
 ## Output format
 
-The progress-file entry you append in Phase 3 step 3:
-
-```markdown
-## {ISO timestamp} - {task-id}: {task name}
-
-**Project:** {project-path}
-
-### What changed
-
-- Files and functions created or modified
-- Deviations from planned steps and why
-
-### Learnings and context
-
-- Patterns discovered that future tasks should follow
-- Gotchas or edge cases encountered
-
-### Notes for next tasks
-
-- What the next implementer should know
-- Setup or state that was created/modified
-```
-
-The verification block you emit in Phase 3 step 4 (the example below is illustrative only — use the actual
+The verification block you emit in Phase 3 step 3 (the example below is illustrative only — use the actual
 commands and output):
 
 ```

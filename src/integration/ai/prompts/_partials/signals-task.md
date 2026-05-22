@@ -14,10 +14,10 @@ else in your message is treated as a control signal.
 Optional progress signals you may emit during long-running work:
 
 - `<progress>short summary</progress>` — A one-line status update; the harness streams these to the live UI.
-- `<note>text</note>` — Incidental observations that future tasks should be aware of (patterns, gotchas).
-- `<change>text</change>` — A concrete change you made during this task. Granular ("added X", "renamed Y to Z", "deleted Z"). The harness appends these inline to the task's section in `progress.md`.
-- `<learning>text</learning>` — Non-obvious project knowledge worth carrying across tasks (a hidden constraint, an undocumented convention, a gotcha you hit and resolved). The harness pins these under `## Learnings` at the top of `progress.md` so future tasks see them. Use sparingly; only the kind of insight you'd want a fresh agent to read first.
-- `` `<decision>` `` ... `` `</decision>` `` — Wrap a one-sentence architectural or design choice with rationale ("chose path A over B because <reason>"). Higher signal than `<learning>`. The harness pins these under `## Decisions` in `progress.md`. Use only for choices a future maintainer would want explained. Emit ONE decision per pair of tags; do not embed prompt headings or code fences inside the body.
+- `<change>text</change>` — A concrete change you made during this task. Granular ("added X", "renamed Y to Z", "deleted Z"). The harness renders these under `#### Changes` inside this task's per-task section of `progress.md` on the next snapshot regeneration.
+- `<learning>text</learning>` — Non-obvious project knowledge worth carrying across tasks (a hidden constraint, an undocumented convention, a gotcha you hit and resolved). The harness renders these under `#### Learnings` inside this task's per-task section of `progress.md`. They survive to subsequent sessions when the next AI reads `progress.md` at the start of Phase 1. Use sparingly; only the kind of insight you'd want a fresh agent to read first.
+- `<note>text</note>` — Incidental observations future tasks should be aware of (patterns, gotchas). The harness renders these under `#### Notes` inside this task's per-task section of `progress.md`.
+- `` `<decision>` `` ... `` `</decision>` `` — Wrap a one-sentence architectural or design choice with rationale ("chose path A over B because <reason>"). Higher signal than `<learning>`. The harness renders these under `## Decisions` in `progress.md` (capped at 500 chars per body). Use only for choices a future maintainer would want explained. Emit ONE decision per pair of tags; do not embed prompt headings or code fences inside the body.
 
 Commit message — the harness owns the commit; you propose the wording (emit on every turn that produced edits):
 
