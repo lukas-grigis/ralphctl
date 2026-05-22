@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -57,6 +58,21 @@ export interface CreateRefineFlowOpts {
  * write its final markdown to `<unit-root>/requirements.md`, which the harness reads back
  * after the session exits.
  */
+/**
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
+ * Refinement runs under `<sprintDir>/refinement/<ticket-slug>/`, so the sprint dir is the
+ * parent of the supplied refinement root. Best-effort: a missing or unreadable file degrades
+ * to the empty string.
+ */
+const readSprintProgress = async (refinementRoot: AbsolutePath): Promise<string> => {
+  const sprintDir = dirname(String(refinementRoot));
+  try {
+    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): Element<RefineCtx> => {
   const ticketSlug = (ticket: Ticket): string => {
     const fromTitle = toKebabCase(ticket.title);
@@ -104,10 +120,12 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
             if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
             return ctx.currentPromptFile;
           },
-          buildPrompt: (ctx) => {
+          buildPrompt: async (ctx) => {
+            const priorProgress = await readSprintProgress(opts.refinementRoot);
             return buildRefinePrompt(deps.templateLoader, {
               ticket,
               outputContractSection: renderContractSectionFor(refineOutputContract),
+              priorProgress,
               ...(ctx.currentIssueContext !== undefined ? { issueContext: ctx.currentIssueContext } : {}),
             });
           },

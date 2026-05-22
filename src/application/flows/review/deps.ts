@@ -11,6 +11,7 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 
 export interface ReviewDeps {
   readonly sprintRepo: SprintRepository;
@@ -26,5 +27,7 @@ export interface ReviewDeps {
   readonly shellScriptRunner: ShellScriptRunner;
   readonly fileLocker: FileLocker;
   readonly locksRoot: AbsolutePath;
+  /** Append adapter — threaded into `reviewRoundLeaf` to grow `feedback.md` per round. */
+  readonly appendFile: AppendFile;
   readonly model: string;
 }

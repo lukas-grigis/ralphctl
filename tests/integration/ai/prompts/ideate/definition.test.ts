@@ -31,12 +31,14 @@ describe('buildIdeatePrompt — end-to-end', () => {
       ideaDescription: 'Add CSV export to reports.',
       project,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
     expect(result.value).toContain('CSV export');
     expect(result.value).toContain('## Output contract');
+    expect(result.value).toContain('## Prior progress');
   });
 
   it('rejects empty ideaTitle', async () => {
@@ -46,6 +48,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
       ideaDescription: 'desc',
       project,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

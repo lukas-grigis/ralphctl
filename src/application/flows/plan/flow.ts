@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -62,6 +63,20 @@ export interface CreatePlanFlowOpts {
  * "tasks are ready" signal — saving it last means a crash mid-save leaves the sprint as
  * `draft` even if the tasks already landed; the next plan run is idempotent.
  */
+/**
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
+ * Plan runs under `<sprintDir>/plan/<run-slug>/`, so the sprint dir is the parent of the
+ * supplied plan root. Best-effort: missing or unreadable degrades to empty string.
+ */
+const readSprintProgress = async (planRoot: AbsolutePath): Promise<string> => {
+  const sprintDir = dirname(String(planRoot));
+  try {
+    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Element<PlanCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
@@ -97,13 +112,15 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
           if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
           return ctx.currentPromptFile;
         },
-        buildPrompt: (ctx) => {
+        buildPrompt: async (ctx) => {
           if (ctx.sprint === undefined) throw new Error('sprint missing');
           if (ctx.project === undefined) throw new Error('project missing');
+          const priorProgress = await readSprintProgress(opts.planRoot);
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,
             outputContractSection: renderContractSectionFor(planOutputContract),
+            priorProgress,
             ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
           });
         },

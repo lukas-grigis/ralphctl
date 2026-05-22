@@ -235,6 +235,16 @@ The canonical, user-approved tickets for this sprint:
 
 These paths are fixed — repository selection is not part of this session.
 
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint chronologically. Read
+it before planning; honor prior decisions and avoid re-litigating them. The journal body as of right
+now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
+
 {{EXISTING_TASKS}}
 
 ## Protocol

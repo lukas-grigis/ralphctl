@@ -24,6 +24,11 @@ export interface RefinePromptParams {
    * directly with one `refined-ticket` signal whose `body` carries the requirements markdown.
    */
   readonly outputContractSection: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
+   * section (audit-[07]). Empty when the journal has no entries yet.
+   */
+  readonly priorProgress: string;
 }
 
 export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
@@ -61,6 +66,10 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
               })
             )
           : Result.ok(v),
+    },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description: 'Current `progress.md` body — empty when the sprint journal has no entries yet.',
     },
   },
   partials: {
@@ -102,12 +111,15 @@ export const buildRefinePrompt = async (
     readonly ticket: Ticket;
     readonly outputContractSection: string;
     readonly issueContext?: string;
+    /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
+    readonly priorProgress: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const issueContext = renderIssueContextSection(input.ticket, input.issueContext);
   return buildPrompt(deps, refinePromptDef, {
     ticket: renderTicket(input.ticket),
     outputContractSection: input.outputContractSection,
+    priorProgress: input.priorProgress,
     ...(issueContext.length > 0 ? { issueContext } : {}),
   });
 };

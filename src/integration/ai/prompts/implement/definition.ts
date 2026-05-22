@@ -61,6 +61,12 @@ export interface ImplementPromptParams {
   /** Absolute path to `progress.md` for this sprint — `{{PROGRESS_FILE}}`. */
   readonly progressFile: string;
   /**
+   * Current body of `progress.md` substituted into the `## Prior progress` section
+   * (audit-[07]). Empty string when the journal file is absent — the template's surrounding
+   * prose handles the empty case without a per-flow special branch.
+   */
+  readonly priorProgress: string;
+  /**
    * Markdown body for "## Prior Critique" — empty on turn 1, populated on every subsequent
    * turn of the gen-eval loop with the failed evaluator critique from the previous turn so
    * the generator's fix attempt addresses the same dimensions the evaluator flagged.
@@ -131,6 +137,11 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
         'Absolute path to the sprint progress.md file the implementer reads at the start of Phase 1 for cross-session context.',
       validate: requireNonEmpty('progressFile', 'progress file path must not be empty'),
     },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description:
+        'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
+    },
     priorCritiqueSection: {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
@@ -159,6 +170,8 @@ export interface BuildImplementPromptInput {
   readonly projectPath: string;
   readonly verifyScript?: string;
   readonly progressFile: string;
+  /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
+  readonly priorProgress: string;
   readonly projectTooling?: string;
   /**
    * Prior evaluator critique to feed back into the generator on turn 2+. Absent on turn 1
@@ -193,6 +206,7 @@ export const buildImplementPrompt = async (
     verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
+    priorProgress: input.priorProgress,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
     outputContractSection: input.outputContractSection,
   });

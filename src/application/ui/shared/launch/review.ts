@@ -38,6 +38,7 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
       shellScriptRunner: deps.app.shellScriptRunner,
       fileLocker: deps.app.fileLocker,
       locksRoot: deps.storage.locksRoot,
+      appendFile: deps.app.appendFile,
       // Review uses the implement model tier — same code-mutation profile, same accuracy
       // expectations. No per-flow `review` model in settings today.
       model: extras.modelOverride ?? settings.ai.models.implement,

@@ -5,7 +5,6 @@ import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { transitionSprintToDoneUseCase } from '@src/business/sprint/transition-sprint-to-done.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
-import { registerRegenerateProgressCommand } from '@src/application/ui/cli/commands/sprint/regenerate-progress.ts';
 
 /**
  * Register the `sprint` command group.
@@ -187,8 +186,6 @@ export const registerSprintCommand = (program: Command): void => {
       });
       process.stdout.write(`pinned current sprint to '${sprint.value.slug}' (${String(sprint.value.id)})\n`);
     });
-
-  registerRegenerateProgressCommand(sprintCmd);
 
   sprintCmd
     .command('progress <id>')

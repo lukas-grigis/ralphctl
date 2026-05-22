@@ -15,9 +15,8 @@ import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
-import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 
 /**
  * Narrow dependency contract for the implement chain. Composition root constructs each field
@@ -57,20 +56,13 @@ export interface ImplementDeps {
    */
   readonly interactive: InteractivePrompt;
   /**
-   * Loader for `<sprintDir>/chain.log`. Threaded through into the progress.md snapshot
-   * renderer so the file reflects the persisted entities + run history at every trigger
-   * point (sprint start, settle-attempt, sprint transition).
-   */
-  readonly loadChainLog: LoadChainLog;
-  /**
-   * Loader for `<sprintDir>/decisions.log`. Read by the snapshot renderer to populate the
-   * `## Decisions` section in `progress.md` from the authoritative decisions-log sink output.
-   * Tolerant by contract: missing file → empty list.
-   */
-  readonly loadDecisionsLog: LoadDecisionsLog;
-  /**
-   * Atomic file writer used by the progress.md snapshot renderer. Production wires the
-   * tmp+rename adapter (`createAtomicWriteFile`); tests pass an in-memory fake.
+   * Atomic file writer — used by gen-eval leaves to write harness-rendered sidecars
+   * (commit-message, evaluation.md) post-spawn. Production wires the tmp+rename adapter.
    */
   readonly writeFile: WriteFile;
+  /**
+   * Append-only writer — used by `progress-journal-leaf` and `append-journal-separator-leaf`
+   * to grow `<sprintDir>/progress.md` (audit-[07]).
+   */
+  readonly appendFile: AppendFile;
 }

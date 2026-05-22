@@ -56,6 +56,15 @@ this prompt documents the exact `signals.json` shape. No code, no other files.
 
 These paths are fixed — repository selection is not part of this session.
 
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint chronologically. Read
+it before refining + planning; honor prior decisions. The journal body as of right now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
+
 ## Phase 1 — Refine requirements (WHAT)
 
 Focus: clarify WHAT needs to be built. Implementation-agnostic.

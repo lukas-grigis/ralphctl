@@ -123,6 +123,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       sprint,
       project: makeProject(),
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -140,6 +141,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       project: makeProject(),
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       existingTasks: [makeTodoTask({ name: 'PrevTask' })],
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toContain('Existing Tasks (will be replaced)');
@@ -153,6 +155,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       repositories: 'x',
       schema: 'x',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -164,6 +167,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       sprint,
       project: makeProject(),
       outputContractSection: '',
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

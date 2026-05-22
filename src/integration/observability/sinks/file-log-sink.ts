@@ -1,5 +1,4 @@
-import { promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import type {
   AppEvent,
   ChainAbortedEvent,
@@ -11,8 +10,10 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 /**
- * Append-only JSONL log of every `AppEvent` published on the bus for the lifetime of one
- * implement (or other long-running) chain. Writes to `<sprintDir>/chain.log`.
+ * Opt-in append-only NDJSON trace of every `AppEvent` published on the bus for the lifetime
+ * of one implement (or other long-running) chain. Writes to `<sprintDir>/events.ndjson` when
+ * `RALPHCTL_DEBUG_TRACE=1`. Disabled by default (see `wire()` — the factory returns a no-op
+ * stub when the env var is unset).
  *
  * Why a separate persistent log: in-memory TUI buffers vanish with the process. When the
  * chain dies overnight — Ctrl-C? OOM? host sleep? the operator's host crashed? — the
@@ -72,17 +73,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  */
 const MAX_QUEUE = 10_000;
 
-const isMissingPathError = (err: unknown): boolean => {
-  if (err === null || typeof err !== 'object') return false;
-  const code = (err as { readonly code?: unknown }).code;
-  return code === 'ENOENT' || code === 'ENOTDIR';
-};
-
 export interface FileLogSinkDeps {
-  /** Absolute path to the JSONL file. Parent directory is created on first write. */
+  /** Absolute path to the NDJSON file. Parent directory is created on first write. */
   readonly file: AbsolutePath;
   /** Event bus to subscribe to. The sink installs its own handler. */
   readonly bus: EventBus;
+  /** Append adapter — the sink does not call `fs.appendFile` directly. */
+  readonly appendFile: AppendFile;
 }
 
 export interface FileLogSink {
@@ -132,7 +129,6 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
   // same back-pressure / write-fail path as event lines.
   const queue: string[] = [];
   let draining: Promise<void> | undefined;
-  let dirEnsured = false;
   let stopped = false;
   // Latches once the sink has published `chain-log-degraded` for the first time. Subsequent
   // queue overflows and write failures are silenced — the banner is already up; re-emitting
@@ -149,28 +145,18 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
     while (queue.length > 0) {
       const next = queue.shift();
       if (next === undefined) continue;
-      try {
-        if (!dirEnsured) {
-          await fs.mkdir(dirname(String(deps.file)), { recursive: true });
-          dirEnsured = true;
-        }
-        // TODO(wave-7): route via the AppendFile port (audit-[07]). Pre-existing call site
-        // grandfathered ahead of Wave 6's fs.appendFile fence.
-        // eslint-disable-next-line no-restricted-syntax
-        await fs.appendFile(String(deps.file), next, 'utf8');
-      } catch (err) {
+      const result = await deps.appendFile(deps.file, next);
+      if (!result.ok) {
         // Best-effort write — never take down the chain. But fire the one-shot degradation
-        // marker so the operator knows the on-disk trace is incomplete.
-        // If the parent directory disappeared after our initial mkdir (tmpfs cleanup, fuse
-        // remount, operator `rm -rf` of the sprint dir), `dirEnsured` is stale — drop it so
-        // the next iteration re-creates the directory before retrying the append.
-        if (isMissingPathError(err)) dirEnsured = false;
+        // marker so the operator knows the on-disk trace is incomplete. The `AppendFile`
+        // adapter retries dir-ensure on the next call, so a tmpfs cleanup mid-run heals
+        // itself on the next queued event.
         if (!degraded) {
           degraded = true;
           deps.bus.publish({
             type: 'chain-log-degraded',
             reason: 'write-failed',
-            meta: { error: err instanceof Error ? err.message : String(err) },
+            meta: { error: result.error.message },
             at: IsoTimestamp.now(),
           });
         }

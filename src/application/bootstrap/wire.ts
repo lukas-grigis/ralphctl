@@ -15,6 +15,8 @@ import { createFsTaskRepository } from '@src/integration/persistence/task/reposi
 import { createFileLocker, type FileLocker } from '@src/integration/io/file-locker.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -48,16 +50,19 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
-import type { LoadChainLog } from '@src/business/sprint/load-chain-log.ts';
-import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
-import type { LoadDecisionsLog } from '@src/business/sprint/load-decisions-log.ts';
-import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import {
   startFileLogSink,
   type FileLogSink,
   type FileLogSinkDeps,
 } from '@src/integration/observability/sinks/file-log-sink.ts';
+
+/**
+ * Slim, launch-time-supplied subset of {@link FileLogSinkDeps} — `appendFile` is bound at
+ * `wire()` time and threaded into the production sink internally so callers don't have to
+ * re-thread it on every launch.
+ */
+export type ChainLogSinkLaunchDeps = Omit<FileLogSinkDeps, 'appendFile'>;
 
 /**
  * Wired application dependencies. Composition root assembles these once at startup; everything
@@ -102,6 +107,13 @@ export interface AppDeps {
    * `prompt.md` before handing the terminal to Claude.
    */
   readonly writeFile: WriteFile;
+  /**
+   * Append-only writer — used by the progress-journal leaves to grow
+   * `<sprintDir>/progress.md` per task-attempt settlement and status transition (audit-[07]),
+   * and by the opt-in `<sprintDir>/events.ndjson` debug-trace sink. Also threaded into the
+   * review chain so feedback-round appends round through the port instead of `fs.appendFile`.
+   */
+  readonly appendFile: AppendFile;
   /**
    * Interactive AI session — used by refine and plan-interactive. Sibling of `provider`
    * (which is the headless variant). Each adapter handles its own mode; flows pick the one
@@ -170,18 +182,6 @@ export interface AppDeps {
    */
   readonly skillSource: SkillSource;
   /**
-   * Loader for `<sprintDir>/chain.log` — read by the snapshot renderer that regenerates
-   * `progress.md` at the implement chain's well-defined trigger points (sprint start,
-   * settle-attempt, sprint transition). Tolerant by contract: missing file → empty list.
-   */
-  readonly loadChainLog: LoadChainLog;
-  /**
-   * Loader for `<sprintDir>/decisions.log` — read by the snapshot renderer to populate the
-   * `## Decisions` section in `progress.md` from the authoritative decisions-log sink output.
-   * Tolerant by contract: missing file → empty list.
-   */
-  readonly loadDecisionsLog: LoadDecisionsLog;
-  /**
    * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
    * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
    * "ralphctl needs you" cue can call it directly. Production: terminal bell + Darwin
@@ -189,8 +189,9 @@ export interface AppDeps {
    */
   readonly notificationDispatcher: NotificationDispatcher;
   /**
-   * Per-launch factory for the `<sprintDir>/chain.log` tee subscriber. Returns an opaque
-   * `{ stop, flush }` handle the launcher attaches and tears down at terminal events.
+   * Per-launch factory for the opt-in `<sprintDir>/events.ndjson` tee subscriber. Returns
+   * an opaque `{ stop, flush }` handle the launcher attaches and tears down at terminal
+   * events.
    *
    * Gated by `RALPHCTL_DEBUG_TRACE`: when the env var is set to a truthy value `wire()`
    * binds the real {@link startFileLogSink}; otherwise a no-op factory returns idempotent
@@ -198,7 +199,7 @@ export interface AppDeps {
    * adapters never reach for `process.env` directly — the bootstrap layer owns the
    * "is debug tracing on?" question.
    */
-  readonly chainLogSink: (deps: FileLogSinkDeps) => FileLogSink;
+  readonly chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink;
 }
 
 /**
@@ -234,7 +235,7 @@ export interface WireOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
-/** Env var that enables persistent `<sprintDir>/chain.log` file-log sink writes. */
+/** Env var that enables persistent `<sprintDir>/events.ndjson` file-log sink writes. */
 export const RALPHCTL_DEBUG_TRACE_ENV = 'RALPHCTL_DEBUG_TRACE';
 
 /**
@@ -301,8 +302,11 @@ export const wire = (opts: WireOptions): AppDeps => {
   // `stop()` / `flush()` unconditionally at terminal events.
   const env = opts.env ?? process.env;
   const debugTrace = isTruthyEnvFlag(env[RALPHCTL_DEBUG_TRACE_ENV]);
-  const chainLogSink: (deps: FileLogSinkDeps) => FileLogSink = debugTrace
-    ? startFileLogSink
+  const appendFile = createAppendFile();
+  // Bind `appendFile` at wire-time so the launcher factory keeps the same `{ file, bus }`
+  // call shape regardless of whether the real sink or the no-op stub is in play.
+  const chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink = debugTrace
+    ? (launchDeps) => startFileLogSink({ ...launchDeps, appendFile })
     : () => NOOP_CHAIN_LOG_SINK;
   // One bus per `wire()` call — bus state isolates between concurrent app
   // instances. Adapters publish 'log' AppEvents directly; the bus is the
@@ -344,6 +348,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     shellScriptRunner: createShellScriptRunner(),
     fileLocker,
     writeFile: createAtomicWriteFile(),
+    appendFile,
     interactiveAi: createInteractiveAiProvider({ ai: opts.settings.ai, eventBus }),
     signals: opts.sinks.harness,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
@@ -361,8 +366,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     }),
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
-    loadChainLog: createFsChainLogLoader({ logger }),
-    loadDecisionsLog: createFsDecisionsLogLoader({ logger }),
     notificationDispatcher,
     chainLogSink,
   };

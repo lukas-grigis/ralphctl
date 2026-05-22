@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -49,6 +50,7 @@ export interface ReviewRoundLeafDeps {
   readonly logger: Logger;
   readonly gitRunner: GitRunner;
   readonly shellScriptRunner: ShellScriptRunner;
+  readonly appendFile: AppendFile;
   readonly model: string;
 }
 
@@ -74,24 +76,13 @@ const readProgressSnippet = async (path: AbsolutePath | undefined): Promise<stri
   }
 };
 
-const appendNewRound = async (path: AbsolutePath, nextIndex: number): Promise<Result<void, StorageError>> => {
+const appendNewRound = async (
+  appendFile: AppendFile,
+  path: AbsolutePath,
+  nextIndex: number
+): Promise<Result<void, StorageError>> => {
   const block = `\n\n${renderEmptyRound(nextIndex)}${ROUND_SEPARATOR}\n`;
-  try {
-    // TODO(wave-7): route via the AppendFile port (audit-[07]). Pre-existing call site
-    // grandfathered ahead of Wave 6's fs.appendFile fence.
-    // eslint-disable-next-line no-restricted-syntax
-    await fs.appendFile(String(path), block, 'utf8');
-    return Result.ok(undefined);
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `failed to append next round to ${String(path)}`,
-        path: String(path),
-        cause,
-      })
-    );
-  }
+  return appendFile(path, block);
 };
 
 /**
@@ -203,7 +194,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
                 },
               }
             : {}),
-          appendNextRound: (nextIndex) => appendNewRound(input.feedbackFile, nextIndex),
+          appendNextRound: (nextIndex) => appendNewRound(deps.appendFile, input.feedbackFile, nextIndex),
           logger: deps.logger,
         });
       },

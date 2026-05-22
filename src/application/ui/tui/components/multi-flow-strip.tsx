@@ -89,12 +89,7 @@ export const MultiFlowStrip = ({
               now={tNow}
               maxTitleChars={maxTitleChars}
             />
-            {i < running.length - 1 && (
-              <Text dimColor>
-                {' '}
-                {glyphs.pipe}
-              </Text>
-            )}
+            {i < running.length - 1 && <Text dimColor> {glyphs.pipe}</Text>}
           </Box>
         ))}
       </Box>

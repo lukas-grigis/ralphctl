@@ -35,6 +35,7 @@ import type {
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 
 const makeLog = (i: number): LogEvent => ({
@@ -113,7 +114,7 @@ describe('startFileLogSink', () => {
       if (e.type === 'chain-log-degraded') degradations.push(e);
     });
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     for (let i = 0; i < 50; i++) bus.publish(makeLog(i));
     await sink.flush();
     sink.stop();
@@ -144,7 +145,7 @@ describe('startFileLogSink', () => {
       await appendStall;
     });
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     // 10_000 cap + 5 extra. The drain loop pulls one off the queue immediately and parks on
     // the first appendFile, so steady state is queue.length === 9_999 after MAX_QUEUE
     // publishes. The next 5 publishes push the queue to the cap and then trip the drop path.
@@ -183,13 +184,16 @@ describe('startFileLogSink', () => {
 
     const appendSpy = vi.spyOn(fs, 'appendFile').mockRejectedValue(new Error('disk full'));
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     bus.publish(makeLog(0));
     await sink.flush();
 
     expect(degradations).toHaveLength(1);
     expect(degradations[0]?.reason).toBe('write-failed');
-    expect(degradations[0]?.meta).toMatchObject({ error: 'disk full' });
+    // The AppendFile adapter wraps the cause in a StorageError; the sink surfaces the wrapper's
+    // `.message`. Assert the wrapper carries a non-empty error string instead of pinning the
+    // raw cause text.
+    expect(degradations[0]?.meta).toMatchObject({ error: expect.stringContaining('append failed') });
 
     // A second failing append must not re-emit.
     bus.publish(makeLog(1));
@@ -208,7 +212,7 @@ describe('startFileLogSink', () => {
     const written: AppEvent[] = [];
     bus.subscribe((e) => written.push(e));
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     bus.publish(makeLog(0));
     await sink.flush();
 
@@ -224,7 +228,7 @@ describe('startFileLogSink', () => {
     const file = await makeFilePath();
     const bus = createInMemoryEventBus();
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     bus.publish(started('chain-A', 'implement', '2026-05-20T10:00:00.000Z'));
     bus.publish(stepCompleted('chain-A', 'load-sprint', '2026-05-20T10:00:01.000Z'));
     bus.publish(stepCompleted('chain-A', 'run-task', '2026-05-20T10:00:02.000Z'));
@@ -250,7 +254,7 @@ describe('startFileLogSink', () => {
     const file = await makeFilePath();
     const bus = createInMemoryEventBus();
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     // Run A: completed.
     bus.publish(started('chain-A', 'refine', '2026-05-20T10:00:00.000Z'));
     bus.publish(stepCompleted('chain-A', 'load', '2026-05-20T10:00:00.100Z'));
@@ -281,7 +285,7 @@ describe('startFileLogSink', () => {
     const file = await makeFilePath();
     const bus = createInMemoryEventBus();
 
-    const sink = startFileLogSink({ file, bus });
+    const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
     // Run A: never gets a terminal event (simulated crash).
     bus.publish(started('chain-A', 'implement', '2026-05-20T10:00:00.000Z'));
     bus.publish(stepCompleted('chain-A', 'load-sprint', '2026-05-20T10:00:01.000Z'));
@@ -316,7 +320,7 @@ describe('startFileLogSink', () => {
     for (const c of cases) {
       const file = await makeFilePath();
       const bus = createInMemoryEventBus();
-      const sink = startFileLogSink({ file, bus });
+      const sink = startFileLogSink({ file, bus, appendFile: createAppendFile() });
 
       bus.publish(started('chain-X', 'implement', '2026-05-20T10:00:00.000Z'));
       c.emit(bus);

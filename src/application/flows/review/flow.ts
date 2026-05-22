@@ -47,6 +47,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       logger: deps.logger,
       gitRunner: deps.gitRunner,
       shellScriptRunner: deps.shellScriptRunner,
+      appendFile: deps.appendFile,
       model: deps.model,
     },
     {

@@ -15,7 +15,6 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
-import { createDecisionsLogSink } from '@src/integration/observability/sinks/decisions-log-sink.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
@@ -40,36 +39,24 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
   if (!sprintDirPath.ok) return { ok: false, reason: sprintDirPath.error.message };
   const progressPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'progress.md'));
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
-  const chainLogPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'chain.log'));
-  if (!chainLogPath.ok) return { ok: false, reason: chainLogPath.error.message };
-  const decisionsLogPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'decisions.log'));
-  if (!decisionsLogPath.ok) return { ok: false, reason: decisionsLogPath.error.message };
+  const eventsNdjsonPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'events.ndjson'));
+  if (!eventsNdjsonPath.ok) return { ok: false, reason: eventsNdjsonPath.error.message };
 
-  // Tee every AppEvent on the bus to <sprintDir>/chain.log for postmortem debugging.
+  // Tee every AppEvent on the bus to <sprintDir>/events.ndjson for postmortem debugging.
   // Stopped when the runner exits (success or fail) — wired below via subscribe().
   // The factory is env-gated at `wire()` time: when `RALPHCTL_DEBUG_TRACE` is unset the
-  // returned handle is a no-op, so production runs no longer write chain.log unless the
-  // operator explicitly opts in.
-  const chainLog = deps.app.chainLogSink({ file: chainLogPath.value, bus: deps.app.eventBus });
+  // returned handle is a no-op, so production runs do not write the file unless the operator
+  // explicitly opts in.
+  const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath.value, bus: deps.app.eventBus });
 
-  // Per-sprint decisions.log: tracks `<decision>` signals from the harness signal stream.
-  // The taskId column tracks the most recent `task-attempt-started` event so decisions
-  // emitted mid-attempt carry the right id. Commit sha is best-effort `?` — decisions are
-  // emitted during the generator turn, before the per-task commit; a future enhancement can
-  // backfill once the commit-task leaf settles.
+  // Per-task signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as
+  // structured `harness-signal` events on the EventBus so the TUI panels (and the opt-in
+  // events.ndjson tee) see them with a queryable shape. Track the current task id via the
+  // bus's `task-attempt-started` events.
   let currentTaskId: string | undefined;
   const unsubTaskTracker = deps.app.eventBus.subscribe((event) => {
     if (event.type === 'task-attempt-started') currentTaskId = event.taskId;
   });
-  const decisionsSink = createDecisionsLogSink({
-    file: decisionsLogPath.value,
-    resolveContext: () => (currentTaskId !== undefined ? { taskId: currentTaskId } : {}),
-  });
-  // Per-task signal mirror: `<change>` / `<learning>` / `<note>` signals are mirrored as
-  // structured `HarnessSignalEvent`s on the EventBus so they land in `<sprintDir>/chain.log`
-  // with a queryable shape. The decisions-log path stays separate — decisions already have
-  // their own dedicated sink and double-publishing would just create dedup work for the
-  // miner. `taskId` resolves through the same tracker the decisions sink uses.
   const perTaskSignalBusMirror: Sink<HarnessSignal> = {
     emit(signal) {
       if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
@@ -82,15 +69,11 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       });
     },
   };
-  // Fan out every harness signal to the existing app sink (TUI bus + subscribers), the
-  // decisions log sink, AND the per-task event-bus mirror. The decisions sink filters
-  // internally — only `decision` signals produce a write — and the mirror filters to
-  // the three per-task kinds.
-  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([
-    deps.app.signals,
-    decisionsSink,
-    perTaskSignalBusMirror,
-  ]);
+  // Fan out every harness signal to the existing app sink (TUI bus + subscribers) and the
+  // per-task event-bus mirror. Decisions are now accumulated on ctx by the gen-eval leaves
+  // and rendered into `progress.md` by the journal leaf (audit-[07]) — no more on-disk
+  // decisions.log.
+  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, perTaskSignalBusMirror]);
 
   const repositories = new Map<RepositoryId, RepoExecConfig>();
   for (const r of snapshot.project.repositories) {
@@ -120,9 +103,8 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       skillsAdapter,
       skillSource,
       interactive: deps.interactive,
-      loadChainLog: deps.app.loadChainLog,
-      loadDecisionsLog: deps.app.loadDecisionsLog,
       writeFile: deps.app.writeFile,
+      appendFile: deps.app.appendFile,
     },
     {
       sprintId: snapshot.sprint.id,
@@ -138,14 +120,14 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
     element,
     initialCtx: { sprintId: snapshot.sprint.id },
   });
-  // Stop the file-log + decisions-log subscriptions when the runner reaches a terminal state.
-  // Pending writes still drain in the background — both files remain consistent post-exit.
+  // Stop the file-log + bus subscriptions when the runner reaches a terminal state.
+  // Pending writes still drain in the background — events.ndjson remains consistent
+  // post-exit.
   runner.subscribe((evt) => {
     if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
       chainLog.stop();
       void chainLog.flush();
       unsubTaskTracker();
-      void decisionsSink.flush();
     }
   });
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));

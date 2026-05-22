@@ -85,6 +85,7 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
     const result = await buildRefinePrompt(deps, {
       ticket,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -92,6 +93,7 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('# Requirements Refinement Protocol');
     expect(result.value).toContain('**Title:** Add CSV export');
     expect(result.value).toContain('## Output contract');
+    expect(result.value).toContain('## Prior progress');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -101,6 +103,7 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
       ticket,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       issueContext: '## issue body',
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toContain('## issue body');
@@ -111,6 +114,7 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
     const result = await buildPrompt(deps, refinePromptDef, {
       ticket: '   ',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -118,7 +122,7 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
 
   it('rejects an empty output-contract section via the spec validator', async () => {
     const ticket = makePendingTicket({ title: 'X' });
-    const result = await buildRefinePrompt(deps, { ticket, outputContractSection: '' });
+    const result = await buildRefinePrompt(deps, { ticket, outputContractSection: '', priorProgress: '' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });

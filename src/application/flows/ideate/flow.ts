@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -54,6 +55,20 @@ export interface CreateIdeateFlowOpts {
  * Single-shot per invocation: ideate produces ONE ticket plus its tasks. Re-run for another
  * idea on the same draft sprint.
  */
+/**
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
+ * Ideate runs under `<sprintDir>/ideate/<run-slug>/`, so the sprint dir is the parent of the
+ * supplied ideate root. Best-effort: missing or unreadable degrades to empty string.
+ */
+const readSprintProgress = async (ideateRoot: AbsolutePath): Promise<string> => {
+  const sprintDir = dirname(String(ideateRoot));
+  try {
+    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
@@ -88,13 +103,15 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
           if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
           return ctx.currentPromptFile;
         },
-        buildPrompt: (ctx) => {
+        buildPrompt: async (ctx) => {
           if (ctx.project === undefined) throw new Error('project missing');
+          const priorProgress = await readSprintProgress(opts.ideateRoot);
           return buildIdeatePrompt(deps.templateLoader, {
             ideaTitle: opts.ideaTitle,
             ideaDescription: opts.ideaText,
             project: ctx.project,
             outputContractSection: renderContractSectionFor(ideateOutputContract),
+            priorProgress,
           });
         },
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),

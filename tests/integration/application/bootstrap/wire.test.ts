@@ -68,7 +68,7 @@ describe('wire', () => {
     expect(stat.isFile()).toBe(true);
   });
 
-  it('writes <sprintDir>/chain.log only when RALPHCTL_DEBUG_TRACE is set; the no-op factory leaves the file absent', async () => {
+  it('writes <sprintDir>/events.ndjson only when RALPHCTL_DEBUG_TRACE is set; the no-op factory leaves the file absent', async () => {
     const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
     if (!appRoot.ok) throw new Error('appRoot parse failed');
     const paths = storagePathsFromRoot(appRoot.value);
@@ -79,8 +79,8 @@ describe('wire', () => {
     const onDir = join(tmpHome, 'sprint-on');
     await fs.mkdir(offDir, { recursive: true });
     await fs.mkdir(onDir, { recursive: true });
-    const offFile = AbsolutePath.parse(join(offDir, 'chain.log'));
-    const onFile = AbsolutePath.parse(join(onDir, 'chain.log'));
+    const offFile = AbsolutePath.parse(join(offDir, 'events.ndjson'));
+    const onFile = AbsolutePath.parse(join(onDir, 'events.ndjson'));
     if (!offFile.ok || !onFile.ok) throw new Error('AbsolutePath parse failed');
 
     const at = IsoTimestamp.now();

@@ -10,7 +10,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { SprintState, TaskProjection } from '@src/business/sprint/state-projection.ts';
+import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 
 const baseBucket = (overrides: Partial<BucketedExecution['tasks'][number]> = {}): BucketedExecution => ({
   tasks: [
@@ -31,33 +31,10 @@ const baseBucket = (overrides: Partial<BucketedExecution['tasks'][number]> = {})
 const sprintStateWithMedian = (taskId: string, medianMs: number | undefined): SprintState => {
   const task: TaskProjection = {
     id: taskId,
-    name: 'task-1',
-    status: 'in_progress',
-    order: 0,
-    ticketId: 'ticket-1',
-    repositoryId: 'repo-1',
-    blockedBy: [],
     attemptsCount: 1,
-    changes: [],
-    learnings: [],
-    notes: [],
     ...(medianMs !== undefined ? { medianRoundDurationMs: medianMs } : {}),
   };
-  // Minimal SprintState — the panel only reads `state.tasks`. Other fields are filled with
-  // placeholder values that keep TypeScript happy without exercising surrounding code paths.
-  return {
-    identity: { id: 'sprint-1', name: 'Demo' },
-    status: { raw: 'active', effective: 'active' },
-    counts: { total: 1, done: 0, inProgress: 1, blocked: 0, todo: 0 },
-    branch: { name: undefined, pullRequestUrl: undefined, expected: undefined },
-    tickets: [],
-    tasks: [task],
-    blockers: [],
-    staleTasks: [],
-    dependencyCycles: [],
-    decisions: [],
-    runs: [],
-  };
+  return { tasks: [task] };
 };
 
 describe('TasksPanel ETA chip', () => {

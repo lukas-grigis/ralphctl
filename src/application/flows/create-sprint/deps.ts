@@ -5,6 +5,8 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 /**
  * Narrow dependency contract for the create-sprint chain. Composition root constructs each field
@@ -21,4 +23,8 @@ export interface CreateSprintDeps {
   readonly clock: () => IsoTimestamp;
   readonly eventBus: EventBus;
   readonly logger: Logger;
+  /** Append adapter — used by `init-progress-journal` to write the per-sprint header. */
+  readonly appendFile: AppendFile;
+  /** Application data root — used by `init-progress-journal` to derive `<sprintDir>/progress.md`. */
+  readonly dataRoot: AbsolutePath;
 }

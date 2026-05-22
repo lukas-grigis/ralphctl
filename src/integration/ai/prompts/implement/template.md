@@ -63,12 +63,16 @@ completion.
 
 {{VERIFY_SCRIPT_SECTION}}
 
-## Prior Task Learnings
+## Prior progress
 
-Read `{{PROGRESS_FILE}}` to understand what previous tasks in this sprint accomplished and learned. The file
-contains the sprint status table, a per-task block for each completed task (Changes, Learnings, Notes
-sub-sections), and a top-level Decisions section. Skip the file when it does not exist (first task of the
-sprint).
+`progress.md` (at the sprint root, `{{PROGRESS_FILE}}`) is an append-only chronological journal of every
+prior task-attempt on this sprint — decisions made, changes shipped, learnings recorded, notes pinned.
+Read it before starting. Honor prior decisions; do not re-litigate them without a `decision` signal
+explaining why. The journal body as of right now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded — this is the first task of the sprint.
 
 ## Project Tooling
 
@@ -87,8 +91,9 @@ Then perform these checks before writing any code. The goal is to steer your imp
 attempt, not to discover problems after the fact.
 
 1. **Working directory** — run `pwd` to confirm you are in the expected project path.
-2. **Progress history** — read `{{PROGRESS_FILE}}` to understand what previous tasks accomplished, patterns
-   discovered, and gotchas encountered.
+2. **Progress history** — the Prior progress section above carries the journal body in-context. Read it
+   for cross-task context; re-open `{{PROGRESS_FILE}}` only when you need to verify the latest on-disk
+   content (e.g. another task settled mid-session).
 3. **Git state** — run `git status` to check for uncommitted changes.
 4. **Environment** — review the Verify Script section above. If a verify script is listed and the harness already
    verified the environment, review those results rather than re-running. If no verify script is listed, run the

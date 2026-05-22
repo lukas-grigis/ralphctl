@@ -1,0 +1,186 @@
+/**
+ * Integration test for progress-journal-leaf (audit-[07]).
+ *
+ * The leaf is the sole writer of `<sprintDir>/progress.md` post-wave-7 — it appends one
+ * task-attempt section after every settle-attempt completes. Validates:
+ *  - section shape (the heading + verdict + round + decisions count)
+ *  - appends preserve prior journal content verbatim (no rewrites)
+ *  - decision signals accumulated on ctx are deduped and counted
+ *  - missing task on ctx throws an InvalidStateError (chain-shape contract)
+ */
+
+import { describe, expect, it } from 'vitest';
+import { Result } from '@src/domain/result.ts';
+import {
+  FIXED_LATER,
+  FIXED_NOW,
+  absolutePath,
+  makeDoneTask,
+  makeInProgressTaskWithRunningAttempt,
+} from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
+import { markTaskBlocked } from '@src/domain/entity/task.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+const PROGRESS_FILE = absolutePath('/tmp/ralph/sprint/progress.md');
+const SPRINT_ID = (() => {
+  const parsed = SprintId.parse('019e50e1-f298-7773-ace2-f16d97c81281');
+  if (!parsed.ok) throw parsed.error;
+  return parsed.value;
+})();
+
+describe('progressJournalLeaf', () => {
+  it('appends a task-attempt section with verdict=pass for a settled done task', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'export-csv' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentRoundNum: 1,
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('## Task: export-csv — Attempt 1');
+    expect(written).toContain('- Verdict: pass');
+    expect(written).toContain('- Round: round 1 of 5');
+    expect(written).toContain('- Decisions: 0');
+    // The done-task fixture does not stamp a commit sha; the journal renders em-dash for the
+    // missing value.
+    expect(written).toContain('- Commit: —');
+  });
+
+  it('renders verdict=blocked with the blocked reason as the outcome paragraph', async () => {
+    const append = recordingAppendFile();
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const blocked = markTaskBlocked(inProgress, 'pre-existing test failure');
+    if (!blocked.ok) throw blocked.error;
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      blocked.value.id
+    );
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      tasks: [blocked.value],
+      currentRoundNum: 2,
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('- Verdict: blocked');
+    expect(written).toContain('Blocked: pre-existing test failure');
+    expect(written).toContain('- Round: round 2 of 5');
+  });
+
+  it('appends successive sections without rewriting prior content', async () => {
+    const append = recordingAppendFile();
+    const t1 = makeDoneTask({ name: 'task-one' });
+    const t2 = makeDoneTask({ name: 'task-two' });
+    const opts = { progressFile: PROGRESS_FILE, totalRounds: 3 };
+    const deps = { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger };
+
+    await progressJournalLeaf(deps, opts, t1.id).execute({
+      sprintId: SPRINT_ID,
+      tasks: [t1],
+      currentRoundNum: 1,
+    });
+    await progressJournalLeaf(deps, opts, t2.id).execute({
+      sprintId: SPRINT_ID,
+      tasks: [t2],
+      currentRoundNum: 1,
+    });
+    const written = append.read(PROGRESS_FILE) ?? '';
+    // Both sections present in order, neither erased the other.
+    const t1Idx = written.indexOf('## Task: task-one');
+    const t2Idx = written.indexOf('## Task: task-two');
+    expect(t1Idx).toBeGreaterThanOrEqual(0);
+    expect(t2Idx).toBeGreaterThan(t1Idx);
+  });
+
+  it('dedupes ctx-accumulated decision signals into a single count', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'with-decisions' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentRoundNum: 1,
+      currentAttemptDecisions: [
+        'use json for the on-disk format',
+        'use json for the on-disk format',
+        'switch to streaming reads',
+      ],
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    // Two unique decisions despite three signals.
+    expect(written).toContain('- Decisions: 2');
+  });
+
+  it('clears the accumulated decisions on the output ctx so the next task starts fresh', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'clears' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentRoundNum: 1,
+      currentAttemptDecisions: ['something'],
+    };
+    const result = await leaf.execute(ctx);
+    if (!result.ok) throw result.error;
+    expect(result.value.ctx.currentAttemptDecisions).toBeUndefined();
+  });
+
+  it('best-effort: a write failure is swallowed and the chain continues', async () => {
+    const failingAppend = async () =>
+      Result.error(
+        // Reuse StorageError via the fixture helper; the leaf only inspects `.message`.
+        Object.assign(new Error('disk full'), { message: 'disk full' })
+      ) as never;
+    const task = makeDoneTask({ name: 'soft-fail' });
+    const leaf = progressJournalLeaf(
+      // Cast keeps the test focused on the leaf's swallow-failure behaviour without rebuilding
+      // a full StorageError just to throw it away.
+      { appendFile: failingAppend, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute({
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentRoundNum: 1,
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('throws InvalidStateError when the task is missing from ctx.tasks (chain-shape contract)', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'phantom' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [], currentRoundNum: 1 });
+    expect(result.ok).toBe(false);
+  });
+});

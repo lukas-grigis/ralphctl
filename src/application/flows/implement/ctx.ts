@@ -107,4 +107,12 @@ export interface ImplementCtx {
    * differ, and mixing their transcripts via cross-role resume would confuse the model.
    */
   readonly priorEvaluatorSessionId?: SessionId | undefined;
+  /**
+   * Per-attempt decision accumulator — every `decision` signal the generator/evaluator emits
+   * during the gen-eval loop is pushed onto this array by the leaves. Read by
+   * `progress-journal-<taskId>` to surface a deduped count in the journal section, then
+   * cleared on the same leaf so the next task starts with an empty accumulator. Wave 7
+   * (audit-[07]) replaces the on-disk `decisions.log` sink with this in-memory aggregate.
+   */
+  readonly currentAttemptDecisions?: readonly string[] | undefined;
 }

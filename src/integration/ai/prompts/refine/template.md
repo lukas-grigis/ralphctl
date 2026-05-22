@@ -39,6 +39,16 @@ The expected markdown shape for the `body` is at the bottom of this prompt under
 
 {{ISSUE_CONTEXT}}
 
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint — decisions made, changes
+shipped, learnings recorded. Read it before refining; honor prior decisions. The journal body as of right
+now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
+
 ## Protocol
 
 ### Step 1 — Analyse the ticket (think first)

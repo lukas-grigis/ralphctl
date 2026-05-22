@@ -30,6 +30,7 @@ import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createReviewFlow } from '@src/application/flows/review/flow.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -181,6 +182,7 @@ describe('createReviewFlow', () => {
         shellScriptRunner: noopShell,
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
@@ -223,6 +225,7 @@ describe('createReviewFlow', () => {
         shellScriptRunner: noopShell,
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
@@ -266,6 +269,7 @@ describe('createReviewFlow', () => {
         shellScriptRunner: noopShell,
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }

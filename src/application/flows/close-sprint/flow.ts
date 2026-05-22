@@ -2,6 +2,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { transitionSprintToDoneLeaf } from '@src/application/flows/_shared/sprint/transition-to-done.ts';
+import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
 
@@ -30,4 +31,8 @@ export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprin
   sequential<CloseSprintCtx>('close-sprint', [
     loadAndAssertSprintSubChain<CloseSprintCtx>({ sprintRepo: deps.sprintRepo }, ['review']),
     transitionSprintToDoneLeaf<CloseSprintCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+    appendJournalSeparatorLeaf<CloseSprintCtx>(
+      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { progressFile: deps.progressFile, status: 'closed', name: 'progress-journal-close' }
+    ),
   ]);

@@ -40,6 +40,7 @@ describe('generatorLeaf', () => {
     writeFile: async () => Result.ok(undefined),
     cwd: absolutePath('/tmp/ralph/fake-cwd'),
     sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+    progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
     model: 'test-model',
     clock: () => FIXED_NOW,
     logger: noopLogger,

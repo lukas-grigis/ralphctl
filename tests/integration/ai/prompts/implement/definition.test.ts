@@ -195,6 +195,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       projectPath: '/tmp/ralph/main-repo',
       verifyScript: 'npm run check',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
@@ -220,6 +221,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
@@ -237,6 +239,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritique: '## Completeness\n- step 3 verification missing\n- error handling untested',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
@@ -252,6 +255,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
@@ -274,6 +278,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
@@ -293,6 +298,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',
+      priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);

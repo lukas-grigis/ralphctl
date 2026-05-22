@@ -31,6 +31,11 @@ export interface PlanPromptParams {
    * directly with one `task-plan` signal whose `tasksJson` carries the planner output.
    */
   readonly outputContractSection: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
+   * section (audit-[07]). Empty when the journal has no entries yet.
+   */
+  readonly priorProgress: string;
 }
 
 const nonEmpty =
@@ -75,6 +80,10 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
       description:
         'Audit-[09] output contract block rendered from the plan contract — instructs the AI to write `signals.json` directly with one `task-plan` signal.',
       validate: nonEmpty('outputContractSection'),
+    },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description: 'Current `progress.md` body — empty when the sprint journal has no entries yet.',
     },
   },
   partials: {
@@ -135,6 +144,8 @@ export interface BuildPlanPromptInput {
   readonly project: Project;
   readonly existingTasks?: readonly Task[];
   readonly outputContractSection: string;
+  /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
+  readonly priorProgress: string;
 }
 
 export const buildPlanPrompt = async (
@@ -148,6 +159,7 @@ export const buildPlanPrompt = async (
     repositories: renderRepositories(input.project),
     schema: TASK_IMPORT_JSON_SCHEMA,
     outputContractSection: input.outputContractSection,
+    priorProgress: input.priorProgress,
     ...(existing.length > 0 ? { existingTasks: existing } : {}),
   });
 };

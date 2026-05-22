@@ -83,10 +83,15 @@ export const buildTaskWorkspaceLeaf = (
         const log = deps.logger.named('implement.workspace');
         const workspaceRoot = join(String(opts.sprintDir), 'implement', String(input.task.id));
 
+        // build-task-workspace materialises a static prompt.md as an audit artifact only —
+        // the live generator leaf re-reads `progress.md` immediately before each spawn, so
+        // priorProgress is fixed empty here. The TUI / operator inspect this for the static
+        // shape, not for the live in-context content.
         const prompt = await buildImplementPrompt(deps.templateLoader, {
           task: input.task,
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
+          priorProgress: '',
           outputContractSection: renderContractSectionFor(generatorOutputContract),
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });

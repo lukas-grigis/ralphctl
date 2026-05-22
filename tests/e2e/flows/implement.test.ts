@@ -41,8 +41,7 @@ import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fake
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { createFsChainLogLoader } from '@src/integration/persistence/sprint/load-chain-log.ts';
-import { createFsDecisionsLogLoader } from '@src/integration/persistence/sprint/load-decisions-log.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -310,9 +309,8 @@ const buildDeps = (
   skillsAdapter: noopSkillsAdapter,
   skillSource: emptySkillSource,
   interactive: unusedInteractive,
-  loadChainLog: createFsChainLogLoader(),
-  loadDecisionsLog: createFsDecisionsLogLoader(),
   writeFile: createAtomicWriteFile(),
+  appendFile: createAppendFile(),
 });
 
 const unusedInteractive: InteractivePrompt = {
@@ -644,7 +642,6 @@ describe('createImplementFlow — gen-eval loop', () => {
     const idxAssert = elementNames.indexOf('assert-sprint-status');
     const idxLoadExec = elementNames.indexOf('load-sprint-execution');
     const idxLoadTasks = elementNames.indexOf('load-tasks');
-    const idxEnsure = elementNames.indexOf('ensure-progress-file');
     const idxResolveBranch = elementNames.indexOf('resolve-branch');
     const idxWorkingTreeClean = elementNames.findIndex((n) => n.startsWith('working-tree-clean-check-'));
     const idxSetupScript = elementNames.indexOf('setup-script-runner');
@@ -654,11 +651,10 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(idxAssert).toBeGreaterThan(idxLoadSprint);
     expect(idxLoadExec).toBeGreaterThan(idxAssert);
     expect(idxLoadTasks).toBeGreaterThan(idxLoadExec);
-    expect(idxEnsure).toBeGreaterThan(idxLoadTasks);
     // Pre-setup gate: resolve-branch + working-tree-clean-check land BEFORE setup-script-runner
     // so the user sees branch + dirty-tree problems surfaced before a multi-minute setup script
     // runs. The interactive preflight-task gate stays downstream of setup as a recovery seam.
-    expect(idxResolveBranch).toBeGreaterThan(idxEnsure);
+    expect(idxResolveBranch).toBeGreaterThan(idxLoadTasks);
     expect(idxWorkingTreeClean).toBeGreaterThan(idxResolveBranch);
     expect(idxSetupScript).toBeGreaterThan(idxWorkingTreeClean);
     expect(idxSaveTasks).toBeGreaterThan(idxSetupScript);
@@ -880,11 +876,10 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(round2GenSignals)).toEqual([]);
   });
 
-  it('progress.md is snapshot-rendered from the persisted sprint state after each settle', async () => {
-    // The legacy streaming-sink behaviour (appending `<learning>` / `<progress-entry>` bullets
-    // to `progress.md` mid-run) is gone — those signals now land in `rounds/<N>/<role>/signals.json`
-    // and the AI's own audit tree. `progress.md` is regenerated from scratch at sprint start,
-    // after every settle-attempt, and after the sprint transitions to review.
+  it('progress.md grows append-only — one task-attempt section per settled attempt plus a status separator on review', async () => {
+    // Audit-[07]: progress.md is the sole writer for the sprint's chronological journal. The
+    // implement chain appends one section per settled attempt (via progress-journal-leaf) and
+    // a separator line when the sprint transitions to review.
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -921,15 +916,16 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(runner.status).toBe('completed');
 
     const md = await fs.readFile(f.progressFile, 'utf8');
-    // Snapshot shape: header + status + tasks table from the projection renderer.
-    expect(md).toContain('# Sprint progress —');
-    expect(md).toContain('## Status');
-    expect(md).toContain('## Tasks');
-    // Task transition is reflected — the snapshot fired after settle-attempt + after the
-    // active → review transition.
-    expect(md).toMatch(/status: review/);
-    expect(md).toMatch(/1\/1 done/);
-    // The AI-emitted learning signal is captured in the round's signals.json, not progress.md.
+    // Append-only journal shape: activation separator, then a task-attempt section, then the
+    // review-transition separator. No `## Status`, no `## Tasks` table — the canonical entity
+    // state lives in `tasks.json` / `sprint.json`.
+    expect(md).not.toContain('## Status');
+    expect(md).not.toContain('## Tasks');
+    expect(md).toContain('_Sprint activated at');
+    expect(md).toMatch(/## Task: .* — Attempt 1/);
+    expect(md).toContain('- Verdict: pass');
+    expect(md).toContain('_Sprint transitioned to review at');
+    // The AI-emitted learning signal lands in the round's signals.json (audit-[09]), not the journal.
     const task = f.tasks[0];
     if (task === undefined) throw new Error('test setup: missing task');
     const signals = await fs.readFile(
@@ -939,25 +935,21 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(signals).some((s: { type: string }) => s.type === 'learning')).toBe(true);
   });
 
-  it('resume preserves prior round artifacts; progress.md is overwritten by the next snapshot (that IS the migration)', async () => {
+  it('resume preserves prior round artifacts and grows the journal — prior progress.md content is kept verbatim', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
-    // Pre-seed a prior run: rounds/1/generator/ + a streaming-sink-era progress.md. The new
-    // snapshot renderer overwrites the legacy content — no separate migration step.
+    // Pre-seed a prior run: rounds/1/generator/ + a pre-existing progress.md header. The
+    // append-only journal grows from this header — prior content stays verbatim.
     const task = f.tasks[0];
     if (task === undefined) throw new Error('test setup: missing task');
     const workspace = join(f.dir, 'implement', String(task.id));
     const round1Gen = join(workspace, 'rounds', '1', 'generator');
     await fs.mkdir(round1Gen, { recursive: true });
     await fs.writeFile(join(round1Gen, 'signals.json'), '[{"type":"prior"}]', 'utf8');
-    await fs.writeFile(
-      f.progressFile,
-      '# Sprint progress\n\n## Learnings\n\n- 2026-05-13T00:00:00.000Z — prior learning kept\n\n## Decisions\n\n## Activity\n\n## Tasks\n',
-      'utf8'
-    );
+    await fs.writeFile(f.progressFile, '# Sprint: kept\n\n- id: kept\n- created: 2026-05-13T00:00:00.000Z\n', 'utf8');
 
     const provider = createFakeAiProvider({
       responses: {
@@ -993,13 +985,12 @@ describe('createImplementFlow — gen-eval loop', () => {
       await fs.readFile(join(workspace, 'rounds', '2', 'generator', 'signals.json'), 'utf8')
     );
     expect(round2Signals.some((s: { type: string; text?: string }) => s.type === 'learning')).toBe(true);
-    // progress.md is REGENERATED — the legacy streaming-sink bullet is gone, replaced by the
-    // new projection-rendered snapshot reflecting the just-settled sprint state.
+    // progress.md APPENDS — the seeded header is preserved and the new run's separator +
+    // attempt section grow underneath it.
     const md = await fs.readFile(f.progressFile, 'utf8');
-    expect(md).not.toContain('prior learning kept');
-    expect(md).toContain('# Sprint progress —');
-    expect(md).toContain('## Status');
-    expect(md).toMatch(/status: review/);
+    expect(md).toContain('# Sprint: kept');
+    expect(md).toContain('## Task:');
+    expect(md).toContain('_Sprint activated at');
   });
 
   it('multiple <commit-message> tags across turns: last one wins at commit time', async () => {

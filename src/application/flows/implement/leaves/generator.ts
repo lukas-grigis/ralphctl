@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import {
   type GeneratorTurnExit,
@@ -70,6 +71,13 @@ export interface GeneratorLeafDeps {
    * per-task sandbox. Threaded down from the flow factory.
    */
   readonly sprintDir: AbsolutePath;
+  /**
+   * Absolute path to `<sprintDir>/progress.md` — passed straight to `buildImplementPrompt`'s
+   * `progressFile` slot so the AI's prompt names the journal file it must read for prior
+   * context (audit-[07]). The file is materialised by `create-sprint`'s init-progress-journal
+   * leaf and grows append-only thereafter; the implement chain never writes the header itself.
+   */
+  readonly progressFile: AbsolutePath;
   readonly model: string;
   readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
@@ -92,7 +100,6 @@ export interface GeneratorLeafDeps {
 interface GeneratorInput {
   readonly task: InProgressTask;
   readonly turn: number;
-  readonly progressFile: AbsolutePath;
   readonly workspaceRoot: AbsolutePath;
   /**
    * Captured Claude `session_id` from the prior round's generator turn for this task. Forwarded
@@ -117,7 +124,27 @@ interface GeneratorOutput {
    * adapter never reported an id (failed spawn, non-Claude provider, …).
    */
   readonly capturedSessionId?: SessionId;
+  /**
+   * Decision-signal bodies emitted by this turn. Empty array when the generator emitted no
+   * `<decision>` signals. Accumulates onto `ctx.currentAttemptDecisions` so the journal leaf
+   * can render a deduped count for the attempt (audit-[07] — replaces the deleted
+   * `decisions-log` sink with an in-memory aggregate).
+   */
+  readonly decisionsEmitted: readonly string[];
 }
+
+/**
+ * Read the current `progress.md` body to inline into the prompt. Best-effort: a missing /
+ * unreadable file returns the empty string so the template's surrounding prose handles the
+ * empty case without a per-flow special branch.
+ */
+const readProgressFile = async (path: string): Promise<string> => {
+  try {
+    return await fs.readFile(path, 'utf8');
+  } catch {
+    return '';
+  }
+};
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, GeneratorInput, GeneratorOutput>(`generator-${String(taskId)}`, {
@@ -158,12 +185,21 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         if (!outputDirPath.ok) return Result.error(outputDirPath.error);
         const outputDir = outputDirPath.value;
 
+        // Per-turn decision accumulator — closure-captured so the leaf can stamp the
+        // emitted decisions onto ctx in `output(...)`. The journal leaf reads the aggregate
+        // across all gen-eval rounds for the attempt.
+        const decisionsEmitted: string[] = [];
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);
+          // Inline the current progress.md body into the prompt (audit-[07]). Best-effort —
+          // a missing or unreadable file degrades to empty, which the template's surrounding
+          // prose handles without a special branch.
+          const priorProgress = await readProgressFile(String(deps.progressFile));
           const prompt = await buildImplementPrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
-            progressFile: String(input.progressFile),
+            progressFile: String(deps.progressFile),
+            priorProgress,
             outputContractSection: renderContractSectionFor(generatorOutputContract),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
@@ -203,6 +239,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           for (const sig of signals) {
             deps.signals.emit(sig);
             deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
+            if (sig.type === 'decision') decisionsEmitted.push(sig.text);
           }
 
           // Render harness-owned sidecars (`commit-message.txt` when present). Write
@@ -235,6 +272,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           task: result.value.task,
           turn: input.turn,
           roundNum,
+          decisionsEmitted,
           ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
           ...(result.value.proposedCommitMessage !== undefined
             ? { proposedCommitMessage: result.value.proposedCommitMessage }
@@ -260,14 +298,6 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           message: `generator-${String(taskId)}: expected in_progress task`,
         });
       }
-      if (ctx.progressFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-generator',
-          attemptedAction: `generator-${String(taskId)}`,
-          message: `generator-${String(taskId)}: ctx.progressFile missing — ensureProgressFileLeaf must run first`,
-        });
-      }
       if (ctx.taskWorkspaceRoot === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
@@ -279,7 +309,6 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       return {
         task: ctx.currentTask,
         turn: (ctx.genEvalTurn ?? 0) + 1,
-        progressFile: ctx.progressFile,
         workspaceRoot: ctx.taskWorkspaceRoot,
         ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
       };
@@ -294,6 +323,12 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       // prior turn captured so the next round still has a thread to resume.
       const sessionCarry =
         out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
+      // Accumulate this turn's decisions onto the per-attempt aggregate. Cleared by the
+      // progress-journal leaf after the attempt settles.
+      const decisionsCarry =
+        out.decisionsEmitted.length > 0
+          ? { currentAttemptDecisions: [...(ctx.currentAttemptDecisions ?? []), ...out.decisionsEmitted] }
+          : {};
       if (out.exit !== undefined) {
         return {
           ...ctx,
@@ -305,6 +340,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           lastBlockReason: out.exit.reason,
           ...carry,
           ...sessionCarry,
+          ...decisionsCarry,
         };
       }
       return {
@@ -315,6 +351,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         currentRoundNum: out.roundNum,
         ...carry,
         ...sessionCarry,
+        ...decisionsCarry,
       };
     },
   });

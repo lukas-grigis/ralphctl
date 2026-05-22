@@ -97,9 +97,9 @@ A future-flow doesn't need scaffold magic — see "Enforcement: ESLint rule" bel
 
 ## Open questions
 
-- **Placeholder case-sensitivity.** Today the convention is SCREAMING_SNAKE_CASE inside `{{...}}`. Should the test
-  enforce that, or just check the equality? _Tentative: check equality only; convention is enforced by code review / a
-  separate lint rule._
+- **Placeholder case-sensitivity.** Today the convention is SCREAMING*SNAKE_CASE inside `{{...}}`. Should the test
+  enforce that, or just check the equality? \_Tentative: check equality only; convention is enforced by code review / a
+  separate lint rule.*
 - **Optional placeholders.** Some sections render to empty string when their data is absent (e.g.
   `{{PRIOR_CRITIQUE_SECTION}}` on turn 1). The CLAUDE.md prompt rules say "{{VARIABLE}} placeholders may be empty —
   avoid numbered lists that gap on empty substitution." That's a content rule, not a structural one. The test enforces

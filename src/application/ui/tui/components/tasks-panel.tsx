@@ -26,7 +26,7 @@ import type {
   TaskSubStep,
   TaskBucketStatus,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { SprintState, TaskProjection } from '@src/business/sprint/state-projection.ts';
+import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { AbortCause, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type {
   CommitMessageSignal,
@@ -1311,7 +1311,7 @@ export const TasksPanel = ({
         // Match by id when a projection is supplied so the order of `sprintState.tasks`
         // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
         // tasks track the runtime sequence).
-        const taskProjection = sprintState?.tasks.find((t) => t.id === task.id);
+        const taskProjection = sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
         const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock

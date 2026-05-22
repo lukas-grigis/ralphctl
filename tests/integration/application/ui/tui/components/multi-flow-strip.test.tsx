@@ -67,9 +67,7 @@ describe('MultiFlowStrip', () => {
   it('clips long titles so the strip stays on one row', () => {
     const longTitle = 'this-is-a-very-very-long-title-that-must-clip';
     const sessions = [sess('1', longTitle, 'refine'), sess('2', 'B', 'implement')];
-    const { lastFrame } = render(
-      <MultiFlowStrip sessions={sessions} activeId="1" now={NOW} maxTitleChars={10} />
-    );
+    const { lastFrame } = render(<MultiFlowStrip sessions={sessions} activeId="1" now={NOW} maxTitleChars={10} />);
     const frame = lastFrame() ?? '';
     // Clipped form ends in ellipsis; full untruncated title must not appear.
     expect(frame).not.toContain(longTitle);

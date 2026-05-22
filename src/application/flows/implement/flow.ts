@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
@@ -17,8 +17,8 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
-import { ensureProgressFileLeaf } from '@src/application/flows/implement/leaves/ensure-progress-file.ts';
-import { writeProgressSnapshotLeaf } from '@src/application/flows/implement/leaves/write-progress-snapshot.ts';
+import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
+import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
@@ -217,28 +217,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     return out;
   })();
 
-  // `<sprintDir>/progress.md` is now snapshot-rendered (not streaming-appended) — the file is
-  // a function of the persisted entities + `<sprintDir>/chain.log`, regenerated at sprint
-  // start, after every settle-attempt, and after sprint status transitions. The legacy
-  // `progress-file-sink` is gone; the snapshot renderer reads chain.log via `deps.loadChainLog`
-  // and writes through `deps.writeFile`.
-  const chainLogPathParsed = AbsolutePath.parse(`${String(opts.sprintDir)}/chain.log`);
-  if (!chainLogPathParsed.ok) throw chainLogPathParsed.error;
-  const chainLogPath = chainLogPathParsed.value;
-  const decisionsLogPathParsed = AbsolutePath.parse(`${String(opts.sprintDir)}/decisions.log`);
-  if (!decisionsLogPathParsed.ok) throw decisionsLogPathParsed.error;
-  const decisionsLogPath = decisionsLogPathParsed.value;
-  const snapshotLeaf = (name: string): Element<ImplementCtx> =>
-    writeProgressSnapshotLeaf(
-      {
-        loadChainLog: deps.loadChainLog,
-        loadDecisionsLog: deps.loadDecisionsLog,
-        writeFile: deps.writeFile,
-        clock: deps.clock,
-        logger: deps.logger,
-      },
-      { progressFile: opts.progressFile, chainLogPath, decisionsLogPath, name }
-    );
+  // `<sprintDir>/progress.md` is an append-only journal (audit-[07]): the create-sprint flow
+  // writes the header once at sprint creation, then each task-attempt settlement appends one
+  // section via `progressJournalLeaf`, and each status transition appends a separator line via
+  // `appendJournalSeparatorLeaf`. The journal IS the chronological record — no snapshot
+  // rendering, no chain.log mining.
 
   // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
   // Pointing it at `repo.path` is what makes per-repo project skills, `.mcp.json`, and the
@@ -263,6 +246,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       // Threaded into `implementSession()` as a second `--add-dir` so the AI can read
       // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
       sprintDir: opts.sprintDir,
+      progressFile: opts.progressFile,
       model: opts.model,
       clock: deps.clock,
       logger: deps.logger,
@@ -373,10 +357,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { cwd: repo.path },
         taskId
       ),
-      // Snapshot progress.md after every settled attempt so a fresh agent re-opening the file
-      // sees the current task state (verdict, blocker reason, attempt count). Best-effort —
-      // the snapshot leaf logs + swallows failures so a render hiccup never halts the chain.
-      snapshotLeaf(`progress-snapshot-after-settle-${String(taskId)}`),
+      // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the
+      // verdict, attempt count, round info, duration, and the deduped decision count for the
+      // just-settled attempt. Best-effort — the leaf logs and swallows failures.
+      progressJournalLeaf(
+        { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+        { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
+        taskId
+      ),
       uninstallSkillsLeaf<ImplementCtx>(
         { skillsAdapter: deps.skillsAdapter },
         { name: `${IMPLEMENT_TASK_TERMINAL_LEAF}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
@@ -445,18 +433,6 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    ensureProgressFileLeaf(
-      {
-        loadChainLog: deps.loadChainLog,
-        loadDecisionsLog: deps.loadDecisionsLog,
-        writeFile: deps.writeFile,
-        clock: deps.clock,
-        logger: deps.logger,
-      },
-      opts.progressFile,
-      chainLogPath,
-      decisionsLogPath
-    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,
@@ -467,6 +443,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       { cwds: uniqueRepoCwds }
     ),
     sequential<ImplementCtx>('working-tree-clean-checks', workingTreeCleanLeaves),
+    // Record sprint activation in the journal — this fires after the implement chain
+    // activated the sprint (or noop'd because it was already active). The separator gives the
+    // operator + AI a chronological marker between "before this run" and "first task of this
+    // run."
+    appendJournalSeparatorLeaf<ImplementCtx>(
+      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
+    ),
     setupScriptRunnerLeaf(
       {
         shellScriptRunner: deps.shellScriptRunner,
@@ -488,12 +472,12 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     guard<ImplementCtx>(
       'transition-sprint-to-review-when-any-done',
       (ctx) => ctx.tasks?.some((t) => t.status === 'done') === true,
-      sequential<ImplementCtx>('transition-to-review-and-snapshot', [
+      sequential<ImplementCtx>('transition-to-review-and-journal', [
         transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
-        // Snapshot progress.md so the file reflects the active → review transition (the
-        // status line, the reviewAt timestamp, the run-history tail) immediately, without
-        // waiting for the next implement run to refresh it.
-        snapshotLeaf('progress-snapshot-after-review-transition'),
+        appendJournalSeparatorLeaf<ImplementCtx>(
+          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+          { progressFile: opts.progressFile, status: 'review', name: 'progress-journal-review' }
+        ),
       ])
     ),
   ]);
