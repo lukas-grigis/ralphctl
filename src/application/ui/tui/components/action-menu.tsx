@@ -159,11 +159,17 @@ export const ActionMenu = ({ items, initialIndex = 0, active = true }: ActionMen
                   <Text dimColor>{it.description}</Text>
                 </Box>
               )}
-              {focused && !enabled && it.disabledReason !== undefined && (
+              {!enabled && it.disabledReason !== undefined && (
                 <Box paddingLeft={4}>
-                  <Text color={inkColors.warning}>
-                    {glyphs.warningGlyph} {it.disabledReason}
-                  </Text>
+                  {focused ? (
+                    <Text color={inkColors.warning} wrap="truncate-end">
+                      {glyphs.warningGlyph} {it.disabledReason}
+                    </Text>
+                  ) : (
+                    <Text color={inkColors.muted} dimColor wrap="truncate-end">
+                      {it.disabledReason}
+                    </Text>
+                  )}
                 </Box>
               )}
             </Box>
