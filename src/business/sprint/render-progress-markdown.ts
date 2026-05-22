@@ -9,6 +9,7 @@ import type {
   SprintStateStatus,
   StaleEntry,
   TaskProjection,
+  TaskSignalEntry,
   TicketSummary,
 } from '@src/business/sprint/state-projection.ts';
 
@@ -104,21 +105,59 @@ const renderTickets = (tickets: readonly TicketSummary[]): string | undefined =>
   return lines.join('\n');
 };
 
-// ───────────────────────── tasks table ─────────────────────────
+// ───────────────────────── tasks sub-sections ─────────────────────────
+
+/**
+ * Display cap for a per-signal body line (changes / learnings / notes). More generous than
+ * {@link DECISION_DISPLAY_CAP} because these signals are user-facing prose with multi-clause
+ * detail (the AI is encouraged to be descriptive — "renamed X to Y because the old name
+ * collided with Z and the rename simplifies callers …"). 240 chars fits a typical change
+ * description without clipping while still bounding any pathological runaway entry.
+ */
+const SIGNAL_TEXT_DISPLAY_CAP = 240;
+
+const clipSignalText = (text: string): string => {
+  if (text.length <= SIGNAL_TEXT_DISPLAY_CAP) return text;
+  const overflow = text.length - SIGNAL_TEXT_DISPLAY_CAP;
+  return `${text.slice(0, SIGNAL_TEXT_DISPLAY_CAP)}… (+${overflow} chars)`;
+};
 
 const renderTasks = (tasks: readonly TaskProjection[]): string | undefined => {
   if (tasks.length === 0) return undefined;
-  const lines: string[] = [
-    '## Tasks',
-    '| # | name | status | attempts | last verdict | commit |',
-    '|---|------|--------|----------|--------------|--------|',
-  ];
+  const lines: string[] = ['## Tasks'];
   for (const task of tasks) {
-    const verdict = task.lastAttempt?.verdict ?? '';
-    const commit = task.lastAttempt?.commitSha !== undefined ? truncateSha(task.lastAttempt.commitSha) : '';
-    lines.push(`| ${task.order} | ${task.name} | ${task.status} | ${task.attemptsCount} | ${verdict} | ${commit} |`);
+    if (lines.length > 1) lines.push('');
+    lines.push(...renderTaskSection(task));
   }
   return lines.join('\n');
+};
+
+const renderTaskSection = (task: TaskProjection): readonly string[] => {
+  const lines: string[] = [];
+  lines.push(`### Task ${task.order} — ${task.name}`);
+  const commit = task.lastAttempt?.commitSha !== undefined ? truncateSha(task.lastAttempt.commitSha) : '—';
+  lines.push(`status: ${task.status} · attempts: ${task.attemptsCount} · commit: ${commit}`);
+  if (task.status === 'blocked' && task.blockReason !== undefined && task.blockReason.length > 0) {
+    lines.push('');
+    lines.push(`> Why blocked: ${task.blockReason}`);
+  }
+  appendSignalSubSection(lines, 'Changes', task.changes);
+  appendSignalSubSection(lines, 'Learnings', task.learnings);
+  appendSignalSubSection(lines, 'Notes', task.notes);
+  return lines;
+};
+
+const appendSignalSubSection = (
+  acc: string[],
+  heading: 'Changes' | 'Learnings' | 'Notes',
+  entries: readonly TaskSignalEntry[]
+): void => {
+  if (entries.length === 0) return;
+  acc.push('');
+  acc.push(`#### ${heading}`);
+  for (const entry of entries) {
+    acc.push(`- ${clipSignalText(entry.text)}`);
+  }
 };
 
 // ───────────────────────── blockers / stale / cycles ─────────────────────────

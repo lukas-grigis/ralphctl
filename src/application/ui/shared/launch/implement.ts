@@ -11,6 +11,8 @@ import type { HarnessSignal } from '@src/domain/signal.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { Sink } from '@src/business/observability/sink.ts';
 import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import { createDecisionsLogSink } from '@src/integration/observability/sinks/decisions-log-sink.ts';
@@ -61,10 +63,32 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
     file: decisionsLogPath.value,
     resolveContext: () => (currentTaskId !== undefined ? { taskId: currentTaskId } : {}),
   });
-  // Fan out every harness signal to both the existing app sink (TUI bus + any other
-  // subscribers) AND the decisions log sink. The decisions sink filters internally — only
-  // `decision` signals produce a write.
-  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, decisionsSink]);
+  // Per-task signal mirror: `<change>` / `<learning>` / `<note>` signals are mirrored as
+  // structured `HarnessSignalEvent`s on the EventBus so they land in `<sprintDir>/chain.log`
+  // with a queryable shape. The decisions-log path stays separate — decisions already have
+  // their own dedicated sink and double-publishing would just create dedup work for the
+  // miner. `taskId` resolves through the same tracker the decisions sink uses.
+  const perTaskSignalBusMirror: Sink<HarnessSignal> = {
+    emit(signal) {
+      if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
+      deps.app.eventBus.publish({
+        type: 'harness-signal',
+        signalKind: signal.type,
+        ...(currentTaskId !== undefined ? { taskId: currentTaskId } : {}),
+        text: signal.text,
+        at: IsoTimestamp.now(),
+      });
+    },
+  };
+  // Fan out every harness signal to the existing app sink (TUI bus + subscribers), the
+  // decisions log sink, AND the per-task event-bus mirror. The decisions sink filters
+  // internally — only `decision` signals produce a write — and the mirror filters to
+  // the three per-task kinds.
+  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([
+    deps.app.signals,
+    decisionsSink,
+    perTaskSignalBusMirror,
+  ]);
 
   const repositories = new Map<RepositoryId, RepoExecConfig>();
   for (const r of snapshot.project.repositories) {

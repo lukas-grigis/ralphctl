@@ -509,6 +509,126 @@ describe('projectSprintState', () => {
     });
   });
 
+  describe('per-task harness signals', () => {
+    it('collects change / learning / note signals attributed to a task via the chain log', () => {
+      const { sprint, execution } = baseInputs();
+      const task = makeTodoTask({ name: 'a-task' });
+      const log: ChainLogEntry[] = [
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:00.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'renamed foo to bar',
+          meta: { signalKind: 'change', taskId: String(task.id) },
+        },
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:01.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'learned bar ignores empty strings',
+          meta: { signalKind: 'learning', taskId: String(task.id) },
+        },
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:02.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'follow up on the manifest',
+          meta: { signalKind: 'note', taskId: String(task.id) },
+        },
+      ];
+      const state = projectSprintState({
+        sprint,
+        execution,
+        tasks: [task],
+        chainLogEntries: log,
+        now: FIXED_LATEST,
+      });
+      const projected = state.tasks[0];
+      expect(projected?.changes).toHaveLength(1);
+      expect(projected?.changes[0]?.text).toBe('renamed foo to bar');
+      expect(projected?.learnings).toHaveLength(1);
+      expect(projected?.learnings[0]?.text).toBe('learned bar ignores empty strings');
+      expect(projected?.notes).toHaveLength(1);
+      expect(projected?.notes[0]?.text).toBe('follow up on the manifest');
+    });
+
+    it('does not attribute a signal when the meta.taskId does not match the projected task', () => {
+      const { sprint, execution } = baseInputs();
+      const task = makeTodoTask({ name: 'a-task' });
+      const log: ChainLogEntry[] = [
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:00.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'belongs to someone else',
+          meta: { signalKind: 'change', taskId: 'other-task-id' },
+        },
+      ];
+      const state = projectSprintState({
+        sprint,
+        execution,
+        tasks: [task],
+        chainLogEntries: log,
+        now: FIXED_LATEST,
+      });
+      expect(state.tasks[0]?.changes).toEqual([]);
+    });
+
+    it('groups by signalKind so a change does not leak into learnings or notes', () => {
+      const { sprint, execution } = baseInputs();
+      const task = makeTodoTask({ name: 'a-task' });
+      const log: ChainLogEntry[] = [
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:00.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'a change',
+          meta: { signalKind: 'change', taskId: String(task.id) },
+        },
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:01.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'harness-signal',
+          message: 'a note',
+          meta: { signalKind: 'note', taskId: String(task.id) },
+        },
+      ];
+      const state = projectSprintState({
+        sprint,
+        execution,
+        tasks: [task],
+        chainLogEntries: log,
+        now: FIXED_LATEST,
+      });
+      expect(state.tasks[0]?.changes.map((c) => c.text)).toEqual(['a change']);
+      expect(state.tasks[0]?.learnings).toEqual([]);
+      expect(state.tasks[0]?.notes.map((c) => c.text)).toEqual(['a note']);
+    });
+
+    it('surfaces blockReason on blocked tasks and leaves it undefined on others', () => {
+      const { sprint, execution } = baseInputs();
+      const todo = makeTodoTask({ name: 'fine' });
+      const blocked = unwrap(markTaskBlocked(makeTodoTask({ name: 'stuck' }), 'cannot proceed'));
+      const state = projectSprintState({
+        sprint,
+        execution,
+        tasks: [todo, blocked],
+        chainLogEntries: [],
+        now: FIXED_LATEST,
+      });
+      const todoOut = state.tasks.find((t) => t.name === 'fine');
+      const blockedOut = state.tasks.find((t) => t.name === 'stuck');
+      expect(todoOut?.blockReason).toBeUndefined();
+      expect(blockedOut?.blockReason).toBe('cannot proceed');
+    });
+  });
+
   describe('median round duration', () => {
     const taskWithAttempts = (durations: readonly number[]): Task => {
       const todo = makeTodoTask({ name: 'm', order: 1 });

@@ -112,6 +112,16 @@ export interface TaskLastAttempt {
   readonly finishedAt?: IsoTimestamp;
 }
 
+/**
+ * One per-task harness signal carried by a `HarnessSignalEvent` on the chain log. The
+ * `progress.md` renderer surfaces these as bulleted sub-sections under each task.
+ * @public
+ */
+export interface TaskSignalEntry {
+  readonly at: IsoTimestamp;
+  readonly text: string;
+}
+
 /** @public */
 export interface TaskProjection {
   readonly id: string;
@@ -125,6 +135,27 @@ export interface TaskProjection {
   readonly lastAttempt?: TaskLastAttempt;
   /** Median of every settled attempt's duration. Undefined when no settled attempt has a duration. */
   readonly medianRoundDurationMs?: number;
+  /**
+   * Concrete-change signals (`<change>`) emitted for this task, oldest first. Mined from the
+   * chain log's `harness-signal` entries. Empty when the task emitted no changes.
+   */
+  readonly changes: readonly TaskSignalEntry[];
+  /**
+   * Cross-task knowledge (`<learning>`) emitted for this task, oldest first. Same source as
+   * {@link changes}.
+   */
+  readonly learnings: readonly TaskSignalEntry[];
+  /**
+   * Incidental observations (`<note>`) emitted for this task, oldest first. Same source as
+   * {@link changes}.
+   */
+  readonly notes: readonly TaskSignalEntry[];
+  /**
+   * Persisted `blockedReason` when the task is in `blocked` status. Surfaced here so the
+   * renderer can show a "why blocked" callout under the task's sub-section without making
+   * the renderer reach back into the raw `Task` entity.
+   */
+  readonly blockReason?: string;
 }
 
 /**
@@ -221,7 +252,7 @@ export const projectSprintState = (input: ProjectSprintStateInput): SprintState 
 
   const counts = countTasks(tasks);
   const status = synthesiseStatus(sprint.status, counts);
-  const tasksProjected = tasks.map((t) => projectTask(t));
+  const tasksProjected = tasks.map((t) => projectTask(t, chainLogEntries));
   const blockers = collectBlockers(tasks);
   const dependencyCycles = findCycles(tasks);
   const runs = groupRuns(chainLogEntries);
@@ -298,10 +329,14 @@ const summariseTicket = (ticket: Ticket): TicketSummary => ({
 
 // ───────────────────────── per-task projection ─────────────────────────
 
-const projectTask = (task: Task): TaskProjection => {
+const projectTask = (task: Task, chainLogEntries: readonly ChainLogEntry[]): TaskProjection => {
   const last = task.attempts[task.attempts.length - 1];
   const lastAttempt = last !== undefined ? summariseAttempt(last) : undefined;
   const median = medianSettledDurationMs(task.attempts);
+  const changes = collectPerTaskSignals(chainLogEntries, task.id, 'change');
+  const learnings = collectPerTaskSignals(chainLogEntries, task.id, 'learning');
+  const notes = collectPerTaskSignals(chainLogEntries, task.id, 'note');
+  const blockReason = task.status === 'blocked' ? task.blockedReason : undefined;
   return {
     id: task.id,
     name: task.name,
@@ -313,7 +348,36 @@ const projectTask = (task: Task): TaskProjection => {
     attemptsCount: task.attempts.length,
     ...(lastAttempt !== undefined ? { lastAttempt } : {}),
     ...(median !== undefined ? { medianRoundDurationMs: median } : {}),
+    changes,
+    learnings,
+    notes,
+    ...(blockReason !== undefined ? { blockReason } : {}),
   };
+};
+
+/**
+ * Filter chain-log entries down to the `harness-signal` rows for one task + kind, then
+ * project each into a {@link TaskSignalEntry}. Entries are returned in document order
+ * (oldest first) so renderers can stream them top-down.
+ *
+ * Entries that don't carry a matching `meta.taskId` are skipped — un-attributed signals
+ * don't belong under any specific task's heading.
+ * @public
+ */
+export const collectPerTaskSignals = (
+  entries: readonly ChainLogEntry[],
+  taskId: string,
+  kind: 'change' | 'learning' | 'note'
+): readonly TaskSignalEntry[] => {
+  const out: TaskSignalEntry[] = [];
+  for (const entry of entries) {
+    if (entry.event !== 'harness-signal') continue;
+    if (entry.meta?.['signalKind'] !== kind) continue;
+    if (entry.meta?.['taskId'] !== taskId) continue;
+    if (entry.message.length === 0) continue;
+    out.push({ at: entry.timestamp, text: entry.message });
+  }
+  return out;
 };
 
 const summariseAttempt = (att: Attempt): TaskLastAttempt => {

@@ -171,7 +171,7 @@ describe('renderProgressMarkdown', () => {
     });
   });
 
-  describe('tasks table', () => {
+  describe('tasks sub-sections', () => {
     const baseTask = (overrides: Partial<TaskProjection>): TaskProjection => ({
       id: 't1',
       name: 'do work',
@@ -181,10 +181,13 @@ describe('renderProgressMarkdown', () => {
       repositoryId: 'repo-1',
       blockedBy: [],
       attemptsCount: 0,
+      changes: [],
+      learnings: [],
+      notes: [],
       ...overrides,
     });
 
-    it('renders the tasks table with truncated commit SHA and verdict', () => {
+    it('renders one ### heading + stats line per task with truncated commit SHA', () => {
       const tasks: TaskProjection[] = [
         baseTask({
           id: 't1',
@@ -207,12 +210,85 @@ describe('renderProgressMarkdown', () => {
       const state: SprintState = { ...minimalState(), tasks };
       const out = renderProgressMarkdown(state);
       expect(out).toContain('## Tasks');
-      expect(out).toContain('| # | name | status | attempts | last verdict | commit |');
-      expect(out).toContain('|---|------|--------|----------|--------------|--------|');
-      expect(out).toContain('| 1 | first | done | 2 | passed | abcdef1 |');
-      expect(out).toContain('| 2 | second | todo | 0 |  |  |');
-      // SHA truncated to 7 chars.
+      expect(out).toContain('### Task 1 — first');
+      expect(out).toContain('status: done · attempts: 2 · commit: abcdef1');
+      expect(out).toContain('### Task 2 — second');
+      // No attempt yet → commit em-dash placeholder so the line shape stays parseable.
+      expect(out).toContain('status: todo · attempts: 0 · commit: —');
+      // Old table shape must NOT appear.
+      expect(out).not.toContain('| # | name |');
+      expect(out).not.toContain('| 1 | first |');
+      // SHA still truncated to 7 chars.
       expect(out).not.toContain('abcdef1234567890');
+    });
+
+    it('renders Changes / Learnings / Notes sub-sections when present', () => {
+      const task = baseTask({
+        id: 't1',
+        name: 'with-signals',
+        status: 'in_progress',
+        attemptsCount: 1,
+        changes: [{ at: ts('2026-05-08T10:00:00.000Z'), text: 'renamed foo to bar' }],
+        learnings: [{ at: ts('2026-05-08T10:01:00.000Z'), text: 'the bar adapter ignores empty strings' }],
+        notes: [{ at: ts('2026-05-08T10:02:00.000Z'), text: 'next task should update the manifest' }],
+      });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [task] });
+      expect(out).toContain('### Task 1 — with-signals');
+      expect(out).toContain('#### Changes');
+      expect(out).toContain('- renamed foo to bar');
+      expect(out).toContain('#### Learnings');
+      expect(out).toContain('- the bar adapter ignores empty strings');
+      expect(out).toContain('#### Notes');
+      expect(out).toContain('- next task should update the manifest');
+    });
+
+    it('omits each signal sub-section when its array is empty', () => {
+      const task = baseTask({ id: 't1', name: 'empty', status: 'todo' });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [task] });
+      expect(out).toContain('### Task 1 — empty');
+      expect(out).not.toContain('#### Changes');
+      expect(out).not.toContain('#### Learnings');
+      expect(out).not.toContain('#### Notes');
+    });
+
+    it('renders a "Why blocked" callout under blocked tasks only', () => {
+      const blocked = baseTask({
+        id: 't1',
+        name: 'stuck',
+        status: 'blocked',
+        attemptsCount: 1,
+        blockReason: 'missing migration adapter',
+      });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [blocked] });
+      expect(out).toContain('### Task 1 — stuck');
+      expect(out).toContain('> Why blocked: missing migration adapter');
+    });
+
+    it('does not render a "Why blocked" callout for non-blocked tasks even if blockReason is set', () => {
+      // Defensive: blockReason should never be set when status !== 'blocked' (the projection
+      // gates this), but the renderer must also gate on status to be safe.
+      const ongoing = baseTask({
+        id: 't1',
+        name: 'fine',
+        status: 'in_progress',
+        attemptsCount: 1,
+        blockReason: 'lingering',
+      });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [ongoing] });
+      expect(out).not.toContain('> Why blocked:');
+    });
+
+    it('clips an over-cap signal text with an ellipsis + (+N chars) hint', () => {
+      const longChange = 'y'.repeat(300);
+      const task = baseTask({
+        id: 't1',
+        name: 'big-change',
+        changes: [{ at: ts('2026-05-08T10:00:00.000Z'), text: longChange }],
+      });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [task] });
+      // 300 chars total, 240 cap → 60-char overflow hint.
+      expect(out).toContain(`- ${'y'.repeat(240)}… (+60 chars)`);
+      expect(out).not.toContain('y'.repeat(300));
     });
   });
 
@@ -423,6 +499,9 @@ describe('renderProgressMarkdown', () => {
             repositoryId: 'r1',
             blockedBy: [],
             attemptsCount: 1,
+            changes: [],
+            learnings: [],
+            notes: [],
           },
         ],
       };
@@ -466,6 +545,9 @@ describe('renderProgressMarkdown', () => {
               startedAt: ts('2026-05-08T10:00:00.000Z'),
               finishedAt: ts('2026-05-08T10:00:05.000Z'),
             },
+            changes: [{ at: ts('2026-05-08T10:00:01.000Z'), text: 'wired the form to the API' }],
+            learnings: [],
+            notes: [],
           },
         ],
         blockers: [{ taskId: 'task-2', name: 'stuck', reason: 'blocked-status', detail: 'human stop' }],
@@ -517,9 +599,11 @@ describe('renderProgressMarkdown', () => {
         '  status: approved',
         '',
         '## Tasks',
-        '| # | name | status | attempts | last verdict | commit |',
-        '|---|------|--------|----------|--------------|--------|',
-        '| 1 | wire form | done | 2 | passed | abcdef1 |',
+        '### Task 1 — wire form',
+        'status: done · attempts: 2 · commit: abcdef1',
+        '',
+        '#### Changes',
+        '- wired the form to the API',
         '',
         '## Blockers',
         '- ✗ stuck — human stop',

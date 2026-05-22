@@ -38,6 +38,9 @@ const task = (overrides: Partial<TaskProjection> = {}): TaskProjection => ({
   repositoryId: 'repo-1',
   blockedBy: [],
   attemptsCount: 1,
+  changes: [],
+  learnings: [],
+  notes: [],
   ...overrides,
 });
 

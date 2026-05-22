@@ -38,6 +38,9 @@ const sprintStateWithMedian = (taskId: string, medianMs: number | undefined): Sp
     repositoryId: 'repo-1',
     blockedBy: [],
     attemptsCount: 1,
+    changes: [],
+    learnings: [],
+    notes: [],
     ...(medianMs !== undefined ? { medianRoundDurationMs: medianMs } : {}),
   };
   // Minimal SprintState — the panel only reads `state.tasks`. Other fields are filled with

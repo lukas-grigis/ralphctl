@@ -225,6 +225,32 @@ export interface BannerClearEvent {
  */
 export type BannerEvent = BannerShowEvent | BannerClearEvent;
 
+/**
+ * Per-task harness signal — published when the AI emits a `<change>`, `<learning>`, or
+ * `<note>` tag during an in-flight task. The harness fans out the underlying
+ * `HarnessSignal` to its existing sinks (TUI bus, decisions-log) AND mirrors a structured
+ * event onto the {@link EventBus} so the persistent `<sprintDir>/chain.log` retains a
+ * machine-readable record of the per-task narrative. `progress.md` then reconstructs the
+ * per-task sub-sections from these chain-log entries on every snapshot regenerate.
+ *
+ * Decisions deliberately stay on their own dedicated path — the `decisions-log-sink`
+ * already owns that contract and double-publishing would just create dedup work for the
+ * miner. The three variants here are the signals `progress.md` actually surfaces but did
+ * not previously persist anywhere queryable.
+ */
+export interface HarnessSignalEvent {
+  readonly type: 'harness-signal';
+  readonly signalKind: 'change' | 'learning' | 'note';
+  /**
+   * Task the signal was emitted under. Absent when the harness cannot attribute the
+   * signal — e.g. signals emitted during a non-task subchain. Renderers that group by
+   * task simply skip unattributed entries.
+   */
+  readonly taskId?: string;
+  readonly text: string;
+  readonly at: IsoTimestamp;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -242,4 +268,5 @@ export type AppEvent =
   | ChainLogDegradedEvent
   | TokenUsageEvent
   | BannerShowEvent
-  | BannerClearEvent;
+  | BannerClearEvent
+  | HarnessSignalEvent;

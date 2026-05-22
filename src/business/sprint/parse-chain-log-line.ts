@@ -55,7 +55,15 @@ export const parseChainLogLine = (line: string): ChainLogEntry | undefined => {
 
   const chainId = typeof raw['chainId'] === 'string' ? raw['chainId'] : '';
   const level = type === 'log' && typeof raw['level'] === 'string' ? raw['level'] : 'info';
-  const message = type === 'log' && typeof raw['message'] === 'string' ? raw['message'] : '';
+  // For `harness-signal` entries we surface the signal text via `message` so downstream
+  // miners (e.g. `collectPerTaskSignals` in `state-projection.ts`) can read it without a
+  // bespoke shape. The `log` case keeps its original behaviour.
+  const message =
+    type === 'log' && typeof raw['message'] === 'string'
+      ? raw['message']
+      : type === 'harness-signal' && typeof raw['text'] === 'string'
+        ? raw['text']
+        : '';
   const meta = buildMeta(type, raw);
 
   return {
@@ -84,7 +92,7 @@ const buildMeta = (
     Object.assign(out, raw['meta'] as Record<string, unknown>);
   }
 
-  for (const key of ['taskId', 'flowId', 'elementName', 'sessionId', 'attemptN', 'roundN', 'verdict']) {
+  for (const key of ['taskId', 'flowId', 'elementName', 'sessionId', 'attemptN', 'roundN', 'verdict', 'signalKind']) {
     if (key in raw && raw[key] !== undefined && !(key in out)) {
       out[key] = raw[key];
     }
