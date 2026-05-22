@@ -6,25 +6,25 @@ import {
 
 /**
  * Pins the body-accumulation contract used inside `copilot/headless.ts#spawnAttempt`:
- * push each plain-text `line.raw` into an array, then `bodyLines.join('\n')` once at the
- * end. Byte-identical to the prior per-line `body = ${body}\n${raw}` form, but O(N).
+ * append each entry to an array, then `.join('\n')` once at the end. Byte-identical to the
+ * prior per-line `body = ${body}\n${raw}` form, but O(N) — the drift guard against
+ * reintroducing the quadratic concatenation.
  *
- * The join lives inline in `spawnAttempt` (not exported), so the test mirrors that pattern
- * locally against the parser. The drift guard against reintroducing the quadratic
- * concatenation is the adjacent comment in `copilot/headless.ts`; this test's job is the
- * byte-equivalence claim — if `.join('\n')` ever stopped producing `'line0\n…\nline999'`,
- * this fails.
+ * The production buffer now splits assistant-body events from forensic events (prompt-echo
+ * leak fix), but the join-equivalence claim is the same on either view: a single `.join('\n')`
+ * at the consumer. This helper mirrors the join over the forensic (non-JSON) projection,
+ * which still feeds body.txt.
  */
 const accumulateBody = (chunks: readonly string[]): string => {
   const parser = createCopilotStreamParser();
-  const bodyLines: string[] = [];
+  const forensicLines: string[] = [];
   const onLine = (line: CopilotStreamLine): void => {
     if (line.json !== undefined) return;
-    bodyLines.push(line.raw);
+    forensicLines.push(line.raw);
   };
   for (const chunk of chunks) parser.feed(chunk, onLine);
   parser.flush(onLine);
-  return bodyLines.join('\n');
+  return forensicLines.join('\n');
 };
 
 describe('copilot headless body accumulator', () => {

@@ -230,10 +230,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // auto-discover their context file from cwd."
   const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
   const parser = createCopilotStreamParser();
-  // Body accumulator: push raw plain-text lines, single .join('\n') at end (see below). A
-  // per-line `body = ${body}\n${raw}` form rebuilds the entire string each iteration — O(N²)
-  // in line count, observable on kilo-line streams. Do not reintroduce per-line concatenation.
-  const bodyLines: string[] = [];
+  // Two buffers, one tagged event log: assistant body text feeds signal parsing; the
+  // forensic body.txt mirrors every assistant + unrecognised-event line in stream order.
+  // Splitting matters because Copilot echoes the prompt as a `user.message` event whose raw
+  // JSONL would otherwise be matched by the harness signal regexes (literal `<task-blocked>`
+  // inside the prompt → fake signal). Order preservation: derive both views from one tagged
+  // event list rather than two parallel arrays.
+  const events: Array<{ readonly assistant: boolean; readonly text: string }> = [];
   let sessionId: string | undefined;
   let model: string | undefined;
   let usage: CopilotUsage = {};
@@ -260,14 +263,12 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         usage = line.usage;
       }
       if (line.bodyText !== undefined && line.bodyText.length > 0) {
-        bodyLines.push(line.bodyText);
+        events.push({ assistant: true, text: line.bodyText });
       } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
         // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
-        // captures Copilot's actual stream shapes. Without this, the parser silently swallows
-        // any line that doesn't match a known event type, and detect-scripts forensics show
-        // nothing of what the AI emitted. Once we have a real Copilot CLI capture we can
-        // broaden `extractBodyText` precisely; until then, raw preservation is the safety net.
-        bodyLines.push(line.raw);
+        // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
+        // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
+        events.push({ assistant: false, text: line.raw });
       }
       deps.eventBus.publish({
         type: 'log',
@@ -278,7 +279,8 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
       return;
     }
-    bodyLines.push(line.raw);
+    // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
+    events.push({ assistant: false, text: line.raw });
   };
 
   // Copilot reads the prompt from -p argv (no stdin payload). Tokens stream to stdout via the
@@ -325,10 +327,14 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   }
 
   if (code === 0) {
-    // Single join at end: empty → '', one entry → that string, many → joined with '\n', no
-    // trailing newline. Byte-identical to the prior per-line concatenation.
-    const body = bodyLines.join('\n');
-    const signals = parseHarnessSignals(body, IsoTimestamp.now());
+    // Assistant body: feeds signal parsing. Forensic body: superset for body.txt, preserves
+    // stream order so a human reading the file sees exactly what the CLI produced.
+    const assistantBody = events
+      .filter((e) => e.assistant)
+      .map((e) => e.text)
+      .join('\n');
+    const forensicBody = events.map((e) => e.text).join('\n');
+    const signals = parseHarnessSignals(assistantBody, IsoTimestamp.now());
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return { kind: 'error', error: wrote.error };
     // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
@@ -336,7 +342,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     // Critically, the body is captured even when `parseHarnessSignals` returns an empty array,
     // so operators can see what the model actually produced when no recognised tag landed.
     if (session.bodyFile !== undefined) {
-      const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
+      const bodyWrote = await writeTextAtomic(String(session.bodyFile), forensicBody);
       if (!bodyWrote.ok) {
         deps.eventBus.publish({
           type: 'log',

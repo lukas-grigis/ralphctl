@@ -118,7 +118,7 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
 };
 
 describe('createCopilotProvider', () => {
-  it('happy path: parses harness signals from streamed lines, captures sessionId, writes signalsFile', async () => {
+  it('happy path: parses harness signals from streamed assistant events, captures sessionId, writes signalsFile', async () => {
     const cap = createCapturingBus();
     const sess = session();
 
@@ -126,8 +126,8 @@ describe('createCopilotProvider', () => {
       {
         stdoutChunks: [
           '{"session_id":"sess-1","model":"gpt-5.1"}\n',
-          '<progress>working</progress>\n',
-          '<task-verified>all good</task-verified>\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"<progress>working</progress>"}}\n',
+          '{"type":"assistant.message_delta","data":{"deltaContent":"<task-verified>all good</task-verified>"}}\n',
         ],
         exitCode: 0,
       },
@@ -334,6 +334,70 @@ describe('createCopilotProvider', () => {
     // The pure meta line (sessionId + model only) is NOT body — keep it out so it can't
     // bias signal parsing or confuse a human reading body.txt.
     expect(contents).not.toContain('"session_id":"sess-mix"');
+  });
+
+  it('does not match harness signals embedded in a user.message prompt-echo event', async () => {
+    // Regression for the prompt-echo bug: Copilot mirrors the user prompt back as a
+    // `user.message` event whose `data.content` contains the verbatim prompt text. The prompt
+    // itself documents the `<task-blocked>` tag literally, so before the fix the raw JSONL
+    // line of the user.message event leaked into the signal parser and produced a fake
+    // `task-blocked` signal, short-circuiting the implement loop. The fix splits assistant
+    // body from forensic capture; user.message stays in body.txt but never reaches the
+    // signal parser.
+    const cap = createCapturingBus();
+    const signalsFile = tempSignalsFile();
+    const bodyFile = absolutePath(join(dirname(String(signalsFile)), 'body.txt'));
+    const sess = session({ signalsFile, bodyFile });
+    const userEcho = JSON.stringify({
+      type: 'user.message',
+      data: { content: 'Tools available — emit <task-blocked>fake reason</task-blocked> when stuck.' },
+    });
+    const assistantTurn = JSON.stringify({
+      type: 'assistant.message',
+      data: { content: 'I will proceed with the change.' },
+    });
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [`{"session_id":"sess-echo","model":"gpt-5.1"}\n${userEcho}\n${assistantTurn}\n`],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const signals = await readSignals(String(signalsFile));
+    expect(signals.filter((s) => s.type === 'task-blocked')).toEqual([]);
+
+    // Forensic capture still includes the user.message line (so operators can see what
+    // Copilot streamed), but it does not poison signal parsing.
+    const contents = await fs.readFile(String(bodyFile), 'utf8');
+    expect(contents).toContain(userEcho);
+  });
+
+  it('still emits a task-blocked signal when an assistant.message carries the tag (positive control)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const assistantBlock = JSON.stringify({
+      type: 'assistant.message',
+      data: { content: '<task-blocked>real reason</task-blocked>' },
+    });
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [`{"session_id":"sess-real-block","model":"gpt-5.1"}\n${assistantBlock}\n`],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const signals = await readSignals(String(sess.signalsFile));
+    const blocked = signals.filter((s) => s.type === 'task-blocked');
+    expect(blocked).toHaveLength(1);
+    expect((blocked[0] as { type: 'task-blocked'; reason: string }).reason).toBe('real reason');
   });
 
   it('overwrites an already-existing bodyFile target (atomic write does not crash)', async () => {
