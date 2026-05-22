@@ -374,17 +374,34 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
 
   const perTaskChains = opts.todoTasks.map((task) => perTaskSubChain(task));
 
-  // Setup scripts run unconditionally at sprint-start across EVERY repo on the project (not
-  // just the task-touched subset). The leaf iterates `opts.repositories` and appends one
-  // structured audit row to `execution.setupRanAt` per repo per run — `'success'`,
-  // `'failed'`, `'spawn-error'`, or `'skipped'` (no script configured). A `'failed'` or
-  // `'spawn-error'` outcome hard-aborts the chain before any task spins up; the AI may also
-  // run setup commands itself, but the harness is the authoritative readiness gate.
-  const setupRepoEntries = Array.from(opts.repositories.entries()).map(([id, r]) => ({
-    repositoryId: id,
-    path: r.path,
-    ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
-  }));
+  // Setup scripts run at sprint-start for each repo a todo task touches — NOT every repo on
+  // the project. Repos with no assigned task get nothing to verify and shouldn't pay the
+  // per-repo setup cost (a no-op `pnpm install` on an untouched gateway is still ~10s of
+  // wasted wall time). The leaf appends one structured audit row to `execution.setupRanAt`
+  // per repo per run — `'success'`, `'failed'`, `'spawn-error'`, or `'skipped'` (no script
+  // configured). A `'failed'` or `'spawn-error'` outcome hard-aborts the chain before any
+  // task spins up; the AI may also run setup commands itself, but the harness is the
+  // authoritative readiness gate.
+  const setupRepoEntries = ((): ReadonlyArray<{
+    readonly repositoryId: RepositoryId;
+    readonly path: AbsolutePath;
+    readonly setupScript?: string;
+  }> => {
+    const seen = new Set<string>();
+    const out: Array<{ repositoryId: RepositoryId; path: AbsolutePath; setupScript?: string }> = [];
+    for (const task of opts.todoTasks) {
+      const repo = resolveRepo(task);
+      const id = task.repositoryId;
+      if (seen.has(String(id))) continue;
+      seen.add(String(id));
+      out.push({
+        repositoryId: id,
+        path: repo.path,
+        ...(repo.setupScript !== undefined ? { setupScript: repo.setupScript } : {}),
+      });
+    }
+    return out;
+  })();
 
   // Per-repo dirty-tree preflight. Each affected repo gets its own check so a clean
   // working tree in one repo doesn't mask a dirty tree in another. Default to 'prompt' here
