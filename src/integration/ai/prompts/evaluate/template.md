@@ -55,9 +55,12 @@ Then run deterministic checks first — these are cheap, fast, and authoritative
 1. **Run the verify script** (when configured in the Verify Script section above) — this is the same gate the
    harness uses post-task. If it fails, the implementation fails regardless of how clean the code looks.
    Record the output verbatim.
-2. **`git status`** — the tree MUST be clean. Uncommitted changes from the generator are a Completeness
-   failure; uncommitted changes from you are a protocol violation.
-3. **`git log --oneline -10`** — identify which commits belong to this task.
+2. **`git status --porcelain`** — inventory the files the generator touched. The working tree is expected
+   to be dirty at this point: the harness commits the generator's output _after_ this evaluator passes,
+   not before. A dirty tree is normal; do not treat it as a Completeness failure. Do not run `git stash`,
+   `git add`, or `git commit` — those are write operations and a protocol violation.
+3. **`git diff`** — review the generator's uncommitted changes. This is your primary view of what was
+   implemented. `git log` will not show this task's work because no commit exists yet.
 
 Computational results are ground truth. If the verify script fails, stop early and emit
 `<evaluation-failed>` — the implementation does not pass.
@@ -69,9 +72,9 @@ a concrete observation — a file path, a line, a function name, a specific valu
 snippet. Generic approval language ("looks good", "appears correct", "seems fine", "looks clean", "should be
 OK") is INSUFFICIENT and is itself a Completeness failure if you emit it.
 
-1. **Diff the task's commit range** — derive the base from the branch's divergence point
-   (`git merge-base HEAD main` or the closest equivalent) and run `git diff <base>..HEAD`. Tasks may produce
-   multiple commits; do not assume a single commit.
+1. **Review the generator's changes** — run `git diff` to see all uncommitted working-tree changes, and
+   `git status --porcelain` for a quick inventory of touched files. These are the authoritative view of
+   what the generator produced; there is no task commit to diff against yet.
 2. **Read the changed files carefully** — understand the full implementation, not just the diff. Note specific
    constructs worth citing later (new functions, changed signatures, edge-case branches).
 3. **Read surrounding code** — check that the implementation follows existing patterns and conventions. Cite a
@@ -123,8 +126,8 @@ each. The verdict signal at the end is the aggregate; the per-dimension findings
 Before you decide the verdict, answer both questions honestly:
 
 1. **Did you actually run the Phase 1 verification commands?** If the verify script exists and you did
-   not execute it, or you did not run `git status` / `git log`, you lack the ground truth that
-   authoritatively settles Correctness and Completeness.
+   not execute it, or you did not run `git status --porcelain` / `git diff`, you lack the ground truth
+   that authoritatively settles Correctness and Completeness.
 2. **Can you name a specific observation for each dimension?** For every score you are about to emit,
    point to a concrete piece of evidence — a file path, a line number, a test count, a tool output, a
    function name, a verification criterion you graded. "Looks good" / "appears correct" / "no issues
