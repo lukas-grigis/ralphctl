@@ -65,7 +65,7 @@ sprints/<sprint-id>/
 ├── tasks.json          ← task list with status, attempts, evaluations.
 │                         rewritten on every settlement.
 ├── chain.log           ← EventBus trace appended by every implement-style run.
-├── progress.md         ← append-only signal log (Progress / Note signals).
+├── progress.md         ← snapshot rendered from chain.log + decisions.log + entities after every settle.
 └── <flow>/<unit>/      ← per-flow sandboxes for the AI session.
 ```
 

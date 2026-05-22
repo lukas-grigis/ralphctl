@@ -48,7 +48,7 @@ it done; when a behaviour regresses, untick it.
       `ChainStarted`, `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`,
       `ChainFailed`, `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
       `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
-      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `LogEvent`.
+      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
 - [x] **Persistent chain.log** — every `Implement` (and other long-running) chain run appends its trace to
@@ -193,7 +193,7 @@ Status flow: `draft → active → review → done`.
       readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands + one-shot operations:
       `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
       `settings {show,set}`, `project {list,show,remove}`,
-      `sprint {list,show,set-current,activate,close,remove,progress}`,
+      `sprint {list,show,set-current,activate,close,remove,progress,regenerate-progress}`,
       `ticket {list,show,add,remove}`, `task {list,show}`,
       `runs {list,prune}`, `snapshot`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.

@@ -279,8 +279,9 @@ The old `progress-file-sink` is removed.
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
 
-**`<sprintDir>/decisions.log`** captures AI-emitted `<decision>` tags; merged into `progress.md §
-Decisions`. `settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
+**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `chain.log` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
+
+`settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 
 **Environment variables.**
 

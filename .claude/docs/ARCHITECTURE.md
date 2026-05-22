@@ -235,6 +235,7 @@ ChainStarted |
   BannerClearEvent |
   MemoryPressureEvent |
   ChainLogDegradedEvent |
+  HarnessSignalEvent |
   LogEvent;
 ```
 
@@ -274,27 +275,28 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 
 ### Flows and their nature
 
-| Flow id                        | Shape    | CLI command                   | Notes                                               |
-| ------------------------------ | -------- | ----------------------------- | --------------------------------------------------- |
-| `create-sprint`                | chain    | no                            | Interactive prompts; TUI only                       |
-| `add-tickets`                  | chain    | no                            | Interactive loop; TUI only                          |
-| `refine`                       | chain    | no                            | Hands the terminal to the AI CLI; TUI only          |
-| `plan`                         | chain    | no                            | Interactive AI handoff; TUI only                    |
-| `ideate`                       | chain    | no                            | Interactive AI handoff; TUI only                    |
-| `readiness`                    | chain    | no                            | Multi-step with confirm gates; TUI only             |
-| `detect-scripts`               | chain    | no                            | Setup/verify script discovery; TUI only             |
-| `detect-skills`                | chain    | no                            | Skill discovery; TUI only                           |
-| `implement`                    | chain    | no                            | Genuinely needs the chain (gen-eval + retry)        |
-| `review`                       | chain    | no                            | Apply-feedback loop; TUI only                       |
-| `close-sprint`                 | use-case | yes (`sprint close`)          | review → done transition                            |
-| `export-context`               | use-case | yes                           | Render harness-context markdown                     |
-| `export-requirements`          | use-case | yes                           | Render approved-ticket requirements markdown        |
-| `create-pr`                    | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution |
-| `doctor`                       | use-case | yes                           | Environment health check                            |
-| `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                  |
-| `ticket-add` / `ticket-remove` | use-case | yes                           | Per `docs/api.md`                                   |
-| —                              | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts        |
-| —                              | CLI-only | `snapshot`                    | Render one static text frame of the active sprint   |
+| Flow id                        | Shape    | CLI command                   | Notes                                                                                   |
+| ------------------------------ | -------- | ----------------------------- | --------------------------------------------------------------------------------------- |
+| `create-sprint`                | chain    | no                            | Interactive prompts; TUI only                                                           |
+| `add-tickets`                  | chain    | no                            | Interactive loop; TUI only                                                              |
+| `refine`                       | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                              |
+| `plan`                         | chain    | no                            | Interactive AI handoff; TUI only                                                        |
+| `ideate`                       | chain    | no                            | Interactive AI handoff; TUI only                                                        |
+| `readiness`                    | chain    | no                            | Multi-step with confirm gates; TUI only                                                 |
+| `detect-scripts`               | chain    | no                            | Setup/verify script discovery; TUI only                                                 |
+| `detect-skills`                | chain    | no                            | Skill discovery; TUI only                                                               |
+| `implement`                    | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                            |
+| `review`                       | chain    | no                            | Apply-feedback loop; TUI only                                                           |
+| `close-sprint`                 | use-case | yes (`sprint close`)          | review → done transition                                                                |
+| `export-context`               | use-case | yes                           | Render harness-context markdown                                                         |
+| `export-requirements`          | use-case | yes                           | Render approved-ticket requirements markdown                                            |
+| `create-pr`                    | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                     |
+| `doctor`                       | use-case | yes                           | Environment health check                                                                |
+| `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                      |
+| `ticket-add` / `ticket-remove` | use-case | yes                           | Per `docs/api.md`                                                                       |
+| —                              | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                            |
+| —                              | CLI-only | `snapshot`                    | Render one static text frame of the active sprint                                       |
+| —                              | CLI-only | `sprint regenerate-progress`  | Rebuild `progress.md` from disk state without running implement (operator escape hatch) |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. See
 `docs/api.md` (in this repo's docs at the v2 source) for flag-level detail on the CLI commands.
@@ -419,30 +421,31 @@ parsers; adding a variant requires editing the registry and adding a parser.
 Adapter-side: each AI spawn writes a `signals.json` file the harness reads post-spawn. Replaces the brittle
 stdout-parsing path; signals are now a structured contract, not a regex over CLI output.
 
-| Signal                                   | Consumed by                                                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `ProgressSignal`                         | Append to `<sprintDir>/progress.md`; emit on the EventBus                                                          |
-| `EvaluationSignal`                       | Per-round critique persisted on the `Task.attempts[]` history                                                      |
-| `TaskCompleteSignal`                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                     |
-| `TaskVerifiedSignal`                     | Use case sets `verified` on the task entity                                                                        |
-| `TaskBlockedSignal`                      | Use case transitions task to `blocked`                                                                             |
-| `NoteSignal`                             | Append to `progress.md`                                                                                            |
-| `LearningSignal`                         | Adapter-side audit; routed to `chain.log` + EventBus                                                               |
-| `DecisionSignal`                         | Adapter-side audit                                                                                                 |
-| `ChangeSignal`                           | Adapter-side audit                                                                                                 |
-| `CommitMessageSignal`                    | Used by `commit-task` leaf to author commit message                                                                |
-| `ProgressEntrySignal`                    | Long-form progress entry, written to `progress.md`                                                                 |
-| `SetupScriptSignal`                      | `detect-scripts` flow persists on `Repository.setupScript`                                                         |
-| `VerifyScriptSignal`                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                        |
-| `AgentsMdProposalSignal`                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md) |
-| `SetupSkillSignal` / `VerifySkillSignal` | `detect-skills` flow surfaces suggestions                                                                          |
-| `ContextCompactedSignal`                 | Emitted when the AI CLI compacts its own context window; TUI renders a marker in the step trace                    |
+| Signal                                                   | Consumed by                                                                                                                                                                               |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProgressSignal`                                         | Emitted on the EventBus; short-form narrative surfaced in TUI signal stream. Not appended to `progress.md` — the snapshot renderer reads entity + log state instead.                      |
+| `EvaluationSignal`                                       | Per-round critique persisted on the `Task.attempts[]` history                                                                                                                             |
+| `TaskCompleteSignal`                                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                                                                                            |
+| `TaskVerifiedSignal`                                     | Use case sets `verified` on the task entity                                                                                                                                               |
+| `TaskBlockedSignal`                                      | Use case transitions task to `blocked`                                                                                                                                                    |
+| `NoteSignal`                                             | Fans out as `HarnessSignalEvent` (`signalKind: 'note'`) → `chain.log`; mined per-task by `state-projection.ts` into `TaskProjection.notes` → `#### Notes` in `progress.md`                |
+| `LearningSignal`                                         | Fans out as `HarnessSignalEvent` (`signalKind: 'learning'`) → `chain.log`; mined into `TaskProjection.learnings` → `#### Learnings` in `progress.md`                                      |
+| `ChangeSignal`                                           | Fans out as `HarnessSignalEvent` (`signalKind: 'change'`) → `chain.log`; mined into `TaskProjection.changes` → `#### Changes` in `progress.md`                                            |
+| `DecisionSignal`                                         | `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars); mined by `collectDecisions` (same cap) → `## Decisions` in `progress.md` (render-time clip at 160 chars)   |
+| `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                       |
+| `ProgressEntrySignal`                                    | Structured 4-section progress entry (task / filesChanged / learnings / notesForNext) surfaced in TUI; not written directly to `progress.md` — snapshot renderer derives from entity state |
+| `SetupScriptSignal`                                      | `detect-scripts` flow persists on `Repository.setupScript`                                                                                                                                |
+| `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                               |
+| `AgentsMdProposalSignal`                                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)                                                                        |
+| `SetupSkillProposalSignal` / `VerifySkillProposalSignal` | `detect-skills` flow surfaces suggestions                                                                                                                                                 |
+| `SkillSuggestionsSignal`                                 | Parsed; no flow consumer yet (deferred — see Future Work)                                                                                                                                 |
+| `ContextCompactedSignal`                                 | TUI renders a dedented separator marker in the signal stream at the compaction boundary                                                                                                   |
 
 EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
 `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,
 `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
-`MemoryPressureEvent`, `ChainLogDegradedEvent`, `LogEvent`.
+`MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
 
 ## Error Classes
 

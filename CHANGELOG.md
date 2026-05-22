@@ -31,6 +31,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`HarnessSignalEvent` AppEvent variant.** A new `harness-signal` event on the `AppEvent` union carries
+  `signalKind` (`'change' | 'learning' | 'note'`), optional `taskId`, and `text`. Published by the signal
+  adapter whenever the AI emits a `<change>`, `<learning>`, or `<note>` tag during an in-flight task, so
+  `<sprintDir>/chain.log` retains a machine-readable record of the per-task narrative that `progress.md`
+  can reconstruct on every snapshot regenerate.
+
+- **Per-task `#### Changes` / `#### Learnings` / `#### Notes` sub-sections in `progress.md`.** The
+  `state-projection.ts` miner reads `harness-signal` entries from `chain.log`, groups them by `taskId`,
+  and exposes them as `TaskProjection.{changes, learnings, notes}`. `render-progress-markdown.ts`
+  renders these under each `### Task N — <name>` section.
+
+- **Machine-readable JSON block at the bottom of `progress.md`.** A `<!-- machine:begin -->` / `<!-- machine:end -->`
+  fenced JSON payload (`sprintId`, `status`, task array with `id`, `name`, `status`, `attempts`,
+  `blockReason?`, `lastVerdict?`, `commitSha?`) closes every generated `progress.md` for tooling that
+  needs to parse sprint state without loading the full entity layer.
+
+- **`ralphctl sprint regenerate-progress <id>` CLI subcommand.** Rebuilds `progress.md` from disk state
+  (`chain.log` + `decisions.log` + `sprint.json` / `tasks.json` / `execution.json`) without running
+  implement. Operator escape hatch when `progress.md` is corrupt (e.g. a runaway `<decision>` tag before
+  the parser-level defence landed) or entities were edited by hand.
+
 - **Three-column Implement layout with responsive breakpoints.** At ≥180 cols the execute view splits into a
   fixed-width rail (24 cols), a flex Tasks stream, and a fixed context column (28 cols). At 140–179 cols the
   context column drops; below 140 cols the existing single-column stack applies, capped at 4 Flow Steps rows
@@ -208,6 +229,13 @@ generate tasks`; on the first round before any signal fires, the active-task spi
 
 ### Fixed
 
+- **`<decision>` signal parser drops runaway matches.** The decision parser now rejects bodies that exceed
+  500 chars, contain `\n## ` (a section-header boundary), or have 3 or more code fences — so a malformed
+  or adversarially-long `<decision>` block cannot pollute `decisions.log` or `progress.md`.
+
+- **Render-time decision-line clip.** `render-progress-markdown.ts` clips each decision line at 160 chars
+  with a `+N chars` hint as a second line of defence should any pre-cap entry reach the renderer.
+
 - **Commit-message signal deduplication.** The AI's parse-time signal (no `fullMessage`) is dropped from the
   bucketed output whenever the harness-resolved version (with `fullMessage`) exists for the same task, so the
   TUI never shows two commit rows for one commit.
@@ -233,6 +261,14 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   detection in downstream tooling.
 
 ### Changed
+
+- **`decisions-log-sink` caps decision body at 500 chars.** Defence-in-depth — the parser already rejects
+  bodies over 500 chars, but the sink now slices independently so a non-parser source cannot produce a
+  runaway `decisions.log` entry.
+
+- **`state-projection.collectDecisions` miner caps mined bodies at 500 chars.** Same cap applied when
+  mining `harness-signal` / legacy `decision` entries from `chain.log`, so pre-cap log files cannot inject
+  over-length text into `progress.md` via the miner path.
 
 - **Setup-script runner migrated off deprecated `SETUP_TAIL_BYTES`.** Both `SetupRun` and `CheckRun` now
   import `SCRIPT_TAIL_BYTES` from the shared constant; the deprecated `SETUP_TAIL_BYTES` alias is kept for
