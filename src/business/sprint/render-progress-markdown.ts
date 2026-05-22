@@ -148,11 +148,25 @@ const renderCycles = (cycles: ReadonlyArray<readonly string[]>): string => {
 
 // ───────────────────────── decisions / runs ─────────────────────────
 
+/**
+ * Per-line display cap for a decision message in `progress.md`. Shorter than the parser /
+ * sink cap (500) because this section is a human-facing scan list — a runaway entry that
+ * slipped past both upstream guards still gets visually clipped with a `(+N chars)` hint
+ * so the operator can see something was truncated rather than reading a wall of text.
+ */
+const DECISION_DISPLAY_CAP = 160;
+
+const clipDecisionMessage = (message: string): string => {
+  if (message.length <= DECISION_DISPLAY_CAP) return message;
+  const overflow = message.length - DECISION_DISPLAY_CAP;
+  return `${message.slice(0, DECISION_DISPLAY_CAP)}… (+${overflow} chars)`;
+};
+
 const renderDecisions = (decisions: readonly DecisionEntry[]): string => {
   const lines: string[] = ['## Decisions'];
   for (const d of decisions) {
     const tag = pickDecisionTag(d);
-    lines.push(`- ${String(d.at)} [${tag}] ${d.message}`);
+    lines.push(`- ${String(d.at)} [${tag}] ${clipDecisionMessage(d.message)}`);
   }
   return lines.join('\n');
 };

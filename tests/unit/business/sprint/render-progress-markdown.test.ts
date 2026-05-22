@@ -290,6 +290,24 @@ describe('renderProgressMarkdown', () => {
       // Falls back to chainId when no taskId on meta.
       expect(out).toContain('- 2026-05-08T12:00:00.000Z [c-2] no task ref');
     });
+
+    it('clips an over-cap decision message with an ellipsis + (+N chars) overflow hint', () => {
+      const longMessage = 'x'.repeat(200);
+      const decisions: DecisionEntry[] = [
+        {
+          chainId: 'c-1',
+          at: ts('2026-05-08T11:00:00.000Z'),
+          message: longMessage,
+          meta: { taskId: 't-99' },
+        },
+      ];
+      const out = renderProgressMarkdown({ ...minimalState(), decisions });
+      expect(out).toContain('## Decisions');
+      // 200 chars total, 160 cap → 40-char overflow hint.
+      expect(out).toContain(`- 2026-05-08T11:00:00.000Z [t-99] ${'x'.repeat(160)}… (+40 chars)`);
+      // Full body must NOT appear verbatim — clipping is load-bearing.
+      expect(out).not.toContain('x'.repeat(200));
+    });
   });
 
   describe('recent runs', () => {

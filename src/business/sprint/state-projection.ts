@@ -621,11 +621,23 @@ const mergeDecisions = (
 };
 
 /**
+ * Defence-in-depth cap on the message length tolerated when mining decisions from the chain
+ * log. Mirrors the parser (`integration/ai/signals/decision/parser.ts`) and sink
+ * (`integration/observability/sinks/decisions-log-sink.ts`) caps: anything longer than this
+ * is a runaway entry from a stray open tag and gets dropped rather than surfaced.
+ */
+const MAX_DECISION_MESSAGE_CHARS = 500;
+
+/**
  * Mine "decision" entries from the chain log. The current contract: an entry whose `event` field
  * is exactly `'decision'`, or whose `meta.signalKind === 'decision'`. The authoritative source
  * for AI-emitted `<decision>` signals is `<sprintDir>/decisions.log` (see
  * `decisions-log-sink.ts`); this miner is a fallback for events that landed in the chain log
  * via the bus rather than via the decisions sink.
+ *
+ * Entries whose `message` exceeds {@link MAX_DECISION_MESSAGE_CHARS} are dropped — the parser
+ * and sink both clamp upstream, but the miner is the last line of defence for entries that
+ * landed pre-cap (legacy log files).
  */
 const collectDecisions = (entries: readonly ChainLogEntry[]): readonly DecisionEntry[] => {
   const out: DecisionEntry[] = [];
@@ -633,6 +645,7 @@ const collectDecisions = (entries: readonly ChainLogEntry[]): readonly DecisionE
     const kind = entry.meta?.['signalKind'];
     const isDecision = entry.event === 'decision' || kind === 'decision';
     if (!isDecision) continue;
+    if (entry.message.length > MAX_DECISION_MESSAGE_CHARS) continue;
     out.push({
       chainId: entry.chainId,
       at: entry.timestamp,

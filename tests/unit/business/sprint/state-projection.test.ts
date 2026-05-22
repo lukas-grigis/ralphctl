@@ -478,6 +478,35 @@ describe('projectSprintState', () => {
       });
       expect(state.decisions).toHaveLength(1);
     });
+
+    it('drops an oversized mined decision message (defence-in-depth cap)', () => {
+      const { sprint, execution } = baseInputs();
+      const log: ChainLogEntry[] = [
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:00.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'decision',
+          message: 'x'.repeat(600),
+        },
+        {
+          timestamp: isoTimestamp('2026-05-10T10:00:01.000Z'),
+          chainId: 'A',
+          level: 'info',
+          event: 'decision',
+          message: 'kept this one',
+        },
+      ];
+      const state = projectSprintState({
+        sprint,
+        execution,
+        tasks: [],
+        chainLogEntries: log,
+        now: FIXED_LATEST,
+      });
+      expect(state.decisions).toHaveLength(1);
+      expect(state.decisions[0]?.message).toBe('kept this one');
+    });
   });
 
   describe('median round duration', () => {
