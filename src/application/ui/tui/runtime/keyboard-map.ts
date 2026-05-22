@@ -54,9 +54,13 @@ export const pickerKeys = {
  * and Repository entity fields. It overlaps with the Tasks-panel's `e` (expand done criteria) by
  * design — those keys live on different surfaces (browse views vs the live execute view) and
  * never collide at runtime.
+ *
+ * `u` unblocks a task left in `blocked` state by a prior watchdog kill or failed verify.
+ * Only active when the cursor is on a blocked task in the sprint-detail view.
  */
 export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
+  unblockTask: { keys: ['u'], label: 'unblock focused task' },
 } as const satisfies Record<string, KeyBinding>;
 
 /** Vertical-list bindings — used by every list view + action menu. */

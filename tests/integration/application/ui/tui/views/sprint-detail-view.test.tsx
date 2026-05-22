@@ -235,6 +235,103 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
+  it("shows 'u unblock' hint in status bar when a blocked task is focused", async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const blockedTask: Task = {
+      id: 'task-blocked-hint' as never,
+      name: 'stuck-task',
+      status: 'blocked',
+      blockedReason: 'verify script timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 't1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([blockedTask]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    // Cursor starts on the ticket; press 'j' to land on the blocked task.
+    result.stdin.write('j');
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // The 'u unblock' hint must appear in the status bar footer area. The terminal width used
+    // by ink-testing-library may wrap the label across lines — match a prefix that survives
+    // truncation/wrapping ("unbl" is the first four characters of the label "unblock").
+    expect(frame).toMatch(/unbl/);
+    result.unmount();
+  });
+
+  it("hides the 'u unblock' hint when a non-blocked task is focused", async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const todoTask: Task = {
+      id: 'task-todo-hint' as never,
+      name: 'not-stuck',
+      status: 'todo',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 't1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const deps = {
+      sprintRepo: {
+        async findById() {
+          return Result.ok(sprint);
+        },
+      } as unknown as SprintRepository,
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([todoTask]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintDetailView />, { deps, initial });
+    await tick(40);
+    // Cursor starts on the ticket; press 'j' to land on the todo task.
+    result.stdin.write('j');
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // The task is visible but the unblock hint must NOT appear. The `unbl` prefix is enough —
+    // if the label does not exist, not even the start of the word appears anywhere in the frame.
+    expect(frame).toContain('not-stuck');
+    expect(frame).not.toMatch(/unbl/);
+    result.unmount();
+  });
+
   it('u is a no-op when the focused card is a todo task (no use-case invocation)', async () => {
     const sprint = makeSprint({
       status: 'active',
