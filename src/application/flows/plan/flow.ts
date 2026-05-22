@@ -115,11 +115,12 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         buildPrompt: async (ctx) => {
           if (ctx.sprint === undefined) throw new Error('sprint missing');
           if (ctx.project === undefined) throw new Error('project missing');
+          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
           const priorProgress = await readSprintProgress(opts.planRoot);
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,
-            outputContractSection: renderContractSectionFor(planOutputContract),
+            outputContractSection: renderContractSectionFor(planOutputContract, ctx.currentUnitRoot),
             priorProgress,
             ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
           });

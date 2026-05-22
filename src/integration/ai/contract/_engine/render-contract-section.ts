@@ -1,3 +1,4 @@
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
@@ -16,6 +17,13 @@ export interface RenderContractSectionParams {
    * the harness will write so the AI knows it MUST NOT write them itself.
    */
   readonly sidecars: readonly SidecarRule[];
+  /**
+   * Absolute path to the spawn output directory. Embedded verbatim in the rendered section so
+   * the AI's `Write` call uses the exact `<outputDir>/signals.json` path. Without this, the
+   * AI's cwd (the user's repo for implement; the sandbox dir for refine/plan/ideate/readiness)
+   * makes "write signals.json" path-ambiguous and the file lands nowhere the harness reads.
+   */
+  readonly outputDir: AbsolutePath;
 }
 
 /**
@@ -24,7 +32,10 @@ export interface RenderContractSectionParams {
  * hand-build the params bag. Generic over the contract's signal sub-union so it accepts any
  * per-leaf `AiOutputContract<TSig>` without an upcast at the call site.
  */
-export const renderContractSectionFor = <TSig extends AiSignal>(contract: AiOutputContract<TSig>): string =>
+export const renderContractSectionFor = <TSig extends AiSignal>(
+  contract: AiOutputContract<TSig>,
+  outputDir: AbsolutePath
+): string =>
   renderContractSection({
     schemaVersion: contract.schemaVersion,
     exampleSignals: contract.exampleSignals,
@@ -33,6 +44,7 @@ export const renderContractSectionFor = <TSig extends AiSignal>(contract: AiOutp
     // `SidecarRule` admits is harmless here. The cast keeps the prompt-renderer signature
     // agnostic of the per-leaf signal union.
     sidecars: contract.sidecars as readonly SidecarRule[],
+    outputDir,
   });
 
 /**
@@ -49,10 +61,15 @@ export const renderContractSectionFor = <TSig extends AiSignal>(contract: AiOutp
  */
 export const renderContractSection = (params: RenderContractSectionParams): string => {
   const lines: string[] = [];
+  const signalsPath = `${params.outputDir}/signals.json`;
   lines.push('## Output contract');
   lines.push('');
-  lines.push('Write **exactly one file** when you are done: `signals.json`. Do not write any other');
-  lines.push('files — the harness renders every operator-readable sidecar from the validated signals.');
+  lines.push(`Write **exactly one file** when you are done: \`${signalsPath}\`. Do not write any`);
+  lines.push('other files — the harness renders every operator-readable sidecar from the validated');
+  lines.push('signals.');
+  lines.push('');
+  lines.push('Use the `Write` tool with the absolute path above — your cwd is the project repo, not');
+  lines.push('the spawn output directory, so a relative `signals.json` would land in the wrong place.');
   lines.push('');
   if (params.sidecars.length > 0) {
     lines.push('Files the harness will render from your signals (you must NOT write these):');
@@ -77,7 +94,7 @@ export const renderContractSection = (params: RenderContractSectionParams): stri
   lines.push('');
   lines.push('Stop conditions:');
   lines.push('');
-  lines.push('- `signals.json` exists in the spawn output directory.');
+  lines.push(`- \`${signalsPath}\` exists.`);
   lines.push('- The file validates against the schema (the example above is one valid shape).');
   lines.push('');
   return lines.join('\n');

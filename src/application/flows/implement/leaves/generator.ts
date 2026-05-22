@@ -200,7 +200,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             projectPath: String(deps.cwd),
             progressFile: String(deps.progressFile),
             priorProgress,
-            outputContractSection: renderContractSectionFor(generatorOutputContract),
+            outputContractSection: renderContractSectionFor(generatorOutputContract, outputDir),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
           });

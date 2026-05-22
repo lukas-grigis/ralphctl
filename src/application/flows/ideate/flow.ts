@@ -105,12 +105,13 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
         },
         buildPrompt: async (ctx) => {
           if (ctx.project === undefined) throw new Error('project missing');
+          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
           const priorProgress = await readSprintProgress(opts.ideateRoot);
           return buildIdeatePrompt(deps.templateLoader, {
             ideaTitle: opts.ideaTitle,
             ideaDescription: opts.ideaText,
             project: ctx.project,
-            outputContractSection: renderContractSectionFor(ideateOutputContract),
+            outputContractSection: renderContractSectionFor(ideateOutputContract, ctx.currentUnitRoot),
             priorProgress,
           });
         },

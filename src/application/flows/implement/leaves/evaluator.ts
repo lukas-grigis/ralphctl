@@ -140,7 +140,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           const prompt = await buildEvaluatePrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
-            outputContractSection: renderContractSectionFor(evaluatorOutputContract),
+            outputContractSection: renderContractSectionFor(evaluatorOutputContract, outputDir),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;

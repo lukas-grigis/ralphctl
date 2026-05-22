@@ -121,10 +121,11 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
             return ctx.currentPromptFile;
           },
           buildPrompt: async (ctx) => {
+            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
             const priorProgress = await readSprintProgress(opts.refinementRoot);
             return buildRefinePrompt(deps.templateLoader, {
               ticket,
-              outputContractSection: renderContractSectionFor(refineOutputContract),
+              outputContractSection: renderContractSectionFor(refineOutputContract, ctx.currentUnitRoot),
               priorProgress,
               ...(ctx.currentIssueContext !== undefined ? { issueContext: ctx.currentIssueContext } : {}),
             });

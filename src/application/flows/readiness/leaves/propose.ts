@@ -126,7 +126,7 @@ const proposeReadinessUseCase = async (
       buildPrompt: (params) =>
         buildReadinessPrompt(deps.templateLoader, {
           ...params,
-          outputContractSection: renderContractSectionFor(readinessOutputContract),
+          outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
         readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir),

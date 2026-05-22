@@ -42,6 +42,8 @@ export type BuildReadinessPromptFn = (input: {
   readonly repositoryPath: string;
   readonly currentTool: AssistantTool;
   readonly probedState: ReadinessState;
+  /** Absolute spawn output directory — embedded in the rendered contract section. */
+  readonly outputDir: AbsolutePath;
   readonly existingContextFile?: string;
 }) => Promise<Result<Prompt, DomainError>>;
 
@@ -128,16 +130,20 @@ export const setupReadinessUseCase = async (
     state: input.probedState.kind,
   });
 
+  // Resolve `runDir` first so the prompt can embed the absolute `signals.json` path the AI
+  // must write to. Without it, the rendered contract section would say "spawn output
+  // directory" without naming the path and the AI's `Write` lands nowhere harness reads.
+  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
+  if (!runDir.ok) return Result.error(runDir.error);
+
   const prompt = await deps.buildPrompt({
     repositoryPath: String(input.repository.path),
     currentTool: input.tool,
     probedState: input.probedState,
+    outputDir: runDir.value,
     ...(input.existingContextFile !== undefined ? { existingContextFile: input.existingContextFile } : {}),
   });
   if (!prompt.ok) return Result.error(prompt.error);
-
-  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
-  if (!runDir.ok) return Result.error(runDir.error);
   const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
   if (!promptFile.ok) return Result.error(promptFile.error);
   const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));

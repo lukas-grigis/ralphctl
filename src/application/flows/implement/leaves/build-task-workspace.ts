@@ -82,6 +82,11 @@ export const buildTaskWorkspaceLeaf = (
       execute: async (input) => {
         const log = deps.logger.named('implement.workspace');
         const workspaceRoot = join(String(opts.sprintDir), 'implement', String(input.task.id));
+        // Static-artifact outputDir points at round 1's generator dir. The live generator
+        // leaf re-renders the prompt with the actual per-round outputDir before each spawn,
+        // so this preview's path is correct for round 1 and indicative for later rounds.
+        const previewOutputDir = AbsolutePath.parse(join(workspaceRoot, 'rounds', '1', 'generator'));
+        if (!previewOutputDir.ok) return Result.error(previewOutputDir.error);
 
         // build-task-workspace materialises a static prompt.md as an audit artifact only —
         // the live generator leaf re-reads `progress.md` immediately before each spawn, so
@@ -92,7 +97,7 @@ export const buildTaskWorkspaceLeaf = (
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
           priorProgress: '',
-          outputContractSection: renderContractSectionFor(generatorOutputContract),
+          outputContractSection: renderContractSectionFor(generatorOutputContract, previewOutputDir.value),
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });
         if (!prompt.ok) return Result.error(prompt.error);
