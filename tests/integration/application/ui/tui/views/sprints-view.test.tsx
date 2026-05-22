@@ -8,10 +8,16 @@ import { SprintsView } from '@src/application/ui/tui/views/sprints-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import { makeDraftSprint } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { failCurrentAttempt, startNextAttempt } from '@src/domain/entity/task.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const fakeSprintRepo = (sprints: readonly Sprint[]): SprintRepository =>
   ({
@@ -23,13 +29,22 @@ const fakeSprintRepo = (sprints: readonly Sprint[]): SprintRepository =>
     },
   }) as unknown as SprintRepository;
 
+/** Minimal task repo that returns an empty task list for any sprint. */
+const emptyTaskRepo = (): TaskRepository =>
+  ({
+    async findBySprintId() {
+      return Result.ok([] as readonly Task[]);
+    },
+  }) as unknown as TaskRepository;
+
 const stubDeps = (sprints: readonly Sprint[]): AppDeps =>
   ({
     sprintRepo: fakeSprintRepo(sprints),
     projectRepo: {} as never,
     sprintExecutionRepo: {} as never,
-    taskRepo: {} as never,
+    taskRepo: emptyTaskRepo(),
     settingsRepo: {} as never,
+    logger: noopLogger,
   }) as unknown as AppDeps;
 
 const makeSprint = (overrides: Record<string, unknown> = {}): Sprint =>
@@ -107,6 +122,145 @@ describe('SprintsView', () => {
     expect(save).toHaveBeenCalledTimes(1);
     const renamed = save.mock.calls[0]?.[0];
     expect(renamed?.name).toBe('Misspelled Sprint');
+    result.unmount();
+  });
+
+  it("shows 'u unblock (N)' hint when the focused sprint has stuck tasks", async () => {
+    const sprint = makeDraftSprint({ name: 'Broken Sprint' });
+    // Build a blocked task for this sprint.
+    const blocked: Task = {
+      id: 'task-b1' as never,
+      name: 'stuck-one',
+      status: 'blocked',
+      blockedReason: 'verify timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-1' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const deps = {
+      sprintRepo: fakeSprintRepo([sprint]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok([blocked] as readonly Task[]);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    // Extra ticks: one for sprint list render, one for task fetch effect.
+    await tick(80);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Broken Sprint');
+    // 'u unblock (1)' should appear somewhere in the status bar hints. The terminal used by
+    // ink-testing-library may wrap the label across lines — check that both "unblock" and "(1)"
+    // appear in the frame (they are part of the same hint even if line-wrapped).
+    expect(frame).toContain('unblock');
+    expect(frame).toContain('(1)');
+    result.unmount();
+  });
+
+  it('pressing u on a sprint with stuck tasks calls unblockTaskUseCase and shows feedback', async () => {
+    const sprint = makeDraftSprint({ name: 'Recovery Sprint' });
+    const blocked: Task = {
+      id: 'task-c1' as never,
+      name: 'jvm-wedge',
+      status: 'blocked',
+      blockedReason: 'agent attach failed',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-2' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    const updateCalls: Task[] = [];
+    let stored: readonly Task[] = [blocked];
+
+    const deps = {
+      sprintRepo: fakeSprintRepo([sprint]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(stored);
+        },
+        async update(_sprintId: SprintId, task: Task) {
+          updateCalls.push(task);
+          stored = [{ ...(blocked as object), status: 'todo' } as unknown as Task];
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    // Wait for sprint list + task fetch to settle.
+    await tick(80);
+    result.stdin.write('u');
+    // Let the sequential unblock loop + feedback + task refresh complete.
+    await tick(120);
+    const frame = result.lastFrame() ?? '';
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.status).toBe('todo');
+    expect(frame).toMatch(/unblocked 1 task/);
+    result.unmount();
+  });
+
+  it('pressing u builds a settled in_progress task back to todo (crash-recovery path)', async () => {
+    const sprint = makeDraftSprint({ name: 'Crash Sprint' });
+    // Build an in_progress task with an aborted (settled) attempt.
+    const todo = makeTodoTask({ name: 'crashed' });
+    const inProgress = (() => {
+      const r = startNextAttempt(todo, IsoTimestamp.now(), 'sess-z');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      return r.value;
+    })();
+    const settled = (() => {
+      const r = failCurrentAttempt(inProgress, IsoTimestamp.now(), 'aborted');
+      if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
+      if (r.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after single-attempt abort');
+      return r.value;
+    })();
+
+    const updateCalls: Task[] = [];
+    let stored: readonly Task[] = [settled as unknown as Task];
+
+    const deps = {
+      sprintRepo: fakeSprintRepo([sprint]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(stored);
+        },
+        async update(_sprintId: SprintId, task: Task) {
+          updateCalls.push(task);
+          stored = [{ ...(settled as object), status: 'todo' } as unknown as Task];
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await tick(80);
+    result.stdin.write('u');
+    await tick(120);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.status).toBe('todo');
     result.unmount();
   });
 });

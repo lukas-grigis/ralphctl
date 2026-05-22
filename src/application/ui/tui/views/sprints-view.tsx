@@ -35,6 +35,8 @@ import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 
 export const SprintsView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -44,13 +46,6 @@ export const SprintsView = (): React.JSX.Element => {
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
-  useViewHints([
-    { keys: '↵', label: 'open' },
-    { keys: 'c', label: 'create' },
-    { keys: 'e', label: 'rename' },
-    { keys: 'd', label: 'delete' },
-    { keys: 'r', label: 'reload' },
-  ]);
   const edit = useEditField();
 
   const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
@@ -65,6 +60,39 @@ export const SprintsView = (): React.JSX.Element => {
   const [cursorId, setCursorId] = useState<SprintId | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Load tasks for the focused sprint so we can count stuck ones (blocked + in_progress) and
+  // offer `u` to bulk-unblock them. Keyed by sprint id so cursor moves re-trigger the fetch.
+  const [focusedSprintTasks, setFocusedSprintTasks] = useState<readonly Task[]>([]);
+  const focusedSprint = items.find((s) => s.id === cursorId) ?? items[0];
+  useEffect(() => {
+    if (focusedSprint === undefined) {
+      setFocusedSprintTasks([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      const r = await deps.taskRepo.findBySprintId(focusedSprint.id);
+      if (cancelled) return;
+      if (r.ok) setFocusedSprintTasks(r.value);
+    };
+    load().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [focusedSprint?.id, deps.taskRepo]);
+
+  const stuckTasks = focusedSprintTasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
+  const stuckCount = stuckTasks.length;
+
+  useViewHints([
+    { keys: '↵', label: 'open' },
+    { keys: 'c', label: 'create' },
+    { keys: 'e', label: 'rename' },
+    { keys: 'd', label: 'delete' },
+    { keys: 'r', label: 'reload' },
+    ...(stuckCount > 0 ? [{ keys: 'u', label: `unblock (${String(stuckCount)})` }] : []),
+  ]);
 
   // Claim the global-key mute while the confirm prompt is mounted.
   useEffect(() => (confirmDelete !== undefined ? ui.claimPrompt() : undefined), [confirmDelete, ui.claimPrompt]);
@@ -148,7 +176,43 @@ export const SprintsView = (): React.JSX.Element => {
       setFeedback('↻ reloading…');
       reload();
     }
+    if (input === 'u' && stuckCount > 0) {
+      void handleBulkUnblock();
+    }
   });
+
+  const handleBulkUnblock = async (): Promise<void> => {
+    if (focusedSprint === undefined || stuckTasks.length === 0) return;
+    setFeedback(undefined);
+    let succeeded = 0;
+    let lastError: string | undefined;
+    for (const task of stuckTasks) {
+      const r = await unblockTaskUseCase({
+        task,
+        sprintId: focusedSprint.id,
+        taskRepo: deps.taskRepo,
+        logger: deps.logger,
+      });
+      if (r.ok) {
+        succeeded += 1;
+      } else {
+        lastError = r.error.message;
+      }
+    }
+    const total = stuckTasks.length;
+    if (succeeded === total) {
+      setFeedback(
+        `${glyphs.check} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${focusedSprint.name}"`
+      );
+    } else {
+      setFeedback(
+        `${glyphs.check} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` — ${lastError}` : ''}`
+      );
+    }
+    // Refresh task list so the hint and count update immediately.
+    const refreshed = await deps.taskRepo.findBySprintId(focusedSprint.id);
+    if (refreshed.ok) setFocusedSprintTasks(refreshed.value);
+  };
 
   const handleDeleteConfirmed = async (target: Sprint, confirmed: boolean): Promise<void> => {
     setConfirmDelete(undefined);
