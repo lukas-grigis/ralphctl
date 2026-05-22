@@ -21,6 +21,14 @@ to [Semantic Versioning](https://semver.org/).
   `checkTimeout` / `checkRuns` fields are read once, migrated to the new field names in the in-memory
   entity, and dropped on the next save. No manual migration step.
 
+### Removed
+
+- **`CI=true` auto-retry for pnpm no-TTY aborts on `setup-script`.** A successful retry could mask drift
+  from the real baseline the post-task verify gate later runs without `CI=true` (Maven Surefire skips
+  `@DisabledIfEnvironmentVariable("CI")` tests, Spring Boot env-gated tests skip, pnpm switches to
+  non-interactive / frozen-lockfile semantics). The marker detection and the actionable project-side hint
+  (pin pnpm < 11, resync in a terminal, or set `confirm-modules-purge=false`) are preserved.
+
 ### Added
 
 - **Three-column Implement layout with responsive breakpoints.** At ≥180 cols the execute view splits into a

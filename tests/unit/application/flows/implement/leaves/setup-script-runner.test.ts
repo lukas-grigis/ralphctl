@@ -186,63 +186,17 @@ describe('setupScriptRunnerLeaf', () => {
     expect(result.error.error.message).toBe('exited 7');
   });
 
-  it('auto-retries with CI=true when pnpm aborts on missing TTY', async () => {
-    // Operator-supplied workaround for `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` (pnpm refuses
-    // to wipe node_modules without an interactive confirmation) is `CI=true`. The leaf now
-    // auto-retries once when the marker is detected — first attempt fails, retry passes.
+  it('surfaces a project-side hint and persists ONE row when pnpm aborts on missing TTY', async () => {
+    // `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` (pnpm refuses to wipe node_modules without
+    // an interactive confirmation, pnpm/pnpm#9966). The leaf does NOT auto-retry with CI=true
+    // because that would flip Maven Surefire, Spring Boot @DisabledIfEnvironmentVariable("CI")
+    // gates, pnpm's frozen-lockfile semantics, and other toolchain heuristics — a "green" retry
+    // could mask drift from the real baseline the post-task verify gate later runs without CI.
+    // Instead the leaf aborts on the single spawn and surfaces an actionable project-side hint.
     const repo = savingRepo();
     const bus = createCapturingBus();
     const shell = multiCallShell([
       { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY: stuff' },
-      { passed: true, exitCode: 0, output: 'ok' },
-    ]);
-    const leaf = setupScriptRunnerLeaf(
-      {
-        shellScriptRunner: shell.runner,
-        clock: () => FIXED_NOW,
-        eventBus: bus.bus,
-        sprintExecutionRepo: repo,
-        logger: noopLogger,
-      },
-      {
-        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
-      }
-    );
-
-    const result = await leaf.execute(initialCtx(baseExecution()));
-    if (!result.ok) throw new Error(`expected ok: ${result.error.error.message}`);
-
-    // Both rows appended to execution.setupRanAt — the first failure is preserved alongside the
-    // retry's success so the audit trail shows what actually happened.
-    const exec = result.value.ctx.execution as SprintExecution;
-    expect(exec.setupRanAt).toHaveLength(2);
-    expect(exec.setupRanAt[0]?.outcome).toBe('failed');
-    expect(exec.setupRanAt[1]?.outcome).toBe('success');
-    expect(repo.saves).toHaveLength(2);
-
-    // Operator-visible warn log surfaces the auto-retry so JVM @DisabledIfEnvironmentVariable("CI")
-    // skips during the retry are explainable, plus an info log on success.
-    expect(
-      bus.logs.some((l) => l.level === 'warn' && l.message.includes('auto-retrying') && l.message.includes('CI=true'))
-    ).toBe(true);
-    expect(
-      bus.logs.some((l) => l.level === 'info' && l.message.includes('retry') && l.message.includes('CI=true'))
-    ).toBe(true);
-
-    // Spawn called twice; second call's env contains CI=true.
-    expect(shell.calls).toHaveLength(2);
-    expect(shell.calls[0]?.env?.CI).toBeUndefined();
-    expect(shell.calls[1]?.env?.CI).toBe('true');
-  });
-
-  it("fails when even the CI=true retry can't recover", async () => {
-    // When the no-TTY abort survives the auto-retry the chain still aborts, with both rows
-    // persisted and the hint text updated to reflect that the retry was already attempted.
-    const repo = savingRepo();
-    const bus = createCapturingBus();
-    const shell = multiCallShell([
-      { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY first try' },
-      { passed: false, exitCode: 1, output: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY retry too' },
     ]);
     const leaf = setupScriptRunnerLeaf(
       {
@@ -262,22 +216,55 @@ describe('setupScriptRunnerLeaf', () => {
     if (result.ok) return;
 
     expect(result.error.error).toBeInstanceOf(InvalidStateError);
-    // Both attempts persisted, both failed.
-    expect(repo.saves).toHaveLength(2);
+    // Exactly one spawn — no auto-retry.
+    expect(shell.calls).toHaveLength(1);
+    expect(shell.calls[0]?.env?.CI).toBeUndefined();
+    // Exactly one audit row appended (the failed first attempt).
+    expect(repo.saves).toHaveLength(1);
     const finalExec = repo.saves[repo.saves.length - 1];
-    expect(finalExec?.setupRanAt).toHaveLength(2);
+    expect(finalExec?.setupRanAt).toHaveLength(1);
     expect(finalExec?.setupRanAt[0]?.outcome).toBe('failed');
-    expect(finalExec?.setupRanAt[1]?.outcome).toBe('failed');
-    // Error message keeps the no-tty pnpm trim form even after a failed retry.
+    // Error message keeps the no-tty pnpm trim form.
     expect(result.error.error.message).toBe('exited 1 (no-tty pnpm)');
-    // Hint must mention the auto-retry was attempted (no longer suggests trying CI=1).
+    // Hint surfaces the project-side fixes — no auto-retry / CI=true mention.
     const invalidStateError = result.error.error as InvalidStateError;
-    expect(invalidStateError.hint ?? '').toContain('auto-retry');
-    expect(invalidStateError.hint ?? '').toContain('CI=true');
-    // Retry's tail is what gets surfaced to the Recent log (not the first attempt's).
-    expect(bus.logs.some((l) => l.level === 'error' && l.message.includes('retry too'))).toBe(true);
-    expect(shell.calls).toHaveLength(2);
-    expect(shell.calls[1]?.env?.CI).toBe('true');
+    const hint = invalidStateError.hint ?? '';
+    expect(hint).toContain('pin pnpm < 11');
+    expect(hint).toContain('confirm-modules-purge=false');
+    expect(hint).not.toContain('auto-retry');
+    expect(hint).not.toContain('CI=true');
+  });
+
+  it('does not append the pnpm no-TTY hint to generic script failures', async () => {
+    // Regression guard for the generic-failure path: when the marker is absent the hint must
+    // stay empty so an unrelated failure does not get misattributed to a pnpm/TTY issue.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: failingShell({ exitCode: 2, output: 'TypeError: unrelated thing' }),
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+
+    expect(result.error.error).toBeInstanceOf(InvalidStateError);
+    // Plain "exited N" — no "(no-tty pnpm)" suffix when the marker is absent.
+    expect(result.error.error.message).toBe('exited 2');
+    const invalidStateError = result.error.error as InvalidStateError;
+    const hint = invalidStateError.hint ?? '';
+    expect(hint).not.toContain('pin pnpm < 11');
+    expect(hint).not.toContain('confirm-modules-purge');
+    expect(hint).not.toContain('no-TTY');
   });
 
   it('records a spawn-error row with exitCode -1 and aborts when the shell cannot start', async () => {
