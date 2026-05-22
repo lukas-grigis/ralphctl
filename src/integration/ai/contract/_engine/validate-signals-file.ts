@@ -84,7 +84,13 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
 
   const wrapper = current as { signals?: unknown };
   const inner = wrapper.signals;
-  const parsed = contract.signalsSchema.safeParse(inner);
+  // Be lenient on `timestamp`: AIs frequently omit it on signals they think of as
+  // "terminal" (commit-message, task-complete, evaluation). A 4-minute round failing
+  // schema validation on a missable field is bad ergonomics for what the timestamp
+  // ultimately drives (display-only). Stamp any signal missing `timestamp` at
+  // validation time — spawn-time is within seconds of when the AI wrote the field.
+  const defaulted = defaultMissingTimestamps(inner);
+  const parsed = contract.signalsSchema.safeParse(defaulted);
   if (!parsed.success) {
     return Result.error(
       new ParseError({
@@ -101,4 +107,15 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
 const describeJsonError = (cause: unknown): string => {
   if (cause instanceof Error) return cause.message;
   return String(cause);
+};
+
+const defaultMissingTimestamps = (inner: unknown): unknown => {
+  if (!Array.isArray(inner)) return inner;
+  const now = new Date().toISOString();
+  return inner.map((sig) => {
+    if (typeof sig !== 'object' || sig === null) return sig;
+    const s = sig as Record<string, unknown>;
+    if (typeof s.timestamp === 'string' && s.timestamp.length > 0) return sig;
+    return { ...s, timestamp: now };
+  });
 };
