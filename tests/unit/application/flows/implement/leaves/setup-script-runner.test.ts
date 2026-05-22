@@ -423,10 +423,10 @@ describe('setupScriptRunnerLeaf', () => {
     expect(Buffer.from(row?.stdoutTailBytes ?? '', 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
   });
 
-  it('runs unconditionally — a pre-existing audit stamp does not skip the next run', async () => {
-    // Belts-and-braces: even if the prior chain already stamped a success for this repo, we
-    // must re-execute the script and append a fresh row. The seed below contains one prior
-    // entry; we expect two rows after this run.
+  it('skips a repo on resume when a prior success row exists for the same command', async () => {
+    // Audit [04]: setup is a sprint-start ritual. Once a prior chain on this sprint stamped a
+    // `success` row for the repo under the *same* command, subsequent implement invocations
+    // skip the script. The prior row stays canonical; no new row is appended.
     const repo = savingRepo();
     const bus = createCapturingBus();
     const seedExecution: SprintExecution = {
@@ -445,9 +445,15 @@ describe('setupScriptRunnerLeaf', () => {
       ],
     };
 
+    let shellCalls = 0;
     const leaf = setupScriptRunnerLeaf(
       {
-        shellScriptRunner: passingShell({ output: 're-ran', durationMs: 200 }),
+        shellScriptRunner: {
+          async run() {
+            shellCalls += 1;
+            return Result.ok({ passed: true, exitCode: 0, output: 'should not run', durationMs: 10 });
+          },
+        },
         clock: () => FIXED_NOW,
         eventBus: bus.bus,
         sprintExecutionRepo: repo,
@@ -461,10 +467,168 @@ describe('setupScriptRunnerLeaf', () => {
     const result = await leaf.execute(initialCtx(seedExecution));
     if (!result.ok) throw new Error('expected ok');
 
+    // Shell was never invoked; no row was appended.
+    expect(shellCalls).toBe(0);
+    const exec = result.value.ctx.execution as SprintExecution;
+    expect(exec.setupRanAt).toHaveLength(1);
+    expect(repo.saves).toHaveLength(0);
+    // Operator-visible log distinguishes "skipped on resume" from "skipped because no script".
+    expect(bus.logs.some((l) => l.level === 'info' && l.message.includes('skipped on resume'))).toBe(true);
+  });
+
+  it('runs a repo again when its prior row is a failure (not a success)', async () => {
+    // Failure does not commit the gate — the operator's fix-and-retry must re-validate.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const seedExecution: SprintExecution = {
+      ...baseExecution(),
+      setupRanAt: [
+        {
+          repositoryId: FIXED_REPOSITORY_ID,
+          ranAt: FIXED_NOW,
+          command: 'pnpm install',
+          exitCode: 1,
+          durationMs: 100,
+          stdoutTailBytes: 'broke',
+          stderrTailBytes: '',
+          outcome: 'failed',
+        },
+      ],
+    };
+
+    let shellCalls = 0;
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: {
+          async run() {
+            shellCalls += 1;
+            return Result.ok({ passed: true, exitCode: 0, output: 're-ran', durationMs: 200 });
+          },
+        },
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(seedExecution));
+    if (!result.ok) throw new Error('expected ok');
+
+    expect(shellCalls).toBe(1);
+    const exec = result.value.ctx.execution as SprintExecution;
+    // Original failure row preserved; new success appended.
+    expect(exec.setupRanAt).toHaveLength(2);
+    expect(exec.setupRanAt[1]?.outcome).toBe('success');
+  });
+
+  it('re-runs on command drift even when a prior success exists', async () => {
+    // Operator edited `project.json#setupScript` between runs — the prior success is stale.
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const seedExecution: SprintExecution = {
+      ...baseExecution(),
+      setupRanAt: [
+        {
+          repositoryId: FIXED_REPOSITORY_ID,
+          ranAt: FIXED_NOW,
+          command: 'pnpm install',
+          exitCode: 0,
+          durationMs: 100,
+          stdoutTailBytes: '',
+          stderrTailBytes: '',
+          outcome: 'success',
+        },
+      ],
+    };
+
+    let shellCalls = 0;
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: {
+          async run() {
+            shellCalls += 1;
+            return Result.ok({ passed: true, exitCode: 0, output: 're-ran with new cmd', durationMs: 250 });
+          },
+        },
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        // Operator switched to npm.
+        repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'npm ci' }],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(seedExecution));
+    if (!result.ok) throw new Error('expected ok');
+
+    expect(shellCalls).toBe(1);
     const exec = result.value.ctx.execution as SprintExecution;
     expect(exec.setupRanAt).toHaveLength(2);
-    expect(exec.setupRanAt[1]?.stdoutTailBytes).toBe('re-ran');
-    expect(exec.setupRanAt[1]?.durationMs).toBe(200);
+    expect(exec.setupRanAt[1]?.command).toBe('npm ci');
+    expect(bus.logs.some((l) => l.message.includes('configured command changed'))).toBe(true);
+  });
+
+  it('skips only the repos with prior success and runs the rest', async () => {
+    // Multi-repo: setupRanAt has only repo A as success. repo B has no prior entry. The leaf
+    // skips A (logs the skip) and runs B (one fresh row appended).
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const secondRepoId = RepositoryId.generate();
+    const seedExecution: SprintExecution = {
+      ...baseExecution(),
+      setupRanAt: [
+        {
+          repositoryId: FIXED_REPOSITORY_ID,
+          ranAt: FIXED_NOW,
+          command: 'pnpm install',
+          exitCode: 0,
+          durationMs: 100,
+          stdoutTailBytes: '',
+          stderrTailBytes: '',
+          outcome: 'success',
+        },
+      ],
+    };
+
+    let shellCalls = 0;
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: {
+          async run(_cwd, command) {
+            shellCalls += 1;
+            // Only repo B's command should be invoked.
+            if (command !== 'mvn install') throw new Error(`unexpected command: ${command}`);
+            return Result.ok({ passed: true, exitCode: 0, output: 'maven ok', durationMs: 300 });
+          },
+        },
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      {
+        repos: [
+          { repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' },
+          { repositoryId: secondRepoId, path: absolutePath('/tmp/other'), setupScript: 'mvn install' },
+        ],
+      }
+    );
+
+    const result = await leaf.execute(initialCtx(seedExecution));
+    if (!result.ok) throw new Error('expected ok');
+
+    expect(shellCalls).toBe(1);
+    const exec = result.value.ctx.execution as SprintExecution;
+    expect(exec.setupRanAt).toHaveLength(2);
+    expect(exec.setupRanAt[1]?.repositoryId).toBe(secondRepoId);
+    expect(exec.setupRanAt[1]?.outcome).toBe('success');
   });
 
   it('aborts after the first failing repo without running subsequent repos', async () => {

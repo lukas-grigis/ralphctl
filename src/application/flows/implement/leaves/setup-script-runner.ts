@@ -21,19 +21,27 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * Harness-side setup-script gate. The leaf runs unconditionally at the start of every
- * implement chain — once per affected repo — and the chain treats the result as the
- * authoritative readiness signal for the working tree. The AI session may *also* run
- * `pnpm install` (etc.) from inside its own prompt, but the harness is the source of truth:
- * if the harness setup fails, the chain hard-aborts before any task spins up.
+ * Harness-side setup-script gate. The leaf runs at the start of every implement chain —
+ * once per affected repo — and the chain treats the result as the authoritative readiness
+ * signal for the working tree. The AI session may *also* run `pnpm install` (etc.) from
+ * inside its own prompt, but the harness is the source of truth: if the harness setup
+ * fails, the chain hard-aborts before any task spins up.
  *
- * Why unconditional (no skip-on-stamp): a stamp from a prior run is only a historical fact,
- * not a guarantee that the dependency tree is currently coherent. `node_modules` rots when
- * lockfiles update, native modules unload after Node upgrades, `dist/` directories desync
- * across branches. The cheap belt-and-braces option is to just re-run setup every time —
- * `pnpm install` on a fully populated tree is a few hundred ms.
+ * **New-sprint vs resume gate** (audit [04]): setup runs once per repo per sprint. The
+ * gate uses `SprintExecution.setupRanAt` as the audit source. For each repo:
  *
- * Outcomes (recorded one-per-repo on `SprintExecution.setupRanAt`):
+ *   - If a prior entry exists with `outcome === 'success'` AND `command === current
+ *     setupScript` → skip this repo (resume path). Log "skipped on resume" at info tier.
+ *   - Otherwise → run the script (new path / failure-retry / command-drift retry).
+ *
+ * Rationale: setup is idempotent but slow; running `pnpm install` / `mvn dependency:go-offline`
+ * on every implement resume burns 10-60s per repo for no gain. The first successful run
+ * proves the tree builds; subsequent resumes trust that state.
+ *
+ * Command drift is treated as a new run: if the operator changes `project.json#setupScript`
+ * between runs, the prior success is stale and the new command must be validated.
+ *
+ * Outcomes (recorded one-per-repo on `SprintExecution.setupRanAt` when the script runs):
  *
  *   - `'skipped'`     — repo has no `setupScript` configured. Explicit no-op row.
  *   - `'success'`     — script ran and exited 0.
@@ -42,10 +50,8 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *                       denied, etc). `exitCode === -1`; the error message lands in
  *                       `stderrTailBytes`. The chain aborts.
  *
- * Each row is appended (never upserted) so the execution file carries the full history of
- * setup attempts across re-runs. The audit-stamp save is non-fatal — if persistence fails
- * after a successful script the chain still continues, with a warn log so the operator knows
- * the next resume might re-record the same row.
+ * The resume-path skip does NOT append a new audit row; the prior success entry stays
+ * canonical. Each fresh run appends one row.
  *
  * Aborts surface as `Result.error(InvalidStateError)` from the use case; the chain framework
  * turns that into a failed trace entry and short-circuits the remaining elements.
@@ -104,6 +110,32 @@ export const setupScriptRunnerLeaf = (
           let execution = input.execution;
           for (const repo of opts.repos) {
             const command = repo.setupScript?.trim() ?? '';
+            // Resume gate: if a prior chain on this sprint already ran setup successfully
+            // for this repo under the *same* command, skip. The previous success entry
+            // remains canonical; no new row is appended. Command drift (operator edited
+            // `project.json#setupScript`) breaks the gate and re-runs the script.
+            if (command.length > 0) {
+              const priorSuccess = execution.setupRanAt.find(
+                (r) => String(r.repositoryId) === String(repo.repositoryId) && r.outcome === 'success'
+              );
+              if (priorSuccess && priorSuccess.command === command) {
+                deps.eventBus.publish({
+                  type: 'log',
+                  level: 'info',
+                  message: `setup-script ${String(repo.path)}: skipped on resume (succeeded earlier on this sprint)`,
+                  at: deps.clock(),
+                });
+                continue;
+              }
+              if (priorSuccess && priorSuccess.command !== command) {
+                deps.eventBus.publish({
+                  type: 'log',
+                  level: 'info',
+                  message: `setup-script ${String(repo.path)}: re-running — configured command changed since prior success (was: ${priorSuccess.command}, now: ${command})`,
+                  at: deps.clock(),
+                });
+              }
+            }
             if (command.length === 0) {
               // No script configured is NOT a failure — the chain continues. But it is also not
               // a silent pass: the operator deserves to know that *nothing was validated* before
