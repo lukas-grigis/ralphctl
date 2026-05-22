@@ -125,4 +125,21 @@ describe('createDecisionsLogSink', () => {
     const content = await readFile(String(file), 'utf8');
     expect(content).toBe('2026-05-21T10:00:00.000Z ? ? line one line two line three\n');
   });
+
+  it('clamps an oversized body to 500 chars so a runaway upstream cannot write an unbounded line', async () => {
+    const sink = createDecisionsLogSink({ file, resolveContext: () => ({}) });
+    const oversized = 'a'.repeat(600);
+    sink.emit(decision(oversized, '2026-05-21T10:00:00.000Z'));
+    await sink.flush();
+
+    const content = await readFile(String(file), 'utf8');
+    // Format: `<iso> ? ? <body>\n`. Strip the prefix + trailing newline; what remains is the body.
+    const prefix = '2026-05-21T10:00:00.000Z ? ? ';
+    expect(content.startsWith(prefix)).toBe(true);
+    expect(content.endsWith('\n')).toBe(true);
+    const body = content.slice(prefix.length, content.length - 1);
+    expect(body.length).toBeLessThanOrEqual(500);
+    // The cap is the body length itself — the entire body must consist of the clamped slice.
+    expect(body).toBe('a'.repeat(500));
+  });
 });

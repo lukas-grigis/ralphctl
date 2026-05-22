@@ -58,8 +58,23 @@ export interface DecisionsLogSink extends Sink<HarnessSignal> {
 
 const MISSING = '?';
 
-/** Collapse interior whitespace so the text occupies exactly one line in the log file. */
-const collapseToSingleLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+/**
+ * Defence-in-depth cap on the body length actually written to disk. The decision parser
+ * already drops runaway matches (`MAX_DECISION_BODY_CHARS` in
+ * `integration/ai/signals/decision/parser.ts`); this sink-side slice ensures a non-parser
+ * source that ever feeds a `DecisionSignal` directly cannot pollute `decisions.log` with
+ * an unbounded blob — and bounds the on-disk line length for grep / awk consumers.
+ */
+const SINK_BODY_CAP = 500;
+
+/**
+ * Collapse interior whitespace so the text occupies exactly one line in the log file, then
+ * clamp to {@link SINK_BODY_CAP} so a misbehaving upstream cannot write an unbounded line.
+ */
+const collapseToSingleLine = (text: string): string => {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length > SINK_BODY_CAP ? collapsed.slice(0, SINK_BODY_CAP) : collapsed;
+};
 
 const formatLine = (timestamp: string, ctx: DecisionContext, text: string): string => {
   const taskId = ctx.taskId !== undefined && ctx.taskId.length > 0 ? ctx.taskId : MISSING;
