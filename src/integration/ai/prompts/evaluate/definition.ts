@@ -34,7 +34,7 @@ export interface EvaluatePromptParams {
   readonly taskDescriptionSection: string;
   /** Markdown block "## Implementation Steps\n\n1. …" or empty when there are no steps. */
   readonly taskStepsSection: string;
-  /** Markdown block "## Verification Criteria\n\n- …" or empty when there are none. */
+  /** Markdown block "## Done criteria\n\n- …" or empty when there are none. */
   readonly verificationCriteriaSection: string;
   /**
    * Markdown body for the "## Verify Script" section — either a fenced shell block with the
@@ -80,7 +80,7 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
     },
     verificationCriteriaSection: {
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
-      description: '"## Verification Criteria" bullet list, or empty when none are declared.',
+      description: '"## Done criteria" bullet list, or empty when none are declared.',
     },
     verifyScriptSection: {
       placeholder: 'VERIFY_SCRIPT_SECTION',

@@ -127,7 +127,7 @@ describe('renderVerificationCriteriaSection', () => {
   it('renders a bullet list with a heading', () => {
     const task = makeTaskWith({ verificationCriteria: ['lint passes', 'tests green'] });
     const out = renderVerificationCriteriaSection(task);
-    expect(out).toContain('## Verification Criteria');
+    expect(out).toContain('## Done criteria');
     expect(out).toContain('- lint passes');
     expect(out).toContain('- tests green');
   });

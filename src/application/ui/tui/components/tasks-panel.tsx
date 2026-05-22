@@ -18,7 +18,7 @@
  * bucketed structure.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type {
   BucketedExecution,
@@ -78,18 +78,16 @@ export interface TasksPanelProps {
    */
   readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
   /**
-   * Optional lazy loader for a task's `done-criteria.md`. When supplied, each non-pending
-   * task's header renders a collapsed 3-line summary of the criteria with a `press e to
-   * expand` hint; pressing `e` while the panel owns input toggles the active task's full
-   * criteria block. The loader is called once per task id and cached for the lifetime of the
-   * mount.
+   * Map of task id → `verificationCriteria` bullets, sourced directly from `Task.verificationCriteria`
+   * by the host view (no disk read, no async loader). When supplied, each non-pending task's
+   * header renders a collapsed 3-line summary of the criteria with a `press e to expand` hint;
+   * pressing `e` while the panel owns input toggles the active task's full criteria block.
    *
-   * The implement chain materialises `<sprintDir>/implement/<task-id>/done-criteria.md` once
-   * the per-task subchain enters its workspace-build leaf; before that point the loader
-   * returns `undefined` and the criteria block is omitted entirely (the canonical criteria
-   * still live on the task entity if the operator opens task detail).
+   * Audit [05]: replaces the prior `readDoneCriteria` lazy loader that read from a now-deleted
+   * `<sprintDir>/implement/<task-id>/done-criteria.md`. The criteria live on the task entity,
+   * the view already polls those entities, and the file is gone.
    */
-  readonly readDoneCriteria?: (taskId: string) => Promise<string | undefined>;
+  readonly taskCriteriaById?: ReadonlyMap<string, readonly string[]>;
   /**
    * Dev-only flag — when `true`, failing evaluator rows render via
    * {@link EvaluatorFailurePanel} (per-dimension colour-coded view + critique excerpt with
@@ -490,26 +488,8 @@ const collectKinds = (bucketed: BucketedExecution): readonly string[] => {
   return order;
 };
 
-/**
- * Extract the bullet bodies from a `done-criteria.md` blob. The implement chain's workspace
- * builder writes a `# Done criteria — …` heading followed by `- <criterion>` bullets; we
- * strip headings, blank lines, and the italic-placeholder note that the builder emits when
- * the task carries no `verificationCriteria`. Lines that look like a markdown bullet (`- ` or
- * `* `) are tolerated; everything else is preserved verbatim so a hand-edited file still
- * renders sensibly.
- */
-const parseCriteriaBullets = (raw: string): readonly string[] => {
-  const out: string[] = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    if (trimmed.startsWith('#')) continue;
-    if (trimmed.startsWith('_') && trimmed.endsWith('_')) continue;
-    const bullet = /^[-*]\s+(.*)$/.exec(trimmed);
-    out.push(bullet?.[1] ?? trimmed);
-  }
-  return out;
-};
+// `parseCriteriaBullets` was deleted in audit [05] — the panel now receives the bullet array
+// directly from the host via `taskCriteriaById`, sourced from `Task.verificationCriteria`.
 
 /**
  * Per-criterion verdict mapping is deterministic only when the criterion count and the
@@ -779,13 +759,12 @@ const latestIdleSnippets = (signals: readonly HarnessSignal[]): readonly string[
 const CRITERIA_COLLAPSED_LINES = 3;
 
 const CriteriaBlock = ({
-  raw,
+  bullets,
   expanded,
 }: {
-  readonly raw: string;
+  readonly bullets: readonly string[];
   readonly expanded: boolean;
 }): React.JSX.Element | null => {
-  const bullets = useMemo(() => parseCriteriaBullets(raw), [raw]);
   if (bullets.length === 0) return null;
   const visible = expanded ? bullets : bullets.slice(0, CRITERIA_COLLAPSED_LINES);
   const overflow = bullets.length - visible.length;
@@ -831,7 +810,7 @@ const TaskBlock = ({
   expandedKeys,
   scopeId,
   sliceStart,
-  criteriaRaw,
+  taskCriteria,
   criteriaExpanded,
   showEvaluatorFailureUI,
   taskProjection,
@@ -853,8 +832,8 @@ const TaskBlock = ({
   readonly scopeId: string;
   /** Absolute signal index where the rendered slice starts (`task.signals.length - sliceLen`). */
   readonly sliceStart: number;
-  /** Raw `done-criteria.md` blob, when the loader has hydrated it for this task. */
-  readonly criteriaRaw?: string;
+  /** Pre-resolved verification criteria for this task (audit [05]) — supplied by the host. */
+  readonly taskCriteria?: readonly string[];
   /** When true the criteria block renders all bullets; otherwise the 3-line summary. */
   readonly criteriaExpanded: boolean;
   /** Dev flag — opt into the EvaluatorFailurePanel for failed evaluations. */
@@ -887,10 +866,7 @@ const TaskBlock = ({
   const subStepElided = task.subSteps.length - subStepRows.length;
   const evalRows = task.evaluations.slice(-maxEvaluations);
   const evalElided = task.evaluations.length - evalRows.length;
-  const criteriaBullets = useMemo(
-    () => (criteriaRaw !== undefined ? parseCriteriaBullets(criteriaRaw) : undefined),
-    [criteriaRaw]
-  );
+  const criteriaBullets = taskCriteria;
   // Most recent commit SHA for the collapsed summary line — sourced from the projection's
   // lastAttempt when a TaskProjection is supplied. Truncated to 7 chars (git's `--short`
   // default).
@@ -983,7 +959,9 @@ const TaskBlock = ({
           <Text dimColor>{glyphs.activityArrow} waiting for first attempt…</Text>
         </Box>
       )}
-      {cardExpanded && criteriaRaw !== undefined && <CriteriaBlock raw={criteriaRaw} expanded={criteriaExpanded} />}
+      {cardExpanded && criteriaBullets !== undefined && criteriaBullets.length > 0 && (
+        <CriteriaBlock bullets={criteriaBullets} expanded={criteriaExpanded} />
+      )}
       {cardExpanded && task.errorMessage !== undefined && (
         <Box paddingLeft={2}>
           <Text color={inkColors.error}>{task.errorMessage}</Text>
@@ -1136,7 +1114,7 @@ export const TasksPanel = ({
   maxEvaluationsPerTask = 6,
   recoveringByTaskId,
   inputActive = false,
-  readDoneCriteria,
+  taskCriteriaById,
   showEvaluatorFailureUI = false,
   sprintState,
   nowMs,
@@ -1157,11 +1135,9 @@ export const TasksPanel = ({
   // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
   const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
-  // Lazy-hydrated done-criteria.md by task id. The loader is called once per task that has
-  // entered its per-task subchain (status !== 'pending'); we cache the result for the lifetime
-  // of the mount. The map's value is the raw markdown blob, or the empty string sentinel when
-  // the loader returned `undefined` (either way, criteria UI is suppressed for that task).
-  const [criteriaByTaskId, setCriteriaByTaskId] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // No lazy hydration — `taskCriteriaById` is supplied synchronously by the host view from
+  // `Task.verificationCriteria`. Empty array → render the placeholder; missing key (task not
+  // yet in view's poll) → criteria UI is suppressed for that task.
   // Task ids whose criteria block is currently expanded (full bullet list). Default state is
   // the 3-line summary. Toggled by pressing `e` while the panel owns input.
   const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -1173,31 +1149,7 @@ export const TasksPanel = ({
   // yet"; the panel anchors on the active task on first interaction.
   const [cardCursor, setCardCursor] = useState<number | undefined>(undefined);
 
-  // Hydrate criteria for any task that has materialised its workspace (status !== 'pending').
-  // The implement chain's `build-task-workspace-leaf` writes `done-criteria.md` early in each
-  // task's subchain, so the file is usually present by the time the task shows `running`.
-  useEffect(() => {
-    if (readDoneCriteria === undefined) return undefined;
-    let cancelled = false;
-    const load = async (): Promise<void> => {
-      for (const task of bucketed.tasks) {
-        if (task.status === 'pending') continue;
-        if (criteriaByTaskId.has(task.id)) continue;
-        const raw = await readDoneCriteria(task.id);
-        if (cancelled) return;
-        setCriteriaByTaskId((prev) => {
-          if (prev.has(task.id)) return prev;
-          const next = new Map(prev);
-          next.set(task.id, raw ?? '');
-          return next;
-        });
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [bucketed.tasks, readDoneCriteria, criteriaByTaskId]);
+  // No async hydration step — criteria flow synchronously from props.
 
   // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
   // default card-cursor position. Recomputed each render so the `useInput` callback always
@@ -1357,10 +1309,11 @@ export const TasksPanel = ({
         const recovering = recoveringByTaskId?.get(task.id);
         const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
         const sliceStart = task.signals.length - sliceLen;
-        const cached = criteriaByTaskId.get(task.id);
-        // Treat the empty-string sentinel (loader returned `undefined`) as "no criteria for
-        // this task" — the block is skipped entirely rather than rendering a stub.
-        const criteriaRaw = cached !== undefined && cached.length > 0 ? cached : undefined;
+        // Read criteria synchronously from props (audit [05]). Empty arrays / missing keys
+        // suppress the block entirely; non-empty arrays drive both the collapsed summary and
+        // the per-criterion verdict alignment with evaluator dimensions.
+        const criteriaBullets = taskCriteriaById?.get(task.id);
+        const taskCriteria = criteriaBullets !== undefined && criteriaBullets.length > 0 ? criteriaBullets : undefined;
         // Match by id when a projection is supplied so the order of `sprintState.tasks`
         // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
         // tasks track the runtime sequence).
@@ -1387,7 +1340,7 @@ export const TasksPanel = ({
             cardFocused={idx === effectiveCardCursor}
             nowMs={effectiveNowMs}
             {...(recovering !== undefined ? { recovering } : {})}
-            {...(criteriaRaw !== undefined ? { criteriaRaw } : {})}
+            {...(taskCriteria !== undefined ? { taskCriteria } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}
           />
         );

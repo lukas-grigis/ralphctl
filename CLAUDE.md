@@ -170,7 +170,7 @@ Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compac
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
 `useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
-`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` done-criteria, `c` cancel-scope.
+`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
 
 **`setupScript` vs `verifyScript`.** Setup runs unconditionally once per affected repo at sprint start;
 each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
@@ -212,7 +212,7 @@ or fallback catches errors, it MUST exempt `AbortError`.
 
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
-`--add-dir` so `prompt.md`, `done-criteria.md`, and `signals.json` round-trip through harness-controlled
+`--add-dir` so `prompt.md` and `signals.json` round-trip through harness-controlled
 paths. Cwd is the repo because Claude / Copilot / Codex only auto-discover their context file
 (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), skills (`.claude/skills/` /
 `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.

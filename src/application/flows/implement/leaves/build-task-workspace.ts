@@ -15,18 +15,22 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
  * Per-task one-shot leaf — materialises the task's on-disk audit workspace at
- * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes two files:
+ * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes one file:
  *
- *  - `prompt.md`         — the rendered implement prompt for the FIRST attempt (no prior critique).
- *                          The actual per-turn prompt may differ if the loop retries with critique;
- *                          per-round prompts are not separately captured (audit by turn lives under
- *                          `rounds/<N>/`).
- *  - `done-criteria.md`  — the task's `verificationCriteria` as a markdown bullet list. Mirrors the
- *                          evaluator's I/O contract from v1.
+ *  - `prompt.md` — the rendered implement prompt for the FIRST attempt (no prior critique).
+ *                  The actual per-turn prompt may differ if the loop retries with critique;
+ *                  per-round prompts are not separately captured (audit by turn lives under
+ *                  `rounds/<N>/`). The prompt body inlines the task's verification criteria under
+ *                  a stable `## Done criteria` heading, so operators who want the criteria on
+ *                  disk can grep the prompt directly.
  *
- * On resume the leaf overwrites both files because they are derived from the current task spec —
- * if the task was edited between runs, the on-disk audit must reflect the new framing. Existing
+ * On resume the leaf overwrites the prompt because it derives from the current task spec — if
+ * the task was edited between runs, the on-disk audit must reflect the new framing. Existing
  * `rounds/<N>/` subtrees are NEVER touched here.
+ *
+ * Audit [05] deletion: a separate `done-criteria.md` no longer ships. The criteria live on
+ * `Task.verificationCriteria` (canonical) and inside the per-round `prompt.md` (target); the
+ * standalone file was the cheapest of three places to remove.
  */
 
 export interface BuildTaskWorkspaceLeafDeps {
@@ -48,15 +52,6 @@ interface LeafInput {
 interface LeafOutput {
   readonly workspaceRoot: AbsolutePath;
 }
-
-const renderDoneCriteria = (task: Task): string => {
-  const header = `# Done criteria — ${task.name}\n\n`;
-  if (task.verificationCriteria.length === 0) {
-    return `${header}_No verification criteria declared. The task is considered done when its steps are complete and the project's verification commands pass._\n`;
-  }
-  const bullets = task.verificationCriteria.map((c) => `- ${c}`).join('\n');
-  return `${header}${bullets}\n`;
-};
 
 const writeOrError = async (path: string, content: string): Promise<Result<void, StorageError>> => {
   try {
@@ -96,12 +91,6 @@ export const buildTaskWorkspaceLeaf = (
 
         const wrotePrompt = await writeOrError(join(workspaceRoot, 'prompt.md'), String(prompt.value));
         if (!wrotePrompt.ok) return Result.error(wrotePrompt.error);
-
-        const wroteCriteria = await writeOrError(
-          join(workspaceRoot, 'done-criteria.md'),
-          renderDoneCriteria(input.task)
-        );
-        if (!wroteCriteria.ok) return Result.error(wroteCriteria.error);
 
         log.debug('task workspace built', { taskId: input.task.id, workspaceRoot });
         const parsedRoot = AbsolutePath.parse(workspaceRoot);

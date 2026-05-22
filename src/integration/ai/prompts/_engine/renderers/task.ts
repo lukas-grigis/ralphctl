@@ -31,11 +31,19 @@ export const renderTaskStepsSection = (task: Task): string => {
   return `## Implementation Steps\n\n${numbered}`;
 };
 
-/** Render the "## Verification Criteria" bullet list, or empty string when none declared. */
+/**
+ * Render the "## Done criteria" bullet list, or empty string when none declared.
+ *
+ * Single source of truth for the criteria markdown shape under audit [05] / [08]: both the
+ * implement (generator) and evaluate templates substitute the same rendered block, so changing
+ * the heading or bullet style here updates both prompts at once. The "Done criteria" heading
+ * is stable on purpose so operators can grep `^## Done criteria` across the per-round
+ * `prompt.md` files to see what the AI was held to per round.
+ */
 export const renderVerificationCriteriaSection = (task: Task): string => {
   if (task.verificationCriteria.length === 0) return '';
   const bullets = task.verificationCriteria.map((c) => `- ${c}`).join('\n');
-  return `## Verification Criteria\n\n${bullets}`;
+  return `## Done criteria\n\n${bullets}`;
 };
 
 /**

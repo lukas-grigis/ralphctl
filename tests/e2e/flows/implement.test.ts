@@ -798,7 +798,7 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     // Per-task derived files (already covered by REQ-1..3, re-asserted here for the e2e shape).
     await expect(fs.access(join(workspace, 'prompt.md'))).resolves.toBeUndefined();
-    await expect(fs.access(join(workspace, 'done-criteria.md'))).resolves.toBeUndefined();
+    // Audit [05] deletion: done-criteria.md no longer ships; criteria are inlined into prompt.md.
 
     // Generator round 1 — provider wrote signals.json directly; session.md is gone.
     const genSignals = JSON.parse(

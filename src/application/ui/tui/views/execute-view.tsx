@@ -54,9 +54,6 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { join } from 'node:path';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
@@ -494,19 +491,16 @@ export const ExecuteView = (): React.JSX.Element => {
   // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
   const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
 
-  // Lazy criteria loader bound to this sprint's audit workspace. The Tasks panel calls it once
-  // per non-pending task and caches the result for the mount lifetime. Tests that don't wire a
-  // sprint selection (or omit `readDoneCriteria` from the test bootstrap) fall through to
-  // `undefined` here, which makes the panel skip the criteria UI entirely — no crash.
-  const storage = useStorage();
-  const readCriteria = useMemo(() => {
-    const loader = deps.readDoneCriteria;
-    if (loader === undefined || selection.sprintId === undefined) return undefined;
-    const parsed = AbsolutePath.parse(join(String(storage.dataRoot), 'sprints', String(selection.sprintId)));
-    if (!parsed.ok) return undefined;
-    const sprintDir = parsed.value;
-    return async (taskId: string): Promise<string | undefined> => loader(sprintDir, taskId);
-  }, [deps.readDoneCriteria, selection.sprintId, storage.dataRoot]);
+  // Synchronous criteria map — built from the in-memory Task[] state already polled above.
+  // Audit [05]: `Task.verificationCriteria` is the canonical source; the panel never reads
+  // `done-criteria.md` (file no longer exists). Empty arrays are passed through so the panel
+  // can render a "no criteria declared" affordance instead of guessing.
+  const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, readonly string[]>();
+    for (const t of taskState) m.set(String(t.id), t.verificationCriteria);
+    return m;
+  }, [taskState]);
 
   const tasksPanel =
     bucketed !== undefined ? (
@@ -518,7 +512,7 @@ export const ExecuteView = (): React.JSX.Element => {
         nowMs={now}
         {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
         {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
-        {...(readCriteria !== undefined ? { readDoneCriteria: readCriteria } : {})}
+        {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
       />
     ) : null;
 
