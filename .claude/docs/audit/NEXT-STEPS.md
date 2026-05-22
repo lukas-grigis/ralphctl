@@ -34,29 +34,76 @@ render-sidecars.ts, render-contract-section.ts, render-evaluation-markdown.ts}`.
   union (`ok` / `ok-missing` / `ok-raw` / `spawn-error` / `abort`).
 - 7 self-tests covering every branch.
 
-### Step 5 groundwork
+### Step 5 — [09] per-leaf migration to the audit contract
 
-- Optional `outputDir` field on `AiSession`.
-- Codex interactive `-a on-request` → `-a never`.
-- ESLint port-name regex extended with `Contract$`.
+Landed on `feature/improvements` as a sequence of waves, consolidated in
+commit `f69bc1ba`:
 
-### Step 7 (partial) — `<sprintDir>/logs/` writes
+- Foundation: `RALPHCTL_DEBUG_TRACE` env-var gate moved into `wire()`
+  via a `chainLogSink` factory on `AppDeps`; `--add-dir <sprintDir>`
+  added to generator + evaluator sessions.
+- Generator + commit-task: `commit-message.txt` sidecar; `commit-task`
+  reads validated signal from ctx; `fullMessage` extension field
+  dropped (three TUI consumers updated).
+- Evaluator: `evaluation.md` sidecar via `renderEvaluationMarkdown`;
+  `exactlyOne('evaluation')` refinement.
+- Refine / plan / ideate: each contract enforces `exactlyOne` for its
+  primary signal; no sidecars — projection consumes validated signals
+  directly.
+- Readiness: three optional sidecars (`agents-md-proposal.md`,
+  `setup-skill.md`, `verify-skill.md`); skills adapter gains
+  `installBareSkill` for de-prefixed `<parentDir>/skills/{setup,verify}/`
+  installs.
+- Atomic flip: prompt templates substitute `{{OUTPUT_CONTRACT_SECTION}}`;
+  headless providers no longer parse XML tags — the AI's `Write` tool
+  emits the envelope directly. Forensic body buffer preserved.
+- ESLint fences: chains-layer rule blocks `contract/signals/**` outside
+  `_engine/`; `fs.appendFile` banned outside `integration/io/`.
 
-- `setupScriptRunnerLeaf` writes `<sprintDir>/logs/setup/<repo-id>.log`.
-- `preTaskVerifyLeaf` / `postTaskVerifyLeaf` write
+Three legacy flows (`apply-feedback`, `detect-scripts`, `detect-skills`)
+were intentionally left on `parseHarnessSignals` — outside the audit's
+scope. A follow-up wave can fold them in when convenient.
+
+### Step 6 — [07] progress.md journal model
+
+Landed in commit `c0a44f4d`:
+
+- New `AppendFile` port + integration adapter; the two Wave-6
+  eslint-disable + TODO markers resolved (file-log-sink, review-round).
+- `progress-journal-leaf` appends one `## Task: <name> — Attempt <N>`
+  section after each settle-attempt; per-attempt decision count from
+  validated decision signals.
+- Sprint create / activate / review / close write separator lines via
+  a shared helper.
+- `chain.log` → `events.ndjson` at `<sprintDir>` root (opt-in only via
+  `RALPHCTL_DEBUG_TRACE`).
+- `{{PRIOR_PROGRESS}}` added to implement / refine / plan / ideate
+  prompts (readiness untouched).
+- Deleted: state-projection, load-chain-log, load-decisions-log,
+  parse-chain-log-line, parse-decisions-log-line, render-progress-
+  markdown, render-snapshot-text, write-progress-snapshot,
+  decisions-log-sink, ensure-progress-file leaf, sprint regenerate-
+  progress CLI, snapshot CLI subcommand.
+
+### Step 7 — [01] + [06] logs layout + entity slimming
+
+Logs/ layout landed earlier; entity slimming + per-entity migrations
+landed in the persistence-refactor commit on this branch:
+
+- `setupScriptRunnerLeaf` writes `<sprintDir>/logs/setup/<repo-id>.log`;
+  `pre-/postTaskVerifyLeaf` write
   `<sprintDir>/logs/verify/<task-id>/{pre,post}-attempt-<N>.log`.
-- `runVerifyScriptUseCase` returns `{ run, rawOutput }` so the leaf has the full body.
-- New tests on `setupScriptRunnerLeaf` cover success / failure / no-sprintDir paths.
-
-### Step 9 — [05] / [08] done-criteria.md deletion
-
-- `build-task-workspace-leaf` no longer writes `done-criteria.md`.
-- `ReadDoneCriteria` port + FS adapter deleted; `wire.ts` entry removed.
-- `renderVerificationCriteriaSection` now emits `## Done criteria` (stable grep target).
-- TUI `TasksPanel`: `taskCriteriaById: ReadonlyMap<string, readonly string[]>`
-  replaces the async `readDoneCriteria` loader; ExecuteView builds the map from
-  `taskState` (already polled). `parseCriteriaBullets` deleted.
-- CLAUDE.md updated.
+- `runVerifyScriptUseCase` returns `{ run, rawOutput }`.
+- Dropped `stdoutTailBytes`/`stderrTailBytes` from `SetupRun` +
+  `VerifyRun`; consumers lazy-read via new `LogTailReader` port
+  (default cap 4 KiB).
+- `schemaVersion: 1` + `migrations[0]` on Sprint, SprintExecution,
+  Task. Settings already had the pattern.
+- `tasks.json` root changes from bare `Task[]` to
+  `{ schemaVersion, tasks }`; migration lifts the legacy array, drops
+  verifyRun tail-bytes, renames `checkRuns` → `verifyRuns`.
+- Shared helper at `integration/persistence/_engine/run-migrations.ts`
+  mirrors the audit-[09] chain walk.
 
 ### Step 8 — [03] truncation sweep
 
@@ -74,58 +121,19 @@ render-sidecars.ts, render-contract-section.ts, render-evaluation-markdown.ts}`.
   overkill for shell stdout in practice. Round-trip test fixtures cover ASCII +
   multi-byte UTF-8 + emoji edges.
 
+### Step 9 — [05] / [08] done-criteria.md deletion
+
+- `build-task-workspace-leaf` no longer writes `done-criteria.md`.
+- `ReadDoneCriteria` port + FS adapter deleted; `wire.ts` entry removed.
+- `renderVerificationCriteriaSection` now emits `## Done criteria` (stable grep target).
+- TUI `TasksPanel`: `taskCriteriaById: ReadonlyMap<string, readonly string[]>`
+  replaces the async `readDoneCriteria` loader; ExecuteView builds the map from
+  `taskState` (already polled). `parseCriteriaBullets` deleted.
+- CLAUDE.md updated.
+
 ## Remaining
 
-The work below was scoped but not landed. Each block names its blocker so the next
-implementer can pick the right place to start.
-
-### Step 5 — per-leaf migration to the audit-[09] contract
-
-Per-leaf `<leaf>.contract.ts` files compose the `_engine/` building blocks; each
-leaf switches from `consumeSignals` to `validateSignalsFile + renderSidecars`.
-
-- Leaves to migrate: `generator`, `evaluator`, `refine`, `plan`, `ideate`, `readiness`.
-- Per leaf: declare `<leaf>.contract.ts`, update prompt template to substitute
-  `{{OUTPUT_CONTRACT_SECTION}}`, add the 9-branch test grid with the mock provider.
-- Wire `--add-dir <sprintDir>` for implement-only spawns.
-- Update `commit-task` to read `commit-message` from ctx (drop `Attempt.commitMessage`).
-- Wire `RALPHCTL_DEBUG_TRACE` env-var read in `wire()`.
-- Update skills adapter for bare-name installs (readiness-generated `setup` / `verify`).
-- Delete `parseHarnessSignals` + `signals/_engine/parse-signals.ts` + friends.
-- ESLint fence: chain-layer rule blocking `contract/signals/**` imports outside
-  `_engine/`. `fs.appendFile` ban outside `integration/io/` (lands with step 6).
-
-Blocker: the production providers still parse stdout and write `signals.json` as
-a top-level array. Per-leaf contracts include a `migrations[0]` that wraps the
-array into `{ schemaVersion: 1, signals: [...] }` so legacy data continues to
-load. Once every leaf migrates, providers drop the stdout parser and write
-nothing — the AI's `Write` tool emits `signals.json` directly.
-
-### Step 6 — [07] progress.md journal model
-
-Depends on step 5 (signals come from validated `signals.json` per spawn, not
-from chain.log mining).
-
-- Add `AppendFile` port at `src/business/io/append-file.ts` + integration adapter.
-- Replace `write-progress-snapshot.ts` snapshotting with a `progress-journal-leaf`
-  that appends one section per task-attempt settlement.
-- Delete `state-projection.ts`, `load-chain-log.ts`, `load-decisions-log.ts`,
-  `decisions-log-sink.ts`.
-- `file-log-sink.ts` becomes opt-in via `RALPHCTL_DEBUG_TRACE=1` writing to
-  `<sprintDir>/events.ndjson` (not under `logs/`).
-- Delete `ralphctl sprint regenerate-progress` CLI command.
-- Add separator-line writes to activate / review / done transitions.
-- Add `## Prior progress` section to implement / refine / plan / ideate prompt templates.
-- Drop the `<!-- machine:begin -->` JSON tail on `progress.md`.
-
-### Step 7 remainder — entity slimming + migrations
-
-- Remove `stdoutTailBytes` / `stderrTailBytes` from `SetupRun` and `VerifyRun`.
-- Add `schemaVersion` + per-entity `migrations` map on every persisted entity
-  (sprint-execution, task, sprint, settings).
-- Provide shared `src/integration/persistence/_engine/run-migrations.ts` helper.
-- TUI banner / log rendering: lazy-read the last N bytes of the matching log
-  file on hover / expand instead of from the audit row.
+(none — the audit at `.claude/docs/audit/` is fully implemented as of this branch.)
 
 ## How to resume
 
