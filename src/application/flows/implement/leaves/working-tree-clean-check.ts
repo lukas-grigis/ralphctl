@@ -3,6 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf, type LeafOpts } from '@src/application/chain/build/leaf.ts';
 import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
@@ -24,11 +25,22 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * If the user wants to keep / stash / reset, they do it manually before re-running
  * implement (or rely on the preflight-task leaf downstream that does have the menu).
  *
+ * Resume exception: when `ctx.tasks` carries an `in_progress` task whose last attempt is
+ * still `running` (the v8 OOM / Ctrl-C / SIGTERM / process-crash signature in a prior
+ * process), the dirt almost always belongs to that prior crashed attempt — the AI may
+ * have made changes the harness never had a chance to commit. Hard-aborting here strands
+ * the operator: setup is already done, the sprint is active, and they can't make
+ * forward progress without manually cleaning the tree. Instead, on detected resume we
+ * downgrade to a warning and let the downstream `preflight-task` leaf surface its
+ * Keep / Stash / Reset / Cancel menu — the operator decides whether the leftovers are
+ * worth salvaging.
+ *
  * One leaf per affected repo, sequenced together by the flow factory so all repos are
  * checked before any setup runs.
  *
  * Failure modes:
- *   - Dirty tree → `InvalidStateError` with message containing `working-tree-dirty`.
+ *   - Dirty tree (no resume) → `InvalidStateError` with message containing
+ *     `working-tree-dirty`.
  *   - `git status` spawn / non-zero exit → `InvalidStateError` with a hint pointing the
  *     user at PATH / git availability (the underlying `StorageError` is reported but
  *     not propagated up — InvalidStateError carries the cause in its message so the
@@ -42,7 +54,27 @@ export interface WorkingTreeCleanCheckLeafDeps {
 
 interface LeafInput {
   readonly cwd: AbsolutePath;
+  /**
+   * True when `ctx.tasks` shows at least one task whose last attempt is still `running`
+   * (the prior-process crash signature). Derived in the `input` projector so the use case
+   * stays pure.
+   */
+  readonly isResume: boolean;
 }
+
+/**
+ * Resume detector — mirrors the launcher's `taskRecovering` predicate so chain-internal
+ * decisions stay in sync with the launcher's TUI banner. Returns true when any task is
+ * `in_progress` with a `running` last attempt.
+ */
+const detectResume = (tasks: readonly Task[] | undefined): boolean => {
+  if (tasks === undefined) return false;
+  for (const t of tasks) {
+    if (t.status !== 'in_progress') continue;
+    if (t.attempts.at(-1)?.status === 'running') return true;
+  }
+  return false;
+};
 
 export const workingTreeCleanCheckLeaf = (
   deps: WorkingTreeCleanCheckLeafDeps,
@@ -69,6 +101,12 @@ export const workingTreeCleanCheckLeaf = (
             );
           }
           if (status.value.length > 0) {
+            if (input.isResume) {
+              log.warn(
+                `working-tree-dirty at ${String(input.cwd)} (${String(status.value.length)} uncommitted change(s)) — leftover from prior crashed attempt; deferring to preflight-task recovery menu`
+              );
+              return Result.ok(undefined);
+            }
             return Result.error(
               new InvalidStateError({
                 entity: 'repository',
@@ -83,7 +121,7 @@ export const workingTreeCleanCheckLeaf = (
           return Result.ok(undefined);
         },
       },
-      input: () => ({ cwd }),
+      input: (ctx) => ({ cwd, isResume: detectResume(ctx.tasks) }),
       output: (ctx) => ctx,
     },
     opts

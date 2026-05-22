@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
-import { absolutePath } from '@tests/fixtures/domain.ts';
+import { absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -52,6 +52,16 @@ describe('workingTreeCleanCheckLeaf', () => {
       expect(out.error.error.code).toBe('invalid-state');
       expect(out.error.error.message).toContain('git status failed');
     }
+  });
+
+  it('downgrades dirty-tree to a pass-through when ctx.tasks shows a resuming task (in_progress + running last attempt)', async () => {
+    const el = workingTreeCleanCheckLeaf({ gitRunner: okGit(' M file\n'), logger: noopLogger }, CWD);
+    const resuming = makeInProgressTaskWithRunningAttempt();
+    const out = await el.execute({ ...baseCtx(), tasks: [resuming] });
+    // Dirt belongs to the prior crashed attempt — preflight-task downstream owns the recovery
+    // menu, so this leaf must NOT hard-abort the chain. A fresh run with no resume signature
+    // still hard-aborts (covered by the `rejects a dirty tree …` test above).
+    expect(out.ok).toBe(true);
   });
 
   it('forwards opts.label onto the element + emitted trace entry', async () => {
