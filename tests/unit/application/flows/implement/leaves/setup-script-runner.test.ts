@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { realpath, mkdtemp, rm } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
@@ -685,5 +689,99 @@ describe('setupScriptRunnerLeaf', () => {
     // Persistence failure is non-fatal — chain still completes.
     expect(result.ok).toBe(true);
     expect(bus.logs.some((l) => l.level === 'warn' && l.message.includes('audit persist failed'))).toBe(true);
+  });
+
+  describe('logs/ persistence (audit [01] / [03])', () => {
+    let dir: string;
+    beforeEach(async () => {
+      const raw = await mkdtemp(join(tmpdir(), 'ralphctl-setup-logs-'));
+      dir = await realpath(raw);
+    });
+    afterEach(async () => {
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    it('writes the full untruncated output to <sprintDir>/logs/setup/<repo-id>.log on success', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      const sprintDir = absolutePath(dir);
+      // Output larger than SCRIPT_TAIL_BYTES so the tail-vs-full distinction is observable.
+      const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: passingShell({ output: huge, durationMs: 100 }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+          sprintDir,
+        }
+      );
+
+      const result = await leaf.execute(initialCtx(baseExecution()));
+      expect(result.ok).toBe(true);
+
+      const logPath = join(dir, 'logs', 'setup', `${String(FIXED_REPOSITORY_ID)}.log`);
+      const logContent = await fs.readFile(logPath, 'utf8');
+      // Full body landed on disk — no truncation at the persistence boundary.
+      expect(logContent.length).toBe(huge.length);
+      expect(logContent).toBe(huge);
+      // Audit row still carries a truncated tail for the TUI banner (kept for backward compat).
+      const row = result.ok ? (result.value.ctx.execution?.setupRanAt[0] ?? undefined) : undefined;
+      expect(row?.stdoutTailBytes).toContain('FINAL_LINE');
+      expect(row?.stdoutTailBytes).toContain('truncated');
+    });
+
+    it('writes the full output even when the script fails', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      const sprintDir = absolutePath(dir);
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: failingShell({ exitCode: 1, output: 'COMPILE ERROR: cannot find module foo' }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+          sprintDir,
+        }
+      );
+
+      const result = await leaf.execute(initialCtx(baseExecution()));
+      // Failed exit aborts the chain but the log was still persisted before the abort.
+      expect(result.ok).toBe(false);
+      const logPath = join(dir, 'logs', 'setup', `${String(FIXED_REPOSITORY_ID)}.log`);
+      const logContent = await fs.readFile(logPath, 'utf8');
+      expect(logContent).toBe('COMPILE ERROR: cannot find module foo');
+    });
+
+    it('no log file written when sprintDir is omitted (legacy path)', async () => {
+      const repo = savingRepo();
+      const bus = createCapturingBus();
+      const leaf = setupScriptRunnerLeaf(
+        {
+          shellScriptRunner: passingShell({ output: 'ok' }),
+          clock: () => FIXED_NOW,
+          eventBus: bus.bus,
+          sprintExecutionRepo: repo,
+          logger: noopLogger,
+        },
+        {
+          repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm install' }],
+          // sprintDir omitted intentionally
+        }
+      );
+
+      const result = await leaf.execute(initialCtx(baseExecution()));
+      expect(result.ok).toBe(true);
+      // No logs/ tree on the test dir — the leaf never tried to write.
+      await expect(fs.access(join(dir, 'logs'))).rejects.toThrow();
+    });
   });
 });

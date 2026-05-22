@@ -1,9 +1,11 @@
+import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Attribution, VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { appendAttemptVerifyRun, setAttemptAttribution } from '@src/domain/entity/task.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -57,6 +59,11 @@ export interface PostTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
   readonly timeoutMs?: number;
+  /**
+   * Per-sprint state directory. When set, the leaf writes the full untruncated verify-script
+   * output to `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log` per audit [01] / [03].
+   */
+  readonly sprintDir?: AbsolutePath;
 }
 
 interface LeafInput {
@@ -91,7 +98,7 @@ export const postTaskVerifyLeaf = (
   leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
-        const run = await runVerifyScriptUseCase({
+        const { run, rawOutput } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'post',
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
@@ -100,6 +107,28 @@ export const postTaskVerifyLeaf = (
           runShellScript: (cwd, script, scriptOpts) => deps.shellScriptRunner.run(cwd, script, scriptOpts),
           logger: deps.logger,
         });
+
+        // Audit [01] / [03]: persist the full untruncated output to
+        // `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log`.
+        if (opts.sprintDir !== undefined && rawOutput.length > 0) {
+          const attemptN = input.task.attempts.length;
+          const logPath = join(
+            String(opts.sprintDir),
+            'logs',
+            'verify',
+            String(input.task.id),
+            `post-attempt-${String(attemptN)}.log`
+          );
+          const wrote = await writeTextAtomic(logPath, rawOutput);
+          if (!wrote.ok) {
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'warn',
+              message: `post-task-verify ${String(opts.cwd)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
+              at: deps.clock(),
+            });
+          }
+        }
 
         let updated = appendAttemptVerifyRun(input.task, run);
         if (!updated.ok) return Result.error(updated.error);

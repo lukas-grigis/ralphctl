@@ -1,5 +1,6 @@
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -83,6 +84,14 @@ export interface SetupScriptRunnerLeafOpts {
   /** Every repo on the project. The leaf iterates this list, not the task-touched subset. */
   readonly repos: readonly SetupRepoEntry[];
   readonly timeoutMs?: number;
+  /**
+   * Per-sprint state directory. When set, the leaf writes the full untruncated setup-script
+   * output to `<sprintDir>/logs/setup/<repo-id>.log` per audit [01] / [03]. The audit row's
+   * `stdoutTailBytes` field still carries the trailing slice for the TUI banner — operators
+   * read the full body from the log file. Absent → no file written (test paths that don't
+   * care about disk logs still work).
+   */
+  readonly sprintDir?: AbsolutePath;
 }
 
 interface LeafInput {
@@ -222,6 +231,22 @@ export const setupScriptRunnerLeaf = (
             // stdout for now and leave stderr empty for non-spawn failures — the structured
             // shape is what matters; stream-splitting is a follow-up if the TUI needs it.
             const outputTail = tailBytes(output, SCRIPT_TAIL_BYTES);
+
+            // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
+            // so the operator can grep / tail the real failure. Best-effort — a write failure
+            // logs warn and never aborts the chain (the audit row remains canonical).
+            if (opts.sprintDir !== undefined) {
+              const logPath = join(String(opts.sprintDir), 'logs', 'setup', `${String(repo.repositoryId)}.log`);
+              const wrote = await writeTextAtomic(logPath, output);
+              if (!wrote.ok) {
+                deps.eventBus.publish({
+                  type: 'log',
+                  level: 'warn',
+                  message: `setup-script ${String(repo.path)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
+                  at: deps.clock(),
+                });
+              }
+            }
             const normalisedExit = exitCode ?? -1;
             const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
             const run = makeSetupRun({

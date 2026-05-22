@@ -298,7 +298,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           eventBus: deps.eventBus,
           logger: deps.logger,
         },
-        { cwd: repo.path, ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}) },
+        {
+          cwd: repo.path,
+          sprintDir: opts.sprintDir,
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+        },
         taskId
       ),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
@@ -336,7 +340,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           eventBus: deps.eventBus,
           logger: deps.logger,
         },
-        { cwd: repo.path, ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}) },
+        {
+          cwd: repo.path,
+          sprintDir: opts.sprintDir,
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+        },
         taskId
       ),
       guard<ImplementCtx>(
@@ -461,7 +469,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         sprintExecutionRepo: deps.sprintExecutionRepo,
         logger: deps.logger,
       },
-      { repos: setupRepoEntries }
+      { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),
     sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     sequential<ImplementCtx>('implement-tasks', perTaskChains),

@@ -16,21 +16,22 @@ const spawnErrorShell: Parameters<typeof runVerifyScriptUseCase>[0]['runShellScr
 
 describe('runVerifyScriptUseCase', () => {
   it('returns outcome="skipped" when no script configured', async () => {
-    const row = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       clock: () => FIXED_NOW,
       runShellScript: passingShell,
       logger: noopLogger,
     });
-    expect(row.outcome).toBe('skipped');
-    expect(row.command).toBe('');
-    expect(row.exitCode).toBe(0);
-    expect(row.durationMs).toBe(0);
+    expect(run.outcome).toBe('skipped');
+    expect(run.command).toBe('');
+    expect(run.exitCode).toBe(0);
+    expect(run.durationMs).toBe(0);
+    expect(rawOutput).toBe('');
   });
 
   it('returns outcome="skipped" when script is whitespace-only', async () => {
-    const row = await runVerifyScriptUseCase({
+    const { run } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       verifyScript: '   \n\t ',
@@ -38,11 +39,11 @@ describe('runVerifyScriptUseCase', () => {
       runShellScript: passingShell,
       logger: noopLogger,
     });
-    expect(row.outcome).toBe('skipped');
+    expect(run.outcome).toBe('skipped');
   });
 
-  it('returns outcome="success" with stdoutTail when script exits 0', async () => {
-    const row = await runVerifyScriptUseCase({
+  it('returns outcome="success" with stdoutTail and rawOutput when script exits 0', async () => {
+    const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',
       verifyScript: 'pnpm test',
@@ -50,16 +51,18 @@ describe('runVerifyScriptUseCase', () => {
       runShellScript: passingShell,
       logger: noopLogger,
     });
-    expect(row.outcome).toBe('success');
-    expect(row.phase).toBe('post');
-    expect(row.exitCode).toBe(0);
-    expect(row.durationMs).toBe(100);
-    expect(row.stdoutTailBytes).toBe('OK');
+    expect(run.outcome).toBe('success');
+    expect(run.phase).toBe('post');
+    expect(run.exitCode).toBe(0);
+    expect(run.durationMs).toBe(100);
+    expect(run.stdoutTailBytes).toBe('OK');
+    // Audit [01] / [03]: full raw output is the leaf's input for the logs/ persistence.
+    expect(rawOutput).toBe('OK');
   });
 
-  it('returns outcome="failed" with truncated stdoutTail when script exits non-zero', async () => {
+  it('returns outcome="failed" with truncated stdoutTail and full rawOutput when script exits non-zero', async () => {
     const huge = 'A'.repeat(SCRIPT_TAIL_BYTES * 2) + 'FINAL_LINE';
-    const row = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'post',
       verifyScript: 'pnpm test',
@@ -67,16 +70,19 @@ describe('runVerifyScriptUseCase', () => {
       runShellScript: async () => Result.ok({ passed: false, exitCode: 1, output: huge, durationMs: 50 }),
       logger: noopLogger,
     });
-    expect(row.outcome).toBe('failed');
-    expect(row.exitCode).toBe(1);
-    expect(row.stdoutTailBytes).toContain('FINAL_LINE');
-    expect(row.stdoutTailBytes).toContain('truncated');
+    expect(run.outcome).toBe('failed');
+    expect(run.exitCode).toBe(1);
+    expect(run.stdoutTailBytes).toContain('FINAL_LINE');
+    expect(run.stdoutTailBytes).toContain('truncated');
     // Tail body itself is capped at the limit; the marker prefix adds a small overhead.
-    expect(Buffer.from(row.stdoutTailBytes, 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
+    expect(Buffer.from(run.stdoutTailBytes, 'utf8').length).toBeLessThan(SCRIPT_TAIL_BYTES + 200);
+    // rawOutput preserves the full body verbatim — no truncation at the persistence boundary.
+    expect(rawOutput.length).toBe(huge.length);
+    expect(rawOutput).toBe(huge);
   });
 
   it('returns outcome="spawn-error" with exit=-1 when the shell could not start', async () => {
-    const row = await runVerifyScriptUseCase({
+    const { run, rawOutput } = await runVerifyScriptUseCase({
       cwd: CWD,
       phase: 'pre',
       verifyScript: 'missing-binary',
@@ -84,9 +90,11 @@ describe('runVerifyScriptUseCase', () => {
       runShellScript: spawnErrorShell,
       logger: noopLogger,
     });
-    expect(row.outcome).toBe('spawn-error');
-    expect(row.exitCode).toBe(-1);
-    expect(row.stdoutTailBytes).toContain('spawn ENOENT');
+    expect(run.outcome).toBe('spawn-error');
+    expect(run.exitCode).toBe(-1);
+    expect(run.stdoutTailBytes).toContain('spawn ENOENT');
+    // No spawn output to capture for the logs/ side; tail still carries the spawn-error message.
+    expect(rawOutput).toBe('');
   });
 
   it('does NOT call the shell when the script is skipped (no side effects on no-op)', async () => {

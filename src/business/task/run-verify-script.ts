@@ -51,7 +51,16 @@ export interface RunVerifyScriptProps {
   readonly logger: Logger;
 }
 
-export type RunVerifyScriptOutput = VerifyRun;
+/**
+ * Use-case output. `run` is the persisted-shape audit row; `rawOutput` carries the full
+ * untruncated stdout+stderr so the leaf can persist it to `<sprintDir>/logs/verify/...` per
+ * audit [01] / [03]. Empty string for `skipped` / `spawn-error` outcomes — there's no spawn
+ * output to capture.
+ */
+export interface RunVerifyScriptOutput {
+  readonly run: VerifyRun;
+  readonly rawOutput: string;
+}
 
 /**
  * Total over its inputs — never returns `Result.error`. Even spawn-level failures are folded
@@ -66,13 +75,16 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
   if (command.length === 0) {
     log.debug('no verify script configured, recording skipped row', { cwd: props.cwd, phase: props.phase });
     return {
-      phase: props.phase,
-      ranAt: props.clock(),
-      command: '',
-      exitCode: 0,
-      durationMs: 0,
-      stdoutTailBytes: '',
-      outcome: 'skipped',
+      run: {
+        phase: props.phase,
+        ranAt: props.clock(),
+        command: '',
+        exitCode: 0,
+        durationMs: 0,
+        stdoutTailBytes: '',
+        outcome: 'skipped',
+      },
+      rawOutput: '',
     };
   }
 
@@ -94,13 +106,16 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
       error: result.error.message,
     });
     return {
-      phase: props.phase,
-      ranAt: startedAt,
-      command,
-      exitCode: -1,
-      durationMs: 0,
-      stdoutTailBytes: result.error.message,
-      outcome: 'spawn-error',
+      run: {
+        phase: props.phase,
+        ranAt: startedAt,
+        command,
+        exitCode: -1,
+        durationMs: 0,
+        stdoutTailBytes: result.error.message,
+        outcome: 'spawn-error',
+      },
+      rawOutput: '',
     };
   }
 
@@ -108,13 +123,16 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
   const outcome: VerifyRunOutcome = passed ? 'success' : 'failed';
   log.info(`${props.phase}-task verify ${outcome}`, { cwd: props.cwd, exitCode, durationMs });
   return {
-    phase: props.phase,
-    ranAt: startedAt,
-    command,
-    exitCode: exitCode ?? -1,
-    durationMs,
-    stdoutTailBytes: tailBytes(output, SCRIPT_TAIL_BYTES),
-    outcome,
+    run: {
+      phase: props.phase,
+      ranAt: startedAt,
+      command,
+      exitCode: exitCode ?? -1,
+      durationMs,
+      stdoutTailBytes: tailBytes(output, SCRIPT_TAIL_BYTES),
+      outcome,
+    },
+    rawOutput: output,
   };
 };
 
