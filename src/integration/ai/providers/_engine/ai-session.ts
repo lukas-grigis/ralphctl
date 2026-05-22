@@ -56,4 +56,15 @@ export interface AiSession {
    * Implemented by Claude and Codex. Copilot support is deferred and currently a no-op.
    */
   readonly bodyFile?: AbsolutePath;
+  /**
+   * Directory the AI is told to write `signals.json` to under the audit [09] contract. The
+   * field is optional today; per-leaf migrations adopting the new contract set it to the
+   * spawn's per-round output directory (e.g.
+   * `<sprintDir>/implement/<task-id>/rounds/<N>/<role>/`). The harness validator post-spawn
+   * reads from `<outputDir>/signals.json` and renders sidecars under the same dir.
+   *
+   * Once every leaf migrates, `signalsFile` becomes derivable (`<outputDir>/signals.json`)
+   * and may be removed in a follow-up.
+   */
+  readonly outputDir?: AbsolutePath;
 }

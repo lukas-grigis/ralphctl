@@ -478,13 +478,13 @@ export default [
         noBarrels[1],
         {
           selector:
-            'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector)$/]',
+            'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
           message:
             'Port-shaped interfaces must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it (e.g. `*Deps` for factory inputs).',
         },
         {
           selector:
-            'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector)$/]',
+            'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
           message:
             'Port-shaped type aliases must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it.',
         },
