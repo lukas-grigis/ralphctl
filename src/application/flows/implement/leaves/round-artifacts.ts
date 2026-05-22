@@ -1,7 +1,9 @@
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { listDir, writeTextAtomic } from '@src/integration/io/fs.ts';
 
 /**
@@ -51,6 +53,33 @@ export const nextRoundNum = async (workspaceRoot: AbsolutePath): Promise<number>
  */
 export const roundSignalsPath = (workspaceRoot: AbsolutePath, round: number, role: 'generator' | 'evaluator'): string =>
   join(String(workspaceRoot), 'rounds', String(round), role, 'signals.json');
+
+/**
+ * Read the captured Claude `session_id` from `rounds/<N>/<role>/sessionId` — the sibling text
+ * file the Claude adapter writes via `persistSessionIdFile` after every spawn. Returns
+ * `undefined` when the file is missing (the adapter skips the write on a spawn that never
+ * reported an id — process crash, malformed stream-json, …) or empty.
+ *
+ * Used by the generator / evaluator leaves to thread the prior round's session into
+ * `implementSession({ resume })`, keeping each role on a single conversational thread across
+ * the gen-eval loop. One disk read per round — negligible overhead, and the file-based
+ * provider contract is the canonical source of truth for captured ids.
+ */
+export const readRoundSessionId = async (
+  workspaceRoot: AbsolutePath,
+  round: number,
+  role: 'generator' | 'evaluator'
+): Promise<SessionId | undefined> => {
+  const path = join(String(workspaceRoot), 'rounds', String(round), role, 'sessionId');
+  let content: string;
+  try {
+    content = await fs.readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const trimmed = content.trim();
+  return trimmed.length === 0 ? undefined : (trimmed as SessionId);
+};
 
 /**
  * Workspace-relative path to `rounds/<N>/evaluator/evaluation.md`. Stamped on the recorded

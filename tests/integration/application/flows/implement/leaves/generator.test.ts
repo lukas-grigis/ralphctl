@@ -156,6 +156,40 @@ describe('generatorLeaf', () => {
     expect(rounds.map((r) => r.roundN)).toEqual([1, 2]);
   });
 
+  it("threads the captured generator sessionId across rounds: round 2 forwards round 1's id as session.resume", async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    // Per-round sessionIds: round 1 reports "gen-r1"; round 2 (resume) reports "gen-r1" again
+    // (Claude returns the same session_id on a resume — and even if it didn't, the contract is
+    // "whatever the adapter wrote to disk is what gets resumed next"). The point of the test is
+    // that the SECOND call's session.resume matches the FIRST call's captured id.
+    const provider = createFakeAiProvider({
+      responses: { implement: '' },
+      sessionIds: {
+        implement: (session) =>
+          // Distinct ids per round so the assertion catches "wrong round id forwarded" bugs.
+          session.resume === undefined ? 'gen-r1' : 'gen-r2',
+      },
+    });
+    const leaf = generatorLeaf({ ...buildDeps(eventBus), provider }, task.id);
+
+    const first = await leaf.execute(baseCtx(task));
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // Round 1: no prior id → resume must be absent on the session descriptor.
+    expect(provider.recordedSessions[0]?.resume).toBeUndefined();
+    // Round 1's captured id lands on ctx so the next round can pick it up.
+    expect(first.value.ctx.priorGeneratorSessionId).toBe('gen-r1');
+
+    const second = await leaf.execute(first.value.ctx);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    // Round 2: the leaf MUST forward round 1's captured id as the resume target.
+    expect(provider.recordedSessions[1]?.resume).toBe('gen-r1');
+    // After round 2, the latest captured id wins (and replaces the prior one in ctx).
+    expect(second.value.ctx.priorGeneratorSessionId).toBe('gen-r2');
+  });
+
   it('publishes the round event regardless of the AI call outcome (event fires before the call)', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const eventBus = createInMemoryEventBus();

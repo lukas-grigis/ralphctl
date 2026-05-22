@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -30,20 +31,41 @@ import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-s
  *      Use when the desired signals can't be expressed through the production parsers (e.g. a
  *      `<commit-message>` with a structured body the parser would normalise).
  *
- * `sessionIds[templateName]` is threaded onto `ProviderOutput.sessionId`.
+ * ## Session ids
+ *
+ * `sessionIds[templateName]` is threaded onto `ProviderOutput.sessionId` AND written to
+ * `<dirname-of-signalsFile>/sessionId` as a sibling text file — mirroring the production Claude
+ * adapter's `persistSessionIdFile` contract so leaves that read the file (`readRoundSessionId`)
+ * see the captured id without manual test setup. `sessionIds[templateName]` may be a string
+ * (same id every call) or a function `(session) => string | undefined` (per-call ids, e.g. for
+ * round-1-vs-round-2 resume tests where each round produces its own id).
+ *
+ * ## Inspecting calls
+ *
+ * `recordedSessions` accumulates the `AiSession` descriptor of every call in invocation order.
+ * Tests asserting "round N forwarded resume=X" read from this array.
  */
 export interface FakeAiProviderScript {
   /** Map prompt-template-name → response body (string) or producer. The body is parsed for signals. */
   readonly responses?: Record<string, string | ((session: AiSession) => string)>;
   /** Optional explicit signal arrays appended after the parsed-body signals, keyed by template. */
   readonly signals?: Record<string, readonly HarnessSignal[]>;
-  /** Optional scripted session ids per template name. */
-  readonly sessionIds?: Record<string, string>;
+  /** Optional scripted session ids per template name. String = constant; function = per-call. */
+  readonly sessionIds?: Record<string, string | ((session: AiSession) => string | undefined)>;
   /**
    * Optional override of the marker map. Merged on top of {@link MARKERS}. Tests that add a
    * new template can register its marker without modifying this file.
    */
   readonly markerOverrides?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Provider interface plus a mutable `recordedSessions` array — the array fills up over the
+ * lifetime of the fake. Tests can spread this into their `provider` slot and still read the
+ * inspection array.
+ */
+export interface FakeAiProvider extends HeadlessAiProvider {
+  readonly recordedSessions: readonly AiSession[];
 }
 
 /** Title-line markers for the bundled prompt templates. */
@@ -65,14 +87,17 @@ const dispatchTemplate = (body: string, markers: Readonly<Record<string, string>
   return undefined;
 };
 
-export const createFakeAiProvider = (script: FakeAiProviderScript): HeadlessAiProvider => {
+export const createFakeAiProvider = (script: FakeAiProviderScript): FakeAiProvider => {
   const markers: Readonly<Record<string, string>> = {
     ...MARKERS,
     ...(script.markerOverrides ?? {}),
   };
+  const recordedSessions: AiSession[] = [];
 
   return {
+    recordedSessions,
     async generate(session: AiSession) {
+      recordedSessions.push(session);
       const templateName = dispatchTemplate(session.prompt as unknown as string, markers);
       if (templateName === undefined) {
         return Result.error(
@@ -103,7 +128,15 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): HeadlessAiPr
         await writeTextAtomic(String(session.bodyFile), body);
       }
 
-      const sessionId = script.sessionIds?.[templateName];
+      const sessionIdEntry = script.sessionIds?.[templateName];
+      const sessionId = typeof sessionIdEntry === 'function' ? sessionIdEntry(session) : sessionIdEntry;
+      // Mirror Claude's `persistSessionIdFile` contract: when a sessionId is captured, write a
+      // sibling `sessionId` text file next to signals.json so leaves reading via
+      // `readRoundSessionId` see the same file shape production produces.
+      if (sessionId !== undefined && sessionId.length > 0) {
+        const sidPath = join(dirname(String(session.signalsFile)), 'sessionId');
+        await writeTextAtomic(sidPath, `${sessionId}\n`);
+      }
       return Result.ok({
         signalsFile: session.signalsFile,
         exitCode: 0,

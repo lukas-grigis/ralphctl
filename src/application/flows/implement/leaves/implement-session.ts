@@ -1,5 +1,6 @@
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
@@ -26,13 +27,21 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  *
  * Both calls run full-auto; the harness's branch / dirty-tree / post-task-verify layer is the
  * safety gate, not Claude's per-tool prompts.
+ *
+ * `resume` carries the captured `session_id` from a prior spawn of the SAME role for the SAME
+ * task — generator resumes generator, evaluator resumes evaluator. When set, the Claude adapter
+ * forwards it as `--resume <id>` (`claude/headless.ts`) so the model continues a single
+ * conversational thread across the gen-eval loop's rounds instead of cold-starting on every
+ * spawn. The launcher / per-task chain is responsible for clearing the slot at task boundaries
+ * so a new task gets a fresh thread.
  */
 export const implementSession = (
   sandboxCwd: AbsolutePath,
   repoPath: AbsolutePath,
   prompt: Prompt,
   model: string,
-  signalsFile: AbsolutePath
+  signalsFile: AbsolutePath,
+  resume?: SessionId
 ): AiSession => ({
   prompt,
   cwd: repoPath,
@@ -40,4 +49,5 @@ export const implementSession = (
   model,
   permissions: FULL_AUTO,
   signalsFile,
+  ...(resume !== undefined ? { resume } : {}),
 });

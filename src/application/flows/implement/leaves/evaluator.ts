@@ -18,8 +18,10 @@ import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import {
+  readRoundSessionId,
   roundEvaluationRelativePath,
   roundSignalsPath,
   writeEvaluatorRoundArtifacts,
@@ -67,6 +69,13 @@ interface EvaluatorInput {
   readonly currentCommitSubject?: string;
   readonly workspaceRoot: AbsolutePath;
   readonly roundNum: number;
+  /**
+   * Captured Claude `session_id` from the prior round's evaluator turn for this task. Forwarded
+   * to `implementSession({ resume })` so the reviewer continues a single conversational thread
+   * across rounds. `undefined` on round 1 (or when the prior spawn failed before reporting an
+   * id) → fresh session.
+   */
+  readonly priorEvaluatorSessionId?: SessionId;
 }
 
 interface EvaluatorOutput {
@@ -74,6 +83,12 @@ interface EvaluatorOutput {
   readonly evaluation?: EvaluationSignal;
   readonly exit?: EvaluatorTurnExit;
   readonly turnRecord?: PlateauTurnRecord;
+  /**
+   * `session_id` captured by the Claude adapter for THIS turn — read from
+   * `rounds/<N>/evaluator/sessionId` after the spawn returns. Stamped onto ctx by the output
+   * projection so the next round's evaluator can resume the same thread.
+   */
+  readonly capturedSessionId?: SessionId;
 }
 
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -98,7 +113,14 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           await writeRoundPrompt(input.workspaceRoot, input.roundNum, 'evaluator', String(prompt.value), deps.logger);
           const signals = await consumeSignals(
             deps.provider,
-            implementSession(input.workspaceRoot, deps.cwd, prompt.value, deps.model, signalsFile),
+            implementSession(
+              input.workspaceRoot,
+              deps.cwd,
+              prompt.value,
+              deps.model,
+              signalsFile,
+              input.priorEvaluatorSessionId
+            ),
             deps.signals
           );
           if (!signals.ok) return Result.error(signals.error);
@@ -125,11 +147,17 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           input.task.name
         );
 
+        // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
+        // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
+        // reported an id — left undefined so the next round cold-starts cleanly.
+        const capturedSessionId = await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator');
+
         return Result.ok({
           task: result.value.task,
           ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
           ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
           ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
+          ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
         });
       },
     },
@@ -165,18 +193,24 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         workspaceRoot: ctx.taskWorkspaceRoot,
         roundNum: ctx.currentRoundNum,
         ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
+        ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
       };
     },
     output: (ctx, out) => {
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
       const nextHistory =
         out.turnRecord !== undefined ? [...(ctx.plateauHistory ?? []), out.turnRecord] : ctx.plateauHistory;
+      // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one
+      // (preserves the prior turn's thread when this spawn failed to report an id).
+      const sessionCarry =
+        out.capturedSessionId !== undefined ? { priorEvaluatorSessionId: out.capturedSessionId } : {};
       const next: ImplementCtx = {
         ...ctx,
         currentTask: out.task,
         tasks,
         ...(out.evaluation !== undefined ? { lastEvaluation: out.evaluation } : {}),
         ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
+        ...sessionCarry,
       };
       if (out.exit === undefined) return next;
       return { ...next, lastExit: out.exit };

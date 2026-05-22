@@ -49,6 +49,13 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
         tasks: (ctx.tasks ?? []).map((t) => (t.id === inProgress.id ? inProgress : t)),
         lastVerdict: undefined,
         lastBlockReason: undefined,
+        // Start-attempt is the per-task boundary leaf — clear any generator / evaluator session
+        // ids carried over from the prior task so the new task starts with a fresh pair of
+        // "developers." Cross-task resume would mix two unrelated bodies of work into one
+        // conversational thread and confuse the model. Per-task rounds within THIS attempt are
+        // re-stamped by the generator / evaluator leaves themselves after every spawn.
+        priorGeneratorSessionId: undefined,
+        priorEvaluatorSessionId: undefined,
       }),
     }
   );

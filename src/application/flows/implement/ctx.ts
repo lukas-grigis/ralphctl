@@ -9,6 +9,7 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 
 export type { GenEvalExit, RunTaskVerdict };
 
@@ -86,4 +87,24 @@ export interface ImplementCtx {
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;
+  /**
+   * Captured Claude `session_id` from the most recent generator turn of the in-flight task.
+   * Threaded into the next round's `implementSession({ resume })` so the generator continues
+   * as ONE conversational thread across all gen-eval rounds for this task — instead of paying
+   * Claude's full startup cost (cwd discovery, MCP server re-init, system-prompt reprocess)
+   * on every spawn. Cleared by `start-attempt-<id>` when a new task begins so the next task
+   * starts a fresh "developer."
+   *
+   * Read from `<workspaceRoot>/rounds/<N>/generator/sessionId` per the file-based provider
+   * contract — the Claude adapter writes the file via `persistSessionIdFile` after every spawn.
+   * Undefined on the first round of a task or when the prior spawn failed before reporting an id.
+   */
+  readonly priorGeneratorSessionId?: SessionId | undefined;
+  /**
+   * Captured Claude `session_id` from the most recent evaluator turn of the in-flight task.
+   * Mirror of {@link priorGeneratorSessionId} for the reviewer thread. Generator and evaluator
+   * are intentionally separate conversational threads: their roles, prompts, and tool budgets
+   * differ, and mixing their transcripts via cross-role resume would confuse the model.
+   */
+  readonly priorEvaluatorSessionId?: SessionId | undefined;
 }

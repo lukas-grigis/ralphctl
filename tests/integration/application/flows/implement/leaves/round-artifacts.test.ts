@@ -6,6 +6,7 @@ import { FIXED_NOW } from '@tests/fixtures/domain.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import {
   nextRoundNum,
+  readRoundSessionId,
   roundSignalsPath,
   writeEvaluatorRoundArtifacts,
   writeRoundPrompt,
@@ -175,6 +176,27 @@ describe('round-artifacts', () => {
       const entries = await fs.readdir(dir);
       expect(entries).toContain('prompt.md');
       expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
+    });
+  });
+
+  describe('readRoundSessionId', () => {
+    it('reads the captured session id when the sibling file exists', async () => {
+      const dir = join(String(root.root), 'rounds', '3', 'generator');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, 'sessionId'), 'gen-session-xyz\n', 'utf8');
+      expect(await readRoundSessionId(root.root, 3, 'generator')).toBe('gen-session-xyz');
+    });
+
+    it('returns undefined when the sessionId file is absent (provider never reported one)', async () => {
+      expect(await readRoundSessionId(root.root, 99, 'generator')).toBeUndefined();
+      expect(await readRoundSessionId(root.root, 99, 'evaluator')).toBeUndefined();
+    });
+
+    it('returns undefined for an empty sessionId file rather than a zero-length id', async () => {
+      const dir = join(String(root.root), 'rounds', '7', 'evaluator');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, 'sessionId'), '\n', 'utf8');
+      expect(await readRoundSessionId(root.root, 7, 'evaluator')).toBeUndefined();
     });
   });
 

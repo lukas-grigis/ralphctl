@@ -20,9 +20,11 @@ import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import {
   nextRoundNum,
+  readRoundSessionId,
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
@@ -74,6 +76,13 @@ interface GeneratorInput {
   readonly turn: number;
   readonly progressFile: AbsolutePath;
   readonly workspaceRoot: AbsolutePath;
+  /**
+   * Captured Claude `session_id` from the prior round's generator turn for this task. Forwarded
+   * to `implementSession({ resume })` so the model continues a single conversational thread
+   * across rounds. `undefined` on round 1 of a task (or when the prior spawn failed before
+   * reporting an id) → fresh session.
+   */
+  readonly priorGeneratorSessionId?: SessionId;
 }
 
 interface GeneratorOutput {
@@ -83,6 +92,13 @@ interface GeneratorOutput {
   readonly proposedCommitMessage?: { readonly subject: string; readonly body?: string };
   /** On-disk round folder index written by this turn — `rounds/<N>/generator/`. */
   readonly roundNum: number;
+  /**
+   * `session_id` captured by the Claude adapter for THIS turn — read from
+   * `rounds/<N>/generator/sessionId` after the spawn returns. Stamped onto ctx by the output
+   * projection so the next round's generator can resume the same thread. `undefined` when the
+   * adapter never reported an id (failed spawn, non-Claude provider, …).
+   */
+  readonly capturedSessionId?: SessionId;
 }
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -133,7 +149,14 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           await writeRoundPrompt(input.workspaceRoot, roundNum, 'generator', String(prompt.value), deps.logger);
           return consumeSignals(
             deps.provider,
-            implementSession(input.workspaceRoot, deps.cwd, prompt.value, deps.model, signalsFile),
+            implementSession(
+              input.workspaceRoot,
+              deps.cwd,
+              prompt.value,
+              deps.model,
+              signalsFile,
+              input.priorGeneratorSessionId
+            ),
             deps.signals
           );
         };
@@ -145,6 +168,12 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         });
         if (!result.ok) return Result.error(result.error);
 
+        // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
+        // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
+        // reported an id — left undefined so the next round cold-starts cleanly rather than
+        // forwarding a stale id from a prior task.
+        const capturedSessionId = await readRoundSessionId(input.workspaceRoot, roundNum, 'generator');
+
         return Result.ok({
           task: result.value.task,
           turn: input.turn,
@@ -153,6 +182,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           ...(result.value.proposedCommitMessage !== undefined
             ? { proposedCommitMessage: result.value.proposedCommitMessage }
             : {}),
+          ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
         });
       },
     },
@@ -194,6 +224,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         turn: (ctx.genEvalTurn ?? 0) + 1,
         progressFile: ctx.progressFile,
         workspaceRoot: ctx.taskWorkspaceRoot,
+        ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
       };
     },
     output: (ctx, out) => {
@@ -201,6 +232,11 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       // Latest non-undefined proposed commit message wins across turns.
       const proposedCommitMessage = out.proposedCommitMessage ?? ctx.proposedCommitMessage;
       const carry = proposedCommitMessage !== undefined ? { proposedCommitMessage } : {};
+      // Latest captured generator sessionId wins; only OVERWRITE when this turn produced one.
+      // A turn that failed to capture an id (provider crash mid-stream) preserves whatever the
+      // prior turn captured so the next round still has a thread to resume.
+      const sessionCarry =
+        out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
       if (out.exit !== undefined) {
         return {
           ...ctx,
@@ -211,6 +247,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           lastExit: { kind: 'self-blocked', reason: out.exit.reason },
           lastBlockReason: out.exit.reason,
           ...carry,
+          ...sessionCarry,
         };
       }
       return {
@@ -220,6 +257,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         genEvalTurn: out.turn,
         currentRoundNum: out.roundNum,
         ...carry,
+        ...sessionCarry,
       };
     },
   });
