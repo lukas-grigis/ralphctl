@@ -49,6 +49,8 @@ export const renderProgressMarkdown = (state: SprintState): string => {
   if (state.decisions.length > 0) sections.push(renderDecisions(state.decisions));
   if (state.runs.length > 0) sections.push(renderRecentRuns(state.runs));
 
+  sections.push(renderMachineBlock(state));
+
   return `${sections.join('\n\n')}\n`;
 };
 
@@ -235,6 +237,53 @@ const formatRunDuration = (run: RunBoundary): string => {
   const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
   return formatDuration(ms);
 };
+
+// ───────────────────────── machine block ─────────────────────────
+
+/**
+ * One serialised task in the machine block. Flat by design — downstream tooling
+ * (dashboards, CI checks, future ralphctl subcommands) parses this without needing to
+ * cross-reference the prose sections. Fields beyond `id` / `name` / `status` / `attempts`
+ * are optional and present only when relevant (e.g. `blockReason` iff the task is blocked).
+ */
+interface MachineTaskEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly status: string;
+  readonly attempts: number;
+  readonly blockReason?: string;
+  readonly lastVerdict?: string;
+  readonly commitSha?: string;
+}
+
+interface MachinePayload {
+  readonly sprintId: string;
+  readonly status: string;
+  readonly tasks: readonly MachineTaskEntry[];
+}
+
+const renderMachineBlock = (state: SprintState): string => {
+  const payload: MachinePayload = {
+    sprintId: state.identity.id,
+    status: state.status.effective,
+    tasks: state.tasks.map(toMachineTask),
+  };
+  return ['<!-- machine:begin -->', '```json', JSON.stringify(payload, null, 2), '```', '<!-- machine:end -->'].join(
+    '\n'
+  );
+};
+
+const toMachineTask = (task: TaskProjection): MachineTaskEntry => ({
+  id: task.id,
+  name: task.name,
+  status: task.status,
+  attempts: task.attemptsCount,
+  ...(task.status === 'blocked' && task.blockReason !== undefined && task.blockReason.length > 0
+    ? { blockReason: task.blockReason }
+    : {}),
+  ...(task.lastAttempt?.verdict !== undefined ? { lastVerdict: task.lastAttempt.verdict } : {}),
+  ...(task.lastAttempt?.commitSha !== undefined ? { commitSha: task.lastAttempt.commitSha } : {}),
+});
 
 // ───────────────────────── presentation helpers ─────────────────────────
 

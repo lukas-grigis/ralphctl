@@ -218,8 +218,11 @@ describe('renderProgressMarkdown', () => {
       // Old table shape must NOT appear.
       expect(out).not.toContain('| # | name |');
       expect(out).not.toContain('| 1 | first |');
-      // SHA still truncated to 7 chars.
-      expect(out).not.toContain('abcdef1234567890');
+      // SHA is truncated to 7 chars in the prose Tasks section; the full SHA is allowed
+      // (and intentional) inside the machine block where downstream tooling expects the
+      // canonical value. Assert prose only.
+      const prose = out.split('<!-- machine:begin -->')[0] ?? '';
+      expect(prose).not.toContain('abcdef1234567890');
     });
 
     it('renders Changes / Learnings / Notes sub-sections when present', () => {
@@ -620,9 +623,137 @@ describe('renderProgressMarkdown', () => {
         '## Recent runs',
         '- run-1 · implement · completed · 5s · 5/5 steps',
         '',
+        '<!-- machine:begin -->',
+        '```json',
+        '{',
+        '  "sprintId": "sprint-1",',
+        '  "status": "blocked",',
+        '  "tasks": [',
+        '    {',
+        '      "id": "task-1",',
+        '      "name": "wire form",',
+        '      "status": "done",',
+        '      "attempts": 2,',
+        '      "lastVerdict": "passed",',
+        '      "commitSha": "abcdef1234567890"',
+        '    }',
+        '  ]',
+        '}',
+        '```',
+        '<!-- machine:end -->',
+        '',
       ].join('\n');
 
       expect(renderProgressMarkdown(state)).toBe(expected);
+    });
+  });
+
+  describe('machine block', () => {
+    const baseTask = (overrides: Partial<TaskProjection>): TaskProjection => ({
+      id: 't1',
+      name: 'do work',
+      status: 'todo',
+      order: 1,
+      ticketId: 'tkt-1',
+      repositoryId: 'repo-1',
+      blockedBy: [],
+      attemptsCount: 0,
+      changes: [],
+      learnings: [],
+      notes: [],
+      ...overrides,
+    });
+
+    it('appends the machine block as the LAST section after every prose section', () => {
+      const out = renderProgressMarkdown(minimalState());
+      const beginIdx = out.indexOf('<!-- machine:begin -->');
+      const endIdx = out.indexOf('<!-- machine:end -->');
+      expect(beginIdx).toBeGreaterThan(0);
+      expect(endIdx).toBeGreaterThan(beginIdx);
+      // Nothing meaningful after the end marker except a trailing newline.
+      expect(out.slice(endIdx + '<!-- machine:end -->'.length).trim()).toBe('');
+    });
+
+    it('embeds a parseable JSON payload with sprintId / status / tasks', () => {
+      const task = baseTask({
+        id: 'task-a',
+        name: 'first',
+        status: 'done',
+        order: 1,
+        attemptsCount: 2,
+        lastAttempt: {
+          n: 2,
+          status: 'verified',
+          verdict: 'passed',
+          commitSha: 'deadbeef000',
+          startedAt: ts('2026-05-08T10:00:00.000Z'),
+          finishedAt: ts('2026-05-08T10:00:05.000Z'),
+        },
+      });
+      const state: SprintState = {
+        ...minimalState(),
+        status: { raw: 'active', effective: 'active' },
+        tasks: [task],
+      };
+      const out = renderProgressMarkdown(state);
+      const begin = out.indexOf('```json');
+      const end = out.indexOf('```', begin + 1);
+      expect(begin).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(begin);
+      const json = out.slice(begin + '```json'.length, end).trim();
+      const parsed = JSON.parse(json) as {
+        sprintId: string;
+        status: string;
+        tasks: ReadonlyArray<{
+          id: string;
+          name: string;
+          status: string;
+          attempts: number;
+          blockReason?: string;
+          lastVerdict?: string;
+          commitSha?: string;
+        }>;
+      };
+      expect(parsed.sprintId).toBe('sprint-id-1');
+      expect(parsed.status).toBe('active');
+      expect(parsed.tasks).toHaveLength(1);
+      expect(parsed.tasks[0]).toMatchObject({
+        id: 'task-a',
+        name: 'first',
+        status: 'done',
+        attempts: 2,
+        lastVerdict: 'passed',
+        commitSha: 'deadbeef000',
+      });
+      // Non-blocked tasks must NOT carry a blockReason field.
+      expect(parsed.tasks[0]?.blockReason).toBeUndefined();
+    });
+
+    it('carries blockReason iff the task status is blocked', () => {
+      const blocked = baseTask({
+        id: 'task-b',
+        name: 'stuck',
+        status: 'blocked',
+        attemptsCount: 1,
+        blockReason: 'missing migration adapter',
+      });
+      const ongoing = baseTask({
+        id: 'task-c',
+        name: 'fine',
+        status: 'in_progress',
+        attemptsCount: 1,
+        // Defensive: a non-blocked task that somehow had blockReason set must NOT leak.
+        blockReason: 'lingering placeholder',
+      });
+      const out = renderProgressMarkdown({ ...minimalState(), tasks: [blocked, ongoing] });
+      const json = out.slice(out.indexOf('```json') + '```json'.length, out.lastIndexOf('```')).trim();
+      const parsed = JSON.parse(json) as {
+        tasks: ReadonlyArray<{ id: string; blockReason?: string }>;
+      };
+      const blockedOut = parsed.tasks.find((t) => t.id === 'task-b');
+      const ongoingOut = parsed.tasks.find((t) => t.id === 'task-c');
+      expect(blockedOut?.blockReason).toBe('missing migration adapter');
+      expect(ongoingOut?.blockReason).toBeUndefined();
     });
   });
 });
