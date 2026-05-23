@@ -280,7 +280,7 @@ export const SettingsView = (): React.JSX.Element => {
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Card title="AI provider" tone="rule">
+          <Card title="AI provider" tone="primary">
             <FieldList
               fields={[
                 { label: 'Provider', value: valueFor('ai.provider') },
@@ -293,7 +293,7 @@ export const SettingsView = (): React.JSX.Element => {
             />
           </Card>
           <Box marginTop={spacing.section}>
-            <Card title="Harness budgets" tone="rule">
+            <Card title="Harness budgets" tone="primary">
               <FieldList
                 fields={[
                   {
@@ -321,22 +321,22 @@ export const SettingsView = (): React.JSX.Element => {
             </Card>
           </Box>
           <Box marginTop={spacing.section}>
+            <Card title="Other" tone="primary">
+              <FieldList
+                fields={[
+                  { label: 'Log level', value: valueFor('logging.level') },
+                  { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
+                ]}
+              />
+            </Card>
+          </Box>
+          <Box marginTop={spacing.section}>
             <Card title="Storage paths" tone="rule">
               <FieldList
                 fields={[
                   { label: 'App root', value: <Text dimColor>{storage.appRoot}</Text> },
                   { label: 'Data root', value: <Text dimColor>{storage.dataRoot}</Text> },
                   { label: 'Config root', value: <Text dimColor>{storage.configRoot}</Text> },
-                ]}
-              />
-            </Card>
-          </Box>
-          <Box marginTop={spacing.section}>
-            <Card title="Other" tone="rule">
-              <FieldList
-                fields={[
-                  { label: 'Log level', value: valueFor('logging.level') },
-                  { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
                 ]}
               />
             </Card>
