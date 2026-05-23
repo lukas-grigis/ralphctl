@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import {
@@ -166,6 +166,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           const prompt = await buildEvaluatePrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
+            contractPath: join(String(input.workspaceRoot), 'contract.md'),
             outputContractSection: renderContractSectionFor(evaluatorOutputContract, outputDir),
             priorProgress,
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),

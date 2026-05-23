@@ -1057,7 +1057,8 @@ const TaskDetail = ({
             <Box flexDirection="column" paddingLeft={2}>
               {task.verificationCriteria.map((c, i) => (
                 <Text key={`vc-${String(i)}`} dimColor>
-                  {glyphs.bullet} {c}
+                  {glyphs.bullet} [{c.id}] {c.check}
+                  {c.check === 'auto' && c.command !== undefined ? ` \`${c.command}\`` : ''} — {c.assertion}
                 </Text>
               ))}
             </Box>

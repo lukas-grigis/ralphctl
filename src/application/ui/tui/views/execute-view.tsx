@@ -493,12 +493,21 @@ export const ExecuteView = (): React.JSX.Element => {
 
   // Synchronous criteria map — built from the in-memory Task[] state already polled above.
   // Audit [05]: `Task.verificationCriteria` is the canonical source; the panel never reads
-  // `done-criteria.md` (file no longer exists). Empty arrays are passed through so the panel
-  // can render a "no criteria declared" affordance instead of guessing.
+  // `done-criteria.md` (file no longer exists). Each criterion renders to a single line that
+  // surfaces the id + check kind + (auto) command + assertion so operators can audit auto
+  // checks at a glance. Empty arrays are passed through so the panel can render a "no
+  // criteria declared" affordance instead of guessing.
   const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
     if (taskState === undefined) return undefined;
     const m = new Map<string, readonly string[]>();
-    for (const t of taskState) m.set(String(t.id), t.verificationCriteria);
+    for (const t of taskState) {
+      const bullets = t.verificationCriteria.map((c) =>
+        c.check === 'auto' && c.command !== undefined
+          ? `[${c.id}] auto \`${c.command}\` — ${c.assertion}`
+          : `[${c.id}] manual — ${c.assertion}`
+      );
+      m.set(String(t.id), bullets);
+    }
     return m;
   }, [taskState]);
 

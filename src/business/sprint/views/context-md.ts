@@ -105,7 +105,13 @@ export const renderSprintContextMarkdown = (input: RenderSprintContextInput): st
     if (task.verificationCriteria.length > 0) {
       lines.push('');
       lines.push('**Verification:**');
-      for (const vc of task.verificationCriteria) lines.push(`- ${vc}`);
+      for (const vc of task.verificationCriteria) {
+        if (vc.check === 'auto' && vc.command !== undefined) {
+          lines.push(`- [${vc.id}] auto \`${vc.command}\` — ${vc.assertion}`);
+        } else {
+          lines.push(`- [${vc.id}] manual — ${vc.assertion}`);
+        }
+      }
     }
     lines.push('');
   }

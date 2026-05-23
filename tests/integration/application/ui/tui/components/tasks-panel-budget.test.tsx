@@ -36,7 +36,6 @@ const evaluation = (i: number): EvaluationSignal => ({
   type: 'evaluation',
   status: 'passed',
   dimensions: [],
-  overallScore: 5,
   timestamp: ts(i),
 });
 

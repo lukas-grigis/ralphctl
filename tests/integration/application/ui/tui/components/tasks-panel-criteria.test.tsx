@@ -102,13 +102,12 @@ describe('TasksPanel verification-criteria summary', () => {
     const evaluation: EvaluationSignal = {
       type: 'evaluation',
       status: 'passed',
-      overallScore: 4.5,
       timestamp: ts(10),
       dimensions: [
-        { dimension: 'correctness', score: 5, passed: true, finding: 'ok' },
-        { dimension: 'completeness', score: 4, passed: true, finding: 'ok' },
-        { dimension: 'style', score: 5, passed: true, finding: 'ok' },
-        { dimension: 'tests', score: 4, passed: true, finding: 'ok' },
+        { dimension: 'correctness', passed: true, finding: 'ok' },
+        { dimension: 'completeness', passed: true, finding: 'ok' },
+        { dimension: 'style', passed: true, finding: 'ok' },
+        { dimension: 'tests', passed: true, finding: 'ok' },
       ],
     };
 
@@ -129,22 +128,22 @@ describe('TasksPanel verification-criteria summary', () => {
 
     expect(frame).toContain('Correctness criterion');
     expect(frame).toContain('Tests criterion');
-    expect(frame).not.toMatch(/correctness: 5\/5/);
+    // No numeric score is rendered any more — the PASS / FAIL rubric replaced it.
+    expect(frame).not.toMatch(/5\/5/);
 
     r.unmount();
   });
 
-  it('falls back to the 4-dimension scores when criterion count and dimension count disagree', async () => {
+  it('falls back to the per-dimension row rendering when criterion count and dimension count disagree', async () => {
     const evaluation: EvaluationSignal = {
       type: 'evaluation',
-      status: 'passed',
-      overallScore: 4.5,
+      status: 'failed',
       timestamp: ts(10),
       dimensions: [
-        { dimension: 'correctness', score: 5, passed: true, finding: 'ok' },
-        { dimension: 'completeness', score: 4, passed: true, finding: 'ok' },
-        { dimension: 'style', score: 5, passed: true, finding: 'ok' },
-        { dimension: 'tests', score: 4, passed: true, finding: 'ok' },
+        { dimension: 'correctness', passed: true, finding: 'ok' },
+        { dimension: 'completeness', passed: false, finding: 'gap' },
+        { dimension: 'style', passed: true, finding: 'ok' },
+        { dimension: 'tests', passed: true, finding: 'ok' },
       ],
     };
 
@@ -158,8 +157,9 @@ describe('TasksPanel verification-criteria summary', () => {
     await tick(40);
     const frame = r.lastFrame() ?? '';
 
-    expect(frame).toMatch(/correctness: 5\/5/);
-    expect(frame).toMatch(/completeness: 4\/5/);
+    // Per-dimension fallback row carries dimension name + PASS / FAIL glyph (no score).
+    expect(frame).toMatch(/correctness:/);
+    expect(frame).toMatch(/completeness:/);
     r.unmount();
   });
 });

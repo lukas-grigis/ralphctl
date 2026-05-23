@@ -490,6 +490,13 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     let evalCalls = 0;
     let implementCalls = 0;
+    // Critique varies per turn — Jaccard < 0.5 between rounds — so plateau detection's
+    // critique-shift exemption keeps the loop running until the maxTurns budget itself fires.
+    const critiques = [
+      'first round complaint about parser edge case behaviour',
+      'second turn — completely different concern about retry semantics',
+      'third pass discovered a SQL injection vector in the dynamic query builder',
+    ];
     const provider = createFakeAiProvider({
       responses: {
         implement: () => {
@@ -497,8 +504,9 @@ describe('createImplementFlow — gen-eval loop', () => {
           return '<task-verified>tests pass</task-verified>';
         },
         evaluate: () => {
+          const text = critiques[evalCalls] ?? 'fallback critique';
           evalCalls += 1;
-          return '<evaluation-failed>still wrong</evaluation-failed>';
+          return `<evaluation-failed>${text}</evaluation-failed>`;
         },
       },
     });

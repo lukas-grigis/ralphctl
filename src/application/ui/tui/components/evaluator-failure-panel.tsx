@@ -69,6 +69,16 @@ const excerpt = (text: string): string => {
   return `${collapsed.slice(0, CRITIQUE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
 };
 
+/** Single-line preview of an `auto` criterion's command output. Mirrors {@link excerpt}'s clip
+ * convention but with a tighter cap because each dimension row already has its own finding
+ * line — the evidence row is a "what did the command actually say" glance, not a body. */
+const EVIDENCE_EXCERPT_CHARS = 120;
+const collapseEvidence = (text: string): string => {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= EVIDENCE_EXCERPT_CHARS) return collapsed;
+  return `${collapsed.slice(0, EVIDENCE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
+};
+
 /** @public */
 export const EvaluatorFailurePanel = ({
   evaluation,
@@ -108,29 +118,33 @@ export const EvaluatorFailurePanel = ({
           {'  '}eval{'  '}
         </Text>
         <Text bold>{evaluation.status}</Text>
-        {evaluation.overallScore !== undefined && (
-          <Text dimColor>
-            {' '}
-            {glyphs.bullet} {evaluation.overallScore.toFixed(1)}/5.0
-          </Text>
-        )}
       </Box>
       {evaluation.dimensions.length > 0 && (
         <Box flexDirection="column" paddingLeft={4}>
           {evaluation.dimensions.map((d) => {
             const color = d.passed ? inkColors.success : inkColors.error;
             const glyph = d.passed ? glyphs.check : glyphs.cross;
+            const verdict = d.passed ? 'pass' : 'fail';
             return (
-              <Box key={d.dimension}>
-                <Text color={color}>{glyph} </Text>
-                <Text>
-                  {d.dimension}: {String(d.score)}/5
-                </Text>
-                {d.finding.length > 0 && (
-                  <Text dimColor>
-                    {' '}
-                    {glyphs.emDash} {d.finding}
+              <Box key={d.dimension} flexDirection="column">
+                <Box>
+                  <Text color={color}>{glyph} </Text>
+                  <Text>
+                    {d.dimension}: {verdict}
                   </Text>
+                  {d.finding.length > 0 && (
+                    <Text dimColor>
+                      {' '}
+                      {glyphs.emDash} {d.finding}
+                    </Text>
+                  )}
+                </Box>
+                {d.executionEvidence !== undefined && d.executionEvidence.trim().length > 0 && (
+                  <Box paddingLeft={2}>
+                    <Text dimColor wrap="truncate-end">
+                      {glyphs.activityArrow} {collapseEvidence(d.executionEvidence)}
+                    </Text>
+                  </Box>
                 )}
               </Box>
             );
