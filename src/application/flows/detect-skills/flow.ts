@@ -47,6 +47,8 @@ export const createDetectSkillsFlow = (
       provider: deps.provider,
       templateLoader: deps.templateLoader,
       signals: deps.signals,
+      eventBus: deps.eventBus,
+      writeFile: deps.writeFile,
       logger: deps.logger,
       skillsAdapter: deps.skillsAdapter,
       model: opts.model,

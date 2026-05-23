@@ -125,12 +125,4 @@ specific to this repo.
 
 ### Phase 3 — Output
 
-Emit the elements below, each as a single block, no preamble, no commentary, no markdown fences
-around the tags themselves:
-
-1. `<setup-skill>…multi-paragraph markdown body…</setup-skill>` — omit only when an existing
-   project skill already covers sprint setup for this repo.
-2. `<verify-skill>…multi-paragraph markdown body…</verify-skill>` — omit only when an existing
-   project skill already covers post-task verification for this repo.
-3. `<note>…</note>` — optional, one short observation naming the source file(s) relied on, or
-   noting which existing skill made a tag redundant.
+{{OUTPUT_CONTRACT_SECTION}}

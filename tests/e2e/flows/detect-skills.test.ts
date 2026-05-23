@@ -18,6 +18,7 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, makeProject, makeRepository, isoTimestamp } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
@@ -101,6 +102,7 @@ const buildDeps = (
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
       signals: harness,
       eventBus,
+      writeFile: createAtomicWriteFile(),
       logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-12T11:00:00.000Z') }),
       interactive,
       skillsAdapter: noopSkillsAdapter,
@@ -282,13 +284,21 @@ describe('createDetectSkillsFlow', () => {
 
   it('AiSession profile — runs read-only with the configured model', () => {
     const repository = makeRepository();
-    const signalsFile = absolutePath('/tmp/signals.json');
-    const session = detectSkillsSession(repository, '#prompt' as unknown as Prompt, 'claude-sonnet-4-6', signalsFile);
+    const signalsFile = absolutePath('/tmp/runs/detect-skills/r1/signals.json');
+    const outputDir = absolutePath('/tmp/runs/detect-skills/r1');
+    const session = detectSkillsSession(
+      repository,
+      '#prompt' as unknown as Prompt,
+      'claude-sonnet-4-6',
+      signalsFile,
+      outputDir
+    );
     expect(session.model).toBe('claude-sonnet-4-6');
     expect(session.permissions.canEditFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.canAccessNetwork).toBe(true);
     expect(session.cwd).toBe(repository.path);
     expect(session.signalsFile).toBe(signalsFile);
+    expect(session.outputDir).toBe(outputDir);
   });
 });
