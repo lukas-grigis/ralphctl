@@ -110,8 +110,9 @@ const evaluationSidecar: SidecarRule<'evaluation'> = {
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 /**
- * Representative evaluator payload. One `evaluation` (the required verdict) plus a narrative
- * `note` shows the AI the shape it must produce. The Zod refine enforces exactly one
+ * Representative evaluator payload showing the PASS / FAIL rubric in the FAIL branch. One
+ * `auto` criterion's command output lands in `executionEvidence`; the failing dimension
+ * carries a concrete file:line citation in `finding`. The Zod refine enforces exactly one
  * `evaluation`; the prompt unit test round-trips this example through the schema.
  */
 const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
@@ -119,13 +120,17 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
     type: 'evaluation',
     status: 'failed',
     dimensions: [
-      { dimension: 'correctness', score: 5, passed: true, finding: 'all criteria met' },
-      { dimension: 'completeness', score: 3, passed: false, finding: 'edge case missing' },
-      { dimension: 'safety', score: 4, passed: true, finding: 'inputs validated' },
-      { dimension: 'consistency', score: 5, passed: true, finding: 'matches sibling code' },
+      {
+        dimension: 'correctness',
+        passed: false,
+        finding: 'C1 command exited 1: empty-input test failed at src/foo.ts:23',
+        executionEvidence: 'npm test -- src/foo.test.ts\n  ✗ handles empty input (expected 400, got 500)\n  1 failing',
+      },
+      { dimension: 'completeness', passed: true, finding: 'all declared steps shipped' },
+      { dimension: 'safety', passed: true, finding: 'inputs validated at the request boundary' },
+      { dimension: 'consistency', passed: true, finding: 'matches sibling code at src/bar.ts' },
     ],
-    overallScore: 4.3,
-    critique: 'Completeness: add edge-case handling for empty input at src/foo.ts:23.',
+    critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',
     timestamp: EXAMPLE_TS,
   },
 ];

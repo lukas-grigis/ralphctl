@@ -45,6 +45,12 @@ export interface ImplementPromptParams {
   readonly taskId: string;
   /** Absolute project path the task targets — `{{PROJECT_PATH}}`. */
   readonly projectPath: string;
+  /**
+   * Absolute path to the per-task `contract.md` sidecar — substituted into the template's
+   * `{{CONTRACT_PATH}}` placeholder. The implementer reads the contract before coding so the
+   * canonical definition of done matches the per-criterion table the evaluator grades against.
+   */
+  readonly contractPath: string;
   /** Markdown block "## Description\n\n…" or empty when the task has no description. */
   readonly taskDescriptionSection: string;
   /** Markdown block "## Implementation Steps\n\n1. …" or empty when there are no steps. */
@@ -105,6 +111,11 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       placeholder: 'PROJECT_PATH',
       description: 'Absolute path to the project the task targets.',
       validate: requireNonEmpty('projectPath', 'project path must not be empty'),
+    },
+    contractPath: {
+      placeholder: 'CONTRACT_PATH',
+      description: 'Absolute path to the per-task contract.md sidecar — authoritative definition of done.',
+      validate: requireNonEmpty('contractPath', 'contract path must not be empty'),
     },
     taskDescriptionSection: {
       placeholder: 'TASK_DESCRIPTION_SECTION',
@@ -168,6 +179,8 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
 export interface BuildImplementPromptInput {
   readonly task: Task;
   readonly projectPath: string;
+  /** Absolute path to the per-task `contract.md` sidecar (written by `build-task-workspace`). */
+  readonly contractPath: string;
   readonly verifyScript?: string;
   readonly progressFile: string;
   /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
@@ -200,6 +213,7 @@ export const buildImplementPrompt = async (
     taskName: input.task.name,
     taskId: String(input.task.id),
     projectPath: input.projectPath,
+    contractPath: input.contractPath,
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
