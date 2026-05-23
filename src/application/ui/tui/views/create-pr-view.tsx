@@ -4,8 +4,9 @@
  * external side effect (creates an upstream PR), so the view shows a one-line confirm
  * prompt before firing — pressing the view by mistake doesn't ship an unwanted PR.
  *
- * Defaults: base = `main`, draft = false. Users who need other options run the
- * `ralphctl create-pr` CLI command directly.
+ * Defaults: base = `main`, draft = false, AI authoring = on. Press `a` on the idle
+ * screen to toggle AI authoring off (the template-derived title + body wins instead).
+ * Users who need other options run the `ralphctl create-pr` CLI command directly.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -42,8 +43,10 @@ export const CreatePrView = (): React.JSX.Element => {
   const ui = useUiState();
   const [prep, setPrep] = useState<PrepState>({ kind: 'loading' });
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
+  const [useAi, setUseAi] = useState<boolean>(true);
   useViewHints([
     { keys: '↵', label: 'open PR' },
+    { keys: 'a', label: 'toggle AI' },
     { keys: 'esc', label: 'back' },
   ]);
 
@@ -86,15 +89,25 @@ export const CreatePrView = (): React.JSX.Element => {
         return;
       }
       setRun({ kind: 'running' });
-      const flow = createCreatePrFlow({
-        sprintRepo: deps.sprintRepo,
-        sprintExecutionRepo: deps.sprintExecutionRepo,
-        taskRepo: deps.taskRepo,
-        pullRequestCreator: deps.pullRequestCreator,
-        gitRunner: deps.gitRunner,
-        eventBus: deps.eventBus,
-        clock: deps.clock,
-      });
+      const flow = createCreatePrFlow(
+        {
+          sprintRepo: deps.sprintRepo,
+          sprintExecutionRepo: deps.sprintExecutionRepo,
+          taskRepo: deps.taskRepo,
+          pullRequestCreator: deps.pullRequestCreator,
+          gitRunner: deps.gitRunner,
+          eventBus: deps.eventBus,
+          clock: deps.clock,
+          provider: deps.provider,
+          templateLoader: deps.templateLoader,
+          writeFile: deps.writeFile,
+          logger: deps.logger,
+          // TODO(settings.ai.models.createPr): reuse refine's model until a dedicated
+          // create-pr model key + settings migration lands. Easy to grep later.
+          model: deps.settings.ai.models.refine,
+        },
+        { useAi }
+      );
       const result = await flow.execute({
         input: { sprintId: selection.sprintId, cwd, base: DEFAULT_BASE, draft: DEFAULT_DRAFT },
       });
@@ -104,13 +117,17 @@ export const CreatePrView = (): React.JSX.Element => {
       }
       setRun({ kind: 'done', url: result.value.ctx.output!.url });
     },
-    [deps, selection.sprintId]
+    [deps, selection.sprintId, useAi]
   );
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive) return;
     if (key.return && prep.kind === 'ready' && run.kind === 'idle') {
       void runCreate(prep.cwd);
+      return;
+    }
+    if (input === 'a' && run.kind === 'idle') {
+      setUseAi((prev) => !prev);
     }
   });
 
@@ -133,6 +150,10 @@ export const CreatePrView = (): React.JSX.Element => {
               <Text>
                 Branch <Text bold>{prep.branch}</Text> {glyphs.arrowRight} base <Text bold>{DEFAULT_BASE}</Text>{' '}
                 {glyphs.bullet} draft: <Text bold>{DEFAULT_DRAFT ? 'yes' : 'no'}</Text>
+              </Text>
+              <Text>
+                AI-authored: <Text bold>{useAi ? 'yes' : 'no'}</Text> {glyphs.bullet} press <Text bold>a</Text> to
+                toggle
               </Text>
               <Text dimColor>
                 press <Text bold>enter</Text> to open the PR · esc to back out · use the CLI for non-default base /

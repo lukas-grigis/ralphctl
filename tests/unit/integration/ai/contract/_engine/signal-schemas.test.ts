@@ -17,6 +17,7 @@ import { setupSkillProposalSignalSchema } from '@src/integration/ai/contract/_en
 import { verifySkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-skill-proposal/schema.ts';
 import { skillSuggestionsSignalSchema } from '@src/integration/ai/contract/_engine/signals/skill-suggestions/schema.ts';
 import { contextCompactedSignalSchema } from '@src/integration/ai/contract/_engine/signals/context-compacted/schema.ts';
+import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/signals/pr-content/schema.ts';
 
 const ts = '2026-05-22T10:00:00.000Z';
 
@@ -124,5 +125,15 @@ describe('signal schemas (happy-path parses)', () => {
   });
   it('context-compacted', () => {
     expect(contextCompactedSignalSchema.safeParse({ type: 'context-compacted', timestamp: ts }).success).toBe(true);
+  });
+  it('pr-content', () => {
+    expect(
+      prContentSignalSchema.safeParse({
+        type: 'pr-content',
+        title: 'Add CSV export',
+        body: 'body content',
+        timestamp: ts,
+      }).success
+    ).toBe(true);
   });
 });

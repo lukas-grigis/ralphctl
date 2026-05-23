@@ -303,6 +303,29 @@ export interface IdeatedTicketsSignal {
 }
 
 /**
+ * One PR-content proposal — produced by the create-pr flow's optional AI authoring step.
+ * Carries an AI-authored pull-request title + body the harness threads into `gh pr create` /
+ * `glab mr create`. No sidecar consumer mutates a domain entity from this signal; the
+ * downstream `create-pr` leaf reads it off ctx and prefers it over the template-derived
+ * default.
+ *
+ *  - `title` is a one-line PR title (convention: ≤70 chars, imperative form — enforced by the
+ *    prompt, not the schema, so an over-length title still validates and the platform's own
+ *    truncation rules apply).
+ *  - `body` is markdown prose. Uncapped on persistence; the platform CLI handles size limits.
+ *
+ * The shape is intentionally closed for modification (OCP). Future PR-authoring extensions
+ * (labels, reviewers, draft-rationale, …) MUST land as additional signal kinds — never by
+ * widening this one.
+ */
+export interface PrContentSignal {
+  readonly type: 'pr-content';
+  readonly title: string;
+  readonly body: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
  * Discriminated union of every signal type the harness understands. Narrows by the `type` tag;
  * exhaustive `switch` statements should close with `const _exhaustive: never = signal` so
  * adding a variant is a compile error at every consumer until handled.
@@ -333,7 +356,8 @@ export type HarnessSignal =
   | ContextCompactedSignal
   | RefinedTicketSignal
   | TaskPlanSignal
-  | IdeatedTicketsSignal;
+  | IdeatedTicketsSignal
+  | PrContentSignal;
 
 /**
  * Canonical name for the AI-produced signal union under the [09] contract. Currently aliased

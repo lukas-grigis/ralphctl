@@ -12,7 +12,11 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPushBranchLeaf } from '@src/application/flows/create-pr/leaves/push-branch-leaf.ts';
+import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
 const CWD = absolutePath('/tmp/repo');
 const BRANCH = 'ralphctl/sprint-x';
@@ -61,6 +65,38 @@ const stubTaskRepo = (): FindTasksBySprintId => ({
 });
 const stubPullRequestCreator: PullRequestCreator = async () => Result.ok({ url: 'unused', platform: 'github' });
 
+// AI-step stubs — push-branch never reaches them, but CreatePrDeps requires them present.
+const stubProvider: HeadlessAiProvider = {
+  async generate() {
+    return Result.error(new StorageError({ subCode: 'io', message: 'test: provider should not be called' }));
+  },
+};
+const stubTemplateLoader: TemplateLoader = {
+  async load() {
+    return Result.error(new StorageError({ subCode: 'io', message: 'test: loader should not be called' }));
+  },
+};
+const stubWriteFile: CreatePrDeps['writeFile'] = async () =>
+  Result.error(new StorageError({ subCode: 'io', message: 'test: writeFile should not be called' }));
+
+const stubCreatePrDeps = (overrides: {
+  runner: GitRunner;
+  eventBus?: ReturnType<typeof createInMemoryEventBus>;
+}): CreatePrDeps => ({
+  sprintRepo: stubSprintRepo(),
+  sprintExecutionRepo: inMemoryExecutionRepo(execution),
+  taskRepo: stubTaskRepo(),
+  pullRequestCreator: stubPullRequestCreator,
+  gitRunner: overrides.runner,
+  eventBus: overrides.eventBus ?? createInMemoryEventBus(),
+  clock: () => FIXED_LATER,
+  provider: stubProvider,
+  templateLoader: stubTemplateLoader,
+  writeFile: stubWriteFile,
+  logger: noopLogger,
+  model: 'test-model',
+});
+
 const sprint = makeReviewSprint();
 const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), BRANCH);
 const baseCtx = {
@@ -82,15 +118,7 @@ describe('push-branch-leaf', () => {
       if (e.type === 'log') messages.push(e.message);
     });
 
-    const leaf = createPushBranchLeaf({
-      sprintRepo: stubSprintRepo(),
-      sprintExecutionRepo: inMemoryExecutionRepo(execution),
-      taskRepo: stubTaskRepo(),
-      pullRequestCreator: stubPullRequestCreator,
-      gitRunner: runner,
-      eventBus,
-      clock: () => FIXED_LATER,
-    });
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner, eventBus }));
 
     const out = await leaf.execute(baseCtx);
 
@@ -110,15 +138,7 @@ describe('push-branch-leaf', () => {
         result: Result.ok({ stdout: 'main\n', stderr: '', exitCode: 0 }),
       },
     ]);
-    const leaf = createPushBranchLeaf({
-      sprintRepo: stubSprintRepo(),
-      sprintExecutionRepo: inMemoryExecutionRepo(execution),
-      taskRepo: stubTaskRepo(),
-      pullRequestCreator: stubPullRequestCreator,
-      gitRunner: runner,
-      eventBus: createInMemoryEventBus(),
-      clock: () => FIXED_LATER,
-    });
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner }));
 
     const out = await leaf.execute(baseCtx);
 
@@ -146,15 +166,7 @@ describe('push-branch-leaf', () => {
         }),
       },
     ]);
-    const leaf = createPushBranchLeaf({
-      sprintRepo: stubSprintRepo(),
-      sprintExecutionRepo: inMemoryExecutionRepo(execution),
-      taskRepo: stubTaskRepo(),
-      pullRequestCreator: stubPullRequestCreator,
-      gitRunner: runner,
-      eventBus: createInMemoryEventBus(),
-      clock: () => FIXED_LATER,
-    });
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner }));
 
     const out = await leaf.execute(baseCtx);
 
@@ -171,15 +183,7 @@ describe('push-branch-leaf', () => {
         return Result.error(new StorageError({ subCode: 'io', message: 'failed to spawn git: ENOENT' }));
       },
     };
-    const leaf = createPushBranchLeaf({
-      sprintRepo: stubSprintRepo(),
-      sprintExecutionRepo: inMemoryExecutionRepo(execution),
-      taskRepo: stubTaskRepo(),
-      pullRequestCreator: stubPullRequestCreator,
-      gitRunner: runner,
-      eventBus: createInMemoryEventBus(),
-      clock: () => FIXED_LATER,
-    });
+    const leaf = createPushBranchLeaf(stubCreatePrDeps({ runner }));
 
     const out = await leaf.execute(baseCtx);
 

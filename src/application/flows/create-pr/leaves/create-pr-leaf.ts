@@ -65,8 +65,9 @@ export const createCreatePrLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
           tasks = loaded.value;
         }
         const derived = derivePrContent(sprint.value, tasks);
-        const title = input.title ?? derived.title;
-        const body = input.body ?? derived.body;
+        // Precedence: explicit override > AI-authored content > template-derived default.
+        const title = input.title ?? input.aiContent?.title ?? derived.title;
+        const body = input.body ?? input.aiContent?.body ?? derived.body;
 
         deps.eventBus.publish({
           type: 'log',
@@ -125,6 +126,6 @@ export const createCreatePrLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
         return Result.ok({ url: created.value.url });
       },
     },
-    input: (c) => c.input,
+    input: (c) => (c.aiContent !== undefined ? { ...c.input, aiContent: c.aiContent } : c.input),
     output: (c, o) => ({ ...c, output: o }),
   });
