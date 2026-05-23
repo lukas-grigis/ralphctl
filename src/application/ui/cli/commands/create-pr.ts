@@ -48,6 +48,7 @@ export const registerCreatePrCommand = (program: Command): void => {
         sprintExecutionRepo: deps.sprintExecutionRepo,
         taskRepo: deps.taskRepo,
         pullRequestCreator: deps.pullRequestCreator,
+        gitRunner: deps.gitRunner,
         eventBus: deps.eventBus,
         clock: deps.clock,
       });

@@ -91,6 +91,7 @@ export const CreatePrView = (): React.JSX.Element => {
         sprintExecutionRepo: deps.sprintExecutionRepo,
         taskRepo: deps.taskRepo,
         pullRequestCreator: deps.pullRequestCreator,
+        gitRunner: deps.gitRunner,
         eventBus: deps.eventBus,
         clock: deps.clock,
       });

@@ -4,6 +4,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 
 export interface CreatePrDeps {
   readonly sprintRepo: SprintRepository;
@@ -15,6 +16,13 @@ export interface CreatePrDeps {
    */
   readonly taskRepo: FindTasksBySprintId;
   readonly pullRequestCreator: PullRequestCreator;
+  /**
+   * Used by the upstream `push-branch` leaf to verify the working tree is on the sprint
+   * branch and to `git push -u origin <branch>` before the platform CLI sees the head.
+   * In non-TTY spawns the platform CLI cannot prompt the user to push, so the harness
+   * must publish the branch itself.
+   */
+  readonly gitRunner: GitRunner;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
 }

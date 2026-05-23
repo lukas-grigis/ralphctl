@@ -186,8 +186,11 @@ export const makeInProgressTaskWithRunningAttempt = (overrides?: { maxAttempts?:
   return unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
 };
 
-export const makeDoneTask = (overrides?: { name?: string }): DoneTask => {
-  const todo = overrides?.name !== undefined ? makeTodoTask({ name: overrides.name }) : makeTodoTask();
+export const makeDoneTask = (overrides?: { name?: string; externalRefs?: readonly string[] }): DoneTask => {
+  const todoOverrides: Parameters<typeof makeTodoTask>[0] = {};
+  if (overrides?.name !== undefined) todoOverrides.name = overrides.name;
+  if (overrides?.externalRefs !== undefined) todoOverrides.externalRefs = overrides.externalRefs;
+  const todo = makeTodoTask(todoOverrides);
   const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
   const verified = unwrap(recordRunningAttemptVerification(inProgress));
   return unwrap(markTaskDone(verified, FIXED_LATER));

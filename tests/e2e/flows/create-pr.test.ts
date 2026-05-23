@@ -8,6 +8,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import {
   absolutePath,
@@ -84,20 +85,54 @@ const failingTaskRepo = (): FindTasksBySprintId => ({
   },
 });
 
+// Fake git runner: answers `rev-parse --abbrev-ref HEAD` with the sprint branch (so the
+// push-branch leaf's drift guard passes) and records each `git push` argv.
+const recordingGitRunner = (branch: string): { runner: GitRunner; pushes: Array<readonly string[]> } => {
+  const pushes: Array<readonly string[]> = [];
+  const runner: GitRunner = {
+    async run(_cwd, args) {
+      if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+        return Result.ok({ stdout: `${branch}\n`, stderr: '', exitCode: 0 });
+      }
+      if (args[0] === 'push') {
+        pushes.push(args);
+        return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+      }
+      return Result.error(new StorageError({ subCode: 'io', message: `test: unexpected git ${args.join(' ')}` }));
+    },
+  };
+  return { runner, pushes };
+};
+
 const fixedClock = (): typeof FIXED_LATER => FIXED_LATER;
 
 describe('create-pr flow — happy path', () => {
-  it('opens the PR and persists the URL on the sprint execution', async () => {
+  it('pushes the branch, then opens the PR and persists the URL on the sprint execution', async () => {
     const sprint = makeReviewSprint();
     const exec = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'feature/x');
     const execRepo = inMemoryExecutionRepo(exec);
     const pr = recordingPullRequestCreator('https://github.com/o/r/pull/42');
+    const git = recordingGitRunner('feature/x');
+    // Capture call ordering across both side effects to assert push-before-PR.
+    const callOrder: string[] = [];
+    const orderedGitRunner: GitRunner = {
+      async run(cwd, args) {
+        const r = await git.runner.run(cwd, args);
+        if (args[0] === 'push') callOrder.push('push');
+        return r;
+      },
+    };
+    const orderedPrCreator: PullRequestCreator = async (input) => {
+      callOrder.push('pr');
+      return pr.creator(input);
+    };
 
     const flow = createCreatePrFlow({
       sprintRepo: fakeSprintRepo(sprint),
       sprintExecutionRepo: execRepo.repo,
       taskRepo: emptyTaskRepo(),
-      pullRequestCreator: pr.creator,
+      pullRequestCreator: orderedPrCreator,
+      gitRunner: orderedGitRunner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
@@ -114,6 +149,9 @@ describe('create-pr flow — happy path', () => {
     expect(pr.calls[0]?.title).toBe(sprint.name);
     expect(execRepo.saves).toHaveLength(1);
     expect(String(execRepo.saves[0]?.pullRequestUrl)).toBe('https://github.com/o/r/pull/42');
+    // Push leaf ran a `git push -u origin <branch>` and did so before the PR was opened.
+    expect(git.pushes).toEqual([['push', '-u', 'origin', 'feature/x']]);
+    expect(callOrder).toEqual(['push', 'pr']);
   });
 
   it('loads tasks from the repo and emits `## Tasks` + `## Related issues` (with `- Closes <ref>`) in the body', async () => {
@@ -133,6 +171,7 @@ describe('create-pr flow — happy path', () => {
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
       taskRepo: recordingTaskRepo([done, todo]),
       pullRequestCreator: pr.creator,
+      gitRunner: recordingGitRunner('feature/x').runner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
@@ -161,6 +200,7 @@ describe('create-pr flow — happy path', () => {
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
       taskRepo: emptyTaskRepo(),
       pullRequestCreator: pr.creator,
+      gitRunner: recordingGitRunner('feature/y').runner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
@@ -193,6 +233,7 @@ describe('create-pr flow — failures', () => {
       sprintExecutionRepo: execRepo.repo,
       taskRepo: emptyTaskRepo(),
       pullRequestCreator: failingPullRequestCreator(),
+      gitRunner: recordingGitRunner('feature/x').runner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
@@ -215,6 +256,7 @@ describe('create-pr flow — failures', () => {
       sprintExecutionRepo: execRepo.repo,
       taskRepo: failingTaskRepo(),
       pullRequestCreator: pr.creator,
+      gitRunner: recordingGitRunner('feature/x').runner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
@@ -239,6 +281,7 @@ describe('create-pr flow — failures', () => {
       sprintExecutionRepo: inMemoryExecutionRepo(exec).repo,
       taskRepo: emptyTaskRepo(),
       pullRequestCreator: recordingPullRequestCreator('unused').creator,
+      gitRunner: recordingGitRunner('unused').runner,
       eventBus: createInMemoryEventBus(),
       clock: fixedClock,
     });
