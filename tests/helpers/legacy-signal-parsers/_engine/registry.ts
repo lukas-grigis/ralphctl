@@ -24,7 +24,9 @@ import type { SignalParser } from '@tests/helpers/legacy-signal-parsers/_engine/
  * pinned → setup-time proposals) makes it easier to scan when adding a new tag.
  */
 export const DEFAULT_SIGNAL_PARSERS: readonly SignalParser[] = [
-  // verdicts
+  // verdicts — the test-only evaluation parser recognises <evaluation-*> markers and emits
+  // the new PASS / FAIL shape so existing fake-AI fixtures keep working without per-test
+  // signal arrays. Production evaluator verdicts flow through the file-based contract.
   evaluationParser,
   taskCompleteParser,
   taskVerifiedParser,

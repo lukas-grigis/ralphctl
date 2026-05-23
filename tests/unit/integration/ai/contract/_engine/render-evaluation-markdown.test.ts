@@ -10,26 +10,33 @@ const ts = (): IsoTimestamp => {
 };
 
 describe('renderEvaluationMarkdown', () => {
-  it('renders status, score, critique and dimensions', () => {
+  it('renders status, critique, dimensions (no numeric score) and executionEvidence when present', () => {
     const signal: EvaluationSignal = {
       type: 'evaluation',
       status: 'passed',
-      overallScore: 4.5,
       critique: 'looks good overall',
       dimensions: [
-        { dimension: 'correctness', score: 5, passed: true, finding: 'matches spec' },
-        { dimension: 'tests', score: 4, passed: true, finding: 'coverage adequate' },
+        {
+          dimension: 'correctness',
+          passed: true,
+          finding: 'matches spec',
+          executionEvidence: 'npm test\n  12 passing',
+        },
+        { dimension: 'tests', passed: true, finding: 'coverage adequate' },
       ],
       timestamp: ts(),
     };
     const md = renderEvaluationMarkdown(signal);
     expect(md).toContain('# Evaluation — passed');
-    expect(md).toContain('**Overall score:** 4.5 / 5');
+    expect(md).not.toContain('Overall score');
+    expect(md).not.toContain('/5');
     expect(md).toContain('## Critique');
     expect(md).toContain('looks good overall');
-    expect(md).toContain('### correctness — 5/5 — passed');
+    expect(md).toContain('### correctness — passed');
     expect(md).toContain('matches spec');
-    expect(md).toContain('### tests — 4/5 — passed');
+    expect(md).toContain('### tests — passed');
+    // Execution evidence renders inside a fenced block under the matching dimension row.
+    expect(md).toContain('```\nnpm test\n  12 passing\n```');
   });
 
   it('omits the critique section when critique is absent', () => {

@@ -57,16 +57,97 @@ describe('signal schemas (happy-path parses)', () => {
       }).success
     ).toBe(true);
   });
-  it('evaluation', () => {
+  it('evaluation: PASS verdict with all dimensions passed', () => {
     expect(
       evaluationSignalSchema.safeParse({
         type: 'evaluation',
         status: 'passed',
-        dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: '' }],
-        overallScore: 5,
+        dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
         timestamp: ts,
       }).success
     ).toBe(true);
+  });
+
+  it('evaluation: FAIL with one failing dimension + finding + executionEvidence', () => {
+    expect(
+      evaluationSignalSchema.safeParse({
+        type: 'evaluation',
+        status: 'failed',
+        dimensions: [
+          {
+            dimension: 'correctness',
+            passed: false,
+            finding: 'test failed at src/foo.ts:23',
+            executionEvidence: 'npm test\n  1 failing',
+          },
+        ],
+        critique: 'fix src/foo.ts:23',
+        timestamp: ts,
+      }).success
+    ).toBe(true);
+  });
+
+  it('evaluation: silently strips the legacy `score` field on a dimension', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: '' }],
+      timestamp: ts,
+    });
+    // Zod's non-strict object passes the parse but drops the unknown `score` key on output —
+    // the canonical shape is restored downstream so renderers / persistence don't have to
+    // special-case the legacy field.
+    expect(r.success).toBe(true);
+    if (r.success) {
+      const dim = r.data.dimensions[0];
+      if (dim !== undefined) {
+        expect((dim as Record<string, unknown>)['score']).toBeUndefined();
+      }
+    }
+  });
+
+  it('evaluation: silently strips the legacy `overallScore` field on the signal', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+      overallScore: 5,
+      timestamp: ts,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect((r.data as Record<string, unknown>)['overallScore']).toBeUndefined();
+    }
+  });
+
+  it('evaluation: rejects a failed-status signal whose every dimension passed', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'failed',
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('evaluation: rejects a passed-status signal carrying a failing dimension', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'oops' }],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('evaluation: rejects a failed dimension with no finding', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'failed',
+      dimensions: [{ dimension: 'correctness', passed: false, finding: '' }],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
   });
   it('commit-message', () => {
     expect(

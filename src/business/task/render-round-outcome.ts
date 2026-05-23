@@ -87,12 +87,12 @@ const renderDimensions = (
   if (dimensions.length === 0) {
     if (fallback === undefined) return undefined;
     // Evaluation recorded on the attempt entity but no in-memory signal — keep the section
-    // but mark it explicitly empty so the reader knows scores weren't captured.
-    return ['## Evaluator dimensions', '', '_No dimension scores recorded._'];
+    // but mark it explicitly empty so the reader knows the verdict wasn't captured.
+    return ['## Evaluator dimensions', '', '_No dimension verdicts recorded._'];
   }
-  const rows: string[] = ['## Evaluator dimensions', '', '| dimension | score |', '|---|---|'];
+  const rows: string[] = ['## Evaluator dimensions', '', '| dimension | verdict |', '|---|---|'];
   for (const d of dimensions) {
-    rows.push(`| ${dimensionLabel(d)} | ${String(d.score)}/5 |`);
+    rows.push(`| ${dimensionLabel(d)} | ${d.passed ? 'PASS' : 'FAIL'} |`);
   }
   return rows;
 };
@@ -134,10 +134,10 @@ const synthesise = (input: RoundOutcomeInput): string => {
   // failed
   const failedDims = collectFailedDimensions(input.evaluation);
   if (failedDims.length === 0) {
-    return `${base} failed without dimension scores; critique persisted, round ${String(input.roundN + 1)} will retry.`;
+    return `${base} failed without dimension verdicts; critique persisted, round ${String(input.roundN + 1)} will retry.`;
   }
   const detail = formatFailedDimensions(input.evaluation);
-  return `${base} failed ${detail}; critique persisted, round ${String(input.roundN + 1)} will retry.`;
+  return `${base} failed on ${detail}; critique persisted, round ${String(input.roundN + 1)} will retry.`;
 };
 
 const collectFailedDimensions = (evaluation: EvaluationSignal | undefined): readonly string[] => {
@@ -149,7 +149,7 @@ const formatFailedDimensions = (evaluation: EvaluationSignal | undefined): strin
   if (evaluation === undefined) return 'evaluator dimensions';
   const failed = evaluation.dimensions.filter((d) => !d.passed);
   if (failed.length === 0) return 'evaluator dimensions';
-  return failed.map((d) => `${dimensionLabel(d)} ${String(d.score)}/5`).join(', ');
+  return failed.map((d) => dimensionLabel(d)).join(', ');
 };
 
 const SHA_DISPLAY_LENGTH = 7;

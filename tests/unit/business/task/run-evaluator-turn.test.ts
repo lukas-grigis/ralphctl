@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
-import type { DimensionScoreValue, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
@@ -24,9 +24,9 @@ const evaluation = (
   ...overrides,
 });
 
-const failedEval = (dim: string, score: DimensionScoreValue, extras?: Partial<EvaluationSignal>): EvaluationSignal =>
+const failedEval = (dim: string, extras?: Partial<EvaluationSignal>): EvaluationSignal =>
   evaluation('failed', {
-    dimensions: [{ dimension: dim, score, passed: false, finding: `score=${String(score)}` }],
+    dimensions: [{ dimension: dim, passed: false, finding: 'placeholder failure finding' }],
     ...extras,
   });
 
@@ -88,7 +88,7 @@ describe('runEvaluatorTurnUseCase', () => {
   // commit-subject change → plateau fires at the default threshold of 2.
   it('plateau fires on repeated identical scores with no commit-progress (default threshold=2)', async () => {
     const task = verifiedTask();
-    const ev = failedEval('completeness', 3, { critique: 'still missing X' });
+    const ev = failedEval('completeness', { critique: 'still missing X' });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(ev, { critique: 'still missing X' })],
@@ -106,13 +106,13 @@ describe('runEvaluatorTurnUseCase', () => {
     }
   });
 
-  it('no plateau when a failed dimension score improved (3 → 4 promotes the dim to passed)', async () => {
+  it('no plateau when a failed dimension drops out of the failed set (PASS on the next turn)', async () => {
     const task = verifiedTask();
-    const prior = failedEval('correctness', 3);
-    // Score 4 on the same dim → passed:true → dimension drops out of failed set entirely; the
-    // set-equality precondition no longer holds and the predicate returns `none`.
+    const prior = failedEval('correctness');
+    // The same dim now passes — `failedDimensions` is empty so the set-equality precondition
+    // no longer holds and the predicate returns `none`.
     const current = evaluation('failed', {
-      dimensions: [{ dimension: 'correctness', score: 4, passed: true, finding: 'better' }],
+      dimensions: [{ dimension: 'correctness', passed: true, finding: 'better' }],
       critique: 'almost there',
     });
     const result = await runEvaluatorTurnUseCase({
@@ -127,29 +127,9 @@ describe('runEvaluatorTurnUseCase', () => {
     if (result.ok) expect(result.value.exit).toBeUndefined();
   });
 
-  it('no plateau when a still-failed dimension improved by ≥1 (e.g. 2 → 3, still failing)', async () => {
-    const task = verifiedTask();
-    const prior = failedEval('correctness', 2);
-    const current = failedEval('correctness', 3, { critique: 'narrower gap' });
-    const result = await runEvaluatorTurnUseCase({
-      task,
-      priorTurns: [turnRecord(prior)],
-      plateauThreshold: 2,
-      callEvaluate: async () => Result.ok([current] as readonly HarnessSignal[]),
-      evaluationFile: EVAL_FILE,
-      logger: noopLogger,
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.exit).toBeUndefined();
-      // Critique was recorded for next turn.
-      expect(result.value.task.attempts.at(-1)?.critique).toBe('narrower gap');
-    }
-  });
-
   it('commit-progress softens plateau to warning-only (records warning, loop continues)', async () => {
     const task = verifiedTask();
-    const ev = failedEval('completeness', 3, { critique: 'still missing X' });
+    const ev = failedEval('completeness', { critique: 'still missing X' });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(ev, { critique: 'still missing X', commitSubject: 'WIP: try option A' })],
@@ -174,7 +154,7 @@ describe('runEvaluatorTurnUseCase', () => {
 
   it('threshold=3: same dim flagged twice (one prior + current) → no plateau yet', async () => {
     const task = verifiedTask();
-    const ev = failedEval('completeness', 3, { critique: 'still missing X' });
+    const ev = failedEval('completeness', { critique: 'still missing X' });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(ev)],
@@ -189,7 +169,7 @@ describe('runEvaluatorTurnUseCase', () => {
 
   it('threshold=3: three consecutive (two prior + current) on same dim → plateau fires', async () => {
     const task = verifiedTask();
-    const ev = failedEval('completeness', 3, { critique: 'still missing X' });
+    const ev = failedEval('completeness', { critique: 'still missing X' });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(ev), turnRecord(ev)],
@@ -207,8 +187,8 @@ describe('runEvaluatorTurnUseCase', () => {
     // Tiny tweak — single-character whitespace difference; trigram sets overlap heavily.
     const priorCritique = 'still missing the early-return branch in the parser';
     const currentCritique = 'still missing the early-return branch in the parser.';
-    const prior = failedEval('completeness', 3, { critique: priorCritique });
-    const current = failedEval('completeness', 3, { critique: currentCritique });
+    const prior = failedEval('completeness', { critique: priorCritique });
+    const current = failedEval('completeness', { critique: currentCritique });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(prior, { critique: priorCritique })],
@@ -225,8 +205,8 @@ describe('runEvaluatorTurnUseCase', () => {
     const task = verifiedTask();
     const priorCritique = 'still missing the early-return branch in the parser';
     const currentCritique = 'overflow on huge inputs; bounds check needed in the buffer alloc path';
-    const prior = failedEval('completeness', 3, { critique: priorCritique });
-    const current = failedEval('completeness', 3, { critique: currentCritique });
+    const prior = failedEval('completeness', { critique: priorCritique });
+    const current = failedEval('completeness', { critique: currentCritique });
     const result = await runEvaluatorTurnUseCase({
       task,
       priorTurns: [turnRecord(prior, { critique: priorCritique })],
@@ -242,7 +222,7 @@ describe('runEvaluatorTurnUseCase', () => {
     }
   });
 
-  it('predicate does not crash on missing scores / empty dimensions — treats as no plateau evidence', async () => {
+  it('predicate does not crash on empty dimensions — treats as no plateau evidence', async () => {
     const task = verifiedTask();
     const empty = evaluation('failed', { dimensions: [] });
     const result = await runEvaluatorTurnUseCase({
@@ -274,7 +254,7 @@ describe('runEvaluatorTurnUseCase', () => {
   it('continues (no exit) when failed but with a fresh critique and no prior turns', async () => {
     const task = verifiedTask();
     const failed: EvaluationSignal = evaluation('failed', {
-      dimensions: [{ dimension: 'correctness', score: 2, passed: false, finding: 'wrong' }],
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'wrong' }],
       critique: 'try again with X',
     });
     const result = await runEvaluatorTurnUseCase({

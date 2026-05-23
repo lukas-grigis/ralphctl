@@ -18,18 +18,21 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 export type EvaluationDimension = string;
 
 /**
- * Numeric score on the 1–5 rubric:
- *   5 = exemplary · 4 = solid · 3 = adequate · 2 = below bar · 1 = unacceptable
+ * One dimension verdict on the evaluator's PASS / FAIL rubric. `passed: true` is the only
+ * positive verdict — there is no middle ground, no numeric score. The `finding` is mandatory
+ * non-empty when `passed: false` (enforced by the persistence-layer Zod schema).
  *
- * Scores ≥ 4 map to `passed: true`; 1–3 map to `passed: false`.
+ * `executionEvidence` is the verbatim command output for dimensions paired with an `auto`
+ * verification criterion — the reviewer runs the criterion's command and records the tail of
+ * stdout/stderr so an operator can audit the verdict without re-running the spawn. Optional at
+ * the schema layer (the auto/manual partitioning lives on the task contract, not the signal),
+ * prompt-enforced for auto criteria.
  */
-export type DimensionScoreValue = 1 | 2 | 3 | 4 | 5;
-
 export interface DimensionScore {
   readonly dimension: EvaluationDimension;
-  readonly score: DimensionScoreValue;
   readonly passed: boolean;
   readonly finding: string;
+  readonly executionEvidence?: string;
 }
 
 export interface ProgressSignal {
@@ -40,14 +43,16 @@ export interface ProgressSignal {
 }
 
 /**
- * Outcome of an evaluator run. `overallScore` is the mean of dimension scores rounded to one
- * decimal; undefined when there are no dimensions (e.g. `malformed` with empty list).
+ * Outcome of an evaluator run. The signal carries a PASS / FAIL verdict (`status`), the
+ * per-dimension findings (`dimensions`), and an optional `critique` the generator reads on
+ * the next round. Per the evaluator-rubric redesign, no numeric score field is persisted —
+ * `passed` is the only verdict on each dimension and `status: 'passed'` requires every
+ * dimension to pass.
  */
 export interface EvaluationSignal {
   readonly type: 'evaluation';
   readonly status: 'passed' | 'failed' | 'malformed';
   readonly dimensions: readonly DimensionScore[];
-  readonly overallScore?: number;
   readonly critique?: string;
   readonly timestamp: IsoTimestamp;
 }

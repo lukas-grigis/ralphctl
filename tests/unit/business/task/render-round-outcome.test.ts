@@ -26,10 +26,9 @@ const passingEvaluation = (): EvaluationSignal => ({
   type: 'evaluation',
   status: 'passed',
   dimensions: [
-    { dimension: 'correctness', score: 5, passed: true, finding: 'ok' },
-    { dimension: 'completeness', score: 4, passed: true, finding: 'ok' },
+    { dimension: 'correctness', passed: true, finding: 'ok' },
+    { dimension: 'completeness', passed: true, finding: 'ok' },
   ],
-  overallScore: 4.5,
   timestamp: FIXED_NOW,
 });
 
@@ -37,10 +36,9 @@ const failingEvaluation = (): EvaluationSignal => ({
   type: 'evaluation',
   status: 'failed',
   dimensions: [
-    { dimension: 'correctness', score: 5, passed: true, finding: 'ok' },
-    { dimension: 'completeness', score: 3, passed: false, finding: 'missing edge case' },
+    { dimension: 'correctness', passed: true, finding: 'ok' },
+    { dimension: 'completeness', passed: false, finding: 'missing edge case' },
   ],
-  overallScore: 4,
   critique: 'Implementation misses the empty-input path.',
   timestamp: FIXED_NOW,
 });
@@ -63,8 +61,8 @@ describe('renderRoundOutcome', () => {
     expect(out).toContain('- verdict: passed');
     expect(out).toContain('- commit: abc1234deadbeef');
     expect(out).toContain('## Evaluator dimensions');
-    expect(out).toContain('| correctness | 5/5 |');
-    expect(out).toContain('| completeness | 4/5 |');
+    expect(out).toContain('| correctness | PASS |');
+    expect(out).toContain('| completeness | PASS |');
     expect(out).not.toContain('## Critique');
     expect(out).toContain('## Synthesis');
     expect(out).toMatch(/Round 2 of attempt 1 passed all evaluator dimensions and committed abc1234\./);
@@ -82,7 +80,7 @@ describe('renderRoundOutcome', () => {
     expect(out).toContain('- verdict: failed');
     expect(out).toContain('## Critique');
     expect(out).toContain('> Implementation misses the empty-input path.');
-    expect(out).toMatch(/Round 1 of attempt 1 failed completeness 3\/5; critique persisted, round 2 will retry\./);
+    expect(out).toMatch(/Round 1 of attempt 1 failed on completeness; critique persisted, round 2 will retry\./);
   });
 
   it('plateau verdict: synthesises a plateau summary using the failed dimension names', () => {
@@ -95,10 +93,9 @@ describe('renderRoundOutcome', () => {
         type: 'evaluation',
         status: 'failed',
         dimensions: [
-          { dimension: 'correctness', score: 2, passed: false, finding: 'still wrong' },
-          { dimension: 'completeness', score: 3, passed: false, finding: 'still missing' },
+          { dimension: 'correctness', passed: false, finding: 'still wrong' },
+          { dimension: 'completeness', passed: false, finding: 'still missing' },
         ],
-        overallScore: 2.5,
         timestamp: FIXED_NOW,
       },
     });
@@ -175,7 +172,7 @@ describe('renderRoundOutcome', () => {
       verdict: 'failed',
     });
     expect(out).toContain('## Evaluator dimensions');
-    expect(out).toContain('_No dimension scores recorded._');
+    expect(out).toContain('_No dimension verdicts recorded._');
   });
 
   it('avoids referencing 2026-05-08 explicitly — synthesis is deterministic over inputs only', () => {

@@ -5,15 +5,19 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  *
  *     # Evaluation — <status>
  *
- *     **Overall score:** <n / 5> · <iso-timestamp>
+ *     _<iso-timestamp>_
  *
  *     ## Critique
  *     <critique prose>
  *
  *     ## Dimensions
  *
- *     ### <dimension name> — <score>/5 — <passed | failed>
+ *     ### <dimension name> — <passed | failed>
  *     <finding>
+ *
+ *     ```
+ *     <execution evidence — when present>
+ *     ```
  *
  *     ### …
  *
@@ -28,11 +32,7 @@ export const renderEvaluationMarkdown = (signal: EvaluationSignal): string => {
   const lines: string[] = [];
   lines.push(`# Evaluation — ${signal.status}`);
   lines.push('');
-  const overallScorePart =
-    signal.overallScore !== undefined ? `**Overall score:** ${signal.overallScore.toFixed(1)} / 5` : '';
-  const timestampPart = `_${String(signal.timestamp)}_`;
-  const meta = [overallScorePart, timestampPart].filter((s) => s.length > 0).join(' · ');
-  lines.push(meta);
+  lines.push(`_${String(signal.timestamp)}_`);
   lines.push('');
 
   if (signal.critique !== undefined && signal.critique.trim().length > 0) {
@@ -46,10 +46,16 @@ export const renderEvaluationMarkdown = (signal: EvaluationSignal): string => {
     lines.push('## Dimensions');
     lines.push('');
     for (const d of signal.dimensions) {
-      lines.push(`### ${d.dimension} — ${String(d.score)}/5 — ${d.passed ? 'passed' : 'failed'}`);
+      lines.push(`### ${d.dimension} — ${d.passed ? 'passed' : 'failed'}`);
       if (d.finding.trim().length > 0) {
         lines.push('');
         lines.push(d.finding.trim());
+      }
+      if (d.executionEvidence !== undefined && d.executionEvidence.trim().length > 0) {
+        lines.push('');
+        lines.push('```');
+        lines.push(d.executionEvidence.trim());
+        lines.push('```');
       }
       lines.push('');
     }

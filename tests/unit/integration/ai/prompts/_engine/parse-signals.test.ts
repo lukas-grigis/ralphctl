@@ -47,19 +47,19 @@ after`;
     ]);
   });
 
-  it('parses <evaluation-passed> as the verdict signal', () => {
+  it('parses <evaluation-passed> as the verdict signal (test-only marker parser)', () => {
     expect(parseHarnessSignals('All dimensions met. <evaluation-passed>', NOW)).toEqual([
       { type: 'evaluation', status: 'passed', dimensions: [], timestamp: NOW },
     ]);
   });
 
-  it('parses <evaluation-failed> with critique body', () => {
+  it('parses <evaluation-failed> with critique body (test-only marker parser)', () => {
     const text = '<evaluation-failed>Missing edge case for empty input</evaluation-failed>';
     expect(parseHarnessSignals(text, NOW)).toEqual([
       {
         type: 'evaluation',
         status: 'failed',
-        dimensions: [],
+        dimensions: [{ dimension: 'overall', passed: false, finding: 'Missing edge case for empty input' }],
         critique: 'Missing edge case for empty input',
         timestamp: NOW,
       },
