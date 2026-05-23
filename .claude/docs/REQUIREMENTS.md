@@ -56,9 +56,9 @@ it done; when a behaviour regresses, untick it.
       `… completed/failed/aborted …` delimiters. Survives TUI exit; `tail -f`-friendly.
 - [ ] **Session scoping** — `AsyncLocalStorage` tags every log / signal emission with the owning chain's
       session id. Outside any chain, `currentSessionId()` returns `undefined`.
-- [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler level;
-      one sibling parser per variant under `integration/ai/signals/<variant>/`; unrecognised signals log a
-      warning and continue.
+- [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler
+      level; one Zod schema per kind under `integration/ai/contract/_engine/signals/<kind>/schema.ts`;
+      `validateSignalsFile` rejects unknown shapes with a precise hint.
 - [x] **Harness-owned output writes** — `progress.md` (snapshot-rendered, not streamed), per-round
       `prompt.md` and `outcome.md`, `decisions.log`, and `tasks.json` are written by the harness, never by
       the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
