@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decisionParser, MAX_DECISION_BODY_CHARS } from '@src/integration/ai/signals/decision/parser.ts';
+import { decisionParser, MAX_DECISION_BODY_CHARS } from '@tests/helpers/legacy-signal-parsers/decision/parser.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const NOW = isoTimestamp('2026-05-22T10:00:00.000Z');

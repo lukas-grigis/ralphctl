@@ -1,5 +1,5 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';

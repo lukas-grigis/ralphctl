@@ -170,25 +170,6 @@ const PROMPTS = [
   'refine',
 ] as const;
 
-const SIGNALS = [
-  'agents-md',
-  'change',
-  'commit-message',
-  'decision',
-  'evaluation',
-  'learning',
-  'note',
-  'progress',
-  'progress-entry',
-  'setup-script',
-  'setup-skill',
-  'task-blocked',
-  'task-complete',
-  'task-verified',
-  'verify-script',
-  'verify-skill',
-] as const;
-
 const BUSINESS_SIBLINGS = [
   'feedback',
   'interactive',
@@ -430,23 +411,6 @@ export default [
           PROMPTS,
           ['_engine', '_partials'],
           'prompt'
-        ),
-      },
-    })
-  ),
-
-  // ── integration/ai/signals/<x>/ — sibling-signal isolation ───────────────────
-  // Each signal type owns its own parser. Shared abstractions live under signals/_engine/.
-  ...SIGNALS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/signals/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/integration/ai/signals',
-          active,
-          SIGNALS,
-          ['_engine'],
-          'signal'
         ),
       },
     })

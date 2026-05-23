@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { progressEntryParser } from '@src/integration/ai/signals/progress-entry/parser.ts';
+import { progressEntryParser } from '@tests/helpers/legacy-signal-parsers/progress-entry/parser.ts';
 
 const NOW = isoTimestamp('2026-05-14T10:00:00.000Z');
 

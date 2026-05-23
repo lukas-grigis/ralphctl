@@ -19,7 +19,7 @@ import type { AiSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';

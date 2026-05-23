@@ -1,4 +1,4 @@
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 
 /**
  * Output sinks the composition root threads through `wire()`. After the LogSink → EventBus

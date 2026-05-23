@@ -31,7 +31,7 @@ import type { Settings } from '@src/domain/entity/settings.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';

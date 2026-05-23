@@ -1,6 +1,6 @@
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';

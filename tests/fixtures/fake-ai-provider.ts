@@ -7,7 +7,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
+import { parseHarnessSignals } from '@tests/helpers/legacy-signal-parsers/_engine/parse-signals.ts';
 
 /**
  * Test fake for {@link HeadlessAiProvider}. Drives chain tests without spawning a real AI

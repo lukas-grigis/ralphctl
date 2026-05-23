@@ -13,7 +13,7 @@ import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';

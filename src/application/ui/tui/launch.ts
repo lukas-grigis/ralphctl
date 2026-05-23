@@ -13,7 +13,7 @@
 import React from 'react';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
