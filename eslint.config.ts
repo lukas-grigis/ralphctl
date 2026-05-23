@@ -634,4 +634,20 @@ export default [
       'no-restricted-syntax': noBarrels,
     },
   },
+  // ── Reserved path: src/integration/ai/signals/ is gone (replaced by ai/contract/_engine/).
+  // Block any future addition under that path so the deleted XML-tag parser pipeline can't be
+  // resurrected by accident. To re-introduce the path, remove this entry deliberately.
+  {
+    files: ['src/integration/ai/signals/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message:
+            'src/integration/ai/signals/ is reserved — the audit-[09] contract pipeline lives at src/integration/ai/contract/. Add new signal kinds as Zod schemas under src/integration/ai/contract/_engine/signals/<kind>/schema.ts instead.',
+        },
+      ],
+    },
+  },
 ] satisfies Linter.Config[];

@@ -165,7 +165,7 @@ in `domain/repository/<aggregate>/`.
 | `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                 |
 | `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/` |
 | `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                   |
-| `HarnessSignalSink`                                   | `integration/ai/signals/_engine/`   | file sinks under `integration/observability/sinks/`               |
+| `HarnessSignalSink`                                   | `business/observability/`           | file sinks under `integration/observability/sinks/`               |
 | `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`              |
 | `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                         |
 | `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project source                       |
@@ -414,12 +414,16 @@ and the non-obvious mutators.
 
 ## Harness Signals
 
-Discriminated union declared at `src/domain/signal.ts`; one sibling parser per variant under
-`src/integration/ai/signals/<variant>/`. The parser registry (`signals/_engine/registry.ts`) composes the
-parsers; adding a variant requires editing the registry and adding a parser.
+Discriminated union declared at `src/domain/signal.ts`. Every AI-spawning leaf carries a
+per-leaf `AiOutputContract` (`src/application/flows/<flow>/leaves/<leaf>.contract.ts`)
+composed from Zod schemas under `src/integration/ai/contract/_engine/signals/<kind>/`. Adding
+a signal kind = adding one schema file + updating the contracts that accept it.
 
-Adapter-side: each AI spawn writes a `signals.json` file the harness reads post-spawn. Replaces the brittle
-stdout-parsing path; signals are now a structured contract, not a regex over CLI output.
+On disk the AI writes one file per spawn: `<outputDir>/signals.json` with a `{ schemaVersion,
+signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
+`validateSignalsFile`, then renders operator-readable sidecars (`commit-message.txt`,
+`evaluation.md`, `setup-skill.md`, ...) from the validated signals. Each contract carries a
+`migrations[v]` chain so in-flight sprints written with an older shape upgrade transparently.
 
 | Signal                                                   | Consumed by                                                                                                                                                                               |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

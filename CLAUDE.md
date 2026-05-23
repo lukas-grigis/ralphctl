@@ -84,9 +84,10 @@ every `logger.info(...)` emits a `LogEvent`.
 signals without explicit threading.
 
 **Sibling-isolation** in `integration/ai/<concept>/` — each per-tool / per-variant adapter directory
-(`providers/{claude,copilot,codex}/`, `signals/<variant>/`, `prompts/<flow>/`, `readiness/<tool>/`,
-`skills/<source>/`) is independent. Cross-sibling access goes through `_engine/`. Port-shaped interfaces
-(`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
+(`providers/{claude,copilot,codex}/`, `prompts/<flow>/`, `readiness/<tool>/`, `skills/<source>/`,
+`contract/_engine/signals/<kind>/`) is independent. Cross-sibling access goes through `_engine/`.
+Port-shaped interfaces (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live
+in `_engine/`.
 
 **Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
 takeover (vim/htop-style), restored on every exit path. Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the
