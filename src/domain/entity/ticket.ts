@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Entity } from '@src/domain/entity/_base/entity.ts';
+import { parseExternalRefFromUrl } from '@src/domain/value/external-ref.ts';
 import type { HttpUrl } from '@src/domain/value/http-url.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
@@ -64,9 +65,11 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
 
   // Trim the external ref at intake so persisted tickets never carry whitespace-only refs;
   // downstream renderers (commit trailer, PR body) treat those as absent anyway, so the
-  // persisted shape should match.
+  // persisted shape should match. When the caller didn't supply one, derive `#NN` from a
+  // recognised issue URL on `link` so commits + PR bodies auto-close the source issue.
   const trimmedRef = input.externalRef?.trim();
-  const externalRef = trimmedRef !== undefined && trimmedRef.length > 0 ? trimmedRef : undefined;
+  const suppliedRef = trimmedRef !== undefined && trimmedRef.length > 0 ? trimmedRef : undefined;
+  const externalRef = suppliedRef ?? (link !== undefined ? parseExternalRefFromUrl(link) : undefined);
 
   return Result.ok({
     id: input.id ?? TicketId.generate(),
@@ -83,6 +86,11 @@ export const createTicket = (input: TicketCreateInput): Result<PendingTicket, Va
  * Set or clear the ticket's `link` field. Used by the refine flow's "create origin" path
  * after the issue is created on the remote tracker — we attach the new URL to the now-approved
  * ticket so subsequent refines / implement runs see it.
+ *
+ * When a new link is set AND the ticket has no `externalRef` yet, derive `#NN` from the URL
+ * so commit trailers + PR bodies auto-close the source issue. An existing externalRef is
+ * preserved verbatim — operators who chose a specific format (`PROJ-7`, `owner/repo#42`) keep
+ * it. Clearing the link (`url === undefined`) never touches externalRef.
  */
 export function setTicketLink(ticket: ApprovedTicket, url: string | undefined): Result<ApprovedTicket, ValidationError>;
 export function setTicketLink(ticket: PendingTicket, url: string | undefined): Result<PendingTicket, ValidationError>;
@@ -94,7 +102,12 @@ export function setTicketLink(ticket: Ticket, url: string | undefined): Result<T
   }
   const parsed = parseHttpUrl('ticket.link', url);
   if (!parsed.ok) return Result.error(parsed.error);
-  return Result.ok({ ...ticket, link: parsed.value });
+  const derivedRef = ticket.externalRef === undefined ? parseExternalRefFromUrl(parsed.value) : undefined;
+  return Result.ok({
+    ...ticket,
+    link: parsed.value,
+    ...(derivedRef !== undefined ? { externalRef: derivedRef } : {}),
+  });
 }
 
 /**

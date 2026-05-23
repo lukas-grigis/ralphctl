@@ -357,7 +357,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     eventBus,
     logger,
     pullRequestCreator: createPullRequestCreator({ gitRunner: createGitRunner(), spawn }),
-    issueFetcher: createIssueFetcher({ spawn }),
+    issueFetcher: createIssueFetcher({ spawn, logger }),
     issuePusher: createIssuePusher({ spawn }),
     versionChecker: createNpmVersionChecker({
       stateRoot: opts.storage.stateRoot,

@@ -110,6 +110,11 @@ export const SelectionProvider = ({
   // Keep the callback in a ref so re-renders don't churn the persistence effect's deps.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  // Mirror projectId in a ref so `setProject` can decide whether the sprint cursor needs
+  // clearing without taking `projectId` as a dep (which would re-create the setter every render
+  // and force every memoised consumer to re-evaluate).
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
 
   // Persist whenever the canonical selection changes. The initial render also fires this, so
   // closing the picker without changes is a no-op write — fine for our flat-file store.
@@ -123,11 +128,17 @@ export const SelectionProvider = ({
   }, [projectId, projectLabel, sprintId, sprintLabel]);
 
   const setProject = useCallback((id: ProjectId | undefined, label?: string) => {
+    const changed = id !== projectIdRef.current;
     setProjectId(id);
     setProjectLabel(id === undefined ? undefined : label);
-    // Picking a different project clears the sprint cursor — sprint ids are scoped to a project.
-    setSprintId(undefined);
-    setSprintLabel(undefined);
+    // Only clear the sprint cursor when the project actually changes. Re-opening the same
+    // project (e.g. browsing its detail view, which calls setProject on mount) must not drop
+    // a sprint the user picked earlier — they'd lose their place every time they navigated
+    // back through the projects list.
+    if (changed) {
+      setSprintId(undefined);
+      setSprintLabel(undefined);
+    }
   }, []);
 
   const setSprint = useCallback((id: SprintId | undefined, label?: string) => {
