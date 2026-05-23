@@ -280,7 +280,7 @@ export const SettingsView = (): React.JSX.Element => {
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Card title="AI provider" tone="primary">
+          <Card title="AI provider" tone="rule">
             <FieldList
               fields={[
                 { label: 'Provider', value: valueFor('ai.provider') },
