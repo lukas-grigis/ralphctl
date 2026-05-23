@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import type { ExternalIssue, ExternalIssueComment, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { runCli } from '@src/integration/io/run-cli.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
@@ -46,6 +47,13 @@ interface GlabIssueResponse {
   readonly description?: string;
   readonly state?: string;
   readonly web_url?: string;
+}
+
+interface GlabNote {
+  readonly body?: string;
+  readonly author?: { readonly username?: string };
+  readonly system?: boolean;
+  readonly created_at?: string;
 }
 
 /**
@@ -196,10 +204,58 @@ const fetchGitHub = async (
   });
 };
 
+/**
+ * Best-effort fetch of issue notes via `glab issue note list`. Never throws —
+ * every failure mode (spawn error, non-zero exit, malformed JSON) collapses to
+ * `{ comments: [], failure: <description> }` so `fetchGitLab` can still return
+ * the issue body and let the caller log a warning.
+ *
+ * System notes (label changes, assignments, …) are filtered out — they are
+ * noise for refinement. Remaining notes are sorted oldest-first by
+ * `created_at` (defensive — `glab` order is not contractually stable) and the
+ * tail is sliced to {@link MAX_COMMENTS} so the GitLab adapter matches the
+ * "last 20" behaviour of {@link fetchGitHub}.
+ */
+const fetchGitLabNotes = async (
+  spawn: Spawn,
+  parsed: ParsedUrl
+): Promise<{ readonly comments: ExternalIssueComment[]; readonly failure?: string }> => {
+  const result = await runCli(
+    spawn,
+    'glab',
+    ['issue', 'note', 'list', String(parsed.number), '--repo', `${parsed.owner}/${parsed.repo}`, '--output', 'json'],
+    { timeoutMs: CLI_TIMEOUT_MS }
+  );
+  if (!result.ok) return { comments: [], failure: result.error.message };
+  if (result.value.exitCode !== 0) {
+    return {
+      comments: [],
+      failure: `glab issue note list exited ${String(result.value.exitCode)}: ${result.value.stderr.trim() || 'unknown error'}`,
+    };
+  }
+  let notes: readonly GlabNote[];
+  try {
+    notes = JSON.parse(result.value.stdout) as readonly GlabNote[];
+  } catch (cause) {
+    return {
+      comments: [],
+      failure: `failed to parse glab issue note list response: ${cause instanceof Error ? cause.message : String(cause)}`,
+    };
+  }
+  const filtered = notes.filter((n) => n.system !== true);
+  const sorted = [...filtered].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
+  const comments = sorted.slice(-MAX_COMMENTS).map<ExternalIssueComment>((n) => ({
+    author: n.author?.username ?? 'unknown',
+    body: n.body ?? '',
+  }));
+  return { comments };
+};
+
 const fetchGitLab = async (
   spawn: Spawn,
   parsed: ParsedUrl,
-  url: string
+  url: string,
+  logger: Logger | undefined
 ): Promise<Result<ExternalIssue | null, StorageError>> => {
   const result = await runCli(
     spawn,
@@ -229,17 +285,22 @@ const fetchGitLab = async (
       })
     );
   }
+  const notes = await fetchGitLabNotes(spawn, parsed);
+  if (notes.failure !== undefined) {
+    logger?.warn(`glab issue note list failed for ${url}: ${notes.failure} — proceeding without comments`);
+  }
   return Result.ok({
     url: parsedJson.web_url ?? url,
     title: parsedJson.title ?? '',
     body: parsedJson.description ?? '',
     state: (parsedJson.state ?? 'open').toLowerCase() === 'closed' ? 'closed' : 'open',
-    comments: [], // glab doesn't include notes in the default --output json
+    comments: notes.comments,
   });
 };
 
 export interface IssueFetcherDeps {
   readonly spawn: Spawn;
+  readonly logger?: Logger;
 }
 
 export const createIssueFetcher =
@@ -248,7 +309,7 @@ export const createIssueFetcher =
     const parsed = parseIssueUrl(url);
     if (parsed === null) return Result.ok(null);
     if (parsed.host === 'github') return fetchGitHub(deps.spawn, parsed, url);
-    return fetchGitLab(deps.spawn, parsed, url);
+    return fetchGitLab(deps.spawn, parsed, url, deps.logger);
   };
 
 // `formatIssueContext` lives in `core/external/issue-fetcher.ts` (pure formatter, layer-neutral).
