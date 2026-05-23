@@ -139,12 +139,19 @@ export const parseTaskList = (
       t.extraDimensions !== undefined
         ? t.extraDimensions.map((d) => d.trim().toLowerCase()).filter((d) => d.length > 0)
         : undefined;
+    // `t.verificationCriteria` is the AI-emitted structured shape; pass it straight through —
+    // `createTask` re-validates the auto / manual command invariant and clones defensively.
     const created = createTask({
       ...(mappedId !== undefined ? { id: mappedId } : {}),
       name: t.name,
       ...(t.description !== undefined && t.description.trim().length > 0 ? { description: t.description } : {}),
       steps: t.steps,
-      verificationCriteria: t.verificationCriteria,
+      verificationCriteria: t.verificationCriteria.map((c) => ({
+        id: c.id,
+        assertion: c.assertion,
+        check: c.check,
+        ...(c.command !== undefined ? { command: c.command } : {}),
+      })),
       order: i + 1,
       ticketId,
       repositoryId: repoId,

@@ -181,7 +181,10 @@ describe('createPlanFlow — interactive', () => {
           ticketRef: ticketIds[0],
           projectPath: String(project.repositories[0]?.path),
           steps: ['create util', 'write tests'],
-          verificationCriteria: ['util exported', 'tests pass'],
+          verificationCriteria: [
+            { id: 'C1', assertion: 'util exported', check: 'manual' },
+            { id: 'C2', assertion: 'tests pass', check: 'manual' },
+          ],
         },
         {
           id: 'T2',
@@ -189,7 +192,10 @@ describe('createPlanFlow — interactive', () => {
           ticketRef: ticketIds[1],
           projectPath: String(project.repositories[0]?.path),
           steps: ['add button', 'wire handler'],
-          verificationCriteria: ['button visible', 'click triggers download'],
+          verificationCriteria: [
+            { id: 'C1', assertion: 'button visible', check: 'manual' },
+            { id: 'C2', assertion: 'click triggers download', check: 'manual' },
+          ],
           blockedBy: ['T1'],
         },
       ])
@@ -257,7 +263,7 @@ describe('createPlanFlow — interactive', () => {
           ticketRef: '00000000-0000-7000-8000-000000000000',
           projectPath: String(project.repositories[0]?.path),
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ])
     );

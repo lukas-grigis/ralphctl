@@ -45,11 +45,31 @@ export type {
   Verification,
 } from '@src/domain/entity/attempt.ts';
 
+/**
+ * Structured "definition of done" entry attached to a {@link Task}.
+ *
+ *  - `id` is stable within the task (e.g. `C1`, `C2`) — the evaluator cites it verbatim when
+ *    grading per-criterion PASS / FAIL and the same id surfaces in `contract.md` and
+ *    `evaluation.md` so an operator can trace a failure back to the source criterion.
+ *  - `assertion` is the human-readable statement of the check.
+ *  - `check` partitions criteria into two operational categories:
+ *      `auto`   — the evaluator runs `command` and records the verbatim output as evidence.
+ *                 `command` is required (domain invariant on `createTask` / `updateTask`).
+ *      `manual` — the evaluator inspects the code / state and cites a specific location as
+ *                 evidence. `command` MUST be absent.
+ */
+export interface VerificationCriterion {
+  readonly id: string;
+  readonly assertion: string;
+  readonly check: 'auto' | 'manual';
+  readonly command?: string;
+}
+
 interface TaskBase extends Entity<TaskId> {
   readonly name: string;
   readonly description?: string;
   readonly steps: readonly string[];
-  readonly verificationCriteria: readonly string[];
+  readonly verificationCriteria: readonly VerificationCriterion[];
   readonly order: number;
   /** Required: every task is born from refining a ticket. */
   readonly ticketId: TicketId;
@@ -111,7 +131,7 @@ export interface TaskCreateInput {
   readonly name: string;
   readonly description?: string;
   readonly steps: readonly string[];
-  readonly verificationCriteria: readonly string[];
+  readonly verificationCriteria: readonly VerificationCriterion[];
   readonly order: number;
   readonly ticketId: TicketId;
   readonly dependsOn?: readonly TaskId[];
@@ -126,7 +146,7 @@ export interface TaskUpdateInput {
   /** `null` clears the description; `undefined` keeps it. */
   readonly description?: string | null;
   readonly steps?: readonly string[];
-  readonly verificationCriteria?: readonly string[];
+  readonly verificationCriteria?: readonly VerificationCriterion[];
   readonly dependsOn?: readonly TaskId[];
   readonly repositoryId?: RepositoryId;
   /** `null` clears the cap; `undefined` keeps it. */
@@ -136,6 +156,57 @@ export interface TaskUpdateInput {
   /** `null` clears external refs; `undefined` keeps them. */
   readonly externalRefs?: readonly string[] | null;
 }
+
+/**
+ * Domain invariant: `check === 'auto'` REQUIRES `command` to be a non-empty string.
+ * `check === 'manual'` REQUIRES `command` to be absent (or empty / whitespace) — encoding a
+ * shell command on a manual criterion is a planning bug that should be surfaced rather than
+ * silently coerced.
+ */
+const validateCriteria = (
+  criteria: readonly VerificationCriterion[]
+): Result<readonly VerificationCriterion[], ValidationError> => {
+  for (let i = 0; i < criteria.length; i += 1) {
+    const c = criteria[i];
+    if (c === undefined) continue;
+    if (c.check === 'auto') {
+      const command = c.command;
+      if (command === undefined || command.trim().length === 0) {
+        return Result.error(
+          new ValidationError({
+            field: `task.verificationCriteria[${String(i)}].command`,
+            value: command,
+            message: `criterion '${c.id}' is auto-checked but has no command — auto criteria require a non-empty command`,
+            hint: 'Set check: "manual" if no command applies, or fill in the command the evaluator should run.',
+          })
+        );
+      }
+    } else if (c.command !== undefined && c.command.trim().length > 0) {
+      return Result.error(
+        new ValidationError({
+          field: `task.verificationCriteria[${String(i)}].command`,
+          value: c.command,
+          message: `criterion '${c.id}' is manual but carries a command — manual criteria must omit the command field`,
+          hint: 'Change check to "auto" if the command is the verification, or drop the command field.',
+        })
+      );
+    }
+  }
+  return Result.ok(criteria);
+};
+
+/**
+ * Defensively clone the criteria array AND each entry — preserves `readonly` semantics across
+ * domain boundaries and trims auto / manual commands consistently. The clone drops `command`
+ * entirely on manual criteria so persisted shapes stay canonical.
+ */
+const cloneCriteria = (criteria: readonly VerificationCriterion[]): readonly VerificationCriterion[] =>
+  criteria.map((c) => ({
+    id: c.id,
+    assertion: c.assertion,
+    check: c.check,
+    ...(c.check === 'auto' && c.command !== undefined ? { command: c.command } : {}),
+  }));
 
 export const createTask = (input: TaskCreateInput): Result<TodoTask, ValidationError> => {
   const name = parseRequiredString('task.name', input.name);
@@ -154,12 +225,15 @@ export const createTask = (input: TaskCreateInput): Result<TodoTask, ValidationE
     maxAttempts = parsed.value;
   }
 
+  const criteria = validateCriteria(input.verificationCriteria);
+  if (!criteria.ok) return Result.error(criteria.error);
+
   return Result.ok({
     id: input.id ?? TaskId.generate(),
     name: name.value,
     ...(description.value !== undefined ? { description: description.value } : {}),
     steps: [...input.steps],
-    verificationCriteria: [...input.verificationCriteria],
+    verificationCriteria: cloneCriteria(criteria.value),
     status: 'todo',
     order: order.value,
     ticketId: input.ticketId,
@@ -536,6 +610,13 @@ export const updateTask = (
     nextExternalRefs = input.externalRefs === null ? undefined : [...input.externalRefs];
   }
 
+  let nextCriteria = todo.verificationCriteria;
+  if (input.verificationCriteria !== undefined) {
+    const validated = validateCriteria(input.verificationCriteria);
+    if (!validated.ok) return Result.error(validated.error);
+    nextCriteria = cloneCriteria(validated.value);
+  }
+
   const {
     description: _dropDesc,
     maxAttempts: _dropMax,
@@ -552,8 +633,7 @@ export const updateTask = (
     name: nextName,
     ...(nextDescription !== undefined ? { description: nextDescription } : {}),
     steps: input.steps !== undefined ? [...input.steps] : todo.steps,
-    verificationCriteria:
-      input.verificationCriteria !== undefined ? [...input.verificationCriteria] : todo.verificationCriteria,
+    verificationCriteria: nextCriteria,
     dependsOn: input.dependsOn !== undefined ? [...input.dependsOn] : todo.dependsOn,
     repositoryId: input.repositoryId ?? todo.repositoryId,
     ...(nextMaxAttempts !== undefined ? { maxAttempts: nextMaxAttempts } : {}),

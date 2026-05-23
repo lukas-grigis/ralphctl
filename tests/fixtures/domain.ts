@@ -173,7 +173,7 @@ export const makeTodoTask = (
       ticketId: overrides.ticketId ?? ticket.id,
       repositoryId: overrides.repositoryId ?? FIXED_REPOSITORY_ID,
       steps: ['step 1'],
-      verificationCriteria: ['runs to completion'],
+      verificationCriteria: [{ id: 'C1', assertion: 'runs to completion', check: 'manual' }],
       ...(overrides.dependsOn !== undefined ? { dependsOn: overrides.dependsOn } : {}),
       ...(overrides.maxAttempts !== undefined ? { maxAttempts: overrides.maxAttempts } : {}),
       ...(overrides.externalRefs !== undefined ? { externalRefs: overrides.externalRefs } : {}),

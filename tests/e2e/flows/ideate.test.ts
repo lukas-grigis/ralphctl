@@ -135,7 +135,10 @@ describe('createIdeateFlow', () => {
             description: 'place it under the table',
             projectPath: String(project.repositories[0]?.path),
             steps: ['create component', 'wire to API'],
-            verificationCriteria: ['button visible', 'click triggers download'],
+            verificationCriteria: [
+              { id: 'C1', assertion: 'button visible', check: 'manual' },
+              { id: 'C2', assertion: 'click triggers download', check: 'manual' },
+            ],
             blockedBy: [],
           },
           {
@@ -143,7 +146,7 @@ describe('createIdeateFlow', () => {
             name: 'Add API endpoint',
             projectPath: String(project.repositories[0]?.path),
             steps: ['add route', 'serialize CSV'],
-            verificationCriteria: ['endpoint returns 200 with CSV body'],
+            verificationCriteria: [{ id: 'C1', assertion: 'endpoint returns 200 with CSV body', check: 'manual' }],
             blockedBy: ['1'],
           },
         ],
