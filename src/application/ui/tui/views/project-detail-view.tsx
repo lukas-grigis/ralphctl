@@ -11,10 +11,13 @@ import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { removeRepository, type Project } from '@src/domain/entity/project.ts';
+import { removeRepository, setProjectDisplayName, type Project, updateRepository } from '@src/domain/entity/project.ts';
+import { setRepositorySetupScript, setRepositoryVerifyScript } from '@src/domain/entity/repository.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import { Result } from '@src/domain/result.ts';
+import { useEditField, type OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
@@ -42,6 +45,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
   useViewHints([
     { keys: 'r', label: 'sprints' },
     { keys: 'a', label: 'add repo' },
+    { keys: 'e', label: 'edit project / repo field' },
     { keys: 'd', label: 'remove repo' },
     { keys: 'c', label: 'detect scripts' },
     { keys: 'S', label: 'detect skills' },
@@ -49,6 +53,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
+  const edit = useEditField();
 
   const { state, reload } = useAsyncLoad<Project>(async () => {
     const r = await deps.projectRepo.findById(projectId);
@@ -101,10 +106,105 @@ export const ProjectDetailView = (): React.JSX.Element => {
     router.push({ id: 'execute', props: { sessionId: result.runner.id } });
   };
 
+  type RepoFieldKey = 'name' | 'setupScript' | 'verifyScript';
+  type EditTarget =
+    | { readonly kind: 'project' }
+    | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
+
+  const renderEditPrompt = (target: EditTarget): OpenEditPromptInput | undefined => {
+    if (project === undefined) return undefined;
+    if (target.kind === 'project') {
+      return {
+        title: `Rename project "${project.displayName}"`,
+        kind: 'short',
+        currentValue: project.displayName,
+        onSave: async (value) => {
+          const renamed = setProjectDisplayName(project, value);
+          if (!renamed.ok) return Result.error(renamed.error);
+          const saved = await deps.projectRepo.save(renamed.value);
+          if (!saved.ok) return Result.error(saved.error);
+          reload();
+          return Result.ok(undefined);
+        },
+        successLabel: `✓ renamed project`,
+      };
+    }
+    const { repo, field } = target;
+    const label = field === 'name' ? `Rename repository "${repo.name}"` : `Edit ${field} for "${repo.name}"`;
+    const current =
+      field === 'name' ? repo.name : field === 'setupScript' ? (repo.setupScript ?? '') : (repo.verifyScript ?? '');
+    return {
+      title: label,
+      kind: field === 'name' ? 'short' : 'long',
+      currentValue: current,
+      onSave: async (value) => {
+        // For optional script fields, route through the setter directly so `value === ''`
+        // explicitly *clears* the field (the entity setter accepts `undefined` for clear).
+        // `updateRepository`'s partial type — with exactOptionalPropertyTypes — disallows
+        // direct undefined assignment, so we update the repo and persist the parent project.
+        if (field === 'name') {
+          const next = updateRepository(project, repo.id, { name: value });
+          if (!next.ok) return Result.error(next.error);
+          const saved = await deps.projectRepo.save(next.value);
+          if (!saved.ok) return Result.error(saved.error);
+          reload();
+          return Result.ok(undefined);
+        }
+        const updatedRepo =
+          field === 'setupScript'
+            ? setRepositorySetupScript(repo, value.length === 0 ? undefined : value)
+            : setRepositoryVerifyScript(repo, value.length === 0 ? undefined : value);
+        if (!updatedRepo.ok) return Result.error(updatedRepo.error);
+        const nextRepos = project.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
+        const saved = await deps.projectRepo.save({ ...project, repositories: nextRepos });
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ updated ${field}`,
+    };
+  };
+
+  const handleEdit = (): void => {
+    if (project === undefined) return;
+    setFeedback(undefined);
+    const focusedRepo = repos[Math.min(cursorIdx, Math.max(0, repos.length - 1))];
+    const options: ReadonlyArray<{ readonly label: string; readonly value: EditTarget }> = [
+      { label: `Project: displayName  (${project.displayName})`, value: { kind: 'project' } },
+      ...(focusedRepo !== undefined
+        ? ([
+            { label: `Repo "${focusedRepo.name}": name`, value: { kind: 'repo', field: 'name', repo: focusedRepo } },
+            {
+              label: `Repo "${focusedRepo.name}": setupScript`,
+              value: { kind: 'repo', field: 'setupScript', repo: focusedRepo },
+            },
+            {
+              label: `Repo "${focusedRepo.name}": verifyScript`,
+              value: { kind: 'repo', field: 'verifyScript', repo: focusedRepo },
+            },
+          ] as const)
+        : []),
+    ];
+    new Promise<EditTarget>((resolve, reject) => {
+      queue.enqueue({ kind: 'choice', message: 'Edit which field?', options, resolve, reject });
+    })
+      .then((target) => {
+        const cfg = renderEditPrompt(target);
+        if (cfg !== undefined) void edit.openEditPrompt(cfg);
+      })
+      .catch(() => {
+        // user cancelled the field picker — nothing to do.
+      });
+  };
+
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || project === undefined) return;
     if (input === 'a') {
       router.push({ id: 'add-repository', props: { projectId: project.id } });
+      return;
+    }
+    if (input === 'e') {
+      handleEdit();
       return;
     }
     if ((key.downArrow || input === 'j') && repos.length > 0) {
@@ -177,7 +277,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
         <Body
           project={state.value}
           cursorIdx={Math.min(cursorIdx, Math.max(0, repos.length - 1))}
-          feedback={feedback}
+          feedback={feedback ?? edit.feedback}
         />
       )}
     </ViewShell>
@@ -245,8 +345,8 @@ const Body = ({ project, cursorIdx, feedback }: BodyProps): React.JSX.Element =>
                   ),
                 },
                 {
-                  label: 'Check',
-                  value: repo.checkScript ?? (
+                  label: 'Verify',
+                  value: repo.verifyScript ?? (
                     <Text dimColor italic>
                       (none)
                     </Text>
@@ -259,8 +359,8 @@ const Body = ({ project, cursorIdx, feedback }: BodyProps): React.JSX.Element =>
       })}
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
         <Text dimColor>
-          {glyphs.bullet} a add {glyphs.bullet} ↑/↓ select {glyphs.bullet} c detect scripts {glyphs.bullet} S detect
-          skills {glyphs.bullet} d remove (keeps ≥ 1)
+          {glyphs.bullet} a add {glyphs.bullet} ↑/↓ select {glyphs.bullet} e edit field {glyphs.bullet} c detect scripts{' '}
+          {glyphs.bullet} S detect skills {glyphs.bullet} d remove (keeps ≥ 1)
         </Text>
       </Box>
       {feedback !== undefined && (

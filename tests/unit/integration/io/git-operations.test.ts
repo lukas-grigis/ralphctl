@@ -163,19 +163,12 @@ describe('gitCommitWithMessage', () => {
     if (!result.ok) expect(result.error.message).toContain('empty');
   });
 
-  it('rejects commit message over the 500-byte cap (validator is the last line of defence)', async () => {
-    // Per-task commits are signal, not prose. The validator at git-operations.ts trusts the
-    // factories upstream to clamp messages; this test pins the hard cap so a factory bug
-    // surfaces here rather than as a corrupted git history.
-    const { runner } = scriptRunner([]);
-    const result = await gitCommitWithMessage(runner, cwd, 'x'.repeat(501));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('500-byte');
-  });
-
-  it('accepts a subject-only message at exactly the cap', async () => {
-    const message = 'x'.repeat(500);
-    const { runner } = scriptRunner([
+  it('accepts a long multi-paragraph commit message verbatim (audit-[03]: no caps on AI signal bodies)', async () => {
+    // Commit messages are AI signal bodies — `subject` + `body` from the validated
+    // `commit-message` signal land verbatim on the commit. `git commit -m <msg>` passes via
+    // argv with ARG_MAX headroom in the hundreds of KB; git itself has no length limit.
+    const message = `feat(x): a fat conventional commit\n\n${'lorem ipsum '.repeat(200).trim()}`;
+    const { runner, received } = scriptRunner([
       { args: ['status', '--porcelain'], result: ok(' M file\n') },
       { args: ['add', '-A'], result: ok() },
       { args: ['status', '--porcelain'], result: ok('M  file\n') },
@@ -184,6 +177,7 @@ describe('gitCommitWithMessage', () => {
     ]);
     const result = await gitCommitWithMessage(runner, cwd, message);
     expect(result.ok).toBe(true);
+    expect(received[3]?.args[2]).toBe(message);
   });
 
   it('preserves quotes and special chars verbatim through argv', async () => {

@@ -9,7 +9,7 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildImplementPrompt,
   implementPromptDef,
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -127,7 +127,7 @@ describe('renderVerificationCriteriaSection', () => {
   it('renders a bullet list with a heading', () => {
     const task = makeTaskWith({ verificationCriteria: ['lint passes', 'tests green'] });
     const out = renderVerificationCriteriaSection(task);
-    expect(out).toContain('## Verification Criteria');
+    expect(out).toContain('## Done criteria');
     expect(out).toContain('- lint passes');
     expect(out).toContain('- tests green');
   });
@@ -138,21 +138,21 @@ describe('renderVerificationCriteriaSection', () => {
   });
 });
 
-describe('renderCheckScriptSection', () => {
+describe('renderVerifyScriptSection', () => {
   it('embeds the configured command as a fenced shell block', () => {
-    const out = renderCheckScriptSection('npm run check');
+    const out = renderVerifyScriptSection('npm run check');
     expect(out).toContain('```sh');
     expect(out).toContain('npm run check');
     expect(out).toContain('post-task gate');
   });
 
   it('returns the explicit "no check script configured" line when undefined', () => {
-    expect(renderCheckScriptSection(undefined)).toBe('No check script configured for this repo.');
+    expect(renderVerifyScriptSection(undefined)).toBe('No verify script configured for this repo.');
   });
 
   it('returns the explicit "no check script configured" line when empty / whitespace', () => {
-    expect(renderCheckScriptSection('')).toBe('No check script configured for this repo.');
-    expect(renderCheckScriptSection('   \n\t')).toBe('No check script configured for this repo.');
+    expect(renderVerifyScriptSection('')).toBe('No verify script configured for this repo.');
+    expect(renderVerifyScriptSection('   \n\t')).toBe('No verify script configured for this repo.');
   });
 });
 
@@ -185,14 +185,18 @@ describe('renderPriorCritiqueSection', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildImplementPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and progress file', async () => {
     const task = makeTaskWith({ name: 'export CSV', description: 'Add CSV export to the report endpoint.' });
     const result = await buildImplementPrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
-      checkScript: 'npm run check',
+      verifyScript: 'npm run check',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -217,13 +221,15 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('## Description');
     // Sanity: the rest of the prompt still rendered.
     expect(result.value).toContain('# short task');
-    expect(result.value).toContain('No check script configured for this repo.');
+    expect(result.value).toContain('No verify script configured for this repo.');
   });
 
   it('renders the prior critique section verbatim on fix turns', async () => {
@@ -233,6 +239,8 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritique: '## Completeness\n- step 3 verification missing\n- error handling untested',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -247,6 +255,8 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       task,
       projectPath: '/tmp/ralph/main-repo',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -264,10 +274,12 @@ describe('implementPromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -282,10 +294,12 @@ describe('implementPromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

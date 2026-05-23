@@ -7,6 +7,7 @@ import { pickRepositoryLeaf } from '@src/application/flows/_shared/project/pick-
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import type { SetupReadinessDeps } from '@src/application/flows/readiness/deps.ts';
 import { confirmReadinessLeaf } from '@src/application/flows/readiness/leaves/confirm.ts';
+import { installReadinessSkillsLeaf } from '@src/application/flows/readiness/leaves/install-readiness-skills.ts';
 import { pickToolLeaf } from '@src/application/flows/readiness/leaves/pick-tool.ts';
 import { probeReadinessLeaf } from '@src/application/flows/readiness/leaves/probe.ts';
 import { proposeReadinessLeaf } from '@src/application/flows/readiness/leaves/propose.ts';
@@ -35,13 +36,16 @@ export interface CreateReadinessFlowOpts {
  *     pick-repository,    // interactive (auto-selects when project has one repo)
  *     pick-tool,          // interactive
  *     probe,
- *     propose, // AI round-trip → ctx.proposal
- *     confirm, // interactive (preview + askConfirm)
- *     write,   // no-op when not accepted; backup-then-write when accepted
+ *     install-skills,     // bundled `ralphctl-*` skills mounted into cwd for the AI session
+ *     propose,            // AI round-trip → contract validate → sidecars → ctx.proposal
+ *     uninstall-skills,   // remove bundled skills after the AI session exits
+ *     confirm,            // interactive (preview + askConfirm)
+ *     write,              // no-op when not accepted; backup-then-write when accepted
+ *     install-readiness-skills, // bare-name install of AI-authored setup/verify skills
  *   ])
  *
- * Trace order: load-project → pick-repository → pick-tool → probe →
- * propose → confirm → write.
+ * Trace order: load-project → pick-repository → pick-tool → probe → install-skills →
+ * propose → uninstall-skills → confirm → write → install-readiness-skills.
  */
 export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadinessFlowOpts): Element<ReadinessCtx> =>
   sequential<ReadinessCtx>('readiness', [
@@ -62,7 +66,8 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
     proposeReadinessLeaf({
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: deps.signals,
+      writeFile: deps.writeFile,
+      eventBus: deps.eventBus,
       logger: deps.logger,
       cwd: opts.cwd,
       model: opts.model,
@@ -71,4 +76,5 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
     uninstallSkillsLeaf<ReadinessCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     confirmReadinessLeaf({ interactive: deps.interactive }),
     writeReadinessLeaf({ writeFile: deps.writeFile, logger: deps.logger, clock: deps.clock }),
+    installReadinessSkillsLeaf({ skillsAdapter: deps.skillsAdapter, logger: deps.logger }),
   ]);

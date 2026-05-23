@@ -18,8 +18,19 @@ export interface IdeatePromptParams {
   readonly projectName: string;
   /** Markdown bulleted list of repository paths the user pre-selected for this sprint. */
   readonly repositories: string;
-  readonly outputFilePath: string;
   readonly schema: string;
+  /**
+   * Audit-[09] output contract section — rendered from the ideate `AiOutputContract` by
+   * `renderContractSectionFor(ideateOutputContract)`. Tells the AI to write `signals.json`
+   * directly with one `ideated-tickets` signal whose `outputJson` carries the combined
+   * refine + plan envelope.
+   */
+  readonly outputContractSection: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
+   * section (audit-[07]). Empty when the journal has no entries yet.
+   */
+  readonly priorProgress: string;
 }
 
 const nonEmpty =
@@ -50,21 +61,26 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
       description: 'Markdown-rendered list of repository paths for the AI to explore.',
       validate: nonEmpty('repositories'),
     },
-    outputFilePath: {
-      placeholder: 'OUTPUT_FILE',
-      description: 'Absolute path the AI must write its JSON answer to.',
-      validate: nonEmpty('outputFilePath'),
-    },
     schema: {
       placeholder: 'SCHEMA',
       description: 'JSON Schema the tasks array conforms to.',
       validate: nonEmpty('schema'),
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the ideate contract — instructs the AI to write `signals.json` directly with one `ideated-tickets` signal.',
+      validate: nonEmpty('outputContractSection'),
+    },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description: 'Current `progress.md` body — empty when the sprint journal has no entries yet.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: [],
+  expectedSignals: ['ideated-tickets'],
 };
 
 export const renderRepositories = (project: Project): string => {
@@ -78,7 +94,9 @@ export const buildIdeatePrompt = async (
     readonly ideaTitle: string;
     readonly ideaDescription: string;
     readonly project: Project;
-    readonly outputFilePath: string;
+    readonly outputContractSection: string;
+    /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
+    readonly priorProgress: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> =>
   buildPrompt(deps, ideatePromptDef, {
@@ -86,8 +104,9 @@ export const buildIdeatePrompt = async (
     ideaDescription: input.ideaDescription,
     projectName: project_name(input.project),
     repositories: renderRepositories(input.project),
-    outputFilePath: input.outputFilePath,
     schema: TASK_IMPORT_JSON_SCHEMA,
+    outputContractSection: input.outputContractSection,
+    priorProgress: input.priorProgress,
   });
 
 const project_name = (project: Project): string => project.displayName;

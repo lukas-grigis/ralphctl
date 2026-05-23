@@ -25,8 +25,10 @@ surface**, not internal config. They have a denser contract than ordinary docs:
   tooling-agnostic.
 - Variables and conditional sections compose at runtime via `_engine/substitute.ts`; bad phrasing creates
   visible artefacts (orphan headings, dangling list items).
-- The harness parses signals out of the AI's response — see `src/integration/ai/signals/<variant>/` for the
-  parser-per-variant layout. Drift between template wording and parser regex breaks production.
+- The harness validates the AI's `signals.json` against a per-leaf `AiOutputContract` —
+  see `src/integration/ai/contract/_engine/signals/<kind>/schema.ts` for the Zod schema layout
+  and `src/application/flows/<flow>/leaves/<leaf>.contract.ts` for the per-leaf composition.
+  Drift between template wording and schema breaks production at validation time.
 - Templates are loaded dual-mode: dev reads from `src/integration/ai/prompts/<flow>/template.md`; bundled
   reads from `dist/prompts/<flow>/template.md`. The `FsTemplateLoader` detects mode via `import.meta.url`.
   Missing files surface at load time with a repair hint.
@@ -113,36 +115,35 @@ These come from `CLAUDE.md § Implementation Style` (prompt sub-section) and are
 
 ## Signal vocabulary discipline
 
-The signal parser registry (`src/integration/ai/signals/_engine/registry.ts`) composes one parser per
-variant under `src/integration/ai/signals/<variant>/`. Every signal you ask the AI to emit must match a
-parser:
+Every AI-spawning leaf carries a per-leaf `AiOutputContract` at
+`src/application/flows/<flow>/leaves/<leaf>.contract.ts`, composed from Zod schemas under
+`src/integration/ai/contract/_engine/signals/<kind>/schema.ts`. The AI writes `signals.json`
+via its Write tool; the harness validates post-spawn. There is no XML-tag stdout parser.
 
-- `<progress><summary>…</summary>…</progress>`
-- `<task-complete>` / `<task-verified>output</task-verified>` / `<task-blocked>reason</task-blocked>`
-- `<evaluation-passed>` / `<evaluation-failed>critique</evaluation-failed>`
-- `<note>text</note>` / `<learning>text</learning>` / `<decision>text</decision>` /
-  `<change>summary</change>` / `<commit-message>…</commit-message>` /
-  `<progress-entry>…</progress-entry>`
-- `<setup-script>command</setup-script>` / `<verify-script>command</verify-script>`
-- `<agents-md>…</agents-md>` — readiness flow surfaces this as the proposed context file body
-- `<setup-skill>…</setup-skill>` / `<verify-skill>…</verify-skill>` — detect-skills surfaces these
+Per-kind schemas currently shipped (`type` discriminant on each signal object):
 
-Plus the **file-based AI contract**: providers also write structured `signals.json` files post-spawn the
-harness reads back. Stdout-parsing is no longer the primary path. Templates still emit the inline tags so
-the downstream AI surfaces them in its own UI; the harness reads them from disk.
+- Narrative: `note`, `learning`, `decision`, `change`, `progress-entry`, `progress`,
+  `context-compacted`.
+- Lifecycle: `task-complete`, `task-verified`, `task-blocked`.
+- Implement-handover: `commit-message`, `evaluation`.
+- Planning: `task-plan`, `refined-ticket`, `ideated-tickets`.
+- Setup-time: `setup-script`, `verify-script`, `setup-skill-proposal`,
+  `verify-skill-proposal`, `agents-md-proposal`, `skill-suggestions`.
 
-Adding a new signal is a code change in `src/domain/signal.ts` + the registry + a new sibling parser
-folder. Flag it; do not invent a tag in a template.
+The prompt's `{{OUTPUT_CONTRACT_SECTION}}` block is rendered from the contract via
+`renderContractSectionFor(contract, outputDir)` — it tells the AI the exact file to write,
+the schema shape, and a worked example. **Do not** also embed XML tag instructions in the
+template body; the contract section is the single source of truth.
 
-`_partials/signals-task.md` / `_partials/signals-evaluation.md` are the canonical signal reference blocks
-included via placeholder. Edit those once, not each template.
+Adding a new signal kind = one Zod schema file under `contract/_engine/signals/<kind>/`,
+plus updating the contracts that accept it. Flag it; do not invent a tag in a template.
 
 ## Workflow when changing a template
 
 1. **Read the call site first.** Find the flow's `definition.ts` in `prompts/_engine/` (or the flow itself
    under `src/application/flows/<flow>/`) and see exactly which placeholders it fills and with what shape.
-2. **Read the parser if you touch a signal.** Open `src/integration/ai/signals/<variant>/` and confirm the
-   regex still matches what you've written.
+2. **Read the schema if you touch a signal.** Open `src/integration/ai/contract/_engine/signals/<kind>/schema.ts`
+   and confirm the field names + types still match what the prompt asks the AI to write.
 3. **Render the empty-placeholder case mentally.** For every conditional placeholder, ask: if this is `''`,
    does the surrounding text still parse cleanly?
 4. **Run the prompt tests:**
@@ -174,8 +175,8 @@ included via placeholder. Edit those once, not each template.
 
 - I don't change the substitution algorithm (`_engine/substitute.ts`) without flagging the contract impact —
   loop in the implementer.
-- I don't change the parsers (`integration/ai/signals/<variant>/`) — that's the implementer's call; I only
-  verify templates match the parsers as written.
+- I don't change the Zod schemas (`integration/ai/contract/_engine/signals/<kind>/`) or the per-leaf
+  contracts — that's the implementer's call; I only verify templates match the schemas as written.
 - I don't write the runtime that consumes the prompts (provider adapters under
   `integration/ai/providers/<tool>/`) — implementer.
 - I don't design the user-facing CLI / TUI text — that's the designer's surface.

@@ -1,13 +1,26 @@
 /**
- * Render tests for TextPrompt. Verifies typed characters land in the buffer, ctrl+u clears,
- * ctrl+w drops the previous word, Enter calls onSubmit with the buffer, and Esc calls
- * onCancel. The blinking caret is not asserted (timer-driven; would require fake timers).
+ * Render tests for TextPrompt. Verifies typed characters land in the buffer, cursor navigation
+ * works (arrows, home/end, ctrl+a/ctrl+e), mid-line insert/backspace, ctrl+w from mid-buffer,
+ * paste at cursor, ctrl+u clear, Enter submit, and Esc cancel.
+ * The blinking caret is not asserted (timer-driven; would require fake timers).
  */
 
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
-import { CTRL_U, CTRL_W, ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import {
+  CTRL_A,
+  CTRL_E,
+  CTRL_U,
+  CTRL_W,
+  END,
+  ENTER,
+  ESC,
+  HOME,
+  LEFT,
+  RIGHT,
+  tick,
+} from '@tests/integration/application/ui/tui/_keys.ts';
 
 describe('TextPrompt', () => {
   it('appends typed characters to the buffer', async () => {
@@ -75,6 +88,126 @@ describe('TextPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('seed');
+    unmount();
+  });
+
+  it('left/right arrow moves cursor; backspace deletes before cursor', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    // Type "abc", move left twice (cursor between a and b), backspace deletes 'a'.
+    stdin.write('abc');
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write('\x7f'); // backspace
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('bc');
+    unmount();
+  });
+
+  it('inserts typed char at cursor (mid-line insert)', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    // Type "ac", move left, insert 'b' to get "abc".
+    stdin.write('ac');
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write('b');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('abc');
+    unmount();
+  });
+
+  it('home / ctrl+a jumps to start; end / ctrl+e jumps to end', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('hello');
+    await tick();
+    stdin.write(HOME);
+    await tick();
+    // Cursor at start — typing inserts at position 0.
+    stdin.write('X');
+    await tick();
+    stdin.write(END);
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('Xhello');
+    unmount();
+  });
+
+  it('ctrl+a / ctrl+e work as home/end aliases', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('hello');
+    await tick();
+    stdin.write(CTRL_A);
+    await tick();
+    stdin.write('X');
+    await tick();
+    stdin.write(CTRL_E);
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('Xhello');
+    unmount();
+  });
+
+  it('ctrl+w from mid-line deletes word before cursor only', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    // Type "hello world", move cursor back before "world", then ctrl+w.
+    stdin.write('hello world');
+    await tick();
+    // Move left 5 chars to put cursor before "world".
+    for (let i = 0; i < 5; i++) {
+      stdin.write(LEFT);
+      await tick();
+    }
+    stdin.write(CTRL_W);
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('world');
+    unmount();
+  });
+
+  it('paste at cursor inserts content at the right position', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('ac');
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write('b'); // simulates pasting 'b' at the cursor between 'a' and 'c'
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('abc');
+    unmount();
+  });
+
+  it('right arrow does not go past end of buffer', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('hi');
+    await tick();
+    stdin.write(RIGHT);
+    await tick();
+    stdin.write(RIGHT);
+    await tick();
+    stdin.write('!');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('hi!');
     unmount();
   });
 });

@@ -170,25 +170,6 @@ const PROMPTS = [
   'refine',
 ] as const;
 
-const SIGNALS = [
-  'agents-md',
-  'change',
-  'commit-message',
-  'decision',
-  'evaluation',
-  'learning',
-  'note',
-  'progress',
-  'progress-entry',
-  'setup-script',
-  'setup-skill',
-  'task-blocked',
-  'task-complete',
-  'task-verified',
-  'verify-script',
-  'verify-skill',
-] as const;
-
 const BUSINESS_SIBLINGS = [
   'feedback',
   'interactive',
@@ -301,7 +282,32 @@ const chainsLayerRule: Linter.RuleEntry = [
         message:
           'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. Bootstrap selects concrete skills.',
       },
+      {
+        group: ['**/integration/ai/contract/_engine/signals/**'],
+        message:
+          'Chains may not import per-signal Zod schemas directly — go through the leaf contract (validateSignalsFile / renderSidecars / renderContractSection) under integration/ai/contract/_engine/. Per-signal schemas are private to the contract engine.',
+      },
     ],
+  },
+];
+
+/**
+ * Ban direct `fs.appendFile` / `fs.promises.appendFile` calls outside `integration/io/`. The
+ * harness routes every append-stream write through the `AppendFile` port (audit-[07]); a
+ * stray `fs.appendFile` would silently bypass the atomicity + structured-error guarantees
+ * the port adds. Matches both `fs.appendFile(...)` and `fs.promises.appendFile(...)` shapes.
+ */
+const noFsAppendFile: Linter.RuleEntry = [
+  'error',
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name='appendFile'][callee.object.name='fs']",
+    message: 'fs.appendFile is banned outside integration/io/ — go through the AppendFile port instead.',
+  },
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name='appendFile'][callee.object.type='MemberExpression'][callee.object.property.name='promises']",
+    message: 'fs.promises.appendFile is banned outside integration/io/ — go through the AppendFile port instead.',
   },
 ];
 
@@ -370,6 +376,18 @@ export default [
     },
   },
 
+  // ── fs.appendFile is fenced to integration/io/ ──────────────────────────────
+  // The harness routes every append-stream write through the `AppendFile` port. A stray
+  // `fs.appendFile` outside `integration/io/` silently bypasses the port's structured-error
+  // guarantees.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/integration/io/**'],
+    rules: {
+      'no-restricted-syntax': [noFsAppendFile[0], noFsAppendFile[1], noFsAppendFile[2], noBarrels[1]],
+    },
+  },
+
   // ── domain ───────────────────────────────────────────────────────────────────
   // Purest layer: entities, value objects, errors, Result, observability interfaces. Imports
   // nothing outside src/domain/ and may not pull in I/O-bearing node modules.
@@ -393,23 +411,6 @@ export default [
           PROMPTS,
           ['_engine', '_partials'],
           'prompt'
-        ),
-      },
-    })
-  ),
-
-  // ── integration/ai/signals/<x>/ — sibling-signal isolation ───────────────────
-  // Each signal type owns its own parser. Shared abstractions live under signals/_engine/.
-  ...SIGNALS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/signals/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/integration/ai/signals',
-          active,
-          SIGNALS,
-          ['_engine'],
-          'signal'
         ),
       },
     })
@@ -478,13 +479,13 @@ export default [
         noBarrels[1],
         {
           selector:
-            'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector)$/]',
+            'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
           message:
             'Port-shaped interfaces must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it (e.g. `*Deps` for factory inputs).',
         },
         {
           selector:
-            'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector)$/]',
+            'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
           message:
             'Port-shaped type aliases must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it.',
         },
@@ -631,6 +632,22 @@ export default [
     files: ['src/domain/value/error/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': noBarrels,
+    },
+  },
+  // ── Reserved path: src/integration/ai/signals/ is gone (replaced by ai/contract/_engine/).
+  // Block any future addition under that path so the deleted XML-tag parser pipeline can't be
+  // resurrected by accident. To re-introduce the path, remove this entry deliberately.
+  {
+    files: ['src/integration/ai/signals/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message:
+            'src/integration/ai/signals/ is reserved — the audit-[09] contract pipeline lives at src/integration/ai/contract/. Add new signal kinds as Zod schemas under src/integration/ai/contract/_engine/signals/<kind>/schema.ts instead.',
+        },
+      ],
     },
   },
 ] satisfies Linter.Config[];

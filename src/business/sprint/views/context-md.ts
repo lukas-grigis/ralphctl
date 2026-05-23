@@ -43,7 +43,7 @@ export const renderSprintContextMarkdown = (input: RenderSprintContextInput): st
   } else {
     for (const repo of project.repositories) {
       lines.push(`- \`${String(repo.path)}\` (${repo.name})`);
-      if (repo.checkScript !== undefined) lines.push(`  - check: \`${repo.checkScript}\``);
+      if (repo.verifyScript !== undefined) lines.push(`  - verify: \`${repo.verifyScript}\``);
       if (repo.setupScript !== undefined) lines.push(`  - setup: \`${repo.setupScript}\``);
     }
   }

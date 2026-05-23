@@ -12,11 +12,18 @@
 import React, { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+
+/** Minimal AppDeps stub — the global key handler only reaches for `deps.eventBus`. */
+const stubDeps = (): AppDeps => ({ eventBus: createInMemoryEventBus() }) as unknown as AppDeps;
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();
@@ -31,15 +38,19 @@ const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => vo
 };
 
 const Harness = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => (
-  <UiStateProvider>
-    <RouterProvider initial={{ id: 'home' }}>
-      {(): React.JSX.Element => (
-        <GlobalHarness>
-          <RouterAwareChild onSubmit={onSubmit} />
-        </GlobalHarness>
-      )}
-    </RouterProvider>
-  </UiStateProvider>
+  <DepsProvider value={stubDeps()}>
+    <UiStateProvider>
+      <SelectionProvider>
+        <RouterProvider initial={{ id: 'home' }}>
+          {(): React.JSX.Element => (
+            <GlobalHarness>
+              <RouterAwareChild onSubmit={onSubmit} />
+            </GlobalHarness>
+          )}
+        </RouterProvider>
+      </SelectionProvider>
+    </UiStateProvider>
+  </DepsProvider>
 );
 
 const RouterAwareChild = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => {

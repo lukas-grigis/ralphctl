@@ -1,11 +1,10 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -14,6 +13,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { buildCodexArgs, createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -60,14 +60,18 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 interface CapturingSpawnState {
   readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
+  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const spawn: ProviderSpawn = (command, args, options) => {
+    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -81,8 +85,14 @@ const CWD = absolutePath('/tmp/codex-provider-test');
 let signalsCounter = 0;
 const tempSignalsFile = () => {
   signalsCounter += 1;
+  // Per-test sub-directory so the sibling `sessionId` file written next to `signals.json`
+  // does not collide with another test's expected-missing assertion in the same parent.
   return absolutePath(
-    join(tmpdir(), `ralphctl-codex-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}.json`)
+    join(
+      tmpdir(),
+      `ralphctl-codex-test-${String(process.pid)}-${String(Date.now())}-${String(signalsCounter)}`,
+      'signals.json'
+    )
   );
 };
 
@@ -102,11 +112,6 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   signalsFile: tempSignalsFile(),
   ...overrides,
 });
-
-const readSignals = async (path: string): Promise<readonly HarnessSignal[]> => {
-  const raw = await fs.readFile(path, 'utf8');
-  return JSON.parse(raw) as readonly HarnessSignal[];
-};
 
 const FIXED_OUT = '/tmp/ralphctl-codex-fixed.txt';
 const stubFs = (
@@ -135,11 +140,13 @@ const unwrapArgs = (s: AiSession, outputFile = FIXED_OUT): readonly string[] => 
 };
 
 describe('createCodexProvider', () => {
-  it('happy path: reads response from output tempfile, parses signals, captures sessionId from stdout JSONL', async () => {
+  it('happy path: captures sessionId from stdout JSONL and unlinks codex tempfile WITHOUT writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1","type":"config"}\n'], exitCode: 0 }]);
-    const fsStub = stubFs('<progress>working</progress>\n<task-verified>all good</task-verified>');
+    // The AI's natural-language body is no longer parsed for signals — audit-[09] makes the AI
+    // write `signals.json` directly via its Write tool. The body remains for forensic capture.
+    const fsStub = stubFs('completed task; wrote signals.json.');
 
     const provider = createCodexProvider({
       rateLimitRetries: 2,
@@ -155,9 +162,33 @@ describe('createCodexProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBe('sess-1');
     expect(out.value.exitCode).toBe(0);
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    // Provider must NOT touch signals.json — that's the AI's job under audit-[09].
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
+  });
+
+  it('forwards session.cwd to the spawned child (context-file autoload, parity with claude/copilot)', async () => {
+    const cap = createCapturingBus();
+    const cwd = absolutePath('/tmp/codex-target-repo');
+    const sess = session({ cwd });
+    const { spawn, calls } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-cwd","type":"config"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cwd).toBe('/tmp/codex-target-repo');
   });
 
   it('mirrors raw body to session.bodyFile when requested (diagnostic capture)', async () => {
@@ -181,6 +212,85 @@ describe('createCodexProvider', () => {
     if (!out.ok) return;
     const mirrored = await fs.readFile(String(bodyFile), 'utf8');
     expect(mirrored).toBe('<task-verified>all good</task-verified>');
+  });
+
+  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-persist","type":"config"}\n'], exitCode: 0 }]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('sess-persist\n');
+    expect(out.value.sessionId).toBe('sess-persist');
+  });
+
+  it('skips the sessionId file when stdout never carried a session_id (no empty marker)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // stdout JSONL with no session_id field — adapter must not write an empty sessionId file.
+    const { spawn } = makeSpawn([{ stdoutChunks: ['{"type":"config"}\n'], exitCode: 0 }]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBeUndefined();
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-doomed","type":"config"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
@@ -224,6 +334,102 @@ describe('createCodexProvider', () => {
   });
 });
 
+describe('createCodexProvider — TokenUsageEvent emission', () => {
+  it('emits one TokenUsageEvent on clean exit even when the JSONL stream lacks usage counters', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // Bare config record — sessionId only; codex v0.130.x typically omits usage entirely.
+    const { spawn } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-tu","type":"config","model":"gpt-5.3-codex"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('openai-codex');
+    expect(evt.sessionId).toBe('sess-tu');
+    expect(evt.model).toBe('gpt-5.3-codex');
+    expect(evt.inputTokens).toBeUndefined();
+    expect(evt.outputTokens).toBeUndefined();
+    // Codex models are not in the static context-window table.
+    expect(evt.contextWindow).toBeUndefined();
+  });
+
+  it('includes usage counters when codex surfaces a usage object on a later record', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"session_id":"sess-u","type":"config","model":"gpt-5.3-codex"}\n',
+          '{"type":"task_complete","usage":{"input_tokens":900,"output_tokens":300}}\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.sessionId).toBe('sess-u');
+    expect(evt.inputTokens).toBe(900);
+    expect(evt.outputTokens).toBe(300);
+  });
+
+  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: ['{"session_id":"sess-fail","type":"config","model":"gpt-5.3-codex"}\n'],
+        stderrChunks: ['boom\n'],
+        exitCode: 7,
+      },
+    ]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
+  });
+});
+
 describe('buildCodexArgs — AiSession → CLI argv translation', () => {
   it.each(CODEX_MODELS.map((m) => [m]))('passes through -m %s', (model) => {
     const args = unwrapArgs(session({ model }));
@@ -262,10 +468,13 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args[oIdx + 1]).toBe('/tmp/out-x.txt');
   });
 
-  it('maps READ_ONLY permissions to -s read-only (no -a; codex exec has no approval flag)', () => {
+  it('maps READ_ONLY permissions to -s workspace-write (audit-[09] needs Write for signals.json)', () => {
+    // Codex `exec` has only two sandbox modes: `read-only` blocks every write (including
+    // signals.json), `workspace-write` allows writes inside cwd + --add-dir. Every profile
+    // maps to workspace-write; path scope is the safety envelope.
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
     const sIdx = args.indexOf('-s');
-    expect(args[sIdx + 1]).toBe('read-only');
+    expect(args[sIdx + 1]).toBe('workspace-write');
     expect(args).not.toContain('-a');
   });
 
@@ -282,13 +491,17 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('-s');
   });
 
-  it('rejects intermediate permission combinations with InvalidStateError', () => {
-    const half = { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false };
+  it('accepts intermediate permission combinations (path scope is the envelope, not the profile)', () => {
+    // The old contract rejected "intermediate" permission combinations because the codex
+    // sandbox modes are binary. Under the contract pipeline, every spawn ends up at
+    // workspace-write regardless — the SessionPermissions struct still carries semantic
+    // intent for Claude / Copilot, but Codex only sees the topology.
+    const half = { canModifyRepoFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false };
     const r = buildCodexArgs(session({ permissions: half }), { outputFile: FIXED_OUT });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.message).toContain('READ_ONLY and FULL_AUTO');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const sIdx = r.value.indexOf('-s');
+    expect(r.value[sIdx + 1]).toBe('workspace-write');
   });
 
   it('emits -C <cwd>', () => {

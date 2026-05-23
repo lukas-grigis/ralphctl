@@ -12,7 +12,8 @@ import { addTicket } from '@src/domain/entity/sprint.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ensureStorageRoots, storagePathsFromRoot } from '@src/application/bootstrap/storage-paths.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { wire } from '@src/application/bootstrap/wire.ts';
+import { RALPHCTL_DEBUG_TRACE_ENV, wire } from '@src/application/bootstrap/wire.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { makeDraftSprint, makeDraftSprintBundle, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
@@ -67,6 +68,51 @@ describe('wire', () => {
     expect(stat.isFile()).toBe(true);
   });
 
+  it('writes <sprintDir>/events.ndjson only when RALPHCTL_DEBUG_TRACE is set; the no-op factory leaves the file absent', async () => {
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
+    if (!appRoot.ok) throw new Error('appRoot parse failed');
+    const paths = storagePathsFromRoot(appRoot.value);
+    if (!paths.ok) throw new Error('storagePathsFromRoot failed');
+    await ensureStorageRoots(paths.value);
+
+    const offDir = join(tmpHome, 'sprint-off');
+    const onDir = join(tmpHome, 'sprint-on');
+    await fs.mkdir(offDir, { recursive: true });
+    await fs.mkdir(onDir, { recursive: true });
+    const offFile = AbsolutePath.parse(join(offDir, 'events.ndjson'));
+    const onFile = AbsolutePath.parse(join(onDir, 'events.ndjson'));
+    if (!offFile.ok || !onFile.ok) throw new Error('AbsolutePath parse failed');
+
+    const at = IsoTimestamp.now();
+
+    // Without the env var: factory must return a no-op handle, never touch disk.
+    const off = wire({ storage: paths.value, sinks: noOpSinks(), settings: DEFAULT_SETTINGS, env: {} });
+    const offHandle = off.chainLogSink({ file: offFile.value, bus: off.eventBus });
+    off.eventBus.publish({ type: 'chain-started', chainId: 'r-off', flowId: 'implement', at });
+    await offHandle.flush();
+    offHandle.stop();
+    const offExists = await fs
+      .stat(String(offFile.value))
+      .then(() => true)
+      .catch(() => false);
+    expect(offExists).toBe(false);
+
+    // With the env var set: factory returns the real file-log sink and lines hit disk.
+    const on = wire({
+      storage: paths.value,
+      sinks: noOpSinks(),
+      settings: DEFAULT_SETTINGS,
+      env: { [RALPHCTL_DEBUG_TRACE_ENV]: '1' },
+    });
+    const onHandle = on.chainLogSink({ file: onFile.value, bus: on.eventBus });
+    on.eventBus.publish({ type: 'chain-started', chainId: 'r-on', flowId: 'implement', at });
+    await onHandle.flush();
+    onHandle.stop();
+    const onContent = await fs.readFile(String(onFile.value), 'utf8');
+    expect(onContent).toContain('=== chain-run r-on implement started');
+    expect(onContent).toContain('"chainId":"r-on"');
+  });
+
   it('produces independent dependency graphs for each call (no shared state)', async () => {
     const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
     if (!appRoot.ok) throw new Error('appRoot parse failed');
@@ -106,10 +152,20 @@ describe('wire', () => {
     await deps.sprintRepo.save(withTicket.value);
 
     // Refine is now interactive — replace the wired interactiveAi with a fake that writes a
-    // stub requirements body so the test doesn't need to spawn a real Claude binary.
+    // contract-conformant `signals.json` so the audit-[09] refine validation succeeds.
     const fakeInteractiveAi = {
       async run(input: { readonly outputFile: AbsolutePath }) {
-        await fs.writeFile(String(input.outputFile), '# requirements approved by fake claude', 'utf8');
+        const envelope = {
+          schemaVersion: 1,
+          signals: [
+            {
+              type: 'refined-ticket',
+              body: '# requirements approved by fake claude',
+              timestamp: '2026-05-22T10:00:00.000Z',
+            },
+          ],
+        };
+        await fs.writeFile(String(input.outputFile), JSON.stringify(envelope), 'utf8');
         return Result.ok({});
       },
     };

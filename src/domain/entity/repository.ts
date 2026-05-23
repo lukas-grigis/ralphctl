@@ -21,8 +21,8 @@ export interface Repository extends Entity<RepositoryId> {
   readonly slug: Slug;
   readonly name: string;
   readonly path: AbsolutePath;
-  readonly checkScript?: string;
-  readonly checkTimeout?: number;
+  readonly verifyScript?: string;
+  readonly verifyTimeout?: number;
   readonly setupScript?: string;
   /**
    * Markdown body of a per-repo *setup* skill: AI guidance the harness installs into every
@@ -34,7 +34,7 @@ export interface Repository extends Entity<RepositoryId> {
   /**
    * Markdown body of a per-repo *verify* skill: AI guidance for verifying changes (how the
    * project surfaces test/lint/typecheck signal, how to interpret failures). Distinct from
-   * {@link checkScript}. Same authoring path as `setupSkill`.
+   * {@link verifyScript}. Same authoring path as `setupSkill`.
    */
   readonly verifySkill?: string;
 }
@@ -45,8 +45,8 @@ export interface RepositoryCreateInput {
   readonly name?: string;
   /** Optional. Defaults to `kebab-case(name)` (which itself defaults to `basename(path)`). */
   readonly slug?: Slug;
-  readonly checkScript?: string;
-  readonly checkTimeout?: number;
+  readonly verifyScript?: string;
+  readonly verifyTimeout?: number;
   readonly setupScript?: string;
   readonly setupSkill?: string;
   readonly verifySkill?: string;
@@ -59,8 +59,8 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const slugResult = resolveSlug(input.slug, nameResult.value);
   if (!slugResult.ok) return Result.error(slugResult.error);
 
-  const checkScript = parseOptionalString('repository.checkScript', input.checkScript);
-  if (!checkScript.ok) return Result.error(checkScript.error);
+  const verifyScript = parseOptionalString('repository.verifyScript', input.verifyScript);
+  if (!verifyScript.ok) return Result.error(verifyScript.error);
 
   const setupScript = parseOptionalString('repository.setupScript', input.setupScript);
   if (!setupScript.ok) return Result.error(setupScript.error);
@@ -71,11 +71,11 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const verifySkill = parseOptionalString('repository.verifySkill', input.verifySkill);
   if (!verifySkill.ok) return Result.error(verifySkill.error);
 
-  let checkTimeout: number | undefined;
-  if (input.checkTimeout !== undefined) {
-    const parsed = parsePositiveInt('repository.checkTimeout', input.checkTimeout);
+  let verifyTimeout: number | undefined;
+  if (input.verifyTimeout !== undefined) {
+    const parsed = parsePositiveInt('repository.verifyTimeout', input.verifyTimeout);
     if (!parsed.ok) return Result.error(parsed.error);
-    checkTimeout = parsed.value;
+    verifyTimeout = parsed.value;
   }
 
   return Result.ok({
@@ -83,40 +83,40 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
     slug: slugResult.value,
     name: nameResult.value,
     path: input.path,
-    ...(checkScript.value !== undefined ? { checkScript: checkScript.value } : {}),
-    ...(checkTimeout !== undefined ? { checkTimeout } : {}),
+    ...(verifyScript.value !== undefined ? { verifyScript: verifyScript.value } : {}),
+    ...(verifyTimeout !== undefined ? { verifyTimeout } : {}),
     ...(setupScript.value !== undefined ? { setupScript: setupScript.value } : {}),
     ...(setupSkill.value !== undefined ? { setupSkill: setupSkill.value } : {}),
     ...(verifySkill.value !== undefined ? { verifySkill: verifySkill.value } : {}),
   });
 };
 
-export const setRepositoryCheckScript = (
+export const setRepositoryVerifyScript = (
   repo: Repository,
   script: string | undefined
 ): Result<Repository, ValidationError> => {
-  const next = parseOptionalString('repository.checkScript', script);
+  const next = parseOptionalString('repository.verifyScript', script);
   if (!next.ok) return Result.error(next.error);
   if (next.value === undefined) {
-    const { checkScript: _drop, ...rest } = repo;
+    const { verifyScript: _drop, ...rest } = repo;
     void _drop;
     return Result.ok(rest);
   }
-  return Result.ok({ ...repo, checkScript: next.value });
+  return Result.ok({ ...repo, verifyScript: next.value });
 };
 
-export const setRepositoryCheckTimeout = (
+export const setRepositoryVerifyTimeout = (
   repo: Repository,
   ms: number | undefined
 ): Result<Repository, ValidationError> => {
   if (ms === undefined) {
-    const { checkTimeout: _drop, ...rest } = repo;
+    const { verifyTimeout: _drop, ...rest } = repo;
     void _drop;
     return Result.ok(rest);
   }
-  const next = parsePositiveInt('repository.checkTimeout', ms);
+  const next = parsePositiveInt('repository.verifyTimeout', ms);
   if (!next.ok) return Result.error(next.error);
-  return Result.ok({ ...repo, checkTimeout: next.value });
+  return Result.ok({ ...repo, verifyTimeout: next.value });
 };
 
 export const setRepositorySetupScript = (

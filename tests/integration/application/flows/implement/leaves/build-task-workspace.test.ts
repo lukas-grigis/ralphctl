@@ -33,7 +33,7 @@ describe('buildTaskWorkspaceLeaf', () => {
     return { leaf, task, sprintDir };
   };
 
-  it('writes prompt.md and done-criteria.md into implement/<task-id>/', async () => {
+  it('writes prompt.md with criteria inlined under a stable heading and does NOT write done-criteria.md', async () => {
     const base = makeTodoTask({ name: 'add-feature' });
     const task = { ...base, verificationCriteria: ['TypeScript compiles', 'New tests pass'] as const };
     const { leaf } = buildLeaf(task);
@@ -48,31 +48,18 @@ describe('buildTaskWorkspaceLeaf', () => {
 
     const root = join(dir, 'implement', String(task.id));
     const prompt = await fs.readFile(join(root, 'prompt.md'), 'utf8');
-    const criteria = await fs.readFile(join(root, 'done-criteria.md'), 'utf8');
 
     expect(prompt).toContain('add-feature');
     expect(prompt).toContain('progress.md');
-    expect(criteria).toContain('TypeScript compiles');
-    expect(criteria).toContain('New tests pass');
+    // Criteria are inlined into the rendered prompt under a stable heading so operators can grep.
+    expect(prompt).toContain('TypeScript compiles');
+    expect(prompt).toContain('New tests pass');
+    // Audit [05] deletion: the standalone file is gone.
+    await expect(fs.access(join(root, 'done-criteria.md'))).rejects.toThrow();
     expect(result.value.ctx.taskWorkspaceRoot).toBe(root);
   });
 
-  it('renders a placeholder line when the task has no verification criteria', async () => {
-    const base = makeTodoTask({ name: 'no-criteria-task' });
-    const task = { ...base, verificationCriteria: [] as readonly string[] };
-    const { leaf } = buildLeaf(task);
-
-    const result = await leaf.execute({
-      sprintId: task.id as unknown as ImplementCtx['sprintId'],
-      tasks: [task],
-    } satisfies ImplementCtx);
-
-    expect(result.ok).toBe(true);
-    const criteria = await fs.readFile(join(dir, 'implement', String(task.id), 'done-criteria.md'), 'utf8');
-    expect(criteria).toContain('No verification criteria declared');
-  });
-
-  it('overwrites prompt.md and done-criteria.md on re-run (derived files refresh from current spec)', async () => {
+  it('overwrites prompt.md on re-run (derived from current task spec)', async () => {
     const base = makeTodoTask({ name: 'v1-name' });
     const task = { ...base, verificationCriteria: ['old criterion'] as readonly string[] };
     const root = join(dir, 'implement', String(task.id));
@@ -82,7 +69,7 @@ describe('buildTaskWorkspaceLeaf', () => {
       sprintId: task.id as unknown as ImplementCtx['sprintId'],
       tasks: [task],
     } satisfies ImplementCtx);
-    expect(await fs.readFile(join(root, 'done-criteria.md'), 'utf8')).toContain('old criterion');
+    expect(await fs.readFile(join(root, 'prompt.md'), 'utf8')).toContain('old criterion');
 
     const editedTask = { ...task, name: 'v2-name', verificationCriteria: ['fresh criterion'] as readonly string[] };
     const { leaf: secondLeaf } = buildLeaf(editedTask);
@@ -92,11 +79,10 @@ describe('buildTaskWorkspaceLeaf', () => {
     } satisfies ImplementCtx);
 
     const promptAfter = await fs.readFile(join(root, 'prompt.md'), 'utf8');
-    const criteriaAfter = await fs.readFile(join(root, 'done-criteria.md'), 'utf8');
     expect(promptAfter).toContain('v2-name');
     expect(promptAfter).not.toContain('v1-name');
-    expect(criteriaAfter).toContain('fresh criterion');
-    expect(criteriaAfter).not.toContain('old criterion');
+    expect(promptAfter).toContain('fresh criterion');
+    expect(promptAfter).not.toContain('old criterion');
   });
 
   it('fails fast when ctx.tasks does not contain the task', async () => {

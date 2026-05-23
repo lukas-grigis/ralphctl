@@ -108,11 +108,4 @@ tools — the project's scripts are the documented contract.
 
 ### Phase 3 — Output
 
-Emit the elements below, each on its own line, no preamble, no commentary, no markdown fences
-around the tags:
-
-1. `<setup-script>…single shell line…</setup-script>` — omit only when the project documents no
-   setup step.
-2. `<verify-script>…single shell line…</verify-script>` — omit only when the project documents no
-   verification commands.
-3. `<note>…</note>` — optional, one short observation naming the source file(s) you relied on.
+{{OUTPUT_CONTRACT_SECTION}}

@@ -1,7 +1,8 @@
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
@@ -24,6 +25,8 @@ export interface DetectSkillsDeps {
   readonly templateLoader: TemplateLoader;
   readonly signals: HarnessSignalSink;
   readonly eventBus: EventBus;
+  /** Atomic writer used to render the contract sidecars (`setup-skill.md` / `verify-skill.md`). */
+  readonly writeFile: WriteFile;
   readonly logger: Logger;
   readonly interactive: InteractivePrompt;
   readonly skillsAdapter: SkillsAdapter;

@@ -42,9 +42,22 @@ export interface ReadinessCtx {
     /**
      * AI-suggested verify script (one shell line chaining typecheck / lint / test with `&&`).
      * Undefined when the project exposes none of those. Downstream wiring lands it on
-     * `Repository.checkScript` — the harness's post-task gate.
+     * `Repository.verifyScript` — the harness's post-task gate.
      */
     readonly proposedVerifyScript?: string;
+    /**
+     * AI-authored setup skill body — multi-paragraph markdown the readiness install step
+     * lands at `<repo>/<parentDir>/skills/setup/SKILL.md` via the skills adapter's bare-name
+     * install path. Distinct from `proposedSetupScript`: the script is one shell line; the
+     * skill is project-tracked guidance for future AI sessions. Undefined when the AI didn't
+     * propose one (today's prompt doesn't ask for it — Wave 6).
+     */
+    readonly proposedSetupSkillBody?: string;
+    /**
+     * Same shape as {@link proposedSetupSkillBody} but for verify. Lands at
+     * `<repo>/<parentDir>/skills/verify/SKILL.md`.
+     */
+    readonly proposedVerifySkillBody?: string;
   };
   readonly accepted?: boolean;
 }

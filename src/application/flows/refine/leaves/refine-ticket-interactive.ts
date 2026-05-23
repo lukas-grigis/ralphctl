@@ -1,28 +1,41 @@
-import { promises as fs } from 'node:fs';
+import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import { refineTicketUseCase } from '@src/business/ticket/refine-ticket.ts';
 import { replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import { setTicketLink, type ApprovedTicket, type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { RefinedTicketSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
+import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
+import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
 import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 
 /**
  * Chain leaf — drives the user-in-the-loop AI session for one ticket. Integration work
- * (terminal hand-off, read the AI's output file, accept either JSON or markdown shape) lives
+ * (terminal hand-off, validate signals.json against the audit-[09] refine contract) lives
  * here; the business decision to approve the ticket and replace it on the sprint lives in
  * {@link refineTicketUseCase}.
  *
+ * audit-[09] flow (post-Wave-6):
+ *   provider.run → AI writes `signals.json` directly per the contract section in the
+ *   prompt → `validateSignalsFile(refineOutputContract)` → fan-out validated signals to the
+ *   bus → `renderSidecars` (no-op, empty rules) → extract the `refined-ticket` body and
+ *   feed it into `refineTicketUseCase`.
+ *
  * Failure modes (each leaves the sprint untouched):
- *   - AI exits non-zero (user cancelled, internal error) → bubbles its error.
- *   - Output file missing after AI exit → `InvalidStateError`.
- *   - Output file empty / fails domain validation → forwarded from the use case.
+ *   - AI exits non-zero → bubbles its error.
+ *   - signals.json missing after AI exit → `InvalidStateError` (signals-missing path).
+ *   - signals.json fails schema validation → `ParseError` (schema-mismatch) bubbles up.
+ *   - Body fails domain validation → forwarded from the use case.
  */
 export type RunInTerminal = <T>(fn: () => Promise<T>) => Promise<T>;
 
@@ -30,6 +43,18 @@ export interface RefineTicketInteractiveDeps {
   readonly interactiveAi: InteractiveAiProvider;
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
+  /**
+   * Output port used to write `signals.json` and any sidecars under the audit-[09] contract.
+   * Refine has no sidecars (the refined body projects onto the Ticket entity), but the leaf
+   * still threads `writeFile` so the contract's render path stays uniform with generator /
+   * evaluator / readiness.
+   */
+  readonly writeFile: WriteFile;
+  /**
+   * Application bus — every validated `refined-ticket` / `learning` / `note` / `decision`
+   * signal fans out as a typed `ai-signal` event the TUI subscribes to.
+   */
+  readonly eventBus: EventBus;
   readonly model: string;
   /**
    * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
@@ -139,25 +164,51 @@ export const refineTicketInteractiveLeaf = (
         );
         if (!session.ok) return Result.error(session.error);
 
-        let raw: string;
-        try {
-          raw = await fs.readFile(String(input.outputFile), 'utf8');
-        } catch (cause) {
-          const causeMsg = cause instanceof Error ? cause.message : String(cause);
+        // Resolve the outputDir from outputFile — `<sprintDir>/refinement/<ticket-slug>/`.
+        // The audit-[09] contract has the AI write `signals.json` here directly.
+        const outputDirRaw = dirname(String(input.outputFile));
+        const outputDirResult = AbsolutePath.parse(outputDirRaw);
+        if (!outputDirResult.ok) return Result.error(outputDirResult.error);
+        const outputDir = outputDirResult.value;
+
+        // Validate signals.json against the refine contract. Failure surfaces a domain error
+        // (signals-missing / invalid-json / schema-mismatch / migration-gap) with a precise
+        // hint.
+        const validated = await validateSignalsFile(outputDir, refineOutputContract);
+        if (!validated.ok) return Result.error(validated.error);
+        const signals = validated.value;
+
+        // Fan out every validated signal to the application bus so the TUI's `ai-signal`
+        // subscribers render live updates. Source tag identifies the leaf for multi-leaf
+        // traces.
+        for (const sig of signals) {
+          deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'refine' });
+        }
+
+        // Render harness-owned sidecars — refine has no sidecars (the contract's `sidecars`
+        // is empty), but invoking the helper keeps the contract loop uniform with generator /
+        // evaluator / readiness.
+        await renderSidecars(deps.writeFile, outputDir, signals, refineOutputContract.sidecars, deps.logger);
+
+        // Project the validated `refined-ticket` body onto the Ticket entity. The contract's
+        // `exactlyOne` refinement guarantees one match; the type narrows here.
+        const refinedSignal = signals.find((s) => s.type === 'refined-ticket') as RefinedTicketSignal | undefined;
+        if (refinedSignal === undefined) {
+          // Defensive — the schema should have caught this upstream.
           return Result.error(
             new InvalidStateError({
               entity: 'refine-ticket-interactive',
-              currentState: 'post-session',
-              attemptedAction: 'read-output',
-              message: `refine: AI exited but output file is missing: ${String(input.outputFile)} (${causeMsg})`,
+              currentState: 'post-validation',
+              attemptedAction: 'project-signal',
+              message: 'refine: validated signals contained no refined-ticket signal',
             })
           );
         }
-        const body = extractRequirementsBody(raw);
+
         const useCaseResult = await refineTicketUseCase({
           sprint: input.sprint,
           ticket: input.ticket,
-          requirementsBody: body,
+          requirementsBody: refinedSignal.body,
           logger: deps.logger,
           ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
         });
@@ -168,7 +219,7 @@ export const refineTicketInteractiveLeaf = (
         // push CREATEs an issue, we need to also write the returned URL back onto the ticket
         // AND replace it on the sprint again (so subsequent loads see the link).
         const approvedTicket = out.ticket as ApprovedTicket;
-        const finalTicket = await maybePushOrigin(deps, approvedTicket, body);
+        const finalTicket = await maybePushOrigin(deps, approvedTicket, refinedSignal.body);
         if (finalTicket === approvedTicket) return Result.ok(out);
         const replaced = replaceTicket(out.sprint, finalTicket.id, finalTicket);
         if (!replaced.ok) return Result.error(replaced.error);
@@ -220,28 +271,3 @@ export const refineTicketInteractiveLeaf = (
       };
     },
   });
-
-/**
- * Accept either v1's JSON shape `[{ "ref": "...", "requirements": "..." }]` or plain markdown.
- * v1 used JSON to support multi-ticket batches; v2's interactive refine is one-ticket-per-call,
- * so the AI is told to write markdown directly. The JSON path is here for backward-compat with
- * users who configured v1's prompt template style.
- */
-const extractRequirementsBody = (raw: string): string => {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return trimmed;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      const first = parsed[0] as { requirements?: string };
-      if (typeof first.requirements === 'string') return first.requirements;
-    }
-    if (typeof parsed === 'object' && parsed !== null) {
-      const obj = parsed as { requirements?: string };
-      if (typeof obj.requirements === 'string') return obj.requirements;
-    }
-  } catch {
-    // not JSON — fall through, return raw
-  }
-  return trimmed;
-};

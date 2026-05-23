@@ -65,6 +65,10 @@ Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` f
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
+**`glyphFor(signalKind)`** — exported from `tokens.ts`. Maps every `SignalKind` to a shape-distinct glyph
+that conveys meaning without colour, for use under `NO_COLOR=1`. Import from tokens; do not inline the
+character.
+
 ### 2.3 Spacing — `spacing`
 
 Vertical rhythm comes from a handful of constants. Every `marginTop` / `marginBottom` / `paddingX` value in a
@@ -99,6 +103,43 @@ Never use `underline`. It reads as a hyperlink in most terminals and we don't ha
 
 Field lists use `FIELD_LABEL_WIDTH = 14` from tokens. That fits the longest label in the app
 (`Repositories:`, `Pull request:`) with its colon. Override only when a specific view demands it.
+
+### 2.6 Responsive layout — breakpoints
+
+All terminal-width decisions use the named breakpoints exported from `src/application/ui/tui/theme/tokens.ts`.
+**Never hardcode a raw column number in a view** — import the token or helper.
+
+| Name  | Threshold (cols) | Typical layout                                 |
+| ----- | ---------------- | ---------------------------------------------- |
+| `sm`  | ≥ 80             | Single-column stack; minimum supported width   |
+| `md`  | ≥ 100            | Narrow multi-column; Execute compact-rail mode |
+| `lg`  | ≥ 140            | Two-column viable (rail + main)                |
+| `xl`  | ≥ 180            | Three-column viable (rail + main + context)    |
+| `xxl` | ≥ 220            | Extra room; rails and context can grow         |
+
+**Helper functions** (all exported from `tokens.ts`):
+
+- `breakpointFor(columns): Breakpoint` — returns the largest satisfied breakpoint key.
+- `fluid(columns, { min, max, ratio }): number` — clamps `floor(columns × ratio)` to `[min, max]`.
+  Use for numeric widths that should grow proportionally but never overwhelm or vanish.
+- `responsive<T>(columns, { sm, md?, lg?, xl?, xxl? }): T` — picks the value for the active breakpoint,
+  falling through to the next smaller specified value. `sm` is required as the floor.
+
+**React hook**: `useBreakpoint(): { breakpoint, columns, rows, atLeast(target) }` — re-derives on every
+`SIGWINCH`, so layouts react cleanly on terminal resize. Import from
+`src/application/ui/tui/runtime/use-breakpoint.ts`.
+
+**First concrete consumer — Execute-view rail width:**
+
+```
+resolveRailWidth(columns):
+  < xl  (< 180)  →  RAIL_WIDTH = 28       (fixed; lg uses two-column, no context column)
+  ≥ xl  (≥ 180)  →  fluid(cols, { min: 36, max: 56, ratio: 0.22 })
+```
+
+`COMPACT_RAIL_WIDTH = 6` applies at `md` (100–139); only status glyphs are shown, no labels.
+The Execute view also exports `CONTEXT_WIDTH` for the right context column — touch those via
+`resolveRailWidth` and the breakpoint helpers, not via new magic numbers.
 
 ## 3. Layout anatomy
 
@@ -160,11 +201,19 @@ the same job.
 
 Specialised components owned by `ExecuteView`. Don't import them from other views.
 
-| Component          | Purpose                                                               |
-| ------------------ | --------------------------------------------------------------------- |
-| `StepTrace`        | Outer chain trace list. Filters out per-task entries.                 |
-| `TasksPanel`       | Dependency-aware per-task card list. Status pill + activity.          |
-| `RecentEventsTail` | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop. |
+| Component               | Purpose                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `StepTrace`             | Outer chain trace list. Filters out per-task entries.                                                                         |
+| `TasksPanel`            | Dependency-aware per-task card list. Status pill + activity. Cards collapsed by default; `j`/`k` nav, `Enter`/`Space` expand. |
+| `RecentEventsTail`      | Rolling log-tail panel. Receives pre-filtered `LogEvent[]` as a prop.                                                         |
+| `TokenBudgetCard`       | Subscribes to `TokenUsageEvent`; renders `(input + output) / contextWindow` progress bar.                                     |
+| `BaselineHealthCard`    | Renders `SprintExecution.setupRanAt` history in the context column.                                                           |
+| `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                      |
+| `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.         |
+| `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                   |
+| `EvaluatorFailurePanel` | Per-dimension evaluator scores with expand affordance. Fixture-gated behind `developer.showEvaluatorFailureUI`.               |
+| `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                           |
+| `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                            |
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 
@@ -200,18 +249,44 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 
 These work from **every** view. Don't override them.
 
-| Key                 | Action                        |
-| ------------------- | ----------------------------- |
-| `Esc`               | Pop one frame (no-op at root) |
-| `h`                 | Home                          |
-| `s`                 | Settings                      |
-| `d`                 | Doctor                        |
-| `?`                 | Help overlay                  |
-| `Tab` / `Shift+Tab` | Cycle running flow sessions   |
-| `Ctrl+1..9`         | Direct-jump to flow session   |
-| `q`                 | Quit (Home root only)         |
+| Key                 | Action                                           |
+| ------------------- | ------------------------------------------------ |
+| `Esc`               | Pop one frame (no-op at root)                    |
+| `h`                 | Home                                             |
+| `s`                 | Settings                                         |
+| `d`                 | Doctor                                           |
+| `b`                 | Toggle banner compact ↔ full                     |
+| `g`                 | Progress overlay (reads `progress.md` from disk) |
+| `y`                 | Yank active-task summary to clipboard            |
+| `P`                 | Open project picker (cross-project)              |
+| `S`                 | Open sprint picker (cross-project)               |
+| `?`                 | Help overlay                                     |
+| `Tab` / `Shift+Tab` | Cycle running flow sessions                      |
+| `Ctrl+1..9`         | Direct-jump to flow session                      |
+| `q`                 | Quit (Home root only)                            |
 
-### 6.2 View-local keys — published via `useViewHints`
+### 6.2 Execute-view keys — active when Execute view owns the focus
+
+| Key               | Action                                     |
+| ----------------- | ------------------------------------------ |
+| `j` / `↓`         | Next task card / row                       |
+| `k` / `↑`         | Previous task card / row                   |
+| `Enter` / `Space` | Expand / collapse card or commit row       |
+| `Esc`             | Collapse expanded card                     |
+| `e`               | Expand done-criteria for the active card   |
+| `c`               | Open cancel-scope picker (attempt vs flow) |
+| `D`               | Detach (background the flow)               |
+
+### 6.2a Sprint picker keys — active when the `S` picker overlay is open
+
+| Key | Action                                             |
+| --- | -------------------------------------------------- |
+| `t` | Toggle scope — all projects ↔ current project only |
+
+The picker is opened globally via `S`; `t` is its one view-local key and is registered in `keyboard-map.ts`
+alongside the other `pickerKeys`. Any new picker keys follow the same pattern.
+
+### 6.3 View-local keys — published via `useViewHints`
 
 ```tsx
 useViewHints([

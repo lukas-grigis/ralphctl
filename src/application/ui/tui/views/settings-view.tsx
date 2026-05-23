@@ -102,6 +102,12 @@ const buildEditableFields = (s: Settings): readonly EditableField[] => {
       label: 'Rate-limit retries',
       current: String(s.harness.rateLimitRetries),
     },
+    {
+      kind: 'text',
+      key: 'harness.plateauThreshold',
+      label: 'Plateau threshold',
+      current: String(s.harness.plateauThreshold),
+    },
     { kind: 'select', key: 'logging.level', label: 'Log level', options: LOG_LEVELS, current: s.logging.level },
     {
       kind: 'text',
@@ -287,7 +293,7 @@ export const SettingsView = (): React.JSX.Element => {
             />
           </Card>
           <Box marginTop={spacing.section}>
-            <Card title="Harness budgets" tone="rule">
+            <Card title="Harness budgets" tone="primary">
               <FieldList
                 fields={[
                   {
@@ -305,6 +311,21 @@ export const SettingsView = (): React.JSX.Element => {
                     value: valueFor('harness.rateLimitRetries'),
                     hint: 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
                   },
+                  {
+                    label: 'Plateau threshold',
+                    value: valueFor('harness.plateauThreshold'),
+                    hint: 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
+                  },
+                ]}
+              />
+            </Card>
+          </Box>
+          <Box marginTop={spacing.section}>
+            <Card title="Other" tone="primary">
+              <FieldList
+                fields={[
+                  { label: 'Log level', value: valueFor('logging.level') },
+                  { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
                 ]}
               />
             </Card>
@@ -316,16 +337,6 @@ export const SettingsView = (): React.JSX.Element => {
                   { label: 'App root', value: <Text dimColor>{storage.appRoot}</Text> },
                   { label: 'Data root', value: <Text dimColor>{storage.dataRoot}</Text> },
                   { label: 'Config root', value: <Text dimColor>{storage.configRoot}</Text> },
-                ]}
-              />
-            </Card>
-          </Box>
-          <Box marginTop={spacing.section}>
-            <Card title="Other" tone="rule">
-              <FieldList
-                fields={[
-                  { label: 'Log level', value: valueFor('logging.level') },
-                  { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
                 ]}
               />
             </Card>

@@ -10,6 +10,7 @@
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
@@ -57,12 +58,26 @@ export type LaunchResult =
        */
       readonly plannedLeaves?: readonly string[];
       /**
+       * Display label per planned leaf name (keyed by element `name`). Used by the Flow-steps
+       * panel so pending / running rows render the friendly label instead of falling back to
+       * the raw name (which embeds the absolute path for per-repo leaves). Once a leaf
+       * executes, the trace entry's own label takes over.
+       */
+      readonly planLabelByName?: ReadonlyMap<string, string>;
+      /**
        * Name of the per-task subchain's final leaf — when this name (with the task uuid suffix
        * stripped) appears in the trace for a task, the UI flips that task to `completed`.
        * Threaded so a flow that renames its terminal leaf doesn't silently leave tasks stuck on
        * `running` forever.
        */
       readonly terminalSubstepName?: string;
+      /**
+       * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior
+       * aborted attempt. Forwarded into `SessionDescriptor.taskRecovering`; the execute view
+       * renders a one-line resume banner under the active-task header. Empty / undefined when
+       * no task is resuming.
+       */
+      readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -111,12 +126,16 @@ export const sessionHintsFromLaunchResult = (
   readonly taskNames?: ReadonlyMap<string, string>;
   readonly maxTurns?: number;
   readonly plannedLeaves?: readonly string[];
+  readonly planLabelByName?: ReadonlyMap<string, string>;
   readonly terminalSubstepName?: string;
+  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
   ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
+  ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
+  ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
 });
 
 /**

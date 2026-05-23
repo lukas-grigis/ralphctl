@@ -1,5 +1,5 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
@@ -15,6 +15,8 @@ import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 
 /**
  * Narrow dependency contract for the implement chain. Composition root constructs each field
@@ -53,4 +55,14 @@ export interface ImplementDeps {
    * type a custom name. Subsequent runs reuse the persisted decision and skip the prompt.
    */
   readonly interactive: InteractivePrompt;
+  /**
+   * Atomic file writer — used by gen-eval leaves to write harness-rendered sidecars
+   * (commit-message, evaluation.md) post-spawn. Production wires the tmp+rename adapter.
+   */
+  readonly writeFile: WriteFile;
+  /**
+   * Append-only writer — used by `progress-journal-leaf` and `append-journal-separator-leaf`
+   * to grow `<sprintDir>/progress.md` (audit-[07]).
+   */
+  readonly appendFile: AppendFile;
 }

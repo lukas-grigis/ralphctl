@@ -119,6 +119,22 @@ describe('preflightTaskLeaf', () => {
     expect(out.ok).toBe(true);
   });
 
+  it('forwards opts.label onto the element + every trace entry it emits', async () => {
+    const leaf = preflightTaskLeaf(
+      { gitRunner: fakeRunner(''), logger: noopLogger, interactive: stubInteractive, clock: clockNow },
+      CWD,
+      'preflight-task-1-/tmp/repo',
+      { label: 'preflight · repo' }
+    );
+    expect(leaf.label).toBe('preflight · repo');
+    const out = await leaf.execute(baseCtx());
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.value.trace[0]?.elementName).toBe('preflight-task-1-/tmp/repo');
+      expect(out.value.trace[0]?.label).toBe('preflight · repo');
+    }
+  });
+
   it('rejects a dirty tree with InvalidStateError when policy=cancel', async () => {
     const leaf = preflightTaskLeaf(
       {

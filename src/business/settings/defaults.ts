@@ -54,7 +54,9 @@ export const DEFAULT_AI_SETTINGS_BY_PROVIDER: Readonly<Record<AiProvider, AiSett
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: CURRENT_SCHEMA_VERSION,
   ai: DEFAULT_AI_SETTINGS_BY_PROVIDER['claude-code'],
-  harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3 },
+  harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
+  ui: { notifications: { enabled: true } },
+  developer: { showEvaluatorFailureUI: false },
 };

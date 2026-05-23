@@ -5,7 +5,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -19,7 +19,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 // `renderers/task.ts`. The originals lived here historically; the actual implementations are
 // now in the shared module.
 export {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -32,10 +32,11 @@ export {
  * produce each block from domain types; callers can also build the strings by hand for tests.
  *
  * The implement template tells one task implementer agent how to execute a single
- * pre-planned task: read the description / steps / verification criteria, run the check
- * script as the post-task gate, append a learnings entry to the progress file, then signal
- * completion. Every slot below is a typed string the chain leaf renders before calling
- * `buildPrompt`.
+ * pre-planned task: read the description / steps / verification criteria, run the verify
+ * script as the post-task gate, then emit signals plus `<task-complete>`. The harness
+ * renders those signals into `progress.md` on the next snapshot — the agent must NOT write
+ * to the file directly. Every slot below is a typed string the chain leaf renders before
+ * calling `buildPrompt`.
  */
 export interface ImplementPromptParams {
   /** Task display name — `{{TASK_NAME}}` (the level-1 heading body in the rendered prompt). */
@@ -48,23 +49,36 @@ export interface ImplementPromptParams {
   readonly taskDescriptionSection: string;
   /** Markdown block "## Implementation Steps\n\n1. …" or empty when there are no steps. */
   readonly taskStepsSection: string;
-  /** Markdown block "## Verification Criteria\n\n- …" or empty when there are none. */
+  /** Markdown block "## Done criteria\n\n- …" or empty when there are none. */
   readonly verificationCriteriaSection: string;
   /**
-   * Markdown body for the "## Check Script" section — either a fenced shell block with the
-   * configured command or the explicit "no check script configured" line. Always non-empty.
+   * Markdown body for the "## Verify Script" section — either a fenced shell block with the
+   * configured command or the explicit "no verify script configured" line. Always non-empty.
    */
-  readonly checkScriptSection: string;
+  readonly verifyScriptSection: string;
   /** Detected subagents / skills / MCP servers the implementer can route to, or fallback. */
   readonly projectTooling: string;
   /** Absolute path to `progress.md` for this sprint — `{{PROGRESS_FILE}}`. */
   readonly progressFile: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress` section
+   * (audit-[07]). Empty string when the journal file is absent — the template's surrounding
+   * prose handles the empty case without a per-flow special branch.
+   */
+  readonly priorProgress: string;
   /**
    * Markdown body for "## Prior Critique" — empty on turn 1, populated on every subsequent
    * turn of the gen-eval loop with the failed evaluator critique from the previous turn so
    * the generator's fix attempt addresses the same dimensions the evaluator flagged.
    */
   readonly priorCritiqueSection: string;
+  /**
+   * Audit-[09] output contract section — rendered from the generator's `AiOutputContract` by
+   * `renderContractSectionFor(generatorOutputContract)`. Tells the AI to write exactly one
+   * file (`signals.json`) matching the documented shape and to not write any other files.
+   * The leaf composes this string before calling `buildImplementPrompt`.
+   */
+  readonly outputContractSection: string;
 }
 
 const requireNonEmpty =
@@ -75,7 +89,7 @@ const requireNonEmpty =
 export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   templateName: 'implement',
   description:
-    'One-shot task execution. The agent reads the task body, runs the check script, appends a progress entry, and emits harness signals.',
+    'One-shot task execution. The agent reads the task body, runs the verify script, and emits harness signals; the harness snapshots those signals into progress.md.',
   parameters: {
     taskName: {
       placeholder: 'TASK_NAME',
@@ -102,15 +116,15 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     },
     verificationCriteriaSection: {
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
-      description: '"## Verification Criteria" bullet list, or empty when none are declared.',
+      description: '"## Done criteria" bullet list, or empty when none are declared.',
     },
-    checkScriptSection: {
-      placeholder: 'CHECK_SCRIPT_SECTION',
+    verifyScriptSection: {
+      placeholder: 'VERIFY_SCRIPT_SECTION',
       description:
-        'Body of the "## Check Script" section — fenced shell block when configured, explicit "no check script configured" otherwise.',
+        'Body of the "## Verify Script" section — fenced shell block when configured, explicit "no verify script configured" otherwise.',
       validate: requireNonEmpty(
-        'checkScriptSection',
-        'check-script section must not be empty (renderCheckScriptSection always emits a body)'
+        'verifyScriptSection',
+        'verify-script section must not be empty (renderVerifyScriptSection always emits a body)'
       ),
     },
     projectTooling: {
@@ -119,17 +133,32 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
     },
     progressFile: {
       placeholder: 'PROGRESS_FILE',
-      description: 'Absolute path to the sprint progress.md file the implementer appends to.',
+      description:
+        'Absolute path to the sprint progress.md file the implementer reads at the start of Phase 1 for cross-session context.',
       validate: requireNonEmpty('progressFile', 'progress file path must not be empty'),
+    },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description:
+        'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
     },
     priorCritiqueSection: {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the generator contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty(
+        'outputContractSection',
+        'output-contract section must not be empty (renderContractSectionFor always emits a body)'
+      ),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-task',
+    DECISIONS_GUIDANCE: 'decisions',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.
@@ -139,8 +168,10 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
 export interface BuildImplementPromptInput {
   readonly task: Task;
   readonly projectPath: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly progressFile: string;
+  /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
+  readonly priorProgress: string;
   readonly projectTooling?: string;
   /**
    * Prior evaluator critique to feed back into the generator on turn 2+. Absent on turn 1
@@ -149,6 +180,12 @@ export interface BuildImplementPromptInput {
    * fix attempt sees the same dimensions the evaluator graded last.
    */
   readonly priorCritique?: string;
+  /**
+   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * `renderContractSectionFor(generatorOutputContract)` before calling the builder so the
+   * prompt module stays agnostic of the per-leaf contract.
+   */
+  readonly outputContractSection: string;
 }
 
 /**
@@ -166,8 +203,10 @@ export const buildImplementPrompt = async (
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
-    checkScriptSection: renderCheckScriptSection(input.checkScript),
+    verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
+    priorProgress: input.priorProgress,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    outputContractSection: input.outputContractSection,
   });

@@ -10,23 +10,29 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
  * Per-task one-shot leaf — materialises the task's on-disk audit workspace at
- * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes two files:
+ * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes one file:
  *
- *  - `prompt.md`         — the rendered implement prompt for the FIRST attempt (no prior critique).
- *                          The actual per-turn prompt may differ if the loop retries with critique;
- *                          per-round prompts are not separately captured (audit by turn lives under
- *                          `rounds/<N>/`).
- *  - `done-criteria.md`  — the task's `verificationCriteria` as a markdown bullet list. Mirrors the
- *                          evaluator's I/O contract from v1.
+ *  - `prompt.md` — the rendered implement prompt for the FIRST attempt (no prior critique).
+ *                  The actual per-turn prompt may differ if the loop retries with critique;
+ *                  per-round prompts are not separately captured (audit by turn lives under
+ *                  `rounds/<N>/`). The prompt body inlines the task's verification criteria under
+ *                  a stable `## Done criteria` heading, so operators who want the criteria on
+ *                  disk can grep the prompt directly.
  *
- * On resume the leaf overwrites both files because they are derived from the current task spec —
- * if the task was edited between runs, the on-disk audit must reflect the new framing. Existing
+ * On resume the leaf overwrites the prompt because it derives from the current task spec — if
+ * the task was edited between runs, the on-disk audit must reflect the new framing. Existing
  * `rounds/<N>/` subtrees are NEVER touched here.
+ *
+ * Audit [05] deletion: a separate `done-criteria.md` no longer ships. The criteria live on
+ * `Task.verificationCriteria` (canonical) and inside the per-round `prompt.md` (target); the
+ * standalone file was the cheapest of three places to remove.
  */
 
 export interface BuildTaskWorkspaceLeafDeps {
@@ -38,7 +44,7 @@ export interface BuildTaskWorkspaceLeafOpts {
   readonly sprintDir: AbsolutePath;
   readonly cwd: AbsolutePath;
   readonly progressFile: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
 }
 
 interface LeafInput {
@@ -48,15 +54,6 @@ interface LeafInput {
 interface LeafOutput {
   readonly workspaceRoot: AbsolutePath;
 }
-
-const renderDoneCriteria = (task: Task): string => {
-  const header = `# Done criteria — ${task.name}\n\n`;
-  if (task.verificationCriteria.length === 0) {
-    return `${header}_No verification criteria declared. The task is considered done when its steps are complete and the project's verification commands pass._\n`;
-  }
-  const bullets = task.verificationCriteria.map((c) => `- ${c}`).join('\n');
-  return `${header}${bullets}\n`;
-};
 
 const writeOrError = async (path: string, content: string): Promise<Result<void, StorageError>> => {
   try {
@@ -85,23 +82,28 @@ export const buildTaskWorkspaceLeaf = (
       execute: async (input) => {
         const log = deps.logger.named('implement.workspace');
         const workspaceRoot = join(String(opts.sprintDir), 'implement', String(input.task.id));
+        // Static-artifact outputDir points at round 1's generator dir. The live generator
+        // leaf re-renders the prompt with the actual per-round outputDir before each spawn,
+        // so this preview's path is correct for round 1 and indicative for later rounds.
+        const previewOutputDir = AbsolutePath.parse(join(workspaceRoot, 'rounds', '1', 'generator'));
+        if (!previewOutputDir.ok) return Result.error(previewOutputDir.error);
 
+        // build-task-workspace materialises a static prompt.md as an audit artifact only —
+        // the live generator leaf re-reads `progress.md` immediately before each spawn, so
+        // priorProgress is fixed empty here. The TUI / operator inspect this for the static
+        // shape, not for the live in-context content.
         const prompt = await buildImplementPrompt(deps.templateLoader, {
           task: input.task,
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
-          ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+          priorProgress: '',
+          outputContractSection: renderContractSectionFor(generatorOutputContract, previewOutputDir.value),
+          ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });
         if (!prompt.ok) return Result.error(prompt.error);
 
         const wrotePrompt = await writeOrError(join(workspaceRoot, 'prompt.md'), String(prompt.value));
         if (!wrotePrompt.ok) return Result.error(wrotePrompt.error);
-
-        const wroteCriteria = await writeOrError(
-          join(workspaceRoot, 'done-criteria.md'),
-          renderDoneCriteria(input.task)
-        );
-        if (!wroteCriteria.ok) return Result.error(wroteCriteria.error);
 
         log.debug('task workspace built', { taskId: input.task.id, workspaceRoot });
         const parsedRoot = AbsolutePath.parse(workspaceRoot);

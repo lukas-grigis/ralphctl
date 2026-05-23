@@ -10,16 +10,11 @@ focused questions, and stop when acceptance criteria are unambiguous.
 
 ## Output target
 
-When approved by the user, write your final markdown body to this file:
+When approved by the user, emit your final markdown body in the `refined-ticket` signal's `body`
+field, written into `signals.json` per the Output contract section at the bottom of this prompt.
+The harness reads the validated signal and stores its `body` on the ticket aggregate.
 
-```
-{{OUTPUT_FILE}}
-```
-
-Write a single markdown document — no JSON wrapper, no commentary, no code fence around the
-document body. The harness reads this file verbatim and stores it on the ticket aggregate.
-
-The expected document shape is at the bottom of this prompt under "Output format".
+The expected markdown shape for the `body` is at the bottom of this prompt under "Output format".
 
 <constraints>
 
@@ -44,6 +39,16 @@ The expected document shape is at the bottom of this prompt under "Output format
 
 {{ISSUE_CONTEXT}}
 
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint — decisions made, changes
+shipped, learnings recorded. Read it before refining; honor prior decisions. The journal body as of right
+now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
+
 ## Protocol
 
 ### Step 1 — Analyse the ticket (think first)
@@ -61,8 +66,10 @@ Then identify, in order:
 
 ### Step 2 — Interview the user
 
-Ask focused questions one at a time using `AskUserQuestion`, starting with the most critical
-gap. Work through these dimensions in priority order; skip any the ticket already nails down.
+Ask focused questions one at a time as **structured multiple-choice** prompts — one question
+with a header, 2–4 labelled options, and a one-line description per option. Start with the most
+critical gap and work through the dimensions below in priority order; skip any the ticket already
+nails down.
 
 **Dimension A — Problem and scope.** What problem are we solving and for whom? What is in
 scope vs explicitly out of scope? What is deferred to future work?
@@ -85,15 +92,17 @@ limits. Phrase as observable constraints, not implementation hints.
 
 #### Asking clarifying questions
 
-Use `AskUserQuestion` with 2–4 options per question:
+Every question is a structured multiple-choice prompt with 2–4 options. Use whichever interactive
+question-asking tool your runtime exposes (Claude Code uses `AskUserQuestion`; other runtimes have
+equivalents) — the shape stays the same:
 
 - First option = your recommendation (label ends with " (Recommended)").
 - Descriptions explain trade-offs or implications.
 - Ask one question at a time.
 - Labels: 1–5 words (UI rendering constraint).
 - Headers: 12 characters or fewer (UI rendering constraint).
-- `multiSelect: true` when choices are not mutually exclusive.
-- Users automatically get an "Other" option — do not add your own.
+- Allow multiple selections when choices are not mutually exclusive.
+- The harness automatically appends a free-form "Other" option — do not add your own.
 
 #### Example interactions
 
@@ -148,7 +157,7 @@ should we split?"
 Present the complete requirements in readable markdown. Use proper headers, bullets, and
 formatting. Make it easy to scan.
 
-Then ask for approval using `AskUserQuestion`:
+Then ask for approval as a structured multiple-choice prompt:
 
 ```
 Question: "Does this look correct? Any changes needed?"
@@ -164,7 +173,7 @@ Iterate until approved.
 
 ### Step 5 — Pre-output quality check
 
-Before writing to file, verify ALL of these are true:
+Before emitting the signal, verify ALL of these are true:
 
 - [ ] Problem statement is clear and agreed.
 - [ ] Every requirement has acceptance criteria covering happy path + edge / error cases.
@@ -174,16 +183,12 @@ Before writing to file, verify ALL of these are true:
 - [ ] Given/When/Then format used where it fits.
 - [ ] Multi-topic tickets use numbered headings (`# 1.`, `# 2.`, …) with `---` dividers.
 
-### Step 6 — Write to file
+### Step 6 — Write `signals.json`
 
-Once approved AND every checklist item is true, write the markdown body to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Write the markdown document only — no JSON wrapper, no surrounding fence, no chat commentary
-after the write.
+Once approved AND every checklist item is true, write the validated `refined-ticket` signal into
+`signals.json` as documented in the Output contract section at the bottom of this prompt. The
+markdown body goes into the signal's `body` field verbatim — no JSON wrapper inside the body, no
+surrounding code fence.
 
 ## Output format
 
@@ -249,6 +254,8 @@ separate them with `---`:
 ## Failure modes
 
 If, after the interview, you determine the ticket cannot be refined as stated (contradictory
-requirements, missing information you cannot extract from the user), still write to
-`{{OUTPUT_FILE}}` with whatever you have, ending with a final section explaining the gap.
-Do not silently invent requirements.
+requirements, missing information you cannot extract from the user), still emit the
+`refined-ticket` signal with whatever you have, ending the body with a final section explaining
+the gap. Do not silently invent requirements.
+
+{{OUTPUT_CONTRACT_SECTION}}

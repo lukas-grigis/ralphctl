@@ -44,10 +44,6 @@ describe('eslint.config.ts constants ↔ src/ directory parity', () => {
     expect(constantFromEslintConfig('PROMPTS')).toEqual(directorySiblings('src/integration/ai/prompts', ['_']));
   });
 
-  it('SIGNALS matches src/integration/ai/signals/<sibling>/ (excluding underscore-prefixed)', () => {
-    expect(constantFromEslintConfig('SIGNALS')).toEqual(directorySiblings('src/integration/ai/signals', ['_']));
-  });
-
   it('PROVIDERS matches src/integration/ai/providers/<sibling>/ (excluding underscore-prefixed)', () => {
     expect(constantFromEslintConfig('PROVIDERS')).toEqual(directorySiblings('src/integration/ai/providers', ['_']));
   });

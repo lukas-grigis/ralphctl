@@ -15,6 +15,8 @@ import { FIXED_NOW, FIXED_PROJECT_ID, makeProject } from '@tests/fixtures/domain
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createCreateSprintFlow } from '@src/application/flows/create-sprint/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { absolutePath } from '@tests/fixtures/domain.ts';
 
 const fakeProjectRepo = (project: Project | undefined): ProjectRepository =>
   ({
@@ -100,6 +102,8 @@ describe('createCreateSprintFlow', () => {
       clock: () => FIXED_NOW,
       eventBus: createInMemoryEventBus(),
       logger: noopLogger,
+      appendFile: recordingAppendFile().fn,
+      dataRoot: absolutePath('/tmp/ralph-tests'),
     });
 
     const runner = createRunner({ id: 'r-create-1', element: flow, initialCtx: { projectId: project.id } });
@@ -112,6 +116,7 @@ describe('createCreateSprintFlow', () => {
       'create-sprint',
       'save-sprint',
       'save-sprint-execution',
+      'init-progress-journal',
     ]);
     expect(sprint.saves).toHaveLength(1);
     expect(sprint.saves[0]?.name).toBe('kickoff');
@@ -138,6 +143,8 @@ describe('createCreateSprintFlow', () => {
       clock: () => FIXED_NOW,
       eventBus: createInMemoryEventBus(),
       logger: noopLogger,
+      appendFile: recordingAppendFile().fn,
+      dataRoot: absolutePath('/tmp/ralph-tests'),
     });
 
     const runner = createRunner({
@@ -155,6 +162,7 @@ describe('createCreateSprintFlow', () => {
       'create-sprint:skipped',
       'save-sprint:skipped',
       'save-sprint-execution:skipped',
+      'init-progress-journal:skipped',
     ]);
     expect(sprint.saves).toHaveLength(0);
     expect(exec.saves).toHaveLength(0);
@@ -177,6 +185,8 @@ describe('createCreateSprintFlow', () => {
       clock: () => FIXED_NOW,
       eventBus: createInMemoryEventBus(),
       logger: noopLogger,
+      appendFile: recordingAppendFile().fn,
+      dataRoot: absolutePath('/tmp/ralph-tests'),
     });
 
     const runner = createRunner({ id: 'r-create-slug', element: flow, initialCtx: { projectId: project.id } });

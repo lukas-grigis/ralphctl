@@ -1,81 +1,82 @@
 # Sprint lifecycle
 
-A sprint moves through four states. The implement flow auto-activates a draft and
-auto-transitions to review when every task is done. Only the close-sprint flow (or
-`ralphctl sprint close <id>`) closes a sprint.
+A sprint moves through four states: `draft → active → review → done`. This page shows the
+sequence of user actions that drive the transitions, not the full state machine.
+
+## A typical sprint, end to end
 
 ```mermaid
-stateDiagram-v2
-  [*] --> draft: create-sprint flow
+sequenceDiagram
+    actor User
+    participant CLI as ralphctl
+    participant Sprint as sprint.json + execution.json + tasks.json
+    participant Tools as git · setup · verify · AI
 
-  draft --> draft: add-tickets · refine ·\nplan · ideate
-  draft --> active: implement (auto-activate)\nor sprint activate <id>
+    User->>CLI: create-sprint
+    CLI->>Sprint: write sprint.json (status=draft)
 
-  active --> active: implement (per-task settlement)
-  active --> review: implement transitions\nwhen all tasks done
+    User->>CLI: add-tickets / refine / plan
+    CLI->>Tools: AI session (refine + plan are read-only)
+    CLI->>Sprint: tickets approved · tasks.json generated
 
-  review --> review: review flow\n(apply-feedback loop;\nempty input exits)
-  review --> done: close-sprint flow\nor sprint close <id>
+    User->>CLI: implement
+    CLI->>Sprint: auto-activate (status=active)
+    CLI->>Tools: setup-script (once per repo)
 
-  done --> [*]
+    loop one task at a time (topological order)
+        CLI->>Tools: pre-task verify · generator · evaluator · post-task verify
+        CLI->>Sprint: append attempt · update task status
+    end
 
-  note left of draft
-    Planning phase
-    Tickets accept add / refine / plan
-    Tasks generated atomically by plan
-  end note
+    CLI->>Sprint: all tasks done → status=review
 
-  note right of active
-    Execution phase
-    Tasks transition todo → in_progress → done | blocked
-    Implement is the ONLY flow that mutates code
-  end note
+    opt Optional feedback loop
+        User->>CLI: review
+        loop until user submits empty round
+            User->>CLI: feedback text
+            CLI->>Tools: AI session applies edits · runs verify
+            CLI->>Sprint: append feedback round
+        end
+    end
 
-  note right of review
-    Optional feedback loop
-    AI session resumes via persisted sessionId
-    Check scripts re-run per round
-  end note
+    User->>CLI: close (or sprint close <id>)
+    CLI->>Sprint: status=done
 ```
 
 ## Operation matrix
 
-| Operation                       | draft | active | review | done |
-| ------------------------------- | :---: | :----: | :----: | :--: |
-| Add / edit / remove ticket      |   ✓   |   ✗    |   ✗    |  ✗   |
-| Refine requirements             |   ✓   |   ✗    |   ✗    |  ✗   |
-| Plan tasks                      |   ✓   |   ✗    |   ✗    |  ✗   |
-| Implement                       |  ✓\*  |   ✓    |   ✗    |  ✗   |
-| Review (apply feedback)         |   ✗   |   ✗    |   ✓    |  ✗   |
-| Close (review → done)           |   ✗   |   ✗    |   ✓    |  ✗   |
-| `sprint show / progress / list` |   ✓   |   ✓    |   ✓    |  ✓   |
+| Operation                  | draft | active | review | done |
+| -------------------------- | :---: | :----: | :----: | :--: |
+| Add / edit / remove ticket |   ✓   |   ✗    |   ✗    |  ✗   |
+| Refine requirements        |   ✓   |   ✗    |   ✗    |  ✗   |
+| Plan tasks                 |   ✓   |   ✗    |   ✗    |  ✗   |
+| Implement                  |  ✓\*  |   ✓    |   ✗    |  ✗   |
+| Review (apply feedback)    |   ✗   |   ✗    |   ✓    |  ✗   |
+| Close (review → done)      |   ✗   |   ✗    |   ✓    |  ✗   |
+| `sprint show / list`       |   ✓   |   ✓    |   ✓    |  ✓   |
 
 \*`implement` auto-activates a draft sprint that has tasks.
 
 ## On-disk shape
 
-A sprint at `<dataRoot>/sprints/<sprint-id>/` is split into three sibling files:
-
 ```
-sprints/<sprint-id>/
-├── sprint.json         ← planning aggregate (tickets, requirements,
-│                         status, project ref). draft-phase writes.
-├── execution.json      ← runtime audit: branch, PR URL,
-│                         per-repo setupRunAt timestamps. active/review writes.
-├── tasks.json          ← task list with status, attempts, evaluations.
-│                         rewritten on every settlement.
-├── chain.log           ← EventBus trace appended by every implement-style run.
-├── progress.md         ← append-only signal log (Progress / Note signals).
-└── <flow>/<unit>/      ← per-flow sandboxes for the AI session.
+<dataRoot>/sprints/<sprint-id>/
+├── sprint.json          ← planning aggregate (tickets, status, project ref)
+├── execution.json       ← runtime audit (branch, PR URL, per-repo setupRunAt)
+├── tasks.json           ← task list with status + attempts
+├── chain.log            ← EventBus trace (opt-in via RALPHCTL_DEBUG_TRACE)
+├── progress.md          ← human-readable journal (one section per settled attempt)
+├── logs/setup/          ← full setup-script stdout/stderr per repo
+├── logs/verify/         ← full verify-script stdout/stderr per task per attempt
+└── <flow>/<unit>/       ← per-spawn AI sandbox (prompt.md + signals.json + sidecars)
 ```
 
 The split keeps planning mutations isolated from execution-time writes — corrupting
-`tasks.json` doesn't lose the sprint plan.
+`tasks.json` does not lose the sprint plan.
 
 ## Backed by
 
 - Entity: `src/domain/entity/sprint.ts` + `sprint-execution.ts`
-- Repositories: `src/domain/repository/sprint/{sprint-repository,sprint-execution-repository}.ts`
-- Mutators: `src/business/sprint/{create-sprint,plan-sprint,activate,transition-to-review,
-transition-to-done}.ts`
+- Repositories: `src/domain/repository/sprint/{sprint,sprint-execution}-repository.ts`
+- Mutators: `src/business/sprint/{create,plan,activate,transition-to-review,transition-to-done}.ts`
 - Schema: `src/integration/persistence/sprint/sprint.schema.ts` (zod, with `schemaVersion`)

@@ -32,6 +32,39 @@ const AttemptWarningSchema = z.discriminatedUnion('kind', [
   VerifyFailedWarningSchema,
 ]);
 
+const AbortCauseSchema = z.enum([
+  'user-cancel',
+  'sigterm',
+  'watchdog-killed',
+  'rate-limit-exhausted',
+  'process-crash',
+  'unknown',
+]);
+
+const RecoveryContextSchema = z.object({
+  fromAttemptN: z.number().int().positive(),
+  cause: AbortCauseSchema,
+  abortedAt: IsoTimestampSchema,
+});
+
+const VerifyRunOutcomeSchema = z.enum(['success', 'failed', 'spawn-error', 'skipped']);
+const VerifyRunPhaseSchema = z.enum(['pre', 'post']);
+/**
+ * Persistent shape of one {@link VerifyRun}. The audit row carries structured metadata only.
+ * Pre-Wave-8 rows carried `stdoutTailBytes`; the per-entity migration chain strips that
+ * field at load time (full output now lives at `<sprintDir>/logs/verify/<task-id>/...` per
+ * audit-[01]).
+ */
+const VerifyRunSchema = z.object({
+  phase: VerifyRunPhaseSchema,
+  ranAt: IsoTimestampSchema,
+  command: z.string(),
+  exitCode: z.number().int(),
+  durationMs: z.number().int().nonnegative(),
+  outcome: VerifyRunOutcomeSchema,
+});
+const AttributionSchema = z.enum(['clean', 'regressed', 'baseline-broken', 'fixed-baseline']);
+
 const AttemptBaseShape = {
   n: z.number().int().positive(),
   startedAt: IsoTimestampSchema,
@@ -41,6 +74,18 @@ const AttemptBaseShape = {
   commitSha: CommitShaSchema.optional(),
   sessionId: z.string().optional(),
   warning: AttemptWarningSchema.optional(),
+  // Aborted-attempt forensics. Stored on every attempt variant for schema symmetry —
+  // semantically only populated on `status === 'aborted'` records (see attempt.ts).
+  abortCause: AbortCauseSchema.optional(),
+  signalOrExitCode: z.union([z.string(), z.number()]).optional(),
+  // Set at attempt creation time when opening as a resume of a prior aborted attempt.
+  recovering: RecoveryContextSchema.optional(),
+  // Harness-side pre/post verify-script audit + derived attribution verdict. The pre-rename
+  // `checkRuns` field is migrated to `verifyRuns` upstream by the per-entity tasks-file
+  // migration chain (see `task/migrations.ts`), so this schema only sees the canonical key.
+  verifyRuns: z.array(VerifyRunSchema).readonly().optional(),
+  attribution: AttributionSchema.optional(),
+  baselineBroken: z.boolean().optional(),
 };
 
 const RunningAttemptSchema = z.object({

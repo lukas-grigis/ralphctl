@@ -53,7 +53,7 @@ describe('createInteractiveCodexProvider', () => {
     expect(r.error.message).toContain("'gpt-4.1'");
   });
 
-  it('spawns bash -lc with codex --cd <cwd> --model <m> -s workspace-write -a on-request "$(cat <promptFile>)"', async () => {
+  it('spawns bash -lc with codex --cd <cwd> --model <m> -s workspace-write -a never "$(cat <promptFile>)"', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
@@ -76,7 +76,7 @@ describe('createInteractiveCodexProvider', () => {
     expect(inner).toContain(`--cd '${String(CWD)}'`);
     expect(inner).toContain(`--model '${CODEX_MODELS[0]!}'`);
     expect(inner).toContain('-s workspace-write');
-    expect(inner).toContain('-a on-request');
+    expect(inner).toContain('-a never');
     expect(inner).toContain(`"$(cat '${String(PROMPT_FILE)}')"`);
     expect(calls[0]!.cwd).toBe(String(CWD));
   });

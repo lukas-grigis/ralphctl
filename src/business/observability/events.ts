@@ -1,5 +1,6 @@
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AiSignal } from '@src/domain/signal.ts';
 
 /**
  * Application-wide structured events. Producers (chain runner, use cases,
@@ -82,6 +83,29 @@ export interface TaskAttemptEvaluatedEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Fired once at the start of every gen-eval round for the in-flight task — the discrete
+ * boundary the chain trace lacks (back-to-back `generator-<id>` / `evaluator-<id>` entries
+ * carry no round number). Replaces the TUI's ref-based round-counter high-water mark with an
+ * authoritative source: the latest event's `roundN` is the round currently running.
+ *
+ *  - `roundN` is 1-indexed and matches the on-disk `rounds/<N>/` folder index used by the
+ *    generator + evaluator leaves.
+ *  - `totalCap` is the configured `settings.harness.maxTurns`, surfaced so subscribers can
+ *    render `round N/M` without a second config lookup.
+ *  - `attemptN` is the 1-indexed attempt-within-task counter — multiple attempts are gated by
+ *    `task.maxAttempts`; emitted here so the recent-log tail can disambiguate "round 2 of
+ *    attempt 1" vs. "round 1 of attempt 2".
+ */
+export interface TaskRoundStartedEvent {
+  readonly type: 'task-round-started';
+  readonly taskId: string;
+  readonly attemptN: number;
+  readonly roundN: number;
+  readonly totalCap: number;
+  readonly at: IsoTimestamp;
+}
+
 export interface FeedbackRoundAppliedEvent {
   readonly type: 'feedback-round-applied';
   readonly sprintId: string;
@@ -133,6 +157,118 @@ export interface ChainLogDegradedEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Final token-usage figure for one provider spawn, emitted ONCE per spawn after the AI session
+ * finishes cleanly (non-zero exit / abort → no event). Lets the TUI show a budget widget,
+ * lets future telemetry sinks pipe spend to a backend, etc.
+ *
+ * Every numeric field is optional because what each provider reports varies — Claude's
+ * stream-json `result` event carries full `usage{ input_tokens, output_tokens, cache_* }`;
+ * Copilot's JSON meta line may or may not include any counter; Codex's JSONL config record
+ * historically carries none. The event is still emitted in the lean case (sessionId + provider
+ * + maybe model) so subscribers can correlate per-spawn telemetry without inferring
+ * "did the spawn succeed?" from the absence of a token field.
+ *
+ *  - `contextWindow` is the model's total budget — looked up from a static table in the
+ *    `_engine/context-window.ts` adapter when the provider reports a known model; omitted
+ *    otherwise. The TUI widget renders `(input + output) / contextWindow` when both are known.
+ */
+export interface TokenUsageEvent {
+  readonly type: 'token-usage';
+  readonly sessionId: string;
+  readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex';
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+  readonly contextWindow?: number;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * Tiered status banner — generic surface for "operator should know this is happening" signals
+ * that don't deserve their own bespoke banner component. Emitters publish a `banner-show`
+ * keyed by a stable `id` (e.g. `'rate-limit-<sessionId>'`, `'lock-<sprintId>'`); a matching
+ * `banner-clear` removes it. Re-publishing the same id replaces (not stacks) the prior banner,
+ * so emitters can refresh the visible state without bookkeeping a dedicated clear-then-show.
+ *
+ * Three tiers, ordered most-urgent-first:
+ *
+ *  - `error` — user action required (setup script failed, provider crash).
+ *  - `warn`  — operator should notice but harness can keep going (watchdog kill, lock
+ *               contention, baseline-broken).
+ *  - `info`  — transient state worth surfacing (rate-limit backoff, provider reconnect).
+ *
+ * The TUI's `StatusBanner` subscribes; emitters never reference the component directly.
+ */
+export interface BannerShowEvent {
+  readonly type: 'banner-show';
+  /** Stable key — re-publishing replaces; clears match on id. */
+  readonly id: string;
+  readonly tier: 'info' | 'warn' | 'error';
+  readonly message: string;
+  /** Optional supplementary detail rendered dim beside the message. */
+  readonly cause?: string;
+  readonly at: IsoTimestamp;
+}
+
+export interface BannerClearEvent {
+  readonly type: 'banner-clear';
+  readonly id: string;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * Discriminated union of the two banner events — exported as a type alias so emitters can
+ * type-narrow a single subscription handler over both variants without restating the union.
+ * @public
+ */
+export type BannerEvent = BannerShowEvent | BannerClearEvent;
+
+/**
+ * Per-task harness signal — published when the AI emits a `<change>`, `<learning>`, or
+ * `<note>` tag during an in-flight task. The harness mirrors the validated `HarnessSignal`
+ * onto the {@link EventBus} so the TUI's per-task panel + the persistent `<sprintDir>/chain.log`
+ * retain a machine-readable record of the per-task narrative.
+ *
+ * Decisions stay on their own dedicated event (see {@link AiSignalEvent}) — they're surfaced
+ * to the operator with extra emphasis (`progress.md` Decisions section) so flattening them
+ * into this stream would lose that affordance.
+ */
+export interface HarnessSignalEvent {
+  readonly type: 'harness-signal';
+  readonly signalKind: 'change' | 'learning' | 'note';
+  /**
+   * Task the signal was emitted under. Absent when the harness cannot attribute the
+   * signal — e.g. signals emitted during a non-task subchain. Renderers that group by
+   * task simply skip unattributed entries.
+   */
+  readonly taskId?: string;
+  readonly text: string;
+  readonly at: IsoTimestamp;
+}
+
+/**
+ * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json`
+ * was parsed by `validateSignalsFile` under the audit-[09] contract. Subscribers (TUI,
+ * persistent `chain.log`, future progress.md miners) receive the typed signal verbatim
+ * along with the originating leaf's short name in `source` so a multi-leaf flow's events
+ * stay attributable.
+ *
+ * Distinct from {@link HarnessSignalEvent}: that one is a derived per-task slice carrying
+ * only the three text-bearing kinds; this one carries every validated signal kind the
+ * leaf accepted. Both coexist while the migration is in flight — `HarnessSignalEvent` is
+ * still produced by the legacy stdout-parser path and consumed by the per-task chain-log
+ * miner; `AiSignalEvent` is produced by the new file-contract leaves.
+ */
+export interface AiSignalEvent {
+  readonly type: 'ai-signal';
+  readonly signal: AiSignal;
+  /** Short name of the AI-spawning leaf that produced the signal (e.g. `'generator'`). */
+  readonly source: string;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -143,7 +279,13 @@ export type AppEvent =
   | ChainAbortedEvent
   | TaskAttemptStartedEvent
   | TaskAttemptEvaluatedEvent
+  | TaskRoundStartedEvent
   | FeedbackRoundAppliedEvent
   | LogEvent
   | MemoryPressureEvent
-  | ChainLogDegradedEvent;
+  | ChainLogDegradedEvent
+  | TokenUsageEvent
+  | BannerShowEvent
+  | BannerClearEvent
+  | HarnessSignalEvent
+  | AiSignalEvent;

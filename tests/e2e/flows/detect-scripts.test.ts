@@ -169,7 +169,7 @@ describe('createDetectScriptsFlow', () => {
     expect(saves).toHaveLength(1);
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupScript).toBe('pnpm install');
-    expect(saved.checkScript).toBe('pnpm typecheck && pnpm lint && pnpm test');
+    expect(saved.verifyScript).toBe('pnpm typecheck && pnpm lint && pnpm test');
 
     // Forensic artifact: rendered prompt persisted under `<runsRoot>/detect-scripts/<run-id>/`.
     // Body.txt is provider-specific (the fake AI provider doesn't implement bodyFile) so we
@@ -267,16 +267,16 @@ describe('createDetectScriptsFlow', () => {
     expect(runner.ctx.accepted).toBe(true);
     expect(saves).toHaveLength(1);
     expect(saves[0]!.repositories[0]!.setupScript).toBe('pnpm install');
-    expect(saves[0]!.repositories[0]!.checkScript).toBeUndefined();
+    expect(saves[0]!.repositories[0]!.verifyScript).toBeUndefined();
   });
 
-  it('partial proposal — only setup-script proposed → save updates setupScript and leaves checkScript untouched', async () => {
+  it('partial proposal — only setup-script proposed → save updates setupScript and leaves verifyScript untouched', async () => {
     const existing = makeRepository({
       path: '/tmp/ralph/detect-scripts-partial',
       name: 'svc',
     });
-    // Pre-seed a checkScript so we can verify it survives the update.
-    const seeded = { ...existing, checkScript: 'pnpm test' } as typeof existing;
+    // Pre-seed a verifyScript so we can verify it survives the update.
+    const seeded = { ...existing, verifyScript: 'pnpm test' } as typeof existing;
     const project = makeProject({ repositories: [seeded] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(
@@ -294,8 +294,8 @@ describe('createDetectScriptsFlow', () => {
     expect(saves).toHaveLength(1);
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupScript).toBe('pnpm install --frozen-lockfile');
-    // The pre-seeded checkScript must be preserved — the verify-script tag was omitted.
-    expect(saved.checkScript).toBe('pnpm test');
+    // The pre-seeded verifyScript must be preserved — the verify-script tag was omitted.
+    expect(saved.verifyScript).toBe('pnpm test');
   });
 
   it('pre-selected repositoryId — single-repo project still works; pick-repository auto-resolves', async () => {
@@ -347,19 +347,27 @@ describe('createDetectScriptsFlow', () => {
     expect(saves).toHaveLength(1);
     const saved = saves[0]!.repositories[0]!;
     expect(saved.setupScript).toBe('pnpm install --frozen-lockfile');
-    // Verify-script was dropped during editing — checkScript should not be touched.
-    expect(saved.checkScript).toBeUndefined();
+    // Verify-script was dropped during editing — verifyScript should not be touched.
+    expect(saved.verifyScript).toBeUndefined();
   });
 
   it('AiSession profile — runs read-only with the configured model', () => {
     const repository = makeRepository();
-    const signalsFile = absolutePath('/tmp/signals.json');
-    const session = detectScriptsSession(repository, '#prompt' as unknown as Prompt, 'claude-sonnet-4-6', signalsFile);
+    const signalsFile = absolutePath('/tmp/runs/detect-scripts/r1/signals.json');
+    const outputDir = absolutePath('/tmp/runs/detect-scripts/r1');
+    const session = detectScriptsSession(
+      repository,
+      '#prompt' as unknown as Prompt,
+      'claude-sonnet-4-6',
+      signalsFile,
+      outputDir
+    );
     expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canEditFiles).toBe(false);
+    expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.canAccessNetwork).toBe(true);
     expect(session.cwd).toBe(repository.path);
     expect(session.signalsFile).toBe(signalsFile);
+    expect(session.outputDir).toBe(outputDir);
   });
 });

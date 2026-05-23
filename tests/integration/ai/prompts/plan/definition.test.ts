@@ -114,19 +114,22 @@ describe('renderExistingTasks', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildPlanPrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt for a fresh-plan input', async () => {
     const sprint = draftWithApproved(2);
     const result = await buildPlanPrompt(deps, {
       sprint,
       project: makeProject(),
-      outputFilePath: '/tmp/plan.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('# Interactive Task Planning Protocol');
     expect(result.value).toContain('Approved tickets');
-    expect(result.value).toContain('/tmp/plan.json');
+    expect(result.value).toContain('## Output contract');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -136,8 +139,9 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     const result = await buildPlanPrompt(deps, {
       sprint,
       project: makeProject(),
-      outputFilePath: '/tmp/plan.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
       existingTasks: [makeTodoTask({ name: 'PrevTask' })],
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toContain('Existing Tasks (will be replaced)');
@@ -149,16 +153,22 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       sprintContext: '   ',
       approvedTickets: 'x',
       repositories: 'x',
-      outputFilePath: '/tmp/x.json',
       schema: 'x',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
 
-  it('rejects an empty output file path via the spec validator', async () => {
+  it('rejects an empty output-contract section via the spec validator', async () => {
     const sprint = draftWithApproved(1);
-    const result = await buildPlanPrompt(deps, { sprint, project: makeProject(), outputFilePath: '' });
+    const result = await buildPlanPrompt(deps, {
+      sprint,
+      project: makeProject(),
+      outputContractSection: '',
+      priorProgress: '',
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });

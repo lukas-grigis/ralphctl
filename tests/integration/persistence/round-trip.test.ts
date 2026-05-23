@@ -18,7 +18,7 @@ import {
   makeProject,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { recordExecutionPullRequestUrl, recordExecutionSetupRun } from '@src/domain/entity/sprint-execution.ts';
+import { appendExecutionSetupRun, recordExecutionPullRequestUrl } from '@src/domain/entity/sprint-execution.ts';
 
 const roundTrip = <T>(
   value: T,
@@ -69,11 +69,14 @@ describe('codec round-trip', () => {
 
   it('SprintExecution — non-empty setupRanAt round-trips (regression: was a Map)', () => {
     const bundle = makeDraftSprintBundle();
-    const withRun = recordExecutionSetupRun(
-      bundle.execution,
-      FIXED_REPOSITORY_ID,
-      isoTimestamp('2026-01-01T00:00:00Z')
-    );
+    const withRun = appendExecutionSetupRun(bundle.execution, {
+      repositoryId: FIXED_REPOSITORY_ID,
+      ranAt: isoTimestamp('2026-01-01T00:00:00Z'),
+      command: 'pnpm install',
+      exitCode: 0,
+      durationMs: 1500,
+      outcome: 'success',
+    });
     const withPr = (() => {
       const r = recordExecutionPullRequestUrl(withRun, 'https://example.com/pr/1');
       if (!r.ok) throw new Error('seed');

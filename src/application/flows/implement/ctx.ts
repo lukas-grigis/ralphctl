@@ -1,13 +1,15 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AttemptWarning, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
+import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 
 export type { GenEvalExit, RunTaskVerdict };
 
@@ -27,7 +29,7 @@ export type { GenEvalExit, RunTaskVerdict };
  *  - `lastWarning` — derived from gen-eval exit / `lastVerifyResult`; consumed by `settle-attempt`.
  *  - `lastVerdict` — passed/failed/malformed; set by `finalize-gen-eval`.
  *  - `lastBlockReason` — set by `generator` on `self-blocked`; drives `markTaskBlocked`.
- *  - `lastVerifyResult` — set by `post-task-check`.
+ *  - `lastVerifyResult` — set by `post-task-verify`.
  *  - `lastCommitSha` — set by `commit-task` if the tree was dirty and the commit landed.
  *  - `proposedCommitMessage` — generator-emitted `<commit-message>` signal from the latest
  *    turn that produced one. Consumed by `commit-task`'s default message factory. Carries
@@ -60,6 +62,13 @@ export interface ImplementCtx {
    */
   readonly currentRoundNum?: number | undefined;
   readonly lastEvaluation?: EvaluationSignal | undefined;
+  /**
+   * Append-only per-task history of completed evaluator turns — fed into the plateau
+   * predicate by the evaluator leaf so a configurable window of consecutive turns (see
+   * `settings.harness.plateauThreshold`) can be compared, not just the immediate prior one.
+   * Reset implicitly per task: a fresh `currentTask` starts with an empty array.
+   */
+  readonly plateauHistory?: readonly PlateauTurnRecord[] | undefined;
   readonly lastExit?: GenEvalExit | undefined;
   readonly lastVerdict?: RunTaskVerdict | undefined;
   readonly lastBlockReason?: string | undefined;
@@ -69,7 +78,60 @@ export interface ImplementCtx {
     | { readonly kind: 'passed' }
     | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string }
     | undefined;
+  /**
+   * Outcome of the pre-task-verify leaf for the in-flight task — `'success' | 'failed' |
+   * 'spawn-error' | 'skipped'`. Read by `post-task-verify` to compute attribution. Cleared
+   * by `settle-attempt` along with the rest of the per-task verdict state.
+   */
+  readonly lastPreVerifyOutcome?: VerifyRunOutcome | undefined;
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;
+  /**
+   * Captured Claude `session_id` from the most recent generator turn of the in-flight task.
+   * Threaded into the next round's `implementSession({ resume })` so the generator continues
+   * as ONE conversational thread across all gen-eval rounds for this task — instead of paying
+   * Claude's full startup cost (cwd discovery, MCP server re-init, system-prompt reprocess)
+   * on every spawn. Cleared by `start-attempt-<id>` when a new task begins so the next task
+   * starts a fresh "developer."
+   *
+   * Read from `<workspaceRoot>/rounds/<N>/generator/sessionId` per the file-based provider
+   * contract — the Claude adapter writes the file via `persistSessionIdFile` after every spawn.
+   * Undefined on the first round of a task or when the prior spawn failed before reporting an id.
+   */
+  readonly priorGeneratorSessionId?: SessionId | undefined;
+  /**
+   * Captured Claude `session_id` from the most recent evaluator turn of the in-flight task.
+   * Mirror of {@link priorGeneratorSessionId} for the reviewer thread. Generator and evaluator
+   * are intentionally separate conversational threads: their roles, prompts, and tool budgets
+   * differ, and mixing their transcripts via cross-role resume would confuse the model.
+   */
+  readonly priorEvaluatorSessionId?: SessionId | undefined;
+  /**
+   * Per-attempt decision accumulator — every `decision` signal the generator/evaluator emits
+   * during the gen-eval loop is pushed onto this array by the leaves. Read by
+   * `progress-journal-<taskId>` to render the `### Decisions` subsection of the journal
+   * entry, then cleared on the same leaf so the next task starts with an empty accumulator.
+   * Wave 7 (audit-[07]) replaces the on-disk `decisions.log` sink with this in-memory
+   * aggregate.
+   */
+  readonly currentAttemptDecisions?: readonly string[] | undefined;
+  /**
+   * Per-attempt `change` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Changes` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptChanges?: readonly string[] | undefined;
+  /**
+   * Per-attempt `learning` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Learnings` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptLearnings?: readonly string[] | undefined;
+  /**
+   * Per-attempt `note` signal accumulator — same lifecycle as `currentAttemptDecisions`.
+   * Read by `progress-journal-<taskId>` to render the `### Notes` subsection. Cleared by
+   * the journal leaf after the attempt settles.
+   */
+  readonly currentAttemptNotes?: readonly string[] | undefined;
 }

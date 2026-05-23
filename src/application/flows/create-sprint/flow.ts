@@ -7,6 +7,7 @@ import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.t
 import type { CreateSprintDeps } from '@src/application/flows/create-sprint/deps.ts';
 import { createSprintLeaf } from '@src/application/flows/create-sprint/leaves/create-sprint.ts';
 import { interactiveSprintNameLeaf } from '@src/application/flows/create-sprint/leaves/interactive-sprint-name.ts';
+import { initProgressJournalLeaf } from '@src/application/flows/create-sprint/leaves/init-progress-journal.ts';
 
 /**
  * Build the create-sprint chain.
@@ -34,4 +35,10 @@ export const createCreateSprintFlow = (deps: CreateSprintDeps): Element<CreateSp
     createSprintLeaf({ logger: deps.logger }),
     saveSprintLeaf<CreateSprintCtx>({ sprintRepo: deps.sprintRepo }),
     saveSprintExecutionLeaf<CreateSprintCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
+    // Write the sprint header into `<sprintDir>/progress.md`. The journal grows append-only
+    // from here; the implement chain appends per-attempt sections and status separators.
+    initProgressJournalLeaf(
+      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { dataRoot: deps.dataRoot }
+    ),
   ]);

@@ -9,6 +9,8 @@ import { createRunner } from '@src/application/chain/run/runner.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
+import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { absolutePath } from '@tests/fixtures/domain.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
@@ -32,7 +34,14 @@ describe('createCloseSprintFlow', () => {
     const sprint = makeReviewSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
 
-    const flow = createCloseSprintFlow({ sprintRepo: sprintRepo.repo, clock: () => FIXED_LATER, logger: noopLogger });
+    const append = recordingAppendFile();
+    const flow = createCloseSprintFlow({
+      sprintRepo: sprintRepo.repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      appendFile: append.fn,
+      progressFile: absolutePath('/tmp/progress.md'),
+    });
     const runner = createRunner<CloseSprintCtx>({
       id: 'r-close-happy',
       element: flow,
@@ -53,7 +62,14 @@ describe('createCloseSprintFlow', () => {
     const sprint = makePlannedSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
 
-    const flow = createCloseSprintFlow({ sprintRepo: sprintRepo.repo, clock: () => NOW, logger: noopLogger });
+    const append = recordingAppendFile();
+    const flow = createCloseSprintFlow({
+      sprintRepo: sprintRepo.repo,
+      clock: () => NOW,
+      logger: noopLogger,
+      appendFile: append.fn,
+      progressFile: absolutePath('/tmp/progress.md'),
+    });
     const runner = createRunner<CloseSprintCtx>({
       id: 'r-close-wrong-status',
       element: flow,

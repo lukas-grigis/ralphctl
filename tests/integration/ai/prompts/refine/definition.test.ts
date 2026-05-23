@@ -77,19 +77,23 @@ describe('renderIssueContextSection', () => {
   });
 });
 
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+
 describe('buildRefinePrompt — end-to-end against the real template', () => {
-  it('produces a fully-substituted prompt with title, id, and OUTPUT_FILE', async () => {
+  it('produces a fully-substituted prompt with title and the output-contract section', async () => {
     const ticket = makePendingTicket({ title: 'Add CSV export' });
     const result = await buildRefinePrompt(deps, {
       ticket,
-      outputFilePath: '/tmp/req.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
     expect(result.value).toContain('# Requirements Refinement Protocol');
     expect(result.value).toContain('**Title:** Add CSV export');
-    expect(result.value).toContain('/tmp/req.json');
+    expect(result.value).toContain('## Output contract');
+    expect(result.value).toContain('## Prior progress');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
@@ -97,8 +101,9 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
     const ticket = makePendingTicket();
     const result = await buildRefinePrompt(deps, {
       ticket,
-      outputFilePath: '/tmp/req.json',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
       issueContext: '## issue body',
+      priorProgress: '',
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toContain('## issue body');
@@ -106,14 +111,18 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
 
   it('rejects an empty rendered ticket via the spec validator', async () => {
     const { buildPrompt } = await import('@src/integration/ai/prompts/_engine/build-prompt.ts');
-    const result = await buildPrompt(deps, refinePromptDef, { ticket: '   ', outputFilePath: '/tmp/x.json' });
+    const result = await buildPrompt(deps, refinePromptDef, {
+      ticket: '   ',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
 
-  it('rejects an empty output file path via the spec validator', async () => {
+  it('rejects an empty output-contract section via the spec validator', async () => {
     const ticket = makePendingTicket({ title: 'X' });
-    const result = await buildRefinePrompt(deps, { ticket, outputFilePath: '' });
+    const result = await buildRefinePrompt(deps, { ticket, outputContractSection: '', priorProgress: '' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });

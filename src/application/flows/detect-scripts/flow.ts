@@ -54,6 +54,7 @@ export const createDetectScriptsFlow = (
       provider: deps.provider,
       templateLoader: deps.templateLoader,
       signals: deps.signals,
+      eventBus: deps.eventBus,
       logger: deps.logger,
       model: opts.model,
       runsRoot: deps.runsRoot,

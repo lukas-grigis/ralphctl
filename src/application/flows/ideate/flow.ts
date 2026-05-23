@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -12,6 +13,8 @@ import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
@@ -52,6 +55,20 @@ export interface CreateIdeateFlowOpts {
  * Single-shot per invocation: ideate produces ONE ticket plus its tasks. Re-run for another
  * idea on the same draft sprint.
  */
+/**
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
+ * Ideate runs under `<sprintDir>/ideate/<run-slug>/`, so the sprint dir is the parent of the
+ * supplied ideate root. Best-effort: missing or unreadable degrades to empty string.
+ */
+const readSprintProgress = async (ideateRoot: AbsolutePath): Promise<string> => {
+  const sprintDir = dirname(String(ideateRoot));
+  try {
+    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
@@ -65,7 +82,9 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       slug: () => slug,
       write: (ctx, root) => {
         const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        const outputPath = AbsolutePath.parse(join(String(root), 'ideate.json'));
+        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
+        // validates that file via the ideate contract.
+        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
         if (!promptPath.ok) throw promptPath.error;
         if (!outputPath.ok) throw outputPath.error;
         return {
@@ -84,14 +103,16 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
           if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
           return ctx.currentPromptFile;
         },
-        buildPrompt: (ctx) => {
+        buildPrompt: async (ctx) => {
           if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentOutputFile === undefined) throw new Error('currentOutputFile missing');
+          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
+          const priorProgress = await readSprintProgress(opts.ideateRoot);
           return buildIdeatePrompt(deps.templateLoader, {
             ideaTitle: opts.ideaTitle,
             ideaDescription: opts.ideaText,
             project: ctx.project,
-            outputFilePath: String(ctx.currentOutputFile),
+            outputContractSection: renderContractSectionFor(ideateOutputContract, ctx.currentUnitRoot),
+            priorProgress,
           });
         },
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
@@ -110,6 +131,8 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       interactiveAi: deps.interactiveAi,
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
+      writeFile: deps.writeFile,
+      eventBus: deps.eventBus,
       model: opts.model,
     }),
     uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),

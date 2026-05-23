@@ -153,6 +153,28 @@ describe('bucketTaskSignals — status derivation', () => {
   });
 });
 
+describe('bucketTaskSignals — commit-message attribution', () => {
+  // Post-Wave-6: only the AI's signal reaches the bus (via the validated signals.json contract).
+  // The commit-task leaf does not re-emit; trailer-appending happens at `git commit -F` only.
+  it('keeps the AI commit-message signal verbatim in the task bucket', () => {
+    const events: AppEvent[] = [
+      stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
+      stepCompleted(`generator-${TASK}`, '2026-05-09T10:01:00.000Z'),
+    ];
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
+    const aiSignal: HarnessSignal = {
+      type: 'commit-message',
+      subject: 'feat: add login form',
+      body: 'Add a basic email + password form.',
+      timestamp: '2026-05-09T10:00:30.000Z' as never,
+    };
+    const result = bucketTaskSignals(trace, events, [aiSignal]);
+    const commitRows = result.tasks[0]?.signals.filter((s) => s.type === 'commit-message') ?? [];
+    expect(commitRows).toHaveLength(1);
+    expect(commitRows[0]?.type === 'commit-message' ? commitRows[0].subject : undefined).toBe('feat: add login form');
+  });
+});
+
 describe('bucketTaskSignals — round counter', () => {
   it('counts generator-<taskId> substeps as gen-eval rounds', () => {
     const trace: Trace = [

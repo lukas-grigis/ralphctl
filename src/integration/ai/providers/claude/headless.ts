@@ -3,13 +3,13 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { createClaudeStreamParser, type ClaudeStreamLine } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -19,7 +19,9 @@ import {
   delayForRetry,
   sleepCancellable,
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
-import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -39,12 +41,11 @@ import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
  * everything until end-of-session and SIGTERM'd healthy children mid-task.
  *
  * After `'close'` fires (stdio drained), the parser's accumulated envelope (body = the `result`
- * event's `.result` string; session_id = earliest seen on any line) is read out, the body is
- * fed to {@link parseHarnessSignals}, and the parsed signal array is written to
- * `session.signalsFile`. The body itself goes out of scope at function return — never retained
- * on a domain entity. When `session.bodyFile` is set (one-shot flows that extract custom tags
- * outside the harness-signal registry), the body is also written there for the caller to read
- * inline.
+ * event's `.result` string; session_id = earliest seen on any line) is read out. Per the
+ * audit-[09] contract, the AI writes `signals.json` directly via its Write tool into
+ * `session.outputDir`; the harness validates that file post-spawn — the provider never writes
+ * `signals.json` itself. When `session.bodyFile` is set, the body is mirrored there for
+ * forensic capture (empty-proposal diagnostics).
  *
  * Rate-limit detection is a lean stderr regex (`/rate.?limit/i`); on match, retry up to
  * `rateLimitRetries` then surface {@link RateLimitError}. `abortSignal` propagates to SIGTERM
@@ -56,8 +57,8 @@ import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
  *   | AiSession field                                         | Claude flag                                                  |
  *   | ------------------------------------------------------- | ------------------------------------------------------------ |
  *   | model: <ClaudeModel>                                    | --model <model>                                              |
- *   | permissions {autoApprove,canEditFiles,canRunShell}=true | --permission-mode bypassPermissions                          |
- *   | permissions read-only (canEditFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
+ *   | permissions {autoApprove,canModifyRepoFiles,canRunShell}=true | --permission-mode bypassPermissions                          |
+ *   | permissions read-only (canModifyRepoFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
  *   | additionalRoots: [a, b]                                 | --add-dir a --add-dir b                                      |
  *   | resume: id                                              | --resume id                                                  |
  *
@@ -111,15 +112,22 @@ const RATE_LIMIT_RE = /rate.?limit/i;
  *  - **Full-auto chains** (implement / apply-feedback) still need `bypassPermissions` because
  *    `acceptEdits` only auto-approves Read/Write/Edit and prompts for `Bash`, which hangs
  *    `claude -p` forever waiting on stdin. Safety is enforced at the branch / dirty-tree /
- *    post-task-check layer, not at the per-tool prompt.
+ *    post-task-verify layer, not at the per-tool prompt.
  *
  * Docs: https://code.claude.com/docs/en/agent-sdk/permissions
  *  - bypassPermissions auto-approves every tool; `allowedTools` does NOT constrain it.
  *  - `disallowedTools` is a deny rule that overrides every other allow, including bypass.
  */
 
-/** Claude Code tool names. Kept as a literal list so a typo here = compile-time error in the test. */
-const TOOL_EDIT = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const;
+/**
+ * Claude Code tool names. Kept as literal lists so a typo here = compile-time error in tests.
+ *
+ * `TOOL_EDIT` covers tools that modify EXISTING files (`Edit` / `MultiEdit` / `NotebookEdit`).
+ * The `Write` tool stays open under every profile — the audit-[09] contract requires the AI
+ * to land `signals.json` in `outputDir` via `Write`. Path scope (cwd + --add-dir) controls
+ * which files `Write` can touch.
+ */
+const TOOL_EDIT = ['Edit', 'MultiEdit', 'NotebookEdit'] as const;
 const TOOL_SHELL = ['Bash'] as const;
 const TOOL_NETWORK = ['WebFetch', 'WebSearch'] as const;
 
@@ -129,7 +137,7 @@ const TOOL_NETWORK = ['WebFetch', 'WebSearch'] as const;
  */
 const disallowedToolsFor = (p: SessionPermissions): readonly string[] => {
   const denied: string[] = [];
-  if (!p.canEditFiles) denied.push(...TOOL_EDIT);
+  if (!p.canModifyRepoFiles) denied.push(...TOOL_EDIT);
   if (!p.canRunShell) denied.push(...TOOL_SHELL);
   if (!p.canAccessNetwork) denied.push(...TOOL_NETWORK);
   return denied;
@@ -163,7 +171,10 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   if (denied.length > 0) {
     args.push('--disallowedTools', denied.join(','));
   }
-  for (const root of session.additionalRoots ?? []) {
+  // Auto-mount `outputDir` alongside declared additionalRoots so the AI's Write tool can
+  // land `signals.json` (the audit-[09] envelope) when outputDir lives outside cwd. See
+  // resolve-roots.ts for the de-dup rules.
+  for (const root of resolveWritableRoots(session)) {
     args.push('--add-dir', String(root));
   }
   if (session.resume !== undefined) {
@@ -192,6 +203,7 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
         }
         if (outcome.kind === 'rate-limit') {
           lastRateLimit = outcome.error;
+          const bannerId = `rate-limit-claude-${outcome.error.sessionId ?? String(attempt + 1)}`;
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
@@ -212,7 +224,18 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
                 meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
                 at: IsoTimestamp.now(),
               });
+              deps.eventBus.publish({
+                type: 'banner-show',
+                id: bannerId,
+                tier: 'info',
+                message: `Rate limit (claude) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
+                cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
+                at: IsoTimestamp.now(),
+              });
               await sleepCancellable(delayMs, session.abortSignal);
+              // Clear once the wait completes (either elapsed or abort fired); the next attempt
+              // re-publishes if it also hits the rate-limit.
+              deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
               if (session.abortSignal?.aborted === true) {
                 return Result.error(
                   new InvalidStateError({
@@ -258,8 +281,14 @@ interface SpawnAttemptArgs {
  */
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session } = input;
+  // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
+  // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
+  // pipeline silently misses and the AI runs without project guidance.
+  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
+  // auto-discover their context file from cwd."
   const child = spawnFn(command, args, {
     stdio: ['pipe', 'pipe', 'pipe'] as const,
+    cwd: String(session.cwd),
   });
   const parser = createClaudeStreamParser();
   let stderrBuf = '';
@@ -294,6 +323,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
         at: IsoTimestamp.now(),
       });
+      deps.eventBus.publish({
+        type: 'banner-show',
+        id: `watchdog-claude-${String(child.pid ?? 'unknown')}`,
+        tier: 'warn',
+        message: `Watchdog killed stuck claude process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
+        at: IsoTimestamp.now(),
+      });
     },
   });
   parser.flush(onLine);
@@ -324,10 +360,41 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         meta: { sessionId: envelope.sessionId },
         at: IsoTimestamp.now(),
       });
+      // Emit one TokenUsageEvent per clean-termination spawn — only when we have a sessionId
+      // (downstream subscribers correlate by it). Absence of usage counters is honest: the
+      // result event may carry zero usage subkeys on degenerate spawns.
+      const window = contextWindowFor(envelope.model);
+      deps.eventBus.publish({
+        type: 'token-usage',
+        sessionId: envelope.sessionId,
+        provider: 'claude-code',
+        ...(envelope.model !== undefined ? { model: envelope.model } : {}),
+        ...(envelope.usage.inputTokens !== undefined ? { inputTokens: envelope.usage.inputTokens } : {}),
+        ...(envelope.usage.outputTokens !== undefined ? { outputTokens: envelope.usage.outputTokens } : {}),
+        ...(envelope.usage.cacheReadTokens !== undefined ? { cacheReadTokens: envelope.usage.cacheReadTokens } : {}),
+        ...(envelope.usage.cacheCreationTokens !== undefined
+          ? { cacheCreationTokens: envelope.usage.cacheCreationTokens }
+          : {}),
+        ...(window !== undefined ? { contextWindow: window } : {}),
+        at: IsoTimestamp.now(),
+      });
     }
-    const signals = parseHarnessSignals(envelope.body, IsoTimestamp.now());
-    const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
-    if (!wrote.ok) return { kind: 'error', error: wrote.error };
+    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
+    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
+    // signals.json itself — every leaf consumes the contract path.
+    // Persist captured session id as a sibling `sessionId` file so `--resume` / forensic
+    // re-attach works without parsing chain.log. Skipped when the stream never carried an id
+    // (process crashed mid-init) — see persistSessionIdFile for the contract.
+    const sidWrote = await persistSessionIdFile(session.signalsFile, envelope.sessionId);
+    if (sidWrote !== undefined && !sidWrote.ok) {
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'warn',
+        message: `claude-provider: failed to write sessionId file — resume re-attach may need log parsing`,
+        meta: { error: sidWrote.error.message },
+        at: IsoTimestamp.now(),
+      });
+    }
     // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
     // debugging). Best-effort: a write failure here is logged but does not fail the session.
     if (session.bodyFile !== undefined) {
@@ -377,4 +444,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: [...options.stdio] }) as ChildProcessWithoutNullStreams;
+  nodeSpawn(command, [...args], {
+    stdio: [...options.stdio],
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+  }) as ChildProcessWithoutNullStreams;

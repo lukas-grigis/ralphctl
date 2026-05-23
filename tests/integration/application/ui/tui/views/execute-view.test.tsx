@@ -56,7 +56,9 @@ describe('ExecuteView', () => {
     expect(frame).toMatch(/running/i);
     expect(frame).toContain('cancel');
     expect(frame).toContain('detach');
-    expect(frame).toContain('Flow steps');
+    // Default ink-testing-library width (100 cols) puts us in the compact two-column layout —
+    // the rail collapses to status-glyphs-only, so the "Flow steps" header text is suppressed.
+    // The Tasks header still renders.
     expect(frame).toContain('Tasks');
     result.unmount();
   });

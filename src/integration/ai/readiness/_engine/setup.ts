@@ -2,26 +2,15 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
-import { consumeSignals } from '@src/integration/ai/signals/_engine/consume-signals.ts';
-import { withSignalsTempPath } from '@src/integration/ai/signals/_engine/temp-signals-file.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { buildRunDirName, readRunBodyPreview } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
+import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { wireTagFor } from '@src/integration/ai/prompts/readiness/definition.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type {
-  AgentsMdProposalSignal,
-  HarnessSignal,
-  SetupScriptSignal,
-  VerifyScriptSignal,
-} from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { ParseError } from '@src/domain/value/error/parse-error.ts';
 
 /**
  * Per-tool target path for the readiness artefact, relative to the repo root. Centralised so
@@ -53,16 +42,24 @@ export type BuildReadinessPromptFn = (input: {
   readonly repositoryPath: string;
   readonly currentTool: AssistantTool;
   readonly probedState: ReadinessState;
+  /** Absolute spawn output directory — embedded in the rendered contract section. */
+  readonly outputDir: AbsolutePath;
   readonly existingContextFile?: string;
 }) => Promise<Result<Prompt, DomainError>>;
 
 /**
  * Function-injection contract for the AiSession builder. The chain leaf owns the per-call
- * profile and supplies a closure that wraps the rendered prompt + signalsFile (+ optional
- * bodyFile for forensic capture) into the chain's per-call profile; the use case stays
+ * profile and supplies a closure that wraps the rendered prompt + per-run paths
+ * (`signalsFile`, optional `bodyFile` for forensic capture, `outputDir` for audit-[09]
+ * contract validation) into the chain's per-call profile; the use case stays
  * profile-agnostic.
  */
-export type BuildReadinessSessionFn = (prompt: Prompt, signalsFile: AbsolutePath, bodyFile?: AbsolutePath) => AiSession;
+export type BuildReadinessSessionFn = (
+  prompt: Prompt,
+  signalsFile: AbsolutePath,
+  bodyFile: AbsolutePath | undefined,
+  outputDir: AbsolutePath
+) => AiSession;
 
 export interface SetupReadinessDeps {
   readonly provider: HeadlessAiProvider;
@@ -70,13 +67,11 @@ export interface SetupReadinessDeps {
   readonly buildPrompt: BuildReadinessPromptFn;
   /** Pre-bound session builder — wraps the prompt + signalsFile into the chain's per-call profile. */
   readonly buildSession: BuildReadinessSessionFn;
-  readonly signals: HarnessSignalSink;
   readonly logger: Logger;
   /**
    * `<dataRoot>/runs`. The use case materialises `<runsRoot>/readiness/<run-id>/prompt.md` and
-   * (for Claude) `body.txt`. On a missing-wire-tag failure the body content is spliced into the
-   * ParseError hint so the operator sees the AI's actual response without leaving the chain
-   * trace. Sibling pattern to detect-scripts / detect-skills.
+   * (for Claude) `body.txt`. Under audit-[09] the AI writes `signals.json` here directly; the
+   * calling leaf validates it post-spawn.
    */
   readonly runsRoot: AbsolutePath;
 }
@@ -94,39 +89,34 @@ export interface SetupReadinessInput {
 }
 
 export interface SetupReadinessOutput {
-  readonly proposedContent: string;
+  /**
+   * Per-run forensic directory (`<runsRoot>/readiness/<run-id>/`) — the audit-[09]
+   * `outputDir` the AI was told to write `signals.json` into. The calling leaf validates
+   * `<runDir>/signals.json` against the readiness contract and renders harness-owned
+   * sidecars in the same directory.
+   */
+  readonly runDir: AbsolutePath;
+  /**
+   * Absolute path the harness will land the validated `agents-md-proposal` body at — derived
+   * from the active tool (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`).
+   * The leaf reads the body from the validated signal in ctx, not from this path.
+   */
   readonly targetPath: AbsolutePath;
-  /**
-   * One shell line the harness runs at sprint start to prepare the working tree (typically
-   * dependency install). Undefined when the AI judges no setup is needed (the prompt allows the
-   * AI to omit the `<setup-script>` tag entirely).
-   */
-  readonly proposedSetupScript?: string;
-  /**
-   * One shell line the harness runs as the post-task gate (typecheck / lint / test). Undefined
-   * when the project exposes none of those — the AI omits the `<verify-script>` tag.
-   */
-  readonly proposedVerifyScript?: string;
 }
 
 /**
- * Set up AI readiness for one repository on one tool: build the readiness prompt, call the AI,
- * pick the tool-specific `agents-md-proposal` signal out of the file-based signals stream, plus
- * any optional `setup-script` / `verify-script` proposals, and return the proposed body + the
- * absolute target path the chain's write leaf will land on.
+ * Set up AI readiness for one repository on one tool — audit-[09] thin wrapper around the
+ * provider call: build the readiness prompt, materialise the per-run forensic directory,
+ * spawn the AI with `outputDir = <runDir>` so it writes `signals.json` there directly. The
+ * calling leaf validates the file against the readiness contract and projects the validated
+ * signals onto ctx.
  *
- * Each tool sees its own wire tag in the prompt (claude-code → `<claude-md>`, copilot →
- * `<copilot-instructions>`, codex → `<agents-md>`); the shared signal parser captures whichever
- * tag the AI used and the use case asserts it matches `wireTagFor(input.tool)`.
- *
- * The use case never writes to disk (the chain owns persistence) and never edits the project
- * aggregate (also chain-owned). It is a pure "ask the AI, pick one signal" round-trip.
+ * The use case never writes to disk other than the prompt artefact (the chain owns
+ * persistence) and never edits the project aggregate (also chain-owned).
  *
  * Failure modes:
  *  - Prompt build error → propagated as `BuildPromptError` (Storage / Parse / Validation).
  *  - Provider error → propagated unchanged.
- *  - Response missing the tool's wire-tag signal → `ParseError(schema-mismatch)`. The AI was
- *    asked for one element only; an empty result means the prompt or the model misbehaved.
  *  - Repo path → AbsolutePath conversion failure → `ValidationError` from `AbsolutePath.parse`.
  */
 export const setupReadinessUseCase = async (
@@ -140,93 +130,51 @@ export const setupReadinessUseCase = async (
     state: input.probedState.kind,
   });
 
+  // Resolve `runDir` first so the prompt can embed the absolute `signals.json` path the AI
+  // must write to. Without it, the rendered contract section would say "spawn output
+  // directory" without naming the path and the AI's `Write` lands nowhere harness reads.
+  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
+  if (!runDir.ok) return Result.error(runDir.error);
+
   const prompt = await deps.buildPrompt({
     repositoryPath: String(input.repository.path),
     currentTool: input.tool,
     probedState: input.probedState,
+    outputDir: runDir.value,
     ...(input.existingContextFile !== undefined ? { existingContextFile: input.existingContextFile } : {}),
   });
   if (!prompt.ok) return Result.error(prompt.error);
-
-  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
-  if (!runDir.ok) return Result.error(runDir.error);
   const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
   if (!promptFile.ok) return Result.error(promptFile.error);
   const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
   if (!bodyFile.ok) return Result.error(bodyFile.error);
+  // Under audit-[09] the AI writes `signals.json` into `outputDir`. `signalsFile` is still on
+  // the session shape; we wire it to the same path so the file lands at `<runDir>/signals.json`.
+  const signalsFile = AbsolutePath.parse(join(String(runDir.value), 'signals.json'));
+  if (!signalsFile.ok) return Result.error(signalsFile.error);
 
   const promptWrote = await writeTextAtomic(String(promptFile.value), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  return withSignalsTempPath('readiness', async (signalsFile) => {
-    const signals = await consumeSignals(
-      deps.provider,
-      deps.buildSession(prompt.value, signalsFile, bodyFile.value),
-      deps.signals
-    );
-    if (!signals.ok) {
-      log.error(`provider failed for repo ${input.repository.name}`, {
-        repositoryId: String(input.repository.id),
-        error: signals.error.message,
-        runDir: String(runDir.value),
-      });
-      return Result.error(signals.error);
-    }
-
-    const expectedTag = wireTagFor(input.tool);
-    const proposal = signals.value.find(
-      (s: HarnessSignal): s is AgentsMdProposalSignal => s.type === 'agents-md-proposal' && s.tag === expectedTag
-    );
-    if (proposal === undefined) {
-      // Surface the AI's actual response inline — when the wire tag is missing the operator
-      // most needs to see what the model said (often a permission ask, sometimes a markdown-
-      // fence slip). Run dir is also referenced so they can `cat body.txt` for the full body.
-      const bodyPreview = await readRunBodyPreview(runDir.value);
-      log.warn(`readiness: AI response missing <${expectedTag}> tag — inspect run dir for raw body`, {
-        repositoryId: String(input.repository.id),
-        runDir: String(runDir.value),
-      });
-      const hintLines: string[] = [
-        `the prompt asks for exactly one <${expectedTag}> tag with no surrounding markdown fence; ` +
-          `signals.json carried ${String(signals.value.length)} entries, none matching that tag`,
-        `run artifacts: ${String(runDir.value)}`,
-      ];
-      if (bodyPreview !== undefined) {
-        hintLines.push('', 'AI response:', bodyPreview);
-      }
-      return Result.error(
-        new ParseError({
-          subCode: 'schema-mismatch',
-          message: `readiness: AI response missing <${expectedTag}>…</${expectedTag}> block`,
-          hint: hintLines.join('\n'),
-        })
-      );
-    }
-
-    const setupScript = signals.value.find(
-      (s: HarnessSignal): s is SetupScriptSignal => s.type === 'setup-script'
-    )?.command;
-    const verifyScript = signals.value.find(
-      (s: HarnessSignal): s is VerifyScriptSignal => s.type === 'verify-script'
-    )?.command;
-
-    const targetPath = AbsolutePath.parse(join(String(input.repository.path), targetPathFor(input.tool)));
-    if (!targetPath.ok) return Result.error(targetPath.error);
-
-    log.info(`proposal ready for repo ${input.repository.name}`, {
+  const session = deps.buildSession(prompt.value, signalsFile.value, bodyFile.value, runDir.value);
+  const spawned = await deps.provider.generate(session);
+  if (!spawned.ok) {
+    log.error(`provider failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
-      bodyLength: proposal.content.length,
-      targetPath: String(targetPath.value),
-      hasSetupScript: setupScript !== undefined,
-      hasVerifyScript: verifyScript !== undefined,
+      error: spawned.error.message,
       runDir: String(runDir.value),
     });
+    return Result.error(spawned.error);
+  }
 
-    return Result.ok({
-      proposedContent: proposal.content,
-      targetPath: targetPath.value,
-      ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
-      ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
-    });
+  const targetPath = AbsolutePath.parse(join(String(input.repository.path), targetPathFor(input.tool)));
+  if (!targetPath.ok) return Result.error(targetPath.error);
+
+  log.info(`provider spawn complete for repo ${input.repository.name}`, {
+    repositoryId: String(input.repository.id),
+    targetPath: String(targetPath.value),
+    runDir: String(runDir.value),
   });
+
+  return Result.ok({ runDir: runDir.value, targetPath: targetPath.value });
 };

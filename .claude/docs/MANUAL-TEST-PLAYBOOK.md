@@ -97,34 +97,58 @@ its alt-screen behaviour differs.
 **Setup:** an active sprint with planned tasks.
 
 1. From Home, select the **Implement** flow
-2. **Expected:** session starts, task panel populates with the planned task list (depth-indented by
-   `blockedBy`), the first task transitions to `IN PROGRESS`
-3. Tab away to another running flow OR press the background hotkey
-4. **Expected:** view pops back to wherever you came from, the `[N] implement <sprint>` indicator stays in
-   the bottom-right or in the Sessions list
-5. Open Sessions list
-6. **Expected:** the running session is listed with status + age
-7. Press Enter on it
-8. **Expected:** routed back to Execute view with the live trace + the per-task panel + the recent-events tail
-9. Watch a task settle:
-   - **Expected:** generator runs, evaluator runs, post-task check runs, task transitions to `DONE`
-10. Press the abort hotkey
-11. **Expected:** "Cancel running task and mark blocked?" confirm appears
-12. Press `n` or Esc to keep running
-13. Press abort again, this time confirm with `y`
-14. **Expected:** session aborts, status flips to `aborted`, the aborted-card shows. The current task resets
-    to `todo` so the next launch can resume.
+2. **Expected:** session starts, task panel populates with the planned task list (cards collapsed by
+   default), the first task transitions to `IN PROGRESS`. Press `j`/`k` to move between cards; press
+   `Enter` or `Space` to expand the focused card. Press `e` to expand done-criteria.
+3. **Expected:** setup-script runs once per repo — baseline-health chip shows `success` / `failed` /
+   `skipped` per repo in the context column (≥180 col terminal). `BaselineHealthCard` lists full history.
+4. **Expected:** `round N/M` in the task header updates via `TaskRoundStarted` events (not a ref hack).
+   ETA estimate (median of past settled attempts) appears once the first attempt settles.
+5. Press `g` to open the progress overlay
+6. **Expected:** `progress.md` renders as a full-screen overlay. Press `g` again or `Esc` to close.
+7. Press `y` (yank)
+8. **Expected:** a brief "Copied to clipboard" `info` banner flashes. Paste confirms the task summary text.
+9. Press `b` to toggle banner compact ↔ full. Banner collapses to a single line; pressing `b` restores.
+10. Tab away to another running flow OR press the background hotkey (`D`)
+11. **Expected:** view pops back to wherever you came from, the `[N] implement <sprint>` indicator stays in
+    the Sessions list
+12. Open Sessions list, press Enter on the session
+13. **Expected:** routed back to Execute view with the live trace + the per-task panel + recent-events tail
+14. Watch a task settle:
+    - **Expected:** pre-task-verify runs, generator runs, evaluator runs, post-task-verify runs (attribution
+      chip: `clean`), task transitions to `DONE`. `TokenBudgetCard` updates in the context column.
+15. Press `c` (cancel-scope picker)
+16. **Expected:** overlay appears offering "cancel attempt" vs "cancel whole flow". Press `Esc` to dismiss.
+17. Confirm cancellation via the overlay
+18. **Expected:** session aborts, status flips to `aborted`. The current task resets to `todo` so the next
+    launch can resume. On resume the attempt header reads "attempt N · resumed from aborted M at HH:MM".
 
 **Negative tests:**
 
-- Refine / plan / readiness sessions: pressing the background hotkey must do NOTHING (those flows are
-  foreground-only).
-- Tab between sessions multiple times → breadcrumb stack must stay flat (`Home › Execute`), never grow
-  (`Home › Execute › Execute …`).
+- Refine / plan / readiness sessions: pressing `D` must do NOTHING (those flows are foreground-only).
+- Tab between sessions multiple times → breadcrumb stack must stay flat (`Home › Execute`), never grow.
+- Press `g` outside an active sprint → must show an appropriate empty / error state, not crash.
 
 ---
 
-## Scenario 5 — resume after kill
+## Scenario 5 — forensic CLI commands (snapshot + runs)
+
+**Setup:** a sprint that has had at least one implement run (so `chain.log` and `progress.md` exist).
+
+1. Run `ralphctl snapshot` (or `ralphctl snapshot --sprint <id>`)
+2. **Expected:** one static text frame of the sprint state prints to stdout — task counts, branch, last-run
+   outcome. Exit 0. No Ink mount.
+3. Verify `chain.log` contains `=== chain-run <id> <flowId> started <iso> ===` / `… completed …` brackets
+   around each run.
+4. Run `ralphctl runs list`
+5. **Expected:** table of per-run forensic artifacts (run id, flow, started, outcome, step counts). Exit 0.
+6. Run `ralphctl runs prune --keep-last 3` (adjust N to taste)
+7. **Expected:** older run artifacts removed; the three most recent are retained. Confirm with another
+   `ralphctl runs list`.
+
+---
+
+## Scenario 6 — resume after kill
 
 **Setup:** a sprint mid-implement with at least one task `in_progress`.
 
@@ -137,20 +161,20 @@ its alt-screen behaviour differs.
 
 ---
 
-## Scenario 6 — keyboard discipline
+## Scenario 7 — keyboard discipline
 
 Test that view-level shortcuts do NOT fire while a prompt owns the keyboard. This is a regression class we
 keep fixing.
 
 For every prompt context (an editor, a select, an input):
 
-- Press the letters of common shortcut keys: `b`, `c`, `D`, `h`, `s`, `d`, `?`, `!`. Each should appear as
-  text in the input or navigate the select — never trigger the matching shortcut.
+- Press the letters of common shortcut keys: `b`, `c`, `D`, `g`, `h`, `j`, `k`, `s`, `d`, `y`, `?`, `!`.
+  Each should appear as text in the input or navigate the select — never trigger the matching shortcut.
 - Press Enter to submit. The prompt resolves; THEN view-level shortcuts resume working.
 
 ---
 
-## Scenario 7 — first-launch onboarding
+## Scenario 8 — first-launch onboarding
 
 **Setup:** clean data dir (`RALPHCTL_HOME=/tmp/ralphctl-fresh pnpm dev`).
 
@@ -161,7 +185,7 @@ For every prompt context (an editor, a select, an input):
 
 ---
 
-## Scenario 8 — doctor
+## Scenario 9 — doctor
 
 1. Press the doctor hotkey from anywhere
 2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary, data
@@ -171,7 +195,7 @@ For every prompt context (an editor, a select, an input):
 
 ---
 
-## Scenario 9 — apply-feedback (review)
+## Scenario 10 — apply-feedback (review)
 
 **Setup:** a sprint in `review` status (every task `done`).
 
@@ -179,13 +203,57 @@ For every prompt context (an editor, a select, an input):
 2. **Expected:** routed to Execute view, the multi-line editor prompt appears asking for feedback
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
-5. AI exits; check scripts re-run; evaluator re-runs
+5. AI exits; verify scripts re-run; evaluator re-runs
 6. **Expected:** progress.md gets the new round's entries; chain.log captures the trace
 7. From the same flow, submit an EMPTY input (just Ctrl+D)
 8. **Expected:** the loop exits cleanly, sprint stays in `review`
 
 To close the sprint: `ralphctl sprint close <sprint-id>` from a separate terminal, or pick the Close flow
 from the TUI.
+
+---
+
+## Scenario 11 — step-label rendering in Execute view
+
+**Setup:** a sprint with at least one multi-repo preflight step (so the implement flow generates preflight
+leaves whose `name` contains an absolute repo path).
+
+1. Start the **Implement** flow on the sprint
+2. Watch the flow-steps rail as preflight tasks fire
+3. **Expected:** the rail shows short labels (e.g. `preflight · my-repo`) — NOT the raw element name
+   that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not appear in the
+   rendered rail.
+4. Resize the terminal narrower (below `xl`, i.e. < 180 cols) so the three-column layout collapses
+5. **Expected:** rail width shrinks to 24 fixed cols; labels that exceed the budget are mid-truncated with
+   `…` rather than wrapping mid-word or overflowing into the adjacent column.
+6. Resize back to ≥ 180 cols
+7. **Expected:** rail grows fluidly (up to ~40 cols at wide widths) and the labels breathe without any
+   layout jitter.
+
+---
+
+## Scenario 12 — cross-project sprint picker
+
+**Setup:** at least two projects registered, each with at least one sprint.
+
+1. From any view, press `S`
+2. **Expected:** a cross-project sprint picker opens showing sprints from the current project (if one is
+   set) or all sprints when no project is selected. Picker is a modal overlay — global shortcuts must NOT
+   fire through it.
+3. Press `t` inside the picker
+4. **Expected:** scope toggles — if the picker was showing current-project sprints, it now shows all
+   sprints across every project; pressing `t` again returns to project scope.
+5. Navigate the list with `↑`/`↓`, select a sprint from a different project with `Enter`
+6. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
+   new project/sprint combination, and no partial state is visible mid-transition.
+7. Press `S` again from Home with NO project loaded
+8. **Expected:** picker opens in all-projects scope; `t` still toggles without crashing.
+
+**Negative tests:**
+
+- Press `b`, `g`, `h`, `?`, etc. while the picker is open → must be absorbed by the picker, not the
+  underlying view.
+- Press `Esc` → picker closes; the previously selected project/sprint is unchanged.
 
 ---
 

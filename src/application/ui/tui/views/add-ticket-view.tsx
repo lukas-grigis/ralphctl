@@ -170,7 +170,7 @@ const HeaderCard = ({ step }: { readonly step: Step }): React.JSX.Element | null
             {glyphs.bullet} an external issue link e.g. GitHub URL (optional — when provided, we fetch the issue and
             pre-fill title + description){'\n'}
             {glyphs.bullet} a short title (required){'\n'}
-            {glyphs.bullet} a longer description (optional)
+            {glyphs.bullet} a longer description (required)
           </Text>
         </Box>
       </Card>
@@ -295,17 +295,19 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
       return (
         <TextAreaPrompt
           key="description"
-          message="Description (optional — ↵ to skip)"
+          message="Description"
           initial={step.descriptionInitial}
           escLabel={escLabel}
-          onSubmit={(value) =>
+          onSubmit={(value) => {
+            const trimmed = value.trim();
+            if (trimmed.length === 0) return;
             onChange({
               kind: 'confirm',
               link: step.link,
               title: step.title,
               description: value,
-            })
-          }
+            });
+          }}
           onCancel={cancelOrBack}
         />
       );
@@ -319,17 +321,7 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
               <FieldList
                 fields={[
                   { label: 'Title', value: <Text bold>{step.title}</Text> },
-                  {
-                    label: 'Description',
-                    value:
-                      descTrim.length > 0 ? (
-                        <Text>{descTrim}</Text>
-                      ) : (
-                        <Text dimColor italic>
-                          (skipped)
-                        </Text>
-                      ),
-                  },
+                  { label: 'Description', value: <Text>{descTrim}</Text> },
                   {
                     label: 'Link',
                     value:

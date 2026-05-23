@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type AbortCause,
   completeAttempt,
   isVerifiedAttempt,
   recordAttemptVerification,
@@ -50,5 +51,79 @@ describe('completeAttempt', () => {
     if (!r.ok) return;
     expect(r.value.status).toBe(status);
     expect(r.value.finishedAt).toBe(FIXED_LATER);
+  });
+
+  it.each(['user-cancel', 'sigterm', 'watchdog-killed', 'rate-limit-exhausted', 'process-crash', 'unknown'] as const)(
+    'stamps abortCause=%s on aborted attempt',
+    (cause: AbortCause) => {
+      const r = completeAttempt(seed(), 'aborted', FIXED_LATER, { abortCause: cause });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      // Discriminated narrowing — the field is only meaningful on aborted attempts.
+      expect(r.value.status).toBe('aborted');
+      if (r.value.status !== 'aborted') return;
+      expect(r.value.abortCause).toBe(cause);
+    }
+  );
+
+  it('stamps signalOrExitCode (string) on aborted attempt when supplied', () => {
+    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, {
+      abortCause: 'sigterm',
+      signalOrExitCode: 'SIGTERM',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.signalOrExitCode).toBe('SIGTERM');
+  });
+
+  it('stamps signalOrExitCode (number) on aborted attempt when supplied', () => {
+    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, {
+      abortCause: 'user-cancel',
+      signalOrExitCode: 130,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.signalOrExitCode).toBe(130);
+  });
+
+  it('omits abortCause / signalOrExitCode when no abortMeta supplied (legacy data path)', () => {
+    const r = completeAttempt(seed(), 'aborted', FIXED_LATER);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.abortCause).toBeUndefined();
+    expect(r.value.signalOrExitCode).toBeUndefined();
+  });
+
+  it('ignores abortMeta on non-aborted terminal statuses', () => {
+    // Sanity guard: even if a caller passes abortMeta on `failed` or `malformed`, the
+    // domain treats it as a no-op — abort attribution lives on aborted attempts only.
+    const failed = completeAttempt(seed(), 'failed', FIXED_LATER, { abortCause: 'unknown' });
+    expect(failed.ok).toBe(true);
+    if (!failed.ok) return;
+    expect(failed.value.abortCause).toBeUndefined();
+  });
+});
+
+describe('startAttempt — recovering context', () => {
+  it('stamps recovering on the new running attempt when supplied', () => {
+    const r = startAttempt({
+      n: 4,
+      startedAt: FIXED_NOW,
+      recovering: { fromAttemptN: 3, cause: 'process-crash', abortedAt: FIXED_LATER },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.recovering).toEqual({
+      fromAttemptN: 3,
+      cause: 'process-crash',
+      abortedAt: FIXED_LATER,
+    });
+  });
+
+  it('omits recovering on a clean start (no resume)', () => {
+    const r = startAttempt({ n: 1, startedAt: FIXED_NOW });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.recovering).toBeUndefined();
   });
 });

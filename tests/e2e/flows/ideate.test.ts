@@ -89,7 +89,13 @@ const fakeInteractiveAi = (
     async run(input) {
       const promptBody = await fs.readFile(String(input.promptFile), 'utf8');
       calls.push({ input, promptBody });
-      await fs.writeFile(String(input.outputFile), jsonResponder(input), 'utf8');
+      // audit-[09]: wrap the responder's JSON in an `ideated-tickets` signal envelope so the
+      // contract validation succeeds end-to-end.
+      const envelope = {
+        schemaVersion: 1,
+        signals: [{ type: 'ideated-tickets', outputJson: jsonResponder(input), timestamp: '2026-05-22T10:00:00.000Z' }],
+      };
+      await fs.writeFile(String(input.outputFile), JSON.stringify(envelope), 'utf8');
       return Result.ok({});
     },
   };

@@ -4,10 +4,11 @@ import {
   type InProgressTask,
   recordRunningAttemptCritique,
   recordRunningAttemptEvaluation,
+  recordRunningAttemptWarning,
 } from '@src/domain/entity/task.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
-import { dimensionsEqual, failedDimensions } from '@src/business/task/plateau-detection.ts';
+import { computePlateauVerdict, type PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
 /**
  * Run one evaluator turn of the gen-eval loop. Drives a single AI evaluate call, inspects the
@@ -19,15 +20,21 @@ import { dimensionsEqual, failedDimensions } from '@src/business/task/plateau-de
  *  - No evaluation signal at all → `malformed` exit.
  *  - `evaluation.status === 'passed'` → `passed` exit.
  *  - `evaluation.status === 'malformed'` → `malformed` exit.
- *  - `evaluation.status === 'failed'` + same failed-dimension set as `priorEvaluation` →
- *     `plateau` exit (caller passes the prior turn's evaluation; the comparison is set-equality
- *     on dimension names, so paraphrased critiques don't unstick a true plateau).
- *  - Otherwise (`failed`, fresh dimensions) → continue: record critique on the running attempt
- *    so the next generator turn's prompt incorporates it; return no exit.
+ *  - `evaluation.status === 'failed'` + the plateau predicate fires with no exemption →
+ *     `plateau` exit. The plateau predicate compares the current turn against `priorTurns`
+ *     using `settings.harness.plateauThreshold` (default 2). It exempts turns where a
+ *     previously-failed dimension's score improved, where the critique prose shifted
+ *     significantly, or where the AI's proposed commit message changed (the latter
+ *     downgrades the plateau to a non-exiting warning recorded on the attempt).
+ *  - Otherwise (`failed`, fresh dimensions or exemption applies) → continue: record critique
+ *    on the running attempt so the next generator turn's prompt incorporates it; return no
+ *    exit.
  *
  * The actual AI call + signal extraction are integration concerns supplied as function-shape
  * deps. The leaf is responsible for reading the provider's `signalsFile`, forwarding signals
- * to the harness sink, and passing the parsed array here.
+ * to the harness sink, and passing the parsed array here. The leaf also threads the per-turn
+ * history (`priorTurns`) and the current generator's proposed commit subject through ctx so
+ * the use case stays free of state.
  */
 export type EvaluatorTurnExit =
   | { readonly kind: 'passed' }
@@ -36,8 +43,25 @@ export type EvaluatorTurnExit =
 
 export interface RunEvaluatorTurnProps {
   readonly task: InProgressTask;
-  /** Prior evaluator turn's evaluation (if any) — used for plateau detection. */
-  readonly priorEvaluation?: EvaluationSignal;
+  /**
+   * Prior evaluator turns' records — used for plateau detection. Empty on the first turn;
+   * appended-to by the evaluator leaf across the gen-eval loop. The newest entry is at the
+   * end of the array.
+   */
+  readonly priorTurns?: readonly PlateauTurnRecord[];
+  /**
+   * Generator's `<commit-message>` subject from the same round (latest signal wins inside
+   * the round). Threaded through so the plateau predicate's commit-progress exemption can
+   * detect AI-side intent changes across turns even though the actual `git commit` runs
+   * once per attempt, after the loop exits.
+   */
+  readonly currentCommitSubject?: string;
+  /**
+   * Threshold from `settings.harness.plateauThreshold` (2–5). Number of consecutive turns
+   * flagging the same dimension set before the plateau exit fires. Predicate clamps
+   * defensively so a misconfigured caller cannot crash the loop.
+   */
+  readonly plateauThreshold: number;
   /**
    * Drive one AI evaluate call. Returns the parsed signals (already extracted from
    * `provider.generate`'s signalsFile by the leaf) so this use case stays free of file I/O.
@@ -53,10 +77,16 @@ export interface RunEvaluatorTurnProps {
 
 export interface RunEvaluatorTurnOutput {
   readonly task: InProgressTask;
-  /** Latest evaluation signal — caller stashes it to feed `priorEvaluation` on the next turn. */
+  /** Latest evaluation signal — caller stashes it to feed `priorTurns` on the next turn. */
   readonly evaluation?: EvaluationSignal;
   /** Terminal outcome; undefined means the loop should continue. */
   readonly exit?: EvaluatorTurnExit;
+  /**
+   * Newly-appended record from this turn. Leaf concatenates it to `ctx.plateauHistory` so
+   * the next evaluator turn sees the full window. Undefined on `malformed`/no-signal paths
+   * where the turn carried no usable evaluation.
+   */
+  readonly turnRecord?: PlateauTurnRecord;
 }
 
 const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | undefined =>
@@ -109,16 +139,78 @@ export const runEvaluatorTurnUseCase = async (
     });
   }
 
-  if (props.priorEvaluation !== undefined && dimensionsEqual(props.priorEvaluation, evaluation)) {
-    const dimensions = [...failedDimensions(evaluation)];
+  // Build the current turn's plateau record from what we know NOW — the just-recorded
+  // evaluation, the critique we're about to feed forward, and the generator's proposed
+  // commit subject for this round.
+  const critique = evaluation.critique;
+  const currentRecord: PlateauTurnRecord = {
+    evaluation,
+    ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
+    ...(props.currentCommitSubject !== undefined && props.currentCommitSubject.trim().length > 0
+      ? { commitSubject: props.currentCommitSubject }
+      : {}),
+  };
+
+  const verdict = computePlateauVerdict(props.priorTurns ?? [], currentRecord, {
+    threshold: props.plateauThreshold,
+  });
+
+  if (verdict.kind === 'plateau') {
     log.warn('evaluator plateaued on the same failed dimensions', {
       taskId: recorded.value.id,
-      dimensions,
+      dimensions: verdict.dimensions,
+      threshold: props.plateauThreshold,
     });
-    return Result.ok({ task: recorded.value, evaluation, exit: { kind: 'plateau', dimensions } });
+    return Result.ok({
+      task: recorded.value,
+      evaluation,
+      exit: { kind: 'plateau', dimensions: verdict.dimensions },
+      turnRecord: currentRecord,
+    });
   }
 
-  const critique = evaluation.critique;
+  if (verdict.kind === 'warning') {
+    // Same dimensions across threshold turns, but the AI's proposed commit subject changed —
+    // record a `plateau` warning so the attempt audit reflects the soft signal, then keep
+    // looping. The next evaluator turn decides whether the AI keeps making progress.
+    const warned = recordRunningAttemptWarning(recorded.value, {
+      kind: 'plateau',
+      dimensions: verdict.dimensions,
+    });
+    if (!warned.ok) {
+      log.error('cannot record plateau warning on attempt', {
+        taskId: recorded.value.id,
+        error: warned.error.message,
+      });
+      return Result.error(warned.error);
+    }
+    log.info('plateau softened to warning — commit-message changed; continuing', {
+      taskId: warned.value.id,
+      dimensions: verdict.dimensions,
+      reason: verdict.reason,
+    });
+    // Continue: also record the critique so the next generator turn picks it up.
+    if (critique !== undefined && critique.trim().length > 0) {
+      const recordedCritique = recordRunningAttemptCritique(warned.value, critique);
+      if (!recordedCritique.ok) {
+        log.error('cannot record critique on attempt', {
+          taskId: warned.value.id,
+          error: recordedCritique.error.message,
+        });
+        return Result.error(recordedCritique.error);
+      }
+      return Result.ok({ task: recordedCritique.value, evaluation, turnRecord: currentRecord });
+    }
+    return Result.ok({ task: warned.value, evaluation, turnRecord: currentRecord });
+  }
+
+  if (verdict.kind === 'progress') {
+    log.debug('plateau exempted — progress detected; continuing', {
+      taskId: recorded.value.id,
+      reason: verdict.reason,
+    });
+  }
+
   if (critique !== undefined && critique.trim().length > 0) {
     const recordedCritique = recordRunningAttemptCritique(recorded.value, critique);
     if (!recordedCritique.ok) {
@@ -129,9 +221,9 @@ export const runEvaluatorTurnUseCase = async (
       return Result.error(recordedCritique.error);
     }
     log.debug('evaluator failed; recorded critique for next turn', { taskId: recordedCritique.value.id });
-    return Result.ok({ task: recordedCritique.value, evaluation });
+    return Result.ok({ task: recordedCritique.value, evaluation, turnRecord: currentRecord });
   }
 
   log.debug('evaluator failed without critique; continuing', { taskId: recorded.value.id });
-  return Result.ok({ task: recorded.value, evaluation });
+  return Result.ok({ task: recorded.value, evaluation, turnRecord: currentRecord });
 };

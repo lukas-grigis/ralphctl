@@ -17,7 +17,9 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { Result } from '@src/domain/result.ts';
 import { spacing, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -30,9 +32,12 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 
 export const SprintsView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -42,12 +47,7 @@ export const SprintsView = (): React.JSX.Element => {
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
-  useViewHints([
-    { keys: '↵', label: 'open' },
-    { keys: 'c', label: 'create' },
-    { keys: 'd', label: 'delete' },
-    { keys: 'r', label: 'reload' },
-  ]);
+  const edit = useEditField();
 
   const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
     const r = await deps.sprintRepo.list();
@@ -62,6 +62,39 @@ export const SprintsView = (): React.JSX.Element => {
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
+  // Load tasks for the focused sprint so we can count stuck ones (blocked + in_progress) and
+  // offer `u` to bulk-unblock them. Keyed by sprint id so cursor moves re-trigger the fetch.
+  const [focusedSprintTasks, setFocusedSprintTasks] = useState<readonly Task[]>([]);
+  const focusedSprint = items.find((s) => s.id === cursorId) ?? items[0];
+  useEffect(() => {
+    if (focusedSprint === undefined) {
+      setFocusedSprintTasks([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      const r = await deps.taskRepo.findBySprintId(focusedSprint.id);
+      if (cancelled) return;
+      if (r.ok) setFocusedSprintTasks(r.value);
+    };
+    load().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [focusedSprint?.id, deps.taskRepo]);
+
+  const stuckTasks = focusedSprintTasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
+  const stuckCount = stuckTasks.length;
+
+  useViewHints([
+    { keys: '↵', label: 'open' },
+    { keys: 'c', label: 'create' },
+    { keys: 'e', label: 'rename' },
+    { keys: 'd', label: 'delete' },
+    { keys: 'r', label: 'reload' },
+    ...(stuckCount > 0 ? [{ keys: 'u', label: `unblock (${String(stuckCount)})` }] : []),
+  ]);
+
   // Claim the global-key mute while the confirm prompt is mounted.
   useEffect(() => (confirmDelete !== undefined ? ui.claimPrompt() : undefined), [confirmDelete, ui.claimPrompt]);
 
@@ -75,10 +108,17 @@ export const SprintsView = (): React.JSX.Element => {
       { projectId: selection.projectId }
     );
     const interactive = createInkInteractivePrompt(queue);
-    const result = await launchFlow(
+    // The shared sprint-bound launcher owns the post-completion `selection.setSprint` reseat
+    // — wiring it inline here would duplicate the subscriber across every sprint-bound view.
+    const result = await launchSprintBoundFlow(
       { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
       'create-sprint',
-      snapshot
+      snapshot,
+      {
+        onReseat: ({ id, name }) => {
+          selection.setSprint(id, name);
+        },
+      }
     );
     if (!result.ok) {
       setFeedback(`✗ ${result.reason}`);
@@ -90,25 +130,38 @@ export const SprintsView = (): React.JSX.Element => {
       title: result.title,
       ...sessionHintsFromLaunchResult(result),
     });
-    // v1 auto-selected a sprint as soon as it was created; v2 regressed. Subscribe to the
-    // create-sprint runner so the moment its chain completes we read the new sprint off ctx
-    // and update the selection — home view + downstream flows then pick it up automatically.
-    // Late-subscribe replay (see chain/run/runner.ts) makes this race-free with `start()`.
-    result.runner.subscribe((event) => {
-      if (event.type !== 'completed') return;
-      const ctx = event.ctx as { sprint?: { id: SprintId; name: string } };
-      if (ctx.sprint !== undefined) {
-        selection.setSprint(ctx.sprint.id, ctx.sprint.name);
-      }
-    });
     void result.runner.start();
     router.push({ id: 'execute', props: { sessionId: result.runner.id } });
+  };
+
+  const handleRename = (target: Sprint): void => {
+    setFeedback(undefined);
+    void edit.openEditPrompt({
+      title: `Rename sprint "${target.name}"`,
+      kind: 'short',
+      currentValue: target.name,
+      onSave: async (value) => {
+        const renamed = renameSprint(target, value);
+        if (!renamed.ok) return Result.error(renamed.error);
+        const saved = await deps.sprintRepo.save(renamed.value);
+        if (!saved.ok) return Result.error(saved.error);
+        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim());
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ renamed "${target.name}"`,
+    });
   };
 
   useInput((input) => {
     if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
     if (input === 'c') {
       void launchCreateSprint();
+      return;
+    }
+    if (input === 'e') {
+      const target = items.find((s) => s.id === cursorId) ?? items[0];
+      if (target !== undefined && target.status !== 'done') handleRename(target);
       return;
     }
     if (input === 'd') {
@@ -120,7 +173,43 @@ export const SprintsView = (): React.JSX.Element => {
       setFeedback('↻ reloading…');
       reload();
     }
+    if (input === 'u' && stuckCount > 0) {
+      void handleBulkUnblock();
+    }
   });
+
+  const handleBulkUnblock = async (): Promise<void> => {
+    if (focusedSprint === undefined || stuckTasks.length === 0) return;
+    setFeedback(undefined);
+    let succeeded = 0;
+    let lastError: string | undefined;
+    for (const task of stuckTasks) {
+      const r = await unblockTaskUseCase({
+        task,
+        sprintId: focusedSprint.id,
+        taskRepo: deps.taskRepo,
+        logger: deps.logger,
+      });
+      if (r.ok) {
+        succeeded += 1;
+      } else {
+        lastError = r.error.message;
+      }
+    }
+    const total = stuckTasks.length;
+    if (succeeded === total) {
+      setFeedback(
+        `${glyphs.check} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${focusedSprint.name}"`
+      );
+    } else {
+      setFeedback(
+        `${glyphs.check} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` — ${lastError}` : ''}`
+      );
+    }
+    // Refresh task list so the hint and count update immediately.
+    const refreshed = await deps.taskRepo.findBySprintId(focusedSprint.id);
+    if (refreshed.ok) setFocusedSprintTasks(refreshed.value);
+  };
 
   const handleDeleteConfirmed = async (target: Sprint, confirmed: boolean): Promise<void> => {
     setConfirmDelete(undefined);
@@ -229,12 +318,14 @@ export const SprintsView = (): React.JSX.Element => {
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} sprint(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
             </Text>
           </Box>
-          {feedback !== undefined && (
+          {(feedback ?? edit.feedback) !== undefined && (
             <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+              <Text color={(feedback ?? edit.feedback)?.startsWith('✗') ? inkColors.error : inkColors.primary}>
+                {feedback ?? edit.feedback}
+              </Text>
             </Box>
           )}
         </Box>

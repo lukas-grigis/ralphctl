@@ -23,6 +23,17 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { Result } from '@src/domain/result.ts';
+import { replaceTicket } from '@src/domain/entity/sprint.ts';
+import {
+  setTicketDescription,
+  setTicketRequirements,
+  setTicketTitle,
+  type ApprovedTicket,
+} from '@src/domain/entity/ticket.ts';
+import { updateTask } from '@src/domain/entity/task.ts';
+import { useEditField, type OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
@@ -53,6 +64,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 
@@ -91,6 +103,40 @@ export const SprintDetailView = (): React.JSX.Element => {
     return { sprint: sprintR.value, tasks: tasksR.value };
   }, [sprintId]);
 
+  // Reload sprint + tasks whenever a flow session transitions (registered, running →
+  // completed / failed / aborted, or removed). Without this, cancelling, finishing, or failing a
+  // flow leaves sprint-detail frozen on its mount-time snapshot — the operator can't see that
+  // the active task flipped to `blocked` or that subsequent tasks landed `done`. We diff
+  // session statuses rather than reloading on every notify() because the session manager fires
+  // on every chain `step`; the trace-only updates would otherwise hammer the disk.
+  // `reload` is a fresh closure each render (no useCallback in useAsyncLoad), so we route it
+  // through a ref to keep the subscription stable.
+  const sessionMgr = useSessionManager();
+  const reloadRef = React.useRef(reload);
+  reloadRef.current = reload;
+  React.useEffect(() => {
+    const snapshot = (): Map<string, string> => {
+      const m = new Map<string, string>();
+      for (const rec of sessionMgr.list()) m.set(rec.descriptor.id, rec.descriptor.status);
+      return m;
+    };
+    let prev = snapshot();
+    return sessionMgr.subscribe(() => {
+      const next = snapshot();
+      let changed = prev.size !== next.size;
+      if (!changed) {
+        for (const [id, status] of next) {
+          if (prev.get(id) !== status) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      prev = next;
+      if (changed) reloadRef.current();
+    });
+  }, [sessionMgr]);
+
   // Project lookup is a separate, best-effort fetch — used only to resolve `repositoryId → name`
   // for task cards / detail views. Failing this (test stubs without a real projectRepo, or a
   // stale sprint pointing at a deleted project) must not break the view; we render with raw
@@ -128,15 +174,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     };
   }, [state, deps.projectRepo, deps.logger]);
 
-  // Stamp the sprint id (and later, name) into selection so the status bar shows context.
-  const setSprintRef = React.useRef(selection.setSprint);
-  setSprintRef.current = selection.setSprint;
-  React.useEffect(() => {
-    setSprintRef.current(sprintId);
-  }, [sprintId]);
-  React.useEffect(() => {
-    if (state.kind === 'ok') setSprintRef.current(state.value.sprint.id, state.value.sprint.name);
-  }, [state]);
+  // No silent auto-sync of the selection on detail open — opening a sprint to look at it does
+  // NOT make it the current one. The user explicitly presses `m` to mark it current (handler
+  // below). This avoids the surprise of a passive browse swapping the active context on every
+  // navigation.
 
   const sprint = state.kind === 'ok' ? state.value.sprint : undefined;
   const tasks = state.kind === 'ok' ? state.value.tasks : [];
@@ -151,8 +192,21 @@ export const SprintDetailView = (): React.JSX.Element => {
   const ticketsEditable = sprint?.status === 'draft';
   const inDetail = openIdx !== undefined;
   const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
-  const focusedBlockedTask =
-    focusedNow?.kind === 'task' && focusedNow.task.status === 'blocked' ? focusedNow.task : undefined;
+  // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
+  // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
+  // same operator action: press `u` to reset to `todo` and retry on the next implement run.
+  const focusedStuckTask =
+    focusedNow?.kind === 'task' && (focusedNow.task.status === 'blocked' || focusedNow.task.status === 'in_progress')
+      ? focusedNow.task
+      : undefined;
+
+  const edit = useEditField();
+  const queue = usePromptQueue();
+
+  const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
+  const focusedTodoTask =
+    focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
+  const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
 
   useViewHints(
     inDetail
@@ -161,10 +215,117 @@ export const SprintDetailView = (): React.JSX.Element => {
           { keys: 'n', label: 'flows' },
           { keys: '↵/o', label: 'open' },
           { keys: 'a', label: 'add ticket' },
+          ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
           { keys: 'd', label: 'remove ticket' },
-          ...(focusedBlockedTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
+          // Surface the `m` chord only when this sprint is not already the current one — once
+          // they match, the action is a no-op and the hint adds noise. Suppressed while a
+          // stuck task is focused so the `u unblock` hint (a more urgent operator action)
+          // stays prominent in the footer without competing for horizontal space.
+          ...(sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined
+            ? [{ keys: 'm', label: 'current' }]
+            : []),
+          ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
         ]
   );
+
+  type TicketFieldKey = 'title' | 'description' | 'requirements';
+  type TaskFieldKey = 'name' | 'description';
+
+  const buildTicketEdit = (ticket: Ticket, field: TicketFieldKey): OpenEditPromptInput | undefined => {
+    if (sprint === undefined) return undefined;
+    if (field === 'requirements' && ticket.status !== 'approved') {
+      return undefined;
+    }
+    const current =
+      field === 'title'
+        ? ticket.title
+        : field === 'description'
+          ? (ticket.description ?? '')
+          : (ticket as ApprovedTicket).requirements;
+    return {
+      title: `Edit ticket ${field} — "${ticket.title}"`,
+      kind: field === 'title' ? 'short' : 'long',
+      currentValue: current,
+      onSave: async (value) => {
+        const updated =
+          field === 'title'
+            ? setTicketTitle(ticket, value)
+            : field === 'description'
+              ? setTicketDescription(ticket, value.length === 0 ? undefined : value)
+              : ticket.status === 'approved'
+                ? setTicketRequirements(ticket, value)
+                : Result.ok(ticket);
+        if (!updated.ok) return Result.error(updated.error);
+        const replaced = replaceTicket(sprint, ticket.id, updated.value);
+        if (!replaced.ok) return Result.error(replaced.error);
+        const saved = await deps.sprintRepo.save(replaced.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ updated ticket ${field}`,
+    };
+  };
+
+  const buildTaskEdit = (task: Task, field: TaskFieldKey): OpenEditPromptInput | undefined => {
+    if (sprint === undefined || task.status !== 'todo') return undefined;
+    const current = field === 'name' ? task.name : (task.description ?? '');
+    return {
+      title: `Edit task ${field} — "${task.name}"`,
+      kind: field === 'name' ? 'short' : 'long',
+      currentValue: current,
+      onSave: async (value) => {
+        const update = field === 'name' ? { name: value } : { description: value.length === 0 ? null : value };
+        const next = updateTask(task, update);
+        if (!next.ok) return Result.error(next.error);
+        const saved = await deps.taskRepo.update(sprint.id, next.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ updated task ${field}`,
+    };
+  };
+
+  const handleEdit = (): void => {
+    if (focusedTicket !== undefined) {
+      const options: ReadonlyArray<{ readonly label: string; readonly value: TicketFieldKey }> = [
+        { label: 'title', value: 'title' },
+        { label: 'description', value: 'description' },
+        ...(focusedTicket.status === 'approved'
+          ? ([{ label: 'requirements', value: 'requirements' as const }] as const)
+          : []),
+      ];
+      if (options.length === 1) {
+        const cfg = buildTicketEdit(focusedTicket, 'title');
+        if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        return;
+      }
+      new Promise<TicketFieldKey>((resolve, reject) => {
+        queue.enqueue({ kind: 'choice', message: 'Edit which ticket field?', options, resolve, reject });
+      })
+        .then((field) => {
+          const cfg = buildTicketEdit(focusedTicket, field);
+          if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (focusedTodoTask !== undefined) {
+      const options: ReadonlyArray<{ readonly label: string; readonly value: TaskFieldKey }> = [
+        { label: 'name', value: 'name' },
+        { label: 'description', value: 'description' },
+      ];
+      new Promise<TaskFieldKey>((resolve, reject) => {
+        queue.enqueue({ kind: 'choice', message: 'Edit which task field?', options, resolve, reject });
+      })
+        .then((field) => {
+          const cfg = buildTaskEdit(focusedTodoTask, field);
+          if (cfg !== undefined) void edit.openEditPrompt(cfg);
+        })
+        .catch(() => undefined);
+    }
+  };
 
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || sprint === undefined) return;
@@ -174,6 +335,19 @@ export const SprintDetailView = (): React.JSX.Element => {
     }
     if (input === 'a' && ticketsEditable) {
       router.push({ id: 'add-ticket', props: { sprintId: sprint.id } });
+      return;
+    }
+    if (input === 'e' && canEdit) {
+      handleEdit();
+      return;
+    }
+    if (input === 'm') {
+      // Explicit "make this sprint current". Replaces the prior silent auto-sync on mount —
+      // the user now opts in. No-op if already current so re-pressing doesn't churn feedback.
+      if (selection.sprintId !== sprint.id) {
+        selection.setSprint(sprint.id, sprint.name);
+        setFeedback(`✓ now on ${sprint.name}`);
+      }
       return;
     }
     if ((key.downArrow || input === 'j') && focusList.length > 0) {
@@ -193,13 +367,17 @@ export const SprintDetailView = (): React.JSX.Element => {
       if (focused?.kind === 'ticket') setConfirmRemove(focused.ticket);
       return;
     }
-    if (input === 'u' && focusedBlockedTask !== undefined) {
-      void handleUnblock(focusedBlockedTask);
+    if (input === 'u' && focusedStuckTask !== undefined) {
+      void handleUnblock(focusedStuckTask);
     }
   });
 
   // Mute global keys while the confirm prompt is mounted.
   useEffect(() => (confirmRemove !== undefined ? ui.claimPrompt() : undefined), [confirmRemove, ui.claimPrompt]);
+
+  // Claim `esc` while the detail card is open so the local handler can close the card without
+  // the global `router.pop()` racing it and dumping the user back to the Sprints list.
+  useEffect(() => (inDetail ? ui.claimEscape() : undefined), [inDetail, ui.claimEscape]);
 
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);
@@ -264,7 +442,8 @@ export const SprintDetailView = (): React.JSX.Element => {
           cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
           openIdx={openIdx}
           ticketsEditable={ticketsEditable}
-          feedback={feedback}
+          feedback={feedback ?? edit.feedback}
+          isCurrent={selection.sprintId === state.value.sprint.id}
         />
       )}
     </ViewShell>
@@ -279,6 +458,7 @@ interface BodyProps {
   readonly openIdx: number | undefined;
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
+  readonly isCurrent: boolean;
 }
 
 const Body = ({
@@ -289,15 +469,15 @@ const Body = ({
   openIdx,
   ticketsEditable,
   feedback,
+  isCurrent,
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   const action = phaseAction(sprint, tasks);
-  const ticketCount = sprint.tickets.length;
   if (openIdx !== undefined) {
     const focused = focusList[openIdx];
     return (
       <Box flexDirection="column">
-        <SprintHeader sprint={sprint} tasks={tasks} />
+        <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
         {focused !== undefined && (
           <Box marginTop={spacing.section}>
             {focused.kind === 'ticket' ? (
@@ -317,7 +497,7 @@ const Body = ({
   }
   return (
     <Box flexDirection="column">
-      <SprintHeader sprint={sprint} tasks={tasks} />
+      <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
 
       {action !== undefined &&
         (sprint.status === 'done' ? (
@@ -349,14 +529,7 @@ const Body = ({
         ticketsEditable={ticketsEditable}
         feedback={feedback}
       />
-      <TasksSection
-        sprint={sprint}
-        tasks={tasks}
-        focusList={focusList}
-        cursorIdx={cursorIdx}
-        project={project}
-        offset={ticketCount}
-      />
+      <TasksSection sprint={sprint} tasks={tasks} focusList={focusList} cursorIdx={cursorIdx} project={project} />
 
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
         <Text dimColor>
@@ -421,18 +594,29 @@ const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction | unde
 const SprintHeader = ({
   sprint,
   tasks,
+  isCurrent,
 }: {
   readonly sprint: Sprint;
   readonly tasks: readonly Task[];
+  readonly isCurrent: boolean;
 }): React.JSX.Element => {
   const done = tasks.filter((t) => t.status === 'done').length;
   const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  // The `· current` badge lives on the right next to the status chip — Card's `title` is a
+  // plain string, and stacking the badge alongside the chip keeps the right rail expressing
+  // selection + lifecycle in one glance without overloading either onto the title slot.
+  const rightSide = (
+    <Box>
+      {isCurrent && (
+        <Text dimColor italic>
+          {glyphs.bullet} current{'  '}
+        </Text>
+      )}
+      <StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />
+    </Box>
+  );
   return (
-    <Card
-      title={sprint.name}
-      tone="primary"
-      right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
-    >
+    <Card title={sprint.name} tone="primary" right={rightSide}>
       <FieldList
         fields={[
           { label: 'Slug', value: sprint.slug },
@@ -630,18 +814,9 @@ interface TasksSectionProps {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly project: Project | undefined;
-  /** Position in `focusList` of the first task entry (== ticket count). */
-  readonly offset: number;
 }
 
-const TasksSection = ({
-  sprint,
-  tasks,
-  focusList,
-  cursorIdx,
-  project,
-  offset,
-}: TasksSectionProps): React.JSX.Element => (
+const TasksSection = ({ sprint, tasks, focusList, cursorIdx, project }: TasksSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tasks</Text>
     {tasks.length === 0 ? (
@@ -662,7 +837,7 @@ const TasksSection = ({
               ticketTitle={ticket?.title}
               repoName={repoName}
               focused={focused}
-              index={offset + idx + 1}
+              index={idx + 1}
             />
           );
         })}
@@ -1019,7 +1194,7 @@ const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
 
 const firstLine = (s: string): string => {
   const line = s.split('\n').find((l) => l.trim().length > 0) ?? '';
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+  return line.length > 120 ? `${line.slice(0, 119)}${glyphs.clipEllipsis}` : line;
 };
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────────────────────

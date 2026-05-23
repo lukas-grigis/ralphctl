@@ -140,6 +140,32 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       return Result.ok(undefined);
     },
 
+    async installBareSkill(sessionDir: AbsolutePath, skill: Skill): Promise<Result<void, StorageError>> {
+      // Bare-name install path — drops the `ralphctl-` prefix, doesn't touch
+      // `.git/info/exclude`, doesn't add to the manifest. The folder is deliberately
+      // project-tracked so the operator commits it as a regular project asset.
+      const skillsDir = join(String(sessionDir), skillsSubdir);
+      const dst = join(skillsDir, skill.name);
+      // Project-wins: a pre-existing `SKILL.md` at the destination is the operator's own.
+      // Leave it alone (the readiness flow may run on a repo where these skills already
+      // exist from a previous run; we don't want to overwrite operator edits).
+      if (existsSync(join(dst, 'SKILL.md'))) return Result.ok(undefined);
+      try {
+        await mkdir(dst, { recursive: true });
+        await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+      } catch (cause) {
+        return Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: `${deps.providerId}: failed to install bare skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            path: dst,
+            cause,
+          })
+        );
+      }
+      return Result.ok(undefined);
+    },
+
     describeSkillsConvention(): string {
       return deps.convention;
     },

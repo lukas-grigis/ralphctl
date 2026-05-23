@@ -1,13 +1,12 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { EvaluationSignal } from '@src/domain/signal.ts';
-import { FIXED_NOW } from '@tests/fixtures/domain.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import {
   nextRoundNum,
+  readRoundSessionId,
   roundSignalsPath,
-  writeEvaluatorRoundArtifacts,
+  writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 
 describe('round-artifacts', () => {
@@ -54,39 +53,44 @@ describe('round-artifacts', () => {
     });
   });
 
-  describe('writeEvaluatorRoundArtifacts', () => {
-    it('renders evaluation.md from the evaluation signal', async () => {
-      const evaluation: EvaluationSignal = {
-        type: 'evaluation',
-        status: 'failed',
-        dimensions: [
-          { dimension: 'correctness', score: 2, passed: false, finding: 'wrong return type' },
-          { dimension: 'tests', score: 4, passed: true, finding: 'covers the happy path' },
-        ],
-        overallScore: 3,
-        critique: 'Fix the return type before merging.',
-        timestamp: FIXED_NOW,
-      };
-      await writeEvaluatorRoundArtifacts(root.root, 2, [evaluation]);
+  describe('writeRoundPrompt', () => {
+    it('writes prompt.md atomically into rounds/<N>/<role>/', async () => {
+      await writeRoundPrompt(root.root, 4, 'generator', 'hello prompt body');
+      const path = join(String(root.root), 'rounds', '4', 'generator', 'prompt.md');
+      expect(await fs.readFile(path, 'utf8')).toBe('hello prompt body');
 
-      const md = await fs.readFile(join(String(root.root), 'rounds', '2', 'evaluator', 'evaluation.md'), 'utf8');
-      expect(md).toContain('**Status:** failed');
-      expect(md).toContain('**Overall score:** 3.0');
-      expect(md).toContain('**correctness** (2/5, failed): wrong return type');
-      expect(md).toContain('**tests** (4/5, passed): covers the happy path');
-      expect(md).toContain('Fix the return type before merging.');
+      await writeRoundPrompt(root.root, 4, 'evaluator', 'evaluator brief');
+      const evalPath = join(String(root.root), 'rounds', '4', 'evaluator', 'prompt.md');
+      expect(await fs.readFile(evalPath, 'utf8')).toBe('evaluator brief');
     });
 
-    it('renders a placeholder evaluation.md when no evaluation signal is present', async () => {
-      await writeEvaluatorRoundArtifacts(root.root, 1, [{ type: 'note', text: 'observation', timestamp: FIXED_NOW }]);
-      const md = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'evaluation.md'), 'utf8');
-      expect(md).toMatch(/No.*verdict emitted/i);
+    it('leaves no .tmp leftover after a successful write (rename-based atomicity)', async () => {
+      await writeRoundPrompt(root.root, 2, 'generator', 'body');
+      const dir = join(String(root.root), 'rounds', '2', 'generator');
+      const entries = await fs.readdir(dir);
+      expect(entries).toContain('prompt.md');
+      expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
+    });
+  });
+
+  describe('readRoundSessionId', () => {
+    it('reads the captured session id when the sibling file exists', async () => {
+      const dir = join(String(root.root), 'rounds', '3', 'generator');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, 'sessionId'), 'gen-session-xyz\n', 'utf8');
+      expect(await readRoundSessionId(root.root, 3, 'generator')).toBe('gen-session-xyz');
     });
 
-    it('does NOT write session.md — the body is no longer a first-class artifact', async () => {
-      await writeEvaluatorRoundArtifacts(root.root, 1, []);
-      const base = join(String(root.root), 'rounds', '1', 'evaluator');
-      await expect(fs.readFile(join(base, 'session.md'), 'utf8')).rejects.toThrow();
+    it('returns undefined when the sessionId file is absent (provider never reported one)', async () => {
+      expect(await readRoundSessionId(root.root, 99, 'generator')).toBeUndefined();
+      expect(await readRoundSessionId(root.root, 99, 'evaluator')).toBeUndefined();
+    });
+
+    it('returns undefined for an empty sessionId file rather than a zero-length id', async () => {
+      const dir = join(String(root.root), 'rounds', '7', 'evaluator');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(join(dir, 'sessionId'), '\n', 'utf8');
+      expect(await readRoundSessionId(root.root, 7, 'evaluator')).toBeUndefined();
     });
   });
 

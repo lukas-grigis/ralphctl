@@ -37,6 +37,7 @@ Design constraints:
 ```ts
 interface Element<TCtx> {
   readonly name: string;
+  readonly label?: string;
   readonly children?: ReadonlyArray<Element<TCtx>>;
   execute(ctx: TCtx, signal?: AbortSignal, onTrace?: OnTrace): Promise<ElementResult<TCtx>>;
 }
@@ -47,6 +48,11 @@ type ElementResult<TCtx> = Result<{ ctx: TCtx; trace: Trace }, { error: DomainEr
 That is the entire interface. `leaf`, `sequential`, `loop`, and `guard` all return values that satisfy it.
 A chain is an Element. A sub-chain is just an Element passed where another Element would be — composition
 is implicit.
+
+`name` is the canonical identifier — used for dedupe, trace correlation, and plan/trace merge. **`label`**
+is an optional human-friendly display string; UI surfaces (e.g. the Execute-view rail) render `label` when
+present and fall back to `name`. Flow authors use `label` to avoid leaking structural data (e.g. absolute
+repo paths) into the rendered rail without losing the stable name underneath.
 
 `children` exposes composite structure so callers can walk the tree without executing it. Leaves omit
 `children`; composites set it to their immediate children; `loop` returns `[body]` (one element — operators
@@ -66,6 +72,15 @@ leaf<TCtx, UInput, UOutput>(name, {
   input: (ctx) => ({ sprintId: ctx.sprintId }),
   output: (ctx, sprint) => ({ ...ctx, sprint }),
 });
+```
+
+An optional third argument `opts?: { label?: string }` attaches a display label to the resulting element and
+every `TraceEntry` it emits. `name` stays the canonical identifier; `label` is purely a UI hint. Omitting
+opts or omitting `label` within opts leaves the field absent — callers fall back to `name`:
+
+```ts
+leaf('preflight-task-1-/abs/path/my-repo', config, { label: 'preflight · my-repo' });
+// rail shows "preflight · my-repo"; trace correlation still uses the full name
 ```
 
 `input` projects ctx → use-case input. `output` merges use-case output → new ctx. Both projections may throw
@@ -162,6 +177,7 @@ type TraceStatus = 'completed' | 'failed' | 'skipped' | 'aborted';
 
 interface TraceEntry {
   readonly elementName: string;
+  readonly label?: string; // copied from Element.label when present; absent otherwise
   readonly status: TraceStatus;
   readonly durationMs: number;
   readonly error?: DomainError; // populated when status is 'failed' or 'aborted'
@@ -172,6 +188,9 @@ type Trace = readonly TraceEntry[];
 
 This is the architectural fence: every chain definition has an integration test asserting
 `trace.map(s => s.elementName)` for happy + failure paths. Step-order regressions break the build.
+
+`label` in a `TraceEntry` is copied verbatim from the source `Element.label` at the moment the entry is
+recorded. Synthetic entries (`skipped`, `aborted`) constructed without an originating element omit it.
 
 ### Progressive emission
 
@@ -200,10 +219,10 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
   - Aborted mid-run: `started → step* → aborted`
 - **Late-subscriber replay**: a listener added after a terminal state receives every recorded `step` event
   plus the matching terminal event. UI re-attach is lossless.
-- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 20_000` to bound memory on
-  multi-task implement runs. Live subscribers still see every event; the cap only bounds the snapshot
-  late subscribers replay from. The TUI's per-task round counter holds a monotonic high-water mark in a
-  React ref so the displayed `round N/M` survives eviction.
+- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (in
+  `src/application/ui/tui/views/execute-view.tsx`, not in the runner itself) to bound the per-component
+  replay snapshot. Live subscribers still see every event; the cap only bounds the snapshot late
+  subscribers replay from.
 - **Session scope**: the runner enters the `runWithSession(id, …)` scope before calling
   `element.execute(...)`. Deep adapter code can read `currentSessionId()` to tag logs / signals.
 
@@ -240,21 +259,22 @@ const perTask = sequential('task-<id>', [
   buildTaskWorkspaceLeaf,
   installSkillsLeaf, // copies bundled skills into <repo>; git-excludes via ralphctl-*
   startAttemptLeaf,
+  preTaskCheckLeaf, // pre-check before AI runs; result stored for attribution
   loop(
     'gen-eval-<id>',
     sequential('gen-eval-turn-<id>', [
-      generatorLeaf,
+      generatorLeaf, // writes rounds/<N>/generator/prompt.md before spawn
       guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
-    ]),
+    ]), // evaluator writes rounds/<N>/evaluator/prompt.md before spawn
     {
       shouldStop: (ctx) => ctx.lastExit !== undefined,
       maxIterations: settings.harness.maxTurns,
     }
   ),
   finalizeGenEvalLeaf,
-  postTaskCheckLeaf,
+  postTaskCheckLeaf, // post-check; attributes outcome (clean/regressed/baseline-broken/fixed-baseline)
   guard('commit-task-guard-<id>', (ctx) => ctx.lastBlockReason === undefined, commitTaskLeaf),
-  settleAttemptLeaf,
+  settleAttemptLeaf, // writes rounds/<N>/outcome.md + triggers progress.md snapshot
   uninstallSkillsLeaf, // removes harness-installed ralphctl-* skills from <repo>
 ]);
 
@@ -265,15 +285,25 @@ const orderedTasks = topologicalReorder(tasks);
 sequential('implement', [
   loadSprintLeaf,
   activateSprintLeaf,
+  loadSprintExecutionLeaf,
+  loadTasksLeaf,
+  ensureProgressFileLeaf, // snapshot-renders progress.md from SprintState (no streaming sink)
+  setupScriptRunnerLeaf, // unconditional; appends SetupRun entries to SprintExecution.setupRanAt
   resolveBranchLeaf,
-  ensureProgressFileLeaf,
-  setupScriptRunnerLeaf,
+  sequential('preflight-tasks', preflightLeaves),
   sequential(
-    'execute-tasks',
-    orderedTasks.map(() => perTask) // each perTask brackets with install-skills-<id> / uninstall-skills-<id>
+    'implement-tasks',
+    orderedTasks.map(() => perTask)
   ),
-  flushProgressSinkLeaf,
-  transitionSprintToReviewLeaf,
+  saveTasksLeaf,
+  guard(
+    'transition-sprint-to-review-when-any-done',
+    (ctx) => ctx.tasks?.some((t) => t.status === 'done'),
+    sequential('transition-to-review-and-snapshot', [
+      transitionSprintToReviewLeaf,
+      writeProgressSnapshotLeaf, // final snapshot after status transition
+    ])
+  ),
 ]);
 ```
 

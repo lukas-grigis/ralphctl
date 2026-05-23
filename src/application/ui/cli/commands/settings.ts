@@ -21,7 +21,7 @@ const isAiProvider = (value: string): value is AiProvider => (AI_PROVIDERS as re
  *
  * Supported keys:
  *   ai.models.refine | plan | implement | readiness | ideate    provider-specific model id
- *   harness.maxTurns | maxAttempts | rateLimitRetries    integer (range-checked)
+ *   harness.maxTurns | maxAttempts | rateLimitRetries | plateauThreshold    integer (range-checked)
  *   logging.level                  silent | debug | info | warn | error
  *   concurrency.maxParallelTasks   positive integer
  */

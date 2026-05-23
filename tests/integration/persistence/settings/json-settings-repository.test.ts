@@ -87,9 +87,11 @@ describe('JsonSettingsRepository', () => {
           ideate: 'gpt-5.4-mini',
         },
       },
-      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 2 },
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 2, plateauThreshold: 2 },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
+      ui: { notifications: { enabled: true } },
+      developer: { showEvaluatorFailureUI: false },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     expect((await repo.save(codex)).ok).toBe(true);
@@ -111,9 +113,11 @@ describe('JsonSettingsRepository', () => {
           ideate: 'gpt-5-mini',
         },
       },
-      harness: { maxTurns: 8, maxAttempts: 5, rateLimitRetries: 5 },
+      harness: { maxTurns: 8, maxAttempts: 5, rateLimitRetries: 5, plateauThreshold: 3 },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
+      ui: { notifications: { enabled: false } },
+      developer: { showEvaluatorFailureUI: true },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     const saved = await repo.save(custom);

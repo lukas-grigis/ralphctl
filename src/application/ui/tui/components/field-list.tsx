@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { FIELD_LABEL_WIDTH } from '@src/application/ui/tui/theme/tokens.ts';
+import { FIELD_LABEL_WIDTH, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface Field {
   readonly label: string;
@@ -25,7 +25,10 @@ export interface FieldListProps {
 }
 
 const padLabel = (label: string, width: number): string => {
-  const trimmed = label.length > width - 1 ? label.slice(0, width - 1) : label;
+  // Width-based clip on an over-wide label — appends `clipEllipsis` (audit-[03] display-clip
+  // marker) so the operator sees the label was abbreviated rather than silently misspelled.
+  // The colon still follows; rare in practice because field labels are short fixed strings.
+  const trimmed = label.length > width - 1 ? `${label.slice(0, width - 2)}${glyphs.clipEllipsis}` : label;
   const withColon = `${trimmed}:`;
   return withColon.padEnd(width, ' ');
 };

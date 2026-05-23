@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { ReadinessProbeRegistry, ReadinessProbe } from '@src/integration/ai/readiness/_engine/probe.ts';
 import { absentState, type ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { ToolArtifacts } from '@src/integration/ai/readiness/_engine/tool-artifacts.ts';
@@ -21,7 +20,6 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, FIXED_NOW, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
@@ -144,11 +142,12 @@ describe('createReadinessFlow', () => {
 
   it('happy path — probe absent → AI proposes → user accepts → file written at expected path', async () => {
     const { project, repository } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const capturedLogs: Array<{ level: string; message: string }> = [];
+    const aiSignals: Array<{ type: string }> = [];
     eventBus.subscribe((e) => {
       if (e.type === 'log') capturedLogs.push({ level: e.level, message: e.message });
+      if (e.type === 'ai-signal') aiSignals.push({ type: e.signal.type });
     });
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
@@ -174,7 +173,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -206,22 +205,30 @@ describe('createReadinessFlow', () => {
       'uninstall-skills',
       'confirm',
       'write',
+      'install-readiness-skills',
     ]);
 
-    expect(writer.writes).toHaveLength(1);
-    expect(writer.writes[0]?.path).toBe(join(String(repository.path), 'CLAUDE.md'));
-    expect(writer.writes[0]?.content).toContain('# repo-a');
-    expect(writer.writes[0]?.content).toContain('## Build & Run');
+    // The recorder captures every WriteFile call: the audit-[09] sidecar render writes
+    // `agents-md-proposal.md` into the engine's per-run forensic dir, then the write leaf
+    // lands the final body at the canonical `<repo>/CLAUDE.md` path.
+    const targetWrites = writer.writes.filter((w) => w.path === join(String(repository.path), 'CLAUDE.md'));
+    expect(targetWrites).toHaveLength(1);
+    expect(targetWrites[0]?.content).toContain('# repo-a');
+    expect(targetWrites[0]?.content).toContain('## Build & Run');
+    // The harness-owned sidecar lands under the engine's run dir; same body as the signal.
+    const sidecarWrites = writer.writes.filter((w) => w.path.endsWith('/agents-md-proposal.md'));
+    expect(sidecarWrites).toHaveLength(1);
+    expect(sidecarWrites[0]?.content).toContain('# repo-a');
 
-    // `<claude-md>` parses into an agents-md-proposal signal; the harness sink sees both.
-    expect(harness.entries.map((s) => s.type)).toEqual(['agents-md-proposal', 'note']);
+    // The audit-[09] contract fans validated signals out as `ai-signal` events on the bus.
+    expect(aiSignals.map((s) => s.type)).toEqual(['agents-md-proposal', 'note']);
 
     expect(runner.ctx.accepted).toBe(true);
     expect(runner.ctx.proposal?.proposedContent).toContain('# repo-a');
 
     const messages = capturedLogs.map((e) => e.message);
     expect(messages.some((m) => m.includes('starting repo'))).toBe(true);
-    expect(messages.some((m) => m.includes('proposal ready'))).toBe(true);
+    expect(messages.some((m) => m.includes('provider spawn complete'))).toBe(true);
     expect(messages.some((m) => m.includes('wrote'))).toBe(true);
   });
 
@@ -230,17 +237,19 @@ describe('createReadinessFlow', () => {
       FAKE_CWD,
       '#prompt' as unknown as Prompt,
       'claude-sonnet-4-6',
-      absolutePath('/tmp/signals.json')
+      absolutePath('/tmp/run-dir/signals.json'),
+      undefined,
+      absolutePath('/tmp/run-dir')
     );
     expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canEditFiles).toBe(false);
+    expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.autoApprove).toBe(false);
+    expect(String(session.outputDir)).toBe('/tmp/run-dir');
   });
 
   it('rejection path — user declines → no file is written', async () => {
     const { project } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const capturedLogs: Array<{ level: string; message: string }> = [];
     eventBus.subscribe((e) => {
@@ -264,7 +273,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -286,7 +295,12 @@ describe('createReadinessFlow', () => {
 
     expect(runner.status).toBe('completed');
     expect(runner.ctx.accepted).toBe(false);
-    expect(writer.writes).toHaveLength(0);
+    // The write leaf is a no-op on decline, but the audit-[09] sidecar render still writes
+    // `agents-md-proposal.md` into the engine's per-run forensic dir BEFORE the confirm step
+    // — sidecars are operator UX, written unconditionally on a successful AI round-trip. The
+    // final target path (`<repo>/CLAUDE.md`) stays untouched.
+    const finalWrites = writer.writes.filter((w) => !w.path.includes('/runs/readiness/'));
+    expect(finalWrites).toHaveLength(0);
 
     const messages = capturedLogs.map((e) => e.message);
     expect(messages.some((m) => m.includes('skipping write'))).toBe(true);
@@ -294,7 +308,6 @@ describe('createReadinessFlow', () => {
 
   it('backup path — existing file → writes <target>.bak.<timestamp> before overwriting', async () => {
     const { project, repository } = await buildScene({ existingFile: '# old content\n' });
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
@@ -318,7 +331,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -343,17 +356,19 @@ describe('createReadinessFlow', () => {
     const targetPath = join(String(repository.path), 'CLAUDE.md');
     const backupPath = `${targetPath}.bak.${expectedSuffix}`;
 
-    // Backup precedes the new write; both paths recorded.
-    expect(writer.writes.map((w) => w.path)).toEqual([backupPath, targetPath]);
-    expect(writer.writes[0]?.content).toBe('# old content\n');
-    expect(writer.writes[1]?.content).toContain('# new content');
+    // Filter out the audit-[09] sidecar write (`agents-md-proposal.md` under the engine's
+    // per-run forensic dir) so the assertion focuses on the write leaf's backup-then-write
+    // pair against the canonical target.
+    const finalWrites = writer.writes.filter((w) => !w.path.includes('/runs/readiness/'));
+    expect(finalWrites.map((w) => w.path)).toEqual([backupPath, targetPath]);
+    expect(finalWrites[0]?.content).toBe('# old content\n');
+    expect(finalWrites[1]?.content).toContain('# new content');
   });
 
   it('surfaces a typed error when probe registry has no matching probe but the chain still completes (unknown state)', async () => {
     // Empty probe registry → evaluateReadiness returns `unknownState`. Chain still flows
     // and the AI is asked to propose a fresh body.
     const { project } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const writer = recordingWriteFile();
 
@@ -372,7 +387,7 @@ describe('createReadinessFlow', () => {
         probes: {}, // no probes registered
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -394,12 +409,14 @@ describe('createReadinessFlow', () => {
 
     expect(runner.status).toBe('completed');
     expect(runner.ctx.probedState?.kind).toBe('unknown');
-    expect(writer.writes).toHaveLength(1);
+    // Audit-[09] adds the sidecar write under the engine's per-run dir; filter to the final
+    // target write only.
+    const finalWrites = writer.writes.filter((w) => !w.path.includes('/runs/readiness/'));
+    expect(finalWrites).toHaveLength(1);
   });
 
   it('surfaces a ParseError when the AI omits the <claude-md> tag, with the raw body spliced into the error hint', async () => {
     const { project } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
@@ -422,7 +439,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -447,33 +464,40 @@ describe('createReadinessFlow', () => {
     expect(failed?.elementName).toBe('propose');
     expect(writer.writes).toHaveLength(0);
 
-    // Failsafe — the error must carry the AI's raw body so the operator sees the permission ask.
-    const err = failed?.error as { code?: string; hint?: string; message?: string } | undefined;
-    expect(err?.code).toBe('parse-error');
-    expect(err?.hint ?? '').toContain('AI response:');
-    expect(err?.hint ?? '').toContain('I need read permission');
-    expect(err?.hint ?? '').toContain('run artifacts:');
+    // Post-Wave-6 the leaf validates the AI's signals.json against the readiness contract,
+    // then projects the agents-md-proposal body onto ctx. When the AI emits no proposal at
+    // all (this test's fake response carries no parsed signals), the leaf surfaces an
+    // InvalidStateError naming the missing projection.
+    const err = failed?.error as { code?: string; message?: string } | undefined;
+    expect(err?.code).toBe('invalid-state');
+    expect(err?.message ?? '').toContain('no agents-md-proposal');
   });
 
-  it('surfaces AI-proposed setup-script and verify-script on ctx.proposal', async () => {
+  it('surfaces AI-proposed setup-skill and verify-skill bodies on ctx.proposal', async () => {
+    // Audit-[09] readiness contract dropped the one-shell-line setup-script / verify-script
+    // signals in favour of multi-paragraph setup-skill-proposal / verify-skill-proposal
+    // bodies (markdown the harness lands as SKILL.md files). Verify both bodies survive the
+    // contract round-trip and project onto ctx.proposal.
     const { project } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: {
+      responses: { readiness: '<claude-md>\n# repo-a\n</claude-md>' },
+      signals: {
         readiness: [
-          '<claude-md>',
-          '# repo-a',
-          '',
-          '## Build & Run',
-          '- pnpm install',
-          '</claude-md>',
-          '<setup-script>pnpm install</setup-script>',
-          '<verify-script>pnpm typecheck && pnpm lint && pnpm test</verify-script>',
-        ].join('\n'),
+          {
+            type: 'setup-skill-proposal',
+            content: '# Setup\n\nRun `pnpm install`.',
+            timestamp: IsoTimestamp.now(),
+          },
+          {
+            type: 'verify-skill-proposal',
+            content: '# Verify\n\nRun `pnpm typecheck && pnpm lint && pnpm test`.',
+            timestamp: IsoTimestamp.now(),
+          },
+        ],
       },
     });
 
@@ -488,7 +512,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
@@ -509,13 +533,12 @@ describe('createReadinessFlow', () => {
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.proposal?.proposedSetupScript).toBe('pnpm install');
-    expect(runner.ctx.proposal?.proposedVerifyScript).toBe('pnpm typecheck && pnpm lint && pnpm test');
+    expect(runner.ctx.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
+    expect(runner.ctx.proposal?.proposedVerifySkillBody).toContain('pnpm typecheck && pnpm lint && pnpm test');
   });
 
   it('leaves setup/verify proposals undefined when the AI omits the tags', async () => {
     const { project } = await buildScene();
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
@@ -535,7 +558,7 @@ describe('createReadinessFlow', () => {
         probes,
         provider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: harness,
+
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,

@@ -8,13 +8,8 @@ implementation tasks in one session. Two phases — refine then plan — both in
 
 ## Output target
 
-When BOTH phases are approved by the user, write a JSON object to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Single object, no array wrapper around the top level. Use exactly this shape:
+When BOTH phases are approved by the user, emit an `ideated-tickets` signal whose
+`outputJson` field carries a JSON-encoded object with this shape:
 
 ```json
 {
@@ -42,7 +37,8 @@ Single object, no array wrapper around the top level. Use exactly this shape:
 `projectPath` MUST match one of the absolute paths under "Selected Repositories" below.
 `blockedBy` references other task `id`s in the same array.
 
-Write only after the user approves both phases. No code, no other files.
+Write only after the user approves both phases. The Output contract section at the bottom of
+this prompt documents the exact `signals.json` shape. No code, no other files.
 
 ## Idea
 
@@ -60,6 +56,15 @@ Write only after the user approves both phases. No code, no other files.
 
 These paths are fixed — repository selection is not part of this session.
 
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint chronologically. Read
+it before refining + planning; honor prior decisions. The journal body as of right now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
+
 ## Phase 1 — Refine requirements (WHAT)
 
 Focus: clarify WHAT needs to be built. Implementation-agnostic.
@@ -71,8 +76,10 @@ ambiguous. The harness strips thinking blocks before persisting.
 
 ### Step 1.1 — Interview
 
-Ask focused questions one at a time using `AskUserQuestion`. Work through these
-dimensions in priority order; skip any the idea description already answers:
+Ask focused questions one at a time as structured multiple-choice prompts (header, 2–4 labelled
+options, recommendation first). Use whichever interactive question tool your runtime exposes —
+Claude Code's `AskUserQuestion` or its equivalent. Work through these dimensions in priority
+order; skip any the idea description already answers:
 
 - **Problem & scope** — what problem? for whom? in scope vs out of scope?
 - **Functional behaviour** — what should it do, observable as user-visible behaviour?
@@ -131,14 +138,15 @@ pick up cold. For each task:
 - **`name`** — imperative, short.
 - **`description`** — optional longer-form context.
 - **`projectPath`** — absolute path matching one of the Selected Repositories above.
-- **`steps`** — concrete implementation steps in order. End with the verification
-  command (e.g. "run `pnpm test` in <repo>").
+- **`steps`** — concrete implementation steps in order. End with the project's verification
+  command (read the project's AI context file or manifest for the exact command — e.g. typecheck
+  / lint / tests chained with `&&` — and name the repository the command runs in).
 - **`verificationCriteria`** — observable checks an evaluator can run.
 - **`blockedBy`** — `id`s of tasks that must complete before this one starts.
 - **`id`** — short string for `blockedBy` references (e.g. `"1"`, `"api-shape"`).
 
-Use `AskUserQuestion` for genuinely contested implementation decisions (library
-choice, architecture). Don't ask routine questions.
+For genuinely contested implementation decisions (library choice, architecture), ask a structured
+multiple-choice question. Don't ask routine questions the manifest / project conventions answer.
 
 ### Step 2.3 — Present + approve
 
@@ -157,16 +165,18 @@ Iterate until approved.
 
 ## Output rules
 
-- Write a single JSON object to `{{OUTPUT_FILE}}`.
-- The object has exactly two top-level keys: `requirements` (string) and `tasks` (array).
+- Write a single `ideated-tickets` signal into `signals.json` per the Output contract section
+  below. The `outputJson` field holds a JSON-encoded object.
+- The encoded object has exactly two top-level keys: `requirements` (string) and `tasks` (array).
 - `requirements` is the approved markdown body from Phase 1, verbatim.
 - `tasks` is the approved array from Phase 2.
-- Do not include any commentary in the file — just the JSON.
 - Do not write code, do not modify other files.
 
 ## Failure modes
 
 If the idea cannot be turned into a plan (contradictory requirements, missing context
-that can't be extracted from the user), still write a JSON object — `requirements` may
-contain whatever you've gathered, and `tasks` may be empty `[]`. End the chat with a
-final note explaining the gap so the user knows the output is partial.
+that can't be extracted from the user), still emit the `ideated-tickets` signal —
+`requirements` may contain whatever you've gathered, and `tasks` may be empty `[]`. End the
+chat with a final note explaining the gap so the user knows the output is partial.
+
+{{OUTPUT_CONTRACT_SECTION}}

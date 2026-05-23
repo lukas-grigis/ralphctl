@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { commitMessageParser } from '@src/integration/ai/signals/commit-message/parser.ts';
+import { commitMessageParser } from '@tests/helpers/legacy-signal-parsers/commit-message/parser.ts';
 
 const NOW = isoTimestamp('2026-05-12T11:00:00.000Z');
 

@@ -4,8 +4,8 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { fromJsonTask, toJsonTask } from '@src/integration/persistence/task/task.schema.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { fromJsonTasksFile, toJsonTasksFile } from '@src/integration/persistence/task/task.schema.ts';
 import { readJson, writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { tasksFile } from '@src/integration/persistence/storage.ts';
 import { decode } from '@src/integration/persistence/shared/decode.ts';
@@ -45,26 +45,11 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
         return Result.ok([] as readonly Task[]) as Result<readonly Task[], StorageError>;
       return Result.error(json.error);
     }
-    if (!Array.isArray(json.value)) {
-      return Result.error(
-        new StorageError({
-          subCode: 'parse',
-          message: `tasks file for sprint '${String(sprintId)}' is not a JSON array`,
-          path,
-        })
-      );
-    }
-    const tasks: Task[] = [];
-    for (const item of json.value) {
-      const decoded = decode(fromJsonTask, item, { entity: 'task', path });
-      if (!decoded.ok) return Result.error(decoded.error);
-      tasks.push(decoded.value);
-    }
-    return Result.ok(tasks as readonly Task[]) as Result<readonly Task[], StorageError>;
+    return decode((input) => fromJsonTasksFile(input, path), json.value, { entity: 'task', path });
   };
 
   const writeAll = async (sprintId: SprintId, tasks: readonly Task[]): Promise<Result<void, StorageError>> =>
-    writeJsonAtomic(tasksFile(deps.root, sprintId), tasks.map(toJsonTask));
+    writeJsonAtomic(tasksFile(deps.root, sprintId), toJsonTasksFile(tasks));
 
   return {
     async findById(sprintId, taskId) {

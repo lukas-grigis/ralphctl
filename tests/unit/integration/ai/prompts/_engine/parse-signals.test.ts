@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { parseHarnessSignals } from '@src/integration/ai/signals/_engine/parse-signals.ts';
+import { parseHarnessSignals } from '@tests/helpers/legacy-signal-parsers/_engine/parse-signals.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 

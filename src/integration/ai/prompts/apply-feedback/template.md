@@ -16,8 +16,10 @@ of them as they wrote it.
 code, don't add tests the user didn't ask for, don't tighten unrelated types. The user is
 shaping the work; you execute their direction.
 
-**Commit on completion.** When you've applied the round's feedback, the harness will commit
-your changes with the message `feedback(round-N): <body-snippet>`. Do not commit yourself.
+**Commit and verify are the harness's job.** When you've applied the round's feedback, the harness
+commits your changes with the message `feedback(round-N): <body-snippet>` and then runs the project's
+verify script itself. Do not commit, and do not run verify scripts — emit `<task-complete>` once your
+edits are on disk and let the harness drive the gate.
 
 **Make the edits — don't just describe them.** The harness does not apply changes for you;
 you must write the files. A written-out description of the edits, without actual file writes,
@@ -60,18 +62,23 @@ This is the round you are applying. Read it carefully and make ONLY the changes 
 <progress>
 
 The sprint's `progress.md` — pinned learnings and decisions, plus per-task activity. Use it
-for context (don't re-discover what the prior tasks already learned), and emit `<learning>`
-or `<decision>` if your application surfaces new insight.
+for context so you don't re-discover what the prior tasks already established. This is a
+review-time prompt — the review flow does not mine `<learning>` / `<decision>` / `<note>`
+back into `progress.md`, so do not emit them; surface insights inside the change itself
+(via tests, docstrings, or the targeted edit).
 
 {{PROGRESS}}
 
 </progress>
 
-You are working in this project directory:
+## Repositories
 
-```
-{{PROJECT_PATH}}
-```
+The sprint targets the repositories below. Each line is `- \`<absolute-path>\` (<name>)`. Decide which
+repository (or repositories) the latest round touches based on the feedback content and the relevant
+source layout. The harness mounts every repository as a workspace root — open files via the absolute
+paths shown.
+
+{{REPOSITORIES}}
 
 ## Protocol
 
@@ -98,21 +105,15 @@ Then orient before editing:
    files when the round is symptom-described rather than file-described).
 3. **Do not commit.** The harness commits your changes with `feedback(round-N): <body-snippet>`.
 
-### Phase 3 — Verification
+### Phase 3 — Signal outcome
 
-1. **Run the check script** (when one is configured in the Project Tooling section). Record its
-   output verbatim for `<task-verified>`.
-2. **When no check script is configured**, emit
-   `<task-verified>no check script configured; change applied</task-verified>` so the harness can
-   record that the round produced changes without a verification gate.
-3. **Signal completion** with `<task-complete>` once the change is applied and verification (if
-   any) passed.
+When every requested change is on disk, emit `<task-complete>`. The harness then commits your edits
+and runs the project's verify script — you do not run either step yourself.
 
-If you cannot apply the feedback (ambiguous, contradicts an invariant, missing context that
-prior rounds did not supply), emit `<task-blocked>reason</task-blocked>` with a concrete
-explanation. Ambiguity in WHERE to apply the change is not a blocker — pick the narrowest
-plausible target. Ambiguity in WHAT to do is.
+If you cannot apply the feedback (the request is ambiguous in WHAT to do, contradicts an invariant
+established by a prior round, or asks for information neither this round nor the feedback log
+supplies), emit `<task-blocked>reason</task-blocked>` with a concrete explanation. Ambiguity in
+WHERE to apply the change is not a blocker — pick the narrowest plausible target. Ambiguity in WHAT
+to do is.
 
-When finished, emit a verdict signal from the `<signals>` block below.
-
-{{SIGNALS}}
+{{OUTPUT_CONTRACT_SECTION}}

@@ -40,6 +40,8 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -169,7 +171,8 @@ interface CommitCapturingGit {
  * `status --porcelain` post-commit must return clean, otherwise settle (correctly) refuses
  * to mark the task done. Sequence for one task:
  *
- *   outer preflight `status` → clean (the harness expects a clean working tree)
+ *   working-tree-clean-check `status` → clean (pre-setup hard gate)
+ *   preflight-task `status`           → clean (interactive dirty-tree gate; clean → no prompt)
  *   commit-task `status` (gate 1) → dirty   (the AI just wrote files)
  *   commit-task `add -A`
  *   commit-task `status` (gate 2) → dirty   (staged but not committed yet)
@@ -180,11 +183,13 @@ interface CommitCapturingGit {
 const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
   const messages: string[] = [];
   let taskCommits = 0;
-  // Worktree starts clean (outer preflight passes). After preflight we're "in a per-task
-  // window": status returns dirty until commit-task's `commit -m` lands, then clean again
-  // (settle-attempt's worktree-clean guardrail relies on the clean response). The next task
-  // re-enters the dirty window when its status calls start.
-  let preflightSeen = false;
+  // Worktree starts clean — the chain's pre-setup hard gate (working-tree-clean-check) +
+  // post-setup interactive gate (preflight-task) both expect a clean tree at sprint start.
+  // After those upfront preflight calls we're "in a per-task window": status returns dirty
+  // until commit-task's `commit -m` lands, then clean again (settle-attempt's worktree-clean
+  // guardrail relies on the clean response). The next task re-enters the dirty window when
+  // its status calls start.
+  let preflightStatusesRemaining = 2;
   let cleanAfterCommit = false;
   const sha = (i: number): string =>
     String(i)
@@ -196,9 +201,9 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
   const runner: GitRunner = {
     async run(_, args) {
       if (args[0] === 'status' && args[1] === '--porcelain') {
-        if (!preflightSeen) {
-          preflightSeen = true;
-          return okGit('', 0); // outer preflight: clean
+        if (preflightStatusesRemaining > 0) {
+          preflightStatusesRemaining -= 1;
+          return okGit('', 0); // upfront preflight (working-tree-clean-check + preflight-task): clean
         }
         // After a successful commit the tree is clean (settle guardrail check). The next
         // task's first status starts a new dirty window automatically because we flip the
@@ -296,7 +301,7 @@ const buildDeps = (
   eventBus: createInMemoryEventBus(),
   logger: noopLogger,
   clock: () => FIXED_LATER,
-  config: { harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 0 } },
+  config: { harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
   gitRunner,
   shellScriptRunner: passingShell,
   fileLocker: createFileLocker(),
@@ -304,6 +309,8 @@ const buildDeps = (
   skillsAdapter: noopSkillsAdapter,
   skillSource: emptySkillSource,
   interactive: unusedInteractive,
+  writeFile: createAtomicWriteFile(),
+  appendFile: createAppendFile(),
 });
 
 const unusedInteractive: InteractivePrompt = {
@@ -336,6 +343,50 @@ describe('createImplementFlow — gen-eval loop', () => {
   const tracking = (b: FixtureBundle): void => {
     cleanupFns.push(b.cleanup);
   };
+
+  it('writes rounds/<n>/outcome.md after the attempt settles, with the synthesis paragraph', async () => {
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      responses: {
+        implement: '<task-verified>tests pass</task-verified>',
+        evaluate: '<evaluation-passed>',
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        model: 'claude-opus-4-7',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-outcome-md',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+
+    const task = f.tasks[0];
+    if (task === undefined) throw new Error('test setup: missing task');
+    const outcomePath = join(f.dir, 'implement', String(task.id), 'rounds', '1', 'outcome.md');
+    const outcome = await fs.readFile(outcomePath, 'utf8');
+    expect(outcome).toContain('# Round 1 · attempt 1');
+    expect(outcome).toContain('- verdict: passed');
+    expect(outcome).toContain('## Synthesis');
+    expect(outcome).toMatch(/Round 1 of attempt 1 passed all evaluator dimensions/);
+    expect(outcome).not.toContain('## Critique');
+  });
 
   it('first-try pass: implement verifies, evaluator passes — task → done, sprint → review in one turn', async () => {
     const f = await buildFixture(1);
@@ -454,7 +505,7 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     const deps: ImplementDeps = {
       ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
-      config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0 } },
+      config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
     };
     const flow = createImplementFlow(deps, {
       sprintId: f.sprint.id,
@@ -591,15 +642,22 @@ describe('createImplementFlow — gen-eval loop', () => {
     const idxAssert = elementNames.indexOf('assert-sprint-status');
     const idxLoadExec = elementNames.indexOf('load-sprint-execution');
     const idxLoadTasks = elementNames.indexOf('load-tasks');
-    const idxEnsure = elementNames.indexOf('ensure-progress-file');
+    const idxResolveBranch = elementNames.indexOf('resolve-branch');
+    const idxWorkingTreeClean = elementNames.findIndex((n) => n.startsWith('working-tree-clean-check-'));
+    const idxSetupScript = elementNames.indexOf('setup-script-runner');
     const idxSaveTasks = elementNames.indexOf('save-tasks');
     const idxTransition = elementNames.indexOf('transition-sprint-to-review');
     expect(idxLoadSprint).toBeGreaterThanOrEqual(0);
     expect(idxAssert).toBeGreaterThan(idxLoadSprint);
     expect(idxLoadExec).toBeGreaterThan(idxAssert);
     expect(idxLoadTasks).toBeGreaterThan(idxLoadExec);
-    expect(idxEnsure).toBeGreaterThan(idxLoadTasks);
-    expect(idxSaveTasks).toBeGreaterThan(idxEnsure);
+    // Pre-setup gate: resolve-branch + working-tree-clean-check land BEFORE setup-script-runner
+    // so the user sees branch + dirty-tree problems surfaced before a multi-minute setup script
+    // runs. The interactive preflight-task gate stays downstream of setup as a recovery seam.
+    expect(idxResolveBranch).toBeGreaterThan(idxLoadTasks);
+    expect(idxWorkingTreeClean).toBeGreaterThan(idxResolveBranch);
+    expect(idxSetupScript).toBeGreaterThan(idxWorkingTreeClean);
+    expect(idxSaveTasks).toBeGreaterThan(idxSetupScript);
     expect(idxTransition).toBeGreaterThan(idxSaveTasks);
 
     // Per-task entries appear in factory order — task-<id1> before task-<id2>.
@@ -736,7 +794,7 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     // Per-task derived files (already covered by REQ-1..3, re-asserted here for the e2e shape).
     await expect(fs.access(join(workspace, 'prompt.md'))).resolves.toBeUndefined();
-    await expect(fs.access(join(workspace, 'done-criteria.md'))).resolves.toBeUndefined();
+    // Audit [05] deletion: done-criteria.md no longer ships; criteria are inlined into prompt.md.
 
     // Generator round 1 — provider wrote signals.json directly; session.md is gone.
     const genSignals = JSON.parse(
@@ -755,7 +813,9 @@ describe('createImplementFlow — gen-eval loop', () => {
       evalSignals.some((s: { type: string; status?: string }) => s.type === 'evaluation' && s.status === 'passed')
     ).toBe(true);
     const evaluationMd = await fs.readFile(join(workspace, 'rounds', '1', 'evaluator', 'evaluation.md'), 'utf8');
-    expect(evaluationMd).toContain('**Status:** passed');
+    // Under the audit-[09] evaluator contract, `evaluation.md` is rendered via
+    // `renderEvaluationMarkdown` — the H1 carries the status (`# Evaluation — passed`).
+    expect(evaluationMd).toContain('# Evaluation — passed');
     await expect(fs.access(join(workspace, 'rounds', '1', 'evaluator', 'session.md'))).rejects.toThrow();
   });
 
@@ -816,7 +876,10 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(round2GenSignals)).toEqual([]);
   });
 
-  it('REQ-5+6: <learning> and <progress-entry> from the AI land in <sprintDir>/progress.md', async () => {
+  it('progress.md grows append-only — one task-attempt section per settled attempt plus a status separator on review', async () => {
+    // Audit-[07]: progress.md is the sole writer for the sprint's chronological journal. The
+    // implement chain appends one section per settled attempt (via progress-journal-leaf) and
+    // a separator line when the sprint transitions to review.
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -826,14 +889,6 @@ describe('createImplementFlow — gen-eval loop', () => {
       responses: {
         implement: [
           '<learning>sqlite expects explicit pragmas</learning>',
-          '<progress-entry>',
-          '  <task>Add user-id index</task>',
-          '  <files-changed>',
-          '    - app/db.ts',
-          '  </files-changed>',
-          '  <learnings>migration ran cleanly on the dev clone</learnings>',
-          '  <notes-for-next>need to add the ORM mapping next</notes-for-next>',
-          '</progress-entry>',
           '<task-verified>tests pass</task-verified>',
         ].join('\n'),
         evaluate: '<evaluation-passed>',
@@ -861,42 +916,40 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(runner.status).toBe('completed');
 
     const md = await fs.readFile(f.progressFile, 'utf8');
-    // Sections present.
-    expect(md).toContain('# Sprint progress');
-    expect(md).toContain('## Learnings');
-    expect(md).toContain('## Tasks');
-    // Learning bullet rendered under Learnings.
-    const learningsBlock = md.slice(md.indexOf('## Learnings'), md.indexOf('## Decisions'));
-    expect(learningsBlock).toContain('sqlite expects explicit pragmas');
-    // Progress-entry rendered as a 4-section block under Tasks.
-    const tasksBlock = md.slice(md.indexOf('## Tasks'));
-    expect(tasksBlock).toContain('Add user-id index');
-    expect(tasksBlock).toContain('**Files changed**');
-    expect(tasksBlock).toContain('- app/db.ts');
-    expect(tasksBlock).toContain('**Learnings**');
-    expect(tasksBlock).toContain('migration ran cleanly on the dev clone');
-    expect(tasksBlock).toContain('**Notes for next**');
-    expect(tasksBlock).toContain('need to add the ORM mapping next');
+    // Append-only journal shape: activation separator, then a task-attempt section, then the
+    // review-transition separator. No `## Status`, no `## Tasks` table — the canonical entity
+    // state lives in `tasks.json` / `sprint.json`.
+    expect(md).not.toContain('## Status');
+    expect(md).not.toContain('## Tasks');
+    expect(md).toContain('_Sprint activated at');
+    expect(md).toMatch(/## Task: .* — Attempt 1/);
+    expect(md).toContain('- Verdict: pass');
+    expect(md).toContain('_Sprint transitioned to review at');
+    // The AI-emitted learning signal lands in the round's signals.json (audit-[09]), not the journal.
+    const task = f.tasks[0];
+    if (task === undefined) throw new Error('test setup: missing task');
+    const signals = await fs.readFile(
+      join(f.dir, 'implement', String(task.id), 'rounds', '1', 'generator', 'signals.json'),
+      'utf8'
+    );
+    expect(JSON.parse(signals).some((s: { type: string }) => s.type === 'learning')).toBe(true);
   });
 
-  it('REQ-7: resume preserves prior rounds and existing progress.md content', async () => {
+  it('resume preserves prior round artifacts and grows the journal — prior progress.md content is kept verbatim', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
-    // Pre-seed a prior run: rounds/1/generator/ + a populated progress.md.
+    // Pre-seed a prior run: rounds/1/generator/ + a pre-existing progress.md header. The
+    // append-only journal grows from this header — prior content stays verbatim.
     const task = f.tasks[0];
     if (task === undefined) throw new Error('test setup: missing task');
     const workspace = join(f.dir, 'implement', String(task.id));
     const round1Gen = join(workspace, 'rounds', '1', 'generator');
     await fs.mkdir(round1Gen, { recursive: true });
     await fs.writeFile(join(round1Gen, 'signals.json'), '[{"type":"prior"}]', 'utf8');
-    await fs.writeFile(
-      f.progressFile,
-      '# Sprint progress\n\n## Learnings\n\n- 2026-05-13T00:00:00.000Z — prior learning kept\n\n## Decisions\n\n## Activity\n\n## Tasks\n',
-      'utf8'
-    );
+    await fs.writeFile(f.progressFile, '# Sprint: kept\n\n- id: kept\n- created: 2026-05-13T00:00:00.000Z\n', 'utf8');
 
     const provider = createFakeAiProvider({
       responses: {
@@ -925,17 +978,19 @@ describe('createImplementFlow — gen-eval loop', () => {
     await runner.start();
     expect(runner.status).toBe('completed');
 
-    // Prior round artifacts are untouched.
+    // Prior round artifacts are untouched — the round folder is the source of truth for prior work.
     expect(await fs.readFile(join(round1Gen, 'signals.json'), 'utf8')).toBe('[{"type":"prior"}]');
     // New round was written at N=2 — provider wrote signals.json there.
     const round2Signals = JSON.parse(
       await fs.readFile(join(workspace, 'rounds', '2', 'generator', 'signals.json'), 'utf8')
     );
     expect(round2Signals.some((s: { type: string; text?: string }) => s.type === 'learning')).toBe(true);
-    // progress.md preserves prior content AND appends new learning.
+    // progress.md APPENDS — the seeded header is preserved and the new run's separator +
+    // attempt section grow underneath it.
     const md = await fs.readFile(f.progressFile, 'utf8');
-    expect(md).toContain('prior learning kept');
-    expect(md).toContain('fresh learning');
+    expect(md).toContain('# Sprint: kept');
+    expect(md).toContain('## Task:');
+    expect(md).toContain('_Sprint activated at');
   });
 
   it('multiple <commit-message> tags across turns: last one wins at commit time', async () => {
@@ -1001,9 +1056,9 @@ describe('createImplementFlow — gen-eval loop', () => {
   // The harness's safety contract: even if the AI says `<task-verified>` and the evaluator
   // passes, a failing post-task verify script must BLOCK the task — no commit on the sprint
   // branch, no quiet pass. This is the primary "go-off-the-computer" guardrail and the
-  // composition that powers it (post-task-check → guard → commit-task → settle-attempt) only
+  // composition that powers it (post-task-verify → guard → commit-task → settle-attempt) only
   // gets exercised end-to-end here.
-  it('verify-script failure blocks the task and prevents the commit even when the AI claims verified', async () => {
+  it('regressed baseline (pre=green, post=red) blocks the task and prevents the commit', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1016,14 +1071,25 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     });
 
-    const failingShell: ShellScriptRunner = {
+    // The shell runner is invoked once per setup-script, once per pre-task-verify, once per
+    // post-task-verify. We need to return GREEN for the first pre-check (baseline is good) and
+    // RED for the post-check — that's a `regressed` attribution, which DOES block. Setup is
+    // skipped (no `setupScript`).
+    let shellCallCount = 0;
+    const regressingShell: ShellScriptRunner = {
       async run() {
-        return Result.ok({ passed: false, exitCode: 1, output: 'tests failed: 3 of 7\n', durationMs: 12 });
+        shellCallCount += 1;
+        // Call 1 = pre-task-verify (green baseline). Call 2 = post-task-verify (red — regression).
+        const isPost = shellCallCount >= 2;
+        if (isPost) {
+          return Result.ok({ passed: false, exitCode: 1, output: 'tests failed: 3 of 7\n', durationMs: 12 });
+        }
+        return Result.ok({ passed: true, exitCode: 0, output: 'all green\n', durationMs: 10 });
       },
     };
 
-    // Wire a checkScript on the repo so post-task-check actually runs (it's a no-op when absent).
-    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, checkScript: 'pnpm test' }]]);
+    // Wire a verifyScript on the repo so pre/post checks actually run.
+    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
 
     const git = commitCapturingGit(1);
     const deps: ImplementDeps = {
@@ -1035,7 +1101,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         f.dir,
         git.runner
       ),
-      shellScriptRunner: failingShell,
+      shellScriptRunner: regressingShell,
     };
 
     const flow = createImplementFlow(deps, {
@@ -1057,20 +1123,88 @@ describe('createImplementFlow — gen-eval loop', () => {
     const finalTask = taskRepo.tasks()[0];
     expect(finalTask?.status).toBe('blocked');
     if (finalTask?.status === 'blocked') {
-      expect(finalTask.blockedReason).toContain('verify script failed');
+      // The block reason names the regression — operator sees what failed without digging through the audit log.
+      expect(finalTask.blockedReason).toMatch(/regressed baseline|verify script failed/);
     }
+    // Attribution row on the attempt records `'regressed'` — the deterministic verdict the TUI surfaces.
+    expect(finalTask?.attempts.at(-1)?.attribution).toBe('regressed');
     // No commit landed on the branch — that's the whole point of the gate.
     expect(git.commitMessages()).toEqual([]);
     // Sprint stays active (no task settled `done`).
     expect(sprintRepo.current().status).not.toBe('review');
   });
 
+  it('baseline-broken (pre=red, post=red) preserves the AI verdict — pre-existing failure does NOT block', async () => {
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      responses: {
+        implement: '<task-verified>looks great</task-verified>',
+        evaluate: '<evaluation-passed>',
+      },
+    });
+
+    // Both pre and post return red — pre-existing failure. The harness must NOT blame the AI
+    // (attribution: 'baseline-broken') — task settles `done` so the operator can fix the
+    // baseline without losing the AI's work.
+    const persistentlyRedShell: ShellScriptRunner = {
+      async run() {
+        return Result.ok({ passed: false, exitCode: 1, output: 'pre-existing failure\n', durationMs: 12 });
+      },
+    };
+
+    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
+
+    const git = commitCapturingGit(1);
+    const deps: ImplementDeps = {
+      ...buildDeps(
+        sprintRepo.repo,
+        inMemoryExecutionRepo(f.execution).repo,
+        taskRepo.repo,
+        provider,
+        f.dir,
+        git.runner
+      ),
+      shellScriptRunner: persistentlyRedShell,
+    };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: reposWithCheck,
+      model: 'claude-opus-4-7',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+    const runner = createRunner({
+      id: 'r-impl-baseline-broken',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const finalTask = taskRepo.tasks()[0];
+    // Task settles `done` — preserved verdict — even though both checks ran red.
+    expect(finalTask?.status).toBe('done');
+    // Attribution = baseline-broken — surfaced for the post-mortem.
+    const lastAttempt = finalTask?.attempts.at(-1);
+    expect(lastAttempt?.attribution).toBe('baseline-broken');
+    expect(lastAttempt?.baselineBroken).toBe(true);
+  });
+
   // ─── Resilience: AI emits no recognisable signals at all ──────────────────────────
   //
   // An overnight run could hit a model output that's plain prose with no harness tags —
-  // missed prompt cue, model degradation, etc. The chain must not hang or crash; it should
-  // surface a sensible terminal state so the operator sees what happened.
-  it('AI emits zero harness signals: budget exhausts cleanly with a malformed warning, no infinite loop', async () => {
+  // missed prompt cue, model degradation, etc. Under the audit-[09] contract, the evaluator's
+  // `signals.json` MUST carry exactly one `evaluation` signal (`exactlyOne('evaluation')`
+  // refinement). A silent evaluator violates the schema; the leaf surfaces a ParseError and
+  // the chain terminates cleanly without running away. Wave 6 will swap the prompt to push
+  // the AI toward the new contract; until then, the failure surface is the operator's signal.
+  it('AI emits zero harness signals: chain terminates with a schema failure, no infinite loop', async () => {
     const f = await buildFixture(1, 1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1093,7 +1227,7 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     const deps: ImplementDeps = {
       ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
-      config: { harness: { maxTurns: 3, maxAttempts: 1, rateLimitRetries: 0 } },
+      config: { harness: { maxTurns: 3, maxAttempts: 1, rateLimitRetries: 0, plateauThreshold: 2 } },
     };
     const flow = createImplementFlow(deps, {
       sprintId: f.sprint.id,
@@ -1110,28 +1244,23 @@ describe('createImplementFlow — gen-eval loop', () => {
     });
     await runner.start();
 
-    expect(runner.status).toBe('completed');
-    // Bounded number of turns — exactly what maxTurns says, no runaway.
+    // Schema violation in the evaluator surfaces as a ParseError — chain terminates failed,
+    // not completed. The point of THIS test is that the chain doesn't hang in a runaway loop:
+    // each role is called at most maxTurns (3) times.
+    expect(runner.status).toBe('failed');
     expect(implCalls).toBeLessThanOrEqual(3);
     expect(evalCalls).toBeLessThanOrEqual(3);
-    const finalTask = taskRepo.tasks()[0];
-    // Policy: only `<task-blocked>` from the generator → blocked. Everything else (incl. a
-    // silent evaluator → malformed exit → budget collapses) → done with a structured warning.
-    // The operator inspects the warning on next launch instead of the chain hanging or
-    // crashing. That's the contract the resilience tests need to pin.
-    expect(finalTask?.status).toBe('done');
-    if (finalTask?.status === 'done') {
-      const lastAttempt = finalTask.attempts.at(-1);
-      // At least one attempt carries a non-pass warning so the operator sees what happened.
-      expect(lastAttempt?.warning?.kind).toBeDefined();
-    }
+    // Generator runs at least once; evaluator runs at least once (it's what surfaces the
+    // schema error). Confirms the chain didn't short-circuit before invoking the AI at all.
+    expect(implCalls).toBeGreaterThanOrEqual(1);
+    expect(evalCalls).toBeGreaterThanOrEqual(1);
   });
 
   // ─── Multi-repo project: each task gets its repo's cwd ────────────────────────────
   //
   // A project with two repositories has two task pools. `createImplementFlow` resolves the
   // repo per task via `resolveRepo(task)` and threads its `cwd` into branch-preflight,
-  // generator/evaluator, post-task-check, commit-task, settle-attempt. The unique-repo set
+  // generator/evaluator, post-task-verify, commit-task, settle-attempt. The unique-repo set
   // also drives `resolveBranchLeaf` (one checkout per repo) and `preflightTaskLeaf` (one
   // dirty-tree gate per repo). End-to-end coverage protects that wiring from regressing into
   // "everything points at the first repo" — a silent failure mode that would land commits
@@ -1179,7 +1308,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     // Custom git runner that tracks (cwd, args) per call so we can assert resolve-branch
     // and preflight-task fan out to each unique repo cwd. The fake tree is always clean —
     // no commits captured here; per-task cwd wiring is proved by the shell-runner probe
-    // below (post-task-check fires per-task with the task's repo cwd).
+    // below (post-task-verify fires per-task with the task's repo cwd).
     interface GitCall {
       readonly cwd: string;
       readonly args: readonly string[];
@@ -1213,7 +1342,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     };
 
-    // Shell runner captures (cwd, command). post-task-check invokes this once per task with
+    // Shell runner captures (cwd, command). post-task-verify invokes this once per task with
     // the task's repo cwd — that's the per-task cwd-wiring smoking gun.
     interface ShellCall {
       readonly cwd: string;
@@ -1236,8 +1365,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: sprint.id,
       todoTasks: tasks,
       repositories: new Map([
-        [REPO_A_ID, { path: CWD_A, checkScript: 'pnpm test' }],
-        [REPO_B_ID, { path: CWD_B, checkScript: 'pnpm test' }],
+        [REPO_A_ID, { path: CWD_A, verifyScript: 'pnpm test' }],
+        [REPO_B_ID, { path: CWD_B, verifyScript: 'pnpm test' }],
       ]),
       model: 'claude-opus-4-7',
       progressFile: absolutePath(progressFile),
@@ -1276,13 +1405,16 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(statusCwds.has(String(CWD_A))).toBe(true);
     expect(statusCwds.has(String(CWD_B))).toBe(true);
 
-    // Per-task cwd-wiring: post-task-check fired once per task against the task's repo,
-    // proving resolveRepo(task) wires the right cwd into the per-task sub-chain (not "first
-    // repo wins for everything").
+    // Per-task cwd-wiring: pre-task-verify + post-task-verify each fire once per task against
+    // the task's repo, proving resolveRepo(task) wires the right cwd into the per-task
+    // sub-chain (not "first repo wins for everything"). Two tasks × two checks = 4 calls.
     const shellCwds = shellCalls.map((c) => c.cwd);
     expect(shellCwds).toContain(String(CWD_A));
     expect(shellCwds).toContain(String(CWD_B));
-    expect(shellCalls).toHaveLength(2);
+    expect(shellCalls).toHaveLength(4);
+    // Each repo received exactly 2 shell calls (pre + post).
+    expect(shellCwds.filter((c) => c === String(CWD_A))).toHaveLength(2);
+    expect(shellCwds.filter((c) => c === String(CWD_B))).toHaveLength(2);
   });
 
   // ─── Resilience: resume after a mid-evaluator crash ───────────────────────────────

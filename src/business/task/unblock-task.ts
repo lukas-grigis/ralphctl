@@ -2,21 +2,24 @@ import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import { unblockTask, type Task, type TodoTask } from '@src/domain/entity/task.ts';
+import { unblockTask, resetTaskToTodo, type Task, type TodoTask } from '@src/domain/entity/task.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /**
- * Manually unblock a task — recovery hatch for transient pre-task failures (a flaky test
- * runner, a JVM agent attach hiccup, a one-off mvn/Gradle download wobble) that would
- * otherwise leave the task stuck in `blocked` and require hand-editing `tasks.json`.
+ * Manually unblock a task — recovery hatch for transient failures that leave a task stuck in
+ * `blocked` (maxAttempts exhausted, verify failed) or `in_progress` with a settled last attempt
+ * (crash recovery, watchdog kill). Both map to the same operator-visible "stuck" concept: the
+ * task needs to be reset to `todo` so the next implement run can retry it.
  *
  * Policy: domain transition + persist + log. Idempotent — an already-`todo` task passes
  * through unchanged (mirrors {@link activateSprintUseCase}'s shape).
  *
- * Rejects `done` / `in_progress` with `InvalidStateError` (the domain {@link unblockTask}
- * guard does the work). After this, the task re-enters the implement queue on the next run.
+ * `blocked` → {@link unblockTask} (strips `blockedReason`, resets to `todo`).
+ * `in_progress` with a settled last attempt → {@link resetTaskToTodo} (crash-recovery path).
+ * `in_progress` with a still-running attempt → rejects with `InvalidStateError` (unsafe to reset).
+ * `done` → rejects with `InvalidStateError`.
  */
 export interface UnblockTaskProps {
   readonly task: Task;
@@ -43,7 +46,9 @@ export const unblockTaskUseCase = async (
     from: props.task.status,
   });
 
-  const transitioned = unblockTask(props.task);
+  // `in_progress` with a settled last attempt = crash-recovery path (Ctrl-C / watchdog kill).
+  // Route through resetTaskToTodo, which guards against still-running attempts.
+  const transitioned = props.task.status === 'in_progress' ? resetTaskToTodo(props.task) : unblockTask(props.task);
   if (!transitioned.ok) {
     log.warn('invalid state transition', {
       taskId: props.task.id,

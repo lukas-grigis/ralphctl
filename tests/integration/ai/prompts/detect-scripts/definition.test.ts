@@ -50,21 +50,28 @@ describe('detectScriptsPromptDef — completeness', () => {
 });
 
 describe('buildDetectScriptsPrompt — end-to-end against the real template', () => {
+  const EXAMPLE_CONTRACT = '## Output contract\n\nWrite signals.json to /tmp/out.';
+
   it('produces a fully-substituted prompt threading the repository path through', async () => {
-    const result = await buildDetectScriptsPrompt(loader, { repositoryPath: '/repo/api' });
+    const result = await buildDetectScriptsPrompt(loader, {
+      repositoryPath: '/repo/api',
+      outputContractSection: EXAMPLE_CONTRACT,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const body = result.value as unknown as string;
     expect(body).toContain('# Repository Script Detection Protocol');
     expect(body).toContain('/repo/api');
-    expect(body).toContain('<setup-script>');
-    expect(body).toContain('<verify-script>');
+    expect(body).toContain('## Output contract');
     // No placeholders remain.
     expect(body).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
   it('rejects an empty repositoryPath via the spec validator', async () => {
-    const result = await buildDetectScriptsPrompt(loader, { repositoryPath: '   ' });
+    const result = await buildDetectScriptsPrompt(loader, {
+      repositoryPath: '   ',
+      outputContractSection: EXAMPLE_CONTRACT,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
   });
@@ -79,7 +86,10 @@ describe('detect-scripts template — detection guidance', () => {
    * (after substitution) so the AI sees exactly what we assert against.
    */
   const renderedBody = async (): Promise<string> => {
-    const r = await buildDetectScriptsPrompt(loader, { repositoryPath: '/repo/x' });
+    const r = await buildDetectScriptsPrompt(loader, {
+      repositoryPath: '/repo/x',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
+    });
     if (!r.ok) throw r.error;
     return r.value as unknown as string;
   };

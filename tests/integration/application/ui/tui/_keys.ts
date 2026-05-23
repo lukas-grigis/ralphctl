@@ -10,6 +10,11 @@ export const UP = '[A';
 export const DOWN = '[B';
 export const RIGHT = '[C';
 export const LEFT = '[D';
+export const HOME = '[H';
+export const END = '[F';
+export const CTRL_A = '';
+export const CTRL_E = '';
+export const CTRL_J = '\n';
 export const CTRL_U = '';
 export const CTRL_W = '';
 

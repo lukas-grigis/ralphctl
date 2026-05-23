@@ -56,7 +56,7 @@ type EmptyDecision = 'manual' | 'skip';
  *                       one script survives editing, `false` otherwise.
  *   - Reject          → leave the repository entity untouched (`accepted: false`).
  *
- * Diffing against existing `Repository.setupScript` / `checkScript` is shown inline so the user
+ * Diffing against existing `Repository.setupScript` / `verifyScript` is shown inline so the user
  * sees what they're changing — empty existing values render as `(none)`.
  *
  * Edge case — no proposed scripts at all: the user is still queried with an "Enter manually /
@@ -101,7 +101,7 @@ const confirmUseCase = async (
     });
     if (!manualSetup.ok) return Result.error(manualSetup.error);
     const manualVerify = await deps.interactive.askText('Verify script (empty to skip):', {
-      ...(input.repository.checkScript !== undefined ? { initial: input.repository.checkScript } : {}),
+      ...(input.repository.verifyScript !== undefined ? { initial: input.repository.verifyScript } : {}),
     });
     if (!manualVerify.ok) return Result.error(manualVerify.error);
     const setupOut = manualSetup.value.length > 0 ? manualSetup.value : undefined;
@@ -117,7 +117,7 @@ const confirmUseCase = async (
   }
 
   const currentSetup = input.repository.setupScript;
-  const currentVerify = input.repository.checkScript;
+  const currentVerify = input.repository.verifyScript;
   const preview: string[] = [`Detected scripts for ${input.repository.name} (${String(input.repository.slug)}):`, ''];
   if (nextSetup !== undefined) {
     preview.push('Setup script (sprint-start prep):');

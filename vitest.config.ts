@@ -14,6 +14,17 @@ export default defineConfig({
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/application/ui/**'],
+      // Regression floor — set ~5% below the 2026-05-23 baseline so natural drift doesn't
+      // fail CI but a real coverage drop does. Baseline measured at that date:
+      //   statements 86.96 · branches 74.5 · functions 95.1 · lines 90.46.
+      // Raise these in lockstep with new tests; do NOT tighten retroactively in a commit
+      // that isn't adding tests.
+      thresholds: {
+        statements: 80,
+        branches: 70,
+        functions: 90,
+        lines: 85,
+      },
     },
     // Two projects so the heavy TUI render tests can run with file-level serialisation
     // while everything else keeps full fork-pool parallelism. The TUI suite is the only

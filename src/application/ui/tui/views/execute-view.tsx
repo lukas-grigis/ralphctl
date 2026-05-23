@@ -3,17 +3,20 @@
  *
  * Layout:
  *  - Header card (flow id, elapsed, steps, tasks done/total, status).
- *  - Wide (≥140 cols): two-column dashboard — flow steps on the left, Tasks panel on the right
- *    (per-task sub-steps, evaluations, signals nested under their owning task; cross-task
- *    signals pinned at the top of the Tasks column). Log tail spans full width below.
- *  - Narrow (<140 cols): single-column stack — header, flow steps, tasks, log.
+ *  - Wide (≥180 cols): three-column dashboard — fluid-width Flow Steps rail (left), flex-grow
+ *    Tasks stream (centre), fixed-width Context column (right). The rail grows 36→56 cols via
+ *    `resolveRailWidth` so long element labels (e.g. `setup-script-runner` plus its error tail)
+ *    don't wrap mid-word on wide terminals; the Tasks column absorbs whatever the rail leaves.
+ *  - Mid (≥140 cols): two-column — rail + flex Tasks stream. No context column.
+ *  - Narrow (<140 cols): single-column stack — header, flow steps, tasks, log. Below 100 cols
+ *    the Flow Steps section drops to `maxRows={4}` so the Tasks section keeps room to breathe.
  *
  * Naming: the chain-runner trace and the AppEvent buffer both carry the same milestones; the
  * dashboard merges them into one "Flow steps" surface. The historical separate "Progress" and
  * "Chain steps" sections were duplicating the same data.
  *
  * Local keys:
- *   c — abort the running session
+ *   c — open the cancel-scope picker (1 = cancel attempt, 2 = cancel whole flow)
  *   D — detach (return to home; the runner keeps running in the background)
  */
 
@@ -27,14 +30,32 @@ import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import { RecentEventsTail } from '@src/application/ui/tui/components/recent-events-tail.tsx';
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import {
+  COMPACT_RAIL_WIDTH,
+  CONTEXT_WIDTH,
+  RAIL_WIDTH,
+  fluid,
+  glyphs,
+  inkColors,
+  resolveRailWidth,
+  spacing,
+} from '@src/application/ui/tui/theme/tokens.ts';
+import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
+import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
+import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
+import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
+import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useViewProps, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useSession, useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useSession, useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
+import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { bucketTaskSignals, isPerTaskLeaf } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
@@ -42,12 +63,25 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import { renderActiveTaskSummary } from '@src/application/ui/tui/runtime/render-active-task-summary.ts';
+import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
+import { cancelActiveTaskUseCase } from '@src/business/task/cancel-active-task.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
 }
 
 const TWO_COL_BREAKPOINT = 140;
+const THREE_COL_BREAKPOINT = 180;
+/**
+ * Below this width the Flow Steps section collapses to four rows in single-column mode AND the
+ * two-column layout disappears entirely (we never render the rail on a <100 col terminal — the
+ * stream column wouldn't have room left). At 100-139 cols a *compact* rail variant (status
+ * glyphs only, no labels) is rendered instead of the labelled rail used at ≥140 cols.
+ */
+const NARROW_FLOW_STEPS_BREAKPOINT = 100;
+const NARROW_FLOW_STEPS_ROWS = 4;
 
 const SectionHeader = ({ title }: { readonly title: string }): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
@@ -74,6 +108,8 @@ export const ExecuteView = (): React.JSX.Element => {
   const { sessionId } = useViewProps<ExecuteProps>();
   const session = useSession(sessionId);
   const sessions = useSessionManager();
+  // Live list of every session for the multi-flow strip (renders only when ≥2 are running).
+  const sessionList = useSessions();
   const router = useRouter();
   const ui = useUiState();
   const selection = useSelection();
@@ -89,21 +125,74 @@ export const ExecuteView = (): React.JSX.Element => {
   // When a buffer overflows it drops the OLDEST entry. The on-disk chain.log is authoritative.
   const signals = useSinkStream(buses.harness, { limit: 1000 });
   const logEntries = useSinkStream(buses.log, { limit: 1000 });
-  const eventBus = useDeps().eventBus;
+  const deps = useDeps();
+  const eventBus = deps.eventBus;
   const chainEvents = useEventBusBuffer<AppEvent>(eventBus, {
     filter: (e): e is AppEvent => 'chainId' in e && (e as { chainId: string }).chainId === sessionId,
     limit: 2000,
   });
   const term = useTerminalSize();
 
+  // Baseline-health data — Sprint Execution + Task list, polled while the run is live so the
+  // Card / Chip reflect the latest pre/post verify-script rows as they land. We re-read on a
+  // tight interval rather than wiring a dedicated bus channel because the persisted entities
+  // are the source of truth (the chain leaves write to taskRepo / sprintExecutionRepo before
+  // the bus event fires); polling keeps the wiring simple.
+  const [executionState, setExecutionState] = React.useState<SprintExecution | undefined>(undefined);
+  const [taskState, setTaskState] = React.useState<readonly Task[] | undefined>(undefined);
+  const baselineSprintId: SprintId | undefined = selection.sprintId as SprintId | undefined;
+  React.useEffect(() => {
+    if (baselineSprintId === undefined) {
+      setExecutionState(undefined);
+      setTaskState(undefined);
+      return undefined;
+    }
+    // Test bootstraps wire a partial AppDeps; guard so missing repos don't crash the view.
+    const execRepo = deps.sprintExecutionRepo;
+    const taskRepo = deps.taskRepo;
+    if (execRepo === undefined || taskRepo === undefined) return undefined;
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      const [execR, tasksR] = await Promise.all([
+        execRepo.findById(baselineSprintId),
+        taskRepo.findBySprintId(baselineSprintId),
+      ]);
+      if (cancelled) return;
+      if (execR.ok) setExecutionState(execR.value);
+      if (tasksR.ok) setTaskState(tasksR.value);
+    };
+    void load();
+    // 3s cadence — fast enough that a fresh VerifyRun row lands within the operator's reading
+    // window, slow enough that the disk + JSON parse cost stays trivial even on a wide sprint.
+    const id = setInterval(() => {
+      void load();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [baselineSprintId, deps.sprintExecutionRepo, deps.taskRepo]);
+
   const isRunning = session?.descriptor.status === 'running';
+
+  // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
+  // distinguishes "cancel current attempt" (keep task queued, retry next round) from "cancel
+  // whole flow" (mark current task blocked + exit chain). The overlay claims the keyboard
+  // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
+  const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
 
   useViewHints(
     isRunning
-      ? [
-          { keys: 'c', label: 'cancel' },
-          { keys: 'D', label: 'detach' },
-        ]
+      ? cancelScopeOpen
+        ? [
+            { keys: '1', label: 'cancel attempt' },
+            { keys: '2', label: 'cancel whole flow' },
+            { keys: 'esc', label: 'back to run' },
+          ]
+        : [
+            { keys: 'c', label: 'cancel' },
+            { keys: 'D', label: 'detach' },
+          ]
       : [{ keys: '↵', label: 'back' }]
   );
 
@@ -119,7 +208,7 @@ export const ExecuteView = (): React.JSX.Element => {
       }
       return;
     }
-    if (input === 'c') sessions.abort(sessionId);
+    if (input === 'c' && !cancelScopeOpen) setCancelScopeOpen(true);
     if (input === 'D') router.reset();
   });
 
@@ -142,27 +231,46 @@ export const ExecuteView = (): React.JSX.Element => {
             ...(session.descriptor.terminalSubstepName !== undefined
               ? { terminalSubstepName: session.descriptor.terminalSubstepName }
               : {}),
+            // taskNames carries every task the launcher knew about — surfacing the ids here
+            // makes pending rows appear in the panel even when the chain failed before per-task
+            // work started (e.g. setup-script-runner abort). Without this, a sprint with real
+            // tasks renders the misleading "panel empty · Run plan" empty state.
+            ...(session.descriptor.taskNames !== undefined
+              ? { knownTaskIds: [...session.descriptor.taskNames.keys()] }
+              : {}),
           })
         : undefined,
     [session, chainEvents, signals]
   );
 
-  // Monotonic per-task round counter — survives the chain runner's MAX_TRACE_ENTRIES ring
-  // eviction. `countGeneratorTurns` inside bucketTaskSignals counts trace entries; on long runs
-  // the earliest `generator-<taskId>` entries get evicted and the count would silently shrink.
-  // Holding the high-water mark in a ref means `round N/M` only ever moves forward, regardless
-  // of trace truncation.
-  const roundsHighWaterRef = React.useRef<Map<string, number>>(new Map());
+  // Authoritative per-task round counter — sourced from `task-round-started` events on the
+  // bus rather than counted from the trace. The trace is a ring buffer
+  // (`MAX_TRACE_ENTRIES = 5_000`); counting `generator-<taskId>` entries silently
+  // undercounts once early ones get evicted. The hook holds a monotonic high-water in its
+  // own state so the event-driven source remains stable across re-renders, even if the bus's
+  // own subscription stream missed earlier events (the hook only goes forward).
+  const taskRounds = useTaskRoundTracker(eventBus);
+  // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
+  // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
+  const tokenUsageBySession = useTokenUsage(eventBus);
+  const tokenUsage = tokenUsageBySession.get(sessionId);
   const bucketed = useMemo(() => {
     if (rawBucketed === undefined) return undefined;
     const tasks = rawBucketed.tasks.map((t) => {
-      const seen = roundsHighWaterRef.current.get(t.id) ?? 0;
-      if (t.genEvalRound <= seen) return { ...t, genEvalRound: seen };
-      roundsHighWaterRef.current.set(t.id, t.genEvalRound);
-      return t;
+      const tracked = taskRounds.get(t.id);
+      if (tracked === undefined) return t;
+      // Latest-event-wins, but never regress below whatever the trace count derived (e.g. a
+      // post-mortem view of an aborted runner with no incoming events still sees the bucketed
+      // count from the descriptor's frozen trace).
+      const roundN = Math.max(t.genEvalRound, tracked.roundN);
+      return {
+        ...t,
+        genEvalRound: roundN,
+        genEvalMaxRounds: tracked.totalCap,
+      };
     });
     return { ...rawBucketed, tasks };
-  }, [rawBucketed]);
+  }, [rawBucketed, taskRounds]);
 
   if (!session) {
     return (
@@ -178,9 +286,15 @@ export const ExecuteView = (): React.JSX.Element => {
   const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
   const tasksDone = bucketed?.tasks.filter((t) => t.status === 'completed').length ?? 0;
   const tasksTotal = bucketed?.tasks.length ?? 0;
-  const twoColumn = term.columns >= TWO_COL_BREAKPOINT;
+  const threeColumn = term.columns >= THREE_COL_BREAKPOINT;
+  const twoColumn = !threeColumn && term.columns >= TWO_COL_BREAKPOINT;
+  // Intermediate breakpoint (100–139 cols): a compact two-column layout with the rail
+  // collapsed to status glyphs (no labels). Below 100 cols we drop the rail entirely.
+  const compactTwoColumn = !threeColumn && !twoColumn && term.columns >= NARROW_FLOW_STEPS_BREAKPOINT;
+  const singleColumn = !threeColumn && !twoColumn && !compactTwoColumn;
 
-  const flowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
+  const baseFlowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
+  const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
   const tasksMaxSignals = isRunning ? 6 : 12;
   const logRows = isRunning ? 6 : 10;
 
@@ -192,9 +306,86 @@ export const ExecuteView = (): React.JSX.Element => {
   const currentTask = currentTaskIdx >= 0 ? bucketed?.tasks[currentTaskIdx] : undefined;
   const currentTaskName =
     currentTask !== undefined
-      ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}…`)
+      ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
       : undefined;
   const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
+
+  // Register the active-task summary provider so the global `y` (yank) hotkey can copy a
+  // markdown snapshot of whatever task the operator is currently watching. The provider closes
+  // over the latest `currentTask` + display name; React re-runs the effect each render they
+  // change, so the closure always reflects the current frame. Cleanup clears the registration
+  // on unmount or when the deps change — important because the global handler reads the
+  // provider through a ref and a stale closure would leak yesterday's task name into copies.
+  useEffect(() => {
+    if (currentTask === undefined || currentTaskName === undefined) {
+      ui.setActiveTaskSummaryProvider(undefined);
+      return undefined;
+    }
+    const task = currentTask;
+    const displayName = currentTaskName;
+    ui.setActiveTaskSummaryProvider(() => renderActiveTaskSummary({ task, displayName }));
+    return () => {
+      ui.setActiveTaskSummaryProvider(undefined);
+    };
+  }, [currentTask, currentTaskName, ui]);
+
+  // Elapsed time on the latest attempt of the active task — drives the cancel-scope overlay's
+  // "estimated wasted output" hint. Sourced from the most recent `task-attempt-started` event
+  // matching the current task id. Falls back to undefined when no attempt has started yet
+  // (e.g. preflight phase) — the overlay renders without the hint in that case.
+  const attemptElapsedMs = useMemo<number | undefined>(() => {
+    if (currentTask === undefined) return undefined;
+    let latestStartMs: number | undefined;
+    for (const ev of chainEvents) {
+      if (ev.type !== 'task-attempt-started') continue;
+      if (ev.taskId !== currentTask.id) continue;
+      const ms = new Date(String(ev.at)).getTime();
+      if (latestStartMs === undefined || ms > latestStartMs) latestStartMs = ms;
+    }
+    return latestStartMs !== undefined ? Math.max(0, now - latestStartMs) : undefined;
+  }, [chainEvents, currentTask, now]);
+
+  // Remaining tasks (including the in-flight one) — count of non-completed buckets. The
+  // overlay reads this to surface "N other tasks still queued" on the flow-cancel option.
+  const remainingTaskCount = useMemo<number>(() => {
+    if (bucketed === undefined) return 0;
+    return bucketed.tasks.reduce((n, t) => (t.status === 'completed' ? n : n + 1), 0);
+  }, [bucketed]);
+
+  // Cancel handlers — option 1 mirrors the previous `c` behaviour (chain-runner abort). Option
+  // 2 marks the current task blocked with a fixed user-cancel reason, then aborts the chain so
+  // the unwind is identical from the runner's perspective. The repo write happens BEFORE the
+  // abort so a follow-up settle-attempt in the same tick can't overwrite our pin to `blocked`.
+  const onCancelAttempt = React.useCallback(() => {
+    setCancelScopeOpen(false);
+    sessions.abort(sessionId);
+  }, [sessions, sessionId]);
+
+  const onCancelFlow = React.useCallback(() => {
+    setCancelScopeOpen(false);
+    void (async (): Promise<void> => {
+      const sprintId = selection.sprintId as SprintId | undefined;
+      const taskIdRaw = currentTask?.id;
+      if (sprintId !== undefined && taskIdRaw !== undefined && deps.taskRepo !== undefined) {
+        const taskId = taskIdRaw as TaskId;
+        const found = await deps.taskRepo.findById(sprintId, taskId);
+        if (found.ok) {
+          await cancelActiveTaskUseCase({
+            task: found.value,
+            sprintId,
+            reason: 'user cancel',
+            taskRepo: deps.taskRepo,
+            logger: deps.logger,
+          });
+        }
+      }
+      sessions.abort(sessionId);
+    })();
+  }, [sessions, sessionId, selection.sprintId, currentTask, deps.taskRepo, deps.logger]);
+
+  const onDismissCancelScope = React.useCallback(() => {
+    setCancelScopeOpen(false);
+  }, []);
 
   const headerCard = (
     <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
@@ -259,16 +450,57 @@ export const ExecuteView = (): React.JSX.Element => {
   // failure, in which case the failure surfaces through the Recent-log panel anyway.
   const outerFlowFilter = (name: string): boolean => !isPerTaskLeaf(name) && !name.startsWith('with-repo-lock(');
 
+  // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the rail
+  // fluidly. We compute once and reuse so the truncation budget passed to StepTrace matches
+  // whichever column actually renders.
+  const threeColRailWidth = resolveRailWidth(term.columns);
+  const labelledRailWidth = threeColumn ? threeColRailWidth : RAIL_WIDTH;
+  // Context column grows slightly at xxl so the baseline card has a little more breathing room.
+  const contextWidth = fluid(term.columns, { min: CONTEXT_WIDTH, max: 36, ratio: 0.14 });
+
   const flowStepsPanel = (
     <StepTrace
       trace={descriptor.trace}
       running={isRunning}
       filter={outerFlowFilter}
       maxRows={flowStepsRows}
+      railWidth={labelledRailWidth}
       {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
+      {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
       {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}
     />
   );
+
+  // Compact rail panel — icons-only variant used at the 100–139 col breakpoint. The
+  // `inFlightLabel` is dropped because there's no room for any text anyway, and the rail's
+  // job in compact mode is just "is the runner moving and which phase is it on".
+  const compactFlowStepsPanel = (
+    <StepTrace
+      trace={descriptor.trace}
+      running={isRunning}
+      filter={outerFlowFilter}
+      maxRows={flowStepsRows}
+      compact
+      {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
+      {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
+    />
+  );
+
+  // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
+  // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
+  // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
+  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
+
+  // Synchronous criteria map — built from the in-memory Task[] state already polled above.
+  // Audit [05]: `Task.verificationCriteria` is the canonical source; the panel never reads
+  // `done-criteria.md` (file no longer exists). Empty arrays are passed through so the panel
+  // can render a "no criteria declared" affordance instead of guessing.
+  const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, readonly string[]>();
+    for (const t of taskState) m.set(String(t.id), t.verificationCriteria);
+    return m;
+  }, [taskState]);
 
   const tasksPanel =
     bucketed !== undefined ? (
@@ -276,7 +508,11 @@ export const ExecuteView = (): React.JSX.Element => {
         bucketed={bucketed}
         running={isRunning}
         maxSignalsPerTask={tasksMaxSignals}
+        inputActive={tasksInputActive}
+        nowMs={now}
         {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
+        {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
+        {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
       />
     ) : null;
 
@@ -286,19 +522,82 @@ export const ExecuteView = (): React.JSX.Element => {
     <ViewShell
       title="Implement"
       subtitle={descriptor.title}
+      compactBanner
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
     >
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : (
         <Box flexDirection="column">
+          {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
+              flow run pays zero pixels. The strip shows `[N] · <flow>: <title> ⏱<elapsed>`
+              chips with the current chip highlighted and a Tab/Shift+Tab cycle hint pinned
+              to the right end. */}
+          <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
+          {/* Baseline-health chip — sits above the active-task header so the verify-gate
+              state is visible without scrolling. Always rendered; renders a neutral
+              "awaiting first run" pill before the first leaf has touched the data. */}
+          <Box paddingX={spacing.indent}>
+            <BaselineHealthChip
+              {...(executionState !== undefined ? { execution: executionState } : {})}
+              {...(taskState !== undefined ? { tasks: taskState } : {})}
+              now={now}
+            />
+          </Box>
           {headerCard}
 
-          {twoColumn ? (
-            <Box flexDirection="row" marginTop={spacing.section}>
-              <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} marginRight={spacing.section}>
+          {threeColumn ? (
+            // `width={term.columns}` is load-bearing: without it the outer row inherits its
+            // intrinsic content width and the Tasks column's `flexGrow={1}` resolves against an
+            // un-budgeted parent — leaving a band of unused space on the right at ≥180 cols.
+            // Anchoring the row to the full terminal width gives the centre column a real
+            // budget to grow into. The rail uses `resolveRailWidth` (fluid 36..56 at xl+) so
+            // long step labels no longer wrap mid-word on wide terminals.
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
+              <Box flexDirection="column" width={threeColRailWidth} marginRight={spacing.section} flexShrink={0}>
                 <SectionHeader title="Flow steps" />
                 {flowStepsPanel}
+              </Box>
+              <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} marginRight={spacing.section}>
+                <SectionHeader title="Tasks" />
+                {tasksPanel}
+              </Box>
+              {/* Right context column — baseline-health card (P1k) on top, token-budget card
+                  (P2b) below. P3a ETA stacks here in a later wave.
+                  `contextWidth` grows slightly at xxl (fluid 28→36 at 0.14× columns). */}
+              <Box flexDirection="column" width={contextWidth} flexShrink={0}>
+                <BaselineHealthCard
+                  {...(executionState !== undefined ? { execution: executionState } : {})}
+                  {...(taskState !== undefined ? { tasks: taskState } : {})}
+                  now={now}
+                  width={contextWidth}
+                />
+                <Box marginTop={spacing.section}>
+                  <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+                </Box>
+              </Box>
+            </Box>
+          ) : twoColumn ? (
+            // Same width-budget guard as the three-column branch; rail keeps the fixed
+            // `RAIL_WIDTH` (28) because at 140-179 cols there's no context column to compete
+            // with the Tasks stream — a wider rail would just steal pixels from the main column.
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
+              <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+                <SectionHeader title="Flow steps" />
+                {flowStepsPanel}
+              </Box>
+              <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
+                <SectionHeader title="Tasks" />
+                {tasksPanel}
+              </Box>
+            </Box>
+          ) : compactTwoColumn ? (
+            // 100–139 col breakpoint — compact rail (icons only, ~6 cols wide) + Tasks stream.
+            // The rail's SectionHeader is dropped because "Flow steps" overflows the narrow
+            // column; the glyph-only column reads as a status spine.
+            <Box flexDirection="row" marginTop={spacing.section} width={term.columns}>
+              <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+                {compactFlowStepsPanel}
               </Box>
               <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
                 <SectionHeader title="Tasks" />
@@ -336,6 +635,20 @@ export const ExecuteView = (): React.JSX.Element => {
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
               <Spinner label="running…" />
             </Box>
+          )}
+
+          {/* Cancel-scope picker — mounted only while running AND the operator pressed `c`.
+              While mounted it claims keyboard input via its own useInput hook; the surrounding
+              view's `c` handler is gated behind `cancelScopeOpen` so the keystroke isn't
+              consumed twice. */}
+          {isRunning && cancelScopeOpen && (
+            <CancelScopeOverlay
+              attemptElapsedMs={attemptElapsedMs}
+              remainingTaskCount={remainingTaskCount}
+              onCancelAttempt={onCancelAttempt}
+              onCancelFlow={onCancelFlow}
+              onDismiss={onDismissCancelScope}
+            />
           )}
         </Box>
       )}

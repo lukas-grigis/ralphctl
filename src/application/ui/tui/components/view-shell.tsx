@@ -1,11 +1,13 @@
 /**
- * Frame every view shares — four explicit zones modelled after a standard webpage layout:
+ * Frame every view shares — five explicit zones modelled after a standard webpage layout:
  *
  *   ┌─────────────────────────────────────────────┐
  *   │ HEADER  (fixed, never scrolls, never shrinks)│   ← banner + rule + breadcrumb
  *   ├─────────────────────────────────────────────┤
  *   │ CONTENT (scrolls when it overflows the      │   ← section stamp + page body
  *   │          viewport; clipped at the edges)    │     inside a ScrollRegion
+ *   ├─────────────────────────────────────────────┤
+ *   │ STATUS  (fixed; collapses when no banner)   │   ← dismissible StatusBanner stack
  *   ├─────────────────────────────────────────────┤
  *   │ PROMPT  (fixed; collapses when no prompt)   │   ← modal Question card from PromptHost
  *   ├─────────────────────────────────────────────┤
@@ -19,6 +21,12 @@
  * The prompt slot pins the queued Question card above the footer so the keyboard hints stay
  * visible while the user answers. The PromptHost returns null when the queue is empty so this
  * row collapses to zero height between prompts.
+ *
+ * The status slot sits between content and the prompt so the dismissible banner stack lands
+ * next to the other footer-adjacent surfaces (PromptHost, StatusBar). Detaching it from the
+ * top of the screen keeps it close to the keyboard hints (`press d to dismiss`) and the
+ * footer hotkey rail. StatusBanner returns null when no banners are active, so this row
+ * collapses too.
  *
  * The section stamp lives INSIDE the scroll region rather than the header — it's per-view
  * metadata that scrolls with the page body. The banner + breadcrumb are global anchors that
@@ -34,6 +42,7 @@ import { Banner } from '@src/application/ui/tui/components/banner.tsx';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { SectionStamp } from '@src/application/ui/tui/components/section-stamp.tsx';
 import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
+import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { ScrollRegion } from '@src/application/ui/tui/components/scroll-region.tsx';
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -44,30 +53,31 @@ export interface ViewShellProps {
   readonly subtitle?: string;
   readonly right?: React.ReactNode;
   /**
-   * Banner display:
-   *   - `'full'` (default) → the wordmark + Ralph quote inside the bordered frame; shown on
-   *     every view so the chrome stays consistent as the user navigates.
-   *   - `'compact'` → single-line strip; reserved for narrow terminals where the wordmark
-   *     would overflow (the Banner component auto-switches below `MIN_FULL_WIDTH` regardless).
+   * View-level banner preference:
+   *   - `true` → render the compact two-row strip (long-running flows pass this so the wordmark
+   *     doesn't eat vertical real estate from the task stream).
+   *   - `undefined` (default) → let the {@link Banner} auto-switch on terminal width (full above
+   *     `MIN_FULL_WIDTH`, compact below).
+   *
+   * Precedence: a user `b`-toggle (`UiState.bannerCompact`) always wins; this prop is the
+   * fallback the view declares; absent both, Banner's width-based auto-switch applies.
    */
-  readonly bannerMode?: 'full' | 'compact';
+  readonly compactBanner?: boolean;
   readonly children: React.ReactNode;
 }
 
-export const ViewShell = ({
-  title,
-  subtitle,
-  right,
-  bannerMode = 'full',
-  children,
-}: ViewShellProps): React.JSX.Element => {
+export const ViewShell = ({ title, subtitle, right, compactBanner, children }: ViewShellProps): React.JSX.Element => {
   const ui = useUiState();
   const queue = usePromptQueue();
+  // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
+  // wins over `Banner`'s internal width-based auto-switch. When neither is set we pass
+  // `undefined` so the auto-switch fires.
+  const banner = ui.bannerCompact ? true : compactBanner;
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* ── HEADER ─────────────────────────────────────────────────────────────────────── */}
       <Box flexDirection="column" flexShrink={0}>
-        <Banner compact={bannerMode === 'compact'} />
+        <Banner {...(banner !== undefined ? { compact: banner } : {})} />
         <Breadcrumb />
       </Box>
 
@@ -76,6 +86,14 @@ export const ViewShell = ({
         <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>
+
+      {/* ── STATUS ─────────────────────────────────────────────────────────────────────── */}
+      {/* Dismissible banner stack — sits above the prompt so it lands next to the other
+          footer-adjacent surfaces (the keyboard hint `press d to dismiss` is closer to the
+          footer hotkey rail), and collapses to zero height when nothing is published. */}
+      <Box flexDirection="column" flexShrink={0}>
+        <StatusBanner />
+      </Box>
 
       {/* ── PROMPT ─────────────────────────────────────────────────────────────────────── */}
       {/* Sits above the footer so the modal isn't pushed off the bottom of the screen.

@@ -1,15 +1,13 @@
+import { basename } from 'node:path';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
-import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
-import { createProgressFileSink } from '@src/integration/observability/sinks/progress-file-sink.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
@@ -17,14 +15,15 @@ import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/spri
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
-import { flushProgressSinkLeaf } from '@src/application/flows/implement/leaves/flush-progress-sink.ts';
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
-import { ensureProgressFileLeaf } from '@src/application/flows/implement/leaves/ensure-progress-file.ts';
+import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
+import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
-import { postTaskCheckLeaf } from '@src/application/flows/implement/leaves/post-task-check.ts';
+import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
+import { preTaskVerifyLeaf } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import { preflightTaskLeaf, type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -33,6 +32,7 @@ import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
+import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 
@@ -52,7 +52,7 @@ export const IMPLEMENT_TASK_TERMINAL_LEAF = 'uninstall-skills';
  */
 export interface RepoExecConfig {
   readonly path: AbsolutePath;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly setupScript?: string;
 }
 
@@ -71,7 +71,7 @@ export interface CreateImplementFlowOpts {
   readonly todoTasks: readonly Task[];
   /**
    * Project repositories keyed by id. Every `Task.repositoryId` must resolve through this map;
-   * the per-task sub-chain pulls the cwd / check-script / setup-script from the entry for the
+   * the per-task sub-chain pulls the cwd / verify-script / setup-script from the entry for the
    * task's repo so the implement chain works correctly on multi-repo projects.
    */
   readonly repositories: ReadonlyMap<RepositoryId, RepoExecConfig>;
@@ -108,9 +108,10 @@ export interface CreateImplementFlowOpts {
  *         load-sprint-execution,
  *         load-tasks,
  *         ensure-progress-file,
- *         setup-script-runner,
  *         resolve-branch,                  // assigns ralphctl/<id> on first run, persists, checks out
- *         preflight-task,                  // one-shot, before per-task subchains
+ *         working-tree-clean-check-*,      // one per repo: hard-abort if dirty (no recovery menu)
+ *         setup-script-runner,             // runs only after branch + clean check pass
+ *         preflight-task,                  // interactive dirty-tree menu — one-shot, before per-task
  *         sequential('implement-tasks', [
  *           sequential('task-<id>', [
  *             branch-preflight-<id>,       // halt if working tree drifted off the sprint branch
@@ -119,7 +120,7 @@ export interface CreateImplementFlowOpts {
  *             start-attempt-<id>,
  *             gen-eval-loop-<id>,
  *             commit-task-<id>,
- *             post-task-check,
+ *             post-task-verify,
  *             settle-attempt-<id>,
  *             uninstall-skills-<id>,
  *           ]),
@@ -141,6 +142,15 @@ export interface CreateImplementFlowOpts {
  * each task. Between tasks the tree is clean (commit-task commits each task's work), so a
  * per-task check just re-asserts what's already known. Running preflight ONCE at the outer level
  * also lets `install-skills` materialise its files afterwards without tripping the check.
+ *
+ * Pre-setup gate rationale: branch resolution + a hard `working-tree-clean-check` (no recovery
+ * menu) run BEFORE `setup-script-runner`. Setup commands typically assume a "ready" tree —
+ * `pnpm install --frozen-lockfile`, schema migrations, etc — and can fail in confusing ways
+ * against a dirty repo. Front-loading the branch + clean check means the user kicks off the
+ * implement chain, sees branch + setup turn green, and can step away from the computer with
+ * confidence the run won't fail at a stupid place. The interactive preflight-task leaf (Keep /
+ * Stash / Reset / Cancel) still runs downstream of setup so the user has a recovery seam for
+ * any drift that arose between sprint creation and implement launch.
  *
  * Branch preflight rationale: the dirty-tree check is one-shot but the branch can drift mid-run
  * (an AI generator turn with shell access could `git checkout` away). `resolve-branch` pins the
@@ -177,7 +187,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     Promise.resolve({ maxTurns: deps.config.harness.maxTurns });
 
   // Resolve every task's repository config at construction time so per-task leaves can inject
-  // the right `cwd` / `checkScript`. A task that references an unknown repo id is a planning
+  // the right `cwd` / `verifyScript`. A task that references an unknown repo id is a planning
   // bug — fail loudly here rather than mid-run with a confusing "missing cwd" surface.
   const resolveRepo = (task: Task): RepoExecConfig => {
     const repo = opts.repositories.get(task.repositoryId);
@@ -207,20 +217,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     return out;
   })();
 
-  // Fan-out signal stream — every signal emitted by the gen-eval leaves reaches the
-  // existing harness sink (TUI / in-memory bus) AND lands in `<sprintDir>/progress.md`
-  // under a colocated `.lock`. The progress sink is fire-and-forget on emit; the chain
-  // flushes it on the way out via `flushProgressSinkLeaf` so the file is consistent
-  // with everything the run emitted before the trace closes.
-  const progressLockPath = AbsolutePath.parse(`${String(opts.progressFile)}.lock`);
-  if (!progressLockPath.ok) throw progressLockPath.error;
-  const progressSink = createProgressFileSink({
-    progressFile: opts.progressFile,
-    lockFile: progressLockPath.value,
-    locker: deps.fileLocker,
-    logger: deps.logger,
-  });
-  const signalsBroadcast = broadcastSink<HarnessSignal>([deps.signals, progressSink]);
+  // `<sprintDir>/progress.md` is an append-only journal (audit-[07]): the create-sprint flow
+  // writes the header once at sprint creation, then each task-attempt settlement appends one
+  // section via `progressJournalLeaf`, and each status transition appends a separator line via
+  // `appendJournalSeparatorLeaf`. The journal IS the chronological record — no snapshot
+  // rendering, no chain.log mining.
 
   // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
   // Pointing it at `repo.path` is what makes per-repo project skills, `.mcp.json`, and the
@@ -236,12 +237,23 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     const genEvalLeafDeps = {
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: signalsBroadcast,
+      signals: deps.signals,
+      // Threaded into both gen-eval leaves so harness-owned sidecars (audit-[09]
+      // `commit-message.txt` for the generator, `evaluation.md` for the evaluator) land via
+      // the atomic-write port. The leaves never write these files directly.
+      writeFile: deps.writeFile,
       cwd: repo.path,
+      // Threaded into `implementSession()` as a second `--add-dir` so the AI can read
+      // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
+      sprintDir: opts.sprintDir,
+      progressFile: opts.progressFile,
       model: opts.model,
       clock: deps.clock,
       logger: deps.logger,
-      ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
+      eventBus: deps.eventBus,
+      maxTurns: deps.config.harness.maxTurns,
+      plateauThreshold: deps.config.harness.plateauThreshold,
+      ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
     };
     return sequential<ImplementCtx>(`task-${String(taskId)}`, [
       branchPreflightLeaf(
@@ -255,7 +267,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           sprintDir: opts.sprintDir,
           cwd: repo.path,
           progressFile: opts.progressFile,
-          ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}),
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
         },
         taskId
       ),
@@ -264,6 +276,26 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
       ),
       startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
+      // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
+      // so the post-task-verify can attribute correctly: a red post on a green pre means the
+      // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
+      // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
+      // attempt and lets the AI try anyway.
+      preTaskVerifyLeaf(
+        {
+          shellScriptRunner: deps.shellScriptRunner,
+          taskRepo: deps.taskRepo,
+          clock: deps.clock,
+          eventBus: deps.eventBus,
+          logger: deps.logger,
+        },
+        {
+          cwd: repo.path,
+          sprintDir: opts.sprintDir,
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+        },
+        taskId
+      ),
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
       // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
       // self-blocked this turn it set `lastExit` and the evaluator must not run.
@@ -286,21 +318,36 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         }
       ),
       finalizeGenEvalLeaf({ taskRepo: deps.taskRepo, readConfig, logger: deps.logger }, taskId),
-      // Verify gate sits BEFORE commit so a red checkScript blocks the task instead of landing
+      // Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
       // broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
       // the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
       // The AI is told to run the verify script itself via the prompt; this leaf is the
       // harness-side enforcement.
-      postTaskCheckLeaf(
-        { shellScriptRunner: deps.shellScriptRunner, logger: deps.logger },
-        { cwd: repo.path, ...(repo.checkScript !== undefined ? { checkScript: repo.checkScript } : {}) },
+      postTaskVerifyLeaf(
+        {
+          shellScriptRunner: deps.shellScriptRunner,
+          taskRepo: deps.taskRepo,
+          clock: deps.clock,
+          eventBus: deps.eventBus,
+          logger: deps.logger,
+        },
+        {
+          cwd: repo.path,
+          sprintDir: opts.sprintDir,
+          ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+        },
         taskId
       ),
       guard<ImplementCtx>(
         `commit-task-guard-${String(taskId)}`,
         (ctx) => ctx.lastBlockReason === undefined,
         commitTaskLeaf(
-          { gitRunner: deps.gitRunner, taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger },
+          {
+            gitRunner: deps.gitRunner,
+            taskRepo: deps.taskRepo,
+            clock: deps.clock,
+            logger: deps.logger,
+          },
           { cwd: repo.path },
           taskId
         )
@@ -308,6 +355,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       settleAttemptLeaf(
         { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
         { cwd: repo.path },
+        taskId
+      ),
+      // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the
+      // verdict, attempt count, round info, duration, and the deduped decision count for the
+      // just-settled attempt. Best-effort — the leaf logs and swallows failures.
+      progressJournalLeaf(
+        { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+        { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
         taskId
       ),
       uninstallSkillsLeaf<ImplementCtx>(
@@ -319,20 +374,47 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
 
   const perTaskChains = opts.todoTasks.map((task) => perTaskSubChain(task));
 
-  // Setup scripts run once per sprint per repo, across EVERY repo on the project (not just
-  // the task-touched subset). The leaf iterates `opts.repositories`, skipping repos that
-  // either have no `setupScript` or are already stamped on `execution.setupRanAt`.
-  const setupRepoEntries = Array.from(opts.repositories.entries()).map(([id, r]) => ({
-    repositoryId: id,
-    path: r.path,
-    ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
-  }));
+  // Setup scripts run at sprint-start for each repo a todo task touches — NOT every repo on
+  // the project. Repos with no assigned task get nothing to verify and shouldn't pay the
+  // per-repo setup cost (a no-op `pnpm install` on an untouched gateway is still ~10s of
+  // wasted wall time). The leaf appends one structured audit row to `execution.setupRanAt`
+  // per repo per run — `'success'`, `'failed'`, `'spawn-error'`, or `'skipped'` (no script
+  // configured). A `'failed'` or `'spawn-error'` outcome hard-aborts the chain before any
+  // task spins up; the AI may also run setup commands itself, but the harness is the
+  // authoritative readiness gate.
+  const setupRepoEntries = ((): ReadonlyArray<{
+    readonly repositoryId: RepositoryId;
+    readonly path: AbsolutePath;
+    readonly setupScript?: string;
+  }> => {
+    const seen = new Set<string>();
+    const out: Array<{ repositoryId: RepositoryId; path: AbsolutePath; setupScript?: string }> = [];
+    for (const task of opts.todoTasks) {
+      const repo = resolveRepo(task);
+      const id = task.repositoryId;
+      if (seen.has(String(id))) continue;
+      seen.add(String(id));
+      out.push({
+        repositoryId: id,
+        path: repo.path,
+        ...(repo.setupScript !== undefined ? { setupScript: repo.setupScript } : {}),
+      });
+    }
+    return out;
+  })();
 
   // Per-repo dirty-tree preflight. Each affected repo gets its own check so a clean
   // working tree in one repo doesn't mask a dirty tree in another. Default to 'prompt' here
   // so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires; the business-layer
   // default stays 'cancel' for non-interactive callers in isolation.
   const dirtyTreePolicy: DirtyTreePolicy = opts.dirtyTreePolicy ?? 'prompt';
+  // Per-repo preflight step ID. The cwd is baked into the name so each leaf in the per-repo
+  // iteration has a unique trace identifier (plan/trace merge keys on element name). The label
+  // strips the absolute path back down to its basename for the rail — the rail's job is "which
+  // repo are we preflighting?", not "what's the full filesystem layout?". On a single-repo
+  // sprint the discriminator is redundant; on a multi-repo sprint dropping it would collapse
+  // every preflight entry into the same row in the plan/trace merge and the operator could not
+  // tell at a glance which repo a failure belongs to.
   const preflightLeaves = uniqueRepoCwds.map((cwd, i) =>
     preflightTaskLeaf(
       {
@@ -343,7 +425,23 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         dirtyTreePolicy,
       },
       cwd,
-      `preflight-task-${String(i + 1)}-${String(cwd)}`
+      `preflight-task-${String(i + 1)}-${String(cwd)}`,
+      { label: `preflight · ${basename(String(cwd))}` }
+    )
+  );
+
+  // Pre-setup hard gate — one leaf per affected repo. Fails the chain when any repo's working
+  // tree is dirty so the user sees the problem before setup-script spends multiple minutes
+  // running `pnpm install` / migrations etc against a tree that may make setup fail anyway.
+  // Sequenced together across ALL repos before any setup leaf runs: a dirty repo 2 should not
+  // wait for repo 1's setup to finish. ID + label mirror the preflight-task pattern so the rail
+  // disambiguates per-repo entries without leaking the absolute path into the label.
+  const workingTreeCleanLeaves = uniqueRepoCwds.map((cwd, i) =>
+    workingTreeCleanCheckLeaf(
+      { gitRunner: deps.gitRunner, logger: deps.logger },
+      cwd,
+      `working-tree-clean-check-${String(i + 1)}-${String(cwd)}`,
+      { label: `working-tree clean · ${basename(String(cwd))}` }
     )
   );
 
@@ -352,17 +450,6 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    ensureProgressFileLeaf(opts.progressFile),
-    setupScriptRunnerLeaf(
-      {
-        shellScriptRunner: deps.shellScriptRunner,
-        clock: deps.clock,
-        eventBus: deps.eventBus,
-        sprintExecutionRepo: deps.sprintExecutionRepo,
-        logger: deps.logger,
-      },
-      { repos: setupRepoEntries }
-    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,
@@ -371,6 +458,25 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         logger: deps.logger,
       },
       { cwds: uniqueRepoCwds }
+    ),
+    sequential<ImplementCtx>('working-tree-clean-checks', workingTreeCleanLeaves),
+    // Record sprint activation in the journal — this fires after the implement chain
+    // activated the sprint (or noop'd because it was already active). The separator gives the
+    // operator + AI a chronological marker between "before this run" and "first task of this
+    // run."
+    appendJournalSeparatorLeaf<ImplementCtx>(
+      { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+      { progressFile: opts.progressFile, status: 'activated', name: 'progress-journal-activate' }
+    ),
+    setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: deps.shellScriptRunner,
+        clock: deps.clock,
+        eventBus: deps.eventBus,
+        sprintExecutionRepo: deps.sprintExecutionRepo,
+        logger: deps.logger,
+      },
+      { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),
     sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
     sequential<ImplementCtx>('implement-tasks', perTaskChains),
@@ -383,9 +489,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     guard<ImplementCtx>(
       'transition-sprint-to-review-when-any-done',
       (ctx) => ctx.tasks?.some((t) => t.status === 'done') === true,
-      transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger })
+      sequential<ImplementCtx>('transition-to-review-and-journal', [
+        transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+        appendJournalSeparatorLeaf<ImplementCtx>(
+          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+          { progressFile: opts.progressFile, status: 'review', name: 'progress-journal-review' }
+        ),
+      ])
     ),
-    flushProgressSinkLeaf(progressSink),
   ]);
 
   // Lock key: the sprint dir. One implement run at a time per sprint — across all repos the

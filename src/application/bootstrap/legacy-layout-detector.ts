@@ -7,7 +7,7 @@
  * **Detection signals.** Any single signal triggers a positive:
  *
  *   - `<appRoot>/cache/`       — v0.6.x cache dir; v0.7.0 has no `cache/`
- *   - `<appRoot>/logs/`        — v0.6.x logs dir; v0.7.0 routes via `<sprintDir>/chain.log`
+ *   - `<appRoot>/logs/`        — v0.6.x logs dir; v0.7.0 uses `<sprintDir>/logs/`
  *   - `<appRoot>/backups/`     — v0.6.x backups dir; v0.7.0 doesn't auto-backup
  *   - `<appRoot>/config.json`  — v0.6.x top-level config; v0.7.0 puts settings.json under config/
  *

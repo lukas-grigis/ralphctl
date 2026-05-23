@@ -84,6 +84,27 @@ describe('startAttemptLeaf', () => {
     expect(eventLog.some((e) => e.message.includes('started attempt'))).toBe(true);
   });
 
+  it('clears prior generator + evaluator session ids at the per-task boundary (new task → new "devs")', async () => {
+    const todo = makeTodoTask();
+    const { repo } = fakeUpdateTask();
+    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+
+    const initial: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [todo],
+      // Pretend the prior task's gen-eval rounds left these populated; the new task must NOT
+      // inherit them — cross-task resume would mix two unrelated bodies of work into one
+      // conversational thread.
+      priorGeneratorSessionId: 'leftover-gen-id' as unknown as ImplementCtx['priorGeneratorSessionId'],
+      priorEvaluatorSessionId: 'leftover-eval-id' as unknown as ImplementCtx['priorEvaluatorSessionId'],
+    };
+    const result = await leafEl.execute(initial);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.priorGeneratorSessionId).toBeUndefined();
+    expect(result.value.ctx.priorEvaluatorSessionId).toBeUndefined();
+  });
+
   it('throws an InvalidStateError when ctx.tasks is undefined (chain-construction error)', async () => {
     const todo = makeTodoTask();
     const { repo } = fakeUpdateTask();

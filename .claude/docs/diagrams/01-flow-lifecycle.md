@@ -2,53 +2,49 @@
 
 Every user-launchable workflow is a `FlowManifest` entry in `src/application/registry.ts`.
 The CLI command builder, the TUI menu, and the launcher all read from that one array — add
-a flow by appending one entry (use `pnpm gen:flow <name>` to scaffold the body).
+a flow by appending one entry (`pnpm gen:flow <name>` to scaffold).
 
-## From registry to runner
+## From a click to a running flow
 
 ```mermaid
-flowchart TB
-  user(["User launches a flow"]) --> surface{Surface}
-  surface -->|TUI: menu pick| tuiLaunch["application/ui/shared/launch/&lt;flow&gt;.ts"]
-  surface -->|CLI: subcommand| cliCmd["application/ui/cli/commands/&lt;flow&gt;.ts"]
+sequenceDiagram
+    actor User
+    participant UI as TUI menu / CLI command
+    participant Registry as registry.ts
+    participant Launch as launch/&lt;flow&gt;.ts
+    participant Factory as flows/&lt;flow&gt;/flow.ts
+    participant Runner as chain/run/runner.ts
+    participant Bus as EventBus
+    participant Sinks as TUI · chain.log · console
 
-  registry["application/registry.ts<br/>flowRegistry: FlowManifest[]"]
-  triggers["FlowTriggers<br/>(requiresProject, currentSprintStatus,<br/>minPendingTickets, minApprovedTickets,<br/>minResumableTasks)"]
+    User->>UI: pick flow
+    UI->>Registry: read FlowManifest + triggers
+    Registry-->>UI: gate decision (allow / why-disabled)
 
-  registry -.gate.-> tuiLaunch
-  triggers -.gate.-> tuiLaunch
+    UI->>Launch: launchXxx(ctx)
+    Launch->>Factory: createXxxFlow(deps, opts)
+    Factory-->>Launch: Element&lt;TCtx&gt;
 
-  tuiLaunch --> factory
-  cliCmd --> factory
+    Launch->>Runner: createRunner({ id, element, initialCtx })
+    Runner->>Runner: runWithSession(id, …)
+    Runner->>Factory: element.execute(...)
 
-  subgraph factory["application/flows/&lt;flow&gt;/flow.ts"]
-    direction TB
-    deps["&lt;Flow&gt;Deps<br/>(slim subset of AppDeps)"]
-    body["createXxxFlow(deps, opts)<br/>returns Element&lt;TCtx&gt;"]
-    deps --> body
-  end
+    loop each step (leaf / sequential / loop / guard)
+        Factory->>Bus: ChainStarted · ChainStep* · ChainCompleted
+        Bus->>Sinks: subscriber fan-out
+    end
 
-  factory --> runner
-
-  subgraph runner["application/chain/run/runner.ts"]
-    direction TB
-    createRunner["createRunner({ id, element, initialCtx })"]
-    sessionScope["runWithSession(id, …)<br/>AsyncLocalStorage"]
-    exec["element.execute(ctx, signal, onTrace)"]
-    createRunner --> sessionScope --> exec
-  end
-
-  exec --> bus["EventBus<br/>(ChainStarted → ChainStep* →<br/>ChainCompleted/Failed/Aborted)"]
-  bus --> tuiUI[TUI live execute view]
-  bus --> log["&lt;sprintDir&gt;/chain.log sink"]
-  bus --> console[console LogSink]
-
-  classDef ext fill:#fff3e0,stroke:#d97706
-  classDef internal fill:#e7f0ff,stroke:#1d4ed8
-  class user,tuiUI,console ext
-  class registry,triggers,factory,runner,bus internal
+    Sinks-->>User: live updates
 ```
 
-Flow inventory (the 17 manifest entries) is in `.claude/docs/ARCHITECTURE.md` § Flow registry
-and in the live `src/application/registry.ts`. `FlowTriggers` (the pre-launch predicates that
-gate the TUI menu) is described in the same section — it's a struct, not a diagram.
+## Where each piece lives
+
+| Layer    | Path                                         | Owns                                                                            |
+| -------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| Registry | `src/application/registry.ts`                | One `FlowManifest` per flow; pre-launch trigger predicates.                     |
+| Launcher | `src/application/ui/shared/launch/<flow>.ts` | Wiring `AppDeps` into the flow's slim `<Flow>Deps`, kicking off `createRunner`. |
+| Factory  | `src/application/flows/<flow>/flow.ts`       | `createXxxFlow(deps, opts) → Element<TCtx>` — the chain composition.            |
+| Runner   | `src/application/chain/run/runner.ts`        | Lifecycle, session scoping, event emission, replay buffer.                      |
+
+`FlowTriggers` (the pre-launch predicates that gate the TUI menu) are described in
+`.claude/docs/ARCHITECTURE.md` § Flow registry — they're a small struct, not a diagram.

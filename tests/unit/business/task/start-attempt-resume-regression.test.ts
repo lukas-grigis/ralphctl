@@ -67,6 +67,22 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     // One atomic write captures both the settled prior + the new running attempt.
     expect(writes).toHaveLength(1);
     expect(writes[0]?.attempts).toHaveLength(priorAttemptCount + 1);
+
+    // The just-settled prior attempt carries the inferred `process-crash` cause — we
+    // don't know if it was Ctrl-C, SIGTERM or v8 OOM from a fresh process, but the cause
+    // is at minimum populated (no longer 'unknown') so post-mortem tooling has a label.
+    const priorAborted = next.attempts.at(-2);
+    if (priorAborted?.status === 'aborted') {
+      expect(priorAborted.abortCause).toBe('process-crash');
+    }
+
+    // The fresh running attempt carries the recovery context pointing at the prior n.
+    const fresh = next.attempts.at(-1);
+    if (fresh?.status === 'running') {
+      expect(fresh.recovering).toBeDefined();
+      expect(fresh.recovering?.fromAttemptN).toBe(priorAttemptCount);
+      expect(fresh.recovering?.cause).toBe('process-crash');
+    }
   });
 
   it('baseline: starting from a todo task appends exactly one running attempt and no aborted entries', async () => {

@@ -26,10 +26,7 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
  * and v1's working copilot adapter spawns the binary directly with `['-i', prompt]` — so
  * v2 now matches that pattern.
  *
- * Per the Copilot CLI reference, `--model` and `--add-dir` are **equals-only** flags. Passing
- * `['--add-dir', path]` or `['--model', model]` leaves the parser without a bound value and
- * corrupts argv enough that the `-i PROMPT` seed silently never executes (same empty-input-box
- * symptom as the old shell-wrapping bug). Use `--add-dir=PATH` / `--model=MODEL` exclusively.
+ * We use `--add-dir=PATH` / `--model=MODEL` to keep argv construction deterministic.
  *
  * Permission strategy: `--allow-all-tools` so the AI doesn't get blocked on per-tool
  * confirmation prompts (read, search, shell) before it can consume the seeded prompt. The
@@ -107,9 +104,7 @@ export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): 
         dirname(String(input.promptFile)),
       ];
       const seen = new Set<string>();
-      // `--add-dir` and `--model` are equals-only per the Copilot CLI reference; passing them
-      // space-separated leaves the parser without a bound value and corrupts argv enough that
-      // the `-i PROMPT` seed silently never executes (TUI opens at the empty input box).
+      // Emit `--add-dir=...` / `--model=...` for deterministic argv construction.
       const dirFlags = allRoots
         .filter((p) => {
           if (seen.has(p)) return false;

@@ -38,6 +38,8 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createRunFlow } from '@src/application/flows/_meta/run/flow.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
@@ -133,12 +135,16 @@ const passingShell: ShellScriptRunner = {
   },
 };
 
+// Per-role signal sets. The audit-[09] generator contract rejects `evaluation` signals
+// (only the evaluator emits those); emitting both on the generator's signalsFile would
+// now fail Zod validation. Dispatch by path so each role's signalsFile carries the
+// signals its leaf accepts.
 const passingProvider: HeadlessAiProvider = {
   async generate(session) {
-    const signals = [
-      { type: 'task-verified' as const, output: 'tests pass', timestamp: NOW },
-      { type: 'evaluation' as const, status: 'passed' as const, dimensions: [], timestamp: NOW },
-    ];
+    const isEvaluator = String(session.signalsFile).includes('/evaluator/');
+    const signals = isEvaluator
+      ? [{ type: 'evaluation' as const, status: 'passed' as const, dimensions: [], timestamp: NOW }]
+      : [{ type: 'task-verified' as const, output: 'tests pass', timestamp: NOW }];
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return Result.error(wrote.error);
     return Result.ok({ signalsFile: session.signalsFile, exitCode: 0, sessionId: 'sess-1' });
@@ -235,7 +241,7 @@ describe('createRunFlow', () => {
           eventBus,
           logger: noopLogger,
           clock: () => FIXED_LATER,
-          config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0 } },
+          config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
           gitRunner: cleanGit,
           shellScriptRunner: passingShell,
           fileLocker: locker,
@@ -243,6 +249,8 @@ describe('createRunFlow', () => {
           skillsAdapter: noopSkillsAdapter,
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
+          writeFile: createAtomicWriteFile(),
+          appendFile: createAppendFile(),
         },
         review: {
           sprintRepo: sprintRepo.repo,
@@ -258,14 +266,18 @@ describe('createRunFlow', () => {
           shellScriptRunner: passingShell,
           fileLocker: locker,
           locksRoot,
+          appendFile: createAppendFile(),
           model: 'claude-opus-4-7',
         },
       },
       {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
-        cwd: FAKE_CWD,
         repositories: FAKE_REPOSITORIES,
+        reviewRoot: absolutePath(join(f.dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),
@@ -305,7 +317,7 @@ describe('createRunFlow', () => {
           eventBus,
           logger: noopLogger,
           clock: () => FIXED_LATER,
-          config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0 } },
+          config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
           gitRunner: cleanGit,
           shellScriptRunner: passingShell,
           fileLocker: locker,
@@ -313,6 +325,8 @@ describe('createRunFlow', () => {
           skillsAdapter: noopSkillsAdapter,
           skillSource: emptySkillSource,
           interactive: terminatingInteractive,
+          writeFile: createAtomicWriteFile(),
+          appendFile: createAppendFile(),
         },
         review: {
           sprintRepo: sprintRepo.repo,
@@ -328,14 +342,18 @@ describe('createRunFlow', () => {
           shellScriptRunner: passingShell,
           fileLocker: locker,
           locksRoot,
+          appendFile: createAppendFile(),
           model: 'claude-opus-4-7',
         },
       },
       {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
-        cwd: FAKE_CWD,
         repositories: FAKE_REPOSITORIES,
+        reviewRoot: absolutePath(join(f.dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),

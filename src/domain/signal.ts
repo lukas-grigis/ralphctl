@@ -109,16 +109,6 @@ export interface DecisionSignal {
 }
 
 /**
- * Setup-time signal from a one-shot AI session (`project add` / `project repo add`). Carries the
- * raw shell command the AI proposes as the verification gate. Empty/missing means no proposal.
- */
-export interface CheckScriptDiscoverySignal {
-  readonly type: 'check-script-discovery';
-  readonly command: string;
-  readonly timestamp: IsoTimestamp;
-}
-
-/**
  * Context-file proposal from `project readiness`. Body becomes a provider-native context file
  * (`CLAUDE.md` for Claude, `.github/copilot-instructions.md` for Copilot, `AGENTS.md` for
  * Codex). The originating wire tag (`<claude-md>` / `<copilot-instructions>` / `<agents-md>`)
@@ -207,14 +197,52 @@ export interface ProgressEntrySignal {
 }
 
 /**
+ * AI-provider context-window compaction event. Emitted when the underlying CLI auto-compacts its
+ * working context (Claude / Copilot / Codex all do this transparently in long sessions). First-
+ * class lifecycle moment per the Anthropic harness-engineering guidance: the operator should be
+ * able to see when the model's working memory was rebuilt so an apparent regression mid-task
+ * can be attributed to the compaction boundary instead of the prompt.
+ *
+ *  - `beforeTokens` / `afterTokens` are the provider-reported token counts before and after the
+ *    compaction. Both optional — providers vary on what they expose. When neither is present the
+ *    marker renders as a bare "context compacted" boundary.
+ *  - `preservedTopics` is the optional list of topic / summary headings the provider says it
+ *    retained. Empty / absent when the provider does not name what it kept.
+ *
+ * Per-provider emission gap (no parser implemented yet — TODO):
+ *  - Claude Code: the `claude -p --verbose --output-format stream-json` line family includes a
+ *    `{"type":"system","subtype":"compact_boundary"}` event in recent CLI versions; once
+ *    confirmed stable, wire it through `parse-stream.ts` and emit this signal from the headless
+ *    adapter. Older CLI versions omit the event entirely.
+ *  - GitHub Copilot CLI: no documented compaction marker on the stream as of v0.7.0; treat as
+ *    unobservable until the vendor surfaces one.
+ *  - OpenAI Codex CLI: no documented compaction marker; same status as Copilot.
+ *
+ * The signal-type is therefore present in the union (so renderers + future parsers can land
+ * incrementally) but is not yet produced by any adapter. The TUI marker rendering is the
+ * forward-compatible target; emitters follow in a P3 task once vendor markers stabilise.
+ */
+export interface ContextCompactedSignal {
+  readonly type: 'context-compacted';
+  readonly beforeTokens?: number;
+  readonly afterTokens?: number;
+  readonly preservedTopics?: readonly string[];
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
  * Generator-proposed commit message for the harness's per-task commit. The harness owns the
  * actual `git commit` call (commit-task leaf); this signal lets the generator influence the
  * message without taking control of the operation.
  *
- *  - `subject` is the first line. Convention: imperative present-tense, ≤72 chars; the parser
- *    trims it but does not enforce length — the harness clamps before committing.
+ *  - `subject` is the first line. Convention: imperative present-tense, ≤72 chars; the harness
+ *    clamps before committing.
  *  - `body` is optional and may span multiple paragraphs. Convention: wrap at 72 chars,
  *    explain the why, not the what.
+ *
+ * Deterministic trailers (`Closes #…`) are appended by the commit-task leaf at `git commit -F`
+ * time — they are not threaded back onto the signal. UI surfaces show the AI-authored subject +
+ * body; reviewers see the trailered version in `git log`.
  *
  * When the signal is absent the harness falls back to its auto-generated default
  * (`task(<short-id>): <task-name>`).
@@ -227,9 +255,62 @@ export interface CommitMessageSignal {
 }
 
 /**
- * Discriminated union of every harness signal type. Narrows by the `type` tag; exhaustive
- * `switch` statements should close with `const _exhaustive: never = signal` so adding a variant
- * is a compile error at every consumer until handled.
+ * One refined-ticket proposal — produced by the refine flow's AI session. Carries the
+ * AI-authored requirements body verbatim; the harness projects the body onto the
+ * `PendingTicket` entity via `refineTicketUseCase` (which gates approval through an optional
+ * reviewer callback). No sidecar — the harness mutates the ticket directly.
+ *
+ *  - `body` is markdown prose; uncapped on persistence per audit [03].
+ */
+export interface RefinedTicketSignal {
+  readonly type: 'refined-ticket';
+  readonly body: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * One plan proposal — produced by the plan flow's AI session. Carries the structured task
+ * envelope the planner emitted; downstream code resolves cross-references (projectPath →
+ * Repository, blockedBy → TaskId) via `parseTaskList`. No sidecar; the harness projects the
+ * tasks onto the sprint's task list via `planSprintUseCase`.
+ *
+ *  - `tasksJson` is the raw JSON body the AI wrote, retained verbatim so the existing
+ *    domain-aware parser (`parsePlanOutput` → `parseTaskList`) keeps owning cross-reference
+ *    resolution. When Wave 6 swaps the prompt to ask for the structured shape directly, this
+ *    field will be replaced by the validated `TaskImportSpec[]` payload; until then the
+ *    string preserves the legacy round-trip.
+ */
+export interface TaskPlanSignal {
+  readonly type: 'task-plan';
+  readonly tasksJson: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * One ideate proposal — produced by the ideate flow's AI session. Carries the requirements
+ * body plus the structured task envelope; downstream code resolves cross-references and
+ * approves the ticket via `addApprovedTicketUseCase`. No sidecar; the harness projects both
+ * onto the sprint.
+ *
+ *  - `outputJson` is the raw JSON body the AI wrote, retained verbatim so the existing
+ *    parser (`parseIdeateOutput` → `parseTaskList`) keeps owning ticket / task resolution.
+ *    Wave 6 replaces this with structured fields when the prompt-side contract lands.
+ */
+export interface IdeatedTicketsSignal {
+  readonly type: 'ideated-tickets';
+  readonly outputJson: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * Discriminated union of every signal type the harness understands. Narrows by the `type` tag;
+ * exhaustive `switch` statements should close with `const _exhaustive: never = signal` so
+ * adding a variant is a compile error at every consumer until handled.
+ *
+ * Naming: this used to be called `HarnessSignal`. The new contract ([09]) names them
+ * `AiSignal` to clarify that the AI session is the producer. The alias below carries the
+ * legacy name forward for in-flight consumers; per-leaf migration progressively replaces
+ * `HarnessSignal` references with `AiSignal`.
  */
 export type HarnessSignal =
   | ProgressSignal
@@ -242,11 +323,21 @@ export type HarnessSignal =
   | LearningSignal
   | ChangeSignal
   | DecisionSignal
-  | CheckScriptDiscoverySignal
   | AgentsMdProposalSignal
   | SetupScriptSignal
   | VerifyScriptSignal
   | SetupSkillProposalSignal
   | VerifySkillProposalSignal
   | SkillSuggestionsSignal
-  | CommitMessageSignal;
+  | CommitMessageSignal
+  | ContextCompactedSignal
+  | RefinedTicketSignal
+  | TaskPlanSignal
+  | IdeatedTicketsSignal;
+
+/**
+ * Canonical name for the AI-produced signal union under the [09] contract. Currently aliased
+ * to {@link HarnessSignal}; per-leaf migration ([09] step 5) progressively swaps consumers
+ * over and a later pass collapses the union back into a single name.
+ */
+export type AiSignal = HarnessSignal;

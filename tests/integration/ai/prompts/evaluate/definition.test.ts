@@ -81,13 +81,25 @@ describe('evaluatePromptDef — completeness', () => {
     expect(evaluatePromptDef.expectedSignals).toEqual(['evaluation']);
   });
 
-  it('uses `signals-evaluation` (not `signals-task`) for the SIGNALS partial', () => {
+  it('wires only the harness-context partial — output contract is a parameter, not a partial', () => {
     expect(evaluatePromptDef.partials).toEqual({
       HARNESS_CONTEXT: 'harness-context',
-      SIGNALS: 'signals-evaluation',
     });
   });
+
+  it('declares the OUTPUT_CONTRACT_SECTION placeholder for the audit-[09] contract block', () => {
+    const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
+    expect(placeholders).toContain('OUTPUT_CONTRACT_SECTION');
+  });
+
+  it('declares the PRIOR_PROGRESS placeholder so the reviewer sees the sprint journal body', () => {
+    const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
+    expect(placeholders).toContain('PRIOR_PROGRESS');
+  });
 });
+
+const SAMPLE_CONTRACT_SECTION =
+  '## Output contract\n\nWrite signals.json. (test fixture body — contains <evaluation-passed> and <evaluation-failed> markers for substring smoke checks.)';
 
 describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and no leftover placeholders', async () => {
@@ -95,7 +107,8 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
-      checkScript: 'npm run check',
+      verifyScript: 'npm run check',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -108,9 +121,6 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('npm run check');
     // Default tooling fallback is rendered when projectTooling is omitted.
     expect(result.value).toContain('_(none detected)_');
-    // The evaluation-specific signals partial is wired in.
-    expect(result.value).toContain('<evaluation-passed>');
-    expect(result.value).toContain('<evaluation-failed>');
     // No leftover placeholders.
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
@@ -120,18 +130,23 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     const result = await buildEvaluatePrompt(deps, {
       task,
       projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('## Description');
     // Sanity: the rest of the prompt still rendered.
     expect(result.value).toContain('# Code Review: short task');
-    expect(result.value).toContain('No check script configured for this repo.');
+    expect(result.value).toContain('No verify script configured for this repo.');
   });
 
   it('uses the task name from a default fixture without crashing when no overrides are supplied', async () => {
     const task = makeTodoTask();
-    const result = await buildEvaluatePrompt(deps, { task, projectPath: '/tmp/ralph/main-repo' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain(task.name);
@@ -140,11 +155,29 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
 
   it('omits the extra-dimensions block when task.extraDimensions is unset', async () => {
     const task = makeTaskWith({});
-    const result = await buildEvaluatePrompt(deps, { task, projectPath: '/tmp/ralph/main-repo' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('Task-specific dimensions');
     expect(result.value).toContain('**Consistency**');
+  });
+
+  it('inlines the priorProgress body into the `## Prior progress` section', async () => {
+    const task = makeTaskWith({ name: 'with-prior' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '## Task: shipped-earlier — Attempt 1\n\nTask completed successfully.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Prior progress');
+    expect(result.value).toContain('## Task: shipped-earlier — Attempt 1');
   });
 
   it('renders extra dimensions after the floor dimensions when planner attached them', async () => {
@@ -160,7 +193,11 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
         extraDimensions: ['accessibility', 'performance'],
       })
     );
-    const result = await buildEvaluatePrompt(deps, { task, projectPath: '/tmp/ralph/main-repo' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('Task-specific dimensions');
@@ -183,9 +220,11 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -199,9 +238,11 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
-      checkScriptSection: 'No check script configured for this repo.',
+      verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
       extraDimensionsSection: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

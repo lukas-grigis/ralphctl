@@ -298,6 +298,22 @@ export const renameSprint = (
   return Result.ok({ ...guard.value, name: name.value });
 };
 
+/**
+ * Rename the sprint's CLI handle. Rejected once `done`. Uniqueness is project-scoped — the
+ * persistence layer rejects collisions; this helper is the pure setter.
+ */
+export const setSprintSlug = (sprint: Sprint, slug: Slug): Result<OpenSprint, InvalidStateError> => {
+  const guard = requireStatus(
+    'sprint',
+    sprint,
+    ['draft', 'planned', 'active', 'review'] as const,
+    'set-slug',
+    'Done sprints are immutable.'
+  );
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok({ ...guard.value, slug });
+};
+
 // ───────────────────────── tickets ─────────────────────────
 
 export const addTicket = (sprint: Sprint, ticket: Ticket): Result<DraftSprint, InvalidStateError | ConflictError> => {

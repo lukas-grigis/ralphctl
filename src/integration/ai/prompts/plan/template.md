@@ -14,22 +14,17 @@ that need user input rather than silently assuming.
 - **Do not** modify, create, or delete any file inside the listed repositories. Exploration is
   read-only (read / search / grep). Files inside the repos must be left exactly as you found
   them — no scaffolding, no stubs, no fixups, no "while I was here" cleanups.
-- **The only file you may write in this session is `{{OUTPUT_FILE}}`** — the JSON task array
-  described under "Output target" below. Writing anything else is a protocol violation.
+- **The only file you may write in this session is `signals.json`** — see the Output contract
+  section at the bottom of this prompt. Writing anything else is a protocol violation.
 - If you catch yourself reaching for an edit tool on a repo file, stop. Capture the change as a
   step inside a task instead. The implementing agent will perform it.
 
 ## Output target
 
-When the plan is approved by the user, write a JSON array to:
+When the plan is approved by the user, emit a `task-plan` signal whose `tasksJson` field carries
+the JSON task array (a single JSON-encoded string of the array — no wrapper object inside).
 
-```
-{{OUTPUT_FILE}}
-```
-
-Single array — no wrapper object, no commentary, no surrounding fence.
-
-`tasks` array conforms to:
+The `tasksJson` payload conforms to:
 
 ```json
 {{SCHEMA}}
@@ -56,7 +51,8 @@ Each task entry uses these fields:
   capture (e.g. `accessibility`, `performance`, `migration-safety`, `i18n`). Omit the field
   entirely when the floor dimensions are enough. Cap: 2–3 per task in practice; hard max 6.
 
-If you cannot produce a sound plan, write a single object instead of an array:
+If you cannot produce a sound plan, emit the `task-plan` signal with `tasksJson` set to the
+single-object JSON form below (instead of an array):
 
 ```json
 { "blocked": "concrete reason — what's missing or contradictory, what would unblock you" }
@@ -212,7 +208,7 @@ Good — precise steps with file paths and pattern references:
     "Create useAuth hook in src/hooks/useAuth.ts exposing auth state and actions",
     "Add ProtectedRoute wrapper component in src/components/ProtectedRoute.tsx",
     "Write unit tests in src/services/__tests__/auth.test.ts — follow test patterns in src/services/__tests__/user.test.ts",
-    "Run the project's verification commands (e.g. `pnpm test`, `pnpm typecheck`) — all must pass"
+    "Run the project's verification commands (read the project's AI context file or manifest for the exact commands — typecheck, lint, and tests) — all must pass"
   ],
   "verificationCriteria": [
     "TypeScript compiles with no errors",
@@ -238,6 +234,16 @@ The canonical, user-approved tickets for this sprint:
 {{REPOSITORIES}}
 
 These paths are fixed — repository selection is not part of this session.
+
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint chronologically. Read
+it before planning; honor prior decisions and avoid re-litigating them. The journal body as of right
+now:
+
+{{PRIOR_PROGRESS}}
+
+If the block above is empty, no prior progress has been recorded yet on this sprint.
 
 {{EXISTING_TASKS}}
 
@@ -272,8 +278,10 @@ Don't write JSON yet. Build the plan in your head (or a markdown sketch) first.
 
 ### Step 3 — Interview the user
 
-Use `AskUserQuestion` for genuinely contested decisions. One question at a time, 2–4 options,
-recommendation as the first option. Stop when you have what you need.
+For genuinely contested decisions, ask the user a structured multiple-choice question — one at a
+time, 2–4 labelled options per question, recommendation as the first option. Use whichever
+interactive question tool your runtime exposes (Claude Code surfaces `AskUserQuestion`; other
+runtimes have equivalents). Stop when you have what you need.
 
 Good questions:
 
@@ -312,9 +320,10 @@ Present the proposed task list in readable markdown:
 
 Show the dependency graph as a list under the tasks; explain why each dependency exists.
 
-Then ask for approval via `AskUserQuestion` — **do not** ask in prose ("does this look right?",
-"want me to split X?", "say the word and I'll write the plan"). Prose answers are ambiguous and
-the harness cannot act on them; the tool produces a structured choice.
+Then ask for approval via a structured multiple-choice prompt — **do not** ask in prose ("does this
+look right?", "want me to split X?", "say the word and I'll write the plan"). Prose answers are
+ambiguous and the harness cannot act on them; a structured choice produces a verdict the harness
+can route.
 
 - **Question:** "Does this task breakdown look correct?"
 - **Header:** "Approval"
@@ -324,27 +333,25 @@ the harness cannot act on them; the tool produces a structured choice.
   - "Give feedback" — Type specific corrections in my own words.
 
 If the user picks "Needs changes" / "Give feedback" (or uses "Other"), apply their input, revise
-the tasks, re-present the full plan + dependency graph, then re-ask the same `AskUserQuestion`.
-Iterate until the user picks "Approved, write it". Only after that approval proceed to Step 5.
+the tasks, re-present the full plan + dependency graph, then re-ask the same structured approval
+question. Iterate until the user picks "Approved, write it". Only after that approval proceed to
+Step 5.
 
 ### Step 5 — Validate before output
 
 {{VALIDATION_CHECKLIST}}
 
-### Step 6 — Write to file
+### Step 6 — Write `signals.json`
 
 Once the user has answered "Approved, write it" in Step 4 AND every checklist item is true,
-write the JSON array to:
-
-```
-{{OUTPUT_FILE}}
-```
-
-Write the array only — no surrounding fence, no chat commentary after.
+write the `task-plan` signal into `signals.json` per the Output contract at the bottom of this
+prompt. The task array goes into the signal's `tasksJson` field as a JSON-encoded string.
 
 ## Failure modes
 
 If the inputs are contradictory, requirements are missing critical information, or the
 affected repositories cannot accommodate the work as scoped, do NOT emit speculative tasks.
-Output the `{ "blocked": "reason" }` object instead. The harness records this verbatim and
-surfaces it to the operator.
+Emit the `task-plan` signal with `tasksJson` set to the `{ "blocked": "reason" }` object
+instead. The harness records this verbatim and surfaces it to the operator.
+
+{{OUTPUT_CONTRACT_SECTION}}

@@ -5,7 +5,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
-  renderCheckScriptSection,
+  renderVerifyScriptSection,
   renderExtraDimensionsSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -18,10 +18,11 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * Pre-rendered string parameters for the evaluate template. Mirrors the implement
  * definition's task-shaped slots — the evaluator reviews the same task spec the implementer
  * just executed against — but omits the implementer-specific identifiers (TASK_ID,
- * PROGRESS_FILE) and uses the `signals-evaluation` partial instead of `signals-task`.
+ * PROGRESS_FILE) and substitutes the audit-[09] `{{OUTPUT_CONTRACT_SECTION}}` produced from the
+ * evaluator's `AiOutputContract`.
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
- * steps / verification criteria, runs the check script as authoritative ground truth, scores
+ * steps / verification criteria, runs the verify script as authoritative ground truth, scores
  * four floor dimensions (correctness, completeness, safety, consistency), and emits exactly
  * one verdict signal — `<evaluation-passed>` or `<evaluation-failed>critique</evaluation-failed>`.
  */
@@ -34,13 +35,13 @@ export interface EvaluatePromptParams {
   readonly taskDescriptionSection: string;
   /** Markdown block "## Implementation Steps\n\n1. …" or empty when there are no steps. */
   readonly taskStepsSection: string;
-  /** Markdown block "## Verification Criteria\n\n- …" or empty when there are none. */
+  /** Markdown block "## Done criteria\n\n- …" or empty when there are none. */
   readonly verificationCriteriaSection: string;
   /**
-   * Markdown body for the "## Check Script" section — either a fenced shell block with the
-   * configured command or the explicit "no check script configured" line. Always non-empty.
+   * Markdown body for the "## Verify Script" section — either a fenced shell block with the
+   * configured command or the explicit "no verify script configured" line. Always non-empty.
    */
-  readonly checkScriptSection: string;
+  readonly verifyScriptSection: string;
   /** Detected subagents / skills / MCP servers the reviewer can route to, or fallback. */
   readonly projectTooling: string;
   /**
@@ -48,6 +49,19 @@ export interface EvaluatePromptParams {
    * string when the planner didn't attach extras to this task — keeps the template stable.
    */
   readonly extraDimensionsSection: string;
+  /**
+   * Audit-[09] output contract section — rendered from the evaluator's `AiOutputContract` by
+   * `renderContractSectionFor(evaluatorOutputContract)`. Tells the AI to write exactly one
+   * file (`signals.json`) matching the documented shape.
+   */
+  readonly outputContractSection: string;
+  /**
+   * Current body of `progress.md` substituted into the `## Prior progress` section so the
+   * reviewer can judge this round's work against what already shipped on the sprint. Empty
+   * string when the journal file is absent — the template's surrounding prose handles the
+   * empty case without a per-flow special branch.
+   */
+  readonly priorProgress: string;
 }
 
 const requireNonEmpty =
@@ -80,15 +94,15 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
     },
     verificationCriteriaSection: {
       placeholder: 'VERIFICATION_CRITERIA_SECTION',
-      description: '"## Verification Criteria" bullet list, or empty when none are declared.',
+      description: '"## Done criteria" bullet list, or empty when none are declared.',
     },
-    checkScriptSection: {
-      placeholder: 'CHECK_SCRIPT_SECTION',
+    verifyScriptSection: {
+      placeholder: 'VERIFY_SCRIPT_SECTION',
       description:
-        'Body of the "## Check Script" section — fenced shell block when configured, explicit "no check script configured" otherwise.',
+        'Body of the "## Verify Script" section — fenced shell block when configured, explicit "no verify script configured" otherwise.',
       validate: requireNonEmpty(
-        'checkScriptSection',
-        'check-script section must not be empty (renderCheckScriptSection always emits a body)'
+        'verifyScriptSection',
+        'verify-script section must not be empty (renderVerifyScriptSection always emits a body)'
       ),
     },
     projectTooling: {
@@ -99,10 +113,23 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       placeholder: 'EXTRA_DIMENSIONS_SECTION',
       description: 'Optional task-specific dimensions block appended after the floor dimensions.',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the evaluator contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty(
+        'outputContractSection',
+        'output-contract section must not be empty (renderContractSectionFor always emits a body)'
+      ),
+    },
+    priorProgress: {
+      placeholder: 'PRIOR_PROGRESS',
+      description:
+        'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-evaluation',
   },
   // The single `evaluation` signal type covers both verdict shapes (`<evaluation-passed>` and
   // `<evaluation-failed>critique</evaluation-failed>`). The body / critique distinction is
@@ -113,8 +140,19 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
 export interface BuildEvaluatePromptInput {
   readonly task: Task;
   readonly projectPath: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   readonly projectTooling?: string;
+  /**
+   * Pre-rendered audit-[09] output contract section. The leaf composes this via
+   * `renderContractSectionFor(evaluatorOutputContract)` before calling the builder.
+   */
+  readonly outputContractSection: string;
+  /**
+   * Current `progress.md` body — inlined into the prompt's "## Prior progress" section so the
+   * reviewer can judge this round's work against what already shipped. Defaults to the empty
+   * string when omitted (test fixtures); production leaves always read the on-disk body.
+   */
+  readonly priorProgress?: string;
 }
 
 /**
@@ -132,7 +170,9 @@ export const buildEvaluatePrompt = async (
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
-    checkScriptSection: renderCheckScriptSection(input.checkScript),
+    verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
+    outputContractSection: input.outputContractSection,
+    priorProgress: input.priorProgress ?? '',
   });

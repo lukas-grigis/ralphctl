@@ -91,4 +91,42 @@ describe('createFsSprintExecutionRepository', () => {
     expect(String(loaded.value.id)).toBe(String(sprintId));
     expect(String(loaded.value.sprintId)).toBe(String(sprintId));
   });
+
+  it('upgrades a legacy execution.json whose `setupRanAt` rows omit the structured fields', async () => {
+    // The pre-v0.7.0 shape stored just `{ repositoryId, ranAt }` per setup row. The codec
+    // must fill in neutral defaults (`outcome: 'success'`, empty command + tails) so the
+    // file loads without operator intervention. New writes emit the full structured shape;
+    // this is a one-way migration that self-heals on next save.
+    const repo = createFsSprintExecutionRepository({ root });
+    const sprintId = SprintId.generate();
+    const legacyPath = executionFile(root, sprintId);
+    await mkdir(dirname(legacyPath), { recursive: true });
+    const legacyRepoId = '01900000-0000-7000-8000-00000000abcd';
+    const legacyRanAt = '2025-12-01T08:00:00.000Z';
+    await writeFile(
+      legacyPath,
+      JSON.stringify({
+        id: String(sprintId),
+        sprintId: String(sprintId),
+        branch: null,
+        pullRequestUrl: null,
+        setupRanAt: [{ repositoryId: legacyRepoId, ranAt: legacyRanAt }],
+      }),
+      'utf8'
+    );
+
+    const loaded = await repo.findById(sprintId);
+    if (!loaded.ok) throw new Error(`expected ok, got ${loaded.error.message}`);
+    expect(loaded.value.setupRanAt).toHaveLength(1);
+    const row = loaded.value.setupRanAt[0];
+    expect(String(row?.repositoryId)).toBe(legacyRepoId);
+    expect(String(row?.ranAt)).toBe(legacyRanAt);
+    expect(row?.outcome).toBe('success');
+    expect(row?.command).toBe('');
+    expect(row?.exitCode).toBe(0);
+    expect(row?.durationMs).toBe(0);
+    // Tail-bytes fields removed in Wave 8 / audit-[06]; the migration drops them silently.
+    expect((row as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
+    expect((row as Record<string, unknown> | undefined)?.['stderrTailBytes']).toBeUndefined();
+  });
 });

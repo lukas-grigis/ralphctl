@@ -1,7 +1,8 @@
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { listDir, writeTextAtomic } from '@src/integration/io/fs.ts';
 
 /**
@@ -11,8 +12,10 @@ import { listDir, writeTextAtomic } from '@src/integration/io/fs.ts';
  *   - `signals.json` — the structured signals the AI emitted, written **by the provider**
  *     (caller-supplied `session.signalsFile = roundSignalsPath(...)` on each `generate(...)`
  *     call). This is the canonical artifact.
- *   - `evaluation.md` — rendered evaluator verdict; written here by
- *     {@link writeEvaluatorRoundArtifacts}.
+ *   - `evaluation.md` — rendered evaluator verdict, written by `renderSidecars` against the
+ *     evaluator leaf's audit-[09] contract (`evaluatorOutputContract.sidecars`). The leaf
+ *     itself never writes the file; the harness derives it post-validation from the single
+ *     `evaluation` signal in `signals.json`.
  *
  * The pre-refactor `session.md` (raw AI prose) is gone — the prose is no longer a first-class
  * artifact (REQ-6). If postmortem debugging needs it, the provider could grow a `--keep-prose`
@@ -53,6 +56,33 @@ export const roundSignalsPath = (workspaceRoot: AbsolutePath, round: number, rol
   join(String(workspaceRoot), 'rounds', String(round), role, 'signals.json');
 
 /**
+ * Read the captured Claude `session_id` from `rounds/<N>/<role>/sessionId` — the sibling text
+ * file the Claude adapter writes via `persistSessionIdFile` after every spawn. Returns
+ * `undefined` when the file is missing (the adapter skips the write on a spawn that never
+ * reported an id — process crash, malformed stream-json, …) or empty.
+ *
+ * Used by the generator / evaluator leaves to thread the prior round's session into
+ * `implementSession({ resume })`, keeping each role on a single conversational thread across
+ * the gen-eval loop. One disk read per round — negligible overhead, and the file-based
+ * provider contract is the canonical source of truth for captured ids.
+ */
+export const readRoundSessionId = async (
+  workspaceRoot: AbsolutePath,
+  round: number,
+  role: 'generator' | 'evaluator'
+): Promise<SessionId | undefined> => {
+  const path = join(String(workspaceRoot), 'rounds', String(round), role, 'sessionId');
+  let content: string;
+  try {
+    content = await fs.readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const trimmed = content.trim();
+  return trimmed.length === 0 ? undefined : (trimmed as SessionId);
+};
+
+/**
  * Workspace-relative path to `rounds/<N>/evaluator/evaluation.md`. Stamped on the recorded
  * `Evaluation` so operators can navigate from `tasks.json` straight to the verdict.
  */
@@ -62,48 +92,28 @@ export const roundEvaluationRelativePath = (round: number): string =>
 const roundDir = (workspaceRoot: AbsolutePath, round: number, role: 'generator' | 'evaluator'): string =>
   join(String(workspaceRoot), 'rounds', String(round), role);
 
-export const writeEvaluatorRoundArtifacts = async (
+/**
+ * Persist the rendered prompt the harness handed to the AI provider for a given gen-eval round
+ * to `<workspaceRoot>/rounds/<N>/<role>/prompt.md`. Called from the generator + evaluator
+ * leaves immediately after `buildImplementPrompt` / `buildEvaluatePrompt` resolves, BEFORE the
+ * provider call — that way a post-hoc debug session can re-issue the same prompt to the model
+ * (or diff it against a later round's prompt to see how the prior critique reshaped the brief)
+ * without re-running the chain.
+ *
+ * Atomic write via `writeTextAtomic` (tmp+rename): a crash mid-write cannot leave a half-written
+ * file on disk. Best-effort: a write failure is logged and swallowed so the audit trail can't
+ * take down the chain.
+ */
+export const writeRoundPrompt = async (
   workspaceRoot: AbsolutePath,
   round: number,
-  signals: readonly HarnessSignal[],
+  role: 'generator' | 'evaluator',
+  prompt: string,
   logger?: Logger
 ): Promise<void> => {
-  const base = roundDir(workspaceRoot, round, 'evaluator');
-  const evaluation = await writeTextAtomic(join(base, 'evaluation.md'), renderEvaluation(findEvaluation(signals)));
-  if (!evaluation.ok) {
-    logger?.warn('failed to write evaluator round artifact', { round, base, error: evaluation.error.message });
+  const base = roundDir(workspaceRoot, round, role);
+  const wrote = await writeTextAtomic(join(base, 'prompt.md'), prompt);
+  if (!wrote.ok) {
+    logger?.warn('failed to write round prompt', { round, role, base, error: wrote.error.message });
   }
-};
-
-const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | undefined =>
-  signals.find((s): s is EvaluationSignal => s.type === 'evaluation');
-
-const renderEvaluation = (e: EvaluationSignal | undefined): string => {
-  if (e === undefined) {
-    return '# Evaluation\n\n_No `<evaluation-passed>` or `<evaluation-failed>` verdict emitted by the evaluator._\n';
-  }
-  const score = e.overallScore !== undefined ? e.overallScore.toFixed(1) : 'n/a';
-  const lines: string[] = [
-    '# Evaluation',
-    '',
-    `- **Status:** ${e.status}`,
-    `- **Overall score:** ${score}`,
-    '',
-    '## Dimensions',
-    '',
-  ];
-  if (e.dimensions.length === 0) {
-    lines.push('_No dimensions._');
-  } else {
-    for (const d of e.dimensions) {
-      const verdict = d.passed ? 'passed' : 'failed';
-      lines.push(`- **${d.dimension}** (${String(d.score)}/5, ${verdict}): ${d.finding}`);
-    }
-  }
-  const critique = e.critique?.trim();
-  if (critique !== undefined && critique.length > 0) {
-    lines.push('', '## Critique', '', critique);
-  }
-  lines.push('');
-  return lines.join('\n');
 };

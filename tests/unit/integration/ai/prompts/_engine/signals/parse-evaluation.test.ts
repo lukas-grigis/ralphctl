@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { evaluationParser } from '@src/integration/ai/signals/evaluation/parser.ts';
+import { evaluationParser } from '@tests/helpers/legacy-signal-parsers/evaluation/parser.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 

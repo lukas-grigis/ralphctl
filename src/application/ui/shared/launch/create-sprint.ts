@@ -16,6 +16,8 @@ export const launchCreateSprint = (ctx: LaunchContext): LaunchResult => {
     clock: deps.app.clock,
     eventBus: deps.app.eventBus,
     logger: deps.app.logger,
+    appendFile: deps.app.appendFile,
+    dataRoot: deps.storage.dataRoot,
   });
   const runner = createRunner<CreateSprintCtx>({
     id: sessionId(),

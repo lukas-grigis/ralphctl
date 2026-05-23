@@ -1,16 +1,23 @@
 import { Result } from '@src/domain/result.ts';
 import type { Entity } from '@src/domain/entity/_base/entity.ts';
 import {
+  type AbortMetadata,
+  appendVerifyRun,
   type Attempt,
   type AttemptWarning,
+  type Attribution,
+  type VerifyRun,
   completeAttempt,
   type Evaluation,
+  markBaselineBroken,
   recordAttemptCommit,
   recordAttemptCritique,
   recordAttemptEvaluation,
   recordAttemptVerification,
   recordAttemptWarning,
+  type RecoveryContext,
   type RunningAttempt,
+  setAttribution,
   startAttempt,
   type VerifiedAttempt,
 } from '@src/domain/entity/attempt.ts';
@@ -28,7 +35,15 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 // Re-exports — these types conceptually belong to Attempt but were historically used
 // alongside Task. Kept here for ergonomic imports.
-export type { Evaluation, EvaluationStatus, Verification } from '@src/domain/entity/attempt.ts';
+export type {
+  Attribution,
+  VerifyRun,
+  VerifyRunOutcome,
+  VerifyRunPhase,
+  Evaluation,
+  EvaluationStatus,
+  Verification,
+} from '@src/domain/entity/attempt.ts';
 
 interface TaskBase extends Entity<TaskId> {
   readonly name: string;
@@ -165,11 +180,16 @@ const lastAttempt = (task: Task): Attempt | undefined => task.attempts[task.atte
  * Append a fresh `running` attempt and transition to `in_progress`. Idempotent only on a
  * fresh task — if the current last attempt is already `running`, callers must settle it first
  * via `markTaskDone` or `failCurrentAttempt`. A `done`/`blocked` task is rejected.
+ *
+ * Pass `recovering` when this attempt is opening as a resume of a prior aborted attempt;
+ * the value is stamped onto the new `RunningAttempt` so the TUI can render the
+ * resume-from-aborted banner without walking the attempt history.
  */
 export const startNextAttempt = (
   task: Task,
   now: IsoTimestamp,
-  sessionId?: string
+  sessionId?: string,
+  recovering?: RecoveryContext
 ): Result<InProgressTask, InvalidStateError | ValidationError> => {
   const guard = requireStatus(
     'task',
@@ -193,11 +213,17 @@ export const startNextAttempt = (
     );
   }
 
-  const attemptInput: { n: number; startedAt: IsoTimestamp; sessionId?: string } = {
+  const attemptInput: {
+    n: number;
+    startedAt: IsoTimestamp;
+    sessionId?: string;
+    recovering?: RecoveryContext;
+  } = {
     n: guard.value.attempts.length + 1,
     startedAt: now,
   };
   if (sessionId !== undefined) attemptInput.sessionId = sessionId;
+  if (recovering !== undefined) attemptInput.recovering = recovering;
   const attemptResult = startAttempt(attemptInput);
   if (!attemptResult.ok) return Result.error(attemptResult.error);
 
@@ -274,7 +300,7 @@ export const recordRunningAttemptCommit = (
 /**
  * Stamp a structured `AttemptWarning` onto the running attempt. Used by:
  *   - `gen-eval-loop` when the inner loop terminates with budget-exhausted / plateau / malformed
- *   - `post-task-check` when the verify script runs red after commit
+ *   - `post-task-verify` when the verify script runs red after commit
  *
  * The warning travels with the attempt into `markTaskDone`. At most one warning per attempt;
  * if the inner loop emits a budget warning and verify then runs red, the verify warning
@@ -287,6 +313,43 @@ export const recordRunningAttemptWarning = (
   const guard = requireRunningAttempt(task);
   if (!guard.ok) return Result.error(guard.error);
   return Result.ok(replaceLastAttempt(task, recordAttemptWarning(guard.value.running, warning)));
+};
+
+/**
+ * Append a {@link VerifyRun} row to the running attempt's audit array. Used by the harness
+ * pre/post verify-script leaves to persist deterministic verification results independent of
+ * the AI's `task-verified` self-report.
+ */
+export const appendAttemptVerifyRun = (
+  task: InProgressTask,
+  run: VerifyRun
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, appendVerifyRun(guard.value.running, run)));
+};
+
+/**
+ * Stamp the {@link Attribution} verdict on the running attempt. Set by post-task-verify after
+ * comparing the pre and post verify-script outcomes.
+ */
+export const setAttemptAttribution = (
+  task: InProgressTask,
+  attribution: Attribution
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, setAttribution(guard.value.running, attribution)));
+};
+
+/**
+ * Set the running attempt's `baselineBroken` flag — pre-task-verify ran red before the AI got
+ * a chance to run, so a downstream red verdict may not be the AI's fault.
+ */
+export const markAttemptBaselineBroken = (task: InProgressTask): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, markBaselineBroken(guard.value.running)));
 };
 
 /**
@@ -335,11 +398,16 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
  * Settle the current attempt as `failed`/`malformed`/`aborted`. If `maxAttempts` is set and
  * reached, transitions the task to `blocked` with reason `'attempt budget exhausted'`. Otherwise
  * the task stays `in_progress` and the caller can `startNextAttempt` again.
+ *
+ * The optional `abortMeta` is forwarded to {@link completeAttempt} — meaningful only when
+ * `reason === 'aborted'`. The `start-attempt` use case supplies it on the resume path so the
+ * leftover running attempt carries `abortCause` + (optional) `signalOrExitCode` into history.
  */
 export const failCurrentAttempt = (
   task: Task,
   now: IsoTimestamp,
-  reason: 'failed' | 'malformed' | 'aborted'
+  reason: 'failed' | 'malformed' | 'aborted',
+  abortMeta?: AbortMetadata
 ): Result<InProgressTask | BlockedTask, InvalidStateError> => {
   const guard = requireStatus(
     'task',
@@ -351,7 +419,7 @@ export const failCurrentAttempt = (
   if (!guard.ok) return Result.error(guard.error);
   const inner = requireRunningAttempt(guard.value);
   if (!inner.ok) return Result.error(inner.error);
-  const settledResult = completeAttempt(inner.value.running, reason, now);
+  const settledResult = completeAttempt(inner.value.running, reason, now, abortMeta);
   if (!settledResult.ok) return Result.error(settledResult.error);
 
   const inProgressNext: InProgressTask = replaceLastAttempt(guard.value, settledResult.value);

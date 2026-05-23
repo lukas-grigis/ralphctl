@@ -1,11 +1,10 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
@@ -14,6 +13,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { buildClaudeArgs, createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -69,14 +69,18 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 interface CapturingSpawnState {
   readonly spawn: ProviderSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[] }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd?: string;
+  }>;
 }
 
 const makeSpawn = (scripts: readonly FakeChildScript[]): CapturingSpawnState => {
   let i = 0;
-  const calls: Array<{ command: string; args: readonly string[] }> = [];
-  const spawn: ProviderSpawn = (command, args) => {
-    calls.push({ command, args });
+  const calls: Array<{ command: string; args: readonly string[]; cwd?: string }> = [];
+  const spawn: ProviderSpawn = (command, args, options) => {
+    calls.push({ command, args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) });
     const script = scripts[i] ?? scripts[scripts.length - 1] ?? {};
     i++;
     return makeFakeChild(script);
@@ -90,8 +94,14 @@ const CWD = absolutePath('/tmp/claude-provider-test');
 let tempCounter = 0;
 const tempSignalsFile = () => {
   tempCounter += 1;
+  // Per-test sub-directory so the sibling `sessionId` file written next to `signals.json`
+  // does not collide with another test's expected-missing assertion in the same parent.
   return absolutePath(
-    join(tmpdir(), `ralphctl-claude-test-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}.json`)
+    join(
+      tmpdir(),
+      `ralphctl-claude-test-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}`,
+      'signals.json'
+    )
   );
 };
 
@@ -104,11 +114,6 @@ const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   ...overrides,
 });
 
-const readSignals = async (path: string): Promise<readonly HarnessSignal[]> => {
-  const raw = await fs.readFile(path, 'utf8');
-  return JSON.parse(raw) as readonly HarnessSignal[];
-};
-
 const unwrapArgs = (s: AiSession): readonly string[] => {
   const r = buildClaudeArgs(s);
   if (!r.ok) throw new Error(`buildClaudeArgs failed: ${r.error.message}`);
@@ -116,7 +121,7 @@ const unwrapArgs = (s: AiSession): readonly string[] => {
 };
 
 describe('createClaudeProvider', () => {
-  it('happy path: parses harness signals from the stream-json result event and writes them to signalsFile', async () => {
+  it('happy path: captures sessionId and returns ProviderOutput WITHOUT writing signals.json (AI Write tool owns it)', async () => {
     const cap = createCapturingBus();
     const sess = session();
 
@@ -124,7 +129,9 @@ describe('createClaudeProvider', () => {
     const resultEvt = JSON.stringify({
       type: 'result',
       subtype: 'success',
-      result: '<progress>working</progress>\n<task-verified>all good</task-verified>',
+      // The AI's natural-language body is no longer scraped for signals — audit-[09] makes the AI
+      // write `signals.json` directly via its Write tool. The body stays as-is for forensic capture.
+      result: 'completed task; wrote signals.json.',
       session_id: 'sess-1',
       num_turns: 4,
     });
@@ -141,10 +148,25 @@ describe('createClaudeProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBe('sess-1');
     expect(out.value.exitCode).toBe(0);
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['progress', 'task-verified']);
+    // Provider must NOT touch signals.json — that's the AI's job under the audit-[09] contract.
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
     const sessionEntry = cap.logs.find((e) => e.message.includes('session id'));
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
+  });
+
+  it('forwards session.cwd to the spawned child (context-file autoload)', async () => {
+    const cap = createCapturingBus();
+    const cwd = absolutePath('/tmp/claude-target-repo');
+    const sess = session({ cwd });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cwd', model: 'sonnet' });
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'ok', session_id: 'sess-cwd' });
+    const { spawn, calls } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cwd).toBe('/tmp/claude-target-repo');
   });
 
   it('rate-limit: retries up to N times and surfaces RateLimitError when exhausted', async () => {
@@ -197,8 +219,61 @@ describe('createClaudeProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    const signals = await readSignals(String(out.value.signalsFile));
-    expect(signals.map((s) => s.type)).toEqual(['task-complete']);
+    expect(out.value.sessionId).toBe('sess-2');
+    expect(out.value.exitCode).toBe(0);
+    // Provider does not write signals.json post-audit-[09]; the AI's Write tool does.
+    await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-persist', model: 'sonnet' });
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-persist' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('sess-persist\n');
+    expect(out.value.sessionId).toBe('sess-persist');
+  });
+
+  it('skips the sessionId file when the stream never emitted a session_id (no empty marker)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    // result event WITHOUT session_id — Claude can omit it on early-exit / malformed init.
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBeUndefined();
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    // signals.json is also never written on the failure path.
+    await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('non-rate-limit failure: surfaces InvalidStateError without retrying', async () => {
@@ -220,6 +295,117 @@ describe('createClaudeProvider', () => {
     if (out.ok) return;
     expect(out.error.code).toBe('invalid-state');
     expect(calls.n).toBe(1);
+  });
+});
+
+describe('createClaudeProvider — TokenUsageEvent emission', () => {
+  it('emits one TokenUsageEvent on clean exit with usage from the result event', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sess-tu',
+      model: 'claude-opus-4-7',
+    });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '<task-complete/>',
+      session_id: 'sess-tu',
+      usage: {
+        input_tokens: 1234,
+        output_tokens: 567,
+        cache_read_input_tokens: 89,
+        cache_creation_input_tokens: 12,
+      },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('claude-code');
+    expect(evt.sessionId).toBe('sess-tu');
+    expect(evt.model).toBe('claude-opus-4-7');
+    expect(evt.inputTokens).toBe(1234);
+    expect(evt.outputTokens).toBe(567);
+    expect(evt.cacheReadTokens).toBe(89);
+    expect(evt.cacheCreationTokens).toBe(12);
+    // claude-opus-4-7 is in the static context-window table at 200k.
+    expect(evt.contextWindow).toBe(200_000);
+  });
+
+  it('omits contextWindow when the model is unknown to the lookup table', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    // Init carries an unknown model id; result event still surfaces usage.
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-mu', model: 'claude-future-9-9' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      result: '<task-complete/>',
+      session_id: 'sess-mu',
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.model).toBe('claude-future-9-9');
+    expect(tokenEvents[0]!.contextWindow).toBeUndefined();
+    expect(tokenEvents[0]!.inputTokens).toBe(100);
+  });
+
+  it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-7' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(false);
+
+    const tokenEvents = cap.events.filter((e) => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(0);
+  });
+
+  it('emits the event without token counts when the result event lacks a usage object', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sess-nou',
+      model: 'claude-sonnet-4-6',
+    });
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-nou' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.sessionId).toBe('sess-nou');
+    expect(evt.model).toBe('claude-sonnet-4-6');
+    expect(evt.contextWindow).toBe(200_000);
+    expect(evt.inputTokens).toBeUndefined();
+    expect(evt.outputTokens).toBeUndefined();
+    expect(evt.cacheReadTokens).toBeUndefined();
+    expect(evt.cacheCreationTokens).toBeUndefined();
   });
 });
 
@@ -265,12 +451,15 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(args.includes('--disallowedTools')).toBe(false);
   });
 
-  it('read-only permissions deny Edit / Write / MultiEdit / NotebookEdit / Bash but keep Read / Grep / Glob open', () => {
+  it('read-only permissions deny Edit / MultiEdit / NotebookEdit / Bash but keep Read / Write / Grep / Glob open', () => {
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
     const idx = args.indexOf('--disallowedTools');
     expect(idx).toBeGreaterThanOrEqual(0);
     const denied = (args[idx + 1] ?? '').split(',');
-    expect(denied).toEqual(expect.arrayContaining(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']));
+    expect(denied).toEqual(expect.arrayContaining(['Edit', 'MultiEdit', 'NotebookEdit', 'Bash']));
+    // Write stays open under every profile — the audit-[09] contract needs it to land
+    // signals.json in outputDir. Path scope (cwd + --add-dir) keeps it pointed there.
+    expect(denied).not.toContain('Write');
     expect(denied).not.toContain('Read');
     expect(denied).not.toContain('Grep');
     expect(denied).not.toContain('Glob');
@@ -279,7 +468,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
   it('half-permission set (edit-only, no shell, network OK) denies only Bash', () => {
     const args = unwrapArgs(
       session({
-        permissions: { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false },
+        permissions: { canModifyRepoFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false },
       })
     );
     const idx = args.indexOf('--disallowedTools');
@@ -290,7 +479,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
   it('canAccessNetwork=false adds WebFetch + WebSearch to the deny list', () => {
     const args = unwrapArgs(
       session({
-        permissions: { canEditFiles: false, canRunShell: false, canAccessNetwork: false, autoApprove: false },
+        permissions: { canModifyRepoFiles: false, canRunShell: false, canAccessNetwork: false, autoApprove: false },
       })
     );
     const idx = args.indexOf('--disallowedTools');

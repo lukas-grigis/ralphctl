@@ -33,12 +33,40 @@ export interface StepTraceProps {
    * the in-flight cursor (first unmatched plan entry while running) gets a spinner.
    */
   readonly plan?: readonly string[];
+  /**
+   * Display label for plan entries that have not yet executed — keyed by element name. Pending /
+   * running rows have no trace entry yet, so without this map they fall back to rendering the
+   * raw `name`, which for per-repo leaves embeds the full filesystem path
+   * (`preflight-task-1-/abs/path/to/repo`). Once a leaf runs, its TraceEntry carries the same
+   * label and supersedes this lookup. Optional — callers that don't need plan labels (legacy /
+   * tests) can omit it.
+   */
+  readonly labelByName?: ReadonlyMap<string, string>;
+  /**
+   * When `true`, only the per-row status glyph renders — leaf name, duration, trailing label,
+   * and error message are all suppressed. Used by the compact-rail breakpoint (~100-139 cols) so
+   * the rail still communicates "where the runner is" without consuming the column width labels
+   * need. Default `false`.
+   */
+  readonly compact?: boolean;
+  /**
+   * Optional rail-column width (in characters). When provided, displayed labels longer than the
+   * available text budget (`railWidth - 4` to leave room for the leading glyph, padding, and an
+   * ellipsis) are mid-truncated with an `…` suffix so a single long name can't push the rail
+   * wider than its resolved width. Omit the prop for callers that aren't laying the trace out
+   * inside a fixed-width column (default behaviour: no truncation, preserving callers in
+   * non-Execute contexts).
+   */
+  readonly railWidth?: number;
 }
 
 type RowStatus = TraceEntry['status'] | 'pending' | 'running';
 
 interface MergedRow {
   readonly name: string;
+  /** Optional display label sourced from `Element.label` / `TraceEntry.label`; renderer prefers
+   * this over `name`. */
+  readonly label?: string;
   readonly status: RowStatus;
   readonly durationMs?: number;
   readonly errorMessage?: string;
@@ -97,7 +125,12 @@ const trailingLabelFor = (status: RowStatus): string | undefined => {
  * state). Unmatched plan entries stay `pending`. While the chain is running, the first
  * `pending` row promotes to `running` so the operator sees the in-flight cursor.
  */
-const mergePlanWithTrace = (plan: readonly string[], trace: Trace, running: boolean): readonly MergedRow[] => {
+const mergePlanWithTrace = (
+  plan: readonly string[],
+  trace: Trace,
+  running: boolean,
+  labelByName?: ReadonlyMap<string, string>
+): readonly MergedRow[] => {
   const lastByName = new Map<string, TraceEntry>();
   for (const entry of trace) lastByName.set(entry.elementName, entry);
   let promotedRunning = !running;
@@ -106,26 +139,50 @@ const mergePlanWithTrace = (plan: readonly string[], trace: Trace, running: bool
     if (entry !== undefined) {
       return {
         name,
+        // TraceEntry-supplied label wins over the static lookup so a leaf that mutates its
+        // label between construction and execution is still reflected; the lookup is the
+        // fallback for rows that haven't traced yet.
+        ...(entry.label !== undefined
+          ? { label: entry.label }
+          : labelByName?.get(name) !== undefined
+            ? { label: labelByName.get(name) as string }
+            : {}),
         status: entry.status,
         durationMs: entry.durationMs,
         ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
       };
     }
+    const planLabel = labelByName?.get(name);
+    const baseLabel = planLabel !== undefined ? { label: planLabel } : {};
     if (!promotedRunning) {
       promotedRunning = true;
-      return { name, status: 'running' };
+      return { name, status: 'running', ...baseLabel };
     }
-    return { name, status: 'pending' };
+    return { name, status: 'pending', ...baseLabel };
   });
 };
 
 const traceToRows = (trace: Trace): readonly MergedRow[] =>
   trace.map((entry) => ({
     name: entry.elementName,
+    ...(entry.label !== undefined ? { label: entry.label } : {}),
     status: entry.status,
     durationMs: entry.durationMs,
     ...(entry.error !== undefined ? { errorMessage: entry.error.message } : {}),
   }));
+
+/**
+ * Mid-truncate a display string so it fits inside `budget` characters, suffixed with the
+ * `clipEllipsis` token (audit-[03] display-clip marker). When `budget` is too small (≤ 1) or
+ * the string already fits, returns the input unchanged. Callers pass the column's *text*
+ * budget (rail width minus glyph + padding + ellipsis gutter).
+ */
+const truncateLabel = (text: string, budget: number): string => {
+  if (budget <= 1) return text;
+  if (text.length <= budget) return text;
+  // Reserve one char for the ellipsis itself; the visible run is `budget - 1`.
+  return `${text.slice(0, budget - 1)}${glyphs.clipEllipsis}`;
+};
 
 export const StepTrace = ({
   trace,
@@ -134,6 +191,9 @@ export const StepTrace = ({
   maxRows = 12,
   inFlightLabel,
   plan,
+  labelByName,
+  compact = false,
+  railWidth,
 }: StepTraceProps): React.JSX.Element => {
   // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
   // lookup Map on every call. For long running sessions (5k+ trace entries) re-allocating that
@@ -145,8 +205,8 @@ export const StepTrace = ({
   // ring cap, length sticks but the last entry's object identity still changes per push.
   const traceLastEntry = trace[trace.length - 1];
   const merged = useMemo(
-    () => (plan !== undefined ? mergePlanWithTrace(plan, trace, running) : traceToRows(trace)),
-    [plan, trace, trace.length, traceLastEntry, running]
+    () => (plan !== undefined ? mergePlanWithTrace(plan, trace, running, labelByName) : traceToRows(trace)),
+    [plan, labelByName, trace, trace.length, traceLastEntry, running]
   );
   const filtered = useMemo(
     () => (filter !== undefined ? merged.filter((r) => filter(r.name)) : merged),
@@ -161,12 +221,21 @@ export const StepTrace = ({
       ? filtered.slice(Math.max(0, runningIdx - Math.floor(maxRows / 2))).slice(0, maxRows)
       : filtered.slice(-maxRows);
 
+  // Text-budget calculation: subtract 4 from the rail width to reserve room for the leading
+  // glyph (1), its trailing space (1), the column's `paddingX={spacing.indent}` left edge (2).
+  // The trailing-label / duration / error tail is rendered AFTER the truncated name; on the
+  // wide breakpoints (≥180 cols) that tail typically fits on the same row, and on tighter
+  // layouts the line wraps cleanly inside the rail column rather than pushing it sideways.
+  const textBudget = railWidth !== undefined ? Math.max(1, railWidth - 4) : undefined;
+
   return (
     <Box flexDirection="column">
       {rows.map((row, i) => {
         const instruction = glyphFor(row.status);
         const trailing = trailingLabelFor(row.status);
         const dimRow = row.status === 'pending';
+        const displayName = row.label ?? row.name;
+        const shownName = textBudget !== undefined ? truncateLabel(displayName, textBudget) : displayName;
         return (
           <Box key={`${row.name}-${String(i)}`} paddingX={spacing.indent}>
             {instruction.kind === 'spinner' ? (
@@ -176,24 +245,28 @@ export const StepTrace = ({
                 {instruction.glyph}
               </Text>
             )}
-            <Text dimColor={dimRow}> {row.name}</Text>
-            {row.durationMs !== undefined && (
-              <Text dimColor>
-                {' '}
-                {glyphs.bullet} {fmtDuration(row.durationMs)}
-              </Text>
-            )}
-            {trailing !== undefined && (
-              <Text color={instruction.color}>
-                {'  '}
-                {glyphs.emDash} {trailing}
-              </Text>
-            )}
-            {row.errorMessage !== undefined && (
-              <Text color={inkColors.error}>
-                {'  '}
-                {glyphs.emDash} {row.errorMessage}
-              </Text>
+            {!compact && (
+              <>
+                <Text dimColor={dimRow}> {shownName}</Text>
+                {row.durationMs !== undefined && (
+                  <Text dimColor>
+                    {' '}
+                    {glyphs.bullet} {fmtDuration(row.durationMs)}
+                  </Text>
+                )}
+                {trailing !== undefined && (
+                  <Text color={instruction.color}>
+                    {'  '}
+                    {glyphs.emDash} {trailing}
+                  </Text>
+                )}
+                {row.errorMessage !== undefined && (
+                  <Text color={inkColors.error}>
+                    {'  '}
+                    {glyphs.emDash} {row.errorMessage}
+                  </Text>
+                )}
+              </>
             )}
           </Box>
         );

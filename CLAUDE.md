@@ -57,7 +57,9 @@ with execution-time writes.
 
 **Chain primitives** in `src/application/chain/`: `element` (interface), `leaf`, `sequential`, `loop`,
 `guard` (factory functions). **No `retry` or `onError`** — retry-on-429 is an adapter concern
-(`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`.
+(`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`. `leaf(name, config,
+{ label? })` — optional display label forwarded to `Element` and every `TraceEntry`; TUI rail renders it
+when present; `name` stays the canonical identifier for dedupe and trace correlation.
 
 **Flow registry** in `src/application/registry.ts` — every user-launchable flow declared as a `FlowManifest`
 with `triggers` (pre-launch predicates). CLI command builder, TUI menu, and launcher consume from this one
@@ -69,7 +71,8 @@ Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
 
 **EventBus** (`business/observability/event-bus.ts`, impl `integration/observability/in-memory-event-bus.ts`)
 is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
-`Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `FeedbackRoundApplied`, `LogEvent`).
+`Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `TaskRoundStarted`,
+`FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShow/Clear`, `LogEvent`).
 TUI panels subscribe live; `<sprintDir>/chain.log` sink subscribes for durable post-hoc trace. **One bus per
 `wire()` call** — production / test bus state cannot cross-talk.
 
@@ -81,21 +84,21 @@ every `logger.info(...)` emits a `LogEvent`.
 signals without explicit threading.
 
 **Sibling-isolation** in `integration/ai/<concept>/` — each per-tool / per-variant adapter directory
-(`providers/{claude,copilot,codex}/`, `signals/<variant>/`, `prompts/<flow>/`, `readiness/<tool>/`,
-`skills/<source>/`) is independent. Cross-sibling access goes through `_engine/`. Port-shaped interfaces
-(`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
+(`providers/{claude,copilot,codex}/`, `prompts/<flow>/`, `readiness/<tool>/`, `skills/<source>/`,
+`contract/_engine/signals/<kind>/`) is independent. Cross-sibling access goes through `_engine/`.
+Port-shaped interfaces (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live
+in `_engine/`.
 
 **Ink TUI** at `src/application/ui/tui/`. Bare `ralphctl` mounts via `runtime/mount.tsx` — alt-screen
-takeover (vim/htop-style), restored on every exit path (`exit`, `SIGINT`, `SIGTERM`, `SIGHUP`,
-`uncaughtException`). Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount. Tokens are the single source of
-visual truth at `src/application/ui/tui/theme/tokens.ts` — no inline hex / glyph / spacing. List renders
-sliced before `.map()`; spinner state lives in the leaf `<Spinner />` so 90 ms timer re-renders don't
-propagate. See DESIGN-SYSTEM.md.
+takeover (vim/htop-style), restored on every exit path. Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the
+mount. `theme/tokens.ts` is the single source of visual truth — no inline hex / glyph / spacing.
+`glyphFor(signalKind)` adds shape-redundancy under `NO_COLOR=1`. List renders sliced before `.map()`;
+spinner state lives in the leaf `<Spinner />` so 90 ms timer re-renders don't propagate. See DESIGN-SYSTEM.md.
 
 **CLI** at `src/application/ui/cli/`. Interactive flows (`refine` / `plan` / `ideate` / `implement` /
 `readiness` / `create-sprint`) stay TUI-only by design. The CLI exposes `doctor`, `completion`,
-`export-{context,requirements}`, `create-pr`, `settings`, `project`, `sprint`, `ticket`, `task` —
-inspection + one-shot operations.
+`export-{context,requirements}`, `create-pr`, `settings`, `project`, `sprint`, `ticket`, `task`,
+`runs` (`list` / `prune`), `snapshot` — inspection + one-shot operations.
 
 ## Implementation Style
 
@@ -131,6 +134,9 @@ Each template ships a branded `Prompt` type + parameter schema; regressions surf
   or `{{CHECK_GATE_EXAMPLE}}`. Downstream ecosystems differ.
 - Reference `.claude/` directories as "when present" — many downstream repos lack one.
 - `never`/`always` rules name their exception inline.
+- Every prompt directory has a `tests/integration/ai/prompts/<flow>/definition.test.ts` asserting
+  placeholder ↔ parameter parity (both directions). The meta-test at `template-coverage.test.ts`
+  fails the suite when a new flow lands without one.
 
 ## Workflows & State
 
@@ -161,11 +167,21 @@ fires (the task then transitions to `blocked`). Per-flow model from `settings.ai
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
 `SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
-**`setupScript` vs `checkScript`.** Setup is the one-shot env preparation (e.g. `pnpm install`); runs once
-per affected repo at sprint start; non-zero exit or spawn failure hard-aborts the chain. Check is the
-per-task verification gate run after every AI task and inside the apply-feedback loop. Failure transitions
-the task to `blocked`, never `done`. Both are collected during `detect-scripts` and persisted on
-`Repository.{setupScript,checkScript}`.
+Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
+single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
+`useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
+`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
+
+**`setupScript` vs `verifyScript`.** Setup runs unconditionally once per affected repo at sprint start;
+each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
+`skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
+chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
+algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
+pre-existing failures. Failure transitions the task to `blocked`, never `done`. Both scripts are collected
+during `detect-scripts` and persisted on `Repository.{setupScript,verifyScript}`. Persisted
+`project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
+legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
@@ -173,13 +189,25 @@ per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>`
 
 ## Security & Safety
 
-**Provider permission model is per-tool, not portable.** Don't assume Claude / Copilot / Codex share gates.
+**Permission model — two orthogonal axes.** `SessionPermissions` gates **capabilities**
+(`canModifyRepoFiles`, `canRunShell`, `canAccessNetwork`, `autoApprove`); `cwd` +
+`additionalRoots` + `outputDir` on the `AiSession` define **topology** (which paths the AI
+can read / write). Topology is the primary defense; capabilities are the secondary filter.
 
-| Provider         | Headless permission flag              | Native context file               |
-| ---------------- | ------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--allow-all-tools`                   | `.github/copilot-instructions.md` |
-| `openai-codex`   | per-session approval flow             | `AGENTS.md`                       |
+The `Write` tool is **always allowed** under every profile — the audit-[09] contract requires
+the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mount it.
+`outputDir` is auto-included as a writable root in every provider (see
+`providers/_engine/resolve-roots.ts`).
+
+| Provider         | Always passes                         | Read-only profile maps to                            | Native context file               |
+| ---------------- | ------------------------------------- | ---------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash` | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`  | `--allow-all-tools --deny-tool=shell`                | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)   | `-s workspace-write` (topology-scoped)               | `AGENTS.md`                       |
+
+Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
+`read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
+Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
 
 The `readiness` flow writes the native file selected by `settings.ai.provider` — no symlinks, no pointer
 schemes. Don't introduce either.
@@ -197,7 +225,7 @@ or fallback catches errors, it MUST exempt `AbortError`.
 
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
-`--add-dir` so `prompt.md`, `done-criteria.md`, and `signals.json` round-trip through harness-controlled
+`--add-dir` so `prompt.md` and `signals.json` round-trip through harness-controlled
 paths. Cwd is the repo because Claude / Copilot / Codex only auto-discover their context file
 (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), skills (`.claude/skills/` /
 `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.
@@ -218,9 +246,10 @@ bundled copy is skipped and the project copy is left untouched. The skills adapt
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
 those entries.
 
-**File-based AI provider contract** — providers write `signals.json` + `sessionId` files per spawn; the
-harness reads them post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing
-brittleness vector when CLI vendors tweak JSON shape.
+**File-based AI provider contract** — providers write `signals.json` and a `sessionId` file per spawn
+(both persisted to `<sprintDir>/implement/<unit-slug>/rounds/<N>/<role>/`); the harness reads them
+post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing brittleness vector
+when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
@@ -231,7 +260,8 @@ is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred)
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
 retries. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). Coordinator pause / resume
-events bridge to the EventBus so the TUI's `RateLimitBanner` reflects state.
+events bridge to the EventBus; the TUI's `StatusBanner` (tiered `info` / `warn` / `error`) replaces the
+old single-purpose `RateLimitBanner`.
 
 **Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
 / Copilot / Codex process cannot strand the harness.
@@ -244,17 +274,30 @@ launch and re-enter the queue. No double-execution.
 - `maxTurns` (1–10) — generator-evaluator turns budgeted per attempt
 - `maxAttempts` (1–10) — cap on attempts per task before transitioning to `blocked`
 - `rateLimitRetries` (0–10) — adapter-side 429 retries
+- `plateauThreshold` (2–5, default 2) — consecutive evaluator rounds flagging the same failed-dimension
+  set before the loop exits with a plateau warning; score improvement, commit-progress, or
+  critique-Jaccard shift can exempt a round from counting
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
-**Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 20_000`
-(`src/application/chain/run/runner.ts`). Live subscribers see every event; the cap bounds only the snapshot
-late subscribers replay from. The TUI's per-task round counter holds a monotonic high-water mark in a React
-ref so the displayed `round N/M` survives eviction.
+**Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
+(`src/application/ui/tui/views/execute-view.tsx`). The `TaskRoundStarted` event (carrying `roundN`,
+`attemptN`, `totalCap`) drives the `round N/M` display — replacing the old React-ref high-water mark.
 
-**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace to disk. Survives
-TUI exit; `tail -f`-friendly.
+**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace, bracketed by
+`=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters. `tail -f`-friendly.
+
+**`progress.md` is snapshot-rendered**, not streaming. `renderProgressMarkdown(state)` regenerates from
+the `SprintState` projection at sprint start, after every `settle-attempt-leaf`, and on status transitions.
+The old `progress-file-sink` is removed.
+
+**Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
+before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
+
+**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `chain.log` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
+
+`settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 
 **Environment variables.**
 
@@ -273,7 +316,4 @@ TUI exit; `tail -f`-friendly.
 `package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces
 it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
 
-**References** —
-[Anthropic — Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents),
-[Anthropic — Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps),
-[Martin Fowler — Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html).
+**References** — [Anthropic — Effective Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [Anthropic — Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Martin Fowler — Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).

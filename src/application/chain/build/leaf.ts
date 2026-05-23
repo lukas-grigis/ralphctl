@@ -21,57 +21,76 @@ export interface LeafConfig<TCtx, UInput, UOutput> {
   readonly output: (ctx: TCtx, out: UOutput) => TCtx;
 }
 
+export interface LeafOpts {
+  /**
+   * Optional human-friendly display label forwarded to the resulting `Element` and every
+   * `TraceEntry` the leaf emits. The element `name` stays the canonical identifier; UI
+   * surfaces (e.g. the Execute-view rail) render `label` when present. Use this when flow
+   * authors need to disambiguate element names with structural data (e.g. a repo path)
+   * without leaking that data into the rendered label.
+   */
+  readonly label?: string;
+}
+
 export const leaf = <TCtx, UInput, UOutput>(
   name: string,
-  config: LeafConfig<TCtx, UInput, UOutput>
-): Element<TCtx> => ({
-  name,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
-    const aborted = checkAborted<TCtx>(name, signal, onTrace);
-    if (aborted) return aborted;
+  config: LeafConfig<TCtx, UInput, UOutput>,
+  opts?: LeafOpts
+): Element<TCtx> => {
+  // Build the optional label-bearing extension once; spreading it into each TraceEntry keeps the
+  // `label` key absent when the caller didn't supply one (preserves exact-equality test snapshots
+  // and the existing `label?: string` shape).
+  const labelExt: { readonly label?: string } = opts?.label !== undefined ? { label: opts.label } : {};
+  return {
+    name,
+    ...labelExt,
+    async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+      const aborted = checkAborted<TCtx>(name, signal, onTrace);
+      if (aborted) return aborted;
 
-    const start = performance.now();
-    let result: Result<UOutput, DomainError>;
-    try {
-      const input = config.input(ctx);
-      result = await config.useCase.execute(input, signal);
-    } catch (cause) {
-      if (!isDomainError(cause)) throw cause;
-      const durationMs = performance.now() - start;
-      const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error: cause };
-      onTrace?.(entry);
-      return Result.error({ error: cause, trace: [entry] });
-    }
-    const durationMs = performance.now() - start;
-
-    if (signal?.aborted) {
-      const error = new AbortError({ elementName: name });
-      const entry: TraceEntry = { elementName: name, status: 'aborted', durationMs, error };
-      onTrace?.(entry);
-      return Result.error({ error, trace: [entry] });
-    }
-
-    if (result.ok) {
-      let nextCtx: TCtx;
+      const start = performance.now();
+      let result: Result<UOutput, DomainError>;
       try {
-        nextCtx = config.output(ctx, result.value as UOutput);
+        const input = config.input(ctx);
+        result = await config.useCase.execute(input, signal);
       } catch (cause) {
         if (!isDomainError(cause)) throw cause;
-        const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error: cause };
+        const durationMs = performance.now() - start;
+        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error: cause };
         onTrace?.(entry);
         return Result.error({ error: cause, trace: [entry] });
       }
-      const entry: TraceEntry = { elementName: name, status: 'completed', durationMs };
-      onTrace?.(entry);
-      return Result.ok({ ctx: nextCtx, trace: [entry] });
-    }
+      const durationMs = performance.now() - start;
 
-    const error: DomainError = result.error;
-    const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error };
-    onTrace?.(entry);
-    return Result.error({ error, trace: [entry] });
-  },
-});
+      if (signal?.aborted) {
+        const error = new AbortError({ elementName: name });
+        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'aborted', durationMs, error };
+        onTrace?.(entry);
+        return Result.error({ error, trace: [entry] });
+      }
+
+      if (result.ok) {
+        let nextCtx: TCtx;
+        try {
+          nextCtx = config.output(ctx, result.value as UOutput);
+        } catch (cause) {
+          if (!isDomainError(cause)) throw cause;
+          const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error: cause };
+          onTrace?.(entry);
+          return Result.error({ error: cause, trace: [entry] });
+        }
+        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'completed', durationMs };
+        onTrace?.(entry);
+        return Result.ok({ ctx: nextCtx, trace: [entry] });
+      }
+
+      const error: DomainError = result.error;
+      const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error };
+      onTrace?.(entry);
+      return Result.error({ error, trace: [entry] });
+    },
+  };
+};
 
 const isDomainError = (cause: unknown): cause is DomainError =>
   cause instanceof Error && typeof (cause as { code?: unknown }).code === 'string';

@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
@@ -56,10 +57,23 @@ export const withRepoLock = (opts: WithRepoLockOpts, inner: Element<ImplementCtx
       return Result.error({ error: lockPath.error, trace: [entry] });
     }
     const start = performance.now();
+    const bannerId = `lock-${String(lockPath.value)}`;
     const acquired = await opts.fileLocker.withLock(lockPath.value, async () => inner.execute(ctx, signal, onTrace));
     const durationMs = performance.now() - start;
 
     if (!acquired.ok) {
+      // Surface the lock-contention failure as a warn banner. The chain has already failed
+      // (StorageError) and the inner trace records it; the banner is for the operator that
+      // missed the error scrollback. `id` is keyed by lock path so concurrent flows on the
+      // same repo dedupe rather than stack.
+      opts.eventBus.publish({
+        type: 'banner-show',
+        id: bannerId,
+        tier: 'warn',
+        message: `Repository lock held by another process — could not acquire after retries`,
+        cause: String(lockPath.value),
+        at: IsoTimestamp.now(),
+      });
       const entry: TraceEntry = {
         elementName: this.name,
         status: 'failed',

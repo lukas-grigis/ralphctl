@@ -14,8 +14,14 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * controls separator handling, history truncation, and round formatting in one place.
  */
 export interface ApplyFeedbackPromptParams {
-  /** Absolute path to the project — `{{PROJECT_PATH}}`. */
-  readonly projectPath: string;
+  /**
+   * Pre-rendered Markdown list of repositories the sprint targets — `{{REPOSITORIES}}`.
+   * Each line is `- \`<absolute-path>\` (<name>)`. The launcher derives the set from the
+   * sprint's tasks (`Task.repositoryId`) joined against `Project.repositories`. The AI
+   * decides which repository (or repositories) the latest round touches based on the
+   * feedback content.
+   */
+  readonly repositories: string;
   /** Sprint metadata (slug, name, ticket count) — `{{SPRINT_CONTEXT}}`. */
   readonly sprintContext: string;
   /** Concatenated history of every prior round — `{{FEEDBACK_LOG}}`. */
@@ -24,6 +30,12 @@ export interface ApplyFeedbackPromptParams {
   readonly latestRound: string;
   /** Pinned-section snapshot of `progress.md` — `{{PROGRESS}}`. */
   readonly progress: string;
+  /**
+   * Audit-[09] output contract section — rendered from the review-round `AiOutputContract`
+   * by `renderContractSectionFor(reviewRoundOutputContract)`. Instructs the AI to write
+   * `signals.json` directly with exactly one of `task-complete` or `task-blocked`.
+   */
+  readonly outputContractSection: string;
 }
 
 const requireNonEmpty =
@@ -36,10 +48,11 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
   description:
     'Apply one round of human feedback to an already-implemented sprint. Review-time work, not initial implementation.',
   parameters: {
-    projectPath: {
-      placeholder: 'PROJECT_PATH',
-      description: 'Absolute path to the project the sprint targets.',
-      validate: requireNonEmpty('projectPath', 'project path must not be empty'),
+    repositories: {
+      placeholder: 'REPOSITORIES',
+      description:
+        'Markdown list of every sprint-affected repository (absolute path + display name). The AI picks which to touch based on the latest round.',
+      validate: requireNonEmpty('repositories', 'repositories block must not be empty'),
     },
     sprintContext: {
       placeholder: 'SPRINT_CONTEXT',
@@ -59,20 +72,26 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
       placeholder: 'PROGRESS',
       description: 'Snapshot of progress.md (pinned learnings + decisions + recent activity).',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the review-round contract — instructs the AI to write `signals.json` directly with exactly one terminal signal.',
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-task',
   },
-  expectedSignals: ['task-verified', 'task-complete', 'task-blocked'],
+  expectedSignals: ['task-complete', 'task-blocked'],
 };
 
 export interface BuildApplyFeedbackPromptInput {
-  readonly projectPath: string;
+  readonly repositories: string;
   readonly sprintContext: string;
   readonly feedbackLog: string;
   readonly latestRound: string;
   readonly progress: string;
+  readonly outputContractSection: string;
 }
 
 export const buildApplyFeedbackPrompt = async (
@@ -80,9 +99,10 @@ export const buildApplyFeedbackPrompt = async (
   input: BuildApplyFeedbackPromptInput
 ): Promise<Result<Prompt, BuildPromptError>> =>
   buildPrompt(deps, applyFeedbackPromptDef, {
-    projectPath: input.projectPath,
+    repositories: input.repositories,
     sprintContext: input.sprintContext,
     feedbackLog: input.feedbackLog,
     latestRound: input.latestRound,
     progress: input.progress,
+    outputContractSection: input.outputContractSection,
   });

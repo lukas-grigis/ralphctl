@@ -15,6 +15,8 @@ import { createFsTaskRepository } from '@src/integration/persistence/task/reposi
 import { createFileLocker, type FileLocker } from '@src/integration/io/file-locker.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -29,7 +31,7 @@ import type { Settings } from '@src/domain/entity/settings.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
-import type { HarnessSignalSink } from '@src/integration/ai/signals/_engine/sink.ts';
+import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -48,6 +50,19 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
+import {
+  startFileLogSink,
+  type FileLogSink,
+  type FileLogSinkDeps,
+} from '@src/integration/observability/sinks/file-log-sink.ts';
+
+/**
+ * Slim, launch-time-supplied subset of {@link FileLogSinkDeps} — `appendFile` is bound at
+ * `wire()` time and threaded into the production sink internally so callers don't have to
+ * re-thread it on every launch.
+ */
+export type ChainLogSinkLaunchDeps = Omit<FileLogSinkDeps, 'appendFile'>;
 
 /**
  * Wired application dependencies. Composition root assembles these once at startup; everything
@@ -92,6 +107,13 @@ export interface AppDeps {
    * `prompt.md` before handing the terminal to Claude.
    */
   readonly writeFile: WriteFile;
+  /**
+   * Append-only writer — used by the progress-journal leaves to grow
+   * `<sprintDir>/progress.md` per task-attempt settlement and status transition (audit-[07]),
+   * and by the opt-in `<sprintDir>/events.ndjson` debug-trace sink. Also threaded into the
+   * review chain so feedback-round appends round through the port instead of `fs.appendFile`.
+   */
+  readonly appendFile: AppendFile;
   /**
    * Interactive AI session — used by refine and plan-interactive. Sibling of `provider`
    * (which is the headless variant). Each adapter handles its own mode; flows pick the one
@@ -159,6 +181,25 @@ export interface AppDeps {
    * will host a user-skill source in a follow-up.
    */
   readonly skillSource: SkillSource;
+  /**
+   * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
+   * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
+   * "ralphctl needs you" cue can call it directly. Production: terminal bell + Darwin
+   * NotificationCenter / Linux libnotify. Tests: a no-op stub unless one is injected.
+   */
+  readonly notificationDispatcher: NotificationDispatcher;
+  /**
+   * Per-launch factory for the opt-in `<sprintDir>/events.ndjson` tee subscriber. Returns
+   * an opaque `{ stop, flush }` handle the launcher attaches and tears down at terminal
+   * events.
+   *
+   * Gated by `RALPHCTL_DEBUG_TRACE`: when the env var is set to a truthy value `wire()`
+   * binds the real {@link startFileLogSink}; otherwise a no-op factory returns idempotent
+   * stubs so callers don't need to branch. Keeping the env read here means integration
+   * adapters never reach for `process.env` directly — the bootstrap layer owns the
+   * "is debug tracing on?" question.
+   */
+  readonly chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink;
 }
 
 /**
@@ -179,7 +220,39 @@ export interface WireOptions {
    * test passes a fake spawn so the test exercises the full wiring without a real binary.
    */
   readonly spawn?: ProviderSpawn;
+  /**
+   * Optional override for the OS attention notifier. Production callers (the TUI bootstrap in
+   * `launch.ts`) pass the real Darwin / Linux adapter; the default for unspecified callers is a
+   * silent no-op so tests don't accidentally pop NotificationCenter dings on the dev machine
+   * when they exercise a chain that fires an attention event.
+   */
+  readonly notificationDispatcher?: NotificationDispatcher;
+  /**
+   * Test seam for `process.env` lookups (currently `RALPHCTL_DEBUG_TRACE`). Defaults to the
+   * live `process.env`. Tests pass a frozen record so they can flip the debug trace flag
+   * without touching the ambient process state.
+   */
+  readonly env?: NodeJS.ProcessEnv;
 }
+
+/** Env var that enables persistent `<sprintDir>/events.ndjson` file-log sink writes. */
+export const RALPHCTL_DEBUG_TRACE_ENV = 'RALPHCTL_DEBUG_TRACE';
+
+/**
+ * No-op chain-log sink — returned by the factory when `RALPHCTL_DEBUG_TRACE` is unset. The
+ * launcher's `subscribe()` callback still calls `stop()` + `flush()` at terminal events,
+ * so the shape has to match {@link FileLogSink} exactly even when nothing is being written.
+ */
+const NOOP_CHAIN_LOG_SINK: FileLogSink = {
+  stop(): void {
+    // intentionally no-op
+  },
+  async flush(): Promise<void> {
+    // intentionally no-op
+  },
+};
+
+const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value === 'string' && value.length > 0;
 
 /**
  * Build the wired dependency graph. Pure — does not touch the filesystem or `os`. Production
@@ -214,13 +287,37 @@ const PROBES: ReadinessProbeRegistry = {
   codex: codexProbe,
 };
 
+/** Silent default dispatcher — used when no production override is passed (i.e. by tests). */
+const noopNotificationDispatcher: NotificationDispatcher = {
+  async notify() {
+    // intentionally no-op
+  },
+};
+
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn = (opts.spawn ?? defaultPipeSpawn) as unknown as Spawn;
+  // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
+  // (`startFileLogSink`) pure — it never needs to know whether tracing is enabled, only
+  // whether to wire up. The no-op factory matches the live shape so callers can call
+  // `stop()` / `flush()` unconditionally at terminal events.
+  const env = opts.env ?? process.env;
+  const debugTrace = isTruthyEnvFlag(env[RALPHCTL_DEBUG_TRACE_ENV]);
+  const appendFile = createAppendFile();
+  // Bind `appendFile` at wire-time so the launcher factory keeps the same `{ file, bus }`
+  // call shape regardless of whether the real sink or the no-op stub is in play.
+  const chainLogSink: (deps: ChainLogSinkLaunchDeps) => FileLogSink = debugTrace
+    ? (launchDeps) => startFileLogSink({ ...launchDeps, appendFile })
+    : () => NOOP_CHAIN_LOG_SINK;
   // One bus per `wire()` call — bus state isolates between concurrent app
   // instances. Adapters publish 'log' AppEvents directly; the bus is the
   // unified pipe TUI panels, file appenders, and webhooks all subscribe to.
   const eventBus = createInMemoryEventBus();
   const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
+  // OS-attention notifier slot. The TUI bootstrap (launch.ts) injects the real Darwin/Linux
+  // adapter and ALSO calls `startNotificationSubscriber` to attach it to the bus; everything
+  // else (tests, CLI one-shots) takes the no-op fallback and no subscriber is started, so an
+  // accidental NotificationCenter ding from a unit test is impossible.
+  const notificationDispatcher = opts.notificationDispatcher ?? noopNotificationDispatcher;
   // Hoisted so taskRepo can share the same locker for its per-file read-modify-write guard.
   // One locker instance per app means stale-takeover semantics agree across every caller.
   const fileLocker = createFileLocker({
@@ -251,6 +348,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     shellScriptRunner: createShellScriptRunner(),
     fileLocker,
     writeFile: createAtomicWriteFile(),
+    appendFile,
     interactiveAi: createInteractiveAiProvider({ ai: opts.settings.ai, eventBus }),
     signals: opts.sinks.harness,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
@@ -268,5 +366,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     }),
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
     skillSource: createBundledSkillSource(),
+    notificationDispatcher,
+    chainLogSink,
   };
 };

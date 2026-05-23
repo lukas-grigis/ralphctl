@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { promises as fs } from 'node:fs';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -14,6 +15,8 @@ import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
+import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
+import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
@@ -60,6 +63,20 @@ export interface CreatePlanFlowOpts {
  * "tasks are ready" signal — saving it last means a crash mid-save leaves the sprint as
  * `draft` even if the tasks already landed; the next plan run is idempotent.
  */
+/**
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
+ * Plan runs under `<sprintDir>/plan/<run-slug>/`, so the sprint dir is the parent of the
+ * supplied plan root. Best-effort: missing or unreadable degrades to empty string.
+ */
+const readSprintProgress = async (planRoot: AbsolutePath): Promise<string> => {
+  const sprintDir = dirname(String(planRoot));
+  try {
+    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
 export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Element<PlanCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
@@ -74,7 +91,9 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       slug: () => slug,
       write: (ctx, root) => {
         const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        const outputPath = AbsolutePath.parse(join(String(root), 'plan.json'));
+        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
+        // validates that file via the plan contract.
+        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
         if (!promptPath.ok) throw promptPath.error;
         if (!outputPath.ok) throw outputPath.error;
         return {
@@ -93,14 +112,16 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
           if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
           return ctx.currentPromptFile;
         },
-        buildPrompt: (ctx) => {
+        buildPrompt: async (ctx) => {
           if (ctx.sprint === undefined) throw new Error('sprint missing');
           if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentOutputFile === undefined) throw new Error('currentOutputFile missing');
+          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
+          const priorProgress = await readSprintProgress(opts.planRoot);
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,
-            outputFilePath: String(ctx.currentOutputFile),
+            outputContractSection: renderContractSectionFor(planOutputContract, ctx.currentUnitRoot),
+            priorProgress,
             ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
           });
         },
@@ -132,6 +153,8 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       interactiveAi: deps.interactiveAi,
       runInTerminal: deps.runInTerminal,
       logger: deps.logger,
+      writeFile: deps.writeFile,
+      eventBus: deps.eventBus,
       clock: deps.clock,
       model: opts.model,
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0

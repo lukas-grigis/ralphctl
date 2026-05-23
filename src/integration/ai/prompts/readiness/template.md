@@ -3,11 +3,12 @@
 You are a senior engineer preparing a repository for agentic work. Inventory the repo from its configuration and
 metadata files and propose three artefacts the harness will use:
 
-1. **`<{{WIRE_TAG}}>`** — a project context file body written to the tool's native context path.
-2. **`<setup-script>`** — one shell line the harness runs once before each sprint to prepare the working tree
-   (typically dependency install). Optional — omit the tag entirely when no setup is needed.
-3. **`<verify-script>`** — one shell line the harness runs as the post-task gate (typecheck / lint / test
-   chained with `&&`). Optional — omit the tag entirely when the project exposes none of these.
+1. **`agents-md-proposal`** (signal) — a project context file body written to the tool's native context path.
+   Use `tag: "{{WIRE_TAG}}"` so the harness lands it at the right per-tool target.
+2. **`setup-skill-proposal`** (signal) — multi-paragraph markdown describing the project's setup convention;
+   the harness lands it as `setup/SKILL.md`. Optional — omit the signal when no setup skill is warranted.
+3. **`verify-skill-proposal`** (signal) — same shape as the setup skill, for verification conventions.
+   Optional — omit when the project has no canonical verify command.
 
 Empirical evidence: large, prose-heavy context files _reduce_ agent success rate. Keep the body small and
 surgical. The setup and verify scripts are heavily used by the harness — get them right or omit them.
@@ -43,16 +44,18 @@ with concrete checks ("Use 2-space indentation"; "Run `pnpm verify` before commi
 - Credentials, user-specific paths, or commands that touch remote services.
 - Standard language conventions the agent already knows.
 
-**Existing-context rule (the most important when an existing file is supplied).** When `EXISTING_CONTEXT_FILE`
-below carries a body, that prose is **authoritative**. Your `<{{WIRE_TAG}}>` MUST contain the existing body
-**byte-for-byte verbatim** at the start, in its original order, with NO rewording, summarising, or reformatting.
-Append any proposed additions as new H2 sections at the bottom. Do not modify, prune, or merge into existing
-sections. When you have nothing to add, still emit `<{{WIRE_TAG}}>` with the existing body unchanged.
+**Existing-context rule (the most important when an existing file is supplied).** When the "Existing context
+file" section below carries a body, that prose is **authoritative**. Your `agents-md-proposal` signal's
+`content` MUST contain the existing body **byte-for-byte verbatim** at the start, in its original order, with
+NO rewording, summarising, or reformatting. Append any proposed additions as new H2 sections at the bottom. Do
+not modify, prune, or merge into existing sections. When you have nothing to add, still emit the
+`agents-md-proposal` signal with the existing body unchanged.
 
-**Script safety (applies to setup and verify).** Every command must resolve in this repo: cite `pnpm install`
-only when `package.json` is present, `pip install -r requirements.txt` only when that file exists, `cargo fetch`
-only with a `Cargo.toml`, and so on. Reject pipe-to-shell shapes (`curl … | sh`, `wget -O- … | bash`), `eval`,
-and `rm -rf`. One shell line per script — chain with `&&`, not `;`, so the harness sees the first failure.
+**Script safety (applies to setup and verify skill bodies).** Every command you document must resolve in this
+repo: cite `pnpm install` only when `package.json` is present, `pip install -r requirements.txt` only when that
+file exists, `cargo fetch` only with a `Cargo.toml`, and so on. Reject pipe-to-shell shapes (`curl … | sh`,
+`wget -O- … | bash`), `eval`, and `rm -rf`. Prefer one shell line per command — chain with `&&`, not `;`, so the
+runner sees the first failure.
 
 </constraints>
 
@@ -105,26 +108,27 @@ directories, or generated output.
 Draft each candidate H2 section against the inclusion test. Drop any section that an experienced engineer
 could derive by reading the manifest or the directory tree. Keep what survives short and verifiable.
 
-When `EXISTING_CONTEXT_FILE` carries a body, the existing prose comes first, byte-for-byte. Your additions
-go as new H2 sections at the bottom — never inline.
+When the "Existing context file" section carries a body, the existing prose comes first, byte-for-byte. Your
+additions go as new H2 sections at the bottom — never inline.
 
 ### Phase 3 — Output
 
-Emit the elements below in the order shown — each on its own line, no preamble, no commentary, no markdown
-fences around the tags:
+Emit the signals below into `signals.json` per the Output contract section at the bottom of this prompt:
 
-1. `<{{WIRE_TAG}}>…project context file body…</{{WIRE_TAG}}>` — required.
-   When an existing file is present, the body MUST start with the existing prose verbatim; additions go as new
+1. `agents-md-proposal` — required. `tag` MUST be `"{{WIRE_TAG}}"`; `content` is the project context body.
+   When an existing file is present, `content` MUST start with the existing prose verbatim; additions go as new
    H2 sections at the bottom. When no existing file is present, emit a fresh body sized to the inclusion test
    above.
-2. `<setup-script>…single shell line…</setup-script>` — optional.
-   The harness runs this once at sprint start to prepare the working tree (typically dependency install). Cite
-   only commands whose resolver files are present in the repo (see "Script safety" above). Omit the tag
-   entirely when no setup is needed.
-3. `<verify-script>…single shell line…</verify-script>` — optional.
-   The harness runs this as the post-task gate. Combine the typecheck / lint / test commands the project
-   actually exposes, chained with `&&`. Omit the tag entirely when the project exposes none of these.
-4. `<note>…</note>` — optional, one short observation about the repo.
+2. `setup-skill-proposal` — optional. `content` is a multi-paragraph markdown body describing the project's
+   setup convention; the harness lands it as `setup/SKILL.md` under the tool's parent dir. Omit the signal
+   entirely when no setup skill is warranted.
+3. `verify-skill-proposal` — optional. Same shape as the setup skill but documenting the verify convention
+   (typecheck / lint / test). Omit the signal entirely when the project has no canonical verify command.
+4. `skill-suggestions` — optional. `names` is a list of kebab-case bundled skill names to link into the
+   working dir (e.g. `["typescript-strict", "pnpm"]`).
+5. `note` — optional, one short observation about the repo.
+
+{{OUTPUT_CONTRACT_SECTION}}
 
 ## References
 

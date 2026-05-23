@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { changeParser } from '@src/integration/ai/signals/change/parser.ts';
-import { decisionParser } from '@src/integration/ai/signals/decision/parser.ts';
-import { learningParser } from '@src/integration/ai/signals/learning/parser.ts';
+import { changeParser } from '@tests/helpers/legacy-signal-parsers/change/parser.ts';
+import { decisionParser } from '@tests/helpers/legacy-signal-parsers/decision/parser.ts';
+import { learningParser } from '@tests/helpers/legacy-signal-parsers/learning/parser.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 

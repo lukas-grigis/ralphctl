@@ -35,16 +35,25 @@ export interface CreateRunFlowOpts {
   /** Repositories keyed by id — see {@link createImplementFlow} for the multi-repo contract. */
   readonly repositories: ReadonlyMap<RepositoryId, RepoExecConfig>;
   /**
-   * Working directory for the review chain. Review still operates against a single repo
-   * (it works against the user's diff between the sprint branch and main) — the launcher
-   * picks the project's primary repo.
+   * Parent dir for the review chain's per-round AI session forensics — `<sprintDir>/review/`.
+   * The review chain materialises `round-<N>/` subfolders here.
    */
-  readonly cwd: AbsolutePath;
+  readonly reviewRoot: AbsolutePath;
+  /**
+   * Single repo working tree the review chain commits / runs verify in. Distinct from the AI
+   * session's cwd. Picks the first sprint-affected repo. Multi-repo commit / verify for
+   * review is out of scope.
+   */
+  readonly commitCwd: AbsolutePath;
+  /** Sprint-affected repos (absolute paths) — mounted into the review AI session. */
+  readonly additionalRoots: readonly AbsolutePath[];
+  /** Pre-rendered `{{REPOSITORIES}}` block for the apply-feedback prompt. */
+  readonly repositoriesBlock: string;
   readonly progressFile: AbsolutePath;
   readonly sprintDir: AbsolutePath;
   readonly feedbackFile: AbsolutePath;
   readonly model: string;
-  readonly checkScript?: string;
+  readonly verifyScript?: string;
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
 }
@@ -69,10 +78,13 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
   });
   const reviewFlow = createReviewFlow(deps.review, {
     sprintId: opts.sprintId,
-    cwd: opts.cwd,
+    reviewRoot: opts.reviewRoot,
+    commitCwd: opts.commitCwd,
+    additionalRoots: opts.additionalRoots,
+    repositoriesBlock: opts.repositoriesBlock,
     feedbackFile: opts.feedbackFile,
     progressFile: opts.progressFile,
-    ...(opts.checkScript !== undefined ? { checkScript: opts.checkScript } : {}),
+    ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
   });
 
   return {

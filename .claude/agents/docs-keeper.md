@@ -111,8 +111,8 @@ When asked "are the docs in sync with the code?", run a structured pass:
 3. **Ports.** `ls src/business/*/` (excluding repos) vs the `ARCHITECTURE.md § Ports` table.
 4. **Flow registry.** `cat src/application/registry.ts` and `ls src/application/flows/*/` vs the table in
    `ARCHITECTURE.md § Flow registry` and `docs/api.md` (if present).
-5. **Signals.** `cat src/domain/signal.ts` plus `ls src/integration/ai/signals/` vs the table in
-   `ARCHITECTURE.md § Harness Signals` and `CLAUDE.md § Architecture`.
+5. **Signals.** `cat src/domain/signal.ts` plus `ls src/integration/ai/contract/_engine/signals/` vs
+   the table in `ARCHITECTURE.md § Harness Signals` and `CLAUDE.md § Architecture`.
 6. **Errors.** `ls src/domain/value/error/` vs the table in `ARCHITECTURE.md § Error Classes`.
 7. **CLI surface.** `grep -rn '\.command(' src/application/ui/cli/commands/` vs the table in `CLAUDE.md §
 Workflows & State` (sub-section "CLI Command Surface").

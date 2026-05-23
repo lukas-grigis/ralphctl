@@ -9,6 +9,7 @@
  */
 
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 
@@ -52,12 +53,28 @@ export interface SessionDescriptor {
    */
   readonly plannedLeaves?: readonly string[];
   /**
+   * Display label per planned leaf name, captured at chain construction time so the rail can
+   * render pending / running rows with their friendly label instead of falling back to the
+   * raw element name (which embeds the absolute path for per-repo leaves like
+   * `preflight-task-1-/abs/path/to/repo`). Once a leaf executes, the trace entry's own label
+   * supersedes this lookup.
+   */
+  readonly planLabelByName?: ReadonlyMap<string, string>;
+  /**
    * Name of the per-task subchain's final leaf (`'uninstall-skills'` for the implement flow). When
    * the bucketing sees this leaf for a task id it flips the task to `completed`. Threaded from
    * the launcher so flows with a different terminal leaf — or future renames — don't break the
    * UI silently.
    */
   readonly terminalSubstepName?: string;
+  /**
+   * Map of `taskId → RecoveryContext` for tasks the launcher detected as resuming a prior
+   * aborted attempt. The launcher derives this at click time from any `in_progress` tasks
+   * whose last attempt is still `running` (a v8 OOM / Ctrl-C / SIGTERM in the prior process
+   * leaves that signature). The execute view surfaces it as an annotation under the active
+   * task header. Empty / undefined when no task is resuming.
+   */
+  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
 }
 
 export interface SessionRecord {
@@ -83,7 +100,9 @@ export interface SessionManager {
     readonly taskNames?: ReadonlyMap<string, string>;
     readonly maxTurns?: number;
     readonly plannedLeaves?: readonly string[];
+    readonly planLabelByName?: ReadonlyMap<string, string>;
     readonly terminalSubstepName?: string;
+    readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   }): SessionRecord;
   /** Request the runner to abort. No-op if the session is already terminal. */
   abort(id: string): void;
@@ -157,7 +176,17 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
     get(id: string): SessionRecord | undefined {
       return records.get(id);
     },
-    register({ runner, flowId, title, taskNames, maxTurns, plannedLeaves, terminalSubstepName }): SessionRecord {
+    register({
+      runner,
+      flowId,
+      title,
+      taskNames,
+      maxTurns,
+      plannedLeaves,
+      planLabelByName,
+      terminalSubstepName,
+      taskRecovering,
+    }): SessionRecord {
       evict(clock());
       const descriptor: SessionDescriptor = {
         id: runner.id,
@@ -169,7 +198,9 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(taskNames !== undefined ? { taskNames } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(plannedLeaves !== undefined ? { plannedLeaves } : {}),
+        ...(planLabelByName !== undefined ? { planLabelByName } : {}),
         ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),
+        ...(taskRecovering !== undefined ? { taskRecovering } : {}),
       };
       const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
       records.set(runner.id, record);

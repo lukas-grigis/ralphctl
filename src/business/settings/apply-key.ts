@@ -37,7 +37,8 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
     }
     case 'harness.maxTurns':
     case 'harness.maxAttempts':
-    case 'harness.rateLimitRetries': {
+    case 'harness.rateLimitRetries':
+    case 'harness.plateauThreshold': {
       const n = Number(raw);
       if (!Number.isFinite(n)) {
         return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));
@@ -55,16 +56,44 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
       }
       return Result.ok({ ...current, concurrency: { maxParallelTasks: n } });
     }
+    case 'ui.notifications.enabled': {
+      const b = parseBool(raw);
+      if (b === undefined) {
+        return Result.error(
+          new ValidationError({
+            field: key,
+            value: raw,
+            message: `'${raw}' is not a boolean`,
+            hint: "use 'true' or 'false'",
+          })
+        );
+      }
+      return Result.ok({
+        ...current,
+        ui: { ...current.ui, notifications: { ...current.ui.notifications, enabled: b } },
+      });
+    }
     default:
       return Result.error(
         new ValidationError({
           field: 'key',
           value: key,
           message: `unknown settings key '${key}'`,
-          hint: 'supported keys: ai.models.{refine,plan,implement,readiness,ideate}, harness.{maxTurns,maxAttempts,rateLimitRetries}, logging.level, concurrency.maxParallelTasks',
+          hint: 'supported keys: ai.models.{refine,plan,implement,readiness,ideate}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold}, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled',
         })
       );
   }
+};
+
+/**
+ * Parse a boolean from the CLI's `key=value` syntax. Accepts the common synonyms so users can
+ * type whichever shorthand feels natural. Returns `undefined` for unrecognised values.
+ */
+const parseBool = (raw: string): boolean | undefined => {
+  const lower = raw.trim().toLowerCase();
+  if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') return true;
+  if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off') return false;
+  return undefined;
 };
 
 /**

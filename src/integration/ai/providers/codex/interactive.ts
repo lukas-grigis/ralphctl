@@ -20,10 +20,14 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  *
  * Codex's top-level (non-`exec`) command starts the TUI and accepts an optional positional
  * prompt — `codex "explain this codebase"`. We inline `"$(cat <promptFile>)"` via `bash -lc`
- * so very large prompt files don't hit argv length limits. `-s workspace-write -a on-request`
+ * so very large prompt files don't hit argv length limits. `-s workspace-write -a never`
  * matches Claude's `--permission-mode acceptEdits` intent: file writes inside the workspace
- * run without a confirmation step (so the AI can drop its answer in `outputFile`), while
- * commands the model deems risky still escalate to the user.
+ * run without a confirmation step (so the AI can drop its answer in `outputFile`).
+ *
+ * Audit [09]: harness-driven sessions want zero per-tool noise. `-a never` makes the sandbox
+ * the only gate — anything outside the workspace fails immediately rather than prompting,
+ * which is the correct behaviour because the harness pre-configures every legal write path
+ * via cwd + `--add-dir`.
  *
  * Pause-the-host (Ink) is **not** the adapter's responsibility — that lives in the leaf,
  * which wraps `interactiveAi.run(...)` in `runInTerminal(...)`.
@@ -97,7 +101,7 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
         '-s',
         'workspace-write',
         '-a',
-        'on-request',
+        'never',
         `"$(cat ${shellQuote(String(input.promptFile))})"`,
       ].join(' ');
 

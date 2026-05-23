@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
-import { setupScriptParser } from '@src/integration/ai/signals/setup-script/parser.ts';
-import { setupSkillParser } from '@src/integration/ai/signals/setup-skill/parser.ts';
-import { verifyScriptParser } from '@src/integration/ai/signals/verify-script/parser.ts';
-import { verifySkillParser } from '@src/integration/ai/signals/verify-skill/parser.ts';
-import { agentsMdParser } from '@src/integration/ai/signals/agents-md/parser.ts';
+import { setupScriptParser } from '@tests/helpers/legacy-signal-parsers/setup-script/parser.ts';
+import { setupSkillParser } from '@tests/helpers/legacy-signal-parsers/setup-skill/parser.ts';
+import { verifyScriptParser } from '@tests/helpers/legacy-signal-parsers/verify-script/parser.ts';
+import { verifySkillParser } from '@tests/helpers/legacy-signal-parsers/verify-skill/parser.ts';
+import { agentsMdParser } from '@tests/helpers/legacy-signal-parsers/agents-md/parser.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 

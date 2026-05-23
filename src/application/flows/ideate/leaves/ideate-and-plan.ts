@@ -1,37 +1,60 @@
-import { promises as fs } from 'node:fs';
+import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import { addApprovedTicketUseCase } from '@src/business/ticket/add-approved-ticket.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { DraftSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { createTicket, type ApprovedTicket } from '@src/domain/entity/ticket.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { IdeatedTicketsSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-output.ts';
+import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
+import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
+import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 
 /**
  * The interactive ideate session: hands the terminal to Claude for the combined refine+plan
- * conversation, reads the JSON output file back, parses it (integration), then delegates the
- * ticket approval + sprint mutation to {@link addApprovedTicketUseCase}. Task merging is a
- * trivial array compose handled here.
+ * conversation, validates the AI-written `signals.json` against the audit-[09] ideate
+ * contract, parses the resolved ticket + task envelope (integration), then delegates the
+ * ticket approval + sprint mutation to {@link addApprovedTicketUseCase}.
+ *
+ * audit-[09] flow (post-Wave-6):
+ *   provider.run → AI writes `signals.json` directly per the contract section in the
+ *   prompt → `validateSignalsFile(ideateOutputContract)` → fan-out validated signals to the
+ *   bus → `renderSidecars` (no-op, empty rules) → extract the `ideated-tickets` payload's
+ *   `outputJson` → `parseIdeateOutput` → `addApprovedTicketUseCase`.
  *
  * Failure modes (sprint untouched on each):
  *   - AI exits non-zero → bubbles its error.
- *   - Output file missing or empty → `InvalidStateError`.
- *   - Output file fails JSON parse / schema → `ParseError`.
+ *   - signals.json missing or schema-mismatched → `InvalidStateError` / `ParseError`.
+ *   - `outputJson` fails parse — `ParseError`.
  *   - Ticket validation fails (empty title etc.) → `ValidationError` from the domain.
  */
 export interface IdeateAndPlanLeafDeps {
   readonly interactiveAi: InteractiveAiProvider;
   readonly runInTerminal: RunInTerminal;
   readonly logger: Logger;
+  /**
+   * Output port used to write `signals.json` and any sidecars under the audit-[09] contract.
+   * Ideate has no sidecars (the structured payload projects onto the sprint draft) but
+   * threading `writeFile` keeps the contract loop uniform with other leaves.
+   */
+  readonly writeFile: WriteFile;
+  /**
+   * Application bus — every validated `ideated-tickets` / `learning` / `note` / `decision`
+   * signal fans out as a typed `ai-signal` event the TUI subscribes to.
+   */
+  readonly eventBus: EventBus;
   readonly model: string;
 }
 
@@ -67,27 +90,31 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
         );
         if (!session.ok) return Result.error(session.error);
 
-        let raw: string;
-        try {
-          raw = await fs.readFile(String(input.outputFile), 'utf8');
-        } catch (cause) {
-          const causeMsg = cause instanceof Error ? cause.message : String(cause);
-          return Result.error(
-            new InvalidStateError({
-              entity: 'ideate-and-plan',
-              currentState: 'post-session',
-              attemptedAction: 'read-output',
-              message: `ideate: AI exited but output file is missing: ${String(input.outputFile)} (${causeMsg})`,
-            })
-          );
+        // audit-[09]: the AI writes `signals.json` directly under the unit root per the
+        // contract section in the prompt. The leaf validates that file.
+        const outputDirRaw = dirname(String(input.outputFile));
+        const outputDirResult = AbsolutePath.parse(outputDirRaw);
+        if (!outputDirResult.ok) return Result.error(outputDirResult.error);
+        const outputDir = outputDirResult.value;
+
+        const validated = await validateSignalsFile(outputDir, ideateOutputContract);
+        if (!validated.ok) return Result.error(validated.error);
+        const signals = validated.value;
+
+        for (const sig of signals) {
+          deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'ideate' });
         }
-        if (raw.trim().length === 0) {
+
+        await renderSidecars(deps.writeFile, outputDir, signals, ideateOutputContract.sidecars, deps.logger);
+
+        const ideatedSignal = signals.find((s) => s.type === 'ideated-tickets') as IdeatedTicketsSignal | undefined;
+        if (ideatedSignal === undefined) {
           return Result.error(
             new InvalidStateError({
               entity: 'ideate-and-plan',
-              currentState: 'post-session',
-              attemptedAction: 'parse-output',
-              message: `ideate: AI exited but output file is empty: ${String(input.outputFile)}`,
+              currentState: 'post-validation',
+              attemptedAction: 'project-signal',
+              message: 'ideate: validated signals contained no ideated-tickets signal',
             })
           );
         }
@@ -98,7 +125,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
         });
         if (!pending.ok) return Result.error(pending.error);
 
-        const parsed = parseIdeateOutput(raw, {
+        const parsed = parseIdeateOutput(ideatedSignal.outputJson, {
           project: input.project,
           sprintId: input.sprintId,
           ticketId: pending.value.id,

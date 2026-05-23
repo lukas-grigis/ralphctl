@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type Result } from '@src/domain/result.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import {
   IsoTimestampSchema,
@@ -9,7 +10,9 @@ import {
   SprintIdSchema,
 } from '@src/integration/persistence/shared/value-schemas.ts';
 import { TicketSchema } from '@src/integration/persistence/sprint/ticket.schema.ts';
-import { type Compatible, safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
+import { SPRINT_SCHEMA_VERSION, sprintMigrations } from '@src/integration/persistence/sprint/migrations.ts';
+import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
+import { type Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
 const SprintBaseShape = {
   id: SprintIdSchema,
@@ -64,6 +67,11 @@ const DoneSprintSchema = z.object({
   doneAt: IsoTimestampSchema,
 });
 
+/**
+ * Sprint persistence schema. Each on-disk file also carries a top-level `schemaVersion`
+ * field (silently ignored by `z.object` during parse since it is not declared on any
+ * variant). The per-entity migration chain validates the version before parse.
+ */
 export const SprintSchema = z.discriminatedUnion('status', [
   DraftSprintSchema,
   PlannedSprintSchema,
@@ -72,9 +80,26 @@ export const SprintSchema = z.discriminatedUnion('status', [
   DoneSprintSchema,
 ]);
 
-export const fromJsonSprint = (input: unknown): Result<Sprint, ParseError> => safeParseToResult(SprintSchema, input);
+/**
+ * Decode a persisted `sprint.json` payload. Walks the per-entity migration chain to
+ * {@link SPRINT_SCHEMA_VERSION} and then Zod-parses against {@link SprintSchema}.
+ */
+export const fromJsonSprint = (
+  input: unknown,
+  filePath = 'sprint.json'
+): Result<Sprint, MigrationGapError | ParseError> =>
+  runMigrations<Sprint>(
+    input,
+    SPRINT_SCHEMA_VERSION,
+    sprintMigrations,
+    SprintSchema as unknown as z.ZodType<Sprint>,
+    filePath
+  );
 
-export const toJsonSprint = (sprint: Sprint): unknown => sprint;
+export const toJsonSprint = (sprint: Sprint): unknown => ({
+  schemaVersion: SPRINT_SCHEMA_VERSION,
+  ...sprint,
+});
 
 type _checkSprint = Compatible<Sprint, z.infer<typeof SprintSchema>>;
 const _typeChecks: [_checkSprint] = [true];

@@ -2,6 +2,10 @@
  * `detect-skills` prompt: one-shot, read-only repo inventory that asks the AI to write two
  * multi-paragraph skills (setup + verify) for the repository. Sibling of `detect-scripts` —
  * scripts produce single shell lines, skills produce stack-aware AI guidance.
+ *
+ * Under the audit-[09] contract the AI writes `signals.json` directly into the spawn's
+ * `outputDir` with `setup-skill-proposal` / `verify-skill-proposal` / `note` signals; the
+ * harness validates post-spawn and renders sidecars (`setup-skill.md`, `verify-skill.md`).
  */
 
 import { Result } from '@src/domain/result.ts';
@@ -20,7 +24,19 @@ export interface DetectSkillsPromptParams {
    * session to look up existing skills and avoid duplicating their purpose.
    */
   readonly skillsConvention: string;
+  /**
+   * Audit-[09] output contract section — rendered from the detect-skills `AiOutputContract`
+   * by `renderContractSectionFor(detectSkillsOutputContract)`. Instructs the AI to write
+   * `signals.json` directly with optional `setup-skill-proposal` / `verify-skill-proposal` /
+   * `note` signals.
+   */
+  readonly outputContractSection: string;
 }
+
+const requireNonEmpty =
+  (field: string, message: string) =>
+  (v: string): Result<string, ValidationError> =>
+    v.trim().length === 0 ? Result.error(new ValidationError({ field, value: v, message })) : Result.ok(v);
 
 export const detectSkillsPromptDef: PromptDefinition<DetectSkillsPromptParams> = {
   templateName: 'detect-skills',
@@ -30,45 +46,30 @@ export const detectSkillsPromptDef: PromptDefinition<DetectSkillsPromptParams> =
     repositoryPath: {
       placeholder: 'REPOSITORY_PATH',
       description: 'Absolute path to the repository the AI is inventorying.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'repositoryPath',
-                value: v,
-                message: 'repository path must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('repositoryPath', 'repository path must not be empty'),
     },
     skillsConvention: {
       placeholder: 'SKILLS_CONVENTION',
       description: 'Provider-specific guidance on where to find existing skills in this repository.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'skillsConvention',
-                value: v,
-                message: 'skills convention snippet must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('skillsConvention', 'skills convention snippet must not be empty'),
+    },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the detect-skills contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  // Skills are extracted by the propose leaf via direct tag parsing — not via the harness
-  // signal registry (which deals with strongly-typed runtime signals like `progress`,
-  // `task-verified`, etc.). Setup/verify skills are inert markdown bodies, so we list no
-  // expected signals here.
-  expectedSignals: [],
+  expectedSignals: ['setup-skill-proposal', 'verify-skill-proposal', 'note'],
 };
 
 export interface BuildDetectSkillsPromptInput {
   readonly repositoryPath: string;
   readonly skillsConvention: string;
+  readonly outputContractSection: string;
 }
 
 export const buildDetectSkillsPrompt = async (
@@ -78,4 +79,5 @@ export const buildDetectSkillsPrompt = async (
   buildPrompt(loader, detectSkillsPromptDef, {
     repositoryPath: input.repositoryPath,
     skillsConvention: input.skillsConvention,
+    outputContractSection: input.outputContractSection,
   });

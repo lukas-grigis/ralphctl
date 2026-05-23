@@ -3,6 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { FindTaskById } from '@src/domain/repository/task/find-task-by-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { failCurrentAttempt, startNextAttempt, type InProgressTask, type Task } from '@src/domain/entity/task.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -49,6 +50,7 @@ export const startAttemptUseCase = async (
   // Resume path: a prior chain left a `running` attempt behind. Settle it as `aborted` before
   // appending a new one so the domain invariant ("only one running attempt at a time") holds.
   let taskToStart: Task = props.task;
+  let recovering: RecoveryContext | undefined;
   if (props.task.status === 'in_progress' && hasRunningAttempt(props.task)) {
     // Divergence guard: re-read the task from the repo and compare against the in-memory
     // copy before settling. A stale in-memory cache (e.g. another concurrent operation wrote
@@ -94,11 +96,18 @@ export const startAttemptUseCase = async (
         })
       );
     }
+    // Cause attribution on the cross-process resume path: we don't know what killed the
+    // previous process (Ctrl-C, SIGTERM, idle-watchdog, v8 OOM all leave the same trace —
+    // a leftover `running` attempt). `process-crash` is the conservative label; the
+    // in-process abort path (P1j follow-up) will pass a richer cause via `failCurrentAttempt`.
+    const priorAttemptN = props.task.attempts.length;
+    const abortedAt = props.clock();
     log.info('recovering aborted attempt before resume', {
       taskId: props.task.id,
-      priorAttemptN: props.task.attempts.length,
+      priorAttemptN,
+      cause: 'process-crash',
     });
-    const aborted = failCurrentAttempt(props.task, props.clock(), 'aborted');
+    const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: 'process-crash' });
     if (!aborted.ok) {
       log.warn('failed to settle prior running attempt during resume', {
         taskId: props.task.id,
@@ -121,9 +130,10 @@ export const startAttemptUseCase = async (
       );
     }
     taskToStart = aborted.value;
+    recovering = { fromAttemptN: priorAttemptN, cause: 'process-crash', abortedAt };
   }
 
-  const transitioned = startNextAttempt(taskToStart, props.clock());
+  const transitioned = startNextAttempt(taskToStart, props.clock(), undefined, recovering);
   if (!transitioned.ok) {
     log.warn('cannot start next attempt', { taskId: props.task.id, error: transitioned.error.message });
     return Result.error(transitioned.error);

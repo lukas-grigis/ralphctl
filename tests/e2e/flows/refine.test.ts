@@ -80,7 +80,14 @@ const fakeInteractiveAi = (
       const promptBody = await fs.readFile(String(input.promptFile), 'utf8');
       calls.push({ input, promptBody });
       const body = await responder(input);
-      await fs.writeFile(String(input.outputFile), body, 'utf8');
+      // audit-[09]: the AI writes `signals.json` directly under the unit root. `outputFile`
+      // points at that path; we synthesise a valid `refined-ticket` envelope so the refine
+      // contract validation succeeds end-to-end.
+      const envelope = {
+        schemaVersion: 1,
+        signals: [{ type: 'refined-ticket', body, timestamp: '2026-05-22T10:00:00.000Z' }],
+      };
+      await fs.writeFile(String(input.outputFile), JSON.stringify(envelope), 'utf8');
       return Result.ok({});
     },
   };

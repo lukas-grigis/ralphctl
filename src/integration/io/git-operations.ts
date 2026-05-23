@@ -26,20 +26,11 @@ import type { GitRunner } from '@src/integration/io/git-runner.ts';
  */
 
 const HEX_SHA_RE = /^[0-9a-f]{7,64}$/i;
-/**
- * Hard cap on `git commit -m <message>` bytes, enforced by {@link gitCommitWithMessage}.
- * Canonical owner — message-assembly factories upstream (currently
- * `src/application/flows/implement/leaves/commit-task.ts`) import this constant so they
- * cannot drift from the validator.
- *
- * Per-task commits are signal, not prose — the harness writes machine-readable history, the
- * AI's descriptive prose belongs in `progress.md`. 500 UTF-8 bytes is enough for a
- * conventional-style subject, a short WHY paragraph, and the `Closes …` trailer appended
- * from `Task.externalRefs`; anything longer is truncated by the message factories upstream
- * of this validator. Treat a breach as a bug (a factory failed to clamp) rather than a soft
- * hint, so the chain halts loudly.
- */
-export const COMMIT_MESSAGE_MAX_BYTES = 500;
+// No byte cap on commit messages: audit-[03] mandates "no caps anywhere" on AI signal
+// bodies, and `git commit -m <msg>` passes via argv which has ARG_MAX headroom in the
+// hundreds of KB. The AI's validated `commit-message` signal is projected verbatim onto
+// the commit; the harness only appends the deterministic `Closes …` trailer when a task
+// carries external refs.
 
 export interface GitStatusEntry {
   readonly status: string;
@@ -306,15 +297,6 @@ export const gitCreateAndCheckoutBranch = async (
 const validateCommitMessage = (message: string): Result<string, StorageError> => {
   if (message.length === 0) {
     return Result.error(new StorageError({ subCode: 'io', message: 'commit message must not be empty' }));
-  }
-  const bytes = Buffer.byteLength(message, 'utf8');
-  if (bytes > COMMIT_MESSAGE_MAX_BYTES) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `commit message exceeds ${String(COMMIT_MESSAGE_MAX_BYTES)}-byte limit (${String(bytes)} bytes)`,
-      })
-    );
   }
   return Result.ok(message);
 };

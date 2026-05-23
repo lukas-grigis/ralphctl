@@ -12,6 +12,7 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 
 export const noopSkillsAdapter: SkillsAdapter = {
   install: async () => Result.ok(undefined),
+  installBareSkill: async () => Result.ok(undefined),
   uninstall: async () => Result.ok(undefined),
   describeSkillsConvention: () => 'Test provider has no skills convention; proceed directly to authoring.',
 };
