@@ -138,15 +138,16 @@ For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claud
 > [!IMPORTANT]
 > Not all three AI providers are equally production-ready inside ralphctl.
 
-| Provider                                  | Status                                  | Headless flag                         | Native context file               |
-| ----------------------------------------- | --------------------------------------- | ------------------------------------- | --------------------------------- |
-| **Claude Code** (`claude-code`)           | **Stable — primary verified provider**  | `--permission-mode bypassPermissions` | `CLAUDE.md` at repo root          |
-| **GitHub Copilot CLI** (`github-copilot`) | Preview — not officially verified by us | `--allow-all-tools`                   | `.github/copilot-instructions.md` |
-| **OpenAI Codex** (`openai-codex`)         | Preview — not officially verified by us | per-session approval flow             | `AGENTS.md`                       |
+| Provider                                  | Status                                  | Headless flag                                               | Native context file               |
+| ----------------------------------------- | --------------------------------------- | ----------------------------------------------------------- | --------------------------------- |
+| **Claude Code** (`claude-code`)           | **Stable — primary verified provider**  | `--permission-mode bypassPermissions` + per-tool deny list  | `CLAUDE.md` at repo root          |
+| **GitHub Copilot CLI** (`github-copilot`) | Preview — not officially verified by us | `--autopilot --allow-all` + `--max-autopilot-continues=200` | `.github/copilot-instructions.md` |
+| **OpenAI Codex** (`openai-codex`)         | Preview — not officially verified by us | `-s workspace-write` (topology-scoped)                      | `AGENTS.md`                       |
 
 "Preview" means the integration exists and the TUI lets you select it, but end-to-end harness behaviour against those
 providers has not been formally verified. Copilot and Codex no-op some features (bundled skill injection, `bodyFile`
-forensic artifacts). If you hit a rough edge on a preview provider,
+forensic artifacts). Codex cannot fine-grained-deny edits on existing repo files — its sandbox modes are binary, so
+path scope (cwd + `--add-dir`) is the only safety envelope. If you hit a rough edge on a preview provider,
 please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 ---

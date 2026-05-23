@@ -9,6 +9,30 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **One signal pipeline (audit-[09] contract) for every AI-spawning leaf.** The three legacy
+  flows (`review/review-round`, `detect-scripts/propose`, `detect-skills/propose`) migrated to
+  the Zod-validated `<leaf>.contract.ts` shape that `implement`, `refine`, `plan`, `ideate`,
+  and `readiness` already used. The AI writes one `signals.json` envelope to `outputDir` via
+  its Write tool; the harness validates post-spawn via `validateSignalsFile`, fans signals to
+  the sink + event bus, and renders sidecars from the validated array. The old XML-tag parser
+  tree (`src/integration/ai/signals/` — 15 per-kind parsers, parser registry, `consumeSignals`
+  / `readSignalsFile` / `withSignalsTempPath` helpers, `sink.ts`) is deleted in production.
+  Parsers are relocated to `tests/helpers/legacy-signal-parsers/` where `fake-ai-provider.ts`
+  still uses them to translate scripted XML-tag response bodies into `signals.json` fixtures
+  for tests. `HarnessSignalSink` moves to `src/business/observability/harness-signal-sink.ts`.
+  ESLint fences `src/integration/ai/signals/**` so the deleted path cannot reappear.
+
+- **Permission model split into capabilities and topology.** `SessionPermissions` now has
+  `canModifyRepoFiles` (renamed from `canEditFiles`) which gates `Edit` / `MultiEdit` /
+  `NotebookEdit` only; the `Write` tool is **always** allowed because the audit-[09] contract
+  requires it for `signals.json`. Path scope is the primary defense and lives on `AiSession`
+  (`cwd` + `additionalRoots` + `outputDir`). A new `providers/_engine/resolve-roots.ts`
+  helper auto-mounts `outputDir` as a writable root in every provider, so leaves never need
+  to thread it manually. Codex collapses to `-s workspace-write` for every profile because
+  its `read-only` sandbox blocks every write including `signals.json` — topology now carries
+  the safety envelope on Codex. Pre-refactor, READ_ONLY profiles silently failed to write
+  `signals.json` against every provider since Wave 6 of the audit landed.
+
 - **Domain rename: `checkScript` → `verifyScript` everywhere.** Aligns the field name with the user-facing
   verb the harness emits in prompts (`<verify-script>`). Touches `Repository.{checkScript,checkTimeout}` →
   `{verifyScript,verifyTimeout}`, the `CheckRun` / `CheckRunOutcome` / `CheckRunPhase` types →
@@ -23,6 +47,14 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
+- **`src/integration/ai/signals/` (24 files) deleted.** Production code is fully off the
+  legacy XML-tag parser pipeline after the three remaining flows migrated. Per-kind parsers
+  - parser registry + `consumeSignals` / `readSignalsFile` / `withSignalsTempPath` /
+    `sink.ts` are gone. The 15 per-kind parsers moved to `tests/helpers/legacy-signal-parsers/`
+    (test infrastructure only; `fake-ai-provider.ts` still uses them). Dead-only tests
+    (`consume-signals.test.ts`, `temp-signals-file.test.ts`, `read-signals-file.test.ts`)
+    deleted. ESLint fence on `src/integration/ai/signals/**` prevents accidental re-creation.
+
 - **`CI=true` auto-retry for pnpm no-TTY aborts on `setup-script`.** A successful retry could mask drift
   from the real baseline the post-task verify gate later runs without `CI=true` (Maven Surefire skips
   `@DisabledIfEnvironmentVariable("CI")` tests, Spring Boot env-gated tests skip, pnpm switches to
@@ -30,6 +62,15 @@ to [Semantic Versioning](https://semver.org/).
   (pin pnpm < 11, resync in a terminal, or set `confirm-modules-purge=false`) are preserved.
 
 ### Added
+
+- **Coverage thresholds in `vitest.config.ts`.** v8 provider with regression floors set ~5%
+  below the 2026-05-23 baseline (statements 80 · branches 70 · functions 90 · lines 85);
+  CI catches real drops without flapping on natural drift.
+
+- **Sequence + data-flow diagrams under `.claude/docs/diagrams/`.** State machines and
+  nested-subgraph flowcharts replaced with one-Mermaid-block-per-file sequence diagrams that
+  narrate "what happens, in order." New `04-ai-session-data-flow.md` documents the audit-[09]
+  file-based contract end to end.
 
 - **`HarnessSignalEvent` AppEvent variant.** A new `harness-signal` event on the `AppEvent` union carries
   `signalKind` (`'change' | 'learning' | 'note'`), optional `taskId`, and `text`. Published by the signal
@@ -228,6 +269,14 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   correctly from the repo root rather than ralphctl's own cwd.
 
 ### Fixed
+
+- **Copilot implement no longer truncates at 5 turns.** Copilot's `--autopilot` mode defaults
+  `--max-autopilot-continues` to 5; implement-flow generators routinely take more
+  continuations than that (read repo → think → edit → run verify → edit again, …) before
+  emitting `task-complete`. Once the cap fired Copilot halted mid-task and `signals.json`
+  never landed, surfacing as `signals-missing`. The Copilot headless adapter now always
+  passes `--max-autopilot-continues=200`. Refine + plan worked previously because they go
+  through the interactive provider, not headless autopilot.
 
 - **`<decision>` signal parser drops runaway matches.** The decision parser now rejects bodies that exceed
   500 chars, contain `\n## ` (a section-header boundary), or have 3 or more code fences — so a malformed
