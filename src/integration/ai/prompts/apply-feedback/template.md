@@ -71,11 +71,14 @@ back into `progress.md`, so do not emit them; surface insights inside the change
 
 </progress>
 
-You are working in this project directory:
+## Repositories
 
-```
-{{PROJECT_PATH}}
-```
+The sprint targets the repositories below. Each line is `- \`<absolute-path>\` (<name>)`. Decide which
+repository (or repositories) the latest round touches based on the feedback content and the relevant
+source layout. The harness mounts every repository as a workspace root — open files via the absolute
+paths shown.
+
+{{REPOSITORIES}}
 
 ## Protocol
 

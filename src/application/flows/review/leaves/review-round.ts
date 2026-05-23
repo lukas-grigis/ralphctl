@@ -27,7 +27,6 @@ import { buildApplyFeedbackPrompt } from '@src/integration/ai/prompts/apply-feed
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { reviewRoundOutputContract } from '@src/application/flows/review/leaves/review-round.contract.ts';
-import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
@@ -49,10 +48,12 @@ import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
  * pipeline (`parseFeedbackMd`, `apply-feedback`, …) keeps reading from the same on-disk format.
  *
  * AI session contract (audit-[09]): the leaf materialises one per-round forensic directory
- * `<runsRoot>/apply-feedback/<run-id>/`, writes the rendered prompt there, then drives the
- * spawn. The AI writes `signals.json` directly into the same dir; the harness post-validates
- * via {@link validateSignalsFile} against {@link reviewRoundOutputContract}. The terminal
- * signal (`task-complete` xor `task-blocked`) is what the use case branches on.
+ * `<sprintDir>/review/round-<N>/`, writes the rendered prompt there, then drives the spawn.
+ * The AI session is rooted at the per-round dir (no repo enjoys cwd privilege) and every
+ * sprint-affected repo is mounted as an `additionalRoot` — mirrors plan's symmetric
+ * multi-repo pattern. The AI writes `signals.json` directly into the round dir; the harness
+ * post-validates via {@link validateSignalsFile} against {@link reviewRoundOutputContract}.
+ * The terminal signal (`task-complete` xor `task-blocked`) is what the use case branches on.
  */
 export interface ReviewRoundLeafDeps {
   readonly interactive: InteractivePrompt;
@@ -69,13 +70,36 @@ export interface ReviewRoundLeafDeps {
   readonly gitRunner: GitRunner;
   readonly shellScriptRunner: ShellScriptRunner;
   readonly appendFile: AppendFile;
-  /** `<dataRoot>/runs`. Per-round forensic dirs land under `<runsRoot>/apply-feedback/<run-id>/`. */
-  readonly runsRoot: AbsolutePath;
   readonly model: string;
 }
 
 export interface ReviewRoundLeafOpts {
-  readonly cwd: AbsolutePath;
+  /**
+   * Parent directory for per-round forensic dirs — `<sprintDir>/review/`. Each round
+   * materialises a `round-<N>/` subfolder here that becomes the AI session's cwd.
+   */
+  readonly reviewRoot: AbsolutePath;
+  /**
+   * Single repo working tree the harness commits and runs verify in. Review touches a
+   * sprint-affected diff which historically lives on one branch in one repo; the launcher
+   * picks the first sprint-affected repo. Distinct from the AI session's cwd, which is the
+   * per-round dir under {@link reviewRoot} so no repo's `CLAUDE.md` / agents auto-load
+   * (matches plan).
+   */
+  readonly commitCwd: AbsolutePath;
+  /**
+   * Every sprint-affected repository, mounted into the AI session as `--add-dir` roots.
+   * Derived by the launcher from the sprint's tasks (`Task.repositoryId`) joined against
+   * `Project.repositories`. Empty arrays are rejected upstream — review needs at least one
+   * repo to act against.
+   */
+  readonly additionalRoots: readonly AbsolutePath[];
+  /**
+   * Pre-rendered `{{REPOSITORIES}}` block — Markdown list of every sprint-affected repo
+   * (absolute path + display name). Built by the launcher so this leaf stays agnostic of
+   * `Project` shape.
+   */
+  readonly repositoriesBlock: string;
   readonly verifyScript?: string;
 }
 
@@ -151,12 +175,14 @@ interface RoundPaths {
 }
 
 /**
- * Compute the per-round forensic paths under `<runsRoot>/apply-feedback/<run-id>/`. The dir
- * is allocated once per round and shared between prompt-build (which embeds `outputDir` in
- * the contract section) and the spawn call (which lands `signals.json` there).
+ * Compute the per-round forensic paths under `<reviewRoot>/round-<N>/`. The dir is allocated
+ * once per round and shared between prompt-build (which embeds `outputDir` in the contract
+ * section) and the spawn call (which lands `signals.json` there). The AI session is rooted
+ * at this dir, mirroring plan's per-run unit dir — keeps per-repo `CLAUDE.md` / agents from
+ * auto-loading on multi-repo sprints.
  */
-const allocateRoundPaths = (runsRoot: AbsolutePath): Result<RoundPaths, DomainError> => {
-  const dir = AbsolutePath.parse(join(String(runsRoot), 'apply-feedback', buildRunDirName()));
+const allocateRoundPaths = (reviewRoot: AbsolutePath, roundIndex: number): Result<RoundPaths, DomainError> => {
+  const dir = AbsolutePath.parse(join(String(reviewRoot), `round-${String(roundIndex)}`));
   if (!dir.ok) return Result.error(dir.error);
   const promptFile = AbsolutePath.parse(join(String(dir.value), 'prompt.md'));
   if (!promptFile.ok) return Result.error(promptFile.error);
@@ -165,14 +191,38 @@ const allocateRoundPaths = (runsRoot: AbsolutePath): Result<RoundPaths, DomainEr
   return Result.ok({ outputDir: dir.value, signalsFile: signalsFile.value, promptFile: promptFile.value });
 };
 
+/**
+ * `mkdir -p` the per-round dir so the AI session can write `signals.json` into it. Idempotent.
+ */
+const ensureRoundDir = async (dir: AbsolutePath): Promise<Result<void, StorageError>> => {
+  try {
+    await fs.mkdir(String(dir), { recursive: true });
+    return Result.ok(undefined);
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `failed to create review round dir: ${String(dir)}`,
+        path: String(dir),
+        cause,
+      })
+    );
+  }
+};
+
 export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeafOpts): Element<ReviewCtx> =>
   leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>('review-round', {
     useCase: {
       execute: async (input) => {
-        // One per-round forensic dir, allocated up-front so the prompt's contract section
-        // and the eventual spawn point at the same `<outputDir>/signals.json`.
-        const paths = allocateRoundPaths(deps.runsRoot);
+        // Per-round dir at `<reviewRoot>/round-<N>/`. N is the round we're about to act on —
+        // `previousRound.index` is the round just settled (or undefined on round 1), so
+        // `(prev?.index ?? 0) + 1` is the active round. `mkdir -p` it now so the AI's spawn
+        // (writing signals.json into outputDir) doesn't ENOENT on a fresh sprint dir.
+        const roundIndex = (input.previousRound?.index ?? 0) + 1;
+        const paths = allocateRoundPaths(opts.reviewRoot, roundIndex);
         if (!paths.ok) return Result.error(paths.error);
+        const ensured = await ensureRoundDir(paths.value.outputDir);
+        if (!ensured.ok) return Result.error(ensured.error);
         let prompt: Prompt | undefined;
 
         return runReviewRoundUseCase({
@@ -183,7 +233,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             // Ask the user for the round's body in-app. Esc → DomainError, which the use case
             // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
             const answer = await deps.interactive.askTextArea(
-              `Feedback for round ${String((input.previousRound?.index ?? 0) + 1)}` +
+              `Feedback for round ${String(roundIndex)}` +
                 ' — Ctrl+D to submit, Esc to cancel, empty submission ends the review.'
             );
             if (!answer.ok) return Result.error(answer.error) as Result<void, DomainError>;
@@ -196,7 +246,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
           buildPrompt: async (params) => {
             const outputContractSection = renderContractSectionFor(reviewRoundOutputContract, paths.value.outputDir);
             const built = await buildApplyFeedbackPrompt(deps.templateLoader, {
-              projectPath: String(opts.cwd),
+              repositories: opts.repositoriesBlock,
               sprintContext: params.sprintContext,
               feedbackLog: params.feedbackLog,
               latestRound: params.latestRound,
@@ -220,9 +270,17 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             // spawn so a crash mid-spawn still leaves the prompt that triggered it on disk.
             const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt));
             if (!promptWrote.ok) return Result.error(promptWrote.error);
+            // Plan-style multi-repo cwd: the AI session is rooted at the per-round dir
+            // (harness-owned, sprint-scoped) and every sprint-affected repo is mounted via
+            // `--add-dir` as an equal source. No repo enjoys cwd privilege — picking one
+            // would auto-load its `CLAUDE.md` / agents / `.mcp.json` and bias the AI toward
+            // it, and on a multi-repo sprint where the feedback targets a non-first repo it
+            // also blinded the AI to the relevant tree entirely (root cause of the bug this
+            // change fixes).
             const spawn = await deps.provider.generate({
               prompt,
-              cwd: opts.cwd,
+              cwd: paths.value.outputDir,
+              additionalRoots: opts.additionalRoots,
               model: deps.model,
               permissions: FULL_AUTO,
               signalsFile: paths.value.signalsFile,
@@ -241,15 +299,18 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             return Result.ok(validated.value as readonly HarnessSignal[]);
           },
           commitRound: async (round) => {
+            // Commit and verify still target a single repo working tree — review operates
+            // against the sprint branch in `commitCwd`. Multi-repo commit/verify is out of
+            // scope for this fix.
             const message = renderReviewCommitMessage(round);
-            const commit = await gitCommitWithMessage(deps.gitRunner, opts.cwd, message);
+            const commit = await gitCommitWithMessage(deps.gitRunner, opts.commitCwd, message);
             if (!commit.ok) return Result.error(commit.error) as Result<{ readonly committed: boolean }, DomainError>;
             return Result.ok({ committed: commit.value.committed });
           },
           ...(opts.verifyScript !== undefined && opts.verifyScript.trim().length > 0
             ? {
                 verifyRound: async () => {
-                  const verify = await deps.shellScriptRunner.run(opts.cwd, opts.verifyScript!, {
+                  const verify = await deps.shellScriptRunner.run(opts.commitCwd, opts.verifyScript!, {
                     env: { RALPHCTL_LIFECYCLE_EVENT: 'feedback' },
                   });
                   if (!verify.ok) return Result.error(verify.error);

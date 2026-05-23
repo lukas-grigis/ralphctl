@@ -30,9 +30,10 @@ describe('applyFeedbackPromptDef — completeness', () => {
 });
 
 describe('buildApplyFeedbackPrompt — end-to-end against the real template', () => {
-  it('produces a fully-substituted prompt', async () => {
+  it('produces a fully-substituted prompt and lists every repository', async () => {
+    const repositoriesBlock = ['- `/tmp/proj-a` (proj-a)', '- `/tmp/proj-b` (proj-b)'].join('\n');
     const result = await buildApplyFeedbackPrompt(loader, {
-      projectPath: '/tmp/proj',
+      repositories: repositoriesBlock,
       sprintContext: 'sprint ABC',
       feedbackLog: '',
       latestRound: 'Please simplify the X feature.',
@@ -42,16 +43,32 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
-    expect(result.value).toContain('/tmp/proj');
+    // Every repo path the launcher mounted must surface in the prompt — this is what tells
+    // the AI it can write into a non-first repo on multi-repo sprints.
+    expect(result.value).toContain('/tmp/proj-a');
+    expect(result.value).toContain('/tmp/proj-b');
     expect(result.value).toContain('Please simplify the X feature.');
   });
 
   it('rejects an empty latestRound via the spec validator', async () => {
     const result = await buildApplyFeedbackPrompt(loader, {
-      projectPath: '/tmp/proj',
+      repositories: '- `/tmp/proj` (proj)',
       sprintContext: 'sprint ABC',
       feedbackLog: '',
       latestRound: '   ',
+      progress: '',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+
+  it('rejects an empty repositories block via the spec validator', async () => {
+    const result = await buildApplyFeedbackPrompt(loader, {
+      repositories: '   ',
+      sprintContext: 'sprint ABC',
+      feedbackLog: '',
+      latestRound: 'do the thing',
       progress: '',
       outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
     });

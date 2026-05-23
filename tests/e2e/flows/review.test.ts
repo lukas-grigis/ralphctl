@@ -182,10 +182,16 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
-      { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
+      {
+        sprintId: sprint.id,
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile,
+      }
     );
 
     const runner = createRunner({
@@ -226,10 +232,16 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
-      { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
+      {
+        sprintId: sprint.id,
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile,
+      }
     );
 
     const runner = createRunner({
@@ -241,6 +253,99 @@ describe('createReviewFlow', () => {
 
     expect(runner.status).toBe('completed');
     expect(repo.current().status).toBe('review');
+  });
+
+  it('roots the AI session at <reviewRoot>/round-1 and mounts every sprint-affected repo on a multi-repo sprint', async () => {
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-review-')));
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+    const feedbackFile = absolutePath(join(dir, 'feedback.md'));
+    const reviewRoot = absolutePath(join(dir, 'review'));
+    const repoA = absolutePath('/tmp/ralph/repo-a');
+    const repoB = absolutePath('/tmp/ralph/repo-b');
+    const repoC = absolutePath('/tmp/ralph/repo-c');
+    const sprint = buildSprint();
+    const repo = inMemorySprintRepo(sprint);
+
+    // Capture the AI session descriptor so we can assert routing without running a real CLI.
+    // One round → one spawn. The fake provider stays compatible with the contract: writes
+    // a single terminal `task-complete` into outputDir/signals.json before returning.
+    let captured: Parameters<HeadlessAiProvider['generate']>[0] | undefined;
+    const capturingProvider: HeadlessAiProvider = {
+      async generate(session) {
+        captured = session;
+        const signals = [{ type: 'task-complete' as const, timestamp: NOW }];
+        const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+        if (!wrote.ok) return Result.error(wrote.error);
+        return Result.ok({ signalsFile: session.signalsFile, exitCode: 0, sessionId: 'sess-multi' });
+      },
+    };
+    // One round body, then empty → loop terminates after the spawn.
+    const interactive = scriptedInteractive(['adjust the foo handler in repo-c so it returns null on missing input']);
+
+    const flow = createReviewFlow(
+      {
+        sprintRepo: repo.repo,
+        taskRepo: noopTaskRepo,
+        provider: capturingProvider,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        signals: createInMemorySink<HarnessSignal>(),
+        eventBus: createInMemoryEventBus(),
+        logger: noopLogger,
+        clock: () => FIXED_LATER,
+        interactive,
+        gitRunner: cleanTreeRunner,
+        shellScriptRunner: noopShell,
+        fileLocker: createFileLocker(),
+        locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
+        model: 'claude-opus-4-7',
+      },
+      {
+        sprintId: sprint.id,
+        reviewRoot,
+        // Commit / verify still target a single repo today. The launcher picks the first
+        // sprint-affected repo; the test mirrors that.
+        commitCwd: repoA,
+        // Three repos mounted — the user's feedback names repo-c (a non-first repo), so this
+        // is exactly the case the bug regressed: before the fix, only repo-a would have been
+        // visible and the AI would have emitted <task-blocked>.
+        additionalRoots: [repoA, repoB, repoC],
+        repositoriesBlock: [
+          '- `/tmp/ralph/repo-a` (repo-a)',
+          '- `/tmp/ralph/repo-b` (repo-b)',
+          '- `/tmp/ralph/repo-c` (repo-c)',
+        ].join('\n'),
+        feedbackFile,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-review-multi',
+      element: flow,
+      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // The AI session was spawned exactly once and routed correctly:
+    expect(captured).toBeDefined();
+    if (!captured) return;
+    // cwd is the per-round dir under <sprintDir>/review/, not any repo — symmetric multi-repo
+    // pattern, mirrors plan. round-1 is the first round about to be acted on.
+    expect(String(captured.cwd)).toBe(join(String(reviewRoot), 'round-1'));
+    // Every sprint-affected repo is mounted as an additionalRoot. Order preserved.
+    expect(captured.additionalRoots?.map(String)).toEqual([String(repoA), String(repoB), String(repoC)]);
+    // outputDir matches the round dir — the signals.json contract reads from there.
+    expect(String(captured.outputDir)).toBe(join(String(reviewRoot), 'round-1'));
+    // The harness must have materialised the round dir + the prompt before the spawn.
+    const promptOnDisk = await fs.readFile(join(String(reviewRoot), 'round-1', 'prompt.md'), 'utf8');
+    // Every mounted repo path surfaces in the rendered prompt — this is what unblocks the AI
+    // when feedback targets a non-first repo.
+    expect(promptOnDisk).toContain('/tmp/ralph/repo-a');
+    expect(promptOnDisk).toContain('/tmp/ralph/repo-b');
+    expect(promptOnDisk).toContain('/tmp/ralph/repo-c');
   });
 
   it('terminates immediately on empty round 1 (user opened editor and saved nothing)', async () => {
@@ -271,10 +376,16 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
-      { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
+      {
+        sprintId: sprint.id,
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile,
+      }
     );
 
     const runner = createRunner({

@@ -29,7 +29,5 @@ export interface ReviewDeps {
   readonly locksRoot: AbsolutePath;
   /** Append adapter — threaded into `reviewRoundLeaf` to grow `feedback.md` per round. */
   readonly appendFile: AppendFile;
-  /** `<dataRoot>/runs` — per-round forensic dirs land under `<runsRoot>/apply-feedback/<run-id>/`. */
-  readonly runsRoot: AbsolutePath;
   readonly model: string;
 }

@@ -14,7 +14,25 @@ const DEFAULT_MAX_ROUNDS = 50;
 
 export interface CreateReviewFlowOpts {
   readonly sprintId: SprintId;
-  readonly cwd: AbsolutePath;
+  /**
+   * Parent dir for per-round AI session forensics — `<sprintDir>/review/`. The per-round
+   * leaf materialises `round-<N>/` subfolders here. The AI session's cwd is the per-round
+   * dir; every sprint-affected repo is mounted via `additionalRoots`. Mirrors plan's
+   * symmetric multi-repo pattern; replaces the single `cwd` field whose pre-fix behaviour
+   * blinded the AI to non-first repos on multi-repo sprints.
+   */
+  readonly reviewRoot: AbsolutePath;
+  /**
+   * Single repo working tree the harness commits / runs verify in. Distinct from the AI
+   * session's cwd. The launcher picks the first sprint-affected repo — review still works
+   * against the sprint branch in one repo today (multi-repo commit / verify is a separate
+   * concern).
+   */
+  readonly commitCwd: AbsolutePath;
+  /** Every sprint-affected repository (absolute path) — mounted as AI `additionalRoots`. */
+  readonly additionalRoots: readonly AbsolutePath[];
+  /** Pre-rendered `{{REPOSITORIES}}` Markdown block for the apply-feedback prompt. */
+  readonly repositoriesBlock: string;
   readonly feedbackFile: AbsolutePath;
   readonly progressFile?: AbsolutePath;
   readonly verifyScript?: string;
@@ -49,11 +67,13 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       gitRunner: deps.gitRunner,
       shellScriptRunner: deps.shellScriptRunner,
       appendFile: deps.appendFile,
-      runsRoot: deps.runsRoot,
       model: deps.model,
     },
     {
-      cwd: opts.cwd,
+      reviewRoot: opts.reviewRoot,
+      commitCwd: opts.commitCwd,
+      additionalRoots: opts.additionalRoots,
+      repositoriesBlock: opts.repositoriesBlock,
       ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
     }
   );
