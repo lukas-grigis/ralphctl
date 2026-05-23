@@ -10,6 +10,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
+import { renderContractMd } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -17,7 +18,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
  * Per-task one-shot leaf — materialises the task's on-disk audit workspace at
- * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes one file:
+ * `<sprintDir>/implement/<task-id>/` before the gen-eval loop runs. Writes two files:
  *
  *  - `prompt.md` — the rendered implement prompt for the FIRST attempt (no prior critique).
  *                  The actual per-turn prompt may differ if the loop retries with critique;
@@ -25,14 +26,18 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *                  `rounds/<N>/`). The prompt body inlines the task's verification criteria under
  *                  a stable `## Done criteria` heading, so operators who want the criteria on
  *                  disk can grep the prompt directly.
+ *  - `contract.md` — the canonical definition-of-done sidecar (task name, description,
+ *                  per-criterion table with id / check / command / assertion). Both the
+ *                  generator and evaluator templates point at this file via
+ *                  `{{CONTRACT_PATH}}` so the AI reads the same authoritative spec each round.
  *
- * On resume the leaf overwrites the prompt because it derives from the current task spec — if
+ * On resume the leaf overwrites both files because they derive from the current task spec — if
  * the task was edited between runs, the on-disk audit must reflect the new framing. Existing
  * `rounds/<N>/` subtrees are NEVER touched here.
  *
  * Audit [05] deletion: a separate `done-criteria.md` no longer ships. The criteria live on
- * `Task.verificationCriteria` (canonical) and inside the per-round `prompt.md` (target); the
- * standalone file was the cheapest of three places to remove.
+ * `Task.verificationCriteria` (canonical), inside the per-round `prompt.md` (target), and the
+ * persisted `contract.md` sidecar (audit / human-readable form).
  */
 
 export interface BuildTaskWorkspaceLeafDeps {
@@ -88,6 +93,8 @@ export const buildTaskWorkspaceLeaf = (
         const previewOutputDir = AbsolutePath.parse(join(workspaceRoot, 'rounds', '1', 'generator'));
         if (!previewOutputDir.ok) return Result.error(previewOutputDir.error);
 
+        const contractPath = join(workspaceRoot, 'contract.md');
+
         // build-task-workspace materialises a static prompt.md as an audit artifact only —
         // the live generator leaf re-reads `progress.md` immediately before each spawn, so
         // priorProgress is fixed empty here. The TUI / operator inspect this for the static
@@ -97,6 +104,7 @@ export const buildTaskWorkspaceLeaf = (
           projectPath: String(opts.cwd),
           progressFile: String(opts.progressFile),
           priorProgress: '',
+          contractPath,
           outputContractSection: renderContractSectionFor(generatorOutputContract, previewOutputDir.value),
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
         });
@@ -104,6 +112,12 @@ export const buildTaskWorkspaceLeaf = (
 
         const wrotePrompt = await writeOrError(join(workspaceRoot, 'prompt.md'), String(prompt.value));
         if (!wrotePrompt.ok) return Result.error(wrotePrompt.error);
+
+        // Persist the canonical contract sidecar — overwritten on every leaf run so it always
+        // reflects the current task spec. The generator and evaluator both read this file
+        // (their prompts cite `{{CONTRACT_PATH}}`), so the harness owns the writer.
+        const wroteContract = await writeOrError(contractPath, renderContractMd(input.task));
+        if (!wroteContract.ok) return Result.error(wroteContract.error);
 
         log.debug('task workspace built', { taskId: input.task.id, workspaceRoot });
         const parsedRoot = AbsolutePath.parse(workspaceRoot);

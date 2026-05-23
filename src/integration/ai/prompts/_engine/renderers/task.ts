@@ -34,16 +34,67 @@ export const renderTaskStepsSection = (task: Task): string => {
 /**
  * Render the "## Done criteria" bullet list, or empty string when none declared.
  *
- * Single source of truth for the criteria markdown shape under audit [05] / [08]: both the
- * implement (generator) and evaluate templates substitute the same rendered block, so changing
- * the heading or bullet style here updates both prompts at once. The "Done criteria" heading
- * is stable on purpose so operators can grep `^## Done criteria` across the per-round
- * `prompt.md` files to see what the AI was held to per round.
+ * Each criterion renders on one line so operators can grep it on disk:
+ *
+ *   `- **[C1]** (auto) \`<command>\` — <assertion>`     (auto criteria)
+ *   `- **[C2]** (manual) — <assertion>`                 (manual criteria)
+ *
+ * The "Done criteria" heading is stable on purpose so operators can grep `^## Done criteria`
+ * across the per-round `prompt.md` files to see what the AI was held to per round.
  */
 export const renderVerificationCriteriaSection = (task: Task): string => {
   if (task.verificationCriteria.length === 0) return '';
-  const bullets = task.verificationCriteria.map((c) => `- ${c}`).join('\n');
+  const bullets = task.verificationCriteria
+    .map((c) => {
+      if (c.check === 'auto') {
+        const cmd = c.command ?? '';
+        return `- **[${c.id}]** (auto) \`${cmd}\` — ${c.assertion}`;
+      }
+      return `- **[${c.id}]** (manual) — ${c.assertion}`;
+    })
+    .join('\n');
   return `## Done criteria\n\n${bullets}`;
+};
+
+/**
+ * Render the full per-task `contract.md` sidecar — written next to `prompt.md` by the
+ * implement workspace leaf so both generator and evaluator (and any human auditor) can read
+ * the authoritative definition of done in one place. The contract carries:
+ *
+ *  1. task name (level-1 heading)
+ *  2. optional description (under `## Description`)
+ *  3. the canonical criteria table — one row per criterion with id, check kind, command,
+ *     and assertion
+ *
+ * The table form (rather than a bullet list) is deliberate: the evaluator's per-criterion
+ * assessment block in `evaluation.md` mirrors the same column layout, so an operator can
+ * diff the contract and the verdict side-by-side without rewrapping rows.
+ */
+export const renderContractMd = (task: Task): string => {
+  const lines: string[] = [];
+  lines.push(`# ${task.name}`);
+  lines.push('');
+  if (task.description !== undefined && task.description.trim().length > 0) {
+    lines.push('## Description');
+    lines.push('');
+    lines.push(task.description.trim());
+    lines.push('');
+  }
+  lines.push('## Criteria');
+  lines.push('');
+  if (task.verificationCriteria.length === 0) {
+    lines.push('_No verification criteria declared._');
+    lines.push('');
+    return lines.join('\n');
+  }
+  lines.push('| id | check | command | assertion |');
+  lines.push('|---|---|---|---|');
+  for (const c of task.verificationCriteria) {
+    const cmd = c.check === 'auto' && c.command !== undefined ? `\`${c.command}\`` : '—';
+    lines.push(`| ${c.id} | ${c.check} | ${cmd} | ${c.assertion} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
 };
 
 /**
@@ -87,10 +138,10 @@ export const renderExtraDimensionsSection = (extras: readonly string[] | undefin
   if (extras === undefined || extras.length === 0) return '';
   const lines = extras.map(
     (name, i) =>
-      `${String(floorCount + i + 1)}. **${name}** — score on this task-specific aspect the planner attached to this task.`
+      `${String(floorCount + i + 1)}. **${name}** — grade PASS or FAIL on this task-specific aspect the planner attached to this task.`
   );
   return [
-    '**Task-specific dimensions** (in addition to the floor dimensions above; same 1–5 rubric):',
+    '**Task-specific dimensions** (in addition to the floor dimensions above; same PASS / FAIL rule):',
     '',
     ...lines,
   ].join('\n');
