@@ -353,13 +353,21 @@ describe('createDetectScriptsFlow', () => {
 
   it('AiSession profile — runs read-only with the configured model', () => {
     const repository = makeRepository();
-    const signalsFile = absolutePath('/tmp/signals.json');
-    const session = detectScriptsSession(repository, '#prompt' as unknown as Prompt, 'claude-sonnet-4-6', signalsFile);
+    const signalsFile = absolutePath('/tmp/runs/detect-scripts/r1/signals.json');
+    const outputDir = absolutePath('/tmp/runs/detect-scripts/r1');
+    const session = detectScriptsSession(
+      repository,
+      '#prompt' as unknown as Prompt,
+      'claude-sonnet-4-6',
+      signalsFile,
+      outputDir
+    );
     expect(session.model).toBe('claude-sonnet-4-6');
     expect(session.permissions.canEditFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.canAccessNetwork).toBe(true);
     expect(session.cwd).toBe(repository.path);
     expect(session.signalsFile).toBe(signalsFile);
+    expect(session.outputDir).toBe(outputDir);
   });
 });

@@ -1,8 +1,8 @@
 /**
  * `detect-scripts` prompt: one-shot, read-only repo inventory that asks the AI to propose a
- * setup script (sprint-start prep) and a verify script (post-task gate). Reuses the existing
- * `<setup-script>` and `<verify-script>` signal tags so the parser registry already understands
- * the response.
+ * setup script (sprint-start prep) and a verify script (post-task gate). Under the audit-[09]
+ * contract, the AI writes `signals.json` directly into the spawn's `outputDir` with
+ * `setup-script` / `verify-script` / `note` signals — the harness validates post-spawn.
  *
  * Sibling of `readiness` — that prompt bundles context-file generation with script proposals;
  * this one strips the context-file half away for callers who already have CLAUDE.md / AGENTS.md
@@ -18,7 +18,18 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 
 export interface DetectScriptsPromptParams {
   readonly repositoryPath: string;
+  /**
+   * Audit-[09] output contract section — rendered from the detect-scripts `AiOutputContract`
+   * by `renderContractSectionFor(detectScriptsOutputContract)`. Instructs the AI to write
+   * `signals.json` directly with optional `setup-script` / `verify-script` / `note` signals.
+   */
+  readonly outputContractSection: string;
 }
+
+const requireNonEmpty =
+  (field: string, message: string) =>
+  (v: string): Result<string, ValidationError> =>
+    v.trim().length === 0 ? Result.error(new ValidationError({ field, value: v, message })) : Result.ok(v);
 
 export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams> = {
   templateName: 'detect-scripts',
@@ -27,16 +38,13 @@ export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams>
     repositoryPath: {
       placeholder: 'REPOSITORY_PATH',
       description: 'Absolute path to the repository the AI is inventorying.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'repositoryPath',
-                value: v,
-                message: 'repository path must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('repositoryPath', 'repository path must not be empty'),
+    },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the detect-scripts contract — instructs the AI to write `signals.json` directly.',
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
   partials: {
@@ -47,10 +55,14 @@ export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams>
 
 export interface BuildDetectScriptsPromptInput {
   readonly repositoryPath: string;
+  readonly outputContractSection: string;
 }
 
 export const buildDetectScriptsPrompt = async (
   loader: TemplateLoader,
   input: BuildDetectScriptsPromptInput
 ): Promise<Result<Prompt, BuildPromptError>> =>
-  buildPrompt(loader, detectScriptsPromptDef, { repositoryPath: input.repositoryPath });
+  buildPrompt(loader, detectScriptsPromptDef, {
+    repositoryPath: input.repositoryPath,
+    outputContractSection: input.outputContractSection,
+  });
