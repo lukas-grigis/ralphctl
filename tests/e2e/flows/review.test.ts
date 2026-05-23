@@ -88,10 +88,9 @@ const noopShell: ShellScriptRunner = {
 
 const fakeProvider: HeadlessAiProvider = {
   async generate(session) {
-    const signals = [
-      { type: 'task-verified' as const, output: 'tests pass', timestamp: NOW },
-      { type: 'task-complete' as const, timestamp: NOW },
-    ];
+    // audit-[09]: the AI writes the contract envelope into `outputDir/signals.json` directly.
+    // The review-round contract accepts exactly one terminal signal per round.
+    const signals = [{ type: 'task-complete' as const, timestamp: NOW }];
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return Result.error(wrote.error);
     return Result.ok({ signalsFile: session.signalsFile, exitCode: 0, sessionId: 'sess-1' });
@@ -183,6 +182,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
@@ -226,6 +226,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }
@@ -270,6 +271,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
+        runsRoot: absolutePath(dir),
         model: 'claude-opus-4-7',
       },
       { sprintId: sprint.id, cwd: FAKE_CWD, feedbackFile }

@@ -37,6 +37,7 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
       feedbackLog: '',
       latestRound: 'Please simplify the X feature.',
       progress: 'Progress so far: …',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -52,6 +53,7 @@ describe('buildApplyFeedbackPrompt — end-to-end against the real template', ()
       feedbackLog: '',
       latestRound: '   ',
       progress: '',
+      outputContractSection: '## Output contract\n\nWrite signals.json to /tmp/out.',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

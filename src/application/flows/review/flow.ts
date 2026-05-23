@@ -44,10 +44,12 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       provider: deps.provider,
       templateLoader: deps.templateLoader,
       signals: deps.signals,
+      eventBus: deps.eventBus,
       logger: deps.logger,
       gitRunner: deps.gitRunner,
       shellScriptRunner: deps.shellScriptRunner,
       appendFile: deps.appendFile,
+      runsRoot: deps.runsRoot,
       model: deps.model,
     },
     {

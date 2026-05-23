@@ -113,6 +113,4 @@ supplies), emit `<task-blocked>reason</task-blocked>` with a concrete explanatio
 WHERE to apply the change is not a blocker — pick the narrowest plausible target. Ambiguity in WHAT
 to do is.
 
-Emit exactly one of the two signals defined in the `<signals>` block below.
-
-{{SIGNALS}}
+{{OUTPUT_CONTRACT_SECTION}}

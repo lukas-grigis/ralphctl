@@ -24,6 +24,12 @@ export interface ApplyFeedbackPromptParams {
   readonly latestRound: string;
   /** Pinned-section snapshot of `progress.md` — `{{PROGRESS}}`. */
   readonly progress: string;
+  /**
+   * Audit-[09] output contract section — rendered from the review-round `AiOutputContract`
+   * by `renderContractSectionFor(reviewRoundOutputContract)`. Instructs the AI to write
+   * `signals.json` directly with exactly one of `task-complete` or `task-blocked`.
+   */
+  readonly outputContractSection: string;
 }
 
 const requireNonEmpty =
@@ -59,10 +65,15 @@ export const applyFeedbackPromptDef: PromptDefinition<ApplyFeedbackPromptParams>
       placeholder: 'PROGRESS',
       description: 'Snapshot of progress.md (pinned learnings + decisions + recent activity).',
     },
+    outputContractSection: {
+      placeholder: 'OUTPUT_CONTRACT_SECTION',
+      description:
+        'Audit-[09] output contract block rendered from the review-round contract — instructs the AI to write `signals.json` directly with exactly one terminal signal.',
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
-    SIGNALS: 'signals-feedback',
   },
   expectedSignals: ['task-complete', 'task-blocked'],
 };
@@ -73,6 +84,7 @@ export interface BuildApplyFeedbackPromptInput {
   readonly feedbackLog: string;
   readonly latestRound: string;
   readonly progress: string;
+  readonly outputContractSection: string;
 }
 
 export const buildApplyFeedbackPrompt = async (
@@ -85,4 +97,5 @@ export const buildApplyFeedbackPrompt = async (
     feedbackLog: input.feedbackLog,
     latestRound: input.latestRound,
     progress: input.progress,
+    outputContractSection: input.outputContractSection,
   });
