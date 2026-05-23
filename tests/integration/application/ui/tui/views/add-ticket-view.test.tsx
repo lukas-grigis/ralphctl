@@ -5,6 +5,9 @@
  *
  * The second path is the whole point of the wizard's ordering — the user pastes a GitHub
  * URL once instead of copy-pasting title and description by hand.
+ *
+ * Description is required: submitting an empty description on the description step does not
+ * advance the wizard. The confirm step always shows the trimmed description text.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -20,7 +23,7 @@ import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 describe('AddTicketView — wizard e2e', () => {
-  it('manual entry: skip link → enter title → skip description → confirm appends the ticket', async () => {
+  it('manual entry: skip link → enter title → enter description → confirm appends the ticket', async () => {
     const sprint = makeDraftSprint();
     const save = vi.fn(async (s: Sprint) => {
       void s;
@@ -49,12 +52,19 @@ describe('AddTicketView — wizard e2e', () => {
     await waitFor(() => expect(result.lastFrame()).toContain('Implement caching layer'));
     result.stdin.write(ENTER);
 
-    // Step 3: description — skip.
+    // Step 3: description (now required — must enter something).
     await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+    result.stdin.write('Adds a per-request cache');
+    await waitFor(() => expect(result.lastFrame()).toContain('Adds a per-request cache'));
     result.stdin.write(ENTER);
 
-    // Step 4: confirm.
+    // Step 4: confirm — description should be shown as text, not "(skipped)".
     await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
+    expect(result.lastFrame()).toContain('Adds a per-request cache');
+    // Description field must not show "(skipped)" — it was required and entered.
+    const frame = result.lastFrame() ?? '';
+    const descLine = frame.split('\n').find((l) => l.includes('Description'));
+    expect(descLine).not.toContain('skipped');
     result.stdin.write(ENTER);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -62,6 +72,44 @@ describe('AddTicketView — wizard e2e', () => {
     expect(saved?.tickets).toHaveLength(1);
     expect(saved?.tickets[0]?.title).toBe('Implement caching layer');
     expect(saved?.tickets[0]?.status).toBe('pending');
+  });
+
+  it('empty description: wizard does not advance when description is empty', async () => {
+    const sprint = makeDraftSprint();
+    const save = vi.fn(async (s: Sprint) => {
+      void s;
+      return Result.ok(undefined);
+    });
+    const sprintRepo: SprintRepository = {
+      async findById() {
+        return Result.ok(sprint);
+      },
+      save,
+    } as unknown as SprintRepository;
+    const deps: AppDeps = { sprintRepo } as unknown as AppDeps;
+
+    const { result } = renderView(<AddTicketView />, {
+      deps,
+      initial: { id: 'add-ticket', props: { sprintId: sprint.id } },
+    });
+
+    // Step 1: link — skip.
+    await waitFor(() => expect(result.lastFrame()).toContain('Issue link'));
+    result.stdin.write(ENTER);
+
+    // Step 2: title.
+    await waitFor(() => expect(result.lastFrame()).toMatch(/^\s*▸\s*Title/m));
+    result.stdin.write('My ticket');
+    await waitFor(() => expect(result.lastFrame()).toContain('My ticket'));
+    result.stdin.write(ENTER);
+
+    // Step 3: description — press Enter with empty buffer.
+    await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+    result.stdin.write(ENTER);
+    await waitFor(() => expect(result.lastFrame()).toContain('Description'));
+    // Wizard should still show the description step — confirm never appears.
+    expect(result.lastFrame()).not.toContain('Add this ticket?');
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('URL prefill: enter link → fetch populates title + description → user accepts both → save', async () => {
@@ -105,8 +153,11 @@ describe('AddTicketView — wizard e2e', () => {
     await waitFor(() => expect(result.lastFrame()).toContain(fetched.body));
     result.stdin.write(ENTER);
 
-    // Step 4: confirm.
+    // Step 4: confirm — description field shows the text, not "(skipped)".
     await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
+    const frame = result.lastFrame() ?? '';
+    const descLine = frame.split('\n').find((l) => l.includes('Description'));
+    expect(descLine).not.toContain('skipped');
     result.stdin.write(ENTER);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
