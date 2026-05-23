@@ -3,6 +3,7 @@ import {
   approveTicketRequirements,
   createTicket,
   setTicketDescription,
+  setTicketLink,
   setTicketRequirements,
   setTicketTitle,
 } from '@src/domain/entity/ticket.ts';
@@ -46,6 +47,65 @@ describe('createTicket', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.externalRef).toBeUndefined();
+  });
+
+  it('derives externalRef from a GitHub issue URL when none is supplied', () => {
+    const r = createTicket({ title: 'x', link: 'https://github.com/foo/bar/issues/42' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBe('#42');
+  });
+
+  it('derives externalRef from a GitLab issue URL when none is supplied', () => {
+    const r = createTicket({ title: 'x', link: 'https://gitlab.com/grp/sub/proj/-/issues/7' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBe('#7');
+  });
+
+  it('keeps an explicitly supplied externalRef over the URL-derived one', () => {
+    const r = createTicket({
+      title: 'x',
+      link: 'https://github.com/foo/bar/issues/42',
+      externalRef: 'PROJ-7',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBe('PROJ-7');
+  });
+
+  it('does not derive externalRef from a non-issue URL (e.g. pull request)', () => {
+    const r = createTicket({ title: 'x', link: 'https://github.com/foo/bar/pull/42' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBeUndefined();
+  });
+});
+
+describe('setTicketLink', () => {
+  it('backfills externalRef when attaching a recognised issue URL to a ticket that had none', () => {
+    const r = setTicketLink(makePendingTicket(), 'https://github.com/foo/bar/issues/42');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.link).toBe('https://github.com/foo/bar/issues/42');
+    expect(r.value.externalRef).toBe('#42');
+  });
+
+  it('preserves an existing externalRef when the link changes', () => {
+    const seeded = makePendingTicket({ externalRef: 'PROJ-7' });
+    const r = setTicketLink(seeded, 'https://github.com/foo/bar/issues/99');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.externalRef).toBe('PROJ-7');
+  });
+
+  it('clearing the link leaves externalRef untouched', () => {
+    const seeded = makePendingTicket({ externalRef: '#42' });
+    const r = setTicketLink(seeded, undefined);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.link).toBeUndefined();
+    expect(r.value.externalRef).toBe('#42');
   });
 });
 
