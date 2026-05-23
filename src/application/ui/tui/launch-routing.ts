@@ -5,9 +5,13 @@
  *
  *   - No settings file yet           → welcome flow
  *   - Settings present, no projects  → create-project wizard
- *   - Settings + projects exist      → home, with the persisted last-selection pre-seeded
- *                                       (falls back to the first project). The user can
- *                                       press `P` to open the picker if they want to switch.
+ *   - Settings + projects exist      → home. The persisted last-selection wins if it still
+ *                                       resolves; otherwise the only project (when there's
+ *                                       exactly one) is pre-seeded so single-project users
+ *                                       skip the picker. With multiple projects and no
+ *                                       persisted choice, no selection is seeded — Home
+ *                                       renders the "pick a project to work on" card and
+ *                                       nothing gets written to disk until the user picks.
  *
  * Pulled out so launch.ts stays a thin orchestrator and the routing logic gets a focused
  * unit test instead of a full Ink boot.
@@ -54,8 +58,11 @@ export const resolveInitialState = ({
 }: InitialStateInputs): InitialState => {
   if (!settingsExist) return { initialView: { id: 'welcome' } };
   if (projects.length === 0) return { initialView: { id: 'create-project' } };
-  const preselected =
-    (lastProjectId !== undefined ? projects.find((p) => p.id === lastProjectId) : undefined) ?? projects[0];
+  // Restore the persisted project when it still resolves. Otherwise pre-seed only the
+  // single-project case (no real choice to make). Picking projects[0] arbitrarily would get
+  // persisted on first render and masquerade as a user choice on every subsequent launch.
+  const restored = lastProjectId !== undefined ? projects.find((p) => p.id === lastProjectId) : undefined;
+  const preselected = restored ?? (projects.length === 1 ? projects[0] : undefined);
   if (preselected === undefined) return { initialView: { id: 'home' } };
   // Only thread sprintId through when the pinned project still matches — re-pinning a project
   // elsewhere invalidates the previous sprint pick.

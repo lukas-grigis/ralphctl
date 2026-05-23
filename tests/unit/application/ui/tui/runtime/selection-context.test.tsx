@@ -63,6 +63,79 @@ const makeTrigger = (
   };
 };
 
+describe('SelectionProvider.setProject', () => {
+  it('keeps the sprint cursor when called with the same project id', async () => {
+    // Regression: project-detail-view calls setProject on mount to stamp the display name.
+    // If the user picked sprint X under project A, then navigates Home → Projects → opens A
+    // to look at it, the sprint pick must survive. Clearing only matters when actually
+    // switching projects (sprint ids are scoped to a project).
+    const seeds: SelectionSeed[] = [];
+    const onChange = vi.fn<(s: SelectionSeed) => void>((s) => {
+      seeds.push(s);
+    });
+    const triggered = { current: false };
+    const Trigger = makeTrigger(
+      triggered,
+      () => {
+        /* baseline captured implicitly via seeds[] */
+      },
+      (api) => api.setProject(PID_A, 'Project A')
+    );
+
+    const r = render(
+      <SelectionProvider
+        seed={{ projectId: PID_A, projectLabel: 'Project A', sprintId: SID_X, sprintLabel: 'Sprint X' }}
+        onChange={onChange}
+      >
+        <Trigger />
+      </SelectionProvider>
+    );
+
+    await new Promise((res) => setTimeout(res, 30));
+
+    // Final persisted state must still carry the sprint.
+    expect(seeds[seeds.length - 1]).toEqual({
+      projectId: PID_A,
+      projectLabel: 'Project A',
+      sprintId: SID_X,
+      sprintLabel: 'Sprint X',
+    });
+    r.unmount();
+  });
+
+  it('clears the sprint cursor when called with a different project id', async () => {
+    const seeds: SelectionSeed[] = [];
+    const onChange = vi.fn<(s: SelectionSeed) => void>((s) => {
+      seeds.push(s);
+    });
+    const triggered = { current: false };
+    const Trigger = makeTrigger(
+      triggered,
+      () => {
+        /* baseline */
+      },
+      (api) => api.setProject(PID_B, 'Project B')
+    );
+
+    const r = render(
+      <SelectionProvider
+        seed={{ projectId: PID_A, projectLabel: 'Project A', sprintId: SID_X, sprintLabel: 'Sprint X' }}
+        onChange={onChange}
+      >
+        <Trigger />
+      </SelectionProvider>
+    );
+
+    await new Promise((res) => setTimeout(res, 30));
+
+    expect(seeds[seeds.length - 1]).toEqual({
+      projectId: PID_B,
+      projectLabel: 'Project B',
+    });
+    r.unmount();
+  });
+});
+
 describe('SelectionProvider.setProjectAndSprint', () => {
   it('fires onChange exactly once for the atomic write and sets both ids in one shot', async () => {
     const onChange = vi.fn<(s: SelectionSeed) => void>();
