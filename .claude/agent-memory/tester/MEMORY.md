@@ -209,6 +209,27 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
 - The snapshot-existing-tasks leaf dynamically imports `storage-paths.ts` and reads `RALPHCTL_ROOT` at call time;
   the snapshot is best-effort (silently skipped when the file doesn't exist), so no env-var setup is needed.
 
+### Sprint-selection redesign tests (2026-05-22)
+
+New test files under `tests/integration/application/ui/tui/views/` and `tests/unit/`:
+
+- `sprint-bound-flow-reseat.test.tsx` — reseat wiring contract using fake runner; asserts `setSprint` called on `completed+ctx.sprint`, NOT on `aborted`/`failed`/`started`.
+- `tests/unit/application/ui/shared/state-snapshot-done-filter.test.ts` — `loadAppStateSnapshot` recentSprints excludes `done` sprints.
+- `tests/unit/application/ui/tui/runtime/selection-done-on-boot.test.tsx` — `SelectionProvider` clears sprintId/sprintLabel when rehydrated sprint has `status: 'done'`. **Requires `sprintRepo` prop on SelectionProvider.**
+- `home-create-hotkey.test.tsx` — `+` on Home routes to create-sprint flow; no-op without project.
+- `home-switch-feedback.test.tsx` — "✓ now on <name>" feedback after switch; disappears after ~3s with fake timers.
+- `pick-sprint-create-row.test.tsx` — PickSprintView renders "Create new sprint" row BEFORE project groups; Enter on it launches create-sprint.
+- `sprint-detail-no-auto-sync.test.tsx` — SprintDetailView MUST NOT call `setSprint` on mount (inverse of old behaviour). Uses `Object.assign(selection, { setSprint: spy })` pattern from `MakeSpy` component.
+- `sprint-detail-make-current.test.tsx` — `m` key calls `setSprint(id, name)`; `· current` badge visible when sprint matches selection.
+
+**Key pattern: MakeSpy / intercept pattern for selection** — `Object.assign(selection, { setSprint: spy })` inside a child component `useEffect` lets you intercept context calls without forking the provider.
+
+**JSX in test files**: Always use `.tsx` extension even for unit tests that import/render React components.
+
+**Fake timers + ink-testing-library**: `vi.useFakeTimers()` + `vi.runAllTimersAsync()` causes infinite loops due to Ink's Spinner `setInterval`. Use `vi.advanceTimersByTimeAsync(N)` instead. For time-gated render conditions (e.g. a toast freshness check), use `vi.spyOn(Date, 'now').mockReturnValue(BASE_TIME + 3100)` to advance the clock, then force a re-render via a context state change (e.g. `selection.setSprint(...)` from a helper component) — `setLocalError((curr) => curr)` bails out of React render (same value → no render committed). The `SwitchTrigger` helper pattern (component that calls `selection.setSprint` in a once-only `useEffect`) is preferred over keyboard navigation for deterministic sprint-switch tests. **`frame.indexOf('Alpha Project')` matches ViewShell breadcrumb chrome** — use line-by-line search filtering lines containing `'project:'` to find the actual group header row.
+
+**`ActionMenu` cursor + UUIDv7 ordering**: `makeDraftSprint` generates time-ordered UUIDs; created later = larger UUID = appears first in `recentSprints` (DESC sort). `initialMenuIndex` seeds to the current sprint's row. Pressing `k` (up) from the current sprint's row reaches the newer sprint at index 0.
+
 ### E2E execute golden-path artefacts (2026-05-04)
 
 `src/_e2e/execute-golden-artefacts.e2e.test.tsx` — 3 focused `it(...)` cases complementing `golden-path.e2e.test.tsx`:

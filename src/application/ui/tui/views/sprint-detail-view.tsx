@@ -174,15 +174,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     };
   }, [state, deps.projectRepo, deps.logger]);
 
-  // Stamp the sprint id (and later, name) into selection so the status bar shows context.
-  const setSprintRef = React.useRef(selection.setSprint);
-  setSprintRef.current = selection.setSprint;
-  React.useEffect(() => {
-    setSprintRef.current(sprintId);
-  }, [sprintId]);
-  React.useEffect(() => {
-    if (state.kind === 'ok') setSprintRef.current(state.value.sprint.id, state.value.sprint.name);
-  }, [state]);
+  // No silent auto-sync of the selection on detail open — opening a sprint to look at it does
+  // NOT make it the current one. The user explicitly presses `m` to mark it current (handler
+  // below). This avoids the surprise of a passive browse swapping the active context on every
+  // navigation.
 
   const sprint = state.kind === 'ok' ? state.value.sprint : undefined;
   const tasks = state.kind === 'ok' ? state.value.tasks : [];
@@ -222,6 +217,13 @@ export const SprintDetailView = (): React.JSX.Element => {
           { keys: 'a', label: 'add ticket' },
           ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
           { keys: 'd', label: 'remove ticket' },
+          // Surface the `m` chord only when this sprint is not already the current one — once
+          // they match, the action is a no-op and the hint adds noise. Suppressed while a
+          // stuck task is focused so the `u unblock` hint (a more urgent operator action)
+          // stays prominent in the footer without competing for horizontal space.
+          ...(sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined
+            ? [{ keys: 'm', label: 'current' }]
+            : []),
           ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
         ]
   );
@@ -339,6 +341,15 @@ export const SprintDetailView = (): React.JSX.Element => {
       handleEdit();
       return;
     }
+    if (input === 'm') {
+      // Explicit "make this sprint current". Replaces the prior silent auto-sync on mount —
+      // the user now opts in. No-op if already current so re-pressing doesn't churn feedback.
+      if (selection.sprintId !== sprint.id) {
+        selection.setSprint(sprint.id, sprint.name);
+        setFeedback(`✓ now on ${sprint.name}`);
+      }
+      return;
+    }
     if ((key.downArrow || input === 'j') && focusList.length > 0) {
       setCursorIdx((c) => Math.min(focusList.length - 1, c + 1));
       return;
@@ -432,6 +443,7 @@ export const SprintDetailView = (): React.JSX.Element => {
           openIdx={openIdx}
           ticketsEditable={ticketsEditable}
           feedback={feedback ?? edit.feedback}
+          isCurrent={selection.sprintId === state.value.sprint.id}
         />
       )}
     </ViewShell>
@@ -446,6 +458,7 @@ interface BodyProps {
   readonly openIdx: number | undefined;
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
+  readonly isCurrent: boolean;
 }
 
 const Body = ({
@@ -456,6 +469,7 @@ const Body = ({
   openIdx,
   ticketsEditable,
   feedback,
+  isCurrent,
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   const action = phaseAction(sprint, tasks);
@@ -463,7 +477,7 @@ const Body = ({
     const focused = focusList[openIdx];
     return (
       <Box flexDirection="column">
-        <SprintHeader sprint={sprint} tasks={tasks} />
+        <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
         {focused !== undefined && (
           <Box marginTop={spacing.section}>
             {focused.kind === 'ticket' ? (
@@ -483,7 +497,7 @@ const Body = ({
   }
   return (
     <Box flexDirection="column">
-      <SprintHeader sprint={sprint} tasks={tasks} />
+      <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
 
       {action !== undefined &&
         (sprint.status === 'done' ? (
@@ -580,18 +594,29 @@ const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction | unde
 const SprintHeader = ({
   sprint,
   tasks,
+  isCurrent,
 }: {
   readonly sprint: Sprint;
   readonly tasks: readonly Task[];
+  readonly isCurrent: boolean;
 }): React.JSX.Element => {
   const done = tasks.filter((t) => t.status === 'done').length;
   const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  // The `· current` badge lives on the right next to the status chip — Card's `title` is a
+  // plain string, and stacking the badge alongside the chip keeps the right rail expressing
+  // selection + lifecycle in one glance without overloading either onto the title slot.
+  const rightSide = (
+    <Box>
+      {isCurrent && (
+        <Text dimColor italic>
+          {glyphs.bullet} current{'  '}
+        </Text>
+      )}
+      <StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />
+    </Box>
+  );
   return (
-    <Card
-      title={sprint.name}
-      tone="primary"
-      right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
-    >
+    <Card title={sprint.name} tone="primary" right={rightSide}>
       <FieldList
         fields={[
           { label: 'Slug', value: sprint.slug },

@@ -84,6 +84,7 @@ export const App = ({
                 <SelectionProvider
                   {...(initialSelection !== undefined ? { seed: initialSelection } : {})}
                   {...(onSelectionChange !== undefined ? { onChange: onSelectionChange } : {})}
+                  sprintRepo={deps.sprintRepo}
                 >
                   <LogLevelProvider gate={logLevelGate}>
                     <SystemStatusProvider>

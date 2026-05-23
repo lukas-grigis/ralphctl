@@ -6,17 +6,48 @@
  *
  * Display labels are cached alongside the ids so the status bar can show "proj: foo · sprint:
  * bar" without re-loading the aggregates on every render.
+ *
+ * Done-on-boot clear: when the persisted seed includes a `sprintId`, the provider asks the
+ * caller's `resolveSprintStatus` (best-effort, optional) whether it's `done`. If yes, both the
+ * sprint id AND label are cleared before the user lands on Home — there's no value in pre-
+ * selecting a closed sprint when the natural next step is to pick or create another. The clear
+ * is async + non-blocking: the initial render still uses the seed, but a `setSprint(undefined)`
+ * fires once the status is known. Home's empty-sprint card then takes over.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { Result } from '@src/domain/result.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+
+/**
+ * Most-recent "I just switched to this sprint" record. Updated by every setter that lands the
+ * user on a new sprint id (inline shortcut, picker, sprint-detail `m`, create-sprint reseat).
+ * Home reads it to render a transient "✓ now on <name>" line above the menu; the freshness
+ * gate (a small window in real-time) lives in Home, not here — the context just records the
+ * fact. The record is intentionally NOT persisted across boots; it's purely UI-ephemeral.
+ */
+export interface LastSprintSwitch {
+  readonly sprintId: SprintId;
+  readonly sprintLabel: string;
+  /** `Date.now()` at the moment of the switch — Home compares against `Date.now()` on render. */
+  readonly at: number;
+}
 
 interface SelectionApi {
   readonly projectId: ProjectId | undefined;
   readonly sprintId: SprintId | undefined;
   readonly projectLabel: string | undefined;
   readonly sprintLabel: string | undefined;
+  /**
+   * Last sprint-switch record (see {@link LastSprintSwitch}). `undefined` before any switch in
+   * this session. Updated whenever `setSprint` / `setProjectAndSprint` lands on a non-undefined
+   * id; clearing the sprint (passing `undefined`) does NOT count as a switch and leaves this
+   * record unchanged.
+   */
+  readonly lastSwitch: LastSprintSwitch | undefined;
   setProject(id: ProjectId | undefined, label?: string): void;
   setSprint(id: SprintId | undefined, label?: string): void;
   /**
@@ -37,6 +68,15 @@ export interface SelectionSeed {
   readonly sprintLabel?: string;
 }
 
+/**
+ * Slim port used by the done-on-boot clear. Production wires this to the full
+ * {@link SprintRepository} via `App.tsx`; tests pass an inline stub. Only `findById` is needed
+ * — the provider checks the resolved sprint's status and clears the seed when it's `done`.
+ */
+export interface SprintStatusReader {
+  findById(id: SprintId): Promise<Result<Sprint, DomainError>>;
+}
+
 export interface SelectionProviderProps {
   readonly children: React.ReactNode;
   /** Initial selection. Used by launch to pre-pick a project when storage has exactly one. */
@@ -46,13 +86,27 @@ export interface SelectionProviderProps {
    * file-backed store so the next launch pre-selects the same project.
    */
   readonly onChange?: (next: SelectionSeed) => void;
+  /**
+   * Best-effort lookup for the seeded sprint. When provided AND the seed carries a
+   * `sprintId`, the provider asks for the sprint once on mount; a `done` status clears both
+   * `sprintId` and `sprintLabel` so Home renders the "pick or create a sprint" empty state
+   * instead of waving a stale closed sprint at the user. Failures leave the seed in place —
+   * we never clear on a transient I/O error.
+   */
+  readonly sprintRepo?: SprintStatusReader;
 }
 
-export const SelectionProvider = ({ children, seed, onChange }: SelectionProviderProps): React.JSX.Element => {
+export const SelectionProvider = ({
+  children,
+  seed,
+  onChange,
+  sprintRepo,
+}: SelectionProviderProps): React.JSX.Element => {
   const [projectId, setProjectId] = useState<ProjectId | undefined>(seed?.projectId);
   const [sprintId, setSprintId] = useState<SprintId | undefined>(seed?.sprintId);
   const [projectLabel, setProjectLabel] = useState<string | undefined>(seed?.projectLabel);
   const [sprintLabel, setSprintLabel] = useState<string | undefined>(seed?.sprintLabel);
+  const [lastSwitch, setLastSwitch] = useState<LastSprintSwitch | undefined>(undefined);
   // Keep the callback in a ref so re-renders don't churn the persistence effect's deps.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -79,7 +133,44 @@ export const SelectionProvider = ({ children, seed, onChange }: SelectionProvide
   const setSprint = useCallback((id: SprintId | undefined, label?: string) => {
     setSprintId(id);
     setSprintLabel(id === undefined ? undefined : label);
+    // Record the switch so Home's transient feedback line can flash. Clearing (passing
+    // `undefined`) is NOT a switch — leaving `lastSwitch` untouched lets the prior record
+    // age out naturally instead of replaying its toast.
+    if (id !== undefined) {
+      setLastSwitch({ sprintId: id, sprintLabel: label ?? String(id), at: Date.now() });
+    }
   }, []);
+
+  // Done-on-boot clear. Runs once per seeded sprint id: if `sprintRepo.findById` resolves to
+  // a sprint with status `done`, drop both ids so the first paint of Home shows the empty-
+  // sprint card. The hook is single-shot per (provider lifetime + seeded id) — re-running on
+  // re-render would race against any user-initiated `setSprint` that just happened. The repo
+  // lives in a ref so changing its identity doesn't re-trigger the probe.
+  const sprintRepoRef = useRef(sprintRepo);
+  sprintRepoRef.current = sprintRepo;
+  const seedSprintId = seed?.sprintId;
+  useEffect(() => {
+    if (seedSprintId === undefined) return undefined;
+    const repo = sprintRepoRef.current;
+    if (repo === undefined) return undefined;
+    let cancelled = false;
+    void repo
+      .findById(seedSprintId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok && r.value.status === 'done') {
+          setSprintId(undefined);
+          setSprintLabel(undefined);
+        }
+      })
+      .catch(() => {
+        // Swallow — a probe failure must never break the TUI boot. The seeded sprint stays in
+        // place; Home's own load may surface a fresh error if the entity is unreachable.
+      });
+    return (): void => {
+      cancelled = true;
+    };
+  }, [seedSprintId]);
 
   const setProjectAndSprint = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
     // React batches the four setState calls inside a single event handler — onChange's
@@ -88,6 +179,7 @@ export const SelectionProvider = ({ children, seed, onChange }: SelectionProvide
     setProjectLabel(pLabel);
     setSprintId(sId);
     setSprintLabel(sLabel);
+    setLastSwitch({ sprintId: sId, sprintLabel: sLabel, at: Date.now() });
   }, []);
 
   const api = useMemo<SelectionApi>(
@@ -96,11 +188,12 @@ export const SelectionProvider = ({ children, seed, onChange }: SelectionProvide
       sprintId,
       projectLabel,
       sprintLabel,
+      lastSwitch,
       setProject,
       setSprint,
       setProjectAndSprint,
     }),
-    [projectId, sprintId, projectLabel, sprintLabel, setProject, setSprint, setProjectAndSprint]
+    [projectId, sprintId, projectLabel, sprintLabel, lastSwitch, setProject, setSprint, setProjectAndSprint]
   );
 
   return <SelectionContext.Provider value={api}>{children}</SelectionContext.Provider>;

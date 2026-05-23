@@ -59,11 +59,16 @@ export const pickerKeys = {
  * failed) and `in_progress` with a settled last attempt (crash recovery after Ctrl-C / watchdog
  * kill). Only active when the cursor is on a blocked or crashed-in-progress task in the
  * sprint-detail view.
+ *
+ * `+` on Home opens create-sprint (requires a project). `m` on the sprint-detail view marks the
+ * opened sprint as the current selection — replaces the prior silent auto-sync on detail mount.
  */
 export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
   unblockTask: { keys: ['u'], label: 'unblock stuck task (blocked or crashed in-progress)' },
   bulkUnblockSprintTasks: { keys: ['u'], label: 'unblock all stuck tasks in focused sprint' },
+  createSprint: { keys: ['+'], label: 'create a new sprint' },
+  makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
 } as const satisfies Record<string, KeyBinding>;
 
 /** Vertical-list bindings — used by every list view + action menu. */

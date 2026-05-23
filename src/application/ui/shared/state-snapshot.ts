@@ -29,10 +29,12 @@ export interface AppStateSnapshot {
   /** Total sprints in storage scoped to the selected project (or 0 when none). */
   readonly sprintCount: number;
   /**
-   * Top 5 sprints of the selected project, newest first (UUIDv7 lex DESC). Powers the Home
-   * view's inline sprint picker — pick one to switch the current selection without leaving
-   * Home. Empty when no project is selected. When there are > 5 sprints the full list is
-   * still reachable via the `S` picker; this slice is the at-a-glance affordance.
+   * Top 5 non-done sprints of the selected project, newest first (UUIDv7 lex DESC). Powers
+   * the Home view's inline sprint picker — pick one to switch the current selection without
+   * leaving Home. `done` sprints are intentionally excluded so the shortcut surfaces only work
+   * the user can still act on; closed sprints stay reachable via the full `S` picker. Empty
+   * when no project is selected. When there are > 5 candidates the full list is still
+   * reachable via the picker; this slice is the at-a-glance affordance.
    */
   readonly recentSprints: readonly Sprint[];
 }
@@ -79,8 +81,13 @@ export const loadAppStateSnapshot = async (
     if (sprints.ok) {
       const projectSprints = sprints.value.filter((s) => s.projectId === project.id);
       sprintCount = projectSprints.length;
-      // UUIDv7 ids are time-ordered, so a reverse on the sorted list gives newest-first.
-      recentSprints = [...projectSprints].reverse().slice(0, RECENT_SPRINTS_LIMIT);
+      // UUIDv7 ids are time-ordered, so a reverse on the sorted list gives newest-first. Done
+      // sprints are dropped from the shortcut window so Home only surfaces work the user can
+      // still act on; the full picker (`S`) still lists them.
+      recentSprints = [...projectSprints]
+        .reverse()
+        .filter((s) => s.status !== 'done')
+        .slice(0, RECENT_SPRINTS_LIMIT);
     }
   }
 

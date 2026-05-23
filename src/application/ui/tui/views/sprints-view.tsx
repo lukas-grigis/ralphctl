@@ -32,7 +32,8 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
@@ -107,10 +108,17 @@ export const SprintsView = (): React.JSX.Element => {
       { projectId: selection.projectId }
     );
     const interactive = createInkInteractivePrompt(queue);
-    const result = await launchFlow(
+    // The shared sprint-bound launcher owns the post-completion `selection.setSprint` reseat
+    // — wiring it inline here would duplicate the subscriber across every sprint-bound view.
+    const result = await launchSprintBoundFlow(
       { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
       'create-sprint',
-      snapshot
+      snapshot,
+      {
+        onReseat: ({ id, name }) => {
+          selection.setSprint(id, name);
+        },
+      }
     );
     if (!result.ok) {
       setFeedback(`✗ ${result.reason}`);
@@ -121,17 +129,6 @@ export const SprintsView = (): React.JSX.Element => {
       flowId: 'create-sprint',
       title: result.title,
       ...sessionHintsFromLaunchResult(result),
-    });
-    // v1 auto-selected a sprint as soon as it was created; v2 regressed. Subscribe to the
-    // create-sprint runner so the moment its chain completes we read the new sprint off ctx
-    // and update the selection — home view + downstream flows then pick it up automatically.
-    // Late-subscribe replay (see chain/run/runner.ts) makes this race-free with `start()`.
-    result.runner.subscribe((event) => {
-      if (event.type !== 'completed') return;
-      const ctx = event.ctx as { sprint?: { id: SprintId; name: string } };
-      if (ctx.sprint !== undefined) {
-        selection.setSprint(ctx.sprint.id, ctx.sprint.name);
-      }
     });
     void result.runner.start();
     router.push({ id: 'execute', props: { sessionId: result.runner.id } });

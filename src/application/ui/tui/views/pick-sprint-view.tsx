@@ -29,7 +29,8 @@ import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -97,7 +98,16 @@ interface SprintRow {
   readonly sprint: Sprint;
 }
 
-type FlatRow = HeaderRow | SprintRow;
+/**
+ * Synthetic top row that routes through the create-sprint flow. Sits above the project groups
+ * so the user can launch creation without scrolling past every existing sprint, and so an
+ * "empty-storage" picker (no sprints anywhere yet) still surfaces a productive action.
+ */
+interface CreateActionRow {
+  readonly kind: 'create';
+}
+
+type FlatRow = HeaderRow | SprintRow | CreateActionRow;
 
 interface SprintGroup {
   readonly key: string;
@@ -173,9 +183,15 @@ const buildGroups = (
   return all.filter((g) => g.key === currentProjectId);
 };
 
-/** Flatten groups into the cursor-navigable row list. Empty groups still emit a header. */
-const flatten = (groups: readonly SprintGroup[]): readonly FlatRow[] => {
+/**
+ * Flatten groups into the cursor-navigable row list. Empty groups still emit a header. The
+ * `+ Create new sprint` action row is prepended (when `includeCreate` is true) so it sits at
+ * the top of the cursor's reachable rows; Enter on it launches create-sprint via the shared
+ * launcher (which reseats selection on success).
+ */
+const flatten = (groups: readonly SprintGroup[], includeCreate: boolean): readonly FlatRow[] => {
   const rows: FlatRow[] = [];
+  if (includeCreate) rows.push({ kind: 'create' });
   for (const g of groups) {
     rows.push({
       kind: 'header',
@@ -191,17 +207,18 @@ const flatten = (groups: readonly SprintGroup[]): readonly FlatRow[] => {
   return rows;
 };
 
-/** Indices of the rows the cursor is allowed to land on (sprint rows only). */
-const sprintRowIndices = (rows: readonly FlatRow[]): readonly number[] => {
+/** Indices of the rows the cursor is allowed to land on (sprint + create rows; never headers). */
+const cursorableRowIndices = (rows: readonly FlatRow[]): readonly number[] => {
   const indices: number[] = [];
   for (let i = 0; i < rows.length; i += 1) {
-    if (rows[i]?.kind === 'sprint') indices.push(i);
+    const kind = rows[i]?.kind;
+    if (kind === 'sprint' || kind === 'create') indices.push(i);
   }
   return indices;
 };
 
-const nextSprintIndex = (rows: readonly FlatRow[], from: number, direction: 1 | -1): number => {
-  const candidates = sprintRowIndices(rows);
+const nextCursorableIndex = (rows: readonly FlatRow[], from: number, direction: 1 | -1): number => {
+  const candidates = cursorableRowIndices(rows);
   if (candidates.length === 0) return from;
   if (direction === 1) {
     const next = candidates.find((i) => i > from);
@@ -252,7 +269,11 @@ export const PickSprintView = (): React.JSX.Element => {
   const data: PickerData = state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map() };
 
   const groups = useMemo(() => buildGroups(data, selection.projectId, scopeAll), [data, selection.projectId, scopeAll]);
-  const rows = useMemo(() => flatten(groups), [groups]);
+  // Only inject the `+ Create new sprint` action row when a project is selected — without one
+  // there's nothing to create the sprint against, so the synthetic row would just surface a
+  // "select a project first" error on Enter. Skipping it keeps the picker honest.
+  const includeCreate = selection.projectId !== undefined;
+  const rows = useMemo(() => flatten(groups, includeCreate), [groups, includeCreate]);
   const sprintCount = useMemo(() => rows.reduce((acc, r) => (r.kind === 'sprint' ? acc + 1 : acc), 0), [rows]);
 
   // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
@@ -262,12 +283,19 @@ export const PickSprintView = (): React.JSX.Element => {
   const visibleRows = Math.max(MIN_VISIBLE_ROWS, bp.rows - VERTICAL_CHROME_ROWS);
 
   // Pre-seed the cursor to the already-selected sprint so Enter is a one-keystroke confirm.
+  // Otherwise, prefer the first sprint row over the synthetic `+ create` row so users with
+  // existing sprints can still press Enter to pick the topmost one — the create row sits at
+  // the very top but is intentionally NOT the initial focus (the common case is "switch", not
+  // "create"). When the picker is completely empty (no sprints anywhere), the create row IS
+  // first cursorable, so the fallback still lands on it.
   const initialIdx = useMemo(() => {
     if (selection.sprintId !== undefined) {
       const i = rows.findIndex((r) => r.kind === 'sprint' && r.sprint.id === selection.sprintId);
       if (i !== -1) return i;
     }
-    return sprintRowIndices(rows)[0] ?? 0;
+    const firstSprint = rows.findIndex((r) => r.kind === 'sprint');
+    if (firstSprint !== -1) return firstSprint;
+    return cursorableRowIndices(rows)[0] ?? 0;
   }, [rows, selection.sprintId]);
 
   const [cursor, setCursor] = useState<number>(initialIdx);
@@ -275,9 +303,10 @@ export const PickSprintView = (): React.JSX.Element => {
     setCursor((c) => {
       if (rows.length === 0) return 0;
       if (c >= rows.length) return Math.max(0, rows.length - 1);
-      // Snap cursor back onto a sprint row if a re-group landed it on a header.
-      if (rows[c]?.kind !== 'sprint') {
-        return sprintRowIndices(rows)[0] ?? c;
+      // Snap cursor back onto a cursorable row if a re-group landed it on a header.
+      const focused = rows[c];
+      if (focused?.kind !== 'sprint' && focused?.kind !== 'create') {
+        return cursorableRowIndices(rows)[0] ?? c;
       }
       return c;
     });
@@ -301,8 +330,9 @@ export const PickSprintView = (): React.JSX.Element => {
     router.reset({ id: 'home' });
   };
 
-  // Same launcher dance as sprints-view.tsx — keeps create-sprint's prompt + session wiring
-  // in a single place. Failures surface inline; success pushes the execute view.
+  // Route create-sprint through the shared sprint-bound launcher so the post-completion
+  // selection reseat lives in one place (see launch/sprint-bound.ts). Failures surface inline;
+  // success pushes the execute view.
   const launchCreateSprint = async (): Promise<void> => {
     if (selection.projectId === undefined) {
       setFeedback('✗ select a project first');
@@ -313,10 +343,15 @@ export const PickSprintView = (): React.JSX.Element => {
       { projectId: selection.projectId }
     );
     const interactive = createInkInteractivePrompt(queue);
-    const result = await launchFlow(
+    const result = await launchSprintBoundFlow(
       { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
       'create-sprint',
-      snapshot
+      snapshot,
+      {
+        onReseat: ({ id, name }) => {
+          selection.setSprint(id, name);
+        },
+      }
     );
     if (!result.ok) {
       setFeedback(`✗ ${result.reason}`);
@@ -335,30 +370,32 @@ export const PickSprintView = (): React.JSX.Element => {
   const toggleScope = (): void => {
     const next = !scopeAll;
     setScopeAll(next);
-    // Recompute the cursor to land on the selected sprint in the new list, if present;
-    // otherwise on the first sprint row, or 0 if there are none.
-    const nextRows = flatten(buildGroups(data, selection.projectId, next));
+    // Recompute the cursor: prefer the already-selected sprint, then the first sprint row,
+    // then the create row (only relevant on a totally empty picker).
+    const nextRows = flatten(buildGroups(data, selection.projectId, next), includeCreate);
     let idx = -1;
     if (selection.sprintId !== undefined) {
       idx = nextRows.findIndex((r) => r.kind === 'sprint' && r.sprint.id === selection.sprintId);
     }
-    if (idx === -1) idx = sprintRowIndices(nextRows)[0] ?? 0;
+    if (idx === -1) idx = nextRows.findIndex((r) => r.kind === 'sprint');
+    if (idx === -1) idx = cursorableRowIndices(nextRows)[0] ?? 0;
     setCursor(idx);
   };
 
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive) return;
     if (key.upArrow || input === 'k') {
-      setCursor((c) => nextSprintIndex(rows, c, -1));
+      setCursor((c) => nextCursorableIndex(rows, c, -1));
       return;
     }
     if (key.downArrow || input === 'j') {
-      setCursor((c) => nextSprintIndex(rows, c, 1));
+      setCursor((c) => nextCursorableIndex(rows, c, 1));
       return;
     }
     if (key.return) {
       const row = rows[cursor];
       if (row?.kind === 'sprint') pick(row.sprint);
+      else if (row?.kind === 'create') void launchCreateSprint();
       return;
     }
     if (input === 't') {
@@ -446,9 +483,13 @@ const RowWindowView = ({ rows, cursor, visibleRows, currentSprintId }: RowWindow
       )}
       {slice.map((row, i) => {
         const absoluteIndex = i + window.start;
-        return row.kind === 'header' ? (
-          <HeaderRowView key={`h-${row.groupKey}-${String(absoluteIndex)}`} row={row} />
-        ) : (
+        if (row.kind === 'header') {
+          return <HeaderRowView key={`h-${row.groupKey}-${String(absoluteIndex)}`} row={row} />;
+        }
+        if (row.kind === 'create') {
+          return <CreateRowView key={`create-${String(absoluteIndex)}`} focused={absoluteIndex === cursor} />;
+        }
+        return (
           <SprintRowView
             key={row.sprint.id}
             sprint={row.sprint}
@@ -465,6 +506,25 @@ const RowWindowView = ({ rows, cursor, visibleRows, currentSprintId }: RowWindow
     </Box>
   );
 };
+
+const CreateRowView = ({ focused }: { readonly focused: boolean }): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Box>
+      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
+      <Text>
+        {' '}
+        <Text color={focused ? inkColors.primary : inkColors.highlight} bold>
+          + Create new sprint
+        </Text>
+      </Text>
+    </Box>
+    {focused && (
+      <Box paddingLeft={3}>
+        <Text dimColor>{glyphs.activityArrow} launches the create-sprint flow</Text>
+      </Box>
+    )}
+  </Box>
+);
 
 const HeaderRowView = ({ row }: { readonly row: HeaderRow }): React.JSX.Element => {
   const color = row.orphan ? inkColors.warning : inkColors.muted;
