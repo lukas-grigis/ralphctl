@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -36,8 +37,8 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  *   | (always)                                              | `--output-format=json --silent --no-ask-user`      |
  *   | model: <CopilotModel>                                 | `--model=<model>`                                  |
  *   | additionalRoots: [a, b]                               | `--add-dir=a --add-dir=b`                          |
- *   | permissions {autoApprove,canEditFiles,canRunShell}    | `--allow-all`                                      |
- *   | permissions read-only (no edit, no shell)             | `--deny-tool=write --deny-tool=shell`              |
+ *   | permissions {autoApprove,canModifyRepoFiles,canRunShell}    | `--allow-all`                                      |
+ *   | permissions read-only (no edit, no shell)             | `--allow-all-tools --deny-tool=shell`              |
  *   | resume: <id>                                          | `--resume=<id>`                                    |
  *   | prompt                                                | argv: `-p <prompt>`                                |
  *
@@ -48,10 +49,11 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  * Copilot's prompt is passed as a CLI argument (`-p <text>`) rather than piped via stdin.
  * Argv length is the OS limit (~2MB on macOS); revisit if a chain hits it.
  *
- * Read-only permission is composed via `--deny-tool=write --deny-tool=shell` because Copilot
- * has no single equivalent of Claude's `--permission-mode plan`. Per the CLI docs, omitting
- * the parenthesised argument on a `--deny-tool=<Kind>` matches all tools of that kind. Deny
- * rules take precedence over allow rules.
+ * Read-only permission denies `shell` only — the `write` tool stays open because the
+ * audit-[09] contract requires the AI to land `signals.json` in `outputDir` via Copilot's
+ * write tool. Copilot has no fine-grained "may write new files but not edit existing ones"
+ * gate (the `write` kind covers all file mutations), so path scope (cwd + --add-dir) carries
+ * the responsibility of keeping the AI inside its sandbox.
  *
  * Output handling — audit-[09] contract: stdout JSONL is consumed by
  * {@link createCopilotStreamParser}. Plain-text lines accumulate into a transient body buffer;
@@ -88,7 +90,7 @@ export interface CopilotProviderDeps {
 
 const RATE_LIMIT_RE = /rate.?limit/i;
 
-const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canEditFiles && p.canRunShell;
+const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canModifyRepoFiles && p.canRunShell;
 
 /**
  * Build the argv for one Copilot invocation. Validates `session.model` is a known
@@ -122,14 +124,15 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   if (isFullAuto(session.permissions)) {
     args.push('--allow-all');
   } else {
-    // Read-only / partial permissions → allow all tool kinds, then deny write + shell. The
-    // CLI docs are explicit that deny rules take precedence over allow rules, so this combo
-    // is "do anything except mutate files or run shell." Without an explicit allow the
-    // non-denied tools (read, search) would still hit per-call confirmation prompts which
-    // `--no-ask-user` then turns into refusals — the AI ends up unable to do anything.
-    args.push('--allow-all-tools', '--deny-tool=write', '--deny-tool=shell');
+    // Read-only / partial permissions → allow all tool kinds, then deny shell only. Write
+    // tool stays open because the contract envelope (signals.json) lands via that tool;
+    // path scope (cwd + --add-dir) is what keeps it pointed at outputDir. Without the
+    // explicit allow, non-denied tools (read, search, write) would hit per-call confirmation
+    // prompts which `--no-ask-user` turns into refusals.
+    args.push('--allow-all-tools', '--deny-tool=shell');
   }
-  for (const root of session.additionalRoots ?? []) {
+  // Auto-mount `outputDir` so signals.json can land via the write tool. See resolve-roots.ts.
+  for (const root of resolveWritableRoots(session)) {
     args.push(`--add-dir=${String(root)}`);
   }
   args.push('-p', session.prompt as unknown as string);

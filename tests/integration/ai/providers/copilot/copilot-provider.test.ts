@@ -490,13 +490,14 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(args).not.toContain('--deny-tool=write');
   });
 
-  it('maps read-only permissions to --allow-all-tools --deny-tool=write --deny-tool=shell', () => {
+  it('maps read-only permissions to --allow-all-tools --deny-tool=shell (write stays open for signals.json)', () => {
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
-    // Allow everything by default, then deny the destructive tools. Deny rules take
-    // precedence per the CLI docs. Without the explicit allow, --no-ask-user would turn
-    // every read/search confirmation into a refusal.
+    // Allow everything by default, then deny shell. Write tool stays open because the
+    // audit-[09] contract needs it to land signals.json in outputDir. Copilot has no
+    // fine-grained edit-vs-write split (the `write` kind covers all file mutations), so
+    // path scope (cwd + --add-dir) carries the responsibility of keeping the AI inside.
     expect(args).toContain('--allow-all-tools');
-    expect(args).toContain('--deny-tool=write');
+    expect(args).not.toContain('--deny-tool=write');
     expect(args).toContain('--deny-tool=shell');
     // Belt-and-braces: the old `shell(*)` form is invalid per the CLI docs.
     expect(args).not.toContain('--deny-tool=shell(*)');

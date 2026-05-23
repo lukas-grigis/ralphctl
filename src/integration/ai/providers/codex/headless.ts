@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -106,28 +107,26 @@ export interface CodexProviderDeps {
 const RATE_LIMIT_RE = /rate.?limit/i;
 
 /**
- * Map our READ_ONLY / FULL_AUTO permission profiles onto codex's `-s/--sandbox` policy.
+ * Map our SessionPermissions onto codex's `-s/--sandbox` policy.
  *
- * Codex `exec` (non-interactive) does NOT expose an approval flag — there's no human to
- * escalate to, so the sandbox alone defines the safety envelope. The interactive `codex`
- * command keeps `-a/--ask-for-approval`; that path is handled in `interactive.ts`.
+ * Codex `exec` has only two non-interactive sandbox modes:
+ *
+ *   - `read-only`        — blocks every write, including signals.json. Incompatible with
+ *                          the audit-[09] contract (the AI MUST write the envelope).
+ *   - `workspace-write`  — allows writes inside `cwd + --add-dir` paths.
+ *
+ * Every profile therefore maps to `workspace-write`. Path scope (cwd + `additionalRoots`
+ * + `outputDir`) is the safety envelope, not the sandbox flag. This is more permissive
+ * than Claude/Copilot — Codex cannot deny `Edit` on existing repo files while still
+ * allowing `Write` on signals.json. Document this in CLAUDE.md and let the topology
+ * decide what's reachable.
+ *
+ * The interactive `codex` command keeps `-a/--ask-for-approval`; that path is handled in
+ * `interactive.ts`.
  */
-const sandboxFor = (
-  p: SessionPermissions
-): Result<{ readonly sandbox: 'read-only' | 'workspace-write' }, InvalidStateError> => {
-  const isReadOnly = !p.canEditFiles && !p.canRunShell;
-  const isFullAuto = p.canEditFiles && p.canRunShell && p.autoApprove;
-  if (isReadOnly) return Result.ok({ sandbox: 'read-only' });
-  if (isFullAuto) return Result.ok({ sandbox: 'workspace-write' });
-  return Result.error(
-    new InvalidStateError({
-      entity: 'codex-provider',
-      currentState: 'permission-mapping',
-      attemptedAction: 'build argv',
-      message:
-        'codex-provider: only READ_ONLY and FULL_AUTO permission profiles are supported; got an intermediate combination',
-    })
-  );
+const sandboxFor = (_p: SessionPermissions): Result<{ readonly sandbox: 'workspace-write' }, InvalidStateError> => {
+  void _p;
+  return Result.ok({ sandbox: 'workspace-write' });
 };
 
 interface BuildCodexArgsOpts {
@@ -165,7 +164,9 @@ export const buildCodexArgs = (
   args.push('--ephemeral', '--skip-git-repo-check', '-o', opts.outputFile, '--json', '-m', session.model);
   if (!isResume) {
     args.push('-C', String(session.cwd), '-s', perms.value.sandbox);
-    for (const root of session.additionalRoots ?? []) {
+    // Auto-mount `outputDir` so signals.json can land inside the workspace-write sandbox.
+    // See resolve-roots.ts for the dedup rules.
+    for (const root of resolveWritableRoots(session)) {
       args.push('--add-dir', String(root));
     }
   }

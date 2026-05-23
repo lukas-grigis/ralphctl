@@ -242,7 +242,7 @@ describe('createReadinessFlow', () => {
       absolutePath('/tmp/run-dir')
     );
     expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canEditFiles).toBe(false);
+    expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.autoApprove).toBe(false);
     expect(String(session.outputDir)).toBe('/tmp/run-dir');

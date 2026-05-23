@@ -189,13 +189,25 @@ per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>`
 
 ## Security & Safety
 
-**Provider permission model is per-tool, not portable.** Don't assume Claude / Copilot / Codex share gates.
+**Permission model — two orthogonal axes.** `SessionPermissions` gates **capabilities**
+(`canModifyRepoFiles`, `canRunShell`, `canAccessNetwork`, `autoApprove`); `cwd` +
+`additionalRoots` + `outputDir` on the `AiSession` define **topology** (which paths the AI
+can read / write). Topology is the primary defense; capabilities are the secondary filter.
 
-| Provider         | Headless permission flag              | Native context file               |
-| ---------------- | ------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--allow-all-tools`                   | `.github/copilot-instructions.md` |
-| `openai-codex`   | per-session approval flow             | `AGENTS.md`                       |
+The `Write` tool is **always allowed** under every profile — the audit-[09] contract requires
+the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mount it.
+`outputDir` is auto-included as a writable root in every provider (see
+`providers/_engine/resolve-roots.ts`).
+
+| Provider         | Always passes                         | Read-only profile maps to                            | Native context file               |
+| ---------------- | ------------------------------------- | ---------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash` | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`  | `--allow-all-tools --deny-tool=shell`                | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)   | `-s workspace-write` (topology-scoped)               | `AGENTS.md`                       |
+
+Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
+`read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
+Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
 
 The `readiness` flow writes the native file selected by `settings.ai.provider` — no symlinks, no pointer
 schemes. Don't introduce either.

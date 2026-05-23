@@ -451,12 +451,15 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(args.includes('--disallowedTools')).toBe(false);
   });
 
-  it('read-only permissions deny Edit / Write / MultiEdit / NotebookEdit / Bash but keep Read / Grep / Glob open', () => {
+  it('read-only permissions deny Edit / MultiEdit / NotebookEdit / Bash but keep Read / Write / Grep / Glob open', () => {
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
     const idx = args.indexOf('--disallowedTools');
     expect(idx).toBeGreaterThanOrEqual(0);
     const denied = (args[idx + 1] ?? '').split(',');
-    expect(denied).toEqual(expect.arrayContaining(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']));
+    expect(denied).toEqual(expect.arrayContaining(['Edit', 'MultiEdit', 'NotebookEdit', 'Bash']));
+    // Write stays open under every profile — the audit-[09] contract needs it to land
+    // signals.json in outputDir. Path scope (cwd + --add-dir) keeps it pointed there.
+    expect(denied).not.toContain('Write');
     expect(denied).not.toContain('Read');
     expect(denied).not.toContain('Grep');
     expect(denied).not.toContain('Glob');
@@ -465,7 +468,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
   it('half-permission set (edit-only, no shell, network OK) denies only Bash', () => {
     const args = unwrapArgs(
       session({
-        permissions: { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false },
+        permissions: { canModifyRepoFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false },
       })
     );
     const idx = args.indexOf('--disallowedTools');
@@ -476,7 +479,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
   it('canAccessNetwork=false adds WebFetch + WebSearch to the deny list', () => {
     const args = unwrapArgs(
       session({
-        permissions: { canEditFiles: false, canRunShell: false, canAccessNetwork: false, autoApprove: false },
+        permissions: { canModifyRepoFiles: false, canRunShell: false, canAccessNetwork: false, autoApprove: false },
       })
     );
     const idx = args.indexOf('--disallowedTools');

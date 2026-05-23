@@ -468,10 +468,13 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args[oIdx + 1]).toBe('/tmp/out-x.txt');
   });
 
-  it('maps READ_ONLY permissions to -s read-only (no -a; codex exec has no approval flag)', () => {
+  it('maps READ_ONLY permissions to -s workspace-write (audit-[09] needs Write for signals.json)', () => {
+    // Codex `exec` has only two sandbox modes: `read-only` blocks every write (including
+    // signals.json), `workspace-write` allows writes inside cwd + --add-dir. Every profile
+    // maps to workspace-write; path scope is the safety envelope.
     const args = unwrapArgs(session({ permissions: READ_ONLY }));
     const sIdx = args.indexOf('-s');
-    expect(args[sIdx + 1]).toBe('read-only');
+    expect(args[sIdx + 1]).toBe('workspace-write');
     expect(args).not.toContain('-a');
   });
 
@@ -488,13 +491,17 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('-s');
   });
 
-  it('rejects intermediate permission combinations with InvalidStateError', () => {
-    const half = { canEditFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false };
+  it('accepts intermediate permission combinations (path scope is the envelope, not the profile)', () => {
+    // The old contract rejected "intermediate" permission combinations because the codex
+    // sandbox modes are binary. Under the contract pipeline, every spawn ends up at
+    // workspace-write regardless — the SessionPermissions struct still carries semantic
+    // intent for Claude / Copilot, but Codex only sees the topology.
+    const half = { canModifyRepoFiles: true, canRunShell: false, canAccessNetwork: true, autoApprove: false };
     const r = buildCodexArgs(session({ permissions: half }), { outputFile: FIXED_OUT });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.message).toContain('READ_ONLY and FULL_AUTO');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const sIdx = r.value.indexOf('-s');
+    expect(r.value[sIdx + 1]).toBe('workspace-write');
   });
 
   it('emits -C <cwd>', () => {

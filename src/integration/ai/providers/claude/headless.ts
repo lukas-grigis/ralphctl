@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -56,8 +57,8 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  *   | AiSession field                                         | Claude flag                                                  |
  *   | ------------------------------------------------------- | ------------------------------------------------------------ |
  *   | model: <ClaudeModel>                                    | --model <model>                                              |
- *   | permissions {autoApprove,canEditFiles,canRunShell}=true | --permission-mode bypassPermissions                          |
- *   | permissions read-only (canEditFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
+ *   | permissions {autoApprove,canModifyRepoFiles,canRunShell}=true | --permission-mode bypassPermissions                          |
+ *   | permissions read-only (canModifyRepoFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
  *   | additionalRoots: [a, b]                                 | --add-dir a --add-dir b                                      |
  *   | resume: id                                              | --resume id                                                  |
  *
@@ -118,8 +119,15 @@ const RATE_LIMIT_RE = /rate.?limit/i;
  *  - `disallowedTools` is a deny rule that overrides every other allow, including bypass.
  */
 
-/** Claude Code tool names. Kept as a literal list so a typo here = compile-time error in the test. */
-const TOOL_EDIT = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const;
+/**
+ * Claude Code tool names. Kept as literal lists so a typo here = compile-time error in tests.
+ *
+ * `TOOL_EDIT` covers tools that modify EXISTING files (`Edit` / `MultiEdit` / `NotebookEdit`).
+ * The `Write` tool stays open under every profile — the audit-[09] contract requires the AI
+ * to land `signals.json` in `outputDir` via `Write`. Path scope (cwd + --add-dir) controls
+ * which files `Write` can touch.
+ */
+const TOOL_EDIT = ['Edit', 'MultiEdit', 'NotebookEdit'] as const;
 const TOOL_SHELL = ['Bash'] as const;
 const TOOL_NETWORK = ['WebFetch', 'WebSearch'] as const;
 
@@ -129,7 +137,7 @@ const TOOL_NETWORK = ['WebFetch', 'WebSearch'] as const;
  */
 const disallowedToolsFor = (p: SessionPermissions): readonly string[] => {
   const denied: string[] = [];
-  if (!p.canEditFiles) denied.push(...TOOL_EDIT);
+  if (!p.canModifyRepoFiles) denied.push(...TOOL_EDIT);
   if (!p.canRunShell) denied.push(...TOOL_SHELL);
   if (!p.canAccessNetwork) denied.push(...TOOL_NETWORK);
   return denied;
@@ -163,7 +171,10 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   if (denied.length > 0) {
     args.push('--disallowedTools', denied.join(','));
   }
-  for (const root of session.additionalRoots ?? []) {
+  // Auto-mount `outputDir` alongside declared additionalRoots so the AI's Write tool can
+  // land `signals.json` (the audit-[09] envelope) when outputDir lives outside cwd. See
+  // resolve-roots.ts for the de-dup rules.
+  for (const root of resolveWritableRoots(session)) {
     args.push('--add-dir', String(root));
   }
   if (session.resume !== undefined) {

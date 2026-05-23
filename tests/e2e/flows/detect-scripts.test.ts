@@ -363,7 +363,7 @@ describe('createDetectScriptsFlow', () => {
       outputDir
     );
     expect(session.model).toBe('claude-sonnet-4-6');
-    expect(session.permissions.canEditFiles).toBe(false);
+    expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);
     expect(session.permissions.canAccessNetwork).toBe(true);
     expect(session.cwd).toBe(repository.path);
