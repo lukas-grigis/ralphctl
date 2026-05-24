@@ -22,8 +22,10 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development** — new features and polish ship regularly. Setup is quick, so upgrading is low-friction.
-> See [CHANGELOG](./CHANGELOG.md).
+> **Active development.** New features and polish ship regularly. The 0.7.x
+> line landed a burst of structural changes — thanks for sticking with us
+> through it. Upgrades are simple: install the latest version, redo your
+> config, proceed. See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -90,8 +92,16 @@ ralphctl export-context --sprint <id> --project <id> --output <path>
 
 # Settings
 ralphctl settings show
-ralphctl settings set ai.provider claude-code
-ralphctl settings set ai.models.implement <model-id>
+ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only
+ralphctl settings set ai.implement.provider claude-code
+ralphctl settings set ai.implement.model      <model-id>
+ralphctl settings set ai.implement.effort     high
+
+# Rebuild a sprint's progress.md from disk
+ralphctl sprint regenerate-progress <sprint-id>
+
+# Single-frame text digest of the active sprint
+ralphctl snapshot [--sprint <id>]
 ```
 
 </details>
@@ -150,6 +160,9 @@ forensic artifacts). Codex cannot fine-grained-deny edits on existing repo files
 path scope (cwd + `--add-dir`) is the only safety envelope. If you hit a rough edge on a preview provider,
 please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
+One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is
+`mixed`, `claude-only`, `copilot-only`, or `codex-only`.
+
 ---
 
 ## Features
@@ -173,24 +186,34 @@ please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 ## Configuration
 
-Configure via the TUI `Settings` view or one-shot CLI commands:
+Configure via the TUI `Settings` view or one-shot CLI commands.
+
+**Quickest path — apply a preset:**
 
 ```bash
-ralphctl settings set ai.provider claude-code         # Use Claude Code (stable)
-ralphctl settings set ai.provider github-copilot      # Use GitHub Copilot (preview)
-ralphctl settings set ai.provider openai-codex        # Use OpenAI Codex (preview)
+ralphctl settings apply-preset mixed          # best-fit provider per flow
+ralphctl settings apply-preset claude-only    # every flow on Claude Code
+ralphctl settings apply-preset copilot-only   # every flow on GitHub Copilot
+ralphctl settings apply-preset codex-only     # every flow on OpenAI Codex
 ```
 
-The selected provider's CLI must be in your `PATH` and authenticated. The TUI prompts you on first launch if no provider
-is configured.
+A preset stamps the entire `ai` section in one shot. None is marked default; on a fresh install the welcome
+view silently auto-seeds a preset based on which provider CLIs it detects on `PATH`.
 
-**Per-flow model selection.** Each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) carries its own model
-from the configured provider's catalog:
+**Per-flow settings.** Each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) carries its own
+`{provider, model, effort?}` row. Edit individual keys with:
 
 ```bash
-ralphctl settings set ai.models.implement <model-id>
-ralphctl settings set ai.models.plan      <model-id>
+ralphctl settings set ai.implement.provider claude-code
+ralphctl settings set ai.implement.model    <model-id>
+ralphctl settings set ai.implement.effort   high
+
+ralphctl settings set ai.plan.provider      github-copilot
+ralphctl settings set ai.plan.model         <model-id>
 ```
+
+The selected provider's CLI must be in your `PATH` and authenticated. Every AI-spawning flow probes its
+row's CLI at launch and exits with a clear error if the binary is missing.
 
 **Tune the generator-evaluator loop** (under `harness`):
 
@@ -224,57 +247,28 @@ export RALPHCTL_HOME="/path/to/custom/dir"
 
 ---
 
-## Upgrading from 0.6.x to 0.7.0
+## Upgrading
 
-> [!IMPORTANT]
-> **0.7.0 is a structural rewrite.** Internal architecture, on-disk schema, and several CLI
-> commands all changed. **There is no automatic migration from 0.6.x** — sprints, projects,
-> and settings written by 0.6.x will not be read by 0.7.0, even though the data directory
-> path is the same.
->
-> If you launch 0.7.0 with v0.6.x data still in `~/.ralphctl/`, the harness detects the
-> legacy layout, **refuses to start**, and prints the exact backup command you need to run.
-> No data is touched. The steps below are what the safeguard will tell you.
+Install the latest version, redo your config, proceed. Only the latest
+release is supported — there's no backporting, and upgrading is the answer
+to most "is this fixed?" questions.
 
-### Before upgrading
+```bash
+npm install -g ralphctl@latest
+ralphctl settings apply-preset <name>    # if your settings need a reset
+ralphctl                                  # TUI prompts you to re-register projects if needed
+```
 
-1. **Back up your 0.6.x data**:
+If your `~/.ralphctl/` data from an older release doesn't load cleanly, back
+it up and start fresh:
 
-   ```bash
-   mv ~/.ralphctl ~/.ralphctl.0.6-backup
-   ```
+```bash
+mv ~/.ralphctl ~/.ralphctl.bak
+```
 
-2. Install ralphctl (the latest published version is `0.7.x` — pin only if you need a specific patch):
-
-   ```bash
-   npm install -g ralphctl
-   ```
-
-3. Launch the TUI and re-register your projects:
-
-   ```bash
-   ralphctl
-   ```
-
-4. (Optional) Re-create sprints by hand from the backup — `~/.ralphctl.0.6-backup/data/sprints/<id>/` still holds the
-   original ticket bodies, plan output, and progress notes for reference.
-
-### What changed
-
-- **On-disk schema is incompatible.** Each sprint now spans three files — `sprint.json` (planning), `execution.json` (
-  branch / PR / setup audit), `tasks.json` (the task list) — instead of the single 0.6.x `sprint.json`. Override the
-  data root with `RALPHCTL_HOME=<absolute-path>` if you need a separate location.
-- **`settings.json` schema changed.** Per-flow model selection replaces the single global `model`; each chain picks its
-  own. 0.6.x settings files are rejected on read — re-run `ralphctl settings` to reconfigure.
-- **CLI surface intentionally smaller.** These commands were removed in favour of the TUI: `sprint feedback / edit`,
-  `ticket approve / edit`, `project repo add / remove`, all `task add / edit / edit-status / remove`, and
-  `sessions list / attach / detach / kill`. Switch to the interactive TUI or to `ralphctl sprint show <id>` / the
-  relevant flow command.
-- **OpenAI Codex provider added** (preview) alongside Claude Code and GitHub Copilot — pick via `ralphctl settings`.
-
-See [CHANGELOG.md](./CHANGELOG.md#070---2026-05-17) for the full list, including non-breaking improvements (
-cross-project sprint lock, idle-stdout watchdog, resume-aborted runs, persistent `<sprintDir>/chain.log`, exponential
-rate-limit backoff).
+The backup keeps your ticket bodies, plan output, and progress notes around
+for reference. See [MIGRATION.md](./MIGRATION.md) if you're crossing a major
+boundary (e.g. 0.6.x → 0.7.x) and want the longer story.
 
 ---
 
@@ -286,13 +280,15 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Getting Started
 
-| Command                               | Description                       |
-| ------------------------------------- | --------------------------------- |
-| `ralphctl`                            | Interactive TUI (primary surface) |
-| `ralphctl doctor`                     | Check environment health          |
-| `ralphctl settings show`              | Print current settings            |
-| `ralphctl settings set <key> <value>` | Set a single settings key         |
-| `ralphctl completion <shell>`         | Print shell tab-completion script |
+| Command                                 | Description                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------- |
+| `ralphctl`                              | Interactive TUI (primary surface)                                                       |
+| `ralphctl doctor`                       | Check environment health                                                                |
+| `ralphctl settings show`                | Print current settings                                                                  |
+| `ralphctl settings set <key> <value>`   | Set a single settings key                                                               |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section (`mixed` / `claude-only` / `copilot-only` / `codex-only`) |
+| `ralphctl completion <shell>`           | Print shell tab-completion script                                                       |
+| `ralphctl snapshot [--sprint <id>]`     | Single-frame text digest of sprint state                                                |
 
 ### Project & Sprint Inspection
 
@@ -312,11 +308,12 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Sprint Lifecycle
 
-| Command                         | Description                     |
-| ------------------------------- | ------------------------------- |
-| `ralphctl sprint activate <id>` | Flip a draft sprint to `active` |
-| `ralphctl sprint close <id>`    | Transition `review` → `done`    |
-| `ralphctl sprint remove <id>`   | Delete a sprint permanently     |
+| Command                                    | Description                           |
+| ------------------------------------------ | ------------------------------------- |
+| `ralphctl sprint activate <id>`            | Flip a draft sprint to `active`       |
+| `ralphctl sprint close <id>`               | Transition `review` → `done`          |
+| `ralphctl sprint remove <id>`              | Delete a sprint permanently           |
+| `ralphctl sprint regenerate-progress <id>` | Rebuild `progress.md` from disk state |
 
 ### Export & PR
 
@@ -334,12 +331,13 @@ Run `ralphctl <command> --help` for flag-level detail.
 
 ## Documentation
 
-| Resource                                       | Description                                |
-| ---------------------------------------------- | ------------------------------------------ |
-| [Architecture](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, error reference |
-| [Requirements](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature checklist  |
-| [Contributing](./CONTRIBUTING.md)              | Dev setup, code style, PR process          |
-| [Changelog](./CHANGELOG.md)                    | Version history                            |
+| Resource                                       | Description                                       |
+| ---------------------------------------------- | ------------------------------------------------- |
+| [Architecture](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, error reference        |
+| [Requirements](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature checklist         |
+| [Contributing](./CONTRIBUTING.md)              | Dev setup, code style, PR process                 |
+| [Migration](./MIGRATION.md)                    | Per-version upgrade context for big version jumps |
+| [Changelog](./CHANGELOG.md)                    | Version history                                   |
 
 **Blog posts:** [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (
 backstory) | [From task CLI to agent harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator
