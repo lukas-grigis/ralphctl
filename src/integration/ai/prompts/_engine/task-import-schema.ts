@@ -14,6 +14,45 @@ import { z } from 'zod';
  */
 
 /**
+ * One verification criterion entry the AI emits. Mirrors the domain
+ * `VerificationCriterion`:
+ *
+ *  - `id` is stable within the task (`C1`, `C2`, …); the evaluator cites it verbatim.
+ *  - `assertion` is the human-readable check.
+ *  - `check === 'auto'` REQUIRES `command` — the evaluator runs it and records the verbatim
+ *    output as `executionEvidence` on the matching dimension.
+ *  - `check === 'manual'` MUST omit `command` — the evaluator cites a code location instead.
+ *
+ * Bare strings are no longer accepted from the AI; legacy on-disk shapes are normalised at
+ * read time by the persistence-layer schema (`task.schema.ts`), not here.
+ */
+export const VerificationCriterionImportSchema = z
+  .object({
+    id: z.string().min(1, 'criterion.id missing or empty'),
+    assertion: z.string().min(1, 'criterion.assertion missing or empty'),
+    check: z.union([z.literal('auto'), z.literal('manual')]),
+    command: z.string().optional(),
+  })
+  .strict()
+  .superRefine((c, ctx) => {
+    if (c.check === 'auto') {
+      if (c.command === undefined || c.command.trim().length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `criterion '${c.id}' is auto but has no command`,
+          path: ['command'],
+        });
+      }
+    } else if (c.command !== undefined && c.command.trim().length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `criterion '${c.id}' is manual but carries a command`,
+        path: ['command'],
+      });
+    }
+  });
+
+/**
  * One entry in the AI's task array. `name`, `projectPath`, `steps`, and `verificationCriteria`
  * are required; `id`, `description`, `ticketRef`, and `blockedBy` are optional. Empty strings
  * inside required arrays are rejected — empty steps are a usage error, not a corner case.
@@ -26,7 +65,7 @@ export const TaskImportSpecSchema = z
     projectPath: z.string().min(1, 'projectPath missing'),
     ticketRef: z.string().optional(),
     steps: z.array(z.string().min(1)).min(1, 'steps missing or empty'),
-    verificationCriteria: z.array(z.string().min(1)).min(1, 'verificationCriteria missing or empty'),
+    verificationCriteria: z.array(VerificationCriterionImportSchema).min(1, 'verificationCriteria missing or empty'),
     blockedBy: z.array(z.string()).optional(),
     /**
      * Per-task evaluator dimensions to score in ADDITION to the four floor dimensions

@@ -39,11 +39,10 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
  *
  * Migration chain:
  *
- *   `migrations[0]` accepts the legacy top-level-array shape today's adapters still write
- *   (`parseHarnessSignals(...)`'s output verbatim) and wraps it into the `{ schemaVersion,
- *   signals }` shape the validator expects. Once Wave 6 lands the prompt-side contract and
- *   drops the stdout parser, the adapters will write the canonical wrapper directly and the
- *   migration becomes inert (but stays in the chain for in-flight sprints).
+ *   `migrations[0]` wraps a legacy top-level-array payload into the `{ schemaVersion, signals }`
+ *   shape the validator expects. The AI now writes the canonical wrapper directly via the
+ *   prompt-side contract; the migration is inert for fresh sprints but stays in the chain to
+ *   keep in-flight sprints on disk readable.
  */
 
 type EvaluatorSignal =
@@ -80,10 +79,9 @@ const signalsArraySchemaRaw = z
 const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly EvaluatorSignal[]>;
 
 /**
- * Legacy → v1 wrapping. Today's `HeadlessAiProvider` writes
- * `JSON.stringify(parseHarnessSignals(...))` — a bare top-level array. Wave 6 swaps the
- * prompt to ask the AI to write the `{ schemaVersion, signals }` wrapper directly. Until
- * then, this step shims the legacy shape into the wrapper the validator expects.
+ * Legacy → v1 wrapping. In-flight sprints on disk may carry a bare top-level array from an
+ * earlier writer; fresh sprints write the `{ schemaVersion, signals }` wrapper directly. This
+ * step shims the legacy shape into the wrapper the validator expects.
  */
 const wrapLegacyArray = (raw: unknown): unknown => {
   if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
@@ -110,8 +108,9 @@ const evaluationSidecar: SidecarRule<'evaluation'> = {
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 /**
- * Representative evaluator payload. One `evaluation` (the required verdict) plus a narrative
- * `note` shows the AI the shape it must produce. The Zod refine enforces exactly one
+ * Representative evaluator payload showing the PASS / FAIL rubric in the FAIL branch. One
+ * `auto` criterion's command output lands in `executionEvidence`; the failing dimension
+ * carries a concrete file:line citation in `finding`. The Zod refine enforces exactly one
  * `evaluation`; the prompt unit test round-trips this example through the schema.
  */
 const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
@@ -119,13 +118,17 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
     type: 'evaluation',
     status: 'failed',
     dimensions: [
-      { dimension: 'correctness', score: 5, passed: true, finding: 'all criteria met' },
-      { dimension: 'completeness', score: 3, passed: false, finding: 'edge case missing' },
-      { dimension: 'safety', score: 4, passed: true, finding: 'inputs validated' },
-      { dimension: 'consistency', score: 5, passed: true, finding: 'matches sibling code' },
+      {
+        dimension: 'correctness',
+        passed: false,
+        finding: 'C1 command exited 1: empty-input test failed at src/foo.ts:23',
+        executionEvidence: 'npm test -- src/foo.test.ts\n  ✗ handles empty input (expected 400, got 500)\n  1 failing',
+      },
+      { dimension: 'completeness', passed: true, finding: 'all declared steps shipped' },
+      { dimension: 'safety', passed: true, finding: 'inputs validated at the request boundary' },
+      { dimension: 'consistency', passed: true, finding: 'matches sibling code at src/bar.ts' },
     ],
-    overallScore: 4.3,
-    critique: 'Completeness: add edge-case handling for empty input at src/foo.ts:23.',
+    critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',
     timestamp: EXAMPLE_TS,
   },
 ];

@@ -16,6 +16,9 @@ completion.
   Update tests only when a declared step intentionally changes the asserted behaviour. If the right move is
   genuinely ambiguous, signal `<task-blocked>` so a human can decide; do not silently weaken a test to make a
   failure go away.
+- **Do not delete or weaken tests** — removing or disabling existing tests to make a verification pass is
+  unacceptable. A test that fails reveals a bug in the implementation; fix the implementation. The only
+  exception is a declared step that explicitly changes the tested behaviour.
 - **Verify before completing** — the harness runs a post-task verify gate; unverified work will be caught and
   rejected. The verification you record in `<task-verified>` is the same set of commands the gate runs.
 - **Do not write to the progress file** — the harness regenerates it from your signals after every round.
@@ -48,6 +51,11 @@ completion.
 
 **Task ID:** `{{TASK_ID}}`
 **Project Path:** {{PROJECT_PATH}}
+
+The task contract at `{{CONTRACT_PATH}}` is the authoritative definition of done; read it before
+implementing. Each criterion is tagged `auto` (the evaluator runs the listed command) or `manual` (the
+evaluator inspects the code) — your implementation must make every criterion pass under its declared
+check.
 
 {{TASK_DESCRIPTION_SECTION}}
 

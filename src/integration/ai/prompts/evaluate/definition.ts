@@ -23,14 +23,21 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
  * steps / verification criteria, runs the verify script as authoritative ground truth, scores
- * four floor dimensions (correctness, completeness, safety, consistency), and emits exactly
- * one verdict signal — `<evaluation-passed>` or `<evaluation-failed>critique</evaluation-failed>`.
+ * four floor dimensions (correctness, completeness, safety, consistency), and writes exactly
+ * one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict + per-dimension
+ * findings.
  */
 export interface EvaluatePromptParams {
   /** Task display name — `{{TASK_NAME}}` (referenced both as the page title and inside the spec block). */
   readonly taskName: string;
   /** Absolute project path the task targets — `{{PROJECT_PATH}}`. */
   readonly projectPath: string;
+  /**
+   * Absolute path to the per-task `contract.md` sidecar — substituted into the template's
+   * `{{CONTRACT_PATH}}` placeholder. The reviewer reads the contract before grading so the
+   * per-criterion assessment matches the canonical id / check / command / assertion table.
+   */
+  readonly contractPath: string;
   /** Markdown block "## Description\n\n…" or empty when the task has no description. */
   readonly taskDescriptionSection: string;
   /** Markdown block "## Implementation Steps\n\n1. …" or empty when there are no steps. */
@@ -84,6 +91,11 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       description: 'Absolute path to the project the task targets.',
       validate: requireNonEmpty('projectPath', 'project path must not be empty'),
     },
+    contractPath: {
+      placeholder: 'CONTRACT_PATH',
+      description: 'Absolute path to the per-task contract.md sidecar — authoritative definition of done.',
+      validate: requireNonEmpty('contractPath', 'contract path must not be empty'),
+    },
     taskDescriptionSection: {
       placeholder: 'TASK_DESCRIPTION_SECTION',
       description: '"## Description" markdown block, or empty when the task has no description.',
@@ -131,15 +143,17 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  // The single `evaluation` signal type covers both verdict shapes (`<evaluation-passed>` and
-  // `<evaluation-failed>critique</evaluation-failed>`). The body / critique distinction is
-  // handled inside the parsed signal, not by a second tag.
+  // The single `evaluation` signal type covers both PASS and FAIL verdicts. The verdict +
+  // per-dimension findings + optional critique are encoded as fields on the signal object;
+  // there is no second signal type for the failure case.
   expectedSignals: ['evaluation'],
 };
 
 export interface BuildEvaluatePromptInput {
   readonly task: Task;
   readonly projectPath: string;
+  /** Absolute path to the per-task `contract.md` sidecar (written by `build-task-workspace`). */
+  readonly contractPath: string;
   readonly verifyScript?: string;
   readonly projectTooling?: string;
   /**
@@ -167,6 +181,7 @@ export const buildEvaluatePrompt = async (
   buildPrompt(deps, evaluatePromptDef, {
     taskName: input.task.name,
     projectPath: input.projectPath,
+    contractPath: input.contractPath,
     taskDescriptionSection: renderTaskDescriptionSection(input.task),
     taskStepsSection: renderTaskStepsSection(input.task),
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),

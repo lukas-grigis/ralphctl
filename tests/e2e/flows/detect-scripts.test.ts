@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { HarnessSignal, SetupScriptSignal, VerifyScriptSignal } from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -86,9 +86,31 @@ const scriptedInteractive = (answers: ScriptedAnswers): InteractivePrompt => {
   };
 };
 
+interface ProviderScript {
+  /** Explicit signal payload the fake provider writes to `signals.json`. */
+  readonly signals?: readonly HarnessSignal[];
+  /**
+   * Raw AI body persisted to `body.txt`. The failsafe path surfaces this verbatim when no
+   * script proposals are emitted; tests that don't exercise that path can omit it.
+   */
+  readonly rawBody?: string;
+}
+
+const setupScript = (command: string): SetupScriptSignal => ({
+  type: 'setup-script',
+  command,
+  timestamp: IsoTimestamp.now(),
+});
+
+const verifyScript = (command: string): VerifyScriptSignal => ({
+  type: 'verify-script',
+  command,
+  timestamp: IsoTimestamp.now(),
+});
+
 const buildDeps = (
   project: Project,
-  providerResponse: string,
+  script: ProviderScript,
   interactive: InteractivePrompt,
   runsRoot: AbsolutePath
 ) => {
@@ -96,10 +118,8 @@ const buildDeps = (
   const harness = createInMemorySink<HarnessSignal>();
   const eventBus = createInMemoryEventBus();
   const provider = createFakeAiProvider({
-    responses: { 'detect-scripts': providerResponse },
-    signals: {
-      'detect-scripts': [{ type: 'note', text: 'sample', timestamp: IsoTimestamp.now() }],
-    },
+    signals: { 'detect-scripts': script.signals ?? [] },
+    ...(script.rawBody !== undefined ? { responses: { 'detect-scripts': script.rawBody } } : {}),
     markerOverrides: { 'detect-scripts': DETECT_MARKER },
   });
   return {
@@ -144,7 +164,7 @@ describe('createDetectScriptsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(
       project,
-      '<setup-script>pnpm install</setup-script>\n<verify-script>pnpm typecheck && pnpm lint && pnpm test</verify-script>',
+      { signals: [setupScript('pnpm install'), verifyScript('pnpm typecheck && pnpm lint && pnpm test')] },
       interactive,
       runsRoot
     );
@@ -188,7 +208,7 @@ describe('createDetectScriptsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['reject'] });
     const { deps, saves } = buildDeps(
       project,
-      '<setup-script>pnpm install</setup-script>\n<verify-script>pnpm test</verify-script>',
+      { signals: [setupScript('pnpm install'), verifyScript('pnpm test')] },
       interactive,
       runsRoot
     );
@@ -206,7 +226,12 @@ describe('createDetectScriptsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-repo-empty', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['skip'] });
-    const { deps, saves } = buildDeps(project, '<note>clean repo, nothing to wire</note>', interactive, runsRoot);
+    const { deps, saves } = buildDeps(
+      project,
+      { signals: [{ type: 'note', text: 'clean repo, nothing to wire', timestamp: IsoTimestamp.now() }] },
+      interactive,
+      runsRoot
+    );
 
     const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-3', element: flow, initialCtx: { projectId: project.id } });
@@ -236,7 +261,7 @@ describe('createDetectScriptsFlow', () => {
       },
     };
 
-    const { deps } = buildDeps(project, permissionAskBody, recordingInteractive, runsRoot);
+    const { deps } = buildDeps(project, { rawBody: permissionAskBody }, recordingInteractive, runsRoot);
     const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-failsafe', element: flow, initialCtx: { projectId: project.id } });
     await runner.start();
@@ -257,7 +282,12 @@ describe('createDetectScriptsFlow', () => {
       choices: ['manual'],
       texts: ['pnpm install', ''],
     });
-    const { deps, saves } = buildDeps(project, '<note>nothing detected</note>', interactive, runsRoot);
+    const { deps, saves } = buildDeps(
+      project,
+      { signals: [{ type: 'note', text: 'nothing detected', timestamp: IsoTimestamp.now() }] },
+      interactive,
+      runsRoot
+    );
 
     const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-detect-manual', element: flow, initialCtx: { projectId: project.id } });
@@ -281,7 +311,7 @@ describe('createDetectScriptsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(
       project,
-      '<setup-script>pnpm install --frozen-lockfile</setup-script>',
+      { signals: [setupScript('pnpm install --frozen-lockfile')] },
       interactive,
       runsRoot
     );
@@ -302,7 +332,7 @@ describe('createDetectScriptsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-preselect', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
-    const { deps, saves } = buildDeps(project, '<setup-script>pnpm install</setup-script>', interactive, runsRoot);
+    const { deps, saves } = buildDeps(project, { signals: [setupScript('pnpm install')] }, interactive, runsRoot);
 
     const flow = createDetectScriptsFlow(deps, {
       projectId: project.id,
@@ -331,7 +361,7 @@ describe('createDetectScriptsFlow', () => {
     });
     const { deps, saves } = buildDeps(
       project,
-      '<setup-script>pnpm install</setup-script>\n<verify-script>pnpm test</verify-script>',
+      { signals: [setupScript('pnpm install'), verifyScript('pnpm test')] },
       interactive,
       runsRoot
     );

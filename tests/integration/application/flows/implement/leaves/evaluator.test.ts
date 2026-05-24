@@ -38,8 +38,7 @@ describe('evaluatorLeaf', () => {
           {
             type: 'evaluation',
             status: 'passed',
-            dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: 'all good' }],
-            overallScore: 5,
+            dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
             timestamp: FIXED_NOW,
           },
         ],

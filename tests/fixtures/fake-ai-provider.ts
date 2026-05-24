@@ -5,9 +5,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
-import { parseHarnessSignals } from '@tests/helpers/legacy-signal-parsers/_engine/parse-signals.ts';
 
 /**
  * Test fake for {@link HeadlessAiProvider}. Drives chain tests without spawning a real AI
@@ -16,20 +14,22 @@ import { parseHarnessSignals } from '@tests/helpers/legacy-signal-parsers/_engin
  *
  * ## Dispatch
  *
- * Inspects the prompt body to pick which scripted response to return, matched by a per-template
+ * Inspects the prompt body to pick which scripted template to apply, matched by a per-template
  * marker substring (see {@link MARKERS}). Tests can override markers via `markerOverrides`.
  *
  * ## Producing signals
  *
- * Two layered mechanisms keep existing tests compact while the contract is file-based:
+ * Tests author signals explicitly via `signals[templateName]`. Production providers no longer
+ * parse stdout for XML-marker shortcuts — the audit-[09] contract has the AI write
+ * `signals.json` directly — so this fake mirrors that by writing whatever signal array the
+ * test supplies to `session.signalsFile`. Missing entries serialise to `[]`.
  *
- *   1. `responses[templateName]` (raw body or `(session) => body` fn): the fake feeds the body
- *      through `parseHarnessSignals(...)` and writes the resulting array to `session.signalsFile`.
- *      Tests that previously baked `<task-verified>…</task-verified>` into the response keep
- *      working — they now produce real `task-verified` signals on disk via the real parser.
- *   2. `signals[templateName]`: explicit signal arrays. Appended AFTER the parsed body's signals.
- *      Use when the desired signals can't be expressed through the production parsers (e.g. a
- *      `<commit-message>` with a structured body the parser would normalise).
+ * ## Body text
+ *
+ * `responses[templateName]` is an optional opaque body string (or `(session) => body`) the
+ * fake mirrors to `session.bodyFile` when one is configured. Tests that exercise forensic
+ * `body.txt` paths (e.g. `detect-skills` raw-AI-body surfacing) supply this; tests that only
+ * care about signal handling can omit it.
  *
  * ## Session ids
  *
@@ -46,10 +46,17 @@ import { parseHarnessSignals } from '@tests/helpers/legacy-signal-parsers/_engin
  * Tests asserting "round N forwarded resume=X" read from this array.
  */
 export interface FakeAiProviderScript {
-  /** Map prompt-template-name → response body (string) or producer. The body is parsed for signals. */
+  /**
+   * Optional opaque body strings (or producers) per template name. Mirrored to
+   * `session.bodyFile` when configured — does NOT contribute signals (use `signals` for that).
+   */
   readonly responses?: Record<string, string | ((session: AiSession) => string)>;
-  /** Optional explicit signal arrays appended after the parsed-body signals, keyed by template. */
-  readonly signals?: Record<string, readonly HarnessSignal[]>;
+  /**
+   * Signal arrays the fake writes to `session.signalsFile`, keyed by template. Tests author
+   * the exact `HarnessSignal[]` payload they want the leaf to see. Missing entries serialise
+   * to `[]`.
+   */
+  readonly signals?: Record<string, readonly HarnessSignal[] | ((session: AiSession) => readonly HarnessSignal[])>;
   /** Optional scripted session ids per template name. String = constant; function = per-call. */
   readonly sessionIds?: Record<string, string | ((session: AiSession) => string | undefined)>;
   /**
@@ -111,13 +118,11 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): FakeAiProvid
         ) as Result<ProviderOutput, DomainError>;
       }
 
-      const responseEntry = script.responses?.[templateName];
-      const body = typeof responseEntry === 'function' ? responseEntry(session) : (responseEntry ?? '');
-      const parsedSignals = parseHarnessSignals(body, IsoTimestamp.now());
-      const extraSignals = script.signals?.[templateName] ?? [];
-      const allSignals = [...parsedSignals, ...extraSignals];
+      const signalsEntry = script.signals?.[templateName];
+      const signals: readonly HarnessSignal[] =
+        typeof signalsEntry === 'function' ? signalsEntry(session) : (signalsEntry ?? []);
 
-      const wrote = await writeJsonAtomic(String(session.signalsFile), allSignals);
+      const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
       if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
 
       // Mirror Claude's bodyFile contract so tests covering forensic-artifact paths see a real
@@ -125,6 +130,8 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): FakeAiProvid
       // claude-headless logs at warn and proceeds) — surfacing it would break tests that don't
       // care about the body file.
       if (session.bodyFile !== undefined) {
+        const responseEntry = script.responses?.[templateName];
+        const body = typeof responseEntry === 'function' ? responseEntry(session) : (responseEntry ?? '');
         await writeTextAtomic(String(session.bodyFile), body);
       }
 

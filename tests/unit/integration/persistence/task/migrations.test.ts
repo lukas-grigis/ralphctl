@@ -5,7 +5,7 @@ const TASK_ID = '01900000-0000-7000-8000-000000000001';
 const TICKET_ID = '01900000-0000-7000-8000-000000000002';
 const REPO_ID = '01900000-0000-7000-8000-00000000abcd';
 
-describe('tasksFileMigrations — v0 → v1 round-trip', () => {
+describe('tasksFileMigrations — v0 → v2 round-trip', () => {
   it('migrates a pre-Wave-8 bare-array file into the versioned envelope', () => {
     const legacy = [
       {
@@ -82,9 +82,9 @@ describe('tasksFileMigrations — v0 → v1 round-trip', () => {
     }
   });
 
-  it('parses a v1 file unchanged (no migration runs)', () => {
+  it('parses a v2 file unchanged (no migration runs)', () => {
     const current = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       tasks: [
         {
           id: TASK_ID,
@@ -104,5 +104,32 @@ describe('tasksFileMigrations — v0 → v1 round-trip', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value).toHaveLength(1);
+  });
+
+  it('migrates legacy string[] verificationCriteria to the structured shape (v1 → v2)', () => {
+    const v1File = {
+      schemaVersion: 1,
+      tasks: [
+        {
+          id: TASK_ID,
+          name: 'task-a',
+          steps: [],
+          verificationCriteria: ['tests pass', 'lint clean'],
+          order: 1,
+          ticketId: TICKET_ID,
+          dependsOn: [],
+          repositoryId: REPO_ID,
+          status: 'todo' as const,
+          attempts: [],
+        },
+      ],
+    };
+    const parsed = fromJsonTasksFile(v1File);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value[0]?.verificationCriteria).toEqual([
+      { id: 'C1', assertion: 'tests pass', check: 'manual' },
+      { id: 'C2', assertion: 'lint clean', check: 'manual' },
+    ]);
   });
 });

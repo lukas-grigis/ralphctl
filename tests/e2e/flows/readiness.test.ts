@@ -18,6 +18,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AgentsMdProposalSignal } from '@src/domain/signal.ts';
 import { absolutePath, FIXED_NOW, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -94,6 +95,17 @@ const scriptedInteractive = (answers: ScriptedAnswers): InteractivePrompt => {
 };
 
 /**
+ * Build an `agents-md-proposal` signal — readiness's contract requires exactly one per
+ * spawn; tests use this builder to keep the inline signal arrays terse.
+ */
+const claudeMdProposal = (content: string): AgentsMdProposalSignal => ({
+  type: 'agents-md-proposal',
+  tag: 'claude-md',
+  content,
+  timestamp: IsoTimestamp.now(),
+});
+
+/**
  * In-memory `WriteFile` adapter that records every write into a Map keyed by absolute path.
  * Tests assert the write order via `writes` (insertion-ordered) and the per-path content.
  */
@@ -153,11 +165,11 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: {
-        readiness: '<claude-md>\n# repo-a\n\n## Build & Run\n- pnpm install\n</claude-md>',
-      },
       signals: {
-        readiness: [{ type: 'note', text: 'small repo', timestamp: IsoTimestamp.now() }],
+        readiness: [
+          claudeMdProposal('# repo-a\n\n## Build & Run\n- pnpm install\n'),
+          { type: 'note', text: 'small repo', timestamp: IsoTimestamp.now() },
+        ],
       },
     });
 
@@ -259,7 +271,7 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: { readiness: '<claude-md>\n# repo-a\n</claude-md>' },
+      signals: { readiness: [claudeMdProposal('# repo-a\n')] },
     });
 
     const interactive = scriptedInteractive({
@@ -313,7 +325,7 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: { readiness: '<claude-md>\n# new content\n</claude-md>' },
+      signals: { readiness: [claudeMdProposal('# new content\n')] },
     });
 
     const interactive = scriptedInteractive({
@@ -373,7 +385,7 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: { readiness: '<claude-md>\n# fresh\n</claude-md>' },
+      signals: { readiness: [claudeMdProposal('# fresh\n')] },
     });
 
     const interactive = scriptedInteractive({
@@ -415,17 +427,17 @@ describe('createReadinessFlow', () => {
     expect(finalWrites).toHaveLength(1);
   });
 
-  it('surfaces a ParseError when the AI omits the <claude-md> tag, with the raw body spliced into the error hint', async () => {
+  it('surfaces an InvalidStateError when the AI omits the agents-md-proposal signal', async () => {
     const { project } = await buildScene();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
     const writer = recordingWriteFile();
 
-    // Permission-ask shape mirrors what the model actually emits when it can't read the repo —
-    // the failsafe must surface this text in the error hint so the operator sees what happened.
-    const permissionAskBody = 'I need read permission for /repo. Approve the prompt in the UI and I will continue.';
+    // The AI returned no proposal signal — emulates a session that couldn't read the repo and
+    // bailed without producing anything actionable. The leaf must surface a typed error rather
+    // than silently advancing.
     const provider = createFakeAiProvider({
-      responses: { readiness: permissionAskBody },
+      signals: { readiness: [] },
     });
 
     const interactive = scriptedInteractive({
@@ -484,9 +496,9 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: { readiness: '<claude-md>\n# repo-a\n</claude-md>' },
       signals: {
         readiness: [
+          claudeMdProposal('# repo-a\n'),
           {
             type: 'setup-skill-proposal',
             content: '# Setup\n\nRun `pnpm install`.',
@@ -544,7 +556,7 @@ describe('createReadinessFlow', () => {
     const writer = recordingWriteFile();
 
     const provider = createFakeAiProvider({
-      responses: { readiness: '<claude-md>\n# repo-a\n</claude-md>' },
+      signals: { readiness: [claudeMdProposal('# repo-a\n')] },
     });
 
     const interactive = scriptedInteractive({

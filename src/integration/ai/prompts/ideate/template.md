@@ -21,7 +21,15 @@ When BOTH phases are approved by the user, emit an `ideated-tickets` signal whos
       "description": "...",
       "projectPath": "...",
       "steps": ["..."],
-      "verificationCriteria": ["..."],
+      "verificationCriteria": [
+        {
+          "id": "C1",
+          "assertion": "TypeScript compiles with no errors",
+          "check": "auto",
+          "command": "<project's typecheck command>"
+        },
+        { "id": "C2", "assertion": "API returns 400 on invalid input", "check": "manual" }
+      ],
       "blockedBy": []
     }
   ]
@@ -141,7 +149,15 @@ pick up cold. For each task:
 - **`steps`** — concrete implementation steps in order. End with the project's verification
   command (read the project's AI context file or manifest for the exact command — e.g. typecheck
   / lint / tests chained with `&&` — and name the repository the command runs in).
-- **`verificationCriteria`** — observable checks an evaluator can run.
+- **`verificationCriteria`** — structured criteria the evaluator grades PASS / FAIL. Each entry is
+  an object: `{ id, assertion, check, command? }`.
+  - `id` is stable within the task (e.g. `"C1"`, `"C2"`). The evaluator cites it verbatim.
+  - `assertion` is the human-readable check.
+  - `check` is `"auto"` (the evaluator runs `command`) or `"manual"` (the evaluator inspects the
+    code / behaviour and cites a specific location).
+  - `command` is REQUIRED when `check === "auto"` and MUST be omitted when `check === "manual"`.
+    Use the project's own commands — never hardcode a package manager.
+  - Example: `[{ "id": "C1", "assertion": "TypeScript compiles", "check": "auto", "command": "<project's typecheck command>" }, { "id": "C2", "assertion": "API returns 400 on invalid input", "check": "manual" }]`
 - **`blockedBy`** — `id`s of tasks that must complete before this one starts.
 - **`id`** — short string for `blockedBy` references (e.g. `"1"`, `"api-shape"`).
 

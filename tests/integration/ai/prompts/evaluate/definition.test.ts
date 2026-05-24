@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import { createTask, type TodoTask } from '@src/domain/entity/task.ts';
+import { createTask, type TodoTask, type VerificationCriterion } from '@src/domain/entity/task.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -22,11 +22,15 @@ const unwrap = <T, E>(r: Result<T, E>): T => {
   return r.value as T;
 };
 
+const DEFAULT_CRITERIA: readonly VerificationCriterion[] = [
+  { id: 'C1', assertion: 'runs to completion', check: 'manual' },
+];
+
 const makeTaskWith = (overrides: {
   name?: string;
   description?: string;
   steps?: readonly string[];
-  verificationCriteria?: readonly string[];
+  verificationCriteria?: readonly VerificationCriterion[];
 }): TodoTask => {
   const ticket = makeApprovedTicket();
   return unwrap(
@@ -35,13 +39,15 @@ const makeTaskWith = (overrides: {
       ...(overrides.description !== undefined ? { description: overrides.description } : {}),
       steps: overrides.steps !== undefined ? [...overrides.steps] : ['step 1'],
       verificationCriteria:
-        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : ['runs to completion'],
+        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : DEFAULT_CRITERIA,
       order: 1,
       ticketId: ticket.id,
       repositoryId: FIXED_REPOSITORY_ID,
     })
   );
 };
+
+const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
 
 describe('evaluatePromptDef — completeness', () => {
   it('every placeholder in evaluate.md is declared by the definition (parameters or partials)', async () => {
@@ -98,8 +104,7 @@ describe('evaluatePromptDef — completeness', () => {
   });
 });
 
-const SAMPLE_CONTRACT_SECTION =
-  '## Output contract\n\nWrite signals.json. (test fixture body — contains <evaluation-passed> and <evaluation-failed> markers for substring smoke checks.)';
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
 
 describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and no leftover placeholders', async () => {
@@ -109,6 +114,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       projectPath: '/tmp/ralph/main-repo',
       verifyScript: 'npm run check',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -131,6 +137,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       task,
       projectPath: '/tmp/ralph/main-repo',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -146,6 +153,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       task,
       projectPath: '/tmp/ralph/main-repo',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -159,6 +167,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       task,
       projectPath: '/tmp/ralph/main-repo',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -172,6 +181,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       task,
       projectPath: '/tmp/ralph/main-repo',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
       priorProgress: '## Task: shipped-earlier — Attempt 1\n\nTask completed successfully.',
     });
     expect(result.ok).toBe(true);
@@ -186,7 +196,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       createTask({
         name: 'add a11y',
         steps: ['add aria labels'],
-        verificationCriteria: ['screen reader announces button'],
+        verificationCriteria: [{ id: 'C1', assertion: 'screen reader announces button', check: 'manual' }],
         order: 1,
         ticketId: ticket.id,
         repositoryId: FIXED_REPOSITORY_ID,
@@ -197,6 +207,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
       task,
       projectPath: '/tmp/ralph/main-repo',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -217,6 +228,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
     const result = await buildPrompt(deps, evaluatePromptDef, {
       taskName: '   ',
       projectPath: '/tmp/ralph/main-repo',
+      contractPath: CONTRACT_PATH,
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',
@@ -235,6 +247,26 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
     const result = await buildPrompt(deps, evaluatePromptDef, {
       taskName: 'export CSV',
       projectPath: '',
+      contractPath: CONTRACT_PATH,
+      taskDescriptionSection: '',
+      taskStepsSection: '',
+      verificationCriteriaSection: '',
+      verifyScriptSection: 'No verify script configured for this repo.',
+      projectTooling: '_(none detected)_',
+      extraDimensionsSection: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+
+  it('rejects an empty contractPath', async () => {
+    const { buildPrompt } = await import('@src/integration/ai/prompts/_engine/build-prompt.ts');
+    const result = await buildPrompt(deps, evaluatePromptDef, {
+      taskName: 'export CSV',
+      projectPath: '/tmp/ralph/main-repo',
+      contractPath: '',
       taskDescriptionSection: '',
       taskStepsSection: '',
       verificationCriteriaSection: '',

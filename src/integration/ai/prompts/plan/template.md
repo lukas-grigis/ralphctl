@@ -43,7 +43,15 @@ Each task entry uses these fields:
   the harness propagates it onto generated tasks for commit-message and PR-body trailers.
   Always set `ticketRef` to the UUID; never substitute the external reference.
 - **`steps`** — concrete implementation steps in order.
-- **`verificationCriteria`** — observable checks an evaluator can run.
+- **`verificationCriteria`** — structured criteria the evaluator grades PASS / FAIL. Each entry is an
+  object: `{ id, assertion, check, command? }`.
+  - `id` is stable within the task (e.g. `"C1"`, `"C2"`). The evaluator cites it verbatim.
+  - `assertion` is the human-readable check.
+  - `check` is either `"auto"` (the evaluator runs `command`) or `"manual"` (the evaluator inspects
+    the code / behaviour and cites a specific location).
+  - `command` is REQUIRED when `check === "auto"` and MUST be omitted when `check === "manual"`.
+    Use the project's own commands rather than hardcoding a package manager — read the project's
+    AI context file or manifest for the exact verification command this repository expects.
 - **`blockedBy`** — `id`s of earlier tasks that must complete first.
 - **`extraDimensions`** — optional kebab-case names of task-specific evaluator dimensions to
   score IN ADDITION to the four floor dimensions (correctness, completeness, safety,
@@ -146,20 +154,25 @@ The illustrations below are non-normative — they show good/bad shapes for the 
 
 **Verification Criteria — good vs bad**
 
-> **Good criteria (verifiable, unambiguous):**
+> **Good criteria (structured, verifiable):**
 >
-> - "TypeScript compiles with no errors"
-> - "All existing tests pass plus new tests for the added feature"
-> - "GET /api/users returns 200 with paginated user list"
-> - "GET /api/users?page=-1 returns 400 with validation error"
-> - "Component renders without console errors in browser"
-> - "Playwright e2e: login flow completes without errors" _(UI tasks with Playwright configured)_
+> ```json
+> "verificationCriteria": [
+>   { "id": "C1", "assertion": "TypeScript compiles with no errors", "check": "auto", "command": "<project's typecheck command>" },
+>   { "id": "C2", "assertion": "All existing tests pass plus new tests for the added feature", "check": "auto", "command": "<project's test command>" },
+>   { "id": "C3", "assertion": "GET /api/users?page=-1 returns 400 with a validation error body", "check": "manual" }
+> ]
+> ```
+>
+> Notes: use the project's own typecheck / test / lint command for `auto` criteria — never hardcode
+> a package manager. Use `manual` for behavioural assertions the evaluator must inspect in code.
 
 > **Bad criteria (vague, not independently verifiable):**
 >
-> - "Code is clean and well-structured"
-> - "Error handling is appropriate"
-> - "Performance is acceptable"
+> - `{ "assertion": "Code is clean and well-structured", "check": "manual" }`
+> - `{ "assertion": "Error handling is appropriate", "check": "manual" }`
+> - `{ "assertion": "Performance is acceptable", "check": "manual" }`
+> - Bare strings (e.g. `"TypeScript compiles"`) — the structured object is required.
 
 **Dependency Graph — good vs bad**
 
@@ -211,10 +224,20 @@ Good — precise steps with file paths and pattern references:
     "Run the project's verification commands (read the project's AI context file or manifest for the exact commands — typecheck, lint, and tests) — all must pass"
   ],
   "verificationCriteria": [
-    "TypeScript compiles with no errors",
-    "All existing tests pass plus new auth tests",
-    "ProtectedRoute redirects unauthenticated users to /login",
-    "useAuth hook exposes isAuthenticated, user, login, and logout"
+    {
+      "id": "C1",
+      "assertion": "TypeScript compiles with no errors",
+      "check": "auto",
+      "command": "<project's typecheck command>"
+    },
+    {
+      "id": "C2",
+      "assertion": "All existing tests pass plus new auth tests",
+      "check": "auto",
+      "command": "<project's test command>"
+    },
+    { "id": "C3", "assertion": "ProtectedRoute redirects unauthenticated users to /login", "check": "manual" },
+    { "id": "C4", "assertion": "useAuth hook exposes isAuthenticated, user, login, and logout", "check": "manual" }
   ]
 }
 ```

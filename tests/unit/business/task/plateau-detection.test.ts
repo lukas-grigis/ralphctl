@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DimensionScore, DimensionScoreValue, EvaluationSignal } from '@src/domain/signal.ts';
+import type { DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 import {
   computePlateauVerdict,
@@ -11,11 +11,10 @@ import {
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
-const dim = (name: string, passed: boolean, score: DimensionScoreValue = passed ? 5 : 2): DimensionScore => ({
+const dim = (name: string, passed: boolean): DimensionScore => ({
   dimension: name,
-  score,
   passed,
-  finding: '',
+  finding: passed ? '' : 'placeholder failure finding',
 });
 
 const evalFrom = (...dims: DimensionScore[]): EvaluationSignal => ({
@@ -101,59 +100,36 @@ describe('trigramJaccard', () => {
 
 describe('computePlateauVerdict — base case (regression for 2026-05-20 verified path)', () => {
   it('fires when dimensions repeat identically across the default threshold of 2 turns', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev)], turn(ev), { threshold: 2 });
     expect(verdict.kind).toBe('plateau');
     if (verdict.kind === 'plateau') expect(verdict.dimensions).toEqual(['completeness']);
   });
 
   it('does not fire on a single turn (not enough history)', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([], turn(ev), { threshold: 2 });
     expect(verdict.kind).toBe('none');
   });
 
   it('does not fire when failed dimensions differ between turns', () => {
-    const prior = evalFrom(dim('correctness', false, 2));
-    const current = evalFrom(dim('completeness', false, 3));
+    const prior = evalFrom(dim('correctness', false));
+    const current = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
     expect(verdict.kind).toBe('none');
   });
 
   it('does not fire when current turn has no failed dimensions', () => {
-    const prior = evalFrom(dim('completeness', false, 3));
-    const current = evalFrom(dim('completeness', true, 4));
+    const prior = evalFrom(dim('completeness', false));
+    const current = evalFrom(dim('completeness', true));
     const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
     expect(verdict.kind).toBe('none');
   });
 });
 
-describe('computePlateauVerdict — score-delta exemption', () => {
-  it('returns "progress" when a previously-failed dimension score improved by ≥1 (still failing)', () => {
-    const prior = evalFrom(dim('correctness', false, 2));
-    const current = evalFrom(dim('correctness', false, 3));
-    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
-    expect(verdict.kind).toBe('progress');
-    if (verdict.kind === 'progress') expect(verdict.reason).toBe('score-improved');
-  });
-
-  it('does not exempt when scores are unchanged', () => {
-    const ev = evalFrom(dim('correctness', false, 3));
-    const verdict = computePlateauVerdict([turn(ev)], turn(ev), { threshold: 2 });
-    expect(verdict.kind).toBe('plateau');
-  });
-
-  it('does not exempt when score regressed', () => {
-    const prior = evalFrom(dim('correctness', false, 3));
-    const current = evalFrom(dim('correctness', false, 2));
-    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
-    expect(verdict.kind).toBe('plateau');
-  });
-});
-
 describe('computePlateauVerdict — commit-progress softening', () => {
   it('returns "warning" when same dims+scores but commit subject changed', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(
       [turn(ev, { commitSubject: 'WIP option A' })],
       turn(ev, { commitSubject: 'WIP option B' }),
@@ -167,7 +143,7 @@ describe('computePlateauVerdict — commit-progress softening', () => {
   });
 
   it('does not soften when commit subject is the same', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(
       [turn(ev, { commitSubject: 'same subject' })],
       turn(ev, { commitSubject: 'same subject' }),
@@ -177,7 +153,7 @@ describe('computePlateauVerdict — commit-progress softening', () => {
   });
 
   it('does not soften when commit subject is missing on one side', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev)], turn(ev, { commitSubject: 'first commit' }), {
       threshold: 2,
     });
@@ -187,7 +163,7 @@ describe('computePlateauVerdict — commit-progress softening', () => {
 
 describe('computePlateauVerdict — critique-shift exemption', () => {
   it('returns "progress" when critique Jaccard < 0.5', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const priorCritique = 'still missing the early-return branch in the parser';
     const currentCritique = 'overflow on huge inputs; bounds check needed in the buffer alloc path';
     const verdict = computePlateauVerdict(
@@ -200,7 +176,7 @@ describe('computePlateauVerdict — critique-shift exemption', () => {
   });
 
   it('does not exempt when critique is near-identical (Jaccard ≥ 0.5)', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(
       [turn(ev, { critique: 'still missing the X branch' })],
       turn(ev, { critique: 'still missing the X branch.' }),
@@ -210,7 +186,7 @@ describe('computePlateauVerdict — critique-shift exemption', () => {
   });
 
   it('falls through to plateau when critique is missing on either side', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev)], turn(ev, { critique: 'only one side has it' }), {
       threshold: 2,
     });
@@ -220,31 +196,31 @@ describe('computePlateauVerdict — critique-shift exemption', () => {
 
 describe('computePlateauVerdict — configurable threshold', () => {
   it('threshold=3: two consecutive same-dim turns → no plateau yet', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev)], turn(ev), { threshold: 3 });
     expect(verdict.kind).toBe('none');
   });
 
   it('threshold=3: three consecutive same-dim turns → plateau fires', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev), turn(ev)], turn(ev), { threshold: 3 });
     expect(verdict.kind).toBe('plateau');
   });
 
   it('threshold=5: needs 5 consecutive same-dim turns; 4 prior + current fires', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev), turn(ev), turn(ev), turn(ev)], turn(ev), { threshold: 5 });
     expect(verdict.kind).toBe('plateau');
   });
 
   it('clamps an out-of-range threshold defensively (0 → 2)', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict([turn(ev)], turn(ev), { threshold: 0 });
     expect(verdict.kind).toBe('plateau');
   });
 
   it('clamps an out-of-range threshold defensively (99 → 5)', () => {
-    const ev = evalFrom(dim('completeness', false, 3));
+    const ev = evalFrom(dim('completeness', false));
     // Four prior + current = 5 turns total — exactly the clamped maximum.
     const verdict = computePlateauVerdict([turn(ev), turn(ev), turn(ev), turn(ev)], turn(ev), {
       threshold: 99,
@@ -255,8 +231,8 @@ describe('computePlateauVerdict — configurable threshold', () => {
 
 describe('computePlateauVerdict — sliding window', () => {
   it('only looks at the most-recent (threshold-1) prior turns, not the whole history', () => {
-    const stable = evalFrom(dim('completeness', false, 3));
-    const noise = evalFrom(dim('safety', false, 2));
+    const stable = evalFrom(dim('completeness', false));
+    const noise = evalFrom(dim('safety', false));
     // Old noise should not break the window: at threshold=2 we only compare the last prior + current.
     const verdict = computePlateauVerdict([turn(noise), turn(stable)], turn(stable), { threshold: 2 });
     expect(verdict.kind).toBe('plateau');

@@ -107,12 +107,12 @@ export const runEvaluatorTurnUseCase = async (
 
   const evaluation = findEvaluation(signals);
   if (evaluation === undefined) {
-    log.warn('evaluator produced no <evaluation-passed> or <evaluation-failed> verdict', {
+    log.warn('evaluator produced no `evaluation` signal in signals.json', {
       taskId: props.task.id,
     });
     return Result.ok({
       task: props.task,
-      exit: { kind: 'malformed', detail: 'evaluator emitted no <evaluation-passed> or <evaluation-failed> verdict' },
+      exit: { kind: 'malformed', detail: 'evaluator emitted no `evaluation` signal in signals.json' },
     });
   }
 

@@ -9,7 +9,7 @@ describe('derivePrContent', () => {
     expect(out.title).toBe('kickoff');
   });
 
-  it('renders sprint name as H1, ticket list, and sprint id footer when no done tasks exist', () => {
+  it('renders sprint name as H1 and ticket list when no done tasks exist', () => {
     const ticket = makeApprovedTicket({ title: 'login bug' });
     const sprint = makeDraftSprint({ tickets: [ticket] });
     const out = derivePrContent(sprint, []);
@@ -17,7 +17,14 @@ describe('derivePrContent', () => {
     expect(out.body).toContain('## Tickets');
     expect(out.body).toContain('- login bug');
     expect(out.body).not.toContain('## Tasks');
-    expect(out.body).toContain(`— sprint id: \`${String(sprint.id)}\``);
+  });
+
+  it('omits any ralphctl trailer / sprint-id footer — the PR body is harness-agnostic', () => {
+    const sprint = makeDraftSprint({ tickets: [makeApprovedTicket({ title: 'a' })] });
+    const out = derivePrContent(sprint, [makeDoneTask()]);
+    expect(out.body).not.toContain('sprint id');
+    expect(out.body).not.toContain('ralphctl');
+    expect(out.body).not.toContain(String(sprint.id));
   });
 
   it('omits the Tickets section when the sprint has no tickets', () => {
@@ -70,5 +77,20 @@ describe('derivePrContent', () => {
     const hits = out.body.match(/- Closes #123/g) ?? [];
     expect(hits).toHaveLength(1);
     expect(out.body).toContain('- Closes !456');
+  });
+
+  it('folds in Task.externalRefs[] alongside ticket refs, deduped first-seen-wins', () => {
+    const sprint = makeDraftSprint({
+      tickets: [makeApprovedTicket({ title: 'a', externalRef: '#123' })],
+    });
+    // Task carries the same ref as the ticket (planned 1:1 from it) plus an extra ref
+    // a multi-ticket fan-in might surface later.
+    const task = makeDoneTask({ externalRefs: ['#123', '#999'] });
+    const out = derivePrContent(sprint, [task]);
+    expect(out.body).toContain('## Related issues');
+    // Single occurrence of the shared ref; ticket order first.
+    const sharedHits = out.body.match(/- Closes #123/g) ?? [];
+    expect(sharedHits).toHaveLength(1);
+    expect(out.body).toContain('- Closes #999');
   });
 });

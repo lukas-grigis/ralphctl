@@ -9,12 +9,64 @@ import { TASKS_FILE_SCHEMA_VERSION, tasksFileMigrations } from '@src/integration
 import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
 import { safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
 
+/**
+ * Structured verification-criterion shape. Mirrors {@link VerificationCriterion} in the
+ * domain. The `auto` / `manual` discriminator is encoded as a literal union plus a
+ * `superRefine` invariant: `auto` REQUIRES `command`, `manual` REJECTS it.
+ *
+ * Backwards compatibility: persisted `tasks.json` files written before this redesign carried
+ * `verificationCriteria` as `string[]`. Pre-validation, the union below accepts either a bare
+ * string OR the structured object; the `.transform()` step normalises strings to
+ * `{ id: 'C${i+1}', assertion: <string>, check: 'manual' }`. The on-disk migration to v2
+ * additionally rewrites the persisted shape so reads stop paying the normalisation cost on
+ * the next save.
+ */
+const VerificationCriterionObject = z
+  .object({
+    id: z.string().min(1),
+    assertion: z.string().min(1),
+    check: z.union([z.literal('auto'), z.literal('manual')]),
+    command: z.string().optional(),
+  })
+  .superRefine((c, ctx) => {
+    if (c.check === 'auto') {
+      if (c.command === undefined || c.command.trim().length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `criterion '${c.id}' is auto but has no command`,
+          path: ['command'],
+        });
+      }
+    } else if (c.command !== undefined && c.command.trim().length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `criterion '${c.id}' is manual but carries a command`,
+        path: ['command'],
+      });
+    }
+  });
+
+/**
+ * Read-time normalizer — accepts the legacy `string[]` shape and rewrites each entry as
+ * `{ id: 'C${i+1}', assertion: <str>, check: 'manual' }`. Already-structured arrays pass
+ * through unchanged. Position-based id is the only stable choice when migrating legacy data
+ * (the AI didn't tag entries pre-redesign).
+ */
+const VerificationCriteriaSchema = z.array(z.union([z.string().min(1), VerificationCriterionObject])).transform((arr) =>
+  arr.map((entry, i) => {
+    if (typeof entry === 'string') {
+      return { id: `C${String(i + 1)}`, assertion: entry, check: 'manual' as const };
+    }
+    return entry;
+  })
+);
+
 const TaskBaseShape = {
   id: TaskIdSchema,
   name: z.string(),
   description: z.string().optional(),
   steps: z.array(z.string()).readonly(),
-  verificationCriteria: z.array(z.string()).readonly(),
+  verificationCriteria: VerificationCriteriaSchema,
   order: z.number(),
   ticketId: TicketIdSchema,
   dependsOn: z.array(TaskIdSchema).readonly(),

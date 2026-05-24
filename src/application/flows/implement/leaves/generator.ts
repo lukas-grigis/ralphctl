@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import {
@@ -217,6 +217,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           const prompt = await buildImplementPrompt(deps.templateLoader, {
             task,
             projectPath: String(deps.cwd),
+            contractPath: join(String(input.workspaceRoot), 'contract.md'),
             progressFile: String(deps.progressFile),
             priorProgress,
             outputContractSection: renderContractSectionFor(generatorOutputContract, outputDir),

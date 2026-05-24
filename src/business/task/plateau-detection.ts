@@ -9,18 +9,19 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * consecutive evaluator turns reporting the identical set of failed dimensions and short-
  * circuits the loop.
  *
- * The default is too eager in three practical cases:
- *  1. The evaluator's dimension labels stay the same, but the *score* on a failed dimension
- *     improved (e.g. `correctness 3→4`). The AI is converging — give it another turn.
- *  2. The AI changed its proposed commit message between rounds. Concrete forward progress
+ * The default is too eager in two practical cases:
+ *  1. The AI changed its proposed commit message between rounds. Concrete forward progress
  *     happened, even if the evaluator stayed unhappy. We soften to a warning (record it on
  *     the attempt for review) but let the loop keep going.
- *  3. The evaluator's *prose* shifted significantly even though the dimension names didn't.
+ *  2. The evaluator's *prose* shifted significantly even though the dimension names didn't.
  *     The complaint moved — that's progress, not a stuck loop.
  *
- * {@link computePlateauVerdict} encodes all three exemptions. The original strict-equality
+ * {@link computePlateauVerdict} encodes both exemptions. The original strict-equality
  * predicate ({@link dimensionsEqual}) is preserved for callers that only need the dimension-
  * set comparison.
+ *
+ * The score-improvement exemption (rubric-pre-redesign) is gone — the new PASS / FAIL rubric
+ * has no numeric score to compare. Critique-shift is the sole positive progress signal.
  *
  * Pure. No I/O.
  */
@@ -46,9 +47,8 @@ export interface PlateauTurnRecord {
  *
  *   - `none`     — no plateau (not enough history, dimensions differ, or one of the
  *                  progress exemptions applies). The loop continues normally.
- *   - `progress` — same dimensions across threshold turns, but a per-dimension score
- *                  improved OR the critique prose shifted enough. The loop continues; the
- *                  evaluator's next turn decides.
+ *   - `progress` — same dimensions across threshold turns, but the critique prose shifted
+ *                  enough. The loop continues; the evaluator's next turn decides.
  *   - `warning`  — same dimensions across threshold turns AND the AI's proposed commit
  *                  subject changed between turns. The harness records a `plateau` warning
  *                  on the attempt but does NOT exit the loop yet.
@@ -58,7 +58,7 @@ export interface PlateauTurnRecord {
  */
 export type PlateauVerdict =
   | { readonly kind: 'none' }
-  | { readonly kind: 'progress'; readonly reason: 'score-improved' | 'critique-shifted' }
+  | { readonly kind: 'progress'; readonly reason: 'critique-shifted' }
   | { readonly kind: 'warning'; readonly dimensions: readonly string[]; readonly reason: 'commit-progress' }
   | { readonly kind: 'plateau'; readonly dimensions: readonly string[] };
 
@@ -109,39 +109,6 @@ const setsEqual = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
     if (!b.has(name)) return false;
   }
   return true;
-};
-
-/**
- * Map of dimension name → best (highest) score among the failed dimensions. We compare
- * "best" so a turn that drops one of two failed dimensions from 3→4 still counts as
- * progress even if the other one stays at 2.
- */
-const failedDimensionScores = (signal: EvaluationSignal): ReadonlyMap<string, number> => {
-  const scores = new Map<string, number>();
-  for (const d of signal.dimensions) {
-    if (d.passed) continue;
-    const key = d.dimension.trim().toLowerCase();
-    const prior = scores.get(key);
-    if (prior === undefined || d.score > prior) {
-      scores.set(key, d.score);
-    }
-  }
-  return scores;
-};
-
-/**
- * Has any previously-failed dimension's score improved by ≥1 between `prev` and `curr`?
- * Only looks at dimensions failed in both turns — a dimension that dropped off the failed
- * set entirely is already counted as "progress" by the set-equality check upstream.
- */
-const anyDimensionScoreImproved = (prev: EvaluationSignal, curr: EvaluationSignal): boolean => {
-  const prevScores = failedDimensionScores(prev);
-  const currScores = failedDimensionScores(curr);
-  for (const [name, currScore] of currScores) {
-    const prevScore = prevScores.get(name);
-    if (prevScore !== undefined && currScore - prevScore >= 1) return true;
-  }
-  return false;
 };
 
 /**
@@ -218,10 +185,6 @@ export const computePlateauVerdict = (
   const lastPrior = window[window.length - 1];
   // The slice above guarantees window has at least one entry when we reach this point.
   if (lastPrior === undefined) return { kind: 'none' };
-
-  if (anyDimensionScoreImproved(lastPrior.evaluation, current.evaluation)) {
-    return { kind: 'progress', reason: 'score-improved' };
-  }
 
   const priorCritique = lastPrior.critique;
   const currentCritique = current.critique;

@@ -128,7 +128,10 @@ describe('ideateAndPlanLeaf — audit-[09] contract', () => {
           name: 'Add CSV utility',
           projectPath,
           steps: ['create util', 'write tests'],
-          verificationCriteria: ['util exported', 'tests pass'],
+          verificationCriteria: [
+            { id: 'C1', assertion: 'util exported', check: 'manual' },
+            { id: 'C2', assertion: 'tests pass', check: 'manual' },
+          ],
         },
       ],
     });

@@ -182,7 +182,9 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
 
     expect(persistedSprint.schemaVersion).toBe(1);
     expect(persistedExec.schemaVersion).toBe(1);
-    expect(persistedTasks.schemaVersion).toBe(1);
+    // tasks.json bumped to v2 by the evaluator-rubric redesign — legacy string[] verificationCriteria
+    // is normalised to the structured shape on read and re-written canonical on save.
+    expect(persistedTasks.schemaVersion).toBe(2);
 
     // top-level id was filled in from sprintId on the way through
     expect(persistedExec.id).toBe(sprintId);

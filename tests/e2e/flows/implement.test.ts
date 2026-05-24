@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -331,6 +331,47 @@ const unusedInteractive: InteractivePrompt = {
   },
 };
 
+// ─── Signal builders ────────────────────────────────────────────────────────────────
+// Production AI providers write `signals.json` directly under the audit-[09] contract;
+// fakes mirror that by feeding explicit `HarnessSignal[]` arrays to the fake provider.
+// The builders below cover the shapes used across this suite — `taskVerified('ok')`
+// reads better at the call site than the literal object.
+
+const taskVerified = (output: string): HarnessSignal => ({ type: 'task-verified', output, timestamp: FIXED_NOW });
+
+const taskBlocked = (reason: string): HarnessSignal => ({ type: 'task-blocked', reason, timestamp: FIXED_NOW });
+
+const learning = (text: string): HarnessSignal => ({ type: 'learning', text, timestamp: FIXED_NOW });
+
+const note = (text: string): HarnessSignal => ({ type: 'note', text, timestamp: FIXED_NOW });
+
+const commitMessage = (subject: string, body?: string): HarnessSignal => ({
+  type: 'commit-message',
+  subject,
+  ...(body !== undefined ? { body } : {}),
+  timestamp: FIXED_NOW,
+});
+
+/**
+ * Synthesise the same single-overall-dimension shape the deleted legacy `<evaluation-failed>`
+ * test parser produced — preserves the "generic failure" intent of older fixtures without
+ * forcing every call site to author dimension rows.
+ */
+const evaluationFailed = (critique: string): EvaluationSignal => ({
+  type: 'evaluation',
+  status: 'failed',
+  dimensions: [{ dimension: 'overall', passed: false, finding: critique.length > 0 ? critique : 'failed' }],
+  critique,
+  timestamp: FIXED_NOW,
+});
+
+const evaluationPassed = (): EvaluationSignal => ({
+  type: 'evaluation',
+  status: 'passed',
+  dimensions: [],
+  timestamp: FIXED_NOW,
+});
+
 describe('createImplementFlow — gen-eval loop', () => {
   let cleanupFns: Array<() => Promise<void>>;
   beforeEach(() => {
@@ -351,9 +392,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>tests pass</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -395,9 +436,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>tests pass</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -442,11 +483,11 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>tests pass</task-verified>',
+      signals: {
+        implement: [taskVerified('tests pass')],
         evaluate: () => {
           evalCalls += 1;
-          return evalCalls === 1 ? '<evaluation-failed>missing edge case</evaluation-failed>' : '<evaluation-passed>';
+          return evalCalls === 1 ? [evaluationFailed('missing edge case')] : [evaluationPassed()];
         },
       },
     });
@@ -490,15 +531,23 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     let evalCalls = 0;
     let implementCalls = 0;
+    // Critique varies per turn — Jaccard < 0.5 between rounds — so plateau detection's
+    // critique-shift exemption keeps the loop running until the maxTurns budget itself fires.
+    const critiques = [
+      'first round complaint about parser edge case behaviour',
+      'second turn — completely different concern about retry semantics',
+      'third pass discovered a SQL injection vector in the dynamic query builder',
+    ];
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: () => {
           implementCalls += 1;
-          return '<task-verified>tests pass</task-verified>';
+          return [taskVerified('tests pass')];
         },
         evaluate: () => {
+          const text = critiques[evalCalls] ?? 'fallback critique';
           evalCalls += 1;
-          return '<evaluation-failed>still wrong</evaluation-failed>';
+          return [evaluationFailed(text)];
         },
       },
     });
@@ -546,11 +595,11 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-blocked>missing API key</task-blocked>',
+      signals: {
+        implement: [taskBlocked('missing API key')],
         evaluate: () => {
           evalCalls += 1;
-          return '<evaluation-passed>';
+          return [evaluationPassed()];
         },
       },
     });
@@ -596,16 +645,14 @@ describe('createImplementFlow — gen-eval loop', () => {
     let implCalls = 0;
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: () => {
           implCalls += 1;
-          return implCalls === 1
-            ? '<task-blocked>cannot find dep</task-blocked>'
-            : '<task-verified>second task complete</task-verified>';
+          return implCalls === 1 ? [taskBlocked('cannot find dep')] : [taskVerified('second task complete')];
         },
         evaluate: () => {
           evalCalls += 1;
-          return '<evaluation-passed>';
+          return [evaluationPassed()];
         },
       },
     });
@@ -674,15 +721,12 @@ describe('createImplementFlow — gen-eval loop', () => {
     const git = commitCapturingGit(1);
 
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: [
-          '<commit-message>',
-          '  <subject>add user-id index</subject>',
-          '  <body>Speeds up the session lookup hot path.</body>',
-          '</commit-message>',
-          '<task-verified>tests pass</task-verified>',
-        ].join('\n'),
-        evaluate: '<evaluation-passed>',
+          commitMessage('add user-id index', 'Speeds up the session lookup hot path.'),
+          taskVerified('tests pass'),
+        ],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -719,9 +763,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const git = commitCapturingGit(1);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>tests pass</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -762,9 +806,9 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     // One generator + one evaluator turn — both should land artifacts under rounds/1/.
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>gen body</task-verified>\n<note>gen-note</note>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('gen body'), note('gen-note')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -830,16 +874,14 @@ describe('createImplementFlow — gen-eval loop', () => {
     let implCalls = 0;
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: () => {
           implCalls += 1;
-          return implCalls === 1
-            ? '<task-verified>first body</task-verified>'
-            : 'plain markdown with no signals at all';
+          return implCalls === 1 ? [taskVerified('first body')] : [];
         },
         evaluate: () => {
           evalCalls += 1;
-          return evalCalls === 1 ? '<evaluation-failed>retry</evaluation-failed>' : '<evaluation-passed>';
+          return evalCalls === 1 ? [evaluationFailed('retry')] : [evaluationPassed()];
         },
       },
     });
@@ -886,12 +928,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: [
-          '<learning>sqlite expects explicit pragmas</learning>',
-          '<task-verified>tests pass</task-verified>',
-        ].join('\n'),
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [learning('sqlite expects explicit pragmas'), taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -952,9 +991,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     await fs.writeFile(f.progressFile, '# Sprint: kept\n\n- id: kept\n- created: 2026-05-13T00:00:00.000Z\n', 'utf8');
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<learning>fresh learning</learning>\n<task-verified>tests pass</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [learning('fresh learning'), taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -1001,27 +1040,21 @@ describe('createImplementFlow — gen-eval loop', () => {
     const git = commitCapturingGit(1);
 
     // Two evaluator turns: first fails (forcing a second generator turn), second passes. Each
-    // generator turn emits a distinct <commit-message>; the latest non-undefined wins on ctx.
+    // generator turn emits a distinct commit-message; the latest non-undefined wins on ctx.
     let implCalls = 0;
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: () => {
           implCalls += 1;
           if (implCalls === 1) {
-            return [
-              '<commit-message><subject>first attempt subject</subject><body>first body</body></commit-message>',
-              '<task-verified>turn 1</task-verified>',
-            ].join('\n');
+            return [commitMessage('first attempt subject', 'first body'), taskVerified('turn 1')];
           }
-          return [
-            '<commit-message><subject>final subject</subject><body>final body</body></commit-message>',
-            '<task-verified>turn 2</task-verified>',
-          ].join('\n');
+          return [commitMessage('final subject', 'final body'), taskVerified('turn 2')];
         },
         evaluate: () => {
           evalCalls += 1;
-          return evalCalls === 1 ? '<evaluation-failed>not quite</evaluation-failed>' : '<evaluation-passed>';
+          return evalCalls === 1 ? [evaluationFailed('not quite')] : [evaluationPassed()];
         },
       },
     });
@@ -1065,9 +1098,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>looks great</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('looks great')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -1141,9 +1174,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(f.tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>looks great</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('looks great')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -1213,14 +1246,14 @@ describe('createImplementFlow — gen-eval loop', () => {
     let implCalls = 0;
     let evalCalls = 0;
     const provider = createFakeAiProvider({
-      responses: {
+      signals: {
         implement: () => {
           implCalls += 1;
-          return 'just prose, no tags';
+          return [];
         },
         evaluate: () => {
           evalCalls += 1;
-          return 'also no tags here';
+          return [];
         },
       },
     });
@@ -1299,9 +1332,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     const taskRepo = inMemoryTaskRepo(tasks);
 
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>tests pass</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
       },
     });
 
@@ -1469,9 +1502,9 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     // Fresh provider answers — the new attempt re-runs gen+eval cleanly.
     const provider = createFakeAiProvider({
-      responses: {
-        implement: '<task-verified>resumed run passes</task-verified>',
-        evaluate: '<evaluation-passed>',
+      signals: {
+        implement: [taskVerified('resumed run passes')],
+        evaluate: [evaluationPassed()],
       },
     });
 

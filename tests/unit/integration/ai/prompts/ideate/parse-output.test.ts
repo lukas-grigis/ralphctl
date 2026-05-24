@@ -29,7 +29,7 @@ describe('parseIdeateOutput', () => {
           description: 'wire it up',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['add schema', 'wire controller'],
-          verificationCriteria: ['tests pass'],
+          verificationCriteria: [{ id: 'C1', assertion: 'tests pass', check: 'manual' }],
           blockedBy: [],
         },
         {
@@ -37,7 +37,7 @@ describe('parseIdeateOutput', () => {
           name: 'Add UI button',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['add component'],
-          verificationCriteria: ['button visible'],
+          verificationCriteria: [{ id: 'C1', assertion: 'button visible', check: 'manual' }],
           blockedBy: ['1'],
         },
       ],
@@ -84,7 +84,7 @@ describe('parseIdeateOutput', () => {
           name: 'X',
           projectPath: '/some/unknown/path',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ],
     });
@@ -102,7 +102,7 @@ describe('parseIdeateOutput', () => {
           name: 'X',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
           blockedBy: ['ghost'],
         },
       ],
@@ -120,7 +120,7 @@ describe('parseIdeateOutput', () => {
           name: 'X',
           projectPath: '/tmp/ralph/main-repo',
           steps: [],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ],
     });
@@ -144,13 +144,13 @@ describe('parseIdeateOutput', () => {
           name: 'A',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
         {
           name: 'B',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ],
     });
@@ -170,7 +170,7 @@ describe('parseIdeateOutput', () => {
           name: 'A',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ],
     });
@@ -188,7 +188,7 @@ describe('parseIdeateOutput', () => {
           name: 'A',
           projectPath: '/tmp/ralph/main-repo',
           steps: ['s'],
-          verificationCriteria: ['v'],
+          verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
       ],
     });

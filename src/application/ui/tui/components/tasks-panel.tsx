@@ -488,14 +488,12 @@ const collectKinds = (bucketed: BucketedExecution): readonly string[] => {
 /**
  * Per-criterion verdict mapping is deterministic only when the criterion count and the
  * evaluator's dimension count match — in that case we pair them positionally, which is what
- * the AI prompt already encourages. When counts diverge (a freshly-edited criteria file or an
- * evaluator with a different dimension shape), we fall back to the 4-dimension scores
- * unchanged rather than fabricate attribution. Returns the rendered text bullets, one per
- * criterion, paired with the dimension's score / pass flag.
+ * the AI prompt already encourages. When counts diverge, we fall back to the per-dimension
+ * row rendering rather than fabricate attribution. Returns the rendered text bullets, one
+ * per criterion, paired with the dimension's pass flag.
  */
 interface CriterionVerdictRow {
   readonly criterion: string;
-  readonly score: number;
   readonly passed: boolean;
 }
 
@@ -510,7 +508,7 @@ const fuseCriteriaWithDimensions = (
     const c = criteria[i];
     const d = dimensions[i];
     if (c === undefined || d === undefined) return undefined;
-    out.push({ criterion: c, score: d.score, passed: d.passed });
+    out.push({ criterion: c, passed: d.passed });
   }
   return out;
 };
@@ -537,12 +535,6 @@ const EvaluationLine = ({
           {'  '}eval{'  '}
         </Text>
         <Text bold>{evaluation.status}</Text>
-        {evaluation.overallScore !== undefined && (
-          <Text dimColor>
-            {' '}
-            {glyphs.bullet} {evaluation.overallScore.toFixed(1)}/5.0
-          </Text>
-        )}
       </Box>
       {fused !== undefined ? (
         // Per-criterion attribution: one row per criterion, each ellided on width so a long
@@ -554,10 +546,7 @@ const EvaluationLine = ({
               <Text color={row.passed ? inkColors.success : inkColors.error} bold>
                 {row.passed ? glyphs.check : glyphs.cross}
               </Text>
-              <Text dimColor>
-                {' '}
-                {String(row.score)}/5{'  '}
-              </Text>
+              <Text> </Text>
               <Box flexGrow={1} flexShrink={1}>
                 <Text wrap="truncate-end">{collapseWhitespace(row.criterion)}</Text>
               </Box>
@@ -569,7 +558,7 @@ const EvaluationLine = ({
           <Box paddingLeft={6}>
             <Text dimColor>
               {evaluation.dimensions
-                .map((d) => `${d.dimension}: ${String(d.score)}/5 ${d.passed ? glyphs.check : glyphs.cross}`)
+                .map((d) => `${d.dimension}: ${d.passed ? glyphs.check : glyphs.cross}`)
                 .join(`  ${glyphs.bullet}  `)}
             </Text>
           </Box>

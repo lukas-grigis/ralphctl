@@ -107,8 +107,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   const passedEvaluation: EvaluationSignal = {
     type: 'evaluation',
     status: 'passed',
-    dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: 'all good' }],
-    overallScore: 5,
+    dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
     critique: 'Solid pass.',
     timestamp: '2026-05-22T10:00:00.000Z' as EvaluationSignal['timestamp'],
   };
@@ -116,8 +115,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   const failedEvaluation: EvaluationSignal = {
     type: 'evaluation',
     status: 'failed',
-    dimensions: [{ dimension: 'correctness', score: 2, passed: false, finding: 'returns wrong type' }],
-    overallScore: 2,
+    dimensions: [{ dimension: 'correctness', passed: false, finding: 'returns wrong type' }],
     critique: 'Fix the return type before merging.',
     timestamp: '2026-05-22T10:00:00.000Z' as EvaluationSignal['timestamp'],
   };

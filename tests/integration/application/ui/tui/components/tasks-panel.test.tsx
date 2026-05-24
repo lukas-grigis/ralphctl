@@ -27,7 +27,6 @@ const evaluation = (i: number): EvaluationSignal => ({
   type: 'evaluation',
   status: 'passed',
   dimensions: [],
-  overallScore: 5,
   timestamp: ts(i),
 });
 
@@ -179,9 +178,10 @@ describe('TasksPanel render caps', () => {
     // Default cap is 6 → 50 - 6 = 44 elided.
     expect(frame).toContain('… 44 earlier evaluations');
 
-    // Each rendered evaluation shows its score as "<score>/5.0" — exactly 6 should appear.
-    const evalScoreCount = frame.split('5.0/5.0').length - 1;
-    expect(evalScoreCount).toBe(6);
+    // Each rendered evaluation shows its status as "passed" — exactly 6 should appear under
+    // the new PASS / FAIL rubric (no numeric score row).
+    const passedCount = frame.split('passed').length - 1;
+    expect(passedCount).toBe(6);
 
     r.unmount();
   });

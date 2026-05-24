@@ -25,15 +25,16 @@ export interface DerivedPrContent {
  *   - <task name>
  *   - …
  *
- *   ## Related issues  (omitted when no ticket carries an externalRef)
+ *   ## Related issues  (omitted when neither tickets nor tasks carry external refs)
  *   - Closes #123
  *   - Closes !456
  *
- *   — sprint id: `<sprint id>`
- *
  * "Related issues" bullets use the `Closes <ref>` form GitHub and GitLab both recognise for
- * auto-close on merge. Refs are trimmed and deduped via `normalizeRefs` so a sprint that
- * collected the same issue ref on multiple tickets does not show it twice.
+ * auto-close on merge. Refs are gathered from both `Ticket.externalRef` (singular, set at
+ * ticket-creation time) and `Task.externalRefs[]` (plural, inherited from the originating
+ * ticket at plan time) — the merged list is trimmed and deduped via `normalizeRefs` so a ref
+ * that appears on both a ticket and its derived task does not show twice. The PR body is
+ * deliberately ralphctl-agnostic: no sprint id, no harness footer.
  */
 export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): DerivedPrContent => {
   const sections: string[] = [`# ${sprint.name}`];
@@ -49,13 +50,14 @@ export const derivePrContent = (sprint: Sprint, tasks: readonly Task[]): Derived
     sections.push(`## Tasks\n${taskLines}`);
   }
 
-  const orderedRefs = normalizeRefs(sprint.tickets.map((t) => t.externalRef ?? ''));
+  const orderedRefs = normalizeRefs([
+    ...sprint.tickets.map((t) => t.externalRef ?? ''),
+    ...tasks.flatMap((t) => t.externalRefs ?? []),
+  ]);
   if (orderedRefs.length > 0) {
     const refLines = orderedRefs.map((r) => `- Closes ${r}`).join('\n');
     sections.push(`## Related issues\n${refLines}`);
   }
-
-  sections.push(`— sprint id: \`${String(sprint.id)}\``);
 
   return { title: sprint.name, body: sections.join('\n\n') };
 };

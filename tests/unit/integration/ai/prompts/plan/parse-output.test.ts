@@ -34,7 +34,7 @@ describe('parsePlanOutput', () => {
         ticketRef: ticketIds[0],
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
       {
         id: 'T2',
@@ -42,7 +42,7 @@ describe('parsePlanOutput', () => {
         ticketRef: ticketIds[1],
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         blockedBy: ['T1'],
       },
     ]);
@@ -77,7 +77,7 @@ describe('parsePlanOutput', () => {
         ticketRef: String(approvedA.value.id),
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
       {
         id: 'T2',
@@ -85,7 +85,7 @@ describe('parsePlanOutput', () => {
         ticketRef: String(approvedB.value.id),
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
     ]);
     const out = parsePlanOutput(json, { project, sprint });
@@ -106,7 +106,7 @@ describe('parsePlanOutput', () => {
         ticketRef: ticketIds[0],
         projectPath: String(project.repositories[0]?.path),
         steps: ['add aria labels'],
-        verificationCriteria: ['screen reader announces button'],
+        verificationCriteria: [{ id: 'C1', assertion: 'screen reader announces button', check: 'manual' }],
         extraDimensions: ['Accessibility', '  performance  '],
       },
     ]);
@@ -150,7 +150,7 @@ describe('parsePlanOutput', () => {
         ticketRef: '00000000-0000-7000-8000-000000000000',
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
     ]);
     const out = parsePlanOutput(json, { project, sprint });
@@ -167,7 +167,7 @@ describe('parsePlanOutput', () => {
         ticketRef: ticketIds[0],
         projectPath: '/elsewhere',
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
     ]);
     const out = parsePlanOutput(json, { project, sprint });
@@ -183,7 +183,7 @@ describe('parsePlanOutput', () => {
         name: 'X',
         projectPath: String(project.repositories[0]?.path),
         steps: ['s'],
-        verificationCriteria: ['v'],
+        verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
       },
     ]);
     const out = parsePlanOutput(json, { project, sprint });

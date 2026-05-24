@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createTask,
   failCurrentAttempt,
   markTaskBlocked,
   markTaskDone,
@@ -13,11 +14,14 @@ import {
   updateTask,
   type DoneTask,
   type InProgressTask,
+  type VerificationCriterion,
 } from '@src/domain/entity/task.ts';
 import {
   commitSha,
   FIXED_LATER,
   FIXED_NOW,
+  FIXED_REPOSITORY_ID,
+  makeApprovedTicket,
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
   makeTodoTask,
@@ -174,5 +178,75 @@ describe('updateTask', () => {
     expect(r.value.description).toBeUndefined();
     expect(r.value.extraDimensions).toBeUndefined();
     expect(r.value.maxAttempts).toBeUndefined();
+  });
+});
+
+describe('VerificationCriterion invariants', () => {
+  const baseTaskInput = (criteria: readonly VerificationCriterion[]) => ({
+    name: 'do-the-thing',
+    steps: ['step 1'],
+    verificationCriteria: criteria,
+    order: 1,
+    ticketId: makeApprovedTicket().id,
+    repositoryId: FIXED_REPOSITORY_ID,
+  });
+
+  it('createTask accepts manual criteria without a command', () => {
+    const r = createTask(baseTaskInput([{ id: 'C1', assertion: 'looks right', check: 'manual' }]));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.verificationCriteria[0]?.command).toBeUndefined();
+  });
+
+  it('createTask accepts auto criteria with a non-empty command', () => {
+    const r = createTask(
+      baseTaskInput([{ id: 'C1', assertion: 'TypeScript compiles', check: 'auto', command: 'npm run typecheck' }])
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.verificationCriteria[0]?.command).toBe('npm run typecheck');
+  });
+
+  it('createTask rejects auto criteria with no command', () => {
+    const r = createTask(baseTaskInput([{ id: 'C1', assertion: 'X', check: 'auto' }]));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.message).toMatch(/auto.*command/);
+  });
+
+  it('createTask rejects auto criteria with an empty / whitespace command', () => {
+    const r = createTask(baseTaskInput([{ id: 'C1', assertion: 'X', check: 'auto', command: '   ' }]));
+    expect(r.ok).toBe(false);
+  });
+
+  it('createTask rejects manual criteria that carry a command', () => {
+    const r = createTask(
+      baseTaskInput([{ id: 'C1', assertion: 'visual check', check: 'manual', command: 'npm test' }])
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.message).toMatch(/manual.*command/);
+  });
+
+  it('updateTask propagates the same invariant', () => {
+    const todo = makeTodoTask();
+    const denied = updateTask(todo, {
+      verificationCriteria: [{ id: 'C1', assertion: 'X', check: 'auto' }],
+    });
+    expect(denied.ok).toBe(false);
+    const ok = updateTask(todo, {
+      verificationCriteria: [{ id: 'C1', assertion: 'X', check: 'auto', command: 'npm test' }],
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('updateTask drops the command field for manual criteria when cloning', () => {
+    const todo = makeTodoTask();
+    const r = updateTask(todo, {
+      verificationCriteria: [{ id: 'C1', assertion: 'manual', check: 'manual' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.verificationCriteria[0]).toEqual({ id: 'C1', assertion: 'manual', check: 'manual' });
   });
 });

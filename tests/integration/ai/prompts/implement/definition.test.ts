@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import { createTask, type TodoTask } from '@src/domain/entity/task.ts';
+import { createTask, type TodoTask, type VerificationCriterion } from '@src/domain/entity/task.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -24,11 +24,15 @@ const unwrap = <T, E>(r: Result<T, E>): T => {
   return r.value as T;
 };
 
+const DEFAULT_CRITERIA: readonly VerificationCriterion[] = [
+  { id: 'C1', assertion: 'runs to completion', check: 'manual' },
+];
+
 const makeTaskWith = (overrides: {
   name?: string;
   description?: string;
   steps?: readonly string[];
-  verificationCriteria?: readonly string[];
+  verificationCriteria?: readonly VerificationCriterion[];
 }): TodoTask => {
   const ticket = makeApprovedTicket();
   return unwrap(
@@ -37,13 +41,15 @@ const makeTaskWith = (overrides: {
       ...(overrides.description !== undefined ? { description: overrides.description } : {}),
       steps: overrides.steps !== undefined ? [...overrides.steps] : ['step 1'],
       verificationCriteria:
-        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : ['runs to completion'],
+        overrides.verificationCriteria !== undefined ? [...overrides.verificationCriteria] : DEFAULT_CRITERIA,
       order: 1,
       ticketId: ticket.id,
       repositoryId: FIXED_REPOSITORY_ID,
     })
   );
 };
+
+const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
 
 describe('implementPromptDef — completeness', () => {
   it('every placeholder in implement.md is declared by the definition (parameters or partials)', async () => {
@@ -124,16 +130,31 @@ describe('renderTaskStepsSection', () => {
 });
 
 describe('renderVerificationCriteriaSection', () => {
-  it('renders a bullet list with a heading', () => {
-    const task = makeTaskWith({ verificationCriteria: ['lint passes', 'tests green'] });
+  it('renders structured manual criteria one per bullet under the heading', () => {
+    const task = makeTaskWith({
+      verificationCriteria: [
+        { id: 'C1', assertion: 'lint passes', check: 'manual' },
+        { id: 'C2', assertion: 'tests green', check: 'manual' },
+      ],
+    });
     const out = renderVerificationCriteriaSection(task);
     expect(out).toContain('## Done criteria');
-    expect(out).toContain('- lint passes');
-    expect(out).toContain('- tests green');
+    expect(out).toContain('- **[C1]** (manual) — lint passes');
+    expect(out).toContain('- **[C2]** (manual) — tests green');
+  });
+
+  it('embeds the command on auto criteria so operators can grep what runs', () => {
+    const task = makeTaskWith({
+      verificationCriteria: [
+        { id: 'C1', assertion: 'TypeScript compiles', check: 'auto', command: 'npm run typecheck' },
+      ],
+    });
+    const out = renderVerificationCriteriaSection(task);
+    expect(out).toContain('- **[C1]** (auto) `npm run typecheck` — TypeScript compiles');
   });
 
   it('returns the empty string when no criteria are declared', () => {
-    const task = { ...makeTodoTask(), verificationCriteria: [] as readonly string[] } as TodoTask;
+    const task = { ...makeTodoTask(), verificationCriteria: [] as readonly VerificationCriterion[] } as TodoTask;
     expect(renderVerificationCriteriaSection(task)).toBe('');
   });
 });
@@ -197,6 +218,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -223,6 +245,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -241,6 +264,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       priorCritique: '## Completeness\n- step 3 verification missing\n- error handling untested',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -257,6 +281,7 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -280,6 +305,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       priorCritiqueSection: '',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -300,6 +326,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       priorCritiqueSection: '',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

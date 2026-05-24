@@ -160,6 +160,7 @@ const META_FLOWS = ['run'] as const;
 
 const PROMPTS = [
   'apply-feedback',
+  'create-pr',
   'detect-scripts',
   'detect-skills',
   'evaluate',

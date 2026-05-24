@@ -27,14 +27,13 @@ const ts = (sec: number): IsoTimestamp => new Date(Date.UTC(2026, 4, 20, 0, 0, s
 const failingEvaluation = (critique = 'short critique body'): EvaluationSignal => ({
   type: 'evaluation',
   status: 'failed',
-  overallScore: 3,
   timestamp: ts(1),
   critique,
   dimensions: [
-    { dimension: 'correctness', score: 5, passed: true, finding: '' },
-    { dimension: 'completeness', score: 2, passed: false, finding: 'missing edge case' },
-    { dimension: 'style', score: 4, passed: true, finding: '' },
-    { dimension: 'tests', score: 1, passed: false, finding: 'no new tests added' },
+    { dimension: 'correctness', passed: true, finding: 'all good' },
+    { dimension: 'completeness', passed: false, finding: 'missing edge case' },
+    { dimension: 'style', passed: true, finding: 'tidy' },
+    { dimension: 'tests', passed: false, finding: 'no new tests added' },
   ],
 });
 
@@ -83,8 +82,8 @@ describe('EvaluatorFailurePanel — unflagged vs flagged render contrast', () =>
     const frame = r.lastFrame() ?? '';
     // Per-dimension rows expose the AI-supplied finding text, which the canonical
     // single-line summary cannot fit on the same line for all four dimensions at once.
-    expect(frame).toContain('correctness: 5/5');
-    expect(frame).toContain('completeness: 2/5');
+    expect(frame).toContain('correctness: pass');
+    expect(frame).toContain('completeness: fail');
     expect(frame).toContain('missing edge case');
     expect(frame).toContain('no new tests added');
     // Annotation row is present — another round is coming.

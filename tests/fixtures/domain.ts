@@ -173,7 +173,7 @@ export const makeTodoTask = (
       ticketId: overrides.ticketId ?? ticket.id,
       repositoryId: overrides.repositoryId ?? FIXED_REPOSITORY_ID,
       steps: ['step 1'],
-      verificationCriteria: ['runs to completion'],
+      verificationCriteria: [{ id: 'C1', assertion: 'runs to completion', check: 'manual' }],
       ...(overrides.dependsOn !== undefined ? { dependsOn: overrides.dependsOn } : {}),
       ...(overrides.maxAttempts !== undefined ? { maxAttempts: overrides.maxAttempts } : {}),
       ...(overrides.externalRefs !== undefined ? { externalRefs: overrides.externalRefs } : {}),
@@ -186,8 +186,11 @@ export const makeInProgressTaskWithRunningAttempt = (overrides?: { maxAttempts?:
   return unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
 };
 
-export const makeDoneTask = (overrides?: { name?: string }): DoneTask => {
-  const todo = overrides?.name !== undefined ? makeTodoTask({ name: overrides.name }) : makeTodoTask();
+export const makeDoneTask = (overrides?: { name?: string; externalRefs?: readonly string[] }): DoneTask => {
+  const todoOverrides: Parameters<typeof makeTodoTask>[0] = {};
+  if (overrides?.name !== undefined) todoOverrides.name = overrides.name;
+  if (overrides?.externalRefs !== undefined) todoOverrides.externalRefs = overrides.externalRefs;
+  const todo = makeTodoTask(todoOverrides);
   const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
   const verified = unwrap(recordRunningAttemptVerification(inProgress));
   return unwrap(markTaskDone(verified, FIXED_LATER));
