@@ -11,7 +11,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { renderTicketRefsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
+import { renderTicketRefsSubjectSuffix } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export type CommitMessageFactory = (input: { readonly task: Task }) => string;
@@ -26,8 +26,10 @@ export interface CommitTaskLeafDeps {
 // Audit-[03] + audit-[09]: commit messages are AI signal bodies — no caps, no truncation.
 // `git commit -m <msg>` passes via argv with ARG_MAX headroom in the hundreds of KB; git
 // itself has no length limit. Subject + body land verbatim from the validated
-// `commit-message` signal, with the deterministic `Closes …` trailer appended when the task
-// carries external refs.
+// `commit-message` signal; when the task carries external refs the harness appends them
+// as a ` (#123, !456)` suffix on the subject line (conventional-commit shape). Auto-close
+// on merge is the PR body's job (see `renderIssueRefs` in create-pr) so no body trailer
+// is emitted here.
 
 const firstParagraph = (text: string): string => {
   const trimmed = text.trim();
@@ -44,10 +46,16 @@ const assembleCommitMessage = (subject: string, body: string | undefined): strin
 const defaultMessageFactory: CommitMessageFactory = ({ task }): string =>
   assembleCommitMessage(task.name, firstParagraph(task.description ?? ''));
 
-const appendTrailerToMessage = (message: string, refs: readonly string[] | undefined): string => {
-  const trailer = renderTicketRefsSection(refs);
-  if (trailer.length === 0) return message;
-  return `${message}\n\n${trailer}`;
+const appendSubjectSuffix = (message: string, refs: readonly string[] | undefined): string => {
+  const suffix = renderTicketRefsSubjectSuffix(refs);
+  if (suffix.length === 0) return message;
+  const newlineIdx = message.indexOf('\n');
+  const subject = newlineIdx === -1 ? message : message.slice(0, newlineIdx);
+  const rest = newlineIdx === -1 ? '' : message.slice(newlineIdx);
+  // Idempotency: a hand-authored subject that already ends with the verbatim suffix is left
+  // untouched so re-runs / regenerated messages don't grow `(#123) (#123)`.
+  if (subject.endsWith(suffix)) return message;
+  return `${subject}${suffix}${rest}`;
 };
 
 export interface CommitTaskLeafOpts {
@@ -113,14 +121,16 @@ export const commitTaskLeaf = (
       //      Subject + optional body are joined with the conventional blank-line separator.
       //   2. Caller-supplied `opts.messageFactory` (legacy injection point).
       //   3. Default `task(<short-id>): <name>` factory.
-      // After resolution we always append the deterministic `Closes …` trailer when the task
+      // After resolution we append a ` (#123, !456)` suffix to the subject line when the task
       // carries external refs — the AI no longer sees the refs, so this is the only writer.
+      // The PR body's `Closes #X` lines (rendered by create-pr's `renderIssueRefs`) handle
+      // auto-close on merge; no body trailer is added here.
       const proposed = ctx.proposedCommitMessage;
       const baseMessage =
         proposed !== undefined
           ? assembleCommitMessage(proposed.subject, proposed.body)
           : (opts.messageFactory ?? defaultMessageFactory)({ task });
-      const message = appendTrailerToMessage(baseMessage, task.externalRefs);
+      const message = appendSubjectSuffix(baseMessage, task.externalRefs);
       return { task, sprintId: ctx.sprintId, message };
     },
     output: (ctx, out) => ({

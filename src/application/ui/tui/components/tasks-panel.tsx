@@ -57,7 +57,9 @@ export interface TasksPanelProps {
    *
    * The cursor traverses the flat sequence of visible signal rows (orphans first, then each
    * task in order). When focused on a `commit-message` row, Enter / Space toggles expansion to
-   * reveal the body + trailing `Closes #…` trailer. Expansion state lives in panel-local
+   * reveal the body. The subject row shows the AI-proposed subject; the harness-appended
+   * ` (#123, !456)` ref suffix lands at `git commit -F` time and is not threaded back onto the
+   * signal. Expansion state lives in panel-local
    * `useState` so it persists across re-renders within the session but resets if the panel
    * unmounts (e.g. on `D` detach back to home).
    */
@@ -284,9 +286,9 @@ const SignalLine = ({
  * under the signal label column.
  *
  * Source of truth for the multi-line body is `signal.body` when present. The harness-appended
- * deterministic trailers (`Closes #…`) are added by the commit-task leaf when calling
- * `git commit -F` but are not threaded back onto the signal — the TUI shows the AI's proposed
- * message, not the post-trailer resolved form.
+ * ` (#123, !456)` subject suffix is added by the commit-task leaf when calling `git commit -F`
+ * but is not threaded back onto the signal — the TUI shows the AI's proposed message, not the
+ * post-suffix resolved form.
  *
  * Width handling: every body line uses the same `wrap="truncate-end"` discipline as the
  * subject row, so a 200-col commit body still ellides cleanly at narrow widths instead of

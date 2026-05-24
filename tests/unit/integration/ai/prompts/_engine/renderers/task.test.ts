@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '@src/domain/entity/task.ts';
 import {
   renderContractMd,
-  renderTicketRefsSection,
+  renderTicketRefsSubjectSuffix,
   renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -72,32 +72,32 @@ describe('renderContractMd', () => {
   });
 });
 
-describe('renderTicketRefsSection', () => {
-  it('renders a single `Closes <ref>` line for a single-element refs array', () => {
-    expect(renderTicketRefsSection(['#123'])).toBe('Closes #123');
+describe('renderTicketRefsSubjectSuffix', () => {
+  it('renders ` (<ref>)` with a leading space for a single-element refs array', () => {
+    expect(renderTicketRefsSubjectSuffix(['#123'])).toBe(' (#123)');
   });
 
-  it('renders one `Closes <ref>` line per ref, newline-joined', () => {
-    expect(renderTicketRefsSection(['#123', '!456'])).toBe('Closes #123\nCloses !456');
+  it('renders multiple refs comma-separated inside one paren', () => {
+    expect(renderTicketRefsSubjectSuffix(['#123', '!456'])).toBe(' (#123, !456)');
   });
 
   it('returns the empty string for undefined', () => {
-    expect(renderTicketRefsSection(undefined)).toBe('');
+    expect(renderTicketRefsSubjectSuffix(undefined)).toBe('');
   });
 
   it('returns the empty string for an empty array', () => {
-    expect(renderTicketRefsSection([])).toBe('');
+    expect(renderTicketRefsSubjectSuffix([])).toBe('');
   });
 
   it('dedupes repeated refs (set-style) while preserving first-seen order', () => {
-    expect(renderTicketRefsSection(['#123', '#123', '!456', '#123'])).toBe('Closes #123\nCloses !456');
+    expect(renderTicketRefsSubjectSuffix(['#123', '#123', '!456', '#123'])).toBe(' (#123, !456)');
   });
 
   it('drops whitespace-only entries and trims survivors', () => {
-    expect(renderTicketRefsSection(['  #123  ', '', '  ', '\t#999'])).toBe('Closes #123\nCloses #999');
+    expect(renderTicketRefsSubjectSuffix(['  #123  ', '', '  ', '\t#999'])).toBe(' (#123, #999)');
   });
 
   it('returns empty when every entry is whitespace-only', () => {
-    expect(renderTicketRefsSection(['  ', '\t', ''])).toBe('');
+    expect(renderTicketRefsSubjectSuffix(['  ', '\t', ''])).toBe('');
   });
 });
