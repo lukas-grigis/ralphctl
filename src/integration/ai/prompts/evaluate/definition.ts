@@ -23,8 +23,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
  * steps / verification criteria, runs the verify script as authoritative ground truth, scores
- * four floor dimensions (correctness, completeness, safety, consistency), and emits exactly
- * one verdict signal — `<evaluation-passed>` or `<evaluation-failed>critique</evaluation-failed>`.
+ * four floor dimensions (correctness, completeness, safety, consistency), and writes exactly
+ * one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict + per-dimension
+ * findings.
  */
 export interface EvaluatePromptParams {
   /** Task display name — `{{TASK_NAME}}` (referenced both as the page title and inside the spec block). */
@@ -142,9 +143,9 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  // The single `evaluation` signal type covers both verdict shapes (`<evaluation-passed>` and
-  // `<evaluation-failed>critique</evaluation-failed>`). The body / critique distinction is
-  // handled inside the parsed signal, not by a second tag.
+  // The single `evaluation` signal type covers both PASS and FAIL verdicts. The verdict +
+  // per-dimension findings + optional critique are encoded as fields on the signal object;
+  // there is no second signal type for the failure case.
   expectedSignals: ['evaluation'],
 };
 

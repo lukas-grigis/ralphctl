@@ -9,12 +9,12 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
  *
  *   { signalsFile, sessionId?, exitCode }
  *
- * The provider writes parsed {@link HarnessSignal}s to `session.signalsFile` as a JSON array
- * (caller-supplied path; the caller owns its placement and lifetime). The body string the AI
- * emitted is NOT returned — it's the source of a long-running OOM where v8's sliced-string
- * representation pinned multi-megabyte spawn buffers across multi-hour implement chains. Every
- * tag a flow extracts (`<task-verified>`, `<setup-script>`, `<claude-md>`, …) has a parser in
- * the harness-signal registry, so the signals file is the single uniform read-path.
+ * Under the audit-[09] contract the AI itself writes `session.signalsFile` via its `Write`
+ * tool — production providers no longer parse stdout for harness signals. The provider just
+ * spawns the session, captures meta (session id, exit code), and returns the path the chain
+ * leaf reads back. The body string the AI emitted is NOT returned — it's the source of a
+ * long-running OOM where v8's sliced-string representation pinned multi-megabyte spawn
+ * buffers across multi-hour implement chains.
  *
  * `sessionId` is best-effort per-provider — claude's `--output-format stream-json` init event,
  * codex's JSONL meta event, copilot's stream meta line. Absence is never an error.
