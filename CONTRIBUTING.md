@@ -49,6 +49,9 @@ pnpm lint:fix            # Auto-fix lint issues
 pnpm format              # Format all files with Prettier
 ```
 
+> Pre-commit hooks (lint + format on staged files) are installed automatically
+> on `pnpm install` via Husky. No manual setup needed.
+
 ## Making changes
 
 1. **Fork and branch.** Create a feature branch from `main`:
@@ -116,16 +119,18 @@ See [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) for the full technical ref
 
 ## Releasing
 
-Releases are automated via GitHub Actions. To publish a new version:
+Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which triggers on tags matching `v[0-9]+.[0-9]+.[0-9]+`. To cut a release:
 
-1. Bump the version in `package.json`
-2. Update `CHANGELOG.md` with the new version section
-3. Commit: `git commit -am "chore: bump version to X.Y.Z"`
+1. Bump `package.json#version` to `X.Y.Z`
+2. Move `## [Unreleased]` to `## [X.Y.Z] - <date>` in `CHANGELOG.md`
+3. Commit: `git commit -am "chore: release X.Y.Z"`
 4. Tag: `git tag vX.Y.Z`
 5. Push: `git push origin main --tags`
 
-The release pipeline will run CI checks, publish to npm, and create a GitHub Release with the changelog section for that
-version.
+The workflow runs the full CI gate (typecheck / lint / test), publishes to
+npm with `--provenance`, and drafts a GitHub Release from the matching
+CHANGELOG section.
 
 ## Questions?
 

@@ -7,86 +7,51 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed
+## [0.8.0] - 2026-05-24
 
-- **One signal pipeline (audit-[09] contract) for every AI-spawning leaf.** The three legacy
-  flows (`review/review-round`, `detect-scripts/propose`, `detect-skills/propose`) migrated to
-  the Zod-validated `<leaf>.contract.ts` shape that `implement`, `refine`, `plan`, `ideate`,
-  and `readiness` already used. The AI writes one `signals.json` envelope to `outputDir` via
-  its Write tool; the harness validates post-spawn via `validateSignalsFile`, fans signals to
-  the sink + event bus, and renders sidecars from the validated array. The old XML-tag parser
-  tree (`src/integration/ai/signals/` — 15 per-kind parsers, parser registry, `consumeSignals`
-  / `readSignalsFile` / `withSignalsTempPath` helpers, `sink.ts`) is deleted in production.
-  Parsers are relocated to `tests/helpers/legacy-signal-parsers/` where `fake-ai-provider.ts`
-  still uses them to translate scripted XML-tag response bodies into `signals.json` fixtures
-  for tests. `HarnessSignalSink` moves to `src/business/observability/harness-signal-sink.ts`.
-  ESLint fences `src/integration/ai/signals/**` so the deleted path cannot reappear.
+### Notes
 
-- **Permission model split into capabilities and topology.** `SessionPermissions` now has
-  `canModifyRepoFiles` (renamed from `canEditFiles`) which gates `Edit` / `MultiEdit` /
-  `NotebookEdit` only; the `Write` tool is **always** allowed because the audit-[09] contract
-  requires it for `signals.json`. Path scope is the primary defense and lives on `AiSession`
-  (`cwd` + `additionalRoots` + `outputDir`). A new `providers/_engine/resolve-roots.ts`
-  helper auto-mounts `outputDir` as a writable root in every provider, so leaves never need
-  to thread it manually. Codex collapses to `-s workspace-write` for every profile because
-  its `read-only` sandbox blocks every write including `signals.json` — topology now carries
-  the safety envelope on Codex. Pre-refactor, READ_ONLY profiles silently failed to write
-  `signals.json` against every provider since Wave 6 of the audit landed.
+The 0.7.x line shipped a lot of structural change in a short window — an
+on-disk rewrite, a settings-schema refactor, a domain rename, and a
+signal-pipeline migration, across four releases in six days. That was a lot to
+keep up with, and we're sorry for the churn. Thank you for sticking with
+ralphctl through it.
 
-- **Domain rename: `checkScript` → `verifyScript` everywhere.** Aligns the field name with the user-facing
-  verb the harness emits in prompts (`<verify-script>`). Touches `Repository.{checkScript,checkTimeout}` →
-  `{verifyScript,verifyTimeout}`, the `CheckRun` / `CheckRunOutcome` / `CheckRunPhase` types →
-  `VerifyRun` / `VerifyRunOutcome` / `VerifyRunPhase`, the `Attempt.checkRuns` field → `verifyRuns`, the
-  `pre-task-check.ts` / `post-task-check.ts` leaves → `pre-task-verify.ts` / `post-task-verify.ts`, the
-  `run-check-script.ts` use case → `run-verify-script.ts`, the prompt section `## Check Script` →
-  `## Verify Script` (placeholder `{{CHECK_SCRIPT_SECTION}}` → `{{VERIFY_SCRIPT_SECTION}}`), and every TUI
-  label / log message in that domain. Persisted `project.json` and per-task `tasks.json` records written
-  before the rename continue to load via lazy migration in the Zod schema: legacy `checkScript` /
-  `checkTimeout` / `checkRuns` fields are read once, migrated to the new field names in the in-memory
-  entity, and dropped on the next save. No manual migration step.
+**Upgrading:** install the latest version, re-run `ralphctl settings
+apply-preset <name>` (or reconfigure manually), re-register your projects if
+needed, and go. We don't try to support multiple versions in parallel —
+latest is what's supported. If your old `~/.ralphctl/` data doesn't load
+cleanly, back it up (`mv ~/.ralphctl ~/.ralphctl.bak`) and start fresh; the
+backup keeps your ticket bodies and plan output around for reference.
+Contributions and bug reports very welcome — see
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
-### Removed
+### Breaking
 
-- **`src/integration/ai/signals/` (24 files) deleted.** Production code is fully off the
-  legacy XML-tag parser pipeline after the three remaining flows migrated. Per-kind parsers
-  - parser registry + `consumeSignals` / `readSignalsFile` / `withSignalsTempPath` /
-    `sink.ts` are gone. The 15 per-kind parsers moved to `tests/helpers/legacy-signal-parsers/`
-    (test infrastructure only; `fake-ai-provider.ts` still uses them). Dead-only tests
-    (`consume-signals.test.ts`, `temp-signals-file.test.ts`, `read-signals-file.test.ts`)
-    deleted. ESLint fence on `src/integration/ai/signals/**` prevents accidental re-creation.
-
-- **`CI=true` auto-retry for pnpm no-TTY aborts on `setup-script`.** A successful retry could mask drift
-  from the real baseline the post-task verify gate later runs without `CI=true` (Maven Surefire skips
-  `@DisabledIfEnvironmentVariable("CI")` tests, Spring Boot env-gated tests skip, pnpm switches to
-  non-interactive / frozen-lockfile semantics). The marker detection and the actionable project-side hint
-  (pin pnpm < 11, resync in a terminal, or set `confirm-modules-purge=false`) are preserved.
+- (none in this section — see _Changed_ for field renames and schema reshapes that load older
+  files via best-effort migration on read.)
 
 ### Added
 
-- **Coverage thresholds in `vitest.config.ts`.** v8 provider with regression floors set ~5%
-  below the 2026-05-23 baseline (statements 80 · branches 70 · functions 90 · lines 85);
-  CI catches real drops without flapping on natural drift.
+- **Per-flow AI settings + four-preset bootstrap (`mixed`, `claude-only`, `copilot-only`, `codex-only`).**
+  Apply via `ralphctl settings apply-preset <name>` from the CLI or the TUI settings view. A preset stamps
+  the entire `ai` section in one shot; subsequent per-key edits via
+  `ralphctl settings set ai.<flow>.<field> <value>` stick.
 
-- **Sequence + data-flow diagrams under `.claude/docs/diagrams/`.** State machines and
-  nested-subgraph flowcharts replaced with one-Mermaid-block-per-file sequence diagrams that
-  narrate "what happens, in order." New `04-ai-session-data-flow.md` documents the audit-[09]
-  file-based contract end to end.
+- **Fail-fast PATH probe on every AI-spawning flow.** The launcher probes for the configured CLI
+  (`claude` / `gh` / `codex`) at launch and exits with a clear error naming the binary, the flow, and
+  the offending `settings.ai.<flow>.provider` key when the binary is absent. First-run auto-seeds a preset
+  based on what's installed.
 
-- **`HarnessSignalEvent` AppEvent variant.** A new `harness-signal` event on the `AppEvent` union carries
-  `signalKind` (`'change' | 'learning' | 'note'`), optional `taskId`, and `text`. Published by the signal
-  adapter whenever the AI emits a `<change>`, `<learning>`, or `<note>` tag during an in-flight task, so
-  `<sprintDir>/chain.log` retains a machine-readable record of the per-task narrative that `progress.md`
-  can reconstruct on every snapshot regenerate.
+- **Readiness fan-out across every referenced provider.** One native context file per provider
+  (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`, openai-codex →
+  `AGENTS.md`). Single-provider configurations produce exactly one file; mixed configurations produce one
+  per distinct provider.
 
-- **Per-task `#### Changes` / `#### Learnings` / `#### Notes` sub-sections in `progress.md`.** The
-  `state-projection.ts` miner reads `harness-signal` entries from `chain.log`, groups them by `taskId`,
-  and exposes them as `TaskProjection.{changes, learnings, notes}`. `render-progress-markdown.ts`
-  renders these under each `### Task N — <name>` section.
-
-- **Machine-readable JSON block at the bottom of `progress.md`.** A `<!-- machine:begin -->` / `<!-- machine:end -->`
-  fenced JSON payload (`sprintId`, `status`, task array with `id`, `name`, `status`, `attempts`,
-  `blockReason?`, `lastVerdict?`, `commitSha?`) closes every generated `progress.md` for tooling that
-  needs to parse sprint state without loading the full entity layer.
+- **`ralphctl snapshot [--sprint <id>]` CLI command.** Writes a single-frame text digest of the active
+  sprint's current state to stdout (no Ink mount) — header, status, tasks table, active-task block,
+  recent-signals tail. Resolves sprint from `--sprint`, then from the pinned selection; exits 1 with a hint
+  when neither is set.
 
 - **`ralphctl sprint regenerate-progress <id>` CLI subcommand.** Rebuilds `progress.md` from disk state
   (`chain.log` + `decisions.log` + `sprint.json` / `tasks.json` / `execution.json`) without running
@@ -107,23 +72,38 @@ to [Semantic Versioning](https://semver.org/).
 - **Banner full ↔ compact toggle on `b`.** A global `b` hotkey flips the banner between full and compact for
   the session. Implement view defaults to compact so long runs preserve vertical real estate.
 
-- **Signal legend replaced by inline kinds bar + help overlay entry.** The static 6-row `SignalLegend` is gone;
-  a one-row `InlineKindsBar` labels only the signal kinds that have actually appeared in the run. A Signals
-  reference section in the help overlay (`?`) auto-populates from the same colour-map. `NO_COLOR` glyph backups
-  (`change → +`, `learning → ~`, `decision → ◇`, `verified → ★`, `blocked → △`, `commit → ■`, `note → •`)
-  ensure signal-kind discrimination survives monochrome terminals.
+- **Sprint-level `decisions.log` + prompt-driven decision capture.** A new `_partials/decisions.md` prompt
+  section instructs the AI to emit `<decision>` tags for non-obvious architectural choices. A
+  `decisions-log-sink` appends one line per decision to `<sprintDir>/decisions.log` (atomic serial drain);
+  `projectSprintState` merges decisions-log entries into the `## Decisions` section of `progress.md`.
 
-- **SprintState projection as single TUI/progress.md surface.** A pure `projectSprintState` function projects
-  Sprint + SprintExecution + Task[] + chain.log entries into a normalised view model used by both the progress
-  renderer and TUI panels. Encodes effective-status synthesis (active-but-all-blocked → `'blocked'`), stale-task
-  detection (24 h threshold), dependency-cycle detection with orphan synthesis, run-boundary grouping, and median
-  attempt-duration for ETA.
+- **Per-task `#### Changes` / `#### Learnings` / `#### Notes` sub-sections in `progress.md`.** The
+  `state-projection.ts` miner reads `harness-signal` entries from `chain.log`, groups them by `taskId`,
+  and exposes them as `TaskProjection.{changes, learnings, notes}`. `render-progress-markdown.ts`
+  renders these under each `### Task N — <name>` section.
+
+- **`HarnessSignalEvent` AppEvent variant.** A new `harness-signal` event on the `AppEvent` union carries
+  `signalKind` (`'change' | 'learning' | 'note'`), optional `taskId`, and `text`. Published by the signal
+  adapter whenever the AI emits a `<change>`, `<learning>`, or `<note>` tag during an in-flight task, so
+  `<sprintDir>/chain.log` retains a machine-readable record of the per-task narrative that `progress.md`
+  can reconstruct on every snapshot regenerate.
+
+- **Machine-readable JSON block at the bottom of `progress.md`.** A `<!-- machine:begin -->` / `<!-- machine:end -->`
+  fenced JSON payload (`sprintId`, `status`, task array with `id`, `name`, `status`, `attempts`,
+  `blockReason?`, `lastVerdict?`, `commitSha?`) closes every generated `progress.md` for tooling that
+  needs to parse sprint state without loading the full entity layer.
 
 - **`progress.md` snapshot renderer replaces streaming sink.** `renderProgressMarkdown` turns the SprintState
   projection into a Markdown bootstrap document targeting a fresh AI session — sections for status, branch/PR,
   tickets, tasks, blockers, stale tasks, dependency cycles, decisions, and recent runs. Empty sections are
   omitted. Snapshot regenerates at three trigger points: sprint start, post-settle, post-review transition.
   Legacy streaming `progress-file-sink` and `flush-progress-sink` leaf removed.
+
+- **SprintState projection as single TUI/progress.md surface.** A pure `projectSprintState` function projects
+  Sprint + SprintExecution + Task[] + chain.log entries into a normalised view model used by both the progress
+  renderer and TUI panels. Encodes effective-status synthesis (active-but-all-blocked → `'blocked'`), stale-task
+  detection (24 h threshold), dependency-cycle detection with orphan synthesis, run-boundary grouping, and median
+  attempt-duration for ETA.
 
 - **Global `g` overlay reads `progress.md` from disk.** Pressing `g` (when a sprint is loaded) opens a
   read-only, scrollable Ink overlay mirroring `<sprintDir>/progress.md`. Esc or `g` again dismisses. The file
@@ -191,16 +171,6 @@ spawn-error | skipped`). The runner appends every attempt without upsert. Spawn-
   `wl-copy` / `xclip` / `clip.exe`. A 2-second banner confirms success or reports the error; the hotkey is
   best-effort and never throws into the TUI.
 
-- **`ralphctl snapshot [--sprint <id>]` CLI command.** Writes a single-frame text digest of the active
-  sprint's current state to stdout (no Ink mount) — header, status, tasks table, active-task block,
-  recent-signals tail. Resolves sprint from `--sprint`, then from the pinned selection; exits 1 with a hint
-  when neither is set.
-
-- **Sprint-level `decisions.log` + prompt-driven decision capture.** A new `_partials/decisions.md` prompt
-  section instructs the AI to emit `<decision>` tags for non-obvious architectural choices. A
-  `decisions-log-sink` appends one line per decision to `<sprintDir>/decisions.log` (atomic serial drain);
-  `projectSprintState` merges decisions-log entries into the `## Decisions` section of `progress.md`.
-
 - **Collapsed-by-default task cards with `j`/`k` expansion.** Non-active task cards collapse to a single-line
   summary (`<icon> <name> · <status> · <attempts>× · <sha?>`). The active task auto-expands. `j`/`k`/arrows
   navigate; Enter/Space expand a focused card; Esc collapses a manually-expanded card (active card exempt).
@@ -228,6 +198,12 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   critique-prose shift (trigram Jaccard < 0.5), and proposed-commit-subject change (softened to a non-exiting
   warning). `settings.harness.plateauThreshold` (2–5, default 2) is configurable.
 
+- **Signal legend replaced by inline kinds bar + help overlay entry.** The static 6-row `SignalLegend` is gone;
+  a one-row `InlineKindsBar` labels only the signal kinds that have actually appeared in the run. A Signals
+  reference section in the help overlay (`?`) auto-populates from the same colour-map. `NO_COLOR` glyph backups
+  (`change → +`, `learning → ~`, `decision → ◇`, `verified → ★`, `blocked → △`, `commit → ■`, `note → •`)
+  ensure signal-kind discrimination survives monochrome terminals.
+
 - **Context-compacted signal type + TUI marker.** `ContextCompactedSignal` is a first-class lifecycle event
   for the provider's auto-compaction boundary, rendered as a dedented separator line in the signal stream using
   the muted colour token.
@@ -241,6 +217,11 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   Enter/Space, revealing the full commit message (subject, body paragraphs, harness-appended `Closes #…`
   trailer). A disclosure glyph (`▸` / `▾`) replaces one leading space; degenerate subject-only rows suppress
   the caret.
+
+- **Cross-project sprint picker (`S`) and project picker (`P`).** Two new global hotkeys open modal
+  overlay pickers that work from any view. The sprint picker's `t` key toggles scope between the current
+  project and all projects. `setProjectAndSprint` on the `SelectionApi` updates project and sprint
+  atomically — no partial state visible mid-transition.
 
 - **Named responsive breakpoints + `useBreakpoint` hook.** `theme/tokens.ts` now exports a full web-style
   breakpoint vocabulary for terminal widths: `sm` (80), `md` (100), `lg` (140), `xl` (180), `xxl` (220).
@@ -258,15 +239,50 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   `label` when present and mid-truncates to fit the rail column budget, preventing path-jammed element
   names from appearing in the rail.
 
-- **Cross-project sprint picker (`S`) and project picker (`P`).** Two new global hotkeys open modal
-  overlay pickers that work from any view. The sprint picker's `t` key toggles scope between the current
-  project and all projects. `setProjectAndSprint` on the `SelectionApi` updates project and sprint
-  atomically — no partial state visible mid-transition.
-
 - **Copilot `session.cwd` forwarded to spawned child process.** Provider adapters now pass
   `AiSession.cwd` as the child process working directory so context-file autoload
   (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), agents, and `.mcp.json` resolve
   correctly from the repo root rather than ralphctl's own cwd.
+
+### Changed
+
+- **Domain rename: `checkScript` → `verifyScript` everywhere.** Aligns the field name with the user-facing
+  verb the harness emits in prompts (`<verify-script>`). Touches `Repository.{checkScript,checkTimeout}` →
+  `{verifyScript,verifyTimeout}`, the `CheckRun` / `CheckRunOutcome` / `CheckRunPhase` types →
+  `VerifyRun` / `VerifyRunOutcome` / `VerifyRunPhase`, the `Attempt.checkRuns` field → `verifyRuns`, the
+  `pre-task-check.ts` / `post-task-check.ts` leaves → `pre-task-verify.ts` / `post-task-verify.ts`, the
+  `run-check-script.ts` use case → `run-verify-script.ts`, the prompt section `## Check Script` →
+  `## Verify Script` (placeholder `{{CHECK_SCRIPT_SECTION}}` → `{{VERIFY_SCRIPT_SECTION}}`), and every TUI
+  label / log message in that domain. The Zod schema accepts the legacy keys on read; reach for a fresh
+  start (`mv ~/.ralphctl ~/.ralphctl.bak`) if anything looks off.
+
+- **One signal pipeline (file-based contract) for every AI-spawning leaf.** The three legacy
+  flows (`review/review-round`, `detect-scripts/propose`, `detect-skills/propose`) migrated to
+  the Zod-validated `<leaf>.contract.ts` shape that `implement`, `refine`, `plan`, `ideate`,
+  and `readiness` already used. The AI writes one `signals.json` envelope to `outputDir` via
+  its Write tool; the harness validates post-spawn via `validateSignalsFile`, fans signals to
+  the sink + event bus, and renders sidecars from the validated array. Replaces a long-standing
+  brittleness vector when CLI vendors tweak JSON shape.
+
+- **Permission model split into capabilities and topology.** `SessionPermissions` now has
+  `canModifyRepoFiles` (renamed from `canEditFiles`) which gates `Edit` / `MultiEdit` /
+  `NotebookEdit` only; the `Write` tool is **always** allowed because the file-based contract
+  requires it for `signals.json`. Path scope is the primary defense and lives on `AiSession`
+  (`cwd` + `additionalRoots` + `outputDir`). A new `providers/_engine/resolve-roots.ts`
+  helper auto-mounts `outputDir` as a writable root in every provider, so leaves never need
+  to thread it manually. Codex collapses to `-s workspace-write` for every profile because
+  its `read-only` sandbox blocks every write including `signals.json` — topology now carries
+  the safety envelope on Codex.
+
+- **Removed `CI=true` auto-retry for pnpm no-TTY aborts on `setup-script`.** A successful retry could mask
+  drift from the real baseline the post-task verify gate later runs without `CI=true` (Maven Surefire skips
+  `@DisabledIfEnvironmentVariable("CI")` tests, Spring Boot env-gated tests skip, pnpm switches to
+  non-interactive / frozen-lockfile semantics). The marker detection and the actionable project-side hint
+  (pin pnpm < 11, resync in a terminal, or set `confirm-modules-purge=false`) are preserved.
+
+- **Shell scripts use narrow pnpm flag.** Setup and check scripts no longer set `CI=true` when
+  invoking pnpm — the narrower `--reporter=default` flag is used instead, avoiding accidental CI
+  detection in downstream tooling.
 
 ### Fixed
 
@@ -305,11 +321,25 @@ generate tasks`; on the first round before any signal fires, the active-task spi
   objects are forwarded to the log instead of dropped; the body-text parser now matches a wider range
   of Copilot CLI output shapes for more robust signal extraction.
 
-- **Shell scripts use narrow pnpm flag.** Setup and check scripts no longer set `CI=true` when
-  invoking pnpm — the narrower `--reporter=default` flag is used instead, avoiding accidental CI
-  detection in downstream tooling.
+### Internal
 
-### Changed
+- **`src/integration/ai/signals/` (24 files) deleted.** Production code is fully off the
+  legacy XML-tag parser pipeline after the three remaining flows migrated. Per-kind parsers
+  - parser registry + `consumeSignals` / `readSignalsFile` / `withSignalsTempPath` /
+    `sink.ts` are gone. The 15 per-kind parsers moved to `tests/helpers/legacy-signal-parsers/`
+    (test infrastructure only; `fake-ai-provider.ts` still uses them). Dead-only tests
+    (`consume-signals.test.ts`, `temp-signals-file.test.ts`, `read-signals-file.test.ts`)
+    deleted. `HarnessSignalSink` moves to `src/business/observability/harness-signal-sink.ts`.
+    ESLint fence on `src/integration/ai/signals/**` prevents accidental re-creation.
+
+- **Coverage thresholds in `vitest.config.ts`.** v8 provider with regression floors set ~5%
+  below the 2026-05-23 baseline (statements 80 · branches 70 · functions 90 · lines 85);
+  CI catches real drops without flapping on natural drift.
+
+- **Sequence + data-flow diagrams under `.claude/docs/diagrams/`.** State machines and
+  nested-subgraph flowcharts replaced with one-Mermaid-block-per-file sequence diagrams that
+  narrate "what happens, in order." New `04-ai-session-data-flow.md` documents the file-based
+  contract end to end.
 
 - **`decisions-log-sink` caps decision body at 500 chars.** Defence-in-depth — the parser already rejects
   bodies over 500 chars, but the sink now slices independently so a non-parser source cannot produce a
@@ -322,8 +352,6 @@ generate tasks`; on the first round before any signal fires, the active-task spi
 - **Setup-script runner migrated off deprecated `SETUP_TAIL_BYTES`.** Both `SetupRun` and `CheckRun` now
   import `SCRIPT_TAIL_BYTES` from the shared constant; the deprecated `SETUP_TAIL_BYTES` alias is kept for
   backward compat until removed.
-
-### Internal
 
 - **`commit-task` leaf re-emits `CommitMessageSignal` with `fullMessage`** after `appendTrailerToMessage` so
   TUI and audit-log consumers see the exact text that landed in git history, not the AI's pre-trailer proposal.
