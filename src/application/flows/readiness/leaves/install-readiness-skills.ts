@@ -4,6 +4,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
@@ -14,11 +15,11 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
  *
  * Per audit-[09], readiness emits two project-tracked skill kinds: `setup-skill-proposal` and
  * `verify-skill-proposal`. The {@link proposeReadinessLeaf} contract-validation step lands the
- * bodies on `ctx.proposal.proposedSetupSkillBody` / `proposedVerifySkillBody`; this leaf calls
- * the skills adapter's bare-name install path to write them.
+ * bodies on `ctx.entries[tool].proposal`; this leaf calls the per-tool skills adapter's
+ * bare-name install path to write them.
  *
  * Behaviour:
- *  - `ctx.accepted !== true` → no-op (the operator declined the whole proposal).
+ *  - Matching entry's `accepted !== true` → no-op (the operator declined this tool's proposal).
  *  - Either body undefined → only the present one is installed (each is independent).
  *  - Both bodies undefined → no-op (the AI didn't propose any; today's prompt never does —
  *    Wave 6 lands the prompt-side ask).
@@ -49,9 +50,10 @@ const buildSkill = (name: 'setup' | 'verify', body: string): Skill => ({
 
 const installReadinessSkillsUseCase = async (
   deps: InstallReadinessSkillsLeafDeps,
+  tool: AssistantTool,
   input: InstallReadinessSkillsInput
 ): Promise<Result<void, DomainError>> => {
-  const log = deps.logger.named('readiness.install-skills');
+  const log = deps.logger.named(`readiness.install-skills-${tool}`);
   if (!input.accepted) {
     log.info('skipping skill install — proposal not accepted');
     return Result.ok(undefined);
@@ -78,18 +80,23 @@ const installReadinessSkillsUseCase = async (
   return Result.ok(undefined);
 };
 
-export const installReadinessSkillsLeaf = (deps: InstallReadinessSkillsLeafDeps): Element<ReadinessCtx> =>
-  leaf<ReadinessCtx, InstallReadinessSkillsInput, void>('install-readiness-skills', {
+export const installReadinessSkillsLeaf = (
+  deps: InstallReadinessSkillsLeafDeps,
+  tool: AssistantTool
+): Element<ReadinessCtx> =>
+  leaf<ReadinessCtx, InstallReadinessSkillsInput, void>(`install-readiness-skills-${tool}`, {
     useCase: {
-      execute: async (input) => installReadinessSkillsUseCase(deps, input),
+      execute: async (input) => installReadinessSkillsUseCase(deps, tool, input),
     },
-    input: (ctx) => ({
-      accepted: ctx.accepted ?? false,
-      ...(ctx.repository?.path !== undefined ? { repoPath: ctx.repository.path } : {}),
-      ...(ctx.proposal?.proposedSetupSkillBody !== undefined ? { setupBody: ctx.proposal.proposedSetupSkillBody } : {}),
-      ...(ctx.proposal?.proposedVerifySkillBody !== undefined
-        ? { verifyBody: ctx.proposal.proposedVerifySkillBody }
-        : {}),
-    }),
+    input: (ctx) => {
+      const entry = ctx.entries[tool];
+      const proposal = entry?.proposal;
+      return {
+        accepted: entry?.accepted ?? false,
+        ...(ctx.repository?.path !== undefined ? { repoPath: ctx.repository.path } : {}),
+        ...(proposal?.proposedSetupSkillBody !== undefined ? { setupBody: proposal.proposedSetupSkillBody } : {}),
+        ...(proposal?.proposedVerifySkillBody !== undefined ? { verifyBody: proposal.proposedVerifySkillBody } : {}),
+      };
+    },
     output: (ctx) => ctx,
   });

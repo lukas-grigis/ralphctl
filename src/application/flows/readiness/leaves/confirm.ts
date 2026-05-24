@@ -3,6 +3,7 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
@@ -27,8 +28,8 @@ interface ConfirmReadinessInput {
  * a single yes/no — `accept` writes everything proposed, `decline` writes nothing. Per-artefact
  * accept/decline is a UX refinement to add when there's a real use case for it.
  *
- * Decline (`accepted: false`) is the safe default path the next leaf observes — `writeReadinessLeaf`
- * is a no-op when `ctx.accepted !== true`.
+ * Decline (`accepted: false`) is the safe default path the next leaf observes —
+ * `writeReadinessLeaf` is a no-op when the matching entry's `accepted !== true`.
  */
 const confirmReadinessUseCase = async (
   deps: ConfirmReadinessLeafDeps,
@@ -45,30 +46,31 @@ const confirmReadinessUseCase = async (
   return deps.interactive.askConfirm({ message: sections.join('\n') });
 };
 
-export const confirmReadinessLeaf = (deps: ConfirmReadinessLeafDeps): Element<ReadinessCtx> =>
-  leaf<ReadinessCtx, ConfirmReadinessInput, boolean>('confirm', {
+export const confirmReadinessLeaf = (deps: ConfirmReadinessLeafDeps, tool: AssistantTool): Element<ReadinessCtx> =>
+  leaf<ReadinessCtx, ConfirmReadinessInput, boolean>(`confirm-${tool}`, {
     useCase: {
       execute: async (input) => confirmReadinessUseCase(deps, input),
     },
     input: (ctx) => {
-      if (ctx.proposal === undefined) {
+      const entry = ctx.entries[tool];
+      const proposal = entry?.proposal;
+      if (proposal === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-confirm',
           attemptedAction: 'confirm',
-          message: 'confirm: ctx.proposal is undefined — propose must run first',
+          message: `confirm: ctx.entries[${tool}].proposal is undefined — propose must run first`,
         });
       }
       return {
-        proposedContent: ctx.proposal.proposedContent,
-        targetPath: ctx.proposal.targetPath,
-        ...(ctx.proposal.proposedSetupScript !== undefined
-          ? { proposedSetupScript: ctx.proposal.proposedSetupScript }
-          : {}),
-        ...(ctx.proposal.proposedVerifyScript !== undefined
-          ? { proposedVerifyScript: ctx.proposal.proposedVerifyScript }
-          : {}),
+        proposedContent: proposal.proposedContent,
+        targetPath: proposal.targetPath,
+        ...(proposal.proposedSetupScript !== undefined ? { proposedSetupScript: proposal.proposedSetupScript } : {}),
+        ...(proposal.proposedVerifyScript !== undefined ? { proposedVerifyScript: proposal.proposedVerifyScript } : {}),
       };
     },
-    output: (ctx, accepted) => ({ ...ctx, accepted }),
+    output: (ctx, accepted) => ({
+      ...ctx,
+      entries: { ...ctx.entries, [tool]: { ...ctx.entries[tool], accepted } },
+    }),
   });

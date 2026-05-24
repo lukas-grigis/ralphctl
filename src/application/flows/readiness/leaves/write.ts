@@ -6,6 +6,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
@@ -22,10 +23,10 @@ interface WriteReadinessInput {
 }
 
 /**
- * Terminal write leaf.
+ * Terminal write leaf — scoped to one {@link AssistantTool} per instance.
  *
- * - When `ctx.accepted !== true` → no-op. The trace records `completed` with the proposal in
- *   ctx untouched. Tests assert the absence of any filesystem write here.
+ * - When the matching entry's `accepted !== true` → no-op. The trace records `completed` with
+ *   the entry's proposal untouched. Tests assert the absence of any filesystem write here.
  * - When the target file already exists → write a backup at
  *   `<targetPath>.bak.<timestamp>` BEFORE the new content lands. `<timestamp>` is the
  *   filesystem-safe ISO-8601 stamp `YYYY-MM-DDTHH-mm-ss-SSSZ` (colons replaced with hyphens
@@ -39,9 +40,10 @@ interface WriteReadinessInput {
  */
 const writeReadinessUseCase = async (
   deps: WriteReadinessLeafDeps,
+  tool: AssistantTool,
   input: WriteReadinessInput
 ): Promise<Result<void, DomainError>> => {
-  const log = deps.logger.named('readiness.write');
+  const log = deps.logger.named(`readiness.write-${tool}`);
   if (!input.accepted || input.proposal === undefined) {
     log.info('skipping write — proposal not accepted');
     return Result.ok(undefined);
@@ -100,22 +102,24 @@ const safeReadText = async (path: string): Promise<string | undefined> => {
   }
 };
 
-export const writeReadinessLeaf = (deps: WriteReadinessLeafDeps): Element<ReadinessCtx> =>
-  leaf<ReadinessCtx, WriteReadinessInput, void>('write', {
+export const writeReadinessLeaf = (deps: WriteReadinessLeafDeps, tool: AssistantTool): Element<ReadinessCtx> =>
+  leaf<ReadinessCtx, WriteReadinessInput, void>(`write-${tool}`, {
     useCase: {
-      execute: async (input) => writeReadinessUseCase(deps, input),
+      execute: async (input) => writeReadinessUseCase(deps, tool, input),
     },
     input: (ctx) => {
-      // `accepted` always lands by `confirmReadinessLeaf`; defensively treat undefined as decline.
-      if (ctx.accepted === undefined) {
+      const entry = ctx.entries[tool];
+      // `accepted` always lands by the matching `confirmReadinessLeaf`; defensively treat
+      // undefined as decline.
+      if (entry?.accepted === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-write',
           attemptedAction: 'write',
-          message: 'write: ctx.accepted is undefined — confirm must run first',
+          message: `write: ctx.entries[${tool}].accepted is undefined — confirm must run first`,
         });
       }
-      return { accepted: ctx.accepted, proposal: ctx.proposal };
+      return { accepted: entry.accepted, proposal: entry.proposal };
     },
     output: (ctx) => ctx,
   });
