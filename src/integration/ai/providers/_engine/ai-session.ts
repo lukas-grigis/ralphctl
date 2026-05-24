@@ -31,6 +31,16 @@ export interface AiSession {
    * against its known set and surfaces `InvalidStateError` for unknowns.
    */
   readonly model: string;
+  /**
+   * Effort / reasoning level the AI should run at, resolved by the launcher via
+   * `resolveEffort(flowId, settings)`. Provider-native vocabulary (Claude:
+   * `low|medium|high|xhigh|max`; Copilot adds `none`; Codex: `minimal|low|medium|high`).
+   * The adapter is responsible for translating this string into its CLI flag
+   * (`--model-reasoning-effort` for Codex, etc.). Adapters that do not support a
+   * reasoning flag MUST silently ignore the field — never surface an error for an
+   * unset / unsupported optional knob.
+   */
+  readonly effort?: string;
   /** Semantic permission set — adapter maps to its concrete permission flags / modes. */
   readonly permissions: SessionPermissions;
   /** Optional id of a prior session to resume. */

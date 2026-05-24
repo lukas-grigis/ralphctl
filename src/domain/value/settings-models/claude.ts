@@ -1,3 +1,6 @@
+// Verified against `claude --help` / `claude config get` (Claude Code v2.x).
+// Docs: https://docs.claude.com/en/docs/claude-code/cli-reference
+
 /**
  * Models supported by the Claude Code CLI adapter. Domain-owned: persisted Settings reference
  * these identifiers; adapters consume them when invoking the CLI subprocess. The adapter still

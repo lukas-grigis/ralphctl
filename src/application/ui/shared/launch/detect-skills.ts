@@ -6,7 +6,7 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, provider, skillsAdapter, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, provider, skillsAdapter, bridge, sessionId, effort } = ctx;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   const element: Element<DetectSkillsCtx> = createDetectSkillsFlow(
     {
@@ -23,8 +23,9 @@ export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
     },
     {
       projectId: snapshot.project.id,
-      // Reuse the readiness model tier — same read-only inventory shape.
-      model: extras.modelOverride ?? settings.ai.models.readiness,
+      // Reuse the readiness row — same read-only inventory shape.
+      model: extras.modelOverride ?? settings.ai.readiness.model,
+      ...(effort !== undefined ? { effort } : {}),
       ...(extras.repositoryId !== undefined ? { repositoryId: extras.repositoryId } : {}),
     }
   );

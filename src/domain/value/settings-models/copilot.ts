@@ -1,3 +1,6 @@
+// Verified against `copilot --help` / `copilot help config` (GitHub Copilot CLI v1.0.12+).
+// Docs: https://docs.github.com/en/copilot/github-copilot-in-the-cli
+
 /**
  * Models supported by the GitHub Copilot CLI adapter. Enumerated from `copilot help config`
  * (v1.0.12). Domain-owned: persisted Settings reference these identifiers; adapters consume

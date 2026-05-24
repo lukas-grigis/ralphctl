@@ -6,7 +6,8 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchReadiness = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, cwd, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, cwd, bridge, sessionId, effort } =
+    ctx;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
   const element: Element<ReadinessCtx> = createReadinessFlow(
@@ -27,7 +28,8 @@ export const launchReadiness = (ctx: LaunchContext): LaunchResult => {
     {
       projectId: snapshot.project.id,
       cwd,
-      model: extras.modelOverride ?? settings.ai.models.readiness,
+      model: extras.modelOverride ?? settings.ai.readiness.model,
+      ...(effort !== undefined ? { effort } : {}),
     }
   );
   const runner = createRunner<ReadinessCtx>({

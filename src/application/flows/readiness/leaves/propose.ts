@@ -37,7 +37,8 @@ export const readinessSession = (
   model: string,
   signalsFile: AbsolutePath,
   bodyFile: AbsolutePath | undefined,
-  outputDir: AbsolutePath
+  outputDir: AbsolutePath,
+  effort?: string
 ): AiSession => ({
   prompt,
   cwd,
@@ -46,6 +47,7 @@ export const readinessSession = (
   signalsFile,
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
+  ...(effort !== undefined ? { effort } : {}),
 });
 
 export interface ProposeReadinessLeafDeps {
@@ -67,6 +69,8 @@ export interface ProposeReadinessLeafDeps {
   readonly logger: Logger;
   readonly cwd: AbsolutePath;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into the AiSession. */
+  readonly effort?: string;
   /** `<dataRoot>/runs`; forwarded into the engine for artifact persistence. */
   readonly runsRoot: AbsolutePath;
 }
@@ -129,7 +133,7 @@ const proposeReadinessUseCase = async (
           outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
-        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir),
+        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort),
       logger: deps.logger,
       runsRoot: deps.runsRoot,
     },

@@ -8,7 +8,19 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId } = ctx;
+  const {
+    deps,
+    snapshot,
+    extras,
+    settings,
+    interactiveAi,
+    skillsAdapter,
+    skillSource,
+    cwd,
+    bridge,
+    sessionId,
+    effort,
+  } = ctx;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
@@ -40,7 +52,8 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
       ideaTitle: titleAns.value,
       ideaText: bodyAns.value,
       cwd,
-      model: extras.modelOverride ?? settings.ai.models.ideate,
+      model: extras.modelOverride ?? settings.ai.ideate.model,
+      ...(effort !== undefined ? { effort } : {}),
       ideateRoot: ideateRoot.value,
     }
   );

@@ -10,7 +10,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { DEFAULT_AI_SETTINGS_BY_PROVIDER, DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { defaultAiSettingsForProvider, DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
 
@@ -185,7 +185,7 @@ describe('doctor use-case', () => {
   });
 
   it('warns when Codex is configured but `codex login status` is unauthenticated', async () => {
-    const codexDefaults = { ...DEFAULT_SETTINGS, ai: DEFAULT_AI_SETTINGS_BY_PROVIDER['openai-codex'] };
+    const codexDefaults = { ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider('openai-codex') };
     const flow = createDoctorFlow({
       projectRepo: fakeProjectRepo(),
       sprintRepo: fakeSprintRepo(),
@@ -217,7 +217,7 @@ describe('doctor use-case', () => {
   });
 
   it('passes when Codex is configured and `codex login status` succeeds', async () => {
-    const codexDefaults = { ...DEFAULT_SETTINGS, ai: DEFAULT_AI_SETTINGS_BY_PROVIDER['openai-codex'] };
+    const codexDefaults = { ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider('openai-codex') };
     const flow = createDoctorFlow({
       projectRepo: fakeProjectRepo(),
       sprintRepo: fakeSprintRepo(),

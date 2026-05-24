@@ -28,8 +28,10 @@ export interface CreateIdeateFlowOpts {
   readonly ideaText: string;
   /** Working directory for the AI session — typically the repo root the user wants Claude to navigate. */
   readonly cwd: AbsolutePath;
-  /** Configured model for ideate. Flows from `config.ai.<provider>.models.ideate`. */
+  /** Configured model for ideate. Flows from `settings.ai.ideate.model`. */
   readonly model: string;
+  /** Resolved effort / reasoning level for the ideate chain — optional. */
+  readonly effort?: string;
   /** Per-sprint root: `<sprintDir>/ideate/`. Per-run subfolder created at execute time. */
   readonly ideateRoot: AbsolutePath;
   /** Per-run slug — the subfolder under ideateRoot. Defaults to `'session-<timestamp>'`. */
@@ -134,6 +136,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       writeFile: deps.writeFile,
       eventBus: deps.eventBus,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     }),
     uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
     saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),

@@ -31,7 +31,8 @@ const deriveOriginFromGit = async (
 };
 
 export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
+    ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // Refine intentionally does not require a repo path — the AI session is rooted at the
   // per-ticket unit folder (`<sprintDir>/refinement/<ticket-slug>/`), not the repo, because
@@ -136,7 +137,8 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
     {
       sprintId: snapshot.sprint.id,
       pendingTickets: pending,
-      model: extras.modelOverride ?? settings.ai.models.refine,
+      model: extras.modelOverride ?? settings.ai.refine.model,
+      ...(effort !== undefined ? { effort } : {}),
       refinementRoot: refinementRoot.value,
     }
   );

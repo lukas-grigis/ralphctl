@@ -8,7 +8,8 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchPlan = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
+    ctx;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // No `cwd` pre-flight: plan's AI session is rooted at the per-sprint plan unit root
@@ -61,7 +62,8 @@ export const launchPlan = (ctx: LaunchContext): LaunchResult => {
       // navigate across them without per-file approval prompts. No repo enjoys cwd privilege —
       // the session's cwd is the per-sprint plan unit root.
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
-      model: extras.modelOverride ?? settings.ai.models.plan,
+      model: extras.modelOverride ?? settings.ai.plan.model,
+      ...(effort !== undefined ? { effort } : {}),
       planRoot: planRoot.value,
     }
   );

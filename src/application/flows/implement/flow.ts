@@ -84,8 +84,10 @@ export interface CreateImplementFlowOpts {
    * repos the sprint touches).
    */
   readonly sprintDir: AbsolutePath;
-  /** Configured model for the implement chain — `config.ai.<provider>.models.implement`. */
+  /** Configured model for the implement chain — `settings.ai.implement.model`. */
   readonly model: string;
+  /** Resolved effort / reasoning level — threaded into every gen-eval AiSession. */
+  readonly effort?: string;
   /**
    * How preflight handles a dirty working tree. Default `'prompt'` — interactive recovery
    * (Keep / Stash / Reset / Cancel). Non-interactive callers (CI, headless harness) should
@@ -248,6 +250,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       sprintDir: opts.sprintDir,
       progressFile: opts.progressFile,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       clock: deps.clock,
       logger: deps.logger,
       eventBus: deps.eventBus,

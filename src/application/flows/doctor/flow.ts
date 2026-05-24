@@ -288,11 +288,19 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
 
         // ---- AI providers -----------------------------------------------------
         const settings = await deps.settingsRepo.load();
-        const configuredProvider: AiProvider | undefined = settings.ok ? settings.value.ai.provider : undefined;
+        // Per-flow rows can each pick a provider; surface every provider that appears on any row
+        // as "configured" so the doctor flags binaries the user actually relies on.
+        const configuredProviders: ReadonlySet<AiProvider> = settings.ok
+          ? new Set<AiProvider>(
+              (['refine', 'plan', 'implement', 'readiness', 'ideate'] as const).map(
+                (f) => settings.value.ai[f].provider
+              )
+            )
+          : new Set<AiProvider>();
         let codexInstalled = false;
         for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
           const binary = PROVIDER_BINARY[provider];
-          const isConfigured = provider === configuredProvider;
+          const isConfigured = configuredProviders.has(provider);
           const probe = await probeBinary(
             `ai-${provider}`,
             `${PROVIDER_LABEL[provider]}${isConfigured ? ' (configured)' : ''}`,
@@ -308,7 +316,7 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
             probes.push(probe);
           }
         }
-        if (configuredProvider === 'openai-codex' && codexInstalled) {
+        if (configuredProviders.has('openai-codex') && codexInstalled) {
           probes.push(
             await probeCliAuth(
               'codex-auth',

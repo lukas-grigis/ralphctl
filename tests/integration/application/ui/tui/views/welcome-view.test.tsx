@@ -72,7 +72,7 @@ describe('WelcomeView — first-run UX', () => {
     await tick(120);
 
     expect(saved).toHaveLength(1);
-    expect(saved[0]?.ai?.provider).toBe('claude-code');
+    expect(saved[0]?.ai?.implement?.provider).toBe('claude-code');
     // Last route entry is the destination; first entry is the welcome view itself.
     expect(routes.at(-1)?.id).toBe('create-project');
   });

@@ -22,8 +22,10 @@ export interface CreateReadinessFlowOpts {
    * repositories mid-run is out of scope — one chain run sets up readiness for one repository.
    */
   readonly cwd: AbsolutePath;
-  /** Configured model for the readiness chain — flows from `config.ai.<provider>.models.readiness`. */
+  /** Configured model for the readiness chain — flows from `settings.ai.readiness.model`. */
   readonly model: string;
+  /** Resolved effort / reasoning level for the readiness AI propose call — optional. */
+  readonly effort?: string;
 }
 
 /**
@@ -71,6 +73,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       logger: deps.logger,
       cwd: opts.cwd,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       runsRoot: deps.runsRoot,
     }),
     uninstallSkillsLeaf<ReadinessCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),

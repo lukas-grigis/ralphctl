@@ -16,11 +16,21 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
 
+interface PersistedFlowRow {
+  readonly provider: string;
+  readonly model: string;
+  readonly effort?: string;
+}
+
 interface PersistedSettings {
   readonly schemaVersion?: number;
   readonly ai: {
-    readonly provider: string;
-    readonly models: Record<string, string>;
+    readonly effort?: string;
+    readonly refine: PersistedFlowRow;
+    readonly plan: PersistedFlowRow;
+    readonly implement: PersistedFlowRow;
+    readonly readiness: PersistedFlowRow;
+    readonly ideate: PersistedFlowRow;
   };
   readonly harness: {
     readonly maxTurns: number;
@@ -60,28 +70,42 @@ describe('ralphctl settings set — disk round-trip', () => {
     expect(persisted.harness.maxTurns).toBe(7);
     // Other settings still at defaults — set-one-key must not zero out the rest.
     expect(persisted.harness.maxAttempts).toBeGreaterThan(0);
-    expect(persisted.ai.provider).toBeTruthy();
+    expect(persisted.ai.implement.provider).toBeTruthy();
+    expect(persisted.ai.implement.model).toBeTruthy();
   });
 
-  it("switching provider rewrites models to the new provider's defaults", async () => {
+  it('persists a per-flow ai.<flow>.model to disk', async () => {
     const settingsPath = join(String(cli.paths.configRoot), 'settings.json');
 
-    // First land an explicit non-default value so we can prove the provider switch resets it.
-    await runCliCaptured(cli, ['settings', 'set', 'ai.provider', 'claude-code']);
-    const afterClaude = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as PersistedSettings;
-    expect(afterClaude.ai.provider).toBe('claude-code');
-    const claudeModels = afterClaude.ai.models;
-    expect(Object.keys(claudeModels).length).toBeGreaterThan(0);
-
-    // Switch to copilot — models should reset to copilot defaults.
-    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.provider', 'github-copilot']);
+    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.plan.model', 'claude-haiku-4-5']);
     expect(r.exitCode).toBe(0);
 
-    const afterCopilot = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as PersistedSettings;
-    expect(afterCopilot.ai.provider).toBe('github-copilot');
-    // Models reset — at least one model string changed.
-    const sameModels = Object.entries(claudeModels).every(([key, val]) => afterCopilot.ai.models[key] === val);
-    expect(sameModels, 'expected at least one model to change after provider switch').toBe(false);
+    const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as PersistedSettings;
+    expect(persisted.ai.plan.model).toBe('claude-haiku-4-5');
+  });
+
+  it('persists a per-flow ai.<flow>.effort to disk', async () => {
+    const settingsPath = join(String(cli.paths.configRoot), 'settings.json');
+
+    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.effort', 'xhigh']);
+    expect(r.exitCode).toBe(0);
+
+    const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as PersistedSettings;
+    expect(persisted.ai.implement.effort).toBe('xhigh');
+  });
+
+  it('rejects the legacy ai.provider key without corrupting the on-disk file', async () => {
+    const settingsPath = join(String(cli.paths.configRoot), 'settings.json');
+    // Seed with a valid write first so the file exists.
+    await runCliCaptured(cli, ['settings', 'set', 'harness.maxTurns', '5']);
+    const before = await fs.readFile(settingsPath, 'utf8');
+
+    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.provider', 'github-copilot']);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("unknown settings key 'ai.provider'");
+
+    const after = await fs.readFile(settingsPath, 'utf8');
+    expect(after).toBe(before);
   });
 
   it('invalid value is rejected: settings.json on disk is unchanged', async () => {

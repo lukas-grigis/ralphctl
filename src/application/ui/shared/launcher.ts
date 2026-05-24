@@ -1,7 +1,10 @@
 /**
  * Bridges flow manifests → live `Element` instances. {@link launchFlow} resolves cross-cutting
- * inputs (fresh settings, provider-bound adapters, composed skill source, runner→event-bus
- * bridge) and dispatches to a per-flow `launch<X>` function under `./launch/`.
+ * inputs (fresh settings, runner→event-bus bridge, composed skill source) and dispatches to a
+ * per-flow `launch<X>` function under `./launch/`. Provider-bound adapters
+ * (`HeadlessAiProvider`, `InteractiveAiProvider`, `SkillsAdapter`) are rebuilt per launch
+ * keyed on the dispatched flow's id — so refine running on Claude while implement runs on
+ * Codex composes cleanly without per-flow assumption about a single boot-time provider.
  *
  * Returning a `LaunchResult` instead of throwing keeps error surfaces explicit; the UI can show
  * "missing project / sprint / cwd" without a try/catch dance.
@@ -24,6 +27,8 @@ import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import { launchCreateSprint } from '@src/application/ui/shared/launch/create-sprint.ts';
@@ -95,7 +100,7 @@ export type LaunchResult =
  */
 export interface LaunchExtras {
   readonly repositoryId?: RepositoryId;
-  /** Per-launch model override; falls back to `settings.ai.models.<flow>` when undefined. */
+  /** Per-launch model override; falls back to `settings.ai[flow].model` when undefined. */
   readonly modelOverride?: string;
   /** Freshly-loaded settings snapshot; overrides the stale `app.settings` boot snapshot. */
   readonly settingsSnapshot?: Settings;
@@ -139,12 +144,14 @@ export const sessionHintsFromLaunchResult = (
 });
 
 /**
- * Models the user can choose from for the configured provider — passed to the model picker
- * in the flow menu. Lookup is keyed by `settings.ai.provider`, so switching the provider in
- * Settings instantly changes the picker's option list.
+ * Models the user can choose from for one flow's configured provider — passed to the model
+ * picker in the flow menu. Lookup is keyed by `settings.ai[flow].provider`, so switching the
+ * provider on that flow in Settings instantly changes the picker's option list.
  */
-export const modelsForConfiguredProvider = (settings: AppDeps['settings']): readonly string[] => {
-  switch (settings.ai.provider) {
+export const modelsForFlowProvider = (flowId: string, settings: AppDeps['settings']): readonly string[] => {
+  const aiFlow = aiFlowIdFor(flowId);
+  if (aiFlow === undefined) return [];
+  switch (settings.ai[aiFlow].provider) {
     case 'claude-code':
       return CLAUDE_MODELS;
     case 'github-copilot':
@@ -161,20 +168,32 @@ export const modelsForConfiguredProvider = (settings: AppDeps['settings']): read
  * export, ticket-add / remove, add-tickets, create-sprint).
  */
 export const modelForFlow = (flowId: string, settings: AppDeps['settings']): string | undefined => {
+  const aiFlow = aiFlowIdFor(flowId);
+  if (aiFlow === undefined) return undefined;
+  return settings.ai[aiFlow].model;
+};
+
+/**
+ * Map a launcher flow id to the {@link FlowId} that owns the AI session, or `undefined` for
+ * flows that don't open one. `detect-scripts` and `detect-skills` are read-only inventory
+ * round-trips that reuse the `readiness` row's provider / model / effort — they don't have
+ * their own settings entry. `review` reuses the `implement` row — same code-mutation profile,
+ * and matching the model already read from `settings.ai.implement.model` in launch/review.ts
+ * keeps the per-launch provider rebuild aligned with the model that gets passed to the spawn.
+ */
+const aiFlowIdFor = (flowId: string): FlowId | undefined => {
   switch (flowId) {
     case 'refine':
-      return settings.ai.models.refine;
     case 'plan':
-      return settings.ai.models.plan;
     case 'implement':
-      return settings.ai.models.implement;
     case 'readiness':
+    case 'ideate':
+      return flowId;
     case 'detect-scripts':
     case 'detect-skills':
-      // Same read-only inventory tier — see launcher cases.
-      return settings.ai.models.readiness;
-    case 'ideate':
-      return settings.ai.models.ideate;
+      return 'readiness';
+    case 'review':
+      return 'implement';
     default:
       return undefined;
   }
@@ -194,32 +213,41 @@ export const launchFlow = async (
 ): Promise<LaunchResult> => {
   // Settings priority: caller-supplied snapshot > on-disk reload > boot-time snapshot. The
   // boot-time `app.settings` is the floor; it's stale across any Settings-view edit, and the
-  // adapter-rebuild block below depends on `settings.ai.provider` matching the user's current
-  // choice. Callers that already reloaded (e.g. flows-view, for its model picker) just pass
-  // their fresh snapshot via `extras.settingsSnapshot`; callers that didn't (project-detail-
-  // view) implicitly opt into a one-roundtrip reload here so they don't have to remember.
+  // adapter-rebuild block below depends on the per-flow row's provider matching the user's
+  // current choice. Callers that already reloaded (e.g. flows-view, for its model picker) just
+  // pass their fresh snapshot via `extras.settingsSnapshot`; callers that didn't (project-
+  // detail-view) implicitly opt into a one-roundtrip reload here so they don't have to remember.
   let settings = extras.settingsSnapshot ?? deps.app.settings;
   if (extras.settingsSnapshot === undefined) {
     const reloaded = await deps.app.settingsRepo.load();
     if (reloaded.ok) settings = reloaded.value;
   }
 
-  // Rebuild the provider-bound adapters from the fresh settings every launch. `app.provider`,
-  // `app.interactiveAi`, and `app.skillsAdapter` are wired once at `wire()` time from the
-  // boot-time `settings.ai.provider`; switching the provider in the Settings view mutates the
-  // on-disk settings file but does NOT replace those frozen closures. Without this rebuild, a
-  // user who boots with Claude, switches to Copilot in Settings, and then launches Refine would
-  // still get the Claude adapter spawned. These factories are tiny (no I/O, no async) so a
-  // per-launch rebuild is essentially free; the alternative — a long-lived settings
-  // subscription — would force every adapter consumer through a level of indirection nobody
-  // else needs.
+  // Rebuild the provider-bound adapters from the fresh settings every launch, keyed on the
+  // dispatched flow's id. `app.provider`, `app.interactiveAi`, and `app.skillsAdapter` are
+  // wired once at `wire()` time from a placeholder flow (see `wire.ts`); without this rebuild,
+  // a user who configured refine on Claude and implement on Codex would get whichever provider
+  // happened to seed wire(). These factories are tiny (no I/O, no async) so a per-launch
+  // rebuild is essentially free. Flows that don't open an AI session fall through to whatever
+  // wire() seeded — they never call `.generate(...)`.
+  const aiFlow = aiFlowIdFor(flowId);
+  const adapterFlow: FlowId = aiFlow ?? 'refine';
   const provider = createAiProvider({
+    flow: adapterFlow,
     ai: settings.ai,
     harnessConfig: settings.harness,
     eventBus: deps.app.eventBus,
   });
-  const interactiveAi = createInteractiveAiProvider({ ai: settings.ai, eventBus: deps.app.eventBus });
-  const skillsAdapter = createSkillsAdapter({ provider: settings.ai.provider, logger: deps.app.logger });
+  const interactiveAi = createInteractiveAiProvider({
+    flow: adapterFlow,
+    ai: settings.ai,
+    eventBus: deps.app.eventBus,
+  });
+  const skillsAdapter = createSkillsAdapter({
+    provider: settings.ai[adapterFlow].provider,
+    logger: deps.app.logger,
+  });
+  const effort = aiFlow !== undefined ? resolveEffort(aiFlow, settings) : undefined;
 
   // Compose the static bundled skill source with a project-scoped source that emits per-repo
   // setup / verify skills authored via the detect-skills flow. The project-source closure reads
@@ -252,6 +280,7 @@ export const launchFlow = async (
     cwd: cwdFromSnapshot(snapshot),
     sessionId,
     bridge,
+    ...(effort !== undefined ? { effort } : {}),
   };
 
   switch (flowId) {

@@ -6,12 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
-import { DEFAULT_AI_SETTINGS_BY_PROVIDER } from '@src/business/settings/defaults.ts';
 
 describe('settings use-cases — read/write through the JSON adapter', () => {
   let configRoot: AbsolutePath;
@@ -53,7 +52,7 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     if (reread.ok) expect(reread.value.ctx.output).toEqual(next);
   });
 
-  it("settings-set-provider switches provider and resets models to that provider's defaults", async () => {
+  it("settings-set-provider switches one flow's provider and rebuilds its model from that provider's defaults", async () => {
     const repo = createJsonSettingsRepository({ configRoot });
     // Start with a customised current record so we can verify non-AI fields are preserved.
     const initial: Settings = {
@@ -64,17 +63,19 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     await createSettingsSetFlow({ settingsRepo: repo }).execute({ input: { next: initial } });
 
     const switched = await createSettingsSetProviderFlow({ settingsRepo: repo }).execute({
-      input: { provider: 'github-copilot' },
+      input: { flow: 'implement', provider: 'github-copilot' },
     });
     expect(switched.ok).toBe(true);
     if (!switched.ok) return;
-    expect(switched.value.ctx.output!.ai).toEqual(DEFAULT_AI_SETTINGS_BY_PROVIDER['github-copilot']);
+    expect(switched.value.ctx.output!.ai.implement).toEqual(defaultAiSettingsForProvider('github-copilot').implement);
+    // Other rows untouched.
+    expect(switched.value.ctx.output!.ai.refine).toEqual(DEFAULT_SETTINGS.ai.refine);
     expect(switched.value.ctx.output!.harness.maxTurns).toBe(7);
     expect(switched.value.ctx.output!.logging.level).toBe('debug');
 
     const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
     if (!reread.ok) throw new Error('expected ok');
-    expect(reread.value.ctx.output!.ai.provider).toBe('github-copilot');
+    expect(reread.value.ctx.output!.ai.implement.provider).toBe('github-copilot');
   });
 
   it('settings-set rejects an invalid record without writing to disk', async () => {

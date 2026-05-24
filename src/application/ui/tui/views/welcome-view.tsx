@@ -16,7 +16,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { spacing, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
-import { DEFAULT_AI_SETTINGS_BY_PROVIDER, DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { Choice } from '@src/business/interactive/prompt.ts';
 
@@ -43,7 +43,7 @@ export const WelcomeView = (): React.JSX.Element => {
   const onProviderPicked = async (raw: unknown): Promise<void> => {
     const provider = raw as AiProvider;
     setStep('saving');
-    const next = { ...DEFAULT_SETTINGS, ai: DEFAULT_AI_SETTINGS_BY_PROVIDER[provider] };
+    const next = { ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider(provider) };
     const setFlow = createSettingsSetFlow({ settingsRepo: deps.settingsRepo });
     const result = await setFlow.execute({ input: { next } });
     if (!result.ok) {

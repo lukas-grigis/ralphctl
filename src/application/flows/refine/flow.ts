@@ -31,6 +31,8 @@ export interface CreateRefineFlowOpts {
   readonly pendingTickets: readonly PendingTicket[];
   /** Configured model for the refine chain. */
   readonly model: string;
+  /** Resolved effort / reasoning level for the refine chain — optional. */
+  readonly effort?: string;
   /** Per-sprint refinement directory: `<sprintDir>/refinement/`. The chain materialises per-ticket subfolders under it. */
   readonly refinementRoot: AbsolutePath;
 }
@@ -159,6 +161,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           writeFile: deps.writeFile,
           eventBus: deps.eventBus,
           model: opts.model,
+          ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
           ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
           ...(deps.issuePusher !== undefined ? { issuePusher: deps.issuePusher } : {}),
           ...(deps.defaultIssueOrigin !== undefined ? { defaultIssueOrigin: deps.defaultIssueOrigin } : {}),

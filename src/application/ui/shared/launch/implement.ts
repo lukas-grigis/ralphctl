@@ -19,7 +19,7 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 export const launchImplement = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {
@@ -112,7 +112,8 @@ export const launchImplement = (ctx: LaunchContext): LaunchResult => {
       repositories,
       progressFile: progressPath.value,
       sprintDir: sprintDirPath.value,
-      model: extras.modelOverride ?? settings.ai.models.implement,
+      model: extras.modelOverride ?? settings.ai.implement.model,
+      ...(effort !== undefined ? { effort } : {}),
     }
   );
   const runner = createRunner<ImplementCtx>({

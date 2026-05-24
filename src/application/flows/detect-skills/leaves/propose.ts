@@ -36,7 +36,8 @@ export const detectSkillsSession = (
   model: string,
   signalsFile: AbsolutePath,
   outputDir: AbsolutePath,
-  bodyFile?: AbsolutePath
+  bodyFile?: AbsolutePath,
+  effort?: string
 ): AiSession => ({
   prompt,
   cwd: repository.path,
@@ -45,6 +46,7 @@ export const detectSkillsSession = (
   signalsFile,
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
+  ...(effort !== undefined ? { effort } : {}),
 });
 
 export interface ProposeDetectSkillsLeafDeps {
@@ -61,6 +63,8 @@ export interface ProposeDetectSkillsLeafDeps {
   readonly logger: Logger;
   readonly skillsAdapter: SkillsAdapter;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into the AiSession. */
+  readonly effort?: string;
   /** `<dataRoot>/runs`. See {@link DetectSkillsDeps.runsRoot}. */
   readonly runsRoot: AbsolutePath;
 }
@@ -146,7 +150,8 @@ const proposeUseCase = async (
       deps.model,
       paths.value.signalsFile,
       paths.value.runDir,
-      paths.value.bodyFile
+      paths.value.bodyFile,
+      deps.effort
     )
   );
   if (!spawn.ok) {

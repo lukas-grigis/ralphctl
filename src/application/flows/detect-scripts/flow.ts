@@ -18,8 +18,10 @@ export interface CreateDetectScriptsFlowOpts {
    * without prompting; when omitted, it asks interactively.
    */
   readonly repositoryId?: RepositoryId;
-  /** Model id from `config.ai.models.readiness` — the same read-only inventory tier. */
+  /** Model id from `settings.ai.readiness.model` — the same read-only inventory tier. */
   readonly model: string;
+  /** Resolved effort / reasoning level — optional. */
+  readonly effort?: string;
 }
 
 /**
@@ -57,6 +59,7 @@ export const createDetectScriptsFlow = (
       eventBus: deps.eventBus,
       logger: deps.logger,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       runsRoot: deps.runsRoot,
     }),
     confirmDetectScriptsLeaf({ interactive: deps.interactive }),

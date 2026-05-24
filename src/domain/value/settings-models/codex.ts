@@ -1,3 +1,6 @@
+// Verified against the `codex -m` picker (OpenAI Codex CLI v0.140.x).
+// Docs: https://github.com/openai/codex#model-selection
+
 /**
  * Models supported by the OpenAI Codex CLI adapter. Enumerated from the `codex -m`
  * picker (codex v0.140.x): `gpt-5.5` is the frontier default; `gpt-5.4` is the

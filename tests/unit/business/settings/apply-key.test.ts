@@ -16,16 +16,61 @@ describe('applySettingsKey', () => {
     if (result.ok) expect(result.value.logging.level).toBe('debug');
   });
 
-  it('updates a per-chain model under ai.models', () => {
-    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.models.plan', 'claude-haiku-4-5');
+  it('updates a per-flow model under ai.<flow>.model', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.plan.model', 'claude-haiku-4-5');
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.ai.models.plan).toBe('claude-haiku-4-5');
+    if (result.ok) expect(result.value.ai.plan.model).toBe('claude-haiku-4-5');
   });
 
-  it('rejects ai.provider alone (would leave models incoherent)', () => {
+  it('updates a per-flow effort under ai.<flow>.effort', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.effort', 'xhigh');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.ai.implement.effort).toBe('xhigh');
+  });
+
+  it('clears a per-flow effort when given an empty string', () => {
+    const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.effort', 'xhigh');
+    expect(seeded.ok).toBe(true);
+    if (!seeded.ok) return;
+    const cleared = applySettingsKey(seeded.value, 'ai.implement.effort', '');
+    expect(cleared.ok).toBe(true);
+    if (cleared.ok) expect(cleared.value.ai.implement.effort).toBeUndefined();
+  });
+
+  it('updates the global ai.effort default', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.effort', 'high');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.ai.effort).toBe('high');
+  });
+
+  it('updates a per-flow provider under ai.<flow>.provider', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.refine.provider', 'github-copilot');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.ai.refine.provider).toBe('github-copilot');
+  });
+
+  it('rejects ai.provider (v1 key) with `unknown settings key`', () => {
     const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.provider', 'openai-codex');
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(result.error.message).toContain('unknown settings key');
+    }
+  });
+
+  it('rejects ai.models.<flow> (v1 key) with `unknown settings key`', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.models.plan', 'claude-opus-4-7');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(result.error.message).toContain('unknown settings key');
+    }
+  });
+
+  it('rejects an unknown provider value', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.refine.provider', 'not-a-provider');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('not a recognised provider');
   });
 
   it('rejects a non-numeric value for a numeric field', () => {

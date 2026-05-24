@@ -3,10 +3,11 @@
  * session should have access to.
  *
  * The list of recognised flow ids comes from the flow registry (`orchestration/registry.ts`).
- * To keep this module dependency-free for tests, the union is mirrored here as a literal —
- * the integration test in `tests/unit/orchestration/skills-registry.test.ts` asserts that
- * every key here exists as a flow in the orchestration registry, and that every skill id
- * referenced has a bundled folder on disk.
+ * `FlowId` is re-exported from `domain/value/flow-id.ts` so this module, the settings schema,
+ * and the launcher all read from one definition — the integration test in
+ * `tests/unit/orchestration/skills-registry.test.ts` asserts that every key here exists as a
+ * flow in the orchestration registry, and that every skill id referenced has a bundled folder
+ * on disk.
  *
  * Order in each list does not matter; adapters install in the order given and that's it.
  *
@@ -15,8 +16,9 @@
  * per-flow assignments is a follow-up.
  */
 
-/** Flow ids that opt into bundled skill installation. Subset of the flow-registry ids. */
-export type FlowId = 'refine' | 'plan' | 'implement' | 'readiness' | 'ideate';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
+
+export type { FlowId };
 
 /** Skill ids referenced below — must each exist as `src/ai/skills/bundled/<id>/SKILL.md`. */
 export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {

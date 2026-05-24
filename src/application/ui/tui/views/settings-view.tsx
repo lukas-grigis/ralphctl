@@ -3,10 +3,14 @@
  * through editable fields, Enter mounts the prompt appropriate to the field's type
  * (`SelectPrompt` for enums, `TextPrompt` for numbers/strings). Most routes funnel through
  * `applySettingsKey` (validation) → `settingsSet` use-case (persistence) so the TUI and the
- * `ralphctl settings set` CLI share a single mutation grammar. The `ai.provider` field is
- * special-cased: it routes through `settingsSetProvider`, which atomically rebuilds the four
- * chain models from that provider's defaults (changing only `provider` would leave the models
- * incoherent with the schema's discriminated union and the save would reject).
+ * `ralphctl settings set` CLI share a single mutation grammar.
+ *
+ * AI configuration is per-flow. Each row shows three editable fields — provider (enum), model
+ * (provider catalog + a `+ custom` affordance for off-catalog ids), and effort
+ * (provider-native levels, or `Default` to clear). A global `effort` row supplies a default
+ * when a per-flow row leaves its `effort` unset. Switching a row's provider routes through
+ * `settings-set-provider` (which rebuilds that row's `{ provider, model }` from the new
+ * provider's defaults so the persistence schema stays satisfied).
  *
  * Storage paths remain read-only — they reflect the resolved runtime root rather than a
  * mutable setting.
@@ -31,6 +35,7 @@ import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
@@ -46,11 +51,33 @@ type EditableField =
       readonly options: readonly string[];
       readonly current: string;
     }
-  | { readonly kind: 'text'; readonly key: string; readonly label: string; readonly current: string };
+  | { readonly kind: 'text'; readonly key: string; readonly label: string; readonly current: string }
+  | {
+      /**
+       * Model picker — a select prompt with a "+ custom" affordance that, when chosen, swaps
+       * to a TextPrompt for a free-form model id. Used only by the per-flow model rows.
+       */
+      readonly kind: 'model';
+      readonly key: string;
+      readonly label: string;
+      readonly options: readonly string[];
+      readonly current: string;
+    };
 
 const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;
 
-const modelOptionsFor = (provider: Settings['ai']['provider']): readonly string[] => {
+const DEFAULT_TOKEN = 'Default' as const;
+const CUSTOM_TOKEN = '+ custom' as const;
+
+const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string[]>> = {
+  'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
+  'github-copilot': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'openai-codex': ['minimal', 'low', 'medium', 'high'],
+};
+
+const GLOBAL_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+const modelOptionsFor = (provider: AiProvider): readonly string[] => {
   switch (provider) {
     case 'claude-code':
       return CLAUDE_MODELS;
@@ -62,38 +89,42 @@ const modelOptionsFor = (provider: Settings['ai']['provider']): readonly string[
 };
 
 const buildEditableFields = (s: Settings): readonly EditableField[] => {
-  const models = modelOptionsFor(s.ai.provider);
-  return [
-    {
+  const fields: EditableField[] = [];
+
+  fields.push({
+    kind: 'select',
+    key: 'ai.effort',
+    label: 'Global effort',
+    options: [DEFAULT_TOKEN, ...GLOBAL_EFFORT_LEVELS],
+    current: s.ai.effort ?? DEFAULT_TOKEN,
+  });
+
+  for (const flow of FLOW_IDS) {
+    const row = s.ai[flow];
+    fields.push({
       kind: 'select',
-      key: 'ai.provider',
-      label: 'Provider',
+      key: `ai.${flow}.provider`,
+      label: `${capitalize(flow)} provider`,
       options: AI_PROVIDERS,
-      current: s.ai.provider,
-    },
-    { kind: 'select', key: 'ai.models.refine', label: 'Refine model', options: models, current: s.ai.models.refine },
-    { kind: 'select', key: 'ai.models.plan', label: 'Plan model', options: models, current: s.ai.models.plan },
-    {
+      current: row.provider,
+    });
+    fields.push({
+      kind: 'model',
+      key: `ai.${flow}.model`,
+      label: `${capitalize(flow)} model`,
+      options: [...modelOptionsFor(row.provider), CUSTOM_TOKEN],
+      current: row.model,
+    });
+    fields.push({
       kind: 'select',
-      key: 'ai.models.ideate',
-      label: 'Ideate model',
-      options: models,
-      current: s.ai.models.ideate,
-    },
-    {
-      kind: 'select',
-      key: 'ai.models.implement',
-      label: 'Implement model',
-      options: models,
-      current: s.ai.models.implement,
-    },
-    {
-      kind: 'select',
-      key: 'ai.models.readiness',
-      label: 'Readiness model',
-      options: models,
-      current: s.ai.models.readiness,
-    },
+      key: `ai.${flow}.effort`,
+      label: `${capitalize(flow)} effort`,
+      options: [DEFAULT_TOKEN, ...PROVIDER_EFFORT_LEVELS[row.provider]],
+      current: row.effort ?? DEFAULT_TOKEN,
+    });
+  }
+
+  fields.push(
     { kind: 'text', key: 'harness.maxTurns', label: 'Max turns', current: String(s.harness.maxTurns) },
     { kind: 'text', key: 'harness.maxAttempts', label: 'Max attempts', current: String(s.harness.maxAttempts) },
     {
@@ -114,9 +145,13 @@ const buildEditableFields = (s: Settings): readonly EditableField[] => {
       key: 'concurrency.maxParallelTasks',
       label: 'Concurrency',
       current: String(s.concurrency.maxParallelTasks),
-    },
-  ];
+    }
+  );
+
+  return fields;
 };
+
+const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
 export const SettingsView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -127,6 +162,8 @@ export const SettingsView = (): React.JSX.Element => {
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [cursor, setCursor] = useState(0);
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
+  /** Holds a model field when the user picked "+ custom" — the editor swaps to a TextPrompt. */
+  const [customModelField, setCustomModelField] = useState<EditableField | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ readonly tone: 'ok' | 'error'; readonly text: string } | undefined>(
     undefined
   );
@@ -151,7 +188,7 @@ export const SettingsView = (): React.JSX.Element => {
     [settings]
   );
 
-  // Clamp cursor when the field set changes (e.g. provider switch shrinks model lists).
+  // Clamp cursor when the field set changes (e.g. provider switch resets model + effort).
   useEffect(() => {
     if (cursor >= fields.length && fields.length > 0) setCursor(fields.length - 1);
   }, [fields, cursor]);
@@ -179,10 +216,14 @@ export const SettingsView = (): React.JSX.Element => {
   // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
   // the claim 1:1. Earlier we toggled imperatively from inside event handlers and the boolean
   // got clobbered by the PromptHost when its queue was empty.
-  useEffect(() => (editingField !== undefined ? ui.claimPrompt() : undefined), [editingField, ui.claimPrompt]);
+  useEffect(
+    () => (editingField !== undefined || customModelField !== undefined ? ui.claimPrompt() : undefined),
+    [editingField, customModelField, ui.claimPrompt]
+  );
 
   const closeEditor = (): void => {
     setEditingField(undefined);
+    setCustomModelField(undefined);
   };
 
   const submit = async (raw: string, field: EditableField): Promise<void> => {
@@ -191,22 +232,27 @@ export const SettingsView = (): React.JSX.Element => {
       closeEditor();
       return;
     }
-    // Provider switches route through the coordinated use-case — it atomically rebuilds the
-    // four chain models so the persistence schema's discriminated union stays satisfied.
-    if (field.key === 'ai.provider') {
+    // Per-flow provider switches route through `settings-set-provider` so the row's model
+    // gets rebuilt from the target provider's defaults — keeps the schema's per-row
+    // discriminated union satisfied.
+    const providerMatch = /^ai\.(refine|plan|implement|readiness|ideate)\.provider$/.exec(field.key);
+    if (providerMatch !== null) {
+      const flow = providerMatch[1] as FlowId;
       const providerFlow = createSettingsSetProviderFlow({ settingsRepo: deps.settingsRepo });
-      const saved = await providerFlow.execute({ input: { provider: raw as AiProvider } });
+      const saved = await providerFlow.execute({ input: { flow, provider: raw as AiProvider } });
       if (!saved.ok) {
         setFeedback({ tone: 'error', text: saved.error.error.message });
         closeEditor();
         return;
       }
-      setFeedback({ tone: 'ok', text: `Provider = ${raw} · models reset to defaults` });
+      setFeedback({ tone: 'ok', text: `${capitalize(flow)} provider = ${raw} · model reset to default` });
       closeEditor();
       await refresh();
       return;
     }
-    const next = applySettingsKey(settings, field.key, raw);
+    // `Default` clears the value (per-flow effort + global effort both treat empty as unset).
+    const normalised = raw === DEFAULT_TOKEN ? '' : raw;
+    const next = applySettingsKey(settings, field.key, normalised);
     if (!next.ok) {
       setFeedback({ tone: 'error', text: next.error.message });
       closeEditor();
@@ -219,9 +265,6 @@ export const SettingsView = (): React.JSX.Element => {
       closeEditor();
       return;
     }
-    // Mirror persisted log-level into the live forwarder gate so the floor takes effect
-    // immediately — otherwise the recent-events panel would keep using the boot-time level
-    // until the TUI restarts.
     if (field.key === 'logging.level') {
       logLevel.setLevel(next.value.logging.level satisfies LogLevel);
     }
@@ -231,12 +274,28 @@ export const SettingsView = (): React.JSX.Element => {
   };
 
   const renderEditor = (field: EditableField): React.JSX.Element => {
-    if (field.kind === 'select') {
+    if (field.kind === 'model' && customModelField !== undefined) {
+      return (
+        <TextPrompt
+          message={`${field.label} (custom id, current: ${field.current})`}
+          initial={field.current}
+          onSubmit={(value) => void submit(value, field)}
+          onCancel={closeEditor}
+        />
+      );
+    }
+    if (field.kind === 'select' || field.kind === 'model') {
       return (
         <SelectPrompt
           message={`${field.label} (current: ${field.current})`}
           options={field.options.map((value) => ({ label: value, value }))}
-          onSubmit={(value) => void submit(String(value), field)}
+          onSubmit={(value) => {
+            if (field.kind === 'model' && String(value) === CUSTOM_TOKEN) {
+              setCustomModelField(field);
+              return;
+            }
+            void submit(String(value), field);
+          }}
           onCancel={closeEditor}
         />
       );
@@ -280,18 +339,22 @@ export const SettingsView = (): React.JSX.Element => {
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Card title="AI provider" tone="primary">
-            <FieldList
-              fields={[
-                { label: 'Provider', value: valueFor('ai.provider') },
-                { label: 'Refine', value: valueFor('ai.models.refine') },
-                { label: 'Plan', value: valueFor('ai.models.plan') },
-                { label: 'Ideate', value: valueFor('ai.models.ideate') },
-                { label: 'Implement', value: valueFor('ai.models.implement') },
-                { label: 'Readiness', value: valueFor('ai.models.readiness') },
-              ]}
-            />
+          <Card title="AI — global" tone="primary">
+            <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
           </Card>
+          {FLOW_IDS.map((flow) => (
+            <Box key={flow} marginTop={spacing.section}>
+              <Card title={`AI — ${capitalize(flow)}`} tone="primary">
+                <FieldList
+                  fields={[
+                    { label: 'Provider', value: valueFor(`ai.${flow}.provider`) },
+                    { label: 'Model', value: valueFor(`ai.${flow}.model`) },
+                    { label: 'Effort', value: valueFor(`ai.${flow}.effort`) },
+                  ]}
+                />
+              </Card>
+            </Box>
+          ))}
           <Box marginTop={spacing.section}>
             <Card title="Harness budgets" tone="primary">
               <FieldList
@@ -340,6 +403,11 @@ export const SettingsView = (): React.JSX.Element => {
                 ]}
               />
             </Card>
+          </Box>
+          <Box marginTop={spacing.section} paddingX={spacing.indent}>
+            <Text dimColor italic>
+              Presets — apply one provider to every flow row — land in T3.
+            </Text>
           </Box>
           {feedback !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>

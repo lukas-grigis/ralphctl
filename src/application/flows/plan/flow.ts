@@ -34,8 +34,10 @@ export interface CreatePlanFlowOpts {
    * auto-loads, and the planner treats every repo symmetrically.
    */
   readonly additionalRoots?: readonly AbsolutePath[];
-  /** Configured model — `config.ai.<provider>.models.plan`. */
+  /** Configured model — `settings.ai.plan.model`. */
   readonly model: string;
+  /** Resolved effort / reasoning level for the plan chain — optional. */
+  readonly effort?: string;
   /** Per-sprint root: `<sprintDir>/plan/`. Per-run subfolder created at execute time. */
   readonly planRoot: AbsolutePath;
   /** Optional run slug. Defaults to `'session-<timestamp>'`. */
@@ -157,6 +159,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       eventBus: deps.eventBus,
       clock: deps.clock,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0
         ? { additionalRoots: opts.additionalRoots }
         : {}),
