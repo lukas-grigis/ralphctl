@@ -175,7 +175,13 @@ describe('create-pr flow — happy path', () => {
       { useAi: false }
     );
     const result = await flow.execute({
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     });
 
     expect(result.ok).toBe(true);
@@ -218,7 +224,13 @@ describe('create-pr flow — happy path', () => {
       { useAi: false }
     );
     const result = await flow.execute({
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     });
 
     expect(result.ok).toBe(true);
@@ -254,6 +266,7 @@ describe('create-pr flow — happy path', () => {
       input: {
         sprintId: sprint.id,
         cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
         base: 'main',
         draft: true,
         title: 'My PR Title',
@@ -288,7 +301,13 @@ describe('create-pr flow — failures', () => {
       { useAi: false }
     );
     const result = await flow.execute({
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     });
 
     expect(result.ok).toBe(false);
@@ -315,7 +334,13 @@ describe('create-pr flow — failures', () => {
       { useAi: false }
     );
     const result = await flow.execute({
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     });
 
     expect(result.ok).toBe(false);
@@ -344,7 +369,13 @@ describe('create-pr flow — failures', () => {
       { useAi: false }
     );
     const result = await flow.execute({
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     });
 
     expect(result.ok).toBe(false);
@@ -421,15 +452,16 @@ describe('create-pr flow — useAi=true happy path', () => {
         { useAi: true }
       );
       const result = await flow.execute({
-        input: { sprintId: sprint.id, cwd: tmp.root, base: 'main', draft: false },
+        input: { sprintId: sprint.id, cwd: tmp.root, sprintDir: tmp.root, base: 'main', draft: false },
       });
 
       expect(result.ok).toBe(true);
       // AI title + body landed on the PR, not the template-derived default.
       expect(pr.calls[0]?.title).toBe(aiTitle);
       expect(pr.calls[0]?.body).toBe(aiBody);
-      // The sidecar file was rendered alongside signals.json.
-      const sidecarPath = `${String(tmp.root)}/.ralphctl-create-pr/${String(sprint.id)}/feature-ai/pr-content.md`;
+      // The sidecar file landed under `<sprintDir>/create-pr/<branch-slug>/` — same convention
+      // implement / refine / plan use, so the user's repo working tree stays untouched.
+      const sidecarPath = `${String(tmp.root)}/create-pr/feature-ai/pr-content.md`;
       const sidecarBody = await fsp.readFile(sidecarPath, 'utf8');
       expect(sidecarBody).toContain(`# ${aiTitle}`);
       expect(sidecarBody).toContain(aiBody);
@@ -482,7 +514,7 @@ describe('create-pr flow — useAi=true happy path', () => {
         { useAi: true }
       );
       const result = await flow.execute({
-        input: { sprintId: sprint.id, cwd: tmp.root, base: 'main', draft: false },
+        input: { sprintId: sprint.id, cwd: tmp.root, sprintDir: tmp.root, base: 'main', draft: false },
       });
 
       expect(result.ok).toBe(true);

@@ -359,11 +359,11 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           │       ├── generator/
 │           │       │   ├── prompt.md           ← rendered generator prompt (written before spawn)
 │           │       │   ├── signals.json
-│           │       │   └── sessionId
+│           │       │   └── session-id.txt
 │           │       └── evaluator/
 │           │           ├── prompt.md           ← rendered evaluator prompt (written before spawn)
 │           │           ├── signals.json
-│           │           └── sessionId
+│           │           └── session-id.txt
 │           └── review/<unit-slug>/        ← apply-feedback sandbox
 └── state/
     └── locks/

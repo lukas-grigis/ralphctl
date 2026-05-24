@@ -47,7 +47,7 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
           currentState: 'post-spawn',
           attemptedAction: 'validate-signals',
           message: `signals-missing: ${path}`,
-          hint: 'The AI exited without writing signals.json. Inspect the per-spawn directory for stdout / sessionId and re-run.',
+          hint: 'The AI exited without writing signals.json. Inspect the per-spawn directory for stdout / session-id.txt and re-run.',
         })
       );
     }

@@ -148,23 +148,26 @@ export const renderExtraDimensionsSection = (extras: readonly string[] | undefin
 };
 
 /**
- * Render the closing-keyword trailer block appended to per-task commit messages. GitHub and
- * GitLab both parse `Closes <ref>` (case-insensitive) and auto-close the referenced issue
- * when the PR / MR merges, so one line per ref is what both platforms expect. Used today by
- * `commit-task.ts`; the implement prompt no longer carries the trailer placeholder.
+ * Render the subject-line suffix appended to per-task commit messages — the conventional
+ * `feat(scope): subject (#123)` shape that GitHub renders as a clickable issue ref in `git
+ * log` and on the PR timeline. Used today by `commit-task.ts`; the implement prompt no longer
+ * carries any ref placeholder. PR-body-level auto-close on merge is handled separately by
+ * `renderIssueRefs` in the create-pr prompt definition, which still injects `Closes #X` into
+ * the PR body — keeping the suffix here purely subject-shaped means double-close lines never
+ * land in `git log`.
  *
- * Format:
- *   `Closes #123`                       (single ref)
- *   `Closes #123\nCloses #456`          (multiple refs — one keyword per line)
+ * Format (leading space, parens, comma-space between refs):
+ *   ` (#123)`              (single ref)
+ *   ` (#123, !456)`        (multiple refs — comma-separated inside one paren)
  *
  * Empty / undefined → empty string. Refs are trimmed, deduped first-seen-wins, and emitted in
  * input order via {@link normalizeRefs}. The harness writes the ref tokens verbatim —
  * `#`/`!`/`PROJ-` decoration is the source ticket's choice, not ours to normalise.
  */
-export const renderTicketRefsSection = (refs: readonly string[] | undefined): string => {
+export const renderTicketRefsSubjectSuffix = (refs: readonly string[] | undefined): string => {
   const normalized = normalizeRefs(refs);
   if (normalized.length === 0) return '';
-  return normalized.map((r) => `Closes ${r}`).join('\n');
+  return ` (${normalized.join(', ')})`;
 };
 
 /**

@@ -34,9 +34,9 @@ import { writeJsonAtomic, writeTextAtomic } from '@src/integration/io/fs.ts';
  * ## Session ids
  *
  * `sessionIds[templateName]` is threaded onto `ProviderOutput.sessionId` AND written to
- * `<dirname-of-signalsFile>/sessionId` as a sibling text file — mirroring the production Claude
- * adapter's `persistSessionIdFile` contract so leaves that read the file (`readRoundSessionId`)
- * see the captured id without manual test setup. `sessionIds[templateName]` may be a string
+ * `<dirname-of-signalsFile>/session-id.txt` as a sibling text file — mirroring the production
+ * Claude adapter's `persistSessionIdFile` contract so leaves that read the file
+ * (`readRoundSessionId`) see the captured id without manual test setup. `sessionIds[templateName]` may be a string
  * (same id every call) or a function `(session) => string | undefined` (per-call ids, e.g. for
  * round-1-vs-round-2 resume tests where each round produces its own id).
  *
@@ -138,10 +138,10 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): FakeAiProvid
       const sessionIdEntry = script.sessionIds?.[templateName];
       const sessionId = typeof sessionIdEntry === 'function' ? sessionIdEntry(session) : sessionIdEntry;
       // Mirror Claude's `persistSessionIdFile` contract: when a sessionId is captured, write a
-      // sibling `sessionId` text file next to signals.json so leaves reading via
+      // sibling `session-id.txt` text file next to signals.json so leaves reading via
       // `readRoundSessionId` see the same file shape production produces.
       if (sessionId !== undefined && sessionId.length > 0) {
-        const sidPath = join(dirname(String(session.signalsFile)), 'sessionId');
+        const sidPath = join(dirname(String(session.signalsFile)), 'session-id.txt');
         await writeTextAtomic(sidPath, `${sessionId}\n`);
       }
       return Result.ok({

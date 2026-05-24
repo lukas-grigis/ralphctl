@@ -290,7 +290,7 @@ describe('commitTaskLeaf', () => {
     expect(observedMessage!.endsWith('...')).toBe(false);
   });
 
-  it('appends a deterministic `Closes <ref>` trailer when the task carries externalRefs', async () => {
+  it('appends a ` (<ref>)` suffix to the subject line when the task carries externalRefs', async () => {
     const repo = fakeRepo();
     const baseTask = makeInProgressTaskWithRunningAttempt();
     const task: Task = { ...baseTask, externalRefs: ['#123'] };
@@ -319,11 +319,13 @@ describe('commitTaskLeaf', () => {
     };
     await leaf.execute(ctx);
     expect(observedMessage).toBeDefined();
-    expect(observedMessage!.endsWith('\n\nCloses #123')).toBe(true);
-    expect(observedMessage!.startsWith('feat(auth): rotate refresh tokens\n\n')).toBe(true);
+    // Suffix on the subject line, body unchanged.
+    expect(observedMessage!).toBe('feat(auth): rotate refresh tokens (#123)\n\nWHY this matters');
+    // No body trailer — auto-close lives in the PR body.
+    expect(observedMessage!).not.toContain('Closes');
   });
 
-  it('renders one `Closes <ref>` line per ref for multi-ref tasks', async () => {
+  it('renders multiple refs comma-separated inside one paren for multi-ref tasks', async () => {
     const repo = fakeRepo();
     const baseTask = makeInProgressTaskWithRunningAttempt();
     const task: Task = { ...baseTask, externalRefs: ['#123', '!456'] };
@@ -346,13 +348,15 @@ describe('commitTaskLeaf', () => {
       { cwd: CWD },
       task.id
     );
-    // No proposed message → default factory + trailer append.
+    // No proposed message → default factory + suffix append.
     await leaf.execute(baseCtx(task));
     expect(observedMessage).toBeDefined();
-    expect(observedMessage!.endsWith('\n\nCloses #123\nCloses !456')).toBe(true);
+    // The subject from the default factory + the refs suffix lands on a single line.
+    const firstLine = observedMessage!.split('\n')[0] ?? '';
+    expect(firstLine.endsWith(' (#123, !456)')).toBe(true);
   });
 
-  it('does not append a trailer when the task has no externalRefs', async () => {
+  it('does not append a suffix when the task has no externalRefs', async () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt();
     const sha = '3'.repeat(40);
@@ -376,17 +380,18 @@ describe('commitTaskLeaf', () => {
     );
     const ctx: ImplementCtx = {
       ...baseCtx(task),
-      proposedCommitMessage: { subject: 'chore: nothing fancy', body: 'no trailer please' },
+      proposedCommitMessage: { subject: 'chore: nothing fancy', body: 'no suffix please' },
     };
     await leaf.execute(ctx);
     expect(observedMessage).toBeDefined();
     expect(observedMessage).not.toContain('Closes');
-    expect(observedMessage).toBe('chore: nothing fancy\n\nno trailer please');
+    expect(observedMessage).toBe('chore: nothing fancy\n\nno suffix please');
   });
 
-  it('appends trailer verbatim alongside a long body — no truncation', async () => {
-    // Realistic shape: a long AI-written body plus the harness-appended Closes trailer.
-    // Audit-[03]: nothing gets clipped at write time. Both body and trailer land intact.
+  it('appends suffix verbatim alongside a long body — no truncation, body untouched', async () => {
+    // Realistic shape: a long AI-written body plus the harness-appended subject suffix.
+    // Audit-[03]: nothing gets clipped at write time. The body lands intact; only the
+    // subject grows by the parenthesized refs.
     const repo = fakeRepo();
     const baseTask = makeInProgressTaskWithRunningAttempt();
     const task: Task = { ...baseTask, externalRefs: ['#9999'] };
@@ -417,14 +422,15 @@ describe('commitTaskLeaf', () => {
     };
     await leaf.execute(ctx);
     expect(observedMessage).toBeDefined();
-    expect(observedMessage!).toBe(`${subject}\n\n${body}\n\nCloses #9999`);
+    expect(observedMessage!).toBe(`${subject} (#9999)\n\n${body}`);
     expect(observedMessage!.endsWith('...')).toBe(false);
   });
 
-  it('appends the deterministic Closes trailer when the task carries externalRefs', async () => {
-    // The AI's parse-time `commit-message` signal cannot carry the deterministic `Closes …`
-    // trailer (the AI never sees the task's externalRefs). The commit-task leaf appends it
-    // before invoking `git commit -m` so reviewers see the trailered message in `git log`.
+  it('threads the subject suffix only — body trailer never appears', async () => {
+    // The AI's parse-time `commit-message` signal cannot carry the deterministic refs
+    // (the AI never sees the task's externalRefs). The commit-task leaf appends them as
+    // a subject suffix; PR-body-level `Closes #X` is the create-pr flow's job, so no body
+    // trailer is added here.
     const repo = fakeRepo();
     const baseTask = makeInProgressTaskWithRunningAttempt();
     const task: Task = { ...baseTask, externalRefs: ['#128'] };
@@ -457,8 +463,41 @@ describe('commitTaskLeaf', () => {
     };
     await leaf.execute(ctx);
     expect(observedMessage).toBeDefined();
-    expect(observedMessage).toContain('Closes #128');
-    // The trailer lives on its own line — never inside the subject.
-    expect(observedMessage?.endsWith('\n\nCloses #128')).toBe(true);
+    // Subject ends with the ref, body untouched, no `Closes` line anywhere.
+    expect(observedMessage).toBe('feat(tui): show full commit message (#128)\n\nWhy this matters.');
+    expect(observedMessage).not.toContain('Closes');
+  });
+
+  it('is idempotent: a subject already ending in the verbatim suffix is left untouched', async () => {
+    const repo = fakeRepo();
+    const baseTask = makeInProgressTaskWithRunningAttempt();
+    const task: Task = { ...baseTask, externalRefs: ['#7'] };
+    const sha = '6'.repeat(40);
+    let observedMessage: string | undefined;
+    const runner: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'commit') {
+          observedMessage = args[2];
+          return ok();
+        }
+        if (args[0] === 'add') return ok();
+        if (args[0] === 'status') return ok(' M file\n');
+        if (args[0] === 'rev-parse') return ok(`${sha}\n`);
+        throw new Error('unhandled');
+      },
+    };
+    const leaf = commitTaskLeaf(
+      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { cwd: CWD },
+      task.id
+    );
+    const ctx: ImplementCtx = {
+      ...baseCtx(task),
+      // Generator hand-authored the ref already — leaf must not double up.
+      proposedCommitMessage: { subject: 'fix(ui): rename button (#7)', body: 'Body line.' },
+    };
+    await leaf.execute(ctx);
+    expect(observedMessage).toBe('fix(ui): rename button (#7)\n\nBody line.');
+    expect(observedMessage).not.toMatch(/\(#7\) \(#7\)/);
   });
 });

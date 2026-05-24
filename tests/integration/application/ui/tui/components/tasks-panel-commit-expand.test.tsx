@@ -4,8 +4,8 @@
  * A `commit-message` signal carries `subject` + optional `body`. The TUI default is collapsed:
  * subject only. When the cursor focuses a commit row and the user presses Enter or Space, the
  * body expands under the signal label column. Multiple rows can be expanded; expansion state
- * persists across re-renders. Deterministic `Closes #…` trailers are appended by the harness
- * at `git commit -F` time and are not surfaced back onto the signal.
+ * persists across re-renders. The harness-appended ` (#123, !456)` subject suffix is added
+ * at `git commit -F` time and is not surfaced back onto the signal.
  */
 
 import { render } from 'ink-testing-library';

@@ -6,6 +6,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 export interface CreatePrInput {
   readonly sprintId: SprintId;
   readonly cwd: AbsolutePath;
+  /**
+   * Per-sprint persisted-state folder (`<dataRoot>/sprints/<sprintId>/`). The AI sub-chain's
+   * unit builder writes `prompt.md`, `signals.json`, `session-id.txt`, and `pr-content.md`
+   * under `<sprintDir>/create-pr/<run-slug>/` — same convention implement / refine / plan use,
+   * so the user's repo working tree stays untouched.
+   */
+  readonly sprintDir: AbsolutePath;
   readonly base: string;
   readonly draft: boolean;
   /** Pre-loaded tasks to feed the body deriver. Empty omits the `## Tasks` section. */

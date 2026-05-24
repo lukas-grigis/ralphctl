@@ -6,9 +6,9 @@
  *
  * Used by ticket creation paths (interactive add-loop, one-shot CLI add,
  * refine-create) so a ticket sourced from an issue URL automatically carries
- * the ref that the commit trailer + PR-body renderers consume — closing
+ * the ref the commit subject-suffix + PR-body renderers consume — closing
  * `Ticket.externalRef === undefined` blind spots that left commits without a
- * `Closes #N` line.
+ * ref annotation and PRs without a `Closes #N` line.
  *
  * Format choice: short `#NN` (not `owner/repo#NN`). Same-repo close is the
  * dominant case for sprint work; users who need cross-repo refs can set

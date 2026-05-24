@@ -56,8 +56,8 @@ export const roundSignalsPath = (workspaceRoot: AbsolutePath, round: number, rol
   join(String(workspaceRoot), 'rounds', String(round), role, 'signals.json');
 
 /**
- * Read the captured Claude `session_id` from `rounds/<N>/<role>/sessionId` — the sibling text
- * file the Claude adapter writes via `persistSessionIdFile` after every spawn. Returns
+ * Read the captured Claude `session_id` from `rounds/<N>/<role>/session-id.txt` — the sibling
+ * text file the Claude adapter writes via `persistSessionIdFile` after every spawn. Returns
  * `undefined` when the file is missing (the adapter skips the write on a spawn that never
  * reported an id — process crash, malformed stream-json, …) or empty.
  *
@@ -71,7 +71,7 @@ export const readRoundSessionId = async (
   round: number,
   role: 'generator' | 'evaluator'
 ): Promise<SessionId | undefined> => {
-  const path = join(String(workspaceRoot), 'rounds', String(round), role, 'sessionId');
+  const path = join(String(workspaceRoot), 'rounds', String(round), role, 'session-id.txt');
   let content: string;
   try {
     content = await fs.readFile(path, 'utf8');

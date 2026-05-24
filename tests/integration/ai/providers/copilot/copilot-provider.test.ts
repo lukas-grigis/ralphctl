@@ -139,7 +139,7 @@ describe('createCopilotProvider', () => {
     expect(sessionEntry?.meta?.['sessionId']).toBe('sess-1');
   });
 
-  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([
@@ -154,13 +154,13 @@ describe('createCopilotProvider', () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     const sidContent = await fs.readFile(sidPath, 'utf8');
     expect(sidContent).toBe('sess-persist\n');
     expect(out.value.sessionId).toBe('sess-persist');
   });
 
-  it('skips the sessionId file when no meta line carried a session_id (no empty marker)', async () => {
+  it('skips the session-id.txt file when no meta line carried a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     // Only plain-text body lines — no JSON meta line, so no session_id is ever extracted.
@@ -172,11 +172,11 @@ describe('createCopilotProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBeUndefined();
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([
@@ -191,7 +191,7 @@ describe('createCopilotProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(false);
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });

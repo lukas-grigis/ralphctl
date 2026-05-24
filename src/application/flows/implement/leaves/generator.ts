@@ -121,7 +121,7 @@ interface GeneratorOutput {
   readonly roundNum: number;
   /**
    * `session_id` captured by the Claude adapter for THIS turn — read from
-   * `rounds/<N>/generator/sessionId` after the spawn returns. Stamped onto ctx by the output
+   * `rounds/<N>/generator/session-id.txt` after the spawn returns. Stamped onto ctx by the output
    * projection so the next round's generator can resume the same thread. `undefined` when the
    * adapter never reported an id (failed spawn, non-Claude provider, …).
    */

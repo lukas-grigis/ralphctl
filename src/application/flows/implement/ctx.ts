@@ -95,7 +95,7 @@ export interface ImplementCtx {
    * on every spawn. Cleared by `start-attempt-<id>` when a new task begins so the next task
    * starts a fresh "developer."
    *
-   * Read from `<workspaceRoot>/rounds/<N>/generator/sessionId` per the file-based provider
+   * Read from `<workspaceRoot>/rounds/<N>/generator/session-id.txt` per the file-based provider
    * contract — the Claude adapter writes the file via `persistSessionIdFile` after every spawn.
    * Undefined on the first round of a task or when the prior spawn failed before reporting an id.
    */

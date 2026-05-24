@@ -124,7 +124,7 @@ interface EvaluatorOutput {
   readonly turnRecord?: PlateauTurnRecord;
   /**
    * `session_id` captured by the Claude adapter for THIS turn — read from
-   * `rounds/<N>/evaluator/sessionId` after the spawn returns. Stamped onto ctx by the output
+   * `rounds/<N>/evaluator/session-id.txt` after the spawn returns. Stamped onto ctx by the output
    * projection so the next round's evaluator can resume the same thread.
    */
   readonly capturedSessionId?: SessionId;

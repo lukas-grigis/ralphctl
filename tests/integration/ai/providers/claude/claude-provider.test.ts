@@ -225,7 +225,7 @@ describe('createClaudeProvider', () => {
     await expect(fs.access(String(out.value.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-persist', model: 'sonnet' });
@@ -237,13 +237,13 @@ describe('createClaudeProvider', () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     const sidContent = await fs.readFile(sidPath, 'utf8');
     expect(sidContent).toBe('sess-persist\n');
     expect(out.value.sessionId).toBe('sess-persist');
   });
 
-  it('skips the sessionId file when the stream never emitted a session_id (no empty marker)', async () => {
+  it('skips the session-id.txt file when the stream never emitted a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     // result event WITHOUT session_id — Claude can omit it on early-exit / malformed init.
@@ -256,11 +256,11 @@ describe('createClaudeProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBeUndefined();
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-doomed', model: 'sonnet' });
@@ -270,7 +270,7 @@ describe('createClaudeProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(false);
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
     // signals.json is also never written on the failure path.
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });

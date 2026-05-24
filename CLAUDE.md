@@ -278,7 +278,7 @@ bundled copy is skipped and the project copy is left untouched. The skills adapt
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
 those entries.
 
-**File-based AI provider contract** — providers write `signals.json` and a `sessionId` file per spawn
+**File-based AI provider contract** — providers write `signals.json` and a `session-id.txt` file per spawn
 (both persisted to `<sprintDir>/implement/<unit-slug>/rounds/<N>/<role>/`); the harness reads them
 post-spawn. No stdout parsing for signals or session IDs. Replaces a long-standing brittleness vector
 when CLI vendors tweak JSON shape.

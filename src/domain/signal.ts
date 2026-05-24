@@ -245,9 +245,9 @@ export interface ContextCompactedSignal {
  *  - `body` is optional and may span multiple paragraphs. Convention: wrap at 72 chars,
  *    explain the why, not the what.
  *
- * Deterministic trailers (`Closes #…`) are appended by the commit-task leaf at `git commit -F`
- * time — they are not threaded back onto the signal. UI surfaces show the AI-authored subject +
- * body; reviewers see the trailered version in `git log`.
+ * A ` (#123, !456)` subject suffix is appended by the commit-task leaf at `git commit -F` time
+ * when the task carries external refs — it is not threaded back onto the signal. UI surfaces
+ * show the AI-authored subject + body; reviewers see the suffixed subject in `git log`.
  *
  * When the signal is absent the harness falls back to its auto-generated default
  * (`task(<short-id>): <task-name>`).

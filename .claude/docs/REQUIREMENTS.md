@@ -140,15 +140,15 @@ Status flow: `draft → active → review → done`.
 
 - [ ] **Distinct chain** — `review` flow lives in `application/flows/review/`; not embedded inside `implement`.
 - [ ] **Free-form feedback** — multi-line editor prompt; empty submission terminates the loop.
-- [x] **AI session resumes via session id** — the harness reads back the per-task `sessionId` file from
-      `<sprintDir>/implement/<unit>/rounds/<N>/generator/sessionId` and resumes the relevant task's session.
+- [x] **AI session resumes via session id** — the harness reads back the per-task `session-id.txt` file from
+      `<sprintDir>/implement/<unit>/rounds/<N>/generator/session-id.txt` and resumes the relevant task's session.
 - [ ] **EventBus emits `FeedbackRoundApplied`** per round.
 
 ## AI provider integration
 
 - [ ] **Three providers** — `claude-code`, `github-copilot`, `openai-codex`, each with its own adapter under
       `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through `providers/_engine/`.
-- [x] **File-based contract** — providers write `signals.json` and `sessionId` files per spawn (both under
+- [x] **File-based contract** — providers write `signals.json` and `session-id.txt` files per spawn (both under
       `rounds/<N>/<role>/`); the harness reads them post-spawn. No stdout parsing for signals or session IDs.
 - [ ] **Idle-stdout watchdog** — wedged children get reaped.
 - [ ] **Exponential backoff** — rate-limit retries use `rate-limit-backoff.ts` (`integration/ai/providers/_engine/`).

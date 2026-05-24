@@ -79,6 +79,12 @@ export type ChainLogSinkLaunchDeps = Omit<FileLogSinkDeps, 'appendFile'>;
  * `settingsRepo` directly so writes round-trip through validation.
  */
 export interface AppDeps {
+  /**
+   * Resolved storage paths — exposed so flows / TUI views can derive per-sprint paths
+   * (`<dataRoot>/sprints/<sprintId>/`) without re-resolving from env or `os.homedir()`.
+   * The composition root computes this once; callers down the tree consume the same record.
+   */
+  readonly storage: StoragePaths;
   readonly projectRepo: ProjectRepository;
   readonly sprintRepo: SprintRepository;
   readonly sprintExecutionRepo: SprintExecutionRepository;
@@ -332,6 +338,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     },
   });
   return {
+    storage: opts.storage,
     projectRepo: createFsProjectRepository({ root: opts.storage.dataRoot }),
     sprintRepo: createFsSprintRepository({ root: opts.storage.dataRoot }),
     sprintExecutionRepo: createFsSprintExecutionRepository({ root: opts.storage.dataRoot }),

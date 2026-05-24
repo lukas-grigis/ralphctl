@@ -77,19 +77,19 @@ describe('round-artifacts', () => {
     it('reads the captured session id when the sibling file exists', async () => {
       const dir = join(String(root.root), 'rounds', '3', 'generator');
       await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(join(dir, 'sessionId'), 'gen-session-xyz\n', 'utf8');
+      await fs.writeFile(join(dir, 'session-id.txt'), 'gen-session-xyz\n', 'utf8');
       expect(await readRoundSessionId(root.root, 3, 'generator')).toBe('gen-session-xyz');
     });
 
-    it('returns undefined when the sessionId file is absent (provider never reported one)', async () => {
+    it('returns undefined when the session-id.txt file is absent (provider never reported one)', async () => {
       expect(await readRoundSessionId(root.root, 99, 'generator')).toBeUndefined();
       expect(await readRoundSessionId(root.root, 99, 'evaluator')).toBeUndefined();
     });
 
-    it('returns undefined for an empty sessionId file rather than a zero-length id', async () => {
+    it('returns undefined for an empty session-id.txt file rather than a zero-length id', async () => {
       const dir = join(String(root.root), 'rounds', '7', 'evaluator');
       await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(join(dir, 'sessionId'), '\n', 'utf8');
+      await fs.writeFile(join(dir, 'session-id.txt'), '\n', 'utf8');
       expect(await readRoundSessionId(root.root, 7, 'evaluator')).toBeUndefined();
     });
   });
