@@ -1,6 +1,6 @@
 ---
 name: harness-principles
-description: "Auto-triggers on structural harness decisions: new chain primitive, new flow, remove evaluator, wrap evaluator, redesign harness, scaffolding, load-bearing, model upgrade, harness audit, refactor flow, sub-agent. Also triggers on file mentions of `src/application/chain/`, `src/application/flows/`, `src/integration/ai/providers/_engine/`. Instructs the agent to read the principles doc before proceeding."
+description: 'Auto-triggers on structural harness decisions: new chain primitive, new flow, remove evaluator, wrap evaluator, redesign harness, scaffolding, load-bearing, model upgrade, harness audit, refactor flow, sub-agent. Also triggers on file mentions of `src/application/chain/`, `src/application/flows/`, `src/integration/ai/providers/_engine/`. Instructs the agent to read the principles doc before proceeding.'
 when_to_use: 'When the user prompt contains any of: "chain primitive", "new flow", "remove evaluator", "wrap evaluator", "redesign harness", "scaffolding", "load-bearing", "model upgrade", "harness audit", "refactor flow", "sub-agent". Also when the prompt references `src/application/chain/`, `src/application/flows/`, or `src/integration/ai/providers/_engine/`. Not needed for pure business logic, UI, or persistence work that does not touch the chain or provider engine.'
 ---
 

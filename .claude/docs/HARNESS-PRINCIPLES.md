@@ -19,12 +19,13 @@ exact path where the principle is exercised today. `partial` and `gap` rows each
 **Rule.** Separate the agent that writes the spec from the agent that generates code from the agent that
 grades it. Mixing roles degrades all three.
 
-**Source.** Anthropic — Harness Design: *"Multi-agent GAN structure — planner / generator / evaluator.
-Evaluators tuned to skepticism; tuning standalone evaluator > making generator self-critical."*
+**Source.** Anthropic — Harness Design: _"Multi-agent GAN structure — planner / generator / evaluator.
+Evaluators tuned to skepticism; tuning standalone evaluator > making generator self-critical."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Planner: `src/application/flows/plan/` (AI expands ticket list into `tasks.json`)
 - Generator: `src/application/flows/implement/leaves/generator.ts`
 - Evaluator: `src/application/flows/implement/leaves/evaluator.ts`
@@ -36,12 +37,13 @@ Evaluators tuned to skepticism; tuning standalone evaluator > making generator s
 **Rule.** Agents write files; other agents read and respond. No stdout parsing for structured output — that
 breaks whenever a CLI vendor changes their JSON shape.
 
-**Source.** Anthropic — Harness Design: *"File-based agent communication. Agents write files; other agents
-read and respond. Keeps work faithful to spec without over-specification."*
+**Source.** Anthropic — Harness Design: _"File-based agent communication. Agents write files; other agents
+read and respond. Keeps work faithful to spec without over-specification."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - `signals.json` contract: `src/integration/ai/providers/_engine/run-headless-spawn.ts`
 - Session-id file: `src/integration/ai/providers/_engine/persist-session-id.ts`
 - Per-spawn layout: `<sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/signals.json`
@@ -53,13 +55,14 @@ read and respond. Keeps work faithful to spec without over-specification."*
 **Rule.** Each new context window must be able to orient itself from a file — not from memory, not from
 stdout history. The progress artefact is the handoff between "shifts."
 
-**Source.** Anthropic — Effective Harnesses: *"Agents work like software engineers collaborating across
-shifts — each new engineer arrives with no memory of what happened on the previous shift."* Progress file
+**Source.** Anthropic — Effective Harnesses: _"Agents work like software engineers collaborating across
+shifts — each new engineer arrives with no memory of what happened on the previous shift."_ Progress file
 = the shift handoff note.
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Append-only sprint journal: `src/application/flows/implement/leaves/progress-journal.ts`
 - Separator on new run: `src/application/flows/_shared/progress/append-journal-separator.ts`
 - Prompts that consume it: `progress.md` body inlined via `{{PROGRESS_JOURNAL}}` in
@@ -72,12 +75,13 @@ shifts — each new engineer arrives with no memory of what happened on the prev
 **Rule.** Every task attempt ends in a commit. The AI agent reads `git log` at session start; commit
 messages are its memory of what changed and why.
 
-**Source.** Anthropic — Effective Harnesses: *"Git as state backbone. Descriptive commit messages enable
-revert + recovery. Model reads git logs at session start."*
+**Source.** Anthropic — Effective Harnesses: _"Git as state backbone. Descriptive commit messages enable
+revert + recovery. Model reads git logs at session start."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Commit leaf: `src/application/flows/implement/leaves/` (commit-message signal drives per-task commits)
 - Conventional commits enforced: project `commitlint` config; `CLAUDE.md § Git Practices`
 
@@ -88,12 +92,13 @@ revert + recovery. Model reads git logs at session start."*
 **Rule.** When the generator-evaluator loop exhausts its attempt budget, the task must transition to
 `blocked` — not `done`, not silently dropped. Silent failure hides bugs; `blocked` surfaces them.
 
-**Source.** Anthropic — Harness Design: *"Hard thresholds — any failed criterion triggers rework. Sprint
-contracts define testable success up-front."*
+**Source.** Anthropic — Harness Design: _"Hard thresholds — any failed criterion triggers rework. Sprint
+contracts define testable success up-front."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - `maxAttempts` setting: `src/application/chain/run/iteration-config.ts`
 - Blocked transition: `src/application/flows/implement/leaves/` (settle-attempt leaf)
 - Task status enum includes `blocked`: `src/domain/entity/task.ts`
@@ -105,12 +110,13 @@ contracts define testable success up-front."*
 **Rule.** When consecutive evaluator rounds flag the same failed-dimension set without improvement, exit the
 loop with a plateau warning rather than exhausting the full attempt budget on non-productive work.
 
-**Source.** Anthropic — Harness Design: *"Early signs [of evaluator failure]: identifying issues then talking
-self into approving anyway; superficial testing."* Plateau detection is the harness-side guard against this.
+**Source.** Anthropic — Harness Design: _"Early signs [of evaluator failure]: identifying issues then talking
+self into approving anyway; superficial testing."_ Plateau detection is the harness-side guard against this.
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - `plateauThreshold` (2–5, default 2): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
@@ -128,6 +134,7 @@ sessions rather than waiting for user intervention.
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - `src/integration/ai/providers/_engine/idle-watchdog.ts`
 
 ---
@@ -138,11 +145,12 @@ sessions rather than waiting for user intervention.
 from where it stopped — not from scratch. Restarting wastes the prior context window.
 
 **Source.** Anthropic — Effective Harnesses: resume via git state and session continuity. Harness Design:
-*"Context resets > compaction for models with context anxiety."*
+_"Context resets > compaction for models with context anxiety."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Retry loop: `src/integration/ai/providers/_engine/rate-limit-backoff.ts`
 - Session-id capture and `--resume` pass-through: `src/integration/ai/providers/_engine/run-headless-spawn.ts`
 - Cap: `settings.harness.rateLimitRetries` (0–10)
@@ -155,12 +163,13 @@ from where it stopped — not from scratch. Restarting wastes the prior context 
 the same script runs again with an attribution algorithm — the harness rejects work that regresses passing
 tests, but does not block the AI for pre-existing failures.
 
-**Source.** Anthropic — Harness Design: *"Sprint contracts define testable success up-front. Grade against
-concrete criteria with hard thresholds — any failed criterion triggers rework."*
+**Source.** Anthropic — Harness Design: _"Sprint contracts define testable success up-front. Grade against
+concrete criteria with hard thresholds — any failed criterion triggers rework."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Pre-task verify + post-task verify: `src/application/flows/implement/leaves/`
 - Attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`): implement leaves
 - Scripts collected during readiness: `src/application/flows/detect-scripts/`
@@ -172,12 +181,13 @@ concrete criteria with hard thresholds — any failed criterion triggers rework.
 **Rule.** Each AI CLI discovers its context file from cwd (`CLAUDE.md`, `.github/copilot-instructions.md`,
 `AGENTS.md`). The harness writes one file per distinct provider — no symlinks, no pointer schemes.
 
-**Source.** Anthropic — Effective Harnesses: *"Cwd is the repo because Claude / Copilot / Codex only
-auto-discover their context file from cwd — not from `--add-dir` roots."*
+**Source.** Anthropic — Effective Harnesses: _"Cwd is the repo because Claude / Copilot / Codex only
+auto-discover their context file from cwd — not from `--add-dir` roots."_
 
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Fan-out: `src/application/flows/readiness/` fans out across every uniquely referenced provider
 - One file per provider: `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`
 - No symlinks by convention: `CLAUDE.md § Security & Safety`
@@ -194,6 +204,7 @@ check gate is the deployed form of this loop; the same posture belongs inside ea
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Cross-phase skill: `.claude/skills/ralphctl-iterative-review/SKILL.md` (main repo)
 
 ---
@@ -208,6 +219,7 @@ acceptance criteria. "Big blob" output is a failure to align first.
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Cross-phase skill: `.claude/skills/ralphctl-alignment/SKILL.md` (main repo)
 
 ---
@@ -222,6 +234,7 @@ acceptance criteria.
 **ralphctl status.** `applied`
 
 **Where it lives.**
+
 - Cross-phase skill: `.claude/skills/ralphctl-abstraction-first/SKILL.md` (main repo)
 
 ---
@@ -231,14 +244,15 @@ acceptance criteria.
 **Rule.** Every harness component encodes an assumption about what the model cannot do unaided. Stress-test
 that assumption on every model release. Remove non-load-bearing pieces one at a time, with measurement.
 
-**Source.** Anthropic — Harness Design: *"Find the simplest solution possible, and only increase complexity
+**Source.** Anthropic — Harness Design: _"Find the simplest solution possible, and only increase complexity
 when needed. Every component encodes assumptions about model limitations. Stress-test assumptions; they can
 go stale quickly as models improve. Remove one component at a time when simplifying. Re-examine entire
-harness when new model releases; strip non-load-bearing pieces."*
+harness when new model releases; strip non-load-bearing pieces."_
 
 **ralphctl status.** `partial`
 
 **Where it lives.**
+
 - Cross-phase skill in progress: `.claude/skills/ralphctl-minimal-scaffolding/SKILL.md` (this PR)
 - No audit cadence yet — nothing enforces a per-model-release walk of this doc.
 
@@ -254,24 +268,26 @@ open a ticket when a new model version ships).
 into approving anyway. The evaluate prompt must name concrete failure modes, weight subjective criteria
 heavier than technical defaults, and use few-shot calibration toward harsh grading.
 
-**Source.** Anthropic — Harness Design: *"LLMs are poor QA agents out-of-box. Early signs: identifying
+**Source.** Anthropic — Harness Design: _"LLMs are poor QA agents out-of-box. Early signs: identifying
 issues then talking self into approving anyway; superficial testing. Fix: read logs, identify judgment
 divergence from desired outcomes, update prompts iteratively. Requires significant prompt tuning to avoid
-over-praising."*
+over-praising."_
 
 **ralphctl status.** `gap`
 
 **Where it lives.**
+
 - Evaluator template: `src/integration/ai/prompts/evaluate/template.md`
 - Today's template grades against `{{TASK_ACCEPTANCE_CRITERIA}}` and the verify-script outcome but does not
   name evaluator failure modes or push toward harsh grading.
 
 **Next step.** The `prompt-template-engineer` agent owns this. Edit `evaluate/template.md` to:
-  - Name concrete failure modes (superficial testing, talking self into approval, over-praising incomplete
-    work).
-  - Weight subjective criteria (design quality, originality, craft) heavier than technical defaults when
-    the task spec includes them.
-  - Add few-shot calibration examples that bias the evaluator toward harsh grading.
+
+- Name concrete failure modes (superficial testing, talking self into approval, over-praising incomplete
+  work).
+- Weight subjective criteria (design quality, originality, craft) heavier than technical defaults when
+  the task spec includes them.
+- Add few-shot calibration examples that bias the evaluator toward harsh grading.
 
 ---
 
@@ -281,13 +297,14 @@ over-praising."*
 or continue from a prior one. Ambiguity here causes the AI to behave as though it has context it doesn't, or
 to compact unnecessarily.
 
-**Source.** Anthropic — Harness Design: *"Resets > compaction for models with context anxiety. Opus 4.5 had
+**Source.** Anthropic — Harness Design: _"Resets > compaction for models with context anxiety. Opus 4.5 had
 strong context anxiety; Opus 4.6 largely eliminated it. Automatic compaction can handle context growth in
-continuous sessions with capable models."*
+continuous sessions with capable models."_
 
 **ralphctl status.** `partial`
 
 **Where it lives.**
+
 - Session scoping: `src/application/session/session.ts` (`AsyncLocalStorage` per runner call)
 - Interactive flows (refine / plan / ideate) hand off a full session to the AI CLI; the AI decides how to
   handle its own context.
@@ -307,14 +324,15 @@ capability — and that relationship shifts as models improve. Design flow surfa
 path is the default for low-stakes work; full `implement` (with evaluator) is reserved for tasks where
 the evaluator pays for itself.
 
-**Source.** Anthropic — Harness Design: *"Solo agent (20 min, $9) vs full harness (6 hr, $200) — 20x
+**Source.** Anthropic — Harness Design: _"Solo agent (20 min, $9) vs full harness (6 hr, $200) — 20x
 expense for substantially better output. Evaluator value depends on task difficulty relative to model
-capability. Boundary shifts as models improve."* Also: *"The space of interesting harness combinations
-doesn't shrink as models improve. Instead, it moves."*
+capability. Boundary shifts as models improve."_ Also: _"The space of interesting harness combinations
+doesn't shrink as models improve. Instead, it moves."_
 
 **ralphctl status.** `gap`
 
 **Where it lives.**
+
 - `ideate`: `src/application/flows/ideate/` — single AI session, no evaluator loop
 - `implement`: `src/application/flows/implement/` — full generator-evaluator-settle loop
 - No guidance in the TUI help text or the designer agent steers the flow-surface choice toward cost-benefit
@@ -333,12 +351,13 @@ and to flow help text for new flows.
 every `applied` row's load-bearing status. Components that were necessary for Opus 4.5 may be overhead for
 Opus 4.7.
 
-**Source.** Anthropic — Harness Design: *"Re-examine entire harness when new model releases; strip
-non-load-bearing pieces."*
+**Source.** Anthropic — Harness Design: _"Re-examine entire harness when new model releases; strip
+non-load-bearing pieces."_
 
 **ralphctl status.** `gap`
 
 **Where it lives.**
+
 - No audit cadence exists. This doc is the intended home for the checklist; the `ralphctl-minimal-scaffolding`
   skill captures the per-change discipline.
 

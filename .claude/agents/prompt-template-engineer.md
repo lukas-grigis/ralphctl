@@ -120,6 +120,7 @@ templates this role owns. Read the relevant sections before editing the affected
 
 **Evaluator over-praises by default (§ 15).** `evaluate/template.md` is the sole prompt-side control for
 grading leniency. When editing this template:
+
 - Name concrete evaluator failure modes explicitly (identifying issues then talking itself into approving;
   superficial testing; crediting incomplete work).
 - Weight subjective criteria (design quality, originality, craft) heavier than technical defaults when the
@@ -134,6 +135,7 @@ grading leniency. When editing this template:
 each govern sessions that may run immediately after a prior session or after a cold start. The model's
 behaviour differs depending on whether it assumes fresh-slate or continuity — and the template phrasing
 steers that assumption. When editing these templates:
+
 - Make fresh-slate vs continuity explicit ("no prior context is assumed — read `progress.md` to orient"
   vs "this session continues from the prior refinement pass").
 - Do not assume the AI retains memory across sessions unless the template explicitly passes prior context
