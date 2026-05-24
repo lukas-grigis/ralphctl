@@ -56,6 +56,8 @@ export interface IdeateAndPlanLeafDeps {
    */
   readonly eventBus: EventBus;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded to the AI CLI. */
+  readonly effort?: string;
 }
 
 interface IdeateAndPlanInput {
@@ -86,6 +88,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
             promptFile: input.promptFile,
             outputFile: input.outputFile,
             model: deps.model,
+            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
           })
         );
         if (!session.ok) return Result.error(session.error);

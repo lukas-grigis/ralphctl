@@ -41,7 +41,7 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  *   | permissions = READ_ONLY           | `-s read-only` (fresh only)                                     |
  *   | permissions = FULL_AUTO           | `-s workspace-write` (fresh only)                               |
  *   | anything else                     | InvalidStateError (only the two locked profiles supported)      |
- *   | reasoningEffort (dep-level)       | `-c model_reasoning_effort=<level>`                             |
+ *   | effort: <level>                   | `-c model_reasoning_effort=<level>`                             |
  *   | (always, trailing)                | `-` (read prompt from stdin)                                    |
  *   | prompt                            | piped to stdin                                                  |
  *
@@ -80,12 +80,6 @@ export interface CodexProviderDeps {
   readonly spawn?: ProviderSpawn;
   /** Test seam: overrides the executable name. Defaults to `'codex'`. */
   readonly command?: string;
-  /**
-   * Optional reasoning effort. Codex sets this via `-c model_reasoning_effort=<level>`.
-   * Operational concern (per-adapter, not per-call) so it lives on Deps rather than
-   * `AiSession`. Defaults to omitted (uses codex's own default — currently `'medium'`).
-   */
-  readonly reasoningEffort?: 'low' | 'medium' | 'high';
   /** Test seam: read the captured tempfile. Defaults to `fs.readFile`. */
   readonly readFile?: (path: string) => Promise<string>;
   /** Test seam: delete the captured tempfile. Defaults to `fs.unlink` (best-effort). */
@@ -131,7 +125,6 @@ const sandboxFor = (_p: SessionPermissions): Result<{ readonly sandbox: 'workspa
 
 interface BuildCodexArgsOpts {
   readonly outputFile: string;
-  readonly reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -170,8 +163,13 @@ export const buildCodexArgs = (
       args.push('--add-dir', String(root));
     }
   }
-  if (opts.reasoningEffort !== undefined) {
-    args.push('-c', `model_reasoning_effort=${opts.reasoningEffort}`);
+  // Forward `session.effort` verbatim via `-c model_reasoning_effort=<value>`. Codex's
+  // documented levels are minimal | low | medium | high; the launcher floors xhigh/max to
+  // high in `resolveEffort` before reaching the adapter, so any string that arrives here
+  // should already be in-range. Codex itself rejects unknown levels — let it speak rather
+  // than re-validate here (mirrors the custom-model arm policy).
+  if (session.effort !== undefined) {
+    args.push('-c', `model_reasoning_effort=${session.effort}`);
   }
   // Trailing `-` tells codex to read the prompt from stdin. Required when no positional
   // prompt arg is given — without it, codex hangs waiting for the arg.
@@ -201,10 +199,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
   return {
     async generate(session) {
       const outputFile = mkTempPath();
-      const argsResult = buildCodexArgs(session, {
-        outputFile,
-        ...(deps.reasoningEffort !== undefined ? { reasoningEffort: deps.reasoningEffort } : {}),
-      });
+      const argsResult = buildCodexArgs(session, { outputFile });
       if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
       const args = argsResult.value;
 

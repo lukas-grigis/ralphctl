@@ -161,7 +161,8 @@ low-stakes work.
 
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Body is
 `generator-leaf → evaluator-leaf → settle-attempt-leaf`. Exits when the evaluator passes or `maxAttempts`
-fires (the task then transitions to `blocked`). Per-flow model from `settings.ai.models.implement`.
+fires (the task then transitions to `blocked`). Provider / model / effort all come from the
+`settings.ai.implement` row (see _AI Settings_ below).
 
 **TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
@@ -187,6 +188,35 @@ legacy keys on read and rewrites the canonical names on the next save (no manual
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
 `glab` and persists `SprintExecution.pullRequestUrl`.
 
+## AI Settings
+
+`settings.ai` is a flat record: one optional global `ai.effort` plus five per-flow rows
+`ai.{refine,plan,implement,readiness,ideate}`, each `{ provider, model, effort? }`. `detect-scripts` /
+`detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no dedicated settings rows.
+Per-flow `model` accepts the matching provider's catalog or any non-empty trimmed custom string; per-flow
+`effort` validates against the provider's native vocabulary.
+
+**Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
+`ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
+otherwise the provider CLI's default. Codex caps at `high` — `xhigh` and `max` collapse to `high` when
+floored from the global value; `minimal` is reachable only via an explicit per-flow override.
+
+**Single-provider configurations are first-class.** Every row may point at the same provider, or every row
+at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
+keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
+
+**Four equal presets** stamp the entire `ai` section in one shot: `mixed` (best-fit provider per flow),
+`claude-only`, `copilot-only`, `codex-only`. None is marked default. Apply via
+`ralphctl settings apply-preset <name>` or from the TUI settings view (four buttons above the global
+effort row). Re-applying overwrites every row in one transaction; subsequent per-key edits via
+`ralphctl settings set ai.<flow>.<field> <value>` stick.
+
+**Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
+`gh` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the
+binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.
+`apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
+welcome view silently auto-seeds a preset on fresh install based on what it detects on PATH.
+
 ## Security & Safety
 
 **Permission model — two orthogonal axes.** `SessionPermissions` gates **capabilities**
@@ -209,8 +239,10 @@ Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
 Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
 
-The `readiness` flow writes the native file selected by `settings.ai.provider` — no symlinks, no pointer
-schemes. Don't introduce either.
+The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
+context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
+openai-codex → `AGENTS.md`). Single-provider configurations produce exactly one file; mixed configurations
+produce one per distinct provider. No symlinks, no pointer schemes. Don't introduce either.
 
 **Cross-process advisory lock** at `<stateRoot>/locks/sprints/<sprint-id>.lock` prevents two ralphctl
 processes racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS` (default 30s, range

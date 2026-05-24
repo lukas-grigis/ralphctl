@@ -40,6 +40,7 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  *   | permissions {autoApprove,canModifyRepoFiles,canRunShell}    | `--allow-all`                                      |
  *   | permissions read-only (no edit, no shell)             | `--allow-all-tools --deny-tool=shell`              |
  *   | resume: <id>                                          | `--resume=<id>`                                    |
+ *   | effort: <level>                                       | `--effort=<level>`                                 |
  *   | prompt                                                | argv: `-p <prompt>`                                |
  *
  * Resume note: current Copilot CLI accepts `--resume[=VALUE]` with `-p` / `--prompt`.
@@ -129,6 +130,12 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   ];
   if (session.resume !== undefined) {
     args.push(`--resume=${String(session.resume)}`);
+  }
+  // Forward `session.effort` verbatim using the `=` form to match the rest of copilot's
+  // argv style. The Copilot CLI's `--effort` flag rejects unknown levels — let it speak for
+  // itself rather than re-validate here. Compatible with `--autopilot`.
+  if (session.effort !== undefined) {
+    args.push(`--effort=${session.effort}`);
   }
   if (isFullAuto(session.permissions)) {
     args.push('--allow-all');

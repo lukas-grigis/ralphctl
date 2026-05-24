@@ -21,51 +21,84 @@ import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
  * bump ships with a forward migration in `migrations.ts`; the load path runs pending
  * migrations and re-saves the file so the user never has to edit JSON by hand.
  */
-export const CURRENT_SCHEMA_VERSION = 1 as const;
+export const CURRENT_SCHEMA_VERSION = 2 as const;
 
 const LogLevelSchema = z.enum(['silent', 'debug', 'info', 'warn', 'error']) satisfies z.ZodType<LogLevel>;
 
-const ClaudeModelSchema = z.enum(CLAUDE_MODELS as readonly [string, ...string[]]);
-const CopilotModelSchema = z.enum(COPILOT_MODELS as readonly [string, ...string[]]);
-const CodexModelSchema = z.enum(CODEX_MODELS as readonly [string, ...string[]]);
+/**
+ * Provider identifier — closed set. Lives as a standalone alias (rather than derived from a
+ * Zod literal) because the flat AiSettings shape no longer has a `provider` field at the root
+ * for `z.infer` to project. Used by every per-flow row and by composition-root factories.
+ */
+export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex';
 
-const ChainModelsSchema = <T extends z.ZodTypeAny>(
-  model: T
-): z.ZodObject<{
-  refine: T;
-  plan: T;
-  implement: T;
-  readiness: T;
-  ideate: T;
-}> =>
-  z.object({
-    refine: model,
-    plan: model,
-    implement: model,
-    readiness: model,
-    ideate: model,
-  });
+const AiProviderSchema = z.enum(['claude-code', 'github-copilot', 'openai-codex']) satisfies z.ZodType<AiProvider>;
 
-const ClaudeAiSettingsSchema = z.object({
+/**
+ * Effort-level vocabularies, per provider. Each row's `effort` value is checked against the
+ * provider's native enum at parse time (a Copilot-only level on a Claude row would surface as
+ * a schema error). The unified global `ai.effort` accepts the superset; `resolveEffort` floors
+ * it to a provider-supported level at read time.
+ */
+const ClaudeEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+const CopilotEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+const CodexEffortSchema = z.enum(['minimal', 'low', 'medium', 'high']);
+
+/** Superset across providers. The global `ai.effort` accepts any of these; `resolveEffort` floors. */
+const GlobalEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/**
+ * Custom (off-catalog) model id. Users can pin to a model the harness doesn't know about by
+ * typing it directly — the schema only requires non-empty trimmed input, the CLI adapter is
+ * still expected to reject unknowns at spawn time.
+ */
+const CustomModelStringSchema = z.string().trim().min(1, 'model id must be a non-empty trimmed string');
+
+const ClaudeModelSchema = z.union([z.enum(CLAUDE_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
+const CopilotModelSchema = z.union([z.enum(COPILOT_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
+const CodexModelSchema = z.union([z.enum(CODEX_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
+
+const ClaudeFlowRowSchema = z.object({
   provider: z.literal('claude-code'),
-  models: ChainModelsSchema(ClaudeModelSchema),
+  model: ClaudeModelSchema,
+  effort: ClaudeEffortSchema.optional(),
 });
 
-const CopilotAiSettingsSchema = z.object({
+const CopilotFlowRowSchema = z.object({
   provider: z.literal('github-copilot'),
-  models: ChainModelsSchema(CopilotModelSchema),
+  model: CopilotModelSchema,
+  effort: CopilotEffortSchema.optional(),
 });
 
-const CodexAiSettingsSchema = z.object({
+const CodexFlowRowSchema = z.object({
   provider: z.literal('openai-codex'),
-  models: ChainModelsSchema(CodexModelSchema),
+  model: CodexModelSchema,
+  effort: CodexEffortSchema.optional(),
 });
 
-const AiSettingsSchema = z.discriminatedUnion('provider', [
-  ClaudeAiSettingsSchema,
-  CopilotAiSettingsSchema,
-  CodexAiSettingsSchema,
-]);
+const FlowRowSchema = z.discriminatedUnion('provider', [ClaudeFlowRowSchema, CopilotFlowRowSchema, CodexFlowRowSchema]);
+
+/**
+ * Flat per-flow AI settings:
+ *
+ *   ai.effort?            // global default, used when a row omits its own effort
+ *   ai.refine             // { provider, model, effort? }
+ *   ai.plan               // { provider, model, effort? }
+ *   ai.implement          // { provider, model, effort? }
+ *   ai.readiness          // { provider, model, effort? }
+ *   ai.ideate             // { provider, model, effort? }
+ *
+ * Rows are independent — refine can run on Claude while implement runs on Codex. The
+ * discriminated union on each row keeps `model` enforced against the row's provider catalog.
+ */
+const AiSettingsSchema = z.object({
+  effort: GlobalEffortSchema.optional(),
+  refine: FlowRowSchema,
+  plan: FlowRowSchema,
+  implement: FlowRowSchema,
+  readiness: FlowRowSchema,
+  ideate: FlowRowSchema,
+});
 
 export const SettingsSchema = z.object({
   /**
@@ -132,6 +165,10 @@ export const SettingsSchema = z.object({
 });
 
 export type AiSettings = z.infer<typeof AiSettingsSchema>;
-/** Provider identifier — derived from the discriminated union for places that switch on it. */
-export type AiProvider = AiSettings['provider'];
+/** Discriminated row type — one entry per flow under `settings.ai.<flow>`. */
+export type AiFlowSettings = z.infer<typeof FlowRowSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
+
+// AiProviderSchema is intentionally not re-exported — callers should use the type alias
+// above; only the schema module re-uses the runtime enum for parsing.
+void AiProviderSchema;

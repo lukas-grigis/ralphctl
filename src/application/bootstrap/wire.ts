@@ -339,6 +339,10 @@ export const wire = (opts: WireOptions): AppDeps => {
     settings: opts.settings,
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
     provider: createAiProvider({
+      // Wire-time seed — the per-launch launcher rebuilds the provider per-flow before
+      // dispatch. The `implement` row is the most common provider consumer; using it here
+      // keeps a sensible default for any path that consults `app.provider` before a launch.
+      flow: 'implement',
       ai: opts.settings.ai,
       harnessConfig: opts.settings.harness,
       eventBus,
@@ -349,7 +353,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     fileLocker,
     writeFile: createAtomicWriteFile(),
     appendFile,
-    interactiveAi: createInteractiveAiProvider({ ai: opts.settings.ai, eventBus }),
+    interactiveAi: createInteractiveAiProvider({ flow: 'refine', ai: opts.settings.ai, eventBus }),
     signals: opts.sinks.harness,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     clock: IsoTimestamp.now,
@@ -364,7 +368,10 @@ export const wire = (opts: WireOptions): AppDeps => {
       currentVersion: CLI_METADATA.currentVersion,
       packageName: CLI_METADATA.packageName,
     }),
-    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.provider, logger }),
+    // Wire-time seed — the per-launch launcher rebuilds skillsAdapter from the dispatched
+    // flow's provider. Tests / one-shot CLI paths that read `app.skillsAdapter` before any
+    // flow launches get the implement row's provider as the default.
+    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.provider, logger }),
     skillSource: createBundledSkillSource(),
     notificationDispatcher,
     chainLogSink,

@@ -79,6 +79,8 @@ export interface GeneratorLeafDeps {
    */
   readonly progressFile: AbsolutePath;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
+  readonly effort?: string;
   readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -239,7 +241,8 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
               prompt.value,
               deps.model,
               signalsFile,
-              input.priorGeneratorSessionId
+              input.priorGeneratorSessionId,
+              deps.effort
             )
           );
           if (!spawn.ok) return Result.error(spawn.error);

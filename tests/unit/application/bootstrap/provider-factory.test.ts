@@ -11,54 +11,62 @@ const harnessConfig: Settings['harness'] = {
 };
 
 const claudeConfig: Settings['ai'] = {
-  provider: 'claude-code',
-  models: {
-    refine: 'claude-sonnet-4-6',
-    plan: 'claude-opus-4-7',
-    implement: 'claude-opus-4-7',
-    readiness: 'claude-sonnet-4-6',
-    ideate: 'claude-sonnet-4-6',
-  },
+  refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
 
 const copilotConfig: Settings['ai'] = {
-  provider: 'github-copilot',
-  models: {
-    refine: 'gpt-5-mini',
-    plan: 'gpt-5.4',
-    implement: 'gpt-5.4',
-    readiness: 'gpt-5-mini',
-    ideate: 'gpt-5-mini',
-  },
+  refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  plan: { provider: 'github-copilot', model: 'gpt-5.4' },
+  implement: { provider: 'github-copilot', model: 'gpt-5.4' },
+  readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
 
 const codexConfig: Settings['ai'] = {
-  provider: 'openai-codex',
-  models: {
-    refine: 'gpt-5.3-codex',
-    plan: 'gpt-5.4',
-    implement: 'gpt-5.3-codex',
-    readiness: 'gpt-5.4-mini',
-    ideate: 'gpt-5.4-mini',
-  },
+  refine: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+  plan: { provider: 'openai-codex', model: 'gpt-5.4' },
+  implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
 describe('createAiProvider', () => {
-  it('dispatches to the Claude adapter when ai.provider is `claude-code`', () => {
+  it('dispatches to the Claude adapter when the flow row uses `claude-code`', () => {
     const eventBus = createInMemoryEventBus();
-    const provider = createAiProvider({ ai: claudeConfig, harnessConfig, eventBus });
+    const provider = createAiProvider({ flow: 'implement', ai: claudeConfig, harnessConfig, eventBus });
     expect(typeof provider.generate).toBe('function');
   });
 
-  it('dispatches to the Copilot adapter when ai.provider is `github-copilot`', () => {
+  it('dispatches to the Copilot adapter when the flow row uses `github-copilot`', () => {
     const eventBus = createInMemoryEventBus();
-    const provider = createAiProvider({ ai: copilotConfig, harnessConfig, eventBus });
+    const provider = createAiProvider({ flow: 'implement', ai: copilotConfig, harnessConfig, eventBus });
     expect(typeof provider.generate).toBe('function');
   });
 
-  it('dispatches to the Codex adapter when ai.provider is `openai-codex`', () => {
+  it('dispatches to the Codex adapter when the flow row uses `openai-codex`', () => {
     const eventBus = createInMemoryEventBus();
-    const provider = createAiProvider({ ai: codexConfig, harnessConfig, eventBus });
+    const provider = createAiProvider({ flow: 'implement', ai: codexConfig, harnessConfig, eventBus });
     expect(typeof provider.generate).toBe('function');
+  });
+
+  it('picks the dispatched flow row when rows use different providers', () => {
+    const mixed: Settings['ai'] = {
+      refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
+      plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+      readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
+      ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    };
+    const eventBus = createInMemoryEventBus();
+    const refineProvider = createAiProvider({ flow: 'refine', ai: mixed, harnessConfig, eventBus });
+    const planProvider = createAiProvider({ flow: 'plan', ai: mixed, harnessConfig, eventBus });
+    const implementProvider = createAiProvider({ flow: 'implement', ai: mixed, harnessConfig, eventBus });
+    expect(typeof refineProvider.generate).toBe('function');
+    expect(typeof planProvider.generate).toBe('function');
+    expect(typeof implementProvider.generate).toBe('function');
   });
 });

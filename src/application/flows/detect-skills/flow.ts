@@ -14,6 +14,8 @@ export interface CreateDetectSkillsFlowOpts {
   readonly projectId: ProjectId;
   readonly repositoryId?: RepositoryId;
   readonly model: string;
+  /** Resolved effort / reasoning level — optional. */
+  readonly effort?: string;
 }
 
 /**
@@ -52,6 +54,7 @@ export const createDetectSkillsFlow = (
       logger: deps.logger,
       skillsAdapter: deps.skillsAdapter,
       model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       runsRoot: deps.runsRoot,
     }),
     confirmDetectSkillsLeaf({ interactive: deps.interactive }),

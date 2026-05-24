@@ -172,8 +172,8 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     const ctx: ReadinessCtx = {
       projectId: 'p1' as unknown as ReadinessCtx['projectId'],
       repository,
-      tool: 'claude-code',
-      probedState: stateResult.value,
+      tools: ['claude-code'],
+      entries: { 'claude-code': { probedState: stateResult.value } },
     };
     return { deps, writer, ctx };
   };
@@ -223,7 +223,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
   it('ok: agents-md-proposal only — sidecar lands, skill-proposal sidecars absent', async () => {
     const { events, eventBus } = captureBus();
     const { deps, writer, ctx } = await buildScene({ kind: 'signals', signals: [agentsMdSignal()] }, eventBus);
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
 
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -242,9 +242,9 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
 
     // ctx.proposal carries the body.
     if (!result.ok) return;
-    expect(result.value.ctx.proposal?.proposedContent).toContain('# repo-a');
-    expect(result.value.ctx.proposal?.proposedSetupSkillBody).toBeUndefined();
-    expect(result.value.ctx.proposal?.proposedVerifySkillBody).toBeUndefined();
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedContent).toContain('# repo-a');
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedSetupSkillBody).toBeUndefined();
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedVerifySkillBody).toBeUndefined();
 
     // The recording writer saw exactly one sidecar write (no skills) — sanity check the
     // sidecar render path is firing.
@@ -259,7 +259,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       { kind: 'signals', signals: [agentsMdSignal(), setupSkillSignal()] },
       eventBus
     );
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
 
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -272,8 +272,8 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     expect(await findRunDirSidecars('verify-skill.md')).toHaveLength(0);
 
     if (!result.ok) return;
-    expect(result.value.ctx.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
-    expect(result.value.ctx.proposal?.proposedVerifySkillBody).toBeUndefined();
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedVerifySkillBody).toBeUndefined();
 
     // Sanity: writer recorded 2 sidecar writes (agents-md-proposal.md, setup-skill.md).
     expect(writer.writes.filter((w) => w.path.endsWith('.md'))).toHaveLength(2);
@@ -286,7 +286,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       { kind: 'signals', signals: [agentsMdSignal(), setupSkillSignal(), verifySkillSignal()] },
       eventBus
     );
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
 
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -303,8 +303,8 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     expect(await findRunDirSidecars('verify-skill.md')).toHaveLength(1);
 
     if (!result.ok) return;
-    expect(result.value.ctx.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
-    expect(result.value.ctx.proposal?.proposedVerifySkillBody).toContain('pnpm typecheck');
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
+    expect(result.value.ctx.entries['claude-code']?.proposal?.proposedVerifySkillBody).toContain('pnpm typecheck');
 
     expect(writer.writes.filter((w) => w.path.endsWith('.md'))).toHaveLength(3);
   });
@@ -312,7 +312,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
   // ── 2. signals.json missing ───────────────────────────────────────────────────
   it('signals-missing: provider omits signals.json → engine surfaces a domain error', async () => {
     const { deps, ctx } = await buildScene({ kind: 'omit' });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
     // The engine's `consumeSignals` step trips first (it reads the temp signals file) — surfaces
@@ -322,7 +322,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
   // ── 3. Malformed JSON ─────────────────────────────────────────────────────────
   it('malformed JSON: provider writes garbage to signals.json → engine domain error', async () => {
     const { deps, ctx } = await buildScene({ kind: 'raw', body: '{ this is not json' });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
   });
@@ -341,7 +341,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       } as unknown as HarnessSignal,
     ];
     const { deps, ctx } = await buildScene({ kind: 'signals', signals });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -356,7 +356,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     // present the leaf surfaces an InvalidStateError so the chain doesn't proceed with an
     // empty body.
     const { deps, ctx } = await buildScene({ kind: 'signals', signals: [] });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -369,7 +369,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     const second: AgentsMdProposalSignal = { ...agentsMdSignal(), content: '# second proposal\n' };
     const { events, eventBus } = captureBus();
     const { deps, writer, ctx } = await buildScene({ kind: 'signals', signals: [agentsMdSignal(), second] }, eventBus);
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
     const aiSignals = events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
@@ -388,7 +388,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
     // — this happy-path test exercises that migration end-to-end. (All the other `ok:` cases
     // above also go through migrations[0] — this is the explicit "migrations work" assertion.)
     const { deps, ctx } = await buildScene({ kind: 'signals', signals: [agentsMdSignal()] });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
     // The signals.json the leaf wrote should still be the legacy top-level-array shape; the
@@ -406,7 +406,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       message: 'simulated spawn failure',
     });
     const { deps, writer, ctx } = await buildScene({ kind: 'spawn-error', error: spawnError });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
 
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
@@ -419,7 +419,7 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
   // ── 9. Abort during spawn ─────────────────────────────────────────────────────
   it('abort: AbortError propagates transparently through the leaf', async () => {
     const { deps, ctx } = await buildScene({ kind: 'abort' });
-    const leaf = proposeReadinessLeaf(deps);
+    const leaf = proposeReadinessLeaf(deps, 'claude-code');
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(false);
     if (result.ok) return;

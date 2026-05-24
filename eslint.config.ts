@@ -149,6 +149,7 @@ const FLOWS = [
   'refine',
   'review',
   'settings',
+  'settings-apply-preset',
   'settings-set',
   'settings-set-provider',
   'settings-show',

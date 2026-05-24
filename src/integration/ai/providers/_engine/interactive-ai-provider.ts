@@ -40,6 +40,12 @@ export interface InteractiveAiProviderInput {
   readonly outputFile: AbsolutePath;
   /** Configured model identifier. */
   readonly model: string;
+  /**
+   * Effort / reasoning level resolved via `resolveEffort(flowId, settings)`. Provider-native
+   * vocabulary; adapters that don't expose a reasoning flag silently ignore the field. Sibling
+   * of `AiSession.effort` on the headless port.
+   */
+  readonly effort?: string;
 }
 
 export interface InteractiveAiProviderOutput {

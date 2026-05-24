@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import type { AiFlowSettings, AiProvider, AiSettings, Settings } from '@src/domain/entity/settings.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
  * Apply a single dotted-path change to a {@link Settings} record. Pure — does not touch
@@ -9,32 +10,85 @@ import type { Settings } from '@src/domain/entity/settings.ts';
  *
  * Final domain validation (numeric ranges, enum membership, provider/model coherence) happens
  * at the persistence boundary via `SettingsSchema`, so this only fails loud on shape errors:
- * unknown keys, non-numeric values where a number was required, or invariants that can't be
- * salvaged at the schema layer (changing `ai.provider` alone leaves models incoherent).
+ * unknown keys, non-numeric values where a number was required.
+ *
+ * Note: `ai.provider` and `ai.models.<flow>` (the v1 grammar) are rejected as unknown keys
+ * here — switching a flow's provider goes through the dedicated `settings-set-provider` flow
+ * (which rebuilds the row's model coherently); switching one model goes through
+ * `ai.<flow>.model`.
  */
-export const applySettingsKey = (current: Settings, key: string, raw: string): Result<Settings, ValidationError> => {
-  switch (key) {
-    case 'ai.provider': {
+const SETTINGS_KEY_HINT =
+  'supported keys: ai.effort, ai.{flow}.provider, ai.{flow}.model, ai.{flow}.effort (flow in {refine,plan,implement,readiness,ideate}), harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold}, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
+
+const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
+const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
+
+const isFlowId = (raw: string): raw is FlowId => (FLOW_IDS as readonly string[]).includes(raw);
+
+const setAiFlowField = (
+  current: Settings,
+  flow: FlowId,
+  field: 'provider' | 'model' | 'effort',
+  raw: string
+): Result<Settings, ValidationError> => {
+  const row = current.ai[flow];
+  let nextRow: AiFlowSettings;
+  if (field === 'provider') {
+    if (!isAiProvider(raw)) {
       return Result.error(
         new ValidationError({
-          field: key,
+          field: `ai.${flow}.provider`,
           value: raw,
-          message: 'setting ai.provider alone leaves models in an inconsistent state',
-          hint: 'change ai.models.* first, then provider — or use a coordinated set-provider use-case (slice B)',
+          message: `'${raw}' is not a recognised provider`,
+          hint: `expected one of: ${AI_PROVIDERS.join(', ')}`,
         })
       );
     }
-    case 'ai.models.refine':
-    case 'ai.models.plan':
-    case 'ai.models.implement':
-    case 'ai.models.readiness':
-    case 'ai.models.ideate': {
-      const which = key.split('.')[2] as 'refine' | 'plan' | 'implement' | 'readiness' | 'ideate';
-      return Result.ok({
-        ...current,
-        ai: { ...current.ai, models: { ...current.ai.models, [which]: raw } } as Settings['ai'],
-      });
+    // Changing provider alone would leave `model` pointing at the prior provider's catalog —
+    // schema validation rejects that at save time. The dedicated `settings-set-provider` flow
+    // handles a coordinated provider+model reset; this single-key surface stays strict.
+    nextRow = { ...row, provider: raw } as AiFlowSettings;
+  } else if (field === 'model') {
+    nextRow = { ...row, model: raw } as AiFlowSettings;
+  } else {
+    // effort: trim + store; persistence schema validates the value against the provider's
+    // native effort enum (`ClaudeEffortSchema`, `CopilotEffortSchema`, `CodexEffortSchema`).
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      // Empty input clears the per-flow effort (falls back to global / CLI default).
+      const { effort: _drop, ...rowWithoutEffort } = row;
+      void _drop;
+      nextRow = rowWithoutEffort as AiFlowSettings;
+    } else {
+      nextRow = { ...row, effort: trimmed } as AiFlowSettings;
     }
+  }
+  const nextAi: AiSettings = { ...current.ai, [flow]: nextRow } as AiSettings;
+  return Result.ok({ ...current, ai: nextAi });
+};
+
+export const applySettingsKey = (current: Settings, key: string, raw: string): Result<Settings, ValidationError> => {
+  // Per-flow AI keys: ai.<flow>.{provider,model,effort}
+  if (key.startsWith('ai.')) {
+    const parts = key.split('.');
+    if (parts.length === 3 && parts[0] === 'ai') {
+      const maybeFlow = parts[1] ?? '';
+      const maybeField = parts[2] ?? '';
+      if (isFlowId(maybeFlow) && (maybeField === 'provider' || maybeField === 'model' || maybeField === 'effort')) {
+        return setAiFlowField(current, maybeFlow, maybeField, raw);
+      }
+    }
+    if (key === 'ai.effort') {
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        const { effort: _drop, ...aiWithoutEffort } = current.ai;
+        void _drop;
+        return Result.ok({ ...current, ai: aiWithoutEffort as AiSettings });
+      }
+      return Result.ok({ ...current, ai: { ...current.ai, effort: trimmed } as AiSettings });
+    }
+  }
+  switch (key) {
     case 'harness.maxTurns':
     case 'harness.maxAttempts':
     case 'harness.rateLimitRetries':
@@ -79,7 +133,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
           field: 'key',
           value: key,
           message: `unknown settings key '${key}'`,
-          hint: 'supported keys: ai.models.{refine,plan,implement,readiness,ideate}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold}, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled',
+          hint: SETTINGS_KEY_HINT,
         })
       );
   }

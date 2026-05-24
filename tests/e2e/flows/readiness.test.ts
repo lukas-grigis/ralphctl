@@ -19,6 +19,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AgentsMdProposalSignal } from '@src/domain/signal.ts';
+import type { AiSettings } from '@src/domain/entity/settings.ts';
 import { absolutePath, FIXED_NOW, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -30,6 +31,14 @@ import { readinessSession } from '@src/application/flows/readiness/leaves/propos
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-readiness-cwd');
+
+const claudeOnlySettings: AiSettings = {
+  refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  plan: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  implement: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+};
 
 // ── fakes ────────────────────────────────────────────────────────────────
 
@@ -174,8 +183,7 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      // pick-tool is the only choice asked (single-repo project skips pick-repository).
-      choices: ['claude-code' as AssistantTool],
+      // Only the pick-repository step asks; the single-repo project skips its prompt entirely.
       confirms: [true],
     });
 
@@ -183,25 +191,24 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-1',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
@@ -210,14 +217,13 @@ describe('createReadinessFlow', () => {
     expect(runner.trace.map((e) => e.elementName)).toEqual([
       'load-project',
       'pick-repository',
-      'pick-tool',
-      'probe',
-      'install-skills',
-      'propose',
-      'uninstall-skills',
-      'confirm',
-      'write',
-      'install-readiness-skills',
+      'probe-claude-code',
+      'install-skills-claude-code',
+      'propose-claude-code',
+      'uninstall-skills-claude-code',
+      'confirm-claude-code',
+      'write-claude-code',
+      'install-readiness-skills-claude-code',
     ]);
 
     // The recorder captures every WriteFile call: the audit-[09] sidecar render writes
@@ -235,8 +241,8 @@ describe('createReadinessFlow', () => {
     // The audit-[09] contract fans validated signals out as `ai-signal` events on the bus.
     expect(aiSignals.map((s) => s.type)).toEqual(['agents-md-proposal', 'note']);
 
-    expect(runner.ctx.accepted).toBe(true);
-    expect(runner.ctx.proposal?.proposedContent).toContain('# repo-a');
+    expect(runner.ctx.entries['claude-code']?.accepted).toBe(true);
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedContent).toContain('# repo-a');
 
     const messages = capturedLogs.map((e) => e.message);
     expect(messages.some((m) => m.includes('starting repo'))).toBe(true);
@@ -275,7 +281,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [false], // user declines
     });
 
@@ -283,30 +288,29 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-2',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.accepted).toBe(false);
+    expect(runner.ctx.entries['claude-code']?.accepted).toBe(false);
     // The write leaf is a no-op on decline, but the audit-[09] sidecar render still writes
     // `agents-md-proposal.md` into the engine's per-run forensic dir BEFORE the confirm step
     // — sidecars are operator UX, written unconditionally on a successful AI round-trip. The
@@ -329,7 +333,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [true],
     });
 
@@ -341,25 +344,24 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => PINNED,
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-3',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
@@ -389,7 +391,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [true],
     });
 
@@ -397,30 +398,29 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes: {}, // no probes registered
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => FIXED_NOW,
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-4',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.probedState?.kind).toBe('unknown');
+    expect(runner.ctx.entries['claude-code']?.probedState?.kind).toBe('unknown');
     // Audit-[09] adds the sidecar write under the engine's per-run dir; filter to the final
     // target write only.
     const finalWrites = writer.writes.filter((w) => !w.path.includes('/runs/readiness/'));
@@ -441,7 +441,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [true],
     });
 
@@ -449,31 +448,30 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => FIXED_NOW,
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-5',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
     expect(runner.status).toBe('failed');
     const failed = runner.trace.find((e) => e.status === 'failed');
-    expect(failed?.elementName).toBe('propose');
+    expect(failed?.elementName).toBe('propose-claude-code');
     expect(writer.writes).toHaveLength(0);
 
     // Post-Wave-6 the leaf validates the AI's signals.json against the readiness contract,
@@ -485,11 +483,11 @@ describe('createReadinessFlow', () => {
     expect(err?.message ?? '').toContain('no agents-md-proposal');
   });
 
-  it('surfaces AI-proposed setup-skill and verify-skill bodies on ctx.proposal', async () => {
+  it('surfaces AI-proposed setup-skill and verify-skill bodies on the per-tool entry', async () => {
     // Audit-[09] readiness contract dropped the one-shell-line setup-script / verify-script
     // signals in favour of multi-paragraph setup-skill-proposal / verify-skill-proposal
     // bodies (markdown the harness lands as SKILL.md files). Verify both bodies survive the
-    // contract round-trip and project onto ctx.proposal.
+    // contract round-trip and project onto the per-tool entry.
     const { project } = await buildScene();
     const eventBus = createInMemoryEventBus();
     const probes = fakeProbeRegistry('claude-code', absentState(FIXED_NOW));
@@ -514,7 +512,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [true],
     });
 
@@ -522,31 +519,32 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => FIXED_NOW,
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-scripts',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
-    expect(runner.ctx.proposal?.proposedVerifySkillBody).toContain('pnpm typecheck && pnpm lint && pnpm test');
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedSetupSkillBody).toContain('Run `pnpm install`');
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedVerifySkillBody).toContain(
+      'pnpm typecheck && pnpm lint && pnpm test'
+    );
   });
 
   it('leaves setup/verify proposals undefined when the AI omits the tags', async () => {
@@ -560,7 +558,6 @@ describe('createReadinessFlow', () => {
     });
 
     const interactive = scriptedInteractive({
-      choices: ['claude-code' as AssistantTool],
       confirms: [true],
     });
 
@@ -568,30 +565,29 @@ describe('createReadinessFlow', () => {
       {
         projectRepo: fakeProjectRepo(project),
         probes,
-        provider,
+        providerFor: () => provider,
+        skillsAdapterFor: () => noopSkillsAdapter,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-
         eventBus,
         logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-09T10:00:00.000Z') }),
         interactive,
         writeFile: writer.write,
         clock: () => FIXED_NOW,
-        skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
         runsRoot,
       },
-      { projectId: project.id, cwd: FAKE_CWD, model: 'claude-sonnet-4-6' }
+      { projectId: project.id, cwd: FAKE_CWD, ai: claudeOnlySettings }
     );
 
     const runner = createRunner({
       id: 'r-readiness-no-scripts',
       element: flow,
-      initialCtx: { projectId: project.id },
+      initialCtx: { projectId: project.id, tools: [], entries: {} },
     });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    expect(runner.ctx.proposal?.proposedSetupScript).toBeUndefined();
-    expect(runner.ctx.proposal?.proposedVerifyScript).toBeUndefined();
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedSetupScript).toBeUndefined();
+    expect(runner.ctx.entries['claude-code']?.proposal?.proposedVerifyScript).toBeUndefined();
   });
 });

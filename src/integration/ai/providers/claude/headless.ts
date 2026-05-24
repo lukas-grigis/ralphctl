@@ -61,6 +61,7 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  *   | permissions read-only (canModifyRepoFiles=false, …)           | --permission-mode bypassPermissions --disallowedTools <list> |
  *   | additionalRoots: [a, b]                                 | --add-dir a --add-dir b                                      |
  *   | resume: id                                              | --resume id                                                  |
+ *   | effort: <level>                                         | --effort <level>                                             |
  *
  * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
  * actually launching `claude`. Defaults to `node:child_process.spawn`.
@@ -179,6 +180,12 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   }
   if (session.resume !== undefined) {
     args.push('--resume', String(session.resume));
+  }
+  // Forward `session.effort` verbatim. The Claude CLI's `--effort` flag rejects unknown
+  // levels — let it speak for itself rather than re-validate here (mirrors the custom-model
+  // arm, where any non-empty string is forwarded and validation is the binary's job).
+  if (session.effort !== undefined) {
+    args.push('--effort', session.effort);
   }
   return Result.ok(args);
 };

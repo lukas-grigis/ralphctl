@@ -9,6 +9,7 @@ import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
  * Best-effort `git remote get-url origin` → {@link IssueOriginRef}. Returns `undefined` on every
@@ -31,7 +32,10 @@ const deriveOriginFromGit = async (
 };
 
 export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
+    ctx;
+  const missing = await checkCli('refine', settings);
+  if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // Refine intentionally does not require a repo path — the AI session is rooted at the
   // per-ticket unit folder (`<sprintDir>/refinement/<ticket-slug>/`), not the repo, because
@@ -136,7 +140,8 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
     {
       sprintId: snapshot.sprint.id,
       pendingTickets: pending,
-      model: extras.modelOverride ?? settings.ai.models.refine,
+      model: extras.modelOverride ?? settings.ai.refine.model,
+      ...(effort !== undefined ? { effort } : {}),
       refinementRoot: refinementRoot.value,
     }
   );

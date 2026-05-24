@@ -86,6 +86,8 @@ export interface EvaluatorLeafDeps {
    */
   readonly progressFile: AbsolutePath;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
+  readonly effort?: string;
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
@@ -185,7 +187,8 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
               prompt.value,
               deps.model,
               signalsFile,
-              input.priorEvaluatorSessionId
+              input.priorEvaluatorSessionId,
+              deps.effort
             )
           );
           if (!spawn.ok) return Result.error(spawn.error);

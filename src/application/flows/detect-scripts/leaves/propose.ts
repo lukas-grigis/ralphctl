@@ -33,7 +33,8 @@ export const detectScriptsSession = (
   model: string,
   signalsFile: AbsolutePath,
   outputDir: AbsolutePath,
-  bodyFile?: AbsolutePath
+  bodyFile?: AbsolutePath,
+  effort?: string
 ): AiSession => ({
   prompt,
   cwd: repository.path,
@@ -42,6 +43,7 @@ export const detectScriptsSession = (
   signalsFile,
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
+  ...(effort !== undefined ? { effort } : {}),
 });
 
 export interface ProposeDetectScriptsLeafDeps {
@@ -56,6 +58,8 @@ export interface ProposeDetectScriptsLeafDeps {
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into the AiSession. */
+  readonly effort?: string;
   /**
    * `<dataRoot>/runs`. The leaf creates `<runsRoot>/detect-scripts/<run-id>/` and writes
    * `prompt.md` (the rendered template the AI saw), `signals.json` (the AI's contract
@@ -155,7 +159,8 @@ const proposeUseCase = async (
       deps.model,
       paths.value.signalsFile,
       paths.value.runDir,
-      paths.value.bodyFile
+      paths.value.bodyFile,
+      deps.effort
     )
   );
   if (!spawn.ok) {

@@ -29,4 +29,10 @@ export interface LaunchContext {
   readonly sessionId: () => string;
   /** Wires the runner to the event bus so subscribers see chain progress. */
   readonly bridge: <T>(runner: Runner<T>) => Runner<T>;
+  /**
+   * Effort resolved via `resolveEffort(flowId, settings)` — undefined when the flow doesn't
+   * open an AI session or when neither per-flow nor global effort is set. Each launcher
+   * threads it into the `AiSession` it constructs; the adapter translates to its CLI flag.
+   */
+  readonly effort?: string;
 }

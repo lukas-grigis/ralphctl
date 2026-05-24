@@ -24,11 +24,48 @@ export interface SettingsMigration {
 }
 
 /**
- * Ordered chain of upgrades from older versions to {@link CURRENT_SCHEMA_VERSION}. Currently
- * empty — v1 is the inaugural format. Future schema bumps add entries here in `from → to`
- * order; the migration runner walks them automatically.
+ * v1 → v2: collapse the single-provider discriminated union into five per-flow rows. Every
+ * row inherits the v1 root provider; per-flow `model` is preserved verbatim from
+ * `ai.models.<flow>`. Effort is seeded so the post-migration matrix matches the v1 implicit
+ * behaviour: global `high` default, with `implement` and `plan` bumped to `xhigh` (those
+ * historically benefited from the deeper reasoning level under the unified harness) and
+ * `readiness` floored to `medium` (a read-only inventory round-trip — `xhigh` is wasteful).
+ * Runs silently; the user does not see a banner or warning when the migration fires.
  */
-export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [];
+const FLOW_KEYS = ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const;
+
+const migrateV1ToV2 = (raw: Record<string, unknown>): Record<string, unknown> => {
+  const aiRaw = raw['ai'];
+  if (typeof aiRaw !== 'object' || aiRaw === null) return raw;
+  const ai = aiRaw as { readonly provider?: unknown; readonly models?: unknown };
+  if (typeof ai.provider !== 'string') return raw;
+  const provider = ai.provider;
+  const models = (typeof ai.models === 'object' && ai.models !== null ? ai.models : {}) as Record<string, unknown>;
+  const perFlowEffortOverrides: Readonly<Partial<Record<(typeof FLOW_KEYS)[number], string>>> = {
+    implement: 'xhigh',
+    plan: 'xhigh',
+    readiness: 'medium',
+  };
+  const nextAi: Record<string, unknown> = { effort: 'high' };
+  for (const flow of FLOW_KEYS) {
+    const modelRaw = models[flow];
+    const row: Record<string, unknown> = {
+      provider,
+      ...(typeof modelRaw === 'string' ? { model: modelRaw } : {}),
+    };
+    const override = perFlowEffortOverrides[flow];
+    if (override !== undefined) row['effort'] = override;
+    nextAi[flow] = row;
+  }
+  return { ...raw, ai: nextAi };
+};
+
+/**
+ * Ordered chain of upgrades from older versions to {@link CURRENT_SCHEMA_VERSION}. The
+ * migration runner walks them in `from → to` order; gaps abort the chain (the result's
+ * `toVersion` mismatches `CURRENT_SCHEMA_VERSION` and the load path surfaces a `ParseError`).
+ */
+export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [{ from: 1, to: 2, migrate: migrateV1ToV2 }];
 
 /**
  * Read the `schemaVersion` field from a raw object, defaulting to `1` when missing or

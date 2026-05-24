@@ -84,9 +84,9 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
       fileLocker: deps.app.fileLocker,
       locksRoot: deps.storage.locksRoot,
       appendFile: deps.app.appendFile,
-      // Review uses the implement model tier — same code-mutation profile, same accuracy
-      // expectations. No per-flow `review` model in settings today.
-      model: extras.modelOverride ?? settings.ai.models.implement,
+      // Review uses the implement model — same code-mutation profile, same accuracy
+      // expectations. No per-flow `review` row in settings today.
+      model: extras.modelOverride ?? settings.ai.implement.model,
     },
     {
       sprintId: snapshot.sprint.id,

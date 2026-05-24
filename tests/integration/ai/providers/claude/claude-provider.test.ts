@@ -518,6 +518,17 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(unwrapArgs(session()).includes('--resume')).toBe(false);
   });
 
+  it('emits --effort <level> when session.effort is set (forwarded verbatim)', () => {
+    const args = unwrapArgs(session({ effort: 'xhigh' }));
+    const idx = args.indexOf('--effort');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('xhigh');
+  });
+
+  it('omits --effort when session.effort is undefined', () => {
+    expect(unwrapArgs(session()).includes('--effort')).toBe(false);
+  });
+
   it('passes the translated argv through spawn end-to-end', async () => {
     const cap = createCapturingBus();
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude-opus-4-7' });

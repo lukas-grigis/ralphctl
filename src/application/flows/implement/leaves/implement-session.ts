@@ -51,7 +51,8 @@ export const implementSession = (
   prompt: Prompt,
   model: string,
   signalsFile: AbsolutePath,
-  resume?: SessionId
+  resume?: SessionId,
+  effort?: string
 ): AiSession => ({
   prompt,
   cwd: repoPath,
@@ -60,4 +61,5 @@ export const implementSession = (
   permissions: FULL_AUTO,
   signalsFile,
   ...(resume !== undefined ? { resume } : {}),
+  ...(effort !== undefined ? { effort } : {}),
 });

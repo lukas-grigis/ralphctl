@@ -538,16 +538,14 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args).not.toContain('--add-dir');
   });
 
-  it('emits -c model_reasoning_effort=<level> when reasoningEffort is set', () => {
-    const r = buildCodexArgs(session(), { outputFile: FIXED_OUT, reasoningEffort: 'high' });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    const cIdx = r.value.indexOf('-c');
+  it('emits -c model_reasoning_effort=<level> when session.effort is set (sourced from session, not deps)', () => {
+    const args = unwrapArgs(session({ effort: 'high' }));
+    const cIdx = args.indexOf('-c');
     expect(cIdx).toBeGreaterThanOrEqual(0);
-    expect(r.value[cIdx + 1]).toBe('model_reasoning_effort=high');
+    expect(args[cIdx + 1]).toBe('model_reasoning_effort=high');
   });
 
-  it('omits the reasoning override when reasoningEffort is unset', () => {
+  it('omits the reasoning override when session.effort is unset', () => {
     expect(unwrapArgs(session()).includes('-c')).toBe(false);
   });
 
@@ -556,11 +554,9 @@ describe('buildCodexArgs — AiSession → CLI argv translation', () => {
     expect(args.at(-1)).toBe('-');
   });
 
-  it('keeps `-` as the trailing arg even with resume + reasoningEffort', () => {
+  it('keeps `-` as the trailing arg even with resume + session.effort', () => {
     const id = 'sess-abc' as unknown as SessionId;
-    const r = buildCodexArgs(session({ resume: id }), { outputFile: FIXED_OUT, reasoningEffort: 'high' });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.value.at(-1)).toBe('-');
+    const args = unwrapArgs(session({ resume: id, effort: 'high' }));
+    expect(args.at(-1)).toBe('-');
   });
 });

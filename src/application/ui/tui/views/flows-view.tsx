@@ -31,7 +31,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import {
   launchFlow,
   modelForFlow,
-  modelsForConfiguredProvider,
+  modelsForFlowProvider,
   sessionHintsFromLaunchResult,
 } from '@src/application/ui/shared/launcher.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -154,7 +154,7 @@ export const FlowsView = (): React.JSX.Element => {
             );
             if (!action.ok || action.value === 'cancel') return;
             if (action.value === 'pick') {
-              const models = modelsForConfiguredProvider(settings);
+              const models = modelsForFlowProvider(entry.manifest.id, settings);
               const picked = await interactive.askChoice<string>(
                 'Choose model for this run (does not change settings):',
                 models.map((m) => ({ label: m, value: m, ...(m === defaultModel ? { description: '(default)' } : {}) }))

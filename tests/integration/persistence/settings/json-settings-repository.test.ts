@@ -22,24 +22,41 @@ describe('Settings defaults + schema', () => {
     expect(SettingsSchema.safeParse(bad).success).toBe(false);
   });
 
-  it('rejects unknown ai provider', () => {
-    const bad = { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, provider: 'gemini' } };
+  it('rejects unknown ai provider on a per-flow row', () => {
+    const bad = {
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, refine: { provider: 'gemini', model: 'whatever' } },
+    };
     expect(SettingsSchema.safeParse(bad).success).toBe(false);
   });
 
-  it('rejects an unknown model string for the configured provider', () => {
+  it("rejects an effort value outside the row provider's native vocabulary", () => {
+    // Codex does not expose `xhigh`; setting it on a codex row must fail at parse time.
     const bad = {
       ...DEFAULT_SETTINGS,
       ai: {
-        provider: 'claude-code' as const,
-        models: {
-          refine: 'gpt-5.4',
-          plan: 'claude-opus-4-7',
-          implement: 'claude-opus-4-7',
-          readiness: 'claude-sonnet-4-6',
-          ideate: 'claude-sonnet-4-6',
-        },
+        ...DEFAULT_SETTINGS.ai,
+        implement: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex', effort: 'xhigh' },
       },
+    };
+    expect(SettingsSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('accepts a custom model string on a row (non-empty trimmed)', () => {
+    const good = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        implement: { provider: 'claude-code' as const, model: 'my-pinned-experimental-model' },
+      },
+    };
+    expect(SettingsSchema.safeParse(good).success).toBe(true);
+  });
+
+  it('rejects an empty/whitespace-only custom model string', () => {
+    const bad = {
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, implement: { provider: 'claude-code' as const, model: '   ' } },
     };
     expect(SettingsSchema.safeParse(bad).success).toBe(false);
   });
@@ -78,14 +95,11 @@ describe('JsonSettingsRepository', () => {
     const codex: Settings = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
-        provider: 'openai-codex',
-        models: {
-          refine: 'gpt-5.3-codex',
-          plan: 'gpt-5.4',
-          implement: 'gpt-5.3-codex',
-          readiness: 'gpt-5.4-mini',
-          ideate: 'gpt-5.4-mini',
-        },
+        refine: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        plan: { provider: 'openai-codex', model: 'gpt-5.4' },
+        implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
       harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 2, plateauThreshold: 2 },
       logging: { level: 'info' },
@@ -100,18 +114,16 @@ describe('JsonSettingsRepository', () => {
     if (loaded.ok) expect(loaded.value).toEqual(codex);
   });
 
-  it('round-trips: save then load yields the same Settings', async () => {
+  it('round-trips a mixed-provider profile: per-flow rows persist independently', async () => {
     const custom: Settings = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
-        provider: 'github-copilot',
-        models: {
-          refine: 'gpt-5-mini',
-          plan: 'gpt-5.4',
-          implement: 'gpt-5.4',
-          readiness: 'gpt-5-mini',
-          ideate: 'gpt-5-mini',
-        },
+        effort: 'high',
+        refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
+        plan: { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' },
+        implement: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'max' },
+        readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
       },
       harness: { maxTurns: 8, maxAttempts: 5, rateLimitRetries: 5, plateauThreshold: 3 },
       logging: { level: 'debug' },
@@ -154,7 +166,10 @@ describe('JsonSettingsRepository', () => {
 
   it('load surfaces schema-violating JSON as ParseError(schema-mismatch)', async () => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
-    await fs.writeFile(path, JSON.stringify({ ai: { provider: 'unknown', models: {} } }));
+    await fs.writeFile(
+      path,
+      JSON.stringify({ schemaVersion: CURRENT_SCHEMA_VERSION, ai: { refine: { provider: 'unknown', model: 'x' } } })
+    );
 
     const repo = createJsonSettingsRepository({ configRoot });
     const result = await repo.load();
@@ -174,20 +189,35 @@ describe('JsonSettingsRepository', () => {
     expect(raw.endsWith('\n')).toBe(true);
   });
 
-  it('load accepts a legacy file without schemaVersion (treated as v1)', async () => {
-    // Simulate an old settings.json that predates schemaVersion. The default in the schema
-    // promotes it to v1 transparently; no migration runs because we're already at v1.
+  it('load migrates a legacy v1 file (single ai.provider + ai.models) to v2 transparently', async () => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
-    const { schemaVersion: _drop, ...legacy } = DEFAULT_SETTINGS;
-    void _drop;
-    await fs.writeFile(path, `${JSON.stringify(legacy, null, 2)}\n`);
+    const legacyV1 = {
+      schemaVersion: 1,
+      ai: {
+        provider: 'claude-code',
+        models: {
+          refine: 'claude-sonnet-4-6',
+          plan: 'claude-opus-4-7',
+          implement: 'claude-opus-4-7',
+          readiness: 'claude-sonnet-4-6',
+          ideate: 'claude-opus-4-7',
+        },
+      },
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+      logging: { level: 'info' },
+      concurrency: { maxParallelTasks: 1 },
+      ui: { notifications: { enabled: true } },
+      developer: { showEvaluatorFailureUI: false },
+    };
+    await fs.writeFile(path, `${JSON.stringify(legacyV1, null, 2)}\n`);
 
     const repo = createJsonSettingsRepository({ configRoot });
     const loaded = await repo.load();
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
       expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-      expect(loaded.value.ai.provider).toBe(DEFAULT_SETTINGS.ai.provider);
+      expect(loaded.value.ai.refine.provider).toBe('claude-code');
+      expect(loaded.value.ai.implement.provider).toBe('claude-code');
     }
   });
 

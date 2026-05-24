@@ -64,6 +64,8 @@ export interface CallPlannerInteractiveDeps {
    */
   readonly additionalRoots?: readonly AbsolutePath[];
   readonly model: string;
+  /** Optional reasoning / effort level — adapter-specific; ignored when the CLI has no flag for it. */
+  readonly effort?: string;
   /**
    * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
    * threads in a TUI prompt that summarises the proposed task list and asks accept/reject.
@@ -107,6 +109,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
             promptFile: input.promptFile,
             outputFile: input.outputFile,
             model: deps.model,
+            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
             ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
           })
         );

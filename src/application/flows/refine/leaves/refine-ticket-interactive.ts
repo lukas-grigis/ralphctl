@@ -57,6 +57,12 @@ export interface RefineTicketInteractiveDeps {
   readonly eventBus: EventBus;
   readonly model: string;
   /**
+   * Optional reasoning / effort level — resolved per launch by the harness via
+   * `resolveEffort(flowId, settings)` and forwarded to the AI CLI. Adapters that don't
+   * expose a reasoning flag silently ignore it.
+   */
+  readonly effort?: string;
+  /**
    * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
    * threads in a TUI prompt that shows the proposed requirements and asks accept/reject.
    * When omitted (tests, headless) the use case auto-accepts the AI's body.
@@ -160,6 +166,7 @@ export const refineTicketInteractiveLeaf = (
             promptFile: input.promptFile,
             outputFile: input.outputFile,
             model: deps.model,
+            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
           })
         );
         if (!session.ok) return Result.error(session.error);

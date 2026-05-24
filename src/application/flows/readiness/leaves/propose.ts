@@ -37,7 +37,8 @@ export const readinessSession = (
   model: string,
   signalsFile: AbsolutePath,
   bodyFile: AbsolutePath | undefined,
-  outputDir: AbsolutePath
+  outputDir: AbsolutePath,
+  effort?: string
 ): AiSession => ({
   prompt,
   cwd,
@@ -46,6 +47,7 @@ export const readinessSession = (
   signalsFile,
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
+  ...(effort !== undefined ? { effort } : {}),
 });
 
 export interface ProposeReadinessLeafDeps {
@@ -67,13 +69,14 @@ export interface ProposeReadinessLeafDeps {
   readonly logger: Logger;
   readonly cwd: AbsolutePath;
   readonly model: string;
+  /** Optional reasoning / effort level forwarded into the AiSession. */
+  readonly effort?: string;
   /** `<dataRoot>/runs`; forwarded into the engine for artifact persistence. */
   readonly runsRoot: AbsolutePath;
 }
 
 interface ProposeReadinessInput {
   readonly repository: Repository;
-  readonly tool: AssistantTool;
   readonly probedState: ReadinessState;
 }
 
@@ -108,9 +111,10 @@ interface ProposeReadinessOutput {
  */
 const proposeReadinessUseCase = async (
   deps: ProposeReadinessLeafDeps,
+  tool: AssistantTool,
   input: ProposeReadinessInput
 ): Promise<Result<ProposeReadinessOutput, DomainError>> => {
-  const existingPath = pickExistingContextPath(input.tool, input.probedState);
+  const existingPath = pickExistingContextPath(tool, input.probedState);
   let existingBody: string | undefined;
   if (existingPath !== undefined) {
     try {
@@ -129,13 +133,13 @@ const proposeReadinessUseCase = async (
           outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
-        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir),
+        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort),
       logger: deps.logger,
       runsRoot: deps.runsRoot,
     },
     {
       repository: input.repository,
-      tool: input.tool,
+      tool,
       probedState: input.probedState,
       ...(existingBody !== undefined ? { existingContextFile: existingBody } : {}),
     }
@@ -212,10 +216,10 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
   return undefined;
 };
 
-export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps): Element<ReadinessCtx> =>
-  leaf<ReadinessCtx, ProposeReadinessInput, ProposeReadinessOutput>('propose', {
+export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: AssistantTool): Element<ReadinessCtx> =>
+  leaf<ReadinessCtx, ProposeReadinessInput, ProposeReadinessOutput>(`propose-${tool}`, {
     useCase: {
-      execute: async (input) => proposeReadinessUseCase(deps, input),
+      execute: async (input) => proposeReadinessUseCase(deps, tool, input),
     },
     input: (ctx) => {
       if (ctx.repository === undefined) {
@@ -226,31 +230,32 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps): Element<Re
           message: 'propose: ctx.repository is undefined — pick-repository must run first',
         });
       }
-      if (ctx.tool === undefined) {
+      const entry = ctx.entries[tool];
+      if (entry?.probedState === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-propose',
           attemptedAction: 'propose',
-          message: 'propose: ctx.tool is undefined — pick-tool must run first',
+          message: `propose: ctx.entries[${tool}].probedState is undefined — probe must run first`,
         });
       }
-      if (ctx.probedState === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-propose',
-          attemptedAction: 'propose',
-          message: 'propose: ctx.probedState is undefined — probe must run first',
-        });
-      }
-      return { repository: ctx.repository, tool: ctx.tool, probedState: ctx.probedState };
+      return { repository: ctx.repository, probedState: entry.probedState };
     },
     output: (ctx, out) => ({
       ...ctx,
-      proposal: {
-        proposedContent: out.proposedContent,
-        targetPath: out.targetPath,
-        ...(out.proposedSetupSkillBody !== undefined ? { proposedSetupSkillBody: out.proposedSetupSkillBody } : {}),
-        ...(out.proposedVerifySkillBody !== undefined ? { proposedVerifySkillBody: out.proposedVerifySkillBody } : {}),
+      entries: {
+        ...ctx.entries,
+        [tool]: {
+          ...ctx.entries[tool],
+          proposal: {
+            proposedContent: out.proposedContent,
+            targetPath: out.targetPath,
+            ...(out.proposedSetupSkillBody !== undefined ? { proposedSetupSkillBody: out.proposedSetupSkillBody } : {}),
+            ...(out.proposedVerifySkillBody !== undefined
+              ? { proposedVerifySkillBody: out.proposedVerifySkillBody }
+              : {}),
+          },
+        },
       },
     }),
   });
