@@ -524,6 +524,15 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(args).toContain('--resume=sess-abc');
   });
 
+  it('emits --effort=<level> when session.effort is set (forwarded verbatim)', () => {
+    const args = unwrapArgs(session({ effort: 'xhigh' }));
+    expect(args).toContain('--effort=xhigh');
+  });
+
+  it('omits --effort when session.effort is undefined', () => {
+    expect(unwrapArgs(session()).some((s) => s.startsWith('--effort'))).toBe(false);
+  });
+
   it('emits the prompt as the trailing -p argv pair', () => {
     const args = unwrapArgs(session());
     const idx = args.indexOf('-p');
