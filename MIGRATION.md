@@ -13,14 +13,14 @@ Only the latest version is supported — no backporting, no parallel branches.
 The sections below give per-version context for what changed and why, in case
 you're crossing a big jump and want to know what to expect.
 
-## 0.7.x → upcoming (Unreleased)
+## 0.7.x → 0.8.0
 
-The Unreleased work flattens AI settings to per-flow rows, renames `checkScript`
-→ `verifyScript`, and consolidates the signal pipeline onto the file-based
+0.8.0 flattens AI settings to per-flow rows, renames `checkScript` →
+`verifyScript`, and consolidates the signal pipeline onto the file-based
 contract. The harness will try to read your old settings and data, but if
 anything looks off after upgrading, the safe path is to back up `~/.ralphctl/`
 and start fresh — sprints are short-lived and projects are quick to re-register.
-See [CHANGELOG](./CHANGELOG.md#unreleased) for the full list.
+See [CHANGELOG](./CHANGELOG.md#080---2026-05-24) for the full list.
 
 ## 0.6.x → 0.7.0
 

@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-24
+
 ### Notes
 
 The 0.7.x line shipped a lot of structural change in a short window — an
