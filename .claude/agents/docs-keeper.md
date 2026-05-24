@@ -20,14 +20,15 @@ runtime.
 
 ralphctl maintains six spec documents that the team and other agents treat as ground truth:
 
-| Doc                                    | Purpose                                                                          |
-| -------------------------------------- | -------------------------------------------------------------------------------- |
-| `CLAUDE.md`                            | Top-of-mind constraints, common mistakes, workflow surface (auto-imported)       |
-| `.claude/docs/ARCHITECTURE.md`         | Four-module layout, ports, data models, storage, errors, exit codes              |
-| `.claude/docs/KERNEL-DESIGN.md`        | Chain framework reference (`element` / `leaf` / `sequential` / `loop` / `guard`) |
-| `.claude/docs/REQUIREMENTS.md`         | Testable acceptance criteria — the architectural fence                           |
-| `.claude/docs/DESIGN-SYSTEM.md`        | TUI tokens, components, copy rules, anti-patterns                                |
-| `.claude/docs/MANUAL-TEST-PLAYBOOK.md` | Manual smoke-test scenarios before cutting a release                             |
+| Doc                                    | Purpose                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------ |
+| `CLAUDE.md`                            | Top-of-mind constraints, common mistakes, workflow surface (auto-imported)           |
+| `.claude/docs/ARCHITECTURE.md`         | Four-module layout, ports, data models, storage, errors, exit codes                  |
+| `.claude/docs/KERNEL-DESIGN.md`        | Chain framework reference (`element` / `leaf` / `sequential` / `loop` / `guard`)     |
+| `.claude/docs/REQUIREMENTS.md`         | Testable acceptance criteria — the architectural fence                               |
+| `.claude/docs/DESIGN-SYSTEM.md`        | TUI tokens, components, copy rules, anti-patterns                                    |
+| `.claude/docs/MANUAL-TEST-PLAYBOOK.md` | Manual smoke-test scenarios before cutting a release                                 |
+| `.claude/docs/HARNESS-PRINCIPLES.md`   | Distilled harness research; rules + ralphctl status tags (`applied`/`partial`/`gap`) |
 
 When code ships and these docs aren't updated alongside, the project starts lying to its future self and to
 every agent that reads them. Your job is to keep doc and code in lockstep — proactively after a meaningful
@@ -119,6 +120,10 @@ Workflows & State` (sub-section "CLI Command Surface").
 8. **TUI views and global keys.** `ls src/application/ui/tui/views/` and `cat
 src/application/ui/tui/runtime/use-global-keys.ts` vs `DESIGN-SYSTEM.md` and `REQUIREMENTS.md § TUI`.
 9. **Env vars.** `grep -rn 'process\.env\.' src/` vs the table in `CLAUDE.md § Performance & Limits`.
+10. **Harness principles.** After any structural change to `src/application/chain/`, `src/application/flows/`,
+    or `src/integration/ai/providers/_engine/` — check whether any `applied` row in
+    `.claude/docs/HARNESS-PRINCIPLES.md` was weakened or any `partial`/`gap` row was closed. Update the
+    status tag and "Where it lives" anchor as part of the same doc pass.
 
 Report findings as a delta list, then propose / apply edits. For ambiguous cases, ask the user before
 editing.

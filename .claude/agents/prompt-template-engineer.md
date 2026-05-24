@@ -113,6 +113,37 @@ These come from `CLAUDE.md § Implementation Style` (prompt sub-section) and are
    pluralise placeholder names without checking the call site — the substitution layer is case-sensitive
    and exact.
 
+## Owned principle fences
+
+Two harness principles from `.claude/docs/HARNESS-PRINCIPLES.md` have their only prompt-side fence in
+templates this role owns. Read the relevant sections before editing the affected templates:
+
+**Evaluator over-praises by default (§ 15).** `evaluate/template.md` is the sole prompt-side control for
+grading leniency. When editing this template:
+
+- Name concrete evaluator failure modes explicitly (identifying issues then talking itself into approving;
+  superficial testing; crediting incomplete work).
+- Weight subjective criteria (design quality, originality, craft) heavier than technical defaults when the
+  task spec includes them — technical gates alone allow aesthetic failures to pass.
+- Add or maintain few-shot calibration examples that bias the evaluator toward harsh grading. A lenient
+  evaluator is worse than no evaluator; it adds cost while providing false confidence.
+
+`Read .claude/docs/HARNESS-PRINCIPLES.md § Evaluator over-praises by default` before editing
+`evaluate/template.md`.
+
+**Context reset vs compaction (§ 16).** `refine/template.md`, `plan/template.md`, and `ideate/template.md`
+each govern sessions that may run immediately after a prior session or after a cold start. The model's
+behaviour differs depending on whether it assumes fresh-slate or continuity — and the template phrasing
+steers that assumption. When editing these templates:
+
+- Make fresh-slate vs continuity explicit ("no prior context is assumed — read `progress.md` to orient"
+  vs "this session continues from the prior refinement pass").
+- Do not assume the AI retains memory across sessions unless the template explicitly passes prior context
+  as a filled placeholder.
+
+`Read .claude/docs/HARNESS-PRINCIPLES.md § Context reset vs compaction` before editing
+`refine/template.md`, `plan/template.md`, or `ideate/template.md`.
+
 ## Signal vocabulary discipline
 
 Every AI-spawning leaf carries a per-leaf `AiOutputContract` at

@@ -183,6 +183,19 @@ Focus coverage on:
 - **Flow step-order fence tests** — `tests/integration/flows/<flow>/<flow>.test.ts` asserts
   `trace.map(s => s.elementName)` for happy + failure paths. These lock orchestration order; update them
   when intentionally changing a flow's element list.
+- **Harness-pattern critical paths** — these behaviours encode the harness research in
+  `.claude/docs/HARNESS-PRINCIPLES.md`; silent drift breaks the entire pattern. Tests must defend:
+  - Plateau detection — `plateauThreshold` predicate exits the loop when consecutive evaluator rounds flag
+    the same failed-dimension set without improvement (§ 6).
+  - Idle watchdog kill and downstream recovery — the chain does not hang when the watchdog fires (§ 7).
+  - Rate-limit retry with `--resume <sid>` session continuity — the retry loop passes the prior session-id,
+    not a fresh spawn (§ 8).
+  - `task-blocked` transition when `maxAttempts` exhausts — tasks never silently drop; they surface as
+    `blocked` (§ 5).
+  - Evaluator critique injection across rounds — the evaluator's prior critique reaches the generator on
+    the next attempt (§ 1, § 15).
+
+  `Read .claude/docs/HARNESS-PRINCIPLES.md` before redesigning a test that touches any of these paths.
 
 Don't obsess over:
 

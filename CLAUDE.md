@@ -13,6 +13,7 @@ Both `commander.version()` and the npm-update poll consume the same constant —
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
+- `.claude/docs/HARNESS-PRINCIPLES.md` — distilled harness research from Anthropic + Fowler, with per-principle ralphctl status tags
 - `.claude/docs/diagrams/` — Mermaid diagrams: module layout, chain framework, flow lifecycle, sprint / task state machines
 
 ## Build & Run
@@ -348,4 +349,8 @@ before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after se
 `package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces
 it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
 
-**References** — [Anthropic — Effective Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [Anthropic — Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Martin Fowler — Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).
+**References** — Principles distilled in `.claude/docs/HARNESS-PRINCIPLES.md`; consult before structural
+changes to the chain framework, flow registry, or provider engine. Sources: [Anthropic — Effective
+Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [Anthropic
+— Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Martin Fowler
+— Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).
