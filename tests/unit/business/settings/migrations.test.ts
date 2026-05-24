@@ -35,7 +35,11 @@ describe('v1 → v2 settings migration', () => {
     expect(ai.effort).toBe('high');
     expect(ai.refine).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
     expect(ai.plan).toEqual({ provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' });
-    expect(ai.implement).toEqual({ provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' });
+    // The v1→v2 migration writes the flat implement shape; the inline preprocess at parse
+    // time then promotes it to {generator, evaluator} silently — both roles equal — so
+    // legacy v1 files land in the canonical nested shape without bumping schemaVersion.
+    const implementRow = { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' };
+    expect(ai.implement).toEqual({ generator: implementRow, evaluator: implementRow });
     expect(ai.readiness).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' });
     expect(ai.ideate).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
   });
@@ -80,7 +84,10 @@ describe('v1 → v2 settings migration', () => {
       ai: {
         refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
         plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
-        implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        },
         readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
         ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
       },

@@ -28,7 +28,10 @@ interface PersistedSettings {
     readonly effort?: string;
     readonly refine: PersistedFlowRow;
     readonly plan: PersistedFlowRow;
-    readonly implement: PersistedFlowRow;
+    readonly implement: {
+      readonly generator: PersistedFlowRow;
+      readonly evaluator: PersistedFlowRow;
+    };
     readonly readiness: PersistedFlowRow;
     readonly ideate: PersistedFlowRow;
   };
@@ -70,8 +73,10 @@ describe('ralphctl settings set — disk round-trip', () => {
     expect(persisted.harness.maxTurns).toBe(7);
     // Other settings still at defaults — set-one-key must not zero out the rest.
     expect(persisted.harness.maxAttempts).toBeGreaterThan(0);
-    expect(persisted.ai.implement.provider).toBeTruthy();
-    expect(persisted.ai.implement.model).toBeTruthy();
+    expect(persisted.ai.implement.generator.provider).toBeTruthy();
+    expect(persisted.ai.implement.generator.model).toBeTruthy();
+    expect(persisted.ai.implement.evaluator.provider).toBeTruthy();
+    expect(persisted.ai.implement.evaluator.model).toBeTruthy();
   });
 
   it('persists a per-flow ai.<flow>.model to disk', async () => {
@@ -84,14 +89,14 @@ describe('ralphctl settings set — disk round-trip', () => {
     expect(persisted.ai.plan.model).toBe('claude-haiku-4-5');
   });
 
-  it('persists a per-flow ai.<flow>.effort to disk', async () => {
+  it('persists a per-role implement effort to disk', async () => {
     const settingsPath = join(String(cli.paths.configRoot), 'settings.json');
 
-    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.effort', 'xhigh']);
+    const r = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.generator.effort', 'xhigh']);
     expect(r.exitCode).toBe(0);
 
     const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as PersistedSettings;
-    expect(persisted.ai.implement.effort).toBe('xhigh');
+    expect(persisted.ai.implement.generator.effort).toBe('xhigh');
   });
 
   it('rejects the legacy ai.provider key without corrupting the on-disk file', async () => {

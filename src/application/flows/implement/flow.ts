@@ -84,7 +84,7 @@ export interface CreateImplementFlowOpts {
    * repos the sprint touches).
    */
   readonly sprintDir: AbsolutePath;
-  /** Configured model for the implement chain — `settings.ai.implement.model`. */
+  /** Configured model for the implement chain — `settings.ai.implement.generator.model`. */
   readonly model: string;
   /** Resolved effort / reasoning level — threaded into every gen-eval AiSession. */
   readonly effort?: string;

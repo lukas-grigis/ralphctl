@@ -64,11 +64,15 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     await createSettingsSetFlow({ settingsRepo: repo }).execute({ input: { next: initial } });
 
     const switched = await createSettingsSetProviderFlow({ settingsRepo: repo }).execute({
-      input: { flow: 'implement', provider: 'github-copilot' },
+      input: { flow: 'implement', provider: 'github-copilot', role: 'generator' },
     });
     expect(switched.ok).toBe(true);
     if (!switched.ok) return;
-    expect(switched.value.ctx.output!.ai.implement).toEqual(defaultAiSettingsForProvider('github-copilot').implement);
+    // Only the named role is rebuilt; the other role stays at the prior default.
+    expect(switched.value.ctx.output!.ai.implement.generator).toEqual(
+      defaultAiSettingsForProvider('github-copilot').implement.generator
+    );
+    expect(switched.value.ctx.output!.ai.implement.evaluator).toEqual(DEFAULT_SETTINGS.ai.implement.evaluator);
     // Other rows untouched.
     expect(switched.value.ctx.output!.ai.refine).toEqual(DEFAULT_SETTINGS.ai.refine);
     expect(switched.value.ctx.output!.harness.maxTurns).toBe(7);
@@ -76,7 +80,7 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
 
     const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
     if (!reread.ok) throw new Error('expected ok');
-    expect(reread.value.ctx.output!.ai.implement.provider).toBe('github-copilot');
+    expect(reread.value.ctx.output!.ai.implement.generator.provider).toBe('github-copilot');
   });
 
   it('settings-apply-preset stamps a preset matrix and preserves non-AI sections', async () => {
@@ -100,9 +104,11 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
     const out = applied.value.ctx.output!.settings;
-    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+    for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
       expect(out.ai[flow].provider).toBe('openai-codex');
     }
+    expect(out.ai.implement.generator.provider).toBe('openai-codex');
+    expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
     expect(out.ai.effort).toBe('high');
     expect(out.harness.maxTurns).toBe(9);
     expect(out.logging.level).toBe('debug');
@@ -112,9 +118,11 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     // Re-read from disk to confirm the change persisted.
     const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
     if (!reread.ok) throw new Error('expected ok');
-    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+    for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
       expect(reread.value.ctx.output!.ai[flow].provider).toBe('openai-codex');
     }
+    expect(reread.value.ctx.output!.ai.implement.generator.provider).toBe('openai-codex');
+    expect(reread.value.ctx.output!.ai.implement.evaluator.provider).toBe('openai-codex');
   });
 
   it('settings-set rejects an invalid record without writing to disk', async () => {

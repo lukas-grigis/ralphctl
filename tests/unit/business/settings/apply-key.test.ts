@@ -23,18 +23,47 @@ describe('applySettingsKey', () => {
   });
 
   it('updates a per-flow effort under ai.<flow>.effort', () => {
-    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.effort', 'xhigh');
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.plan.effort', 'xhigh');
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.ai.implement.effort).toBe('xhigh');
+    if (result.ok) expect(result.value.ai.plan.effort).toBe('xhigh');
   });
 
   it('clears a per-flow effort when given an empty string', () => {
-    const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.effort', 'xhigh');
+    const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.plan.effort', 'xhigh');
     expect(seeded.ok).toBe(true);
     if (!seeded.ok) return;
-    const cleared = applySettingsKey(seeded.value, 'ai.implement.effort', '');
+    const cleared = applySettingsKey(seeded.value, 'ai.plan.effort', '');
     expect(cleared.ok).toBe(true);
-    if (cleared.ok) expect(cleared.value.ai.implement.effort).toBeUndefined();
+    if (cleared.ok) expect(cleared.value.ai.plan.effort).toBeUndefined();
+  });
+
+  it('updates the per-role implement model under ai.implement.generator.model', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.generator.model', 'claude-haiku-4-5');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.ai.implement.generator.model).toBe('claude-haiku-4-5');
+      // Evaluator left untouched — per-role keys edit one role at a time.
+      expect(result.value.ai.implement.evaluator.model).toBe(DEFAULT_SETTINGS.ai.implement.evaluator.model);
+    }
+  });
+
+  it('updates the per-role implement effort under ai.implement.evaluator.effort', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.evaluator.effort', 'high');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.ai.implement.evaluator.effort).toBe('high');
+  });
+
+  it('rejects the legacy flat ai.implement.<field> with a role-prefixed hint', () => {
+    for (const field of ['provider', 'model', 'effort'] as const) {
+      const result = applySettingsKey(DEFAULT_SETTINGS, `ai.implement.${field}`, 'whatever');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBeInstanceOf(ValidationError);
+        expect(result.error.message).toContain('implement splits into generator and evaluator');
+        expect(result.error.hint).toContain(`ai.implement.generator.${field}`);
+        expect(result.error.hint).toContain(`ai.implement.evaluator.${field}`);
+      }
+    }
   });
 
   it('updates the global ai.effort default', () => {

@@ -35,7 +35,10 @@ const FAKE_CWD = absolutePath('/tmp/ralph/fake-readiness-cwd');
 const claudeOnlySettings: AiSettings = {
   refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   plan: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  implement: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  },
   readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };

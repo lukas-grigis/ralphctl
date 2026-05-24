@@ -1,6 +1,6 @@
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
@@ -24,7 +24,11 @@ export interface CreateInteractiveAiProviderDeps {
 }
 
 export const createInteractiveAiProvider = (deps: CreateInteractiveAiProviderDeps): InteractiveAiProvider => {
-  const row = deps.ai[deps.flow];
+  // `implement` carries a generator+evaluator pair; the interactive surface (refine, plan)
+  // only runs single-session flows so this never reads the implement row in practice. Route
+  // through `primaryFlowRow` defensively so a future caller passing `flow: 'implement'`
+  // still resolves to a valid adapter.
+  const row = primaryFlowRow(deps.ai, deps.flow);
   switch (row.provider) {
     case 'claude-code':
       return createInteractiveClaudeProvider({ eventBus: deps.eventBus });

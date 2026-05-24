@@ -36,7 +36,10 @@ describe('Settings defaults + schema', () => {
       ...DEFAULT_SETTINGS,
       ai: {
         ...DEFAULT_SETTINGS.ai,
-        implement: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex', effort: 'xhigh' },
+        implement: {
+          generator: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex', effort: 'xhigh' },
+          evaluator: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex' },
+        },
       },
     };
     expect(SettingsSchema.safeParse(bad).success).toBe(false);
@@ -47,7 +50,7 @@ describe('Settings defaults + schema', () => {
       ...DEFAULT_SETTINGS,
       ai: {
         ...DEFAULT_SETTINGS.ai,
-        implement: { provider: 'claude-code' as const, model: 'my-pinned-experimental-model' },
+        plan: { provider: 'claude-code' as const, model: 'my-pinned-experimental-model' },
       },
     };
     expect(SettingsSchema.safeParse(good).success).toBe(true);
@@ -56,7 +59,7 @@ describe('Settings defaults + schema', () => {
   it('rejects an empty/whitespace-only custom model string', () => {
     const bad = {
       ...DEFAULT_SETTINGS,
-      ai: { ...DEFAULT_SETTINGS.ai, implement: { provider: 'claude-code' as const, model: '   ' } },
+      ai: { ...DEFAULT_SETTINGS.ai, plan: { provider: 'claude-code' as const, model: '   ' } },
     };
     expect(SettingsSchema.safeParse(bad).success).toBe(false);
   });
@@ -97,7 +100,10 @@ describe('JsonSettingsRepository', () => {
       ai: {
         refine: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
         plan: { provider: 'openai-codex', model: 'gpt-5.4' },
-        implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        implement: {
+          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
@@ -121,7 +127,10 @@ describe('JsonSettingsRepository', () => {
         effort: 'high',
         refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
         plan: { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' },
-        implement: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'max' },
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'max' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+        },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
       },
@@ -217,8 +226,49 @@ describe('JsonSettingsRepository', () => {
     if (loaded.ok) {
       expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
       expect(loaded.value.ai.refine.provider).toBe('claude-code');
-      expect(loaded.value.ai.implement.provider).toBe('claude-code');
+      // v1 → v2 migration emits a flat implement row; the silent inline promotion at parse
+      // time then nests it as { generator, evaluator } with both roles equal.
+      expect(loaded.value.ai.implement.generator.provider).toBe('claude-code');
+      expect(loaded.value.ai.implement.evaluator.provider).toBe('claude-code');
     }
+  });
+
+  it('load silently promotes a v0.7.0-style flat implement row to {generator, evaluator}', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    const legacyFlat = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      ai: {
+        refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+        ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      },
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+      logging: { level: 'info' },
+      concurrency: { maxParallelTasks: 1 },
+      ui: { notifications: { enabled: true } },
+      developer: { showEvaluatorFailureUI: false },
+    };
+    await fs.writeFile(path, `${JSON.stringify(legacyFlat, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    // schemaVersion stays at v2 — the silent inline promotion does NOT bump the persisted
+    // version (there is no v2 → v3 migration; the implement-shape change is non-breaking
+    // backwards-compatible at the schema layer).
+    expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-7' };
+    expect(loaded.value.ai.implement).toEqual({ generator: expectedRow, evaluator: expectedRow });
+
+    // The file on disk is unchanged — no migration applied, no rewrite triggered. A
+    // subsequent save() (e.g. via apply-key) will normalise it; the load path itself is
+    // pure read-promote.
+    const raw = await fs.readFile(path, 'utf8');
+    const onDisk = JSON.parse(raw) as { readonly ai: { readonly implement: unknown } };
+    expect(onDisk.ai.implement).toEqual({ provider: 'claude-code', model: 'claude-opus-4-7' });
   });
 
   it('load rejects a settings file from a newer ralphctl version', async () => {

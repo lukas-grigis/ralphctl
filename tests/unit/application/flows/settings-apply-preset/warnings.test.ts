@@ -88,6 +88,6 @@ describe('settings-apply-preset — warnings', () => {
     if (!result.ok) return;
     expect(result.value.ctx.output!.warnings).toHaveLength(1);
     expect(saved.value).toBeDefined();
-    expect(saved.value!.ai.implement.provider).toBe('claude-code');
+    expect(saved.value!.ai.implement.generator.provider).toBe('claude-code');
   });
 });

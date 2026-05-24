@@ -9,7 +9,7 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiProvider } from '@src/domain/entity/settings.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -24,7 +24,7 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProvider): FlowId => {
   if (settings.ai.readiness.provider === provider) return 'readiness';
   for (const flow of FLOW_IDS) {
-    if (settings.ai[flow].provider === provider) return flow;
+    if (primaryFlowRow(settings.ai, flow).provider === provider) return flow;
   }
   // Caller derived `provider` from the same settings; unreachable.
   throw new Error(`flowIdForProvider: provider ${provider} not referenced in ai settings`);

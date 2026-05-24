@@ -11,7 +11,7 @@
  */
 
 import { detectInstalledProviders, PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
-import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
@@ -50,13 +50,16 @@ export const checkCli = async (
 ): Promise<LaunchResult | undefined> => {
   const aiFlow = aiFlowIdForCheck(flowId);
   if (aiFlow === undefined) return undefined;
-  const provider = settings.ai[aiFlow].provider;
+  // Implement reads from the generator role for the legacy fail-fast probe — subsequent
+  // tasks in this initiative will also probe the evaluator role at launch.
+  const provider = primaryFlowRow(settings.ai, aiFlow).provider;
   const binary = PROVIDER_BINARY[provider];
   const detect = options.detect ?? (() => detectInstalledProviders());
   const installed = await detect();
   if (installed.has(provider)) return undefined;
+  const settingsKey = aiFlow === 'implement' ? 'ai.implement.generator.provider' : `ai.${aiFlow}.provider`;
   return {
     ok: false,
-    reason: `CLI ${binary} not on PATH for flow ${aiFlow}. Change ai.${aiFlow}.provider or install the CLI.`,
+    reason: `CLI ${binary} not on PATH for flow ${aiFlow}. Change ${settingsKey} or install the CLI.`,
   };
 };

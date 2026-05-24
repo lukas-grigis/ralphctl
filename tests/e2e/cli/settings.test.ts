@@ -52,15 +52,15 @@ describe('ralphctl settings', () => {
       expect(parsed.ai.plan.model).toBe('claude-haiku-4-5');
     });
 
-    it('persists a per-flow ai.<flow>.effort', async () => {
-      const setResult = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.effort', 'xhigh']);
+    it('persists a per-role implement effort under ai.implement.<role>.effort', async () => {
+      const setResult = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.generator.effort', 'xhigh']);
       expect(setResult.exitCode).toBe(0);
 
       const showResult = await runCliCaptured(cli, ['settings', 'show']);
       const parsed = JSON.parse(showResult.stdout) as {
-        readonly ai: { readonly implement: { readonly effort?: string } };
+        readonly ai: { readonly implement: { readonly generator: { readonly effort?: string } } };
       };
-      expect(parsed.ai.implement.effort).toBe('xhigh');
+      expect(parsed.ai.implement.generator.effort).toBe('xhigh');
     });
 
     it('exits non-zero with a stderr message for an unknown key', async () => {

@@ -36,7 +36,7 @@ describe('checkCli', () => {
     if (result.ok) return;
     expect(result.reason).toContain('claude');
     expect(result.reason).toContain('implement');
-    expect(result.reason).toContain('ai.implement.provider');
+    expect(result.reason).toContain('ai.implement.generator.provider');
   });
 
   it('maps detect-scripts and detect-skills to the readiness row', async () => {
@@ -56,7 +56,7 @@ describe('checkCli', () => {
     if (result === undefined || result.ok) return;
     expect(result.reason).toContain('codex');
     expect(result.reason).toContain('implement');
-    expect(result.reason).toContain('ai.implement.provider');
+    expect(result.reason).toContain('ai.implement.generator.provider');
   });
 
   it('returns undefined for non-AI flows', async () => {

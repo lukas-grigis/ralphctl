@@ -17,18 +17,21 @@ import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
  * is one truth across both surfaces. Schema validation runs at the persistence boundary.
  *
  * Supported keys:
- *   ai.effort                      low | medium | high | xhigh | max (global default)
- *   ai.{flow}.provider             claude-code | github-copilot | openai-codex
- *   ai.{flow}.model                provider-native enum, or any non-empty custom string
- *   ai.{flow}.effort               provider-native effort level
- *      flow in {refine, plan, implement, readiness, ideate}
+ *   ai.effort                                          low | medium | high | xhigh | max (global default)
+ *   ai.{flow}.provider                                 claude-code | github-copilot | openai-codex
+ *   ai.{flow}.model                                    provider-native enum, or any non-empty custom string
+ *   ai.{flow}.effort                                   provider-native effort level
+ *      flow in {refine, plan, readiness, ideate}
+ *   ai.implement.{generator|evaluator}.{provider,model,effort}
+ *                                                      implement splits into a generator + evaluator pair
  *   harness.maxTurns | maxAttempts | rateLimitRetries | plateauThreshold    integer (range-checked)
- *   logging.level                  silent | debug | info | warn | error
- *   concurrency.maxParallelTasks   positive integer
- *   ui.notifications.enabled       boolean
+ *   logging.level                                      silent | debug | info | warn | error
+ *   concurrency.maxParallelTasks                       positive integer
+ *   ui.notifications.enabled                           boolean
  *
  * Note: `ai.provider` and `ai.models.<flow>` (v1 grammar) are rejected as unknown keys —
- * the per-flow rows superseded them. Use `ai.<flow>.provider` / `ai.<flow>.model` instead.
+ * the per-flow rows superseded them. `ai.implement.<field>` (the v0.7.0 flat-row grammar) is
+ * likewise rejected — use `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 export const registerSettingsCommand = (program: Command): void => {
   const settings = program.command('settings').description('inspect and mutate ralphctl settings');

@@ -1,6 +1,6 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
@@ -32,7 +32,10 @@ export interface CreateAiProviderDeps {
 }
 
 export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {
-  const row = deps.ai[deps.flow];
+  // `implement` carries a {generator, evaluator} pair — the legacy single-session callers
+  // (per-launch adapter rebuild, readiness inventory) read the generator row. Spawn sites
+  // that need the evaluator role construct a second adapter from `ai.implement.evaluator`.
+  const row = primaryFlowRow(deps.ai, deps.flow);
   switch (row.provider) {
     case 'claude-code':
       return createClaudeProvider({

@@ -26,7 +26,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
@@ -151,7 +151,7 @@ export const sessionHintsFromLaunchResult = (
 export const modelsForFlowProvider = (flowId: string, settings: AppDeps['settings']): readonly string[] => {
   const aiFlow = aiFlowIdFor(flowId);
   if (aiFlow === undefined) return [];
-  switch (settings.ai[aiFlow].provider) {
+  switch (primaryFlowRow(settings.ai, aiFlow).provider) {
     case 'claude-code':
       return CLAUDE_MODELS;
     case 'github-copilot':
@@ -170,7 +170,7 @@ export const modelsForFlowProvider = (flowId: string, settings: AppDeps['setting
 export const modelForFlow = (flowId: string, settings: AppDeps['settings']): string | undefined => {
   const aiFlow = aiFlowIdFor(flowId);
   if (aiFlow === undefined) return undefined;
-  return settings.ai[aiFlow].model;
+  return primaryFlowRow(settings.ai, aiFlow).model;
 };
 
 /**
@@ -178,8 +178,9 @@ export const modelForFlow = (flowId: string, settings: AppDeps['settings']): str
  * flows that don't open one. `detect-scripts` and `detect-skills` are read-only inventory
  * round-trips that reuse the `readiness` row's provider / model / effort — they don't have
  * their own settings entry. `review` reuses the `implement` row — same code-mutation profile,
- * and matching the model already read from `settings.ai.implement.model` in launch/review.ts
- * keeps the per-launch provider rebuild aligned with the model that gets passed to the spawn.
+ * and matching the model already read from `settings.ai.implement.generator.model` in
+ * launch/review.ts keeps the per-launch provider rebuild aligned with the model that gets
+ * passed to the spawn.
  */
 const aiFlowIdFor = (flowId: string): FlowId | undefined => {
   switch (flowId) {
@@ -244,7 +245,7 @@ export const launchFlow = async (
     eventBus: deps.app.eventBus,
   });
   const skillsAdapter = createSkillsAdapter({
-    provider: settings.ai[adapterFlow].provider,
+    provider: primaryFlowRow(settings.ai, adapterFlow).provider,
     logger: deps.app.logger,
   });
   const effort = aiFlow !== undefined ? resolveEffort(aiFlow, settings) : undefined;

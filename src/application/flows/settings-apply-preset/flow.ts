@@ -1,5 +1,5 @@
 import { Result } from '@src/domain/result.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiProvider, type AiSettings } from '@src/domain/entity/settings.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { applyPreset } from '@src/business/settings/presets.ts';
@@ -51,15 +51,15 @@ export const createSettingsApplyPresetFlow = (deps: SettingsApplyPresetDeps): El
 /**
  * Group missing-CLI flows by provider so the surface can show "codex missing — affects refine"
  * instead of "codex missing for refine; codex missing for plan; …". Flows preserve `FLOW_IDS`
- * order so output is stable across runs.
+ * order so output is stable across runs. For `implement` the generator row's provider drives
+ * the warning — the preset stamps both roles with the same provider, so one warning per flow
+ * is enough; a cross-provider implement is configured manually after a preset and falls
+ * outside the preset-apply warning surface.
  */
-const buildWarnings = (
-  ai: { readonly [F in FlowId]: { readonly provider: AiProvider } },
-  installed: ReadonlySet<AiProvider>
-): readonly PresetWarning[] => {
+const buildWarnings = (ai: AiSettings, installed: ReadonlySet<AiProvider>): readonly PresetWarning[] => {
   const byProvider = new Map<AiProvider, FlowId[]>();
   for (const flow of FLOW_IDS) {
-    const provider = ai[flow].provider;
+    const provider = primaryFlowRow(ai, flow).provider;
     if (installed.has(provider)) continue;
     const existing = byProvider.get(provider);
     if (existing) existing.push(flow);

@@ -70,9 +70,11 @@ describe('WelcomeView — first-run UX', () => {
     await tick(120);
 
     expect(saved).toHaveLength(1);
-    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+    for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
       expect(saved[0]?.ai[flow].provider).toBe('claude-code');
     }
+    expect(saved[0]?.ai.implement.generator.provider).toBe('claude-code');
+    expect(saved[0]?.ai.implement.evaluator.provider).toBe('claude-code');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-only');
     expect(frame).not.toContain('Pick an AI provider');
@@ -96,7 +98,7 @@ describe('WelcomeView — first-run UX', () => {
     expect(saved).toHaveLength(1);
     // The mixed preset routes refine → codex, implement → claude — a clean fingerprint.
     expect(saved[0]?.ai.refine.provider).toBe('openai-codex');
-    expect(saved[0]?.ai.implement.provider).toBe('claude-code');
+    expect(saved[0]?.ai.implement.generator.provider).toBe('claude-code');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('mixed');
   });

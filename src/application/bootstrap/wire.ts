@@ -378,7 +378,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     // Wire-time seed — the per-launch launcher rebuilds skillsAdapter from the dispatched
     // flow's provider. Tests / one-shot CLI paths that read `app.skillsAdapter` before any
     // flow launches get the implement row's provider as the default.
-    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.provider, logger }),
+    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.generator.provider, logger }),
     skillSource: createBundledSkillSource(),
     notificationDispatcher,
     chainLogSink,

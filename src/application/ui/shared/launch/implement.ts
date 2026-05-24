@@ -115,7 +115,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       repositories,
       progressFile: progressPath.value,
       sprintDir: sprintDirPath.value,
-      model: extras.modelOverride ?? settings.ai.implement.model,
+      model: extras.modelOverride ?? settings.ai.implement.generator.model,
       ...(effort !== undefined ? { effort } : {}),
     }
   );
