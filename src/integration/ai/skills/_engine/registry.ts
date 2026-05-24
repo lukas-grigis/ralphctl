@@ -22,11 +22,11 @@ export type { FlowId };
 
 /** Skill ids referenced below — must each exist as `src/ai/skills/bundled/<id>/SKILL.md`. */
 export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
-  refine: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
-  plan: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
-  implement: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
-  readiness: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
-  ideate: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first'],
+  refine: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first', 'ralphctl-minimal-scaffolding'],
+  plan: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first', 'ralphctl-minimal-scaffolding'],
+  implement: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first', 'ralphctl-minimal-scaffolding'],
+  readiness: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first', 'ralphctl-minimal-scaffolding'],
+  ideate: ['ralphctl-alignment', 'ralphctl-iterative-review', 'ralphctl-abstraction-first', 'ralphctl-minimal-scaffolding'],
 };
 
 /** Type-safe lookup. Returns the configured skill ids or an empty list. */
