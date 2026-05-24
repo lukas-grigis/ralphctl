@@ -4,10 +4,13 @@ import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-export const launchReadiness = (ctx: LaunchContext): LaunchResult => {
+export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, cwd, bridge, sessionId, effort } =
     ctx;
+  const missing = await checkCli('readiness', settings);
+  if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
   const element: Element<ReadinessCtx> = createReadinessFlow(

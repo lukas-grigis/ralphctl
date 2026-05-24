@@ -6,10 +6,13 @@ import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-export const launchPlan = (ctx: LaunchContext): LaunchResult => {
+export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
     ctx;
+  const missing = await checkCli('plan', settings);
+  if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // No `cwd` pre-flight: plan's AI session is rooted at the per-sprint plan unit root

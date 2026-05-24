@@ -17,9 +17,12 @@ import type { HarnessSignalSink } from '@src/business/observability/harness-sign
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
-export const launchImplement = (ctx: LaunchContext): LaunchResult => {
+export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('implement', settings);
+  if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {

@@ -93,6 +93,13 @@ export const registerSettingsCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
+      const output = result.value.ctx.output!;
+      // Warnings are advisory — settings were stamped, so exit code stays 0. The user can
+      // still iterate (install the missing CLI, then re-run their flow) without re-applying
+      // the preset.
+      for (const w of output.warnings) {
+        process.stderr.write(`warning: ${w.provider} CLI not found on PATH; affects flows: ${w.flows.join(', ')}\n`);
+      }
       process.stdout.write(`applied preset ${name}\n`);
     });
 };

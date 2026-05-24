@@ -37,6 +37,7 @@ import { createSettingsSetProviderFlow } from '@src/application/flows/settings-s
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
+import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
@@ -202,6 +203,11 @@ export const SettingsView = (): React.JSX.Element => {
   const [feedback, setFeedback] = useState<{ readonly tone: 'ok' | 'error'; readonly text: string } | undefined>(
     undefined
   );
+  /**
+   * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
+   * preset action group; cleared when the user activates a new preset or edits any other row.
+   */
+  const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
   useViewHints([
     { keys: '↑/↓', label: 'navigate' },
     { keys: '↵/e', label: 'edit' },
@@ -244,9 +250,11 @@ export const SettingsView = (): React.JSX.Element => {
       if (field === undefined) return;
       setFeedback(undefined);
       if (field.kind === 'preset') {
+        setPresetWarnings([]);
         setPendingPreset(field.preset);
         return;
       }
+      setPresetWarnings([]);
       setEditingField(field);
     }
   });
@@ -275,6 +283,7 @@ export const SettingsView = (): React.JSX.Element => {
       return;
     }
     setFeedback({ tone: 'ok', text: `applied preset ${preset}` });
+    setPresetWarnings(saved.value.ctx.output!.warnings);
     await refresh();
   };
 
@@ -409,6 +418,15 @@ export const SettingsView = (): React.JSX.Element => {
                 value: valueFor(`presets.${preset}`),
               }))}
             />
+            {presetWarnings.length > 0 && (
+              <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
+                {presetWarnings.map((w) => (
+                  <Text key={w.provider} dimColor>
+                    ⚠ {w.provider} CLI not found on PATH; affects flows: {w.flows.join(', ')}
+                  </Text>
+                ))}
+              </Box>
+            )}
           </Card>
           <Box marginTop={spacing.section}>
             <Card title="AI — global" tone="primary">

@@ -90,12 +90,16 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     };
     await createSettingsSetFlow({ settingsRepo: repo }).execute({ input: { next: initial } });
 
-    const applied = await createSettingsApplyPresetFlow({ settingsRepo: repo }).execute({
+    const applied = await createSettingsApplyPresetFlow({
+      settingsRepo: repo,
+      // Stub the PATH probe so the test does not depend on whatever's installed on the host.
+      detectInstalledProviders: async () => new Set(['claude-code', 'github-copilot', 'openai-codex'] as const),
+    }).execute({
       input: { preset: 'codex-only' },
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    const out = applied.value.ctx.output!;
+    const out = applied.value.ctx.output!.settings;
     for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
       expect(out.ai[flow].provider).toBe('openai-codex');
     }
@@ -103,6 +107,7 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     expect(out.harness.maxTurns).toBe(9);
     expect(out.logging.level).toBe('debug');
     expect(out.concurrency.maxParallelTasks).toBe(4);
+    expect(applied.value.ctx.output!.warnings).toEqual([]);
 
     // Re-read from disk to confirm the change persisted.
     const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
