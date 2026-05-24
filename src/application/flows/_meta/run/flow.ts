@@ -68,13 +68,18 @@ export interface RunCtx {
 }
 
 export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<RunCtx> => {
+  // The meta-run flow's `opts.model` is a single value — stamp it on both gen-eval roles
+  // so an external composer that doesn't know about the per-role split (the `pnpm dev run`
+  // entry point) still produces a coherent implement chain. Per-role overrides belong on the
+  // primary launcher, not on this meta composer.
   const implementFlow = createImplementFlow(deps.implement, {
     sprintId: opts.sprintId,
     todoTasks: opts.todoTasks,
     repositories: opts.repositories,
     progressFile: opts.progressFile,
     sprintDir: opts.sprintDir,
-    model: opts.model,
+    generatorModel: opts.model,
+    evaluatorModel: opts.model,
   });
   const reviewFlow = createReviewFlow(deps.review, {
     sprintId: opts.sprintId,

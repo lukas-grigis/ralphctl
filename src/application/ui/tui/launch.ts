@@ -26,6 +26,8 @@ import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
 import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
+import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
+import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -156,7 +158,20 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   };
 };
 
-export const launchTui = async (): Promise<void> => {
+export interface LaunchTuiOptions {
+  /**
+   * Per-launch overrides for `settings.ai.implement` — parsed from the bare-`ralphctl`
+   * `--implement-{generator,evaluator}-{provider,model}` flags. Stored on the module-level
+   * holder so the TUI's `flows-view` reads them when assembling the implement {@link
+   * LaunchExtras}; cleared on every fresh launch so a prior run's overrides don't leak.
+   */
+  readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];
+}
+
+export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> => {
+  // Reset the holder on every launch so a prior `launchTui(...)` call's overrides don't leak
+  // into the next; production runs are one-shot processes but tests reuse the holder.
+  setImplementRoleOverrides(options.implementRoleOverrides);
   let booted: Bootstrapped;
   try {
     booted = await bootstrap();

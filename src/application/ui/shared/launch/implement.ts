@@ -15,13 +15,50 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
+import type { AiFlowSettings, AiImplementSettings, Settings } from '@src/domain/entity/settings.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
+/**
+ * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the
+ * persisted `settings.ai.implement` pair. Each role accepts `{ provider, model }` together —
+ * the CLI parser rejects half-supplied pairs before we reach this point, so the merge is
+ * straightforward: when a role override is present, swap its row entirely; otherwise leave
+ * the persisted row alone.
+ */
+const applyImplementRoleOverrides = (
+  base: AiImplementSettings,
+  overrides: NonNullable<LaunchContext['extras']['implementRoleOverrides']> | undefined
+): AiImplementSettings => {
+  if (overrides === undefined) return base;
+  const next: { generator: AiFlowSettings; evaluator: AiFlowSettings } = {
+    generator: base.generator,
+    evaluator: base.evaluator,
+  };
+  if (overrides.generator !== undefined) {
+    next.generator = { provider: overrides.generator.provider, model: overrides.generator.model } as AiFlowSettings;
+  }
+  if (overrides.evaluator !== undefined) {
+    next.evaluator = { provider: overrides.evaluator.provider, model: overrides.evaluator.model } as AiFlowSettings;
+  }
+  return next;
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, provider, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
-  const missing = await checkCli('implement', settings);
+  const { deps, snapshot, extras, settings, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
+  // a settings copy before either readiness probing or provider construction — both must see
+  // the overridden providers / models to avoid spawning the persisted pair while reporting on
+  // the overridden one.
+  const implementPair = applyImplementRoleOverrides(settings.ai.implement, extras.implementRoleOverrides);
+  const effectiveSettings: Settings = {
+    ...settings,
+    ai: { ...settings.ai, implement: implementPair },
+  };
+  const missing = await checkCli('implement', effectiveSettings);
   if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
@@ -87,18 +124,37 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     });
   }
 
+  // Build one HeadlessAiProvider per role from the effective implement pair. The two roles
+  // may target distinct providers — the launcher constructs them independently rather than
+  // routing through `primaryFlowRow` so a cross-provider configuration spawns the right CLI
+  // per role. `ctx.provider` (the launcher-rebuilt primary adapter) is left unused here;
+  // implement deliberately bypasses the single-row seam.
+  const generatorProvider = createAiProvider({
+    row: implementPair.generator,
+    harnessConfig: effectiveSettings.harness,
+    eventBus: deps.app.eventBus,
+  });
+  const evaluatorProvider = createAiProvider({
+    row: implementPair.evaluator,
+    harnessConfig: effectiveSettings.harness,
+    eventBus: deps.app.eventBus,
+  });
+  const generatorEffort = resolveEffortForRow(implementPair.generator, effectiveSettings.ai.effort);
+  const evaluatorEffort = resolveEffortForRow(implementPair.evaluator, effectiveSettings.ai.effort);
+
   const element: Element<ImplementCtx> = createImplementFlow(
     {
       sprintRepo: deps.app.sprintRepo,
       sprintExecutionRepo: deps.app.sprintExecutionRepo,
       taskRepo: deps.app.taskRepo,
-      provider,
+      generatorProvider,
+      evaluatorProvider,
       templateLoader: deps.app.templateLoader,
       signals,
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
       clock: deps.app.clock,
-      config: settings,
+      config: effectiveSettings,
       gitRunner: deps.app.gitRunner,
       shellScriptRunner: deps.app.shellScriptRunner,
       fileLocker: deps.app.fileLocker,
@@ -115,8 +171,13 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       repositories,
       progressFile: progressPath.value,
       sprintDir: sprintDirPath.value,
-      model: extras.modelOverride ?? settings.ai.implement.generator.model,
-      ...(effort !== undefined ? { effort } : {}),
+      // `extras.modelOverride` is a legacy single-model knob from the flows-view picker;
+      // applied to the generator role since that's the one that drove the prior single-model
+      // implement path. Evaluator model stays bound to its settings row.
+      generatorModel: extras.modelOverride ?? implementPair.generator.model,
+      ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+      evaluatorModel: implementPair.evaluator.model,
+      ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
     }
   );
   const runner = createRunner<ImplementCtx>({

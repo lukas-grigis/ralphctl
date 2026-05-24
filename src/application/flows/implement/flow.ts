@@ -84,10 +84,14 @@ export interface CreateImplementFlowOpts {
    * repos the sprint touches).
    */
   readonly sprintDir: AbsolutePath;
-  /** Configured model for the implement chain — `settings.ai.implement.generator.model`. */
-  readonly model: string;
-  /** Resolved effort / reasoning level — threaded into every gen-eval AiSession. */
-  readonly effort?: string;
+  /** Generator-role model — `settings.ai.implement.generator.model`. */
+  readonly generatorModel: string;
+  /** Generator-role effort / reasoning level — threaded into the generator AiSession. */
+  readonly generatorEffort?: string;
+  /** Evaluator-role model — `settings.ai.implement.evaluator.model`. */
+  readonly evaluatorModel: string;
+  /** Evaluator-role effort / reasoning level — threaded into the evaluator AiSession. */
+  readonly evaluatorEffort?: string;
   /**
    * How preflight handles a dirty working tree. Default `'prompt'` — interactive recovery
    * (Keep / Stash / Reset / Cancel). Non-interactive callers (CI, headless harness) should
@@ -236,8 +240,10 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   const perTaskSubChain = (task: Task): Element<ImplementCtx> => {
     const taskId = task.id;
     const repo = resolveRepo(task);
-    const genEvalLeafDeps = {
-      provider: deps.provider,
+    // Shared cross-role fields — every gen-eval leaf reads the same ports, cwd, sprint paths,
+    // and harness-config-derived budgets. The per-role provider + model + effort triple is
+    // overlaid on top below so generator / evaluator can target different providers.
+    const sharedLeafDeps = {
       templateLoader: deps.templateLoader,
       signals: deps.signals,
       // Threaded into both gen-eval leaves so harness-owned sidecars (audit-[09]
@@ -249,14 +255,24 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       // sprint-wide artifacts (`progress.md`) that live outside the per-task sandbox.
       sprintDir: opts.sprintDir,
       progressFile: opts.progressFile,
-      model: opts.model,
-      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       clock: deps.clock,
       logger: deps.logger,
       eventBus: deps.eventBus,
       maxTurns: deps.config.harness.maxTurns,
       plateauThreshold: deps.config.harness.plateauThreshold,
       ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+    };
+    const generatorLeafDeps = {
+      ...sharedLeafDeps,
+      provider: deps.generatorProvider,
+      model: opts.generatorModel,
+      ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+    };
+    const evaluatorLeafDeps = {
+      ...sharedLeafDeps,
+      provider: deps.evaluatorProvider,
+      model: opts.evaluatorModel,
+      ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
     };
     return sequential<ImplementCtx>(`task-${String(taskId)}`, [
       branchPreflightLeaf(
@@ -305,11 +321,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       loop<ImplementCtx>(
         `gen-eval-${String(taskId)}`,
         sequential<ImplementCtx>(`gen-eval-turn-${String(taskId)}`, [
-          generatorLeaf(genEvalLeafDeps, taskId),
+          generatorLeaf(generatorLeafDeps, taskId),
           guard<ImplementCtx>(
             `evaluator-guard-${String(taskId)}`,
             (ctx) => ctx.lastExit === undefined,
-            evaluatorLeaf(genEvalLeafDeps, taskId)
+            evaluatorLeaf(evaluatorLeafDeps, taskId)
           ),
         ]),
         {

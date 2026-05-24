@@ -26,7 +26,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
-import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
@@ -104,6 +104,18 @@ export interface LaunchExtras {
   readonly modelOverride?: string;
   /** Freshly-loaded settings snapshot; overrides the stale `app.settings` boot snapshot. */
   readonly settingsSnapshot?: Settings;
+  /**
+   * Per-launch implement-role overrides — supplied by the bare-`ralphctl` CLI flags
+   * (`--implement-generator-provider`, `--implement-generator-model`,
+   * `--implement-evaluator-provider`, `--implement-evaluator-model`) and threaded through the
+   * TUI runtime. Each role accepts `{ provider, model }` together; the CLI parser rejects
+   * half-supplied pairs upstream so the launcher only sees fully-formed overrides. Roles are
+   * independent — overriding only generator leaves evaluator on its persisted settings row.
+   */
+  readonly implementRoleOverrides?: {
+    readonly generator?: { readonly provider: AiProvider; readonly model: string };
+    readonly evaluator?: { readonly provider: AiProvider; readonly model: string };
+  };
 }
 
 export interface LauncherDeps {

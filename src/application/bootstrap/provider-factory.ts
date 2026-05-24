@@ -1,6 +1,6 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiFlowSettings, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
@@ -8,17 +8,19 @@ import { createCopilotProvider } from '@src/integration/ai/providers/copilot/hea
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 
 /**
- * Composition seam for {@link HeadlessAiProvider}. Selects the concrete adapter based on
- * `settings.ai[flow].provider`. The switch is exhaustive — adding a provider extends this
- * factory plus a sibling adapter file under `ai/providers/<name>/`. Model tier flows per
- * call via {@link AiSession}; this factory only carries operational concerns (rate-limit
- * retry budget, log sink, spawn seam).
+ * Composition seam for {@link HeadlessAiProvider}. Selects the concrete adapter based on the
+ * provider field of a per-flow row. The switch is exhaustive — adding a provider extends this
+ * factory plus a sibling adapter file under `ai/providers/<name>/`. Model tier flows per call
+ * via {@link AiSession}; this factory only carries operational concerns (rate-limit retry
+ * budget, log sink, spawn seam).
+ *
+ * Two input shapes are accepted: either a `flow` id (legacy single-row consumers — readiness
+ * inventory, settings-view rebuild) that resolves through {@link primaryFlowRow}, or an
+ * explicit `row` (the implement launcher, which builds one provider per role from
+ * `ai.implement.generator` and `ai.implement.evaluator` independently). The two paths share
+ * the same provider dispatch.
  */
-export interface CreateAiProviderDeps {
-  /** Flow identifier — selects which per-flow row of `ai` carries the provider. */
-  readonly flow: FlowId;
-  /** AI slice of {@link Settings} — five per-flow rows + optional global effort. */
-  readonly ai: Settings['ai'];
+export interface CreateAiProviderDepsBase {
   /** Harness slice — call timeout + rate-limit retries threaded into the adapter. */
   readonly harnessConfig: Settings['harness'];
   /** Adapter-level event bus — providers publish 'log' AppEvents (session id, retries, raw stdout at debug level). */
@@ -31,11 +33,34 @@ export interface CreateAiProviderDeps {
   readonly spawn?: ProviderSpawn;
 }
 
-export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {
+export interface CreateAiProviderDepsByFlow extends CreateAiProviderDepsBase {
+  /** Flow identifier — selects which per-flow row of `ai` carries the provider. */
+  readonly flow: FlowId;
+  /** AI slice of {@link Settings} — five per-flow rows + optional global effort. */
+  readonly ai: Settings['ai'];
+}
+
+export interface CreateAiProviderDepsByRow extends CreateAiProviderDepsBase {
+  /**
+   * Explicit per-role row — bypasses {@link primaryFlowRow} lookup. Used by the implement
+   * launcher to materialise a distinct provider per generator / evaluator role from the same
+   * `ai.implement` pair without round-tripping through a flow id.
+   */
+  readonly row: AiFlowSettings;
+}
+
+export type CreateAiProviderDeps = CreateAiProviderDepsByFlow | CreateAiProviderDepsByRow;
+
+const resolveRow = (deps: CreateAiProviderDeps): AiFlowSettings => {
+  if ('row' in deps) return deps.row;
   // `implement` carries a {generator, evaluator} pair — the legacy single-session callers
-  // (per-launch adapter rebuild, readiness inventory) read the generator row. Spawn sites
-  // that need the evaluator role construct a second adapter from `ai.implement.evaluator`.
-  const row = primaryFlowRow(deps.ai, deps.flow);
+  // (readiness inventory, settings TUI) read the generator row via `primaryFlowRow`. Spawn
+  // sites that need the evaluator role pass `{ row: ai.implement.evaluator }` directly.
+  return primaryFlowRow(deps.ai, deps.flow);
+};
+
+export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {
+  const row = resolveRow(deps);
   switch (row.provider) {
     case 'claude-code':
       return createClaudeProvider({

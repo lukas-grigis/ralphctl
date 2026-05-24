@@ -288,14 +288,17 @@ const buildDeps = (
   sprintRepo: SprintRepository,
   executionRepo: SprintExecutionRepository,
   taskRepo: TaskRepository,
-  provider: ImplementDeps['provider'],
+  provider: ImplementDeps['generatorProvider'],
   locksRoot: string,
   gitRunner: GitRunner = cleanGit
 ): ImplementDeps => ({
   sprintRepo,
   sprintExecutionRepo: executionRepo,
   taskRepo,
-  provider,
+  // Both roles share the same provider fake — the legacy single-provider tests assert
+  // gen-eval behaviour without exercising the cross-provider split.
+  generatorProvider: provider,
+  evaluatorProvider: provider,
   templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
   signals: createInMemorySink<HarnessSignal>(),
   eventBus: createInMemoryEventBus(),
@@ -404,7 +407,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -448,7 +452,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -475,6 +480,64 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(sprintRepo.current().status).toBe('review');
   });
 
+  it('cross-provider gen-eval: generator and evaluator deps route to distinct provider instances per role', async () => {
+    // AC3 of the per-role implement wiring: passing distinct providers as `generatorProvider`
+    // and `evaluatorProvider` must route the gen leaf's spawn to the generator-provider and
+    // the eval leaf's spawn to the evaluator-provider, with no cross-talk. The two fakes only
+    // script their own role's signals — a route mistake would surface as a `no-marker-match`
+    // failure from the wrong-role fake (the leaf's prompt would carry the other role's marker).
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const generatorFake = createFakeAiProvider({
+      signals: { implement: [taskVerified('tests pass')] },
+    });
+    const evaluatorFake = createFakeAiProvider({
+      signals: { evaluate: [evaluationPassed()] },
+    });
+
+    const baseDeps = buildDeps(
+      sprintRepo.repo,
+      inMemoryExecutionRepo(f.execution).repo,
+      taskRepo.repo,
+      generatorFake,
+      f.dir
+    );
+    const deps: ImplementDeps = { ...baseDeps, generatorProvider: generatorFake, evaluatorProvider: evaluatorFake };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'gpt-5.5',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+    const runner = createRunner({
+      id: 'r-impl-per-role',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // Each provider was called exactly once — one generator turn, one evaluator turn.
+    expect(generatorFake.recordedSessions).toHaveLength(1);
+    expect(evaluatorFake.recordedSessions).toHaveLength(1);
+    // The generator's signalsFile lives under .../generator/signals.json; the evaluator's
+    // under .../evaluator/signals.json. Cross-talk would route a spawn into the wrong role
+    // folder, which the leaf-side `validateSignalsFile` would then reject.
+    expect(String(generatorFake.recordedSessions[0]?.signalsFile)).toContain('/generator/signals.json');
+    expect(String(evaluatorFake.recordedSessions[0]?.signalsFile)).toContain('/evaluator/signals.json');
+    // Per-role model is threaded into each provider's session — confirms the launcher's
+    // generatorModel / evaluatorModel split flows down to the leaf's AiSession.
+    expect(generatorFake.recordedSessions[0]?.model).toBe('claude-opus-4-7');
+    expect(evaluatorFake.recordedSessions[0]?.model).toBe('gpt-5.5');
+  });
+
   it('pass-after-retry: turn 1 fails, turn 2 passes — single attempt, two recorded turns', async () => {
     const f = await buildFixture(1);
     tracking(f);
@@ -498,7 +561,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -560,7 +624,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: f.sprint.id,
       todoTasks: f.tasks,
       repositories: FAKE_REPOSITORIES,
-      model: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
     });
@@ -610,7 +675,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -663,7 +729,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -736,7 +803,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -775,7 +843,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -818,7 +887,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -892,7 +962,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -940,7 +1011,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -1003,7 +1075,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -1065,7 +1138,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: f.sprint.id,
         todoTasks: f.tasks,
         repositories: FAKE_REPOSITORIES,
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
       }
@@ -1141,7 +1215,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: f.sprint.id,
       todoTasks: f.tasks,
       repositories: reposWithCheck,
-      model: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
     });
@@ -1208,7 +1283,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: f.sprint.id,
       todoTasks: f.tasks,
       repositories: reposWithCheck,
-      model: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
     });
@@ -1266,7 +1342,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: f.sprint.id,
       todoTasks: f.tasks,
       repositories: FAKE_REPOSITORIES,
-      model: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
     });
@@ -1401,7 +1478,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         [REPO_A_ID, { path: CWD_A, verifyScript: 'pnpm test' }],
         [REPO_B_ID, { path: CWD_B, verifyScript: 'pnpm test' }],
       ]),
-      model: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
       progressFile: absolutePath(progressFile),
       sprintDir: absolutePath(dir),
     });
@@ -1514,7 +1592,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintId: sprint.id,
         todoTasks: tasks, // Resume contract: in_progress tasks ride along in `todoTasks`.
         repositories: new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]),
-        model: 'claude-opus-4-7',
+        generatorModel: 'claude-opus-4-7',
+        evaluatorModel: 'claude-opus-4-7',
         progressFile: absolutePath(progressFile),
         sprintDir: absolutePath(dir),
       }
