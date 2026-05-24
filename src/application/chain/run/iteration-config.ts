@@ -14,9 +14,8 @@ export interface IterationConfig {
   readonly rateLimitRetries: number;
   /**
    * Consecutive evaluator turns flagging the same failed dimensions before the gen-eval loop
-   * exits with a `plateau` warning (2–5). The plateau predicate exempts score improvements,
-   * commit-message changes, and meaningfully-shifted critiques — see
-   * `business/task/plateau-detection.ts`.
+   * exits with a `plateau` warning (2–5). The plateau predicate exempts commit-message
+   * progress and meaningfully-shifted critiques — see `business/task/plateau-detection.ts`.
    */
   readonly plateauThreshold: number;
 }

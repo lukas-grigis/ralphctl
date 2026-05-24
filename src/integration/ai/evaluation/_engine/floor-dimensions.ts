@@ -1,14 +1,14 @@
 /**
  * Floor evaluation dimensions — the four universal axes every task is graded on, regardless
  * of whether the planner emitted any per-task `extraDimensions`. The names are stable and
- * lowercased for parser/plateau-detection use; the descriptions are mirrored into the
- * evaluate prompt template so the AI sees one consistent rubric.
+ * lowercased for plateau-detection use; the descriptions are mirrored into the evaluate prompt
+ * template so the AI sees one consistent rubric.
  *
  * Floor + extra are concatenated when rendering the evaluate prompt:
  *   - Floor first, in the order below.
  *   - Extra after, in the order the planner emitted.
- *   - The parser does not distinguish floor from extra at extraction time — both flow
- *     through the same `**Name** (score 1-5): N — finding` line shape.
+ *   - The evaluator grades each as PASS / FAIL with a `finding`; the schema does not
+ *     distinguish floor from extra — both flow through `dimensionScoreSchema`.
  */
 
 export interface FloorDimension {

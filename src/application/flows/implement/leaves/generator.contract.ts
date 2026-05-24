@@ -44,11 +44,10 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
  *
  * Migration chain:
  *
- *   `migrations[0]` accepts the legacy top-level-array shape today's adapters still write
- *   (`parseHarnessSignals(...)`'s output verbatim) and wraps it into the `{ schemaVersion,
- *   signals }` shape the validator expects. Once Wave 6 lands the prompt-side contract and
- *   drops the stdout parser, the adapters will write the canonical wrapper directly and the
- *   migration becomes inert (but stays in the chain for in-flight sprints).
+ *   `migrations[0]` wraps a legacy top-level-array payload into the `{ schemaVersion, signals }`
+ *   shape the validator expects. The AI now writes the canonical wrapper directly via the
+ *   prompt-side contract; the migration is inert for fresh sprints but stays in the chain to
+ *   keep in-flight sprints on disk readable.
  */
 
 type GeneratorSignal =
@@ -91,10 +90,9 @@ const signalsArraySchemaRaw = z
 const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly GeneratorSignal[]>;
 
 /**
- * Legacy → v1 wrapping. Today's `HeadlessAiProvider` writes
- * `JSON.stringify(parseHarnessSignals(...))` — a bare top-level array. Wave 6 swaps the
- * prompt to ask the AI to write the `{ schemaVersion, signals }` wrapper directly. Until
- * then, this step shims the legacy shape into the wrapper the validator expects.
+ * Legacy → v1 wrapping. In-flight sprints on disk may carry a bare top-level array from an
+ * earlier writer; fresh sprints write the `{ schemaVersion, signals }` wrapper directly. This
+ * step shims the legacy shape into the wrapper the validator expects.
  */
 const wrapLegacyArray = (raw: unknown): unknown => {
   if (Array.isArray(raw)) return { schemaVersion: 1, signals: raw };
