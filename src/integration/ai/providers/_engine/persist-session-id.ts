@@ -8,14 +8,14 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Persist a captured session id next to `signals.json` so `--resume` / forensic re-attach works
  * without log parsing.
  *
- * The CLAUDE.md contract states "providers write `signals.json` + `sessionId` files per spawn"
- * — historically only `signals.json` landed on disk; session ids escaped into `chain.log`. This
- * helper closes that gap: every adapter calls it after writing `signals.json`, passing the same
- * directory's signals path and the id its provider captured.
+ * The CLAUDE.md contract states "providers write `signals.json` + `session-id.txt` files per
+ * spawn" — historically only `signals.json` landed on disk; session ids escaped into `chain.log`.
+ * This helper closes that gap: every adapter calls it after writing `signals.json`, passing the
+ * same directory's signals path and the id its provider captured.
  *
  * File layout:
  *   - `signals.json` is written by the adapter at `session.signalsFile`.
- *   - This helper writes `sessionId` as a sibling in the same directory.
+ *   - This helper writes `session-id.txt` as a sibling in the same directory.
  *
  * Contents:
  *   - Plain UTF-8, exactly one line containing the session id, trailing newline. Matches the
@@ -37,6 +37,6 @@ export const persistSessionIdFile = async (
   sessionId: string | undefined
 ): Promise<Result<void, StorageError> | undefined> => {
   if (sessionId === undefined) return undefined;
-  const path = join(dirname(String(signalsFile)), 'sessionId');
+  const path = join(dirname(String(signalsFile)), 'session-id.txt');
   return writeTextAtomic(path, `${sessionId}\n`);
 };

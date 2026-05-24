@@ -214,7 +214,7 @@ describe('createCodexProvider', () => {
     expect(mirrored).toBe('<task-verified>all good</task-verified>');
   });
 
-  it('persists sessionId as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
+  it('persists session-id.txt as a sibling file when captured (UTF-8, one line + trailing newline)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-persist","type":"config"}\n'], exitCode: 0 }]);
@@ -233,16 +233,16 @@ describe('createCodexProvider', () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     const sidContent = await fs.readFile(sidPath, 'utf8');
     expect(sidContent).toBe('sess-persist\n');
     expect(out.value.sessionId).toBe('sess-persist');
   });
 
-  it('skips the sessionId file when stdout never carried a session_id (no empty marker)', async () => {
+  it('skips the session-id.txt file when stdout never carried a session_id (no empty marker)', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    // stdout JSONL with no session_id field — adapter must not write an empty sessionId file.
+    // stdout JSONL with no session_id field — adapter must not write an empty session-id.txt file.
     const { spawn } = makeSpawn([{ stdoutChunks: ['{"type":"config"}\n'], exitCode: 0 }]);
     const fsStub = stubFs('<task-complete/>');
 
@@ -260,11 +260,11 @@ describe('createCodexProvider', () => {
     if (!out.ok) return;
     expect(out.value.sessionId).toBeUndefined();
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('does not write sessionId on non-zero exit (spawn failure path)', async () => {
+  it('does not write session-id.txt on non-zero exit (spawn failure path)', async () => {
     const cap = createCapturingBus();
     const sess = session();
     const { spawn } = makeSpawn([
@@ -288,7 +288,7 @@ describe('createCodexProvider', () => {
     const out = await provider.generate(sess);
     expect(out.ok).toBe(false);
 
-    const sidPath = join(dirname(String(sess.signalsFile)), 'sessionId');
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     await expect(fs.access(sidPath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.access(String(sess.signalsFile))).rejects.toMatchObject({ code: 'ENOENT' });
   });
