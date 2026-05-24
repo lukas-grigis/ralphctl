@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -45,10 +46,14 @@ export const registerCreatePrCommand = (program: Command): void => {
       if (!cwd.ok) {
         process.stderr.write(`error: --cwd: ${cwd.error.message}\n`);
         process.exit(1);
-        return;
       }
 
-      const { deps } = await bootstrapCli();
+      const { deps, storage } = await bootstrapCli();
+      const sprintDir = AbsolutePath.parse(join(String(storage.dataRoot), 'sprints', opts.sprint));
+      if (!sprintDir.ok) {
+        process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
+        process.exit(1);
+      }
       const flow = createCreatePrFlow(
         {
           sprintRepo: deps.sprintRepo,
@@ -72,6 +77,7 @@ export const registerCreatePrCommand = (program: Command): void => {
         input: {
           sprintId: opts.sprint as SprintId,
           cwd: cwd.value,
+          sprintDir: sprintDir.value,
           base: opts.base,
           draft: opts.draft,
           ...(opts.title !== undefined ? { title: opts.title } : {}),
@@ -82,7 +88,6 @@ export const registerCreatePrCommand = (program: Command): void => {
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
         process.exit(1);
-        return;
       }
       process.stdout.write(`opened PR ${result.value.ctx.output!.url}\n`);
     });

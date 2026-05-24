@@ -10,6 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { join } from 'node:path';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -21,7 +22,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
-import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 const DEFAULT_BASE = 'main';
 const DEFAULT_DRAFT = false;
@@ -88,6 +89,11 @@ export const CreatePrView = (): React.JSX.Element => {
         setRun({ kind: 'error', message: 'No sprint selected.' });
         return;
       }
+      const sprintDir = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(selection.sprintId)));
+      if (!sprintDir.ok) {
+        setRun({ kind: 'error', message: `sprint dir: ${sprintDir.error.message}` });
+        return;
+      }
       setRun({ kind: 'running' });
       const flow = createCreatePrFlow(
         {
@@ -109,7 +115,13 @@ export const CreatePrView = (): React.JSX.Element => {
         { useAi }
       );
       const result = await flow.execute({
-        input: { sprintId: selection.sprintId, cwd, base: DEFAULT_BASE, draft: DEFAULT_DRAFT },
+        input: {
+          sprintId: selection.sprintId,
+          cwd,
+          sprintDir: sprintDir.value,
+          base: DEFAULT_BASE,
+          draft: DEFAULT_DRAFT,
+        },
       });
       if (!result.ok) {
         setRun({ kind: 'error', message: result.error.error.message });

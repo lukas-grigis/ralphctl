@@ -109,7 +109,13 @@ describe('createCreatePrLeaf — title/body precedence', () => {
     const { creator, calls } = captureCreator();
     const leaf = createCreatePrLeaf(buildDeps(sprint, exec, creator));
     const ctx: CreatePrCtx = {
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
     };
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -121,7 +127,13 @@ describe('createCreatePrLeaf — title/body precedence', () => {
     const { creator, calls } = captureCreator();
     const leaf = createCreatePrLeaf(buildDeps(sprint, exec, creator));
     const ctx: CreatePrCtx = {
-      input: { sprintId: sprint.id, cwd: absolutePath('/tmp/repo'), base: 'main', draft: false },
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+      },
       aiContent: { title: 'AI title', body: 'AI body' },
     };
     const result = await leaf.execute(ctx);
@@ -137,6 +149,7 @@ describe('createCreatePrLeaf — title/body precedence', () => {
       input: {
         sprintId: sprint.id,
         cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
         base: 'main',
         draft: false,
         title: 'Explicit title',
@@ -157,6 +170,7 @@ describe('createCreatePrLeaf — title/body precedence', () => {
       input: {
         sprintId: sprint.id,
         cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
         base: 'main',
         draft: false,
         title: 'Explicit title',

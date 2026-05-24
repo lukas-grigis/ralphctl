@@ -44,6 +44,7 @@ const buildCtx = (unitRoot: AbsolutePath, promptFile: AbsolutePath): CreatePrCtx
     input: {
       sprintId: sprint.id,
       cwd: absolutePath('/tmp/repo'),
+      sprintDir: absolutePath('/tmp/sprint-dir'),
       base: 'main',
       draft: false,
     },

@@ -100,7 +100,13 @@ const stubCreatePrDeps = (overrides: {
 const sprint = makeReviewSprint();
 const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), BRANCH);
 const baseCtx = {
-  input: { sprintId: sprint.id, cwd: CWD, base: 'main', draft: false },
+  input: {
+    sprintId: sprint.id,
+    cwd: CWD,
+    sprintDir: absolutePath('/tmp/sprint-dir'),
+    base: 'main',
+    draft: false,
+  },
 };
 
 describe('push-branch-leaf', () => {

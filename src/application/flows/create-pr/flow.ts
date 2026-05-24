@@ -67,17 +67,11 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
       createLoadCreatePrContextLeaf(deps),
       buildUnitLeaf<CreatePrCtx>({
         name: 'build-create-pr-unit',
-        // Per-sprint unit root: `<sprintExecutionDir>/create-pr/<run-slug>/`. The flow does
-        // not have access to the sprint dir directly; we derive it from the branch + sprintId
-        // via a stable slug — one unit per branch so re-runs land in the same place.
+        // Per-sprint unit root: `<sprintDir>/create-pr/<run-slug>/` — same layout the implement
+        // / refine / plan flows use, so the user's repo working tree never collects scratch
+        // artifacts from a `ralphctl create-pr` run.
         parent: (ctx) => {
-          // The "sprint dir" convention is `<dataRoot>/sprints/<sprintId>/`. We don't have
-          // that path on deps here; the load-context leaf doesn't carry it either. Place
-          // the unit under the cwd's `.ralphctl-create-pr/<sprintId>/` so the leaf has a
-          // deterministic writable path without coupling to the storage layout — the unit
-          // dir is a per-run scratchpad, not a long-lived audit artefact.
-          const sprintId = String(ctx.input.sprintId);
-          const parentDir = AbsolutePath.parse(join(String(ctx.input.cwd), '.ralphctl-create-pr', sprintId));
+          const parentDir = AbsolutePath.parse(join(String(ctx.input.sprintDir), 'create-pr'));
           if (!parentDir.ok) throw parentDir.error;
           return parentDir.value;
         },
