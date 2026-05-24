@@ -81,6 +81,16 @@ Error: Project 'frontend' not found.
 - Sensible limits (page size, timeout)
 - Auto-detect from environment when possible
 
+### 6. Flow surface cost-benefit
+
+Flow surfaces encode cost-benefit decisions. When designing a new flow's TUI/CLI entry point, weigh `ideate`
+(single AI session, no evaluator loop, lower cost) vs full `implement` (generator → evaluator → settle,
+higher confidence, substantially higher cost). `Read .claude/docs/HARNESS-PRINCIPLES.md § Cost-benefit
+framing` before adding scaffolding to a new flow — the principle is explicit that the evaluator adds 20×
+cost and its value is tied to task difficulty relative to current model capability. Design the lighter path
+as the default for low-stakes or exploratory work; reserve the full harness for tasks where the evaluator
+demonstrably pays for itself.
+
 ## ralphctl Design Language
 
 ### Command Structure

@@ -65,6 +65,15 @@ Tackle uncertainty early:
 - Don't hide complexity in "simple" tasks
 - Better to over-scope than under-scope
 
+### 5. Harness Principles Check
+
+Before proposing a plan that adds a new chain primitive, a new flow, removes an existing harness component,
+or restructures the evaluator — `Read .claude/docs/HARNESS-PRINCIPLES.md` and weigh the change against the
+relevant sections. Structural changes to `src/application/chain/`, `src/application/flows/<flow>/`,
+`src/application/registry.ts`, or `src/integration/ai/providers/_engine/` all touch territory the
+principles doc covers. The status tags (`applied` / `partial` / `gap`) tell you where ralphctl's coverage
+is thin and where a proposed removal risks regressing a load-bearing piece.
+
 ## Grounding (use Bash before guessing)
 
 You have read-only Bash. Ground every plan in actual repo state — never invent context you could have

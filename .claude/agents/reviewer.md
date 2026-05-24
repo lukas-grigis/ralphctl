@@ -204,6 +204,11 @@ ralphctl uses a **four-module Clean Architecture** under `src/`. Watch for these
   it MUST exempt `AbortError`. User-initiated cancellation cannot be silently absorbed.
 - **`@public` JSDoc tag** — symbols intentionally kept after dead-code cleanup must be tagged `@public`
   (whitelisted via `knip.json`). `pnpm deadcode` exits 0 on a clean tree.
+- **Harness principles check** — for any diff touching `src/application/chain/`, `src/application/flows/<flow>/`,
+  or `src/integration/ai/providers/_engine/`, `Read .claude/docs/HARNESS-PRINCIPLES.md` before reporting.
+  Flag any `partial` or `gap` row the diff regresses (e.g. removing the idle watchdog without evidence it
+  is no longer load-bearing) and any `applied` row the diff weakens. The status tags are the source of truth
+  for which harness components are considered intentional vs. candidates for removal.
 
 ## What I Don't Do
 

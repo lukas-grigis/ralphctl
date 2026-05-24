@@ -124,6 +124,21 @@ ESLint blocks the shortcut.
 - `zod` for serialization-boundary validation; `Result` from `@src/domain/result.ts` for Result types.
 - `vitest` for testing.
 
+## Before structural harness code
+
+Before writing code that adds a chain primitive, wraps the evaluator, introduces a new sub-agent, or
+changes `src/integration/ai/providers/_engine/` — `Read .claude/docs/HARNESS-PRINCIPLES.md`. The
+principles doc names which harness components are `applied` (intentional), `partial` (incomplete), or
+`gap` (missing). Two specific rationale traces are worth calling out:
+
+- **No `retry` / no `onError` primitives** — this is not an oversight. Retry-on-429 is an adapter concern
+  (`IterationConfig.rateLimitRetries` in the headless provider wrapper); branching belongs inside a use case
+  or a `guard`. Both constraints come directly from the harness research (§ 14 Minimal scaffolding) — adding
+  either primitive would duplicate adapter logic in the chain layer and hide the retry model from callers.
+- **Evaluator over-praises by default (§ 15)** — if you are wrapping or extending the evaluator, the
+  principles doc records that this component requires ongoing prompt tuning; code changes alone do not fix
+  the grading-leniency failure mode.
+
 ## Chain framework
 
 When orchestrating a workflow, do NOT write a bespoke imperative loop. Use the chain primitives in
