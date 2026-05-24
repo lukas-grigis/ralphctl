@@ -310,7 +310,7 @@ describe('createReviewFlow', () => {
         commitCwd: repoA,
         // Three repos mounted — the user's feedback names repo-c (a non-first repo), so this
         // is exactly the case the bug regressed: before the fix, only repo-a would have been
-        // visible and the AI would have emitted <task-blocked>.
+        // visible and the AI would have emitted a `task-blocked` signal.
         additionalRoots: [repoA, repoB, repoC],
         repositoriesBlock: [
           '- `/tmp/ralph/repo-a` (repo-a)',

@@ -104,8 +104,7 @@ describe('evaluatePromptDef — completeness', () => {
   });
 });
 
-const SAMPLE_CONTRACT_SECTION =
-  '## Output contract\n\nWrite signals.json. (test fixture body — contains <evaluation-passed> and <evaluation-failed> markers for substring smoke checks.)';
+const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
 
 describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and no leftover placeholders', async () => {

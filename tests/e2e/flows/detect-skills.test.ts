@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { HarnessSignal, SetupSkillProposalSignal, VerifySkillProposalSignal } from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -75,9 +75,31 @@ const scriptedInteractive = (answers: ScriptedAnswers): InteractivePrompt => {
   };
 };
 
+interface ProviderScript {
+  /** Explicit signal payload the fake provider writes to `signals.json`. */
+  readonly signals?: readonly HarnessSignal[];
+  /**
+   * Raw AI body persisted to `body.txt`. The failsafe path surfaces this verbatim when no
+   * skill proposals are emitted; tests that don't exercise that path can omit it.
+   */
+  readonly rawBody?: string;
+}
+
+const setupSkillProposal = (content: string): SetupSkillProposalSignal => ({
+  type: 'setup-skill-proposal',
+  content,
+  timestamp: IsoTimestamp.now(),
+});
+
+const verifySkillProposal = (content: string): VerifySkillProposalSignal => ({
+  type: 'verify-skill-proposal',
+  content,
+  timestamp: IsoTimestamp.now(),
+});
+
 const buildDeps = (
   project: Project,
-  providerResponse: string,
+  script: ProviderScript,
   interactive: InteractivePrompt,
   runsRoot: AbsolutePath
 ) => {
@@ -85,10 +107,8 @@ const buildDeps = (
   const harness = createInMemorySink<HarnessSignal>();
   const eventBus = createInMemoryEventBus();
   const provider = createFakeAiProvider({
-    responses: { 'detect-skills': providerResponse },
-    signals: {
-      'detect-skills': [{ type: 'note', text: 'sample', timestamp: IsoTimestamp.now() }],
-    },
+    signals: { 'detect-skills': script.signals ?? [] },
+    ...(script.rawBody !== undefined ? { responses: { 'detect-skills': script.rawBody } } : {}),
     markerOverrides: { 'detect-skills': DETECT_SKILLS_MARKER },
   });
   return {
@@ -140,7 +160,7 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['approve'] });
     const { deps, saves } = buildDeps(
       project,
-      `<setup-skill>\n${SETUP_BODY}\n</setup-skill>\n<verify-skill>\n${VERIFY_BODY}\n</verify-skill>`,
+      { signals: [setupSkillProposal(SETUP_BODY), verifySkillProposal(VERIFY_BODY)] },
       interactive,
       runsRoot
     );
@@ -181,7 +201,7 @@ describe('createDetectSkillsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-decline', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['reject'] });
-    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive, runsRoot);
+    const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-2', element: flow, initialCtx: { projectId: project.id } });
@@ -199,7 +219,11 @@ describe('createDetectSkillsFlow', () => {
     const interactive = scriptedInteractive({ choices: ['skip'] });
     const { deps, saves } = buildDeps(
       project,
-      '<note>generic project, no per-repo guidance needed</note>',
+      {
+        signals: [
+          { type: 'note', text: 'generic project, no per-repo guidance needed', timestamp: IsoTimestamp.now() },
+        ],
+      },
       interactive,
       runsRoot
     );
@@ -227,7 +251,7 @@ describe('createDetectSkillsFlow', () => {
         return Result.ok('skip' as unknown as T) as Result<T, DomainError>;
       },
     };
-    const { deps } = buildDeps(project, permissionAskBody, recordingInteractive, runsRoot);
+    const { deps } = buildDeps(project, { rawBody: permissionAskBody }, recordingInteractive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-failsafe', element: flow, initialCtx: { projectId: project.id } });
@@ -245,7 +269,7 @@ describe('createDetectSkillsFlow', () => {
     const seeded = { ...existing, setupSkill: 'pre-existing setup body' } as typeof existing;
     const project = makeProject({ repositories: [seeded] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
-    const { deps, saves } = buildDeps(project, `<verify-skill>${VERIFY_BODY}</verify-skill>`, interactive, runsRoot);
+    const { deps, saves } = buildDeps(project, { signals: [verifySkillProposal(VERIFY_BODY)] }, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
     const runner = createRunner({ id: 'r-skills-4', element: flow, initialCtx: { projectId: project.id } });
@@ -263,7 +287,7 @@ describe('createDetectSkillsFlow', () => {
     const repository = makeRepository({ path: '/tmp/ralph/skills-preselect', name: 'svc' });
     const project = makeProject({ repositories: [repository] });
     const interactive = scriptedInteractive({ choices: ['approve'] });
-    const { deps, saves } = buildDeps(project, `<setup-skill>${SETUP_BODY}</setup-skill>`, interactive, runsRoot);
+    const { deps, saves } = buildDeps(project, { signals: [setupSkillProposal(SETUP_BODY)] }, interactive, runsRoot);
 
     const flow = createDetectSkillsFlow(deps, {
       projectId: project.id,
