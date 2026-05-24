@@ -11,6 +11,7 @@ import { createJsonSettingsRepository } from '@src/integration/persistence/setti
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
+import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 
 describe('settings use-cases — read/write through the JSON adapter', () => {
   let configRoot: AbsolutePath;
@@ -76,6 +77,39 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
     if (!reread.ok) throw new Error('expected ok');
     expect(reread.value.ctx.output!.ai.implement.provider).toBe('github-copilot');
+  });
+
+  it('settings-apply-preset stamps a preset matrix and preserves non-AI sections', async () => {
+    const repo = createJsonSettingsRepository({ configRoot });
+    // Customise non-AI sections so we can verify they survive the preset stamp.
+    const initial: Settings = {
+      ...DEFAULT_SETTINGS,
+      harness: { ...DEFAULT_SETTINGS.harness, maxTurns: 9 },
+      logging: { level: 'debug' },
+      concurrency: { maxParallelTasks: 4 },
+    };
+    await createSettingsSetFlow({ settingsRepo: repo }).execute({ input: { next: initial } });
+
+    const applied = await createSettingsApplyPresetFlow({ settingsRepo: repo }).execute({
+      input: { preset: 'codex-only' },
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const out = applied.value.ctx.output!;
+    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+      expect(out.ai[flow].provider).toBe('openai-codex');
+    }
+    expect(out.ai.effort).toBe('high');
+    expect(out.harness.maxTurns).toBe(9);
+    expect(out.logging.level).toBe('debug');
+    expect(out.concurrency.maxParallelTasks).toBe(4);
+
+    // Re-read from disk to confirm the change persisted.
+    const reread = await createSettingsShowFlow({ settingsRepo: repo }).execute({ input: undefined });
+    if (!reread.ok) throw new Error('expected ok');
+    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+      expect(reread.value.ctx.output!.ai[flow].provider).toBe('openai-codex');
+    }
   });
 
   it('settings-set rejects an invalid record without writing to disk', async () => {

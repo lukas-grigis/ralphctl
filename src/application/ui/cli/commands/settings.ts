@@ -1,7 +1,9 @@
 import type { Command } from 'commander';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
+import { isPresetName, PRESET_NAMES } from '@src/business/settings/presets.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
+import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 
 /**
@@ -72,5 +74,25 @@ export const registerSettingsCommand = (program: Command): void => {
         return;
       }
       process.stdout.write(`${key} = ${value}\n`);
+    });
+
+  settings
+    .command('apply-preset <name>')
+    .description(`stamp a preset onto ai.* (one of: ${PRESET_NAMES.join(', ')})`)
+    .action(async (name: string) => {
+      if (!isPresetName(name)) {
+        process.stderr.write(`error: unknown preset '${name}' — expected one of: ${PRESET_NAMES.join(', ')}\n`);
+        process.exit(1);
+        return;
+      }
+      const { deps } = await bootstrapCli();
+      const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
+      const result = await flow.execute({ input: { preset: name } });
+      if (!result.ok) {
+        process.stderr.write(`error: ${result.error.error.message}\n`);
+        process.exit(1);
+        return;
+      }
+      process.stdout.write(`applied preset ${name}\n`);
     });
 };

@@ -23,6 +23,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
+import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useLogLevel } from '@src/application/ui/tui/runtime/log-level-context.tsx';
@@ -33,7 +34,9 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
+import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
+import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
@@ -62,7 +65,27 @@ type EditableField =
       readonly label: string;
       readonly options: readonly string[];
       readonly current: string;
+    }
+  | {
+      /**
+       * Preset button — activating it opens a confirmation prompt and (on yes) stamps the
+       * preset onto the settings record via the apply-preset flow. The preset action group
+       * renders as four equal buttons above the global effort row; no preset is marked as
+       * "recommended" or "default".
+       */
+      readonly kind: 'preset';
+      readonly key: string;
+      readonly label: string;
+      readonly preset: PresetName;
+      readonly current: string;
     };
+
+const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
+  mixed: 'Apply: Mixed',
+  'claude-only': 'Apply: Claude only',
+  'copilot-only': 'Apply: Copilot only',
+  'codex-only': 'Apply: Codex only',
+};
 
 const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;
 
@@ -90,6 +113,16 @@ const modelOptionsFor = (provider: AiProvider): readonly string[] => {
 
 const buildEditableFields = (s: Settings): readonly EditableField[] => {
   const fields: EditableField[] = [];
+
+  for (const preset of PRESET_NAMES) {
+    fields.push({
+      kind: 'preset',
+      key: `presets.${preset}`,
+      label: PRESET_LABEL[preset],
+      preset,
+      current: '↵ apply',
+    });
+  }
 
   fields.push({
     kind: 'select',
@@ -164,6 +197,8 @@ export const SettingsView = (): React.JSX.Element => {
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
   /** Holds a model field when the user picked "+ custom" — the editor swaps to a TextPrompt. */
   const [customModelField, setCustomModelField] = useState<EditableField | undefined>(undefined);
+  /** Pending preset confirmation — populated when the user activates a preset button. */
+  const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ readonly tone: 'ok' | 'error'; readonly text: string } | undefined>(
     undefined
   );
@@ -194,7 +229,7 @@ export const SettingsView = (): React.JSX.Element => {
   }, [fields, cursor]);
 
   useInput((input, key) => {
-    if (ui.helpOpen || editingField !== undefined || ui.promptActive) return;
+    if (ui.helpOpen || editingField !== undefined || pendingPreset !== undefined || ui.promptActive) return;
     if (fields.length === 0) return;
     if (key.upArrow || input === 'k') {
       setCursor((c) => Math.max(0, c - 1));
@@ -206,10 +241,13 @@ export const SettingsView = (): React.JSX.Element => {
     }
     if (key.return || input === 'e') {
       const field = fields[cursor];
-      if (field !== undefined) {
-        setEditingField(field);
-        setFeedback(undefined);
+      if (field === undefined) return;
+      setFeedback(undefined);
+      if (field.kind === 'preset') {
+        setPendingPreset(field.preset);
+        return;
       }
+      setEditingField(field);
     }
   });
 
@@ -217,13 +255,27 @@ export const SettingsView = (): React.JSX.Element => {
   // the claim 1:1. Earlier we toggled imperatively from inside event handlers and the boolean
   // got clobbered by the PromptHost when its queue was empty.
   useEffect(
-    () => (editingField !== undefined || customModelField !== undefined ? ui.claimPrompt() : undefined),
-    [editingField, customModelField, ui.claimPrompt]
+    () =>
+      editingField !== undefined || customModelField !== undefined || pendingPreset !== undefined
+        ? ui.claimPrompt()
+        : undefined,
+    [editingField, customModelField, pendingPreset, ui.claimPrompt]
   );
 
   const closeEditor = (): void => {
     setEditingField(undefined);
     setCustomModelField(undefined);
+  };
+
+  const applyPreset = async (preset: PresetName): Promise<void> => {
+    const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
+    const saved = await flow.execute({ input: { preset } });
+    if (!saved.ok) {
+      setFeedback({ tone: 'error', text: saved.error.error.message });
+      return;
+    }
+    setFeedback({ tone: 'ok', text: `applied preset ${preset}` });
+    await refresh();
   };
 
   const submit = async (raw: string, field: EditableField): Promise<void> => {
@@ -327,6 +379,17 @@ export const SettingsView = (): React.JSX.Element => {
     <ViewShell title="Settings" subtitle="↑/↓ navigate · ↵ edit · esc cancel">
       {ui.helpOpen ? (
         <HelpOverlay />
+      ) : pendingPreset !== undefined ? (
+        <ConfirmPrompt
+          message={`Apply preset ${pendingPreset}? This overwrites all AI rows.`}
+          defaultYes={false}
+          onSubmit={(yes) => {
+            const preset = pendingPreset;
+            setPendingPreset(undefined);
+            if (yes) void applyPreset(preset);
+          }}
+          onCancel={() => setPendingPreset(undefined)}
+        />
       ) : editingField !== undefined ? (
         renderEditor(editingField)
       ) : loadError !== undefined ? (
@@ -339,9 +402,19 @@ export const SettingsView = (): React.JSX.Element => {
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Card title="AI — global" tone="primary">
-            <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
+          <Card title="Presets" tone="primary">
+            <FieldList
+              fields={PRESET_NAMES.map((preset) => ({
+                label: PRESET_LABEL[preset],
+                value: valueFor(`presets.${preset}`),
+              }))}
+            />
           </Card>
+          <Box marginTop={spacing.section}>
+            <Card title="AI — global" tone="primary">
+              <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
+            </Card>
+          </Box>
           {FLOW_IDS.map((flow) => (
             <Box key={flow} marginTop={spacing.section}>
               <Card title={`AI — ${capitalize(flow)}`} tone="primary">
@@ -403,11 +476,6 @@ export const SettingsView = (): React.JSX.Element => {
                 ]}
               />
             </Card>
-          </Box>
-          <Box marginTop={spacing.section} paddingX={spacing.indent}>
-            <Text dimColor italic>
-              Presets — apply one provider to every flow row — land in T3.
-            </Text>
           </Box>
           {feedback !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
