@@ -379,6 +379,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           taskRepo: deps.taskRepo,
           sprintExecutionRepo: deps.sprintExecutionRepo,
           interactive: deps.interactive,
+          gitRunner: deps.gitRunner,
           clock: deps.clock,
           eventBus: deps.eventBus,
           logger: deps.logger,

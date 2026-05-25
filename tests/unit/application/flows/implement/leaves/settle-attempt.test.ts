@@ -178,6 +178,31 @@ describe('settleAttemptLeaf', () => {
     }
   });
 
+  it('priorPostVerifyOutcome survives the settle projection (carries to the next task)', async () => {
+    const ip = inProgressWithVerification();
+    const { repo } = fakeUpdateTask();
+    const cwd = absolutePath('/tmp/settle-attempt-test');
+    const leafEl = settleAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, { cwd }, ip.id);
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'passed',
+      // The previous post-task-verify stamped this on ctx; settle-attempt must NOT clear it.
+      priorPostVerifyOutcome: { cwd, outcome: 'success' },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Per-attempt fields ARE cleared (sanity).
+    expect(result.value.ctx.lastVerdict).toBeUndefined();
+    expect(result.value.ctx.lastPreVerifyOutcome).toBeUndefined();
+    // But the cross-task carry survives.
+    expect(result.value.ctx.priorPostVerifyOutcome).toEqual({ cwd, outcome: 'success' });
+  });
+
   it('throws when neither verdict nor block reason is on ctx', async () => {
     const ip = inProgressWithVerification();
     const { repo } = fakeUpdateTask();

@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import { runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task.ts';
@@ -20,6 +20,8 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -67,6 +69,14 @@ export interface PreTaskVerifyLeafDeps {
    * runs hard-block before reaching the prompt.
    */
   readonly interactive: InteractivePrompt;
+  /**
+   * Used by the carry-baseline short-circuit at the top of `execute()`: when the previous
+   * task's `post-task-verify` ran green on the same cwd, this leaf re-checks the working
+   * tree via `git status --porcelain` and skips the verify script if the tree is clean.
+   * Errors from the git probe demote to "ineligible" and fall through to the real script —
+   * never propagated.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly eventBus: EventBus;
   readonly logger: Logger;
@@ -113,6 +123,13 @@ interface LeafInput {
   readonly task: InProgressTask;
   readonly sprintId: SprintId;
   readonly execution: SprintExecution;
+  /**
+   * Carried from `ctx.priorPostVerifyOutcome` — the previous task's post-task-verify result
+   * (cwd + outcome). Drives the carry-baseline short-circuit: when `outcome === 'success'`
+   * and the cwd matches `opts.cwd` and the working tree is clean, the leaf returns a
+   * synthetic green {@link VerifyRun} without spawning the verify script.
+   */
+  readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome };
 }
 
 interface LeafOutput {
@@ -178,6 +195,43 @@ export const preTaskVerifyLeaf = (
   return leaf<ImplementCtx, LeafInput, LeafOutput>(`pre-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
+        // Carry-baseline short-circuit. When the previous task on this same cwd post-verified
+        // green and the working tree is still clean, the script's outcome can only be the
+        // same — re-running it is wasted compute (~2m30s on a typical repo). Skip the script,
+        // skip the audit-row append (no extra `phase: 'pre'` row), skip the log file write,
+        // skip the prompt. The synthetic `VerifyRun` we return is for the leaf's contract
+        // only — `lastPreVerifyOutcome` correctly carries `'success'` through the output
+        // projection so post-task-verify's attribution computation sees `pre=success`.
+        //
+        // Git status returning an error (corrupt repo, fs error) demotes to "ineligible" —
+        // the real script runs instead, matching today's behavior verbatim.
+        if (
+          input.priorPostVerifyOutcome?.outcome === 'success' &&
+          String(input.priorPostVerifyOutcome.cwd) === String(opts.cwd)
+        ) {
+          const dirty = await gitHasUncommittedChanges(deps.gitRunner, opts.cwd);
+          if (dirty.ok && !dirty.value) {
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'info',
+              message: `pre-task-verify ${String(opts.cwd)}: short-circuited (carried green baseline, tree clean)`,
+              at: deps.clock(),
+            });
+            const synthetic: VerifyRun = {
+              phase: 'pre',
+              ranAt: deps.clock(),
+              command: '',
+              exitCode: 0,
+              durationMs: 0,
+              outcome: 'success',
+            };
+            return Result.ok({ task: input.task, run: synthetic, execution: input.execution });
+          }
+          // Dirty tree, or git probe failed — fall through to the real verify path. Don't
+          // surface the git-status error: the operator gets the existing behavior, not a
+          // regression.
+        }
+
         const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'pre',
@@ -343,7 +397,12 @@ export const preTaskVerifyLeaf = (
           message: `pre-task-verify-${String(taskId)}: ctx.execution is undefined — load-sprint-execution must run first`,
         });
       }
-      return { task: ctx.currentTask, sprintId: ctx.sprintId, execution: ctx.execution };
+      return {
+        task: ctx.currentTask,
+        sprintId: ctx.sprintId,
+        execution: ctx.execution,
+        ...(ctx.priorPostVerifyOutcome !== undefined ? { priorPostVerifyOutcome: ctx.priorPostVerifyOutcome } : {}),
+      };
     },
     output: (ctx, out) => {
       const next: ImplementCtx = {

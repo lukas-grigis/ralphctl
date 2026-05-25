@@ -106,6 +106,9 @@ describe('postTaskVerifyLeaf', () => {
     expect(row?.phase).toBe('post');
     expect(row?.outcome).toBe('success');
     expect(row?.exitCode).toBe(0);
+    // Carry-baseline: a green post stamps `priorPostVerifyOutcome` onto ctx so the next
+    // task's pre-task-verify can short-circuit when the cwd matches + tree is clean.
+    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success' });
   });
 
   it('marks verify-failed with exitCode + verbatim stderr when red (audit-[03] — no persistence-time clip)', async () => {
@@ -149,6 +152,10 @@ describe('postTaskVerifyLeaf', () => {
     expect(out.value.ctx.currentTask?.attempts.at(-1)?.attribution).toBe('regressed');
     expect(out.value.ctx.lastBlockReason).toContain('regressed baseline');
     expect(out.value.ctx.lastBlockReason).toContain('exit=7');
+    // Carry-baseline still records the (cwd, outcome) pair — pre-task-verify only
+    // short-circuits when the outcome is 'success', so a 'failed' carry just means the next
+    // task's pre-verify will fall through to the real script.
+    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'failed' });
   });
 
   it('attribution truth table — pre=red, post=red → baseline-broken (preserve verdict, NO block)', async () => {

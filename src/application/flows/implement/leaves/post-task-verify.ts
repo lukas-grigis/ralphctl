@@ -259,6 +259,12 @@ export const postTaskVerifyLeaf = (
         currentTask: out.task,
         tasks,
         lastVerifyResult: verifyResult,
+        // Carry the (cwd, outcome) tuple onto ctx so the NEXT task's pre-task-verify can
+        // short-circuit when this post ran green AND its working tree is still clean. The
+        // pre-task-verify leaf re-checks the tree itself via `git status --porcelain` — this
+        // field only asserts "the script ran here and got this outcome." Survives
+        // `settle-attempt` (which clears per-attempt fields only).
+        priorPostVerifyOutcome: { cwd: opts.cwd, outcome: out.run.outcome },
         ...(blockReason !== undefined ? { lastBlockReason: blockReason } : {}),
       };
     },

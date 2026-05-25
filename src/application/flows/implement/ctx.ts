@@ -92,6 +92,15 @@ export interface ImplementCtx {
    * by `settle-attempt` along with the rest of the per-task verdict state.
    */
   readonly lastPreVerifyOutcome?: VerifyRunOutcome | undefined;
+  /**
+   * Outcome + cwd of the most recent post-task-verify run. Read by the NEXT task's
+   * pre-task-verify leaf to decide whether the carried baseline can stand in for re-running
+   * the script (short-circuits when `outcome === 'success'`, the cwd matches, and the
+   * working tree is clean per `git status --porcelain`). Survives `settle-attempt` — that
+   * leaf clears per-attempt fields but this field carries across tasks. Undefined before
+   * the first post-task-verify of a sprint.
+   */
+  readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome } | undefined;
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;
