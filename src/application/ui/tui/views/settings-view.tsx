@@ -51,6 +51,7 @@ import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { detectInstalledProviders, primaryInstallCommand } from '@src/integration/system/detect-cli.ts';
 
 const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
@@ -113,12 +114,6 @@ const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
 const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;
 
 const DEFAULT_TOKEN = 'Default' as const;
-
-const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string[]>> = {
-  'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
-  'github-copilot': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-  'openai-codex': ['minimal', 'low', 'medium', 'high'],
-};
 
 const GLOBAL_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 

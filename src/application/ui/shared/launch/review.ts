@@ -32,7 +32,7 @@ const renderRepositoriesBlock = (affected: readonly Repository[]): string =>
   affected.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
 
 export const launchReview = (ctx: LaunchContext): LaunchResult => {
-  const { deps, snapshot, extras, settings, provider, bridge, sessionId } = ctx;
+  const { deps, snapshot, settings, provider, bridge, sessionId } = ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {
@@ -85,8 +85,10 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
       locksRoot: deps.storage.locksRoot,
       appendFile: deps.app.appendFile,
       // Review uses the implement generator model — same code-mutation profile, same
-      // accuracy expectations. No per-flow `review` row in settings today.
-      model: extras.modelOverride ?? settings.ai.implement.generator.model,
+      // accuracy expectations. No per-flow `review` row in settings today. Override flows in
+      // through ctx.settings (launcher applied it to ai.implement.generator when the picker
+      // emitted a non-empty override), so per-field fallback is automatic.
+      model: settings.ai.implement.generator.model,
     },
     {
       sprintId: snapshot.sprint.id,

@@ -19,14 +19,11 @@ import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts
 import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
-import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
-import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
-import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { primaryFlowRow, type AiFlowSettings, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
@@ -98,9 +95,10 @@ export type LaunchResult =
 /**
  * Optional per-launch overrides supplied by the caller. `repositoryId` skips the in-flow pick
  * prompt (used when launching from a focused repo row on the project-detail view or when the
- * TUI's session-scoped repo pin has been set). `modelOverride` replaces the settings-default
- * model for one launch — flows-view's pre-launch picker writes here when the user picks a
- * different model than the configured default.
+ * TUI's session-scoped repo pin has been set). `override` swaps the settings-default
+ * provider / model / effort for one launch — flows-view's pre-launch customize picker writes
+ * here when the user picks different values than the configured defaults. Each field is
+ * independently optional: an unset field falls back to the matching `settings.ai[flow]` slot.
  *
  * `settingsSnapshot` lets the caller pass a freshly-loaded {@link Settings} record (e.g. the
  * TUI re-reads via `settingsRepo.load()` at click-time so provider/model changes in the
@@ -109,21 +107,40 @@ export type LaunchResult =
  */
 export interface LaunchExtras {
   readonly repositoryId?: RepositoryId;
-  /** Per-launch model override; falls back to `settings.ai[flow].model` when undefined. */
-  readonly modelOverride?: string;
+  /**
+   * Per-launch single-row override (refine / plan / readiness / ideate plus the implement-
+   * generator-driven flows review / detect-scripts / detect-skills). Each field is independent
+   * — supplying only `provider` keeps the persisted model / effort for fields not named. The
+   * implement flow itself does NOT consume this; it reads {@link implementRoleOverrides}
+   * instead because its two roles each carry their own row.
+   */
+  readonly override?: {
+    readonly provider?: AiProvider;
+    readonly model?: string;
+    readonly effort?: string;
+  };
   /** Freshly-loaded settings snapshot; overrides the stale `app.settings` boot snapshot. */
   readonly settingsSnapshot?: Settings;
   /**
-   * Per-launch implement-role overrides — supplied by the bare-`ralphctl` CLI flags
+   * Per-launch implement-role overrides — supplied either by the bare-`ralphctl` CLI flags
    * (`--implement-generator-provider`, `--implement-generator-model`,
-   * `--implement-evaluator-provider`, `--implement-evaluator-model`) and threaded through the
-   * TUI runtime. Each role accepts `{ provider, model }` together; the CLI parser rejects
-   * half-supplied pairs upstream so the launcher only sees fully-formed overrides. Roles are
-   * independent — overriding only generator leaves evaluator on its persisted settings row.
+   * `--implement-evaluator-provider`, `--implement-evaluator-model`) or by the TUI's
+   * pre-launch customize picker. Each role accepts `{ provider?, model?, effort? }` with
+   * every field independently optional — a role override that only carries `provider` keeps
+   * the persisted model / effort for that role. Roles are independent — overriding only
+   * generator leaves evaluator on its persisted settings row.
    */
   readonly implementRoleOverrides?: {
-    readonly generator?: { readonly provider: AiProvider; readonly model: string };
-    readonly evaluator?: { readonly provider: AiProvider; readonly model: string };
+    readonly generator?: {
+      readonly provider?: AiProvider;
+      readonly model?: string;
+      readonly effort?: string;
+    };
+    readonly evaluator?: {
+      readonly provider?: AiProvider;
+      readonly model?: string;
+      readonly effort?: string;
+    };
   };
 }
 
@@ -169,36 +186,6 @@ export const sessionHintsFromLaunchResult = (
 });
 
 /**
- * Models the user can choose from for one flow's configured provider — passed to the model
- * picker in the flow menu. Lookup is keyed by `settings.ai[flow].provider`, so switching the
- * provider on that flow in Settings instantly changes the picker's option list.
- */
-export const modelsForFlowProvider = (flowId: string, settings: AppDeps['settings']): readonly string[] => {
-  const aiFlow = aiFlowIdFor(flowId);
-  if (aiFlow === undefined) return [];
-  switch (primaryFlowRow(settings.ai, aiFlow).provider) {
-    case 'claude-code':
-      return CLAUDE_MODELS;
-    case 'github-copilot':
-      return COPILOT_MODELS;
-    case 'openai-codex':
-      return CODEX_MODELS;
-  }
-};
-
-/**
- * Default AI model for one flow, derived from settings — exposed for UI affordances that want
- * to show "you're about to launch with model X" before actually calling {@link launchFlow}.
- * Returns `undefined` for flows that don't run an AI session (doctor, settings, create-pr,
- * export, ticket-add / remove, add-tickets, create-sprint).
- */
-export const modelForFlow = (flowId: string, settings: AppDeps['settings']): string | undefined => {
-  const aiFlow = aiFlowIdFor(flowId);
-  if (aiFlow === undefined) return undefined;
-  return primaryFlowRow(settings.ai, aiFlow).model;
-};
-
-/**
  * Map a launcher flow id to the {@link FlowId} that owns the AI session, or `undefined` for
  * flows that don't open one. `detect-scripts` and `detect-skills` are read-only inventory
  * round-trips that reuse the `readiness` row's provider / model / effort — they don't have
@@ -225,6 +212,61 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
   }
 };
 
+/**
+ * Per-field merge of `override` onto an `AiFlowSettings` row. Each field of the override is
+ * independent — supplying only `provider` keeps the row's persisted model / effort. The
+ * resulting row is cast to {@link AiFlowSettings} because TypeScript can't narrow the
+ * discriminated union from a dynamic provider key; the picker only ever assembles coherent
+ * overrides (a provider switch always rides with a fresh model from the new provider's
+ * catalog) so the cast remains sound.
+ */
+const mergeRow = (base: AiFlowSettings, override: NonNullable<LaunchExtras['override']>): AiFlowSettings => {
+  const provider = override.provider ?? base.provider;
+  const model = override.model ?? base.model;
+  const effort = override.effort ?? base.effort;
+  return { provider, model, ...(effort !== undefined ? { effort } : {}) } as AiFlowSettings;
+};
+
+/**
+ * Apply `extras.override` to the {@link Settings} record so the launcher's adapter rebuild
+ * (provider, interactiveAi, skillsAdapter) and the per-flow launcher's row read both see the
+ * same overridden values. Implement is excluded — its two roles are addressed through
+ * `extras.implementRoleOverrides` exclusively; `extras.override` on an implement launch is a
+ * caller bug we silently ignore here so the merge stays single-row.
+ *
+ * For review (and any other flow that aliases another flow's row via {@link aiFlowIdFor}),
+ * the override applies to the aliased row. Review uses `ai.implement.generator`; an override
+ * at review-launch time rewrites generator only — evaluator is untouched.
+ *
+ * @public
+ */
+export const applyOverrideToSettings = (
+  settings: Settings,
+  flowId: string,
+  override: LaunchExtras['override']
+): Settings => {
+  if (override === undefined) return settings;
+  const aiFlow = aiFlowIdFor(flowId);
+  if (aiFlow === undefined) return settings;
+  // Implement uses implementRoleOverrides exclusively — the customize picker for implement
+  // emits per-role overrides, not the single-row shape.
+  if (flowId === 'implement') return settings;
+  if (aiFlow === 'implement') {
+    // review / detect-scripts / detect-skills aliases that read implement.generator. The
+    // launcher's primary-row helper resolves implement → generator, so we override the
+    // generator slot only.
+    const merged = mergeRow(settings.ai.implement.generator, override);
+    return {
+      ...settings,
+      ai: { ...settings.ai, implement: { ...settings.ai.implement, generator: merged } },
+    };
+  }
+  return {
+    ...settings,
+    ai: { ...settings.ai, [aiFlow]: mergeRow(settings.ai[aiFlow], override) },
+  };
+};
+
 const cwdFromSnapshot = (snapshot: AppStateSnapshot): AbsolutePath | undefined => {
   if (!snapshot.project) return undefined;
   const repo = snapshot.project.repositories[0];
@@ -243,11 +285,17 @@ export const launchFlow = async (
   // current choice. Callers that already reloaded (e.g. flows-view, for its model picker) just
   // pass their fresh snapshot via `extras.settingsSnapshot`; callers that didn't (project-
   // detail-view) implicitly opt into a one-roundtrip reload here so they don't have to remember.
-  let settings = extras.settingsSnapshot ?? deps.app.settings;
+  let baseSettings = extras.settingsSnapshot ?? deps.app.settings;
   if (extras.settingsSnapshot === undefined) {
     const reloaded = await deps.app.settingsRepo.load();
-    if (reloaded.ok) settings = reloaded.value;
+    if (reloaded.ok) baseSettings = reloaded.value;
   }
+  // Apply the picker's per-launch override BEFORE constructing adapters / resolving effort so
+  // a provider override re-keys the adapter rebuild below. Implement is handled inside its
+  // launcher because its two roles need independent merges; for every other AI flow the
+  // override applies to the single row identified by aiFlowIdFor (review and detect-* aliases
+  // included).
+  const settings = applyOverrideToSettings(baseSettings, flowId, extras.override);
 
   // Rebuild the provider-bound adapters from the fresh settings every launch, keyed on the
   // dispatched flow's id. `app.provider`, `app.interactiveAi`, and `app.skillsAdapter` are

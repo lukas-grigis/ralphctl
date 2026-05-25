@@ -28,12 +28,8 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import {
-  launchFlow,
-  modelForFlow,
-  modelsForFlowProvider,
-  sessionHintsFromLaunchResult,
-} from '@src/application/ui/shared/launcher.ts';
+import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
@@ -137,52 +133,41 @@ export const FlowsView = (): React.JSX.Element => {
           const freshSettings = await deps.settingsRepo.load();
           const settings = freshSettings.ok ? freshSettings.value : deps.settings;
 
-          // Pre-launch model picker — for AI-driven flows, offer the configured default first
-          // (Enter starts immediately), with a "Pick a different model…" option that opens a
-          // nested SelectPrompt. Non-AI flows skip this step entirely. The override is single-
-          // use; the next launch falls back to the settings default again. Settings is the
-          // place for permanent changes.
-          const defaultModel = modelForFlow(entry.manifest.id, settings);
-          let modelOverride: string | undefined;
-          if (defaultModel !== undefined) {
-            const action = await interactive.askChoice<'start' | 'pick' | 'cancel'>(
-              `Run ${entry.manifest.title} with model '${defaultModel}'?`,
-              [
-                { label: `Start (use ${defaultModel})`, value: 'start' },
-                { label: 'Pick a different model…', value: 'pick' },
-                { label: 'Cancel', value: 'cancel' },
-              ]
-            );
-            if (!action.ok || action.value === 'cancel') return;
-            if (action.value === 'pick') {
-              const models = modelsForFlowProvider(entry.manifest.id, settings);
-              const picked = await interactive.askChoice<string>(
-                'Choose model for this run (does not change settings):',
-                models.map((m) => ({ label: m, value: m, ...(m === defaultModel ? { description: '(default)' } : {}) }))
-              );
-              if (!picked.ok) return;
-              modelOverride = picked.value;
-            }
-          }
+          // Pre-launch customize picker — for AI-driven flows the user gets Start /
+          // Customize / Cancel. Customize walks provider → model → effort for each row
+          // (implement walks generator then evaluator). Settings are never mutated; per-launch
+          // overrides are passed through {@link LaunchExtras}. Non-AI flows return
+          // `kind: 'defaults'` without prompting.
+          const picker = await runCustomizePicker({
+            interactive,
+            flowId: entry.manifest.id,
+            flowTitle: entry.manifest.title,
+            settings,
+          });
+          if (picker.kind === 'cancel') return;
 
           // Thread the session-pinned repository id as a pre-selection so flows that pick a
           // repo (detect-scripts / detect-skills / readiness) skip the prompt after the first
           // pick of the session. First launch leaves extras empty → the user picks → the
           // runner emits `completed` with the chosen `ctx.repository` and we record it below.
-          // Pull the CLI-derived implement-role overrides (parsed from
+          // Implement role overrides come from the picker when the user customized; otherwise
+          // they fall back to the CLI-derived module holder (parsed from
           // `--implement-{generator,evaluator}-{provider,model}` on the bare `ralphctl`
-          // invocation) only when launching the implement flow — every other flow ignores
-          // them. Reading through the module-level holder keeps the override path
-          // out of the UI-state context while still threading the parsed shape into the
-          // launcher's `LaunchExtras`.
-          const implementRoleOverrides = entry.manifest.id === 'implement' ? getImplementRoleOverrides() : undefined;
+          // invocation).
+          const implementRoleOverrides =
+            picker.kind === 'implement'
+              ? picker.implementRoleOverrides
+              : entry.manifest.id === 'implement'
+                ? getImplementRoleOverrides()
+                : undefined;
+          const override = picker.kind === 'single' ? picker.override : undefined;
           const result = await launchFlow(
             { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
             entry.manifest.id,
             snapshot,
             {
               ...(ui.sessionRepositoryId !== undefined ? { repositoryId: ui.sessionRepositoryId } : {}),
-              ...(modelOverride !== undefined ? { modelOverride } : {}),
+              ...(override !== undefined ? { override } : {}),
               ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
               settingsSnapshot: settings,
             }

@@ -32,7 +32,7 @@ const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProv
 
 export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, cwd, bridge, sessionId } = ctx;
-  const missing = await checkCli('readiness', settings);
+  const missing = await checkCli('readiness', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };

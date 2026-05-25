@@ -32,9 +32,8 @@ const deriveOriginFromGit = async (
 };
 
 export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
-    ctx;
-  const missing = await checkCli('refine', settings);
+  const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('refine', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   // Refine intentionally does not require a repo path — the AI session is rooted at the
@@ -142,7 +141,7 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
       sprintId: snapshot.sprint.id,
       pendingTickets: pending,
       providerId: settings.ai.refine.provider,
-      model: extras.modelOverride ?? settings.ai.refine.model,
+      model: settings.ai.refine.model,
       ...(effort !== undefined ? { effort } : {}),
       refinementRoot: refinementRoot.value,
     }
