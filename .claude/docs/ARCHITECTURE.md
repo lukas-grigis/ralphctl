@@ -239,10 +239,11 @@ ChainStarted |
   LogEvent;
 ```
 
-TUI panels subscribe; the persistent `<sprintDir>/events.ndjson` sink
-(`integration/observability/sinks/file-log-sink.ts`) and the decisions-log sink
-(`integration/observability/sinks/decisions-log-sink.ts`) subscribe. The same bus is the fan-out point
-for any future telemetry adapter.
+TUI panels subscribe; `state-projection.ts` subscribes to build `SprintState` for the snapshot renderer;
+the decisions-log sink (`integration/observability/sinks/decisions-log-sink.ts`) subscribes. The optional
+`<sprintDir>/events.ndjson` sink (`integration/observability/sinks/file-log-sink.ts`) also subscribes when
+`RALPHCTL_DEBUG_TRACE=1` is set — no-op factory otherwise. The same bus is the fan-out point for any
+future telemetry adapter.
 
 `AppDeps.logger` is created via `createEventBusLogger({ eventBus, clock: IsoTimestamp.now })` — every
 `logger.info(...)` publishes a `LogEvent` AppEvent. Console sinks, file appenders, and TUI tail panels all
@@ -341,7 +342,7 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           ├── sprint.json          ← planning: tickets, requirements, status, project ref
 │           ├── execution.json       ← runtime audit: branch, PR URL, structured setup-run history
 │           ├── tasks.json           ← task list with status, attempts, evaluations
-│           ├── events.ndjson            ← persistent EventBus trace (each run bracketed by === … === lines)
+│           ├── events.ndjson        ← optional EventBus trace, only when RALPHCTL_DEBUG_TRACE=1
 │           ├── decisions.log        ← AI-emitted <decision> tags, one JSON line each
 │           ├── progress.md          ← snapshot-rendered from SprintState; regenerated on each settle
 │           ├── refinement/<ticket-slug>/  ← per-ticket sandbox for refine AI session
@@ -425,25 +426,23 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 `evaluation.md`, `setup-skill.md`, ...) from the validated signals. Each contract carries a
 `migrations[v]` chain so in-flight sprints written with an older shape upgrade transparently.
 
-| Signal                                                   | Consumed by                                                                                                                                                                               |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ProgressSignal`                                         | Emitted on the EventBus; short-form narrative surfaced in TUI signal stream. Not appended to `progress.md` — the snapshot renderer reads entity + log state instead.                      |
-| `EvaluationSignal`                                       | Per-round critique persisted on the `Task.attempts[]` history                                                                                                                             |
-| `TaskCompleteSignal`                                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                                                                                            |
-| `TaskVerifiedSignal`                                     | Use case sets `verified` on the task entity                                                                                                                                               |
-| `TaskBlockedSignal`                                      | Use case transitions task to `blocked`                                                                                                                                                    |
-| `NoteSignal`                                             | Fans out as `HarnessSignalEvent` (`signalKind: 'note'`) → `events.ndjson`; mined per-task by `state-projection.ts` into `TaskProjection.notes` → `#### Notes` in `progress.md`            |
-| `LearningSignal`                                         | Fans out as `HarnessSignalEvent` (`signalKind: 'learning'`) → `events.ndjson`; mined into `TaskProjection.learnings` → `#### Learnings` in `progress.md`                                  |
-| `ChangeSignal`                                           | Fans out as `HarnessSignalEvent` (`signalKind: 'change'`) → `events.ndjson`; mined into `TaskProjection.changes` → `#### Changes` in `progress.md`                                        |
-| `DecisionSignal`                                         | `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars); mined by `collectDecisions` (same cap) → `## Decisions` in `progress.md` (render-time clip at 160 chars)   |
-| `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                       |
-| `ProgressEntrySignal`                                    | Structured 4-section progress entry (task / filesChanged / learnings / notesForNext) surfaced in TUI; not written directly to `progress.md` — snapshot renderer derives from entity state |
-| `SetupScriptSignal`                                      | `detect-scripts` flow persists on `Repository.setupScript`                                                                                                                                |
-| `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                               |
-| `AgentsMdProposalSignal`                                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)                                                                        |
-| `SetupSkillProposalSignal` / `VerifySkillProposalSignal` | `detect-skills` flow surfaces suggestions                                                                                                                                                 |
-| `SkillSuggestionsSignal`                                 | Parsed; no flow consumer yet (deferred — see Future Work)                                                                                                                                 |
-| `ContextCompactedSignal`                                 | TUI renders a dedented separator marker in the signal stream at the compaction boundary                                                                                                   |
+| Signal                                                   | Consumed by                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EvaluationSignal`                                       | Per-round critique persisted on the `Task.attempts[]` history                                                                                                                                                                                                                    |
+| `TaskCompleteSignal`                                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                                                                                                                                                                                   |
+| `TaskVerifiedSignal`                                     | Use case sets `verified` on the task entity                                                                                                                                                                                                                                      |
+| `TaskBlockedSignal`                                      | Use case transitions task to `blocked`                                                                                                                                                                                                                                           |
+| `NoteSignal`                                             | Fans out as `HarnessSignalEvent` (`signalKind: 'note'`); `state-projection.ts` subscribes directly to the EventBus and mines per-task into `TaskProjection.notes` → `#### Notes` in `progress.md`. Optional `events.ndjson` sink also writes a record when `RALPHCTL_DEBUG_TRACE=1`. |
+| `LearningSignal`                                         | Same path as `NoteSignal` (bus-subscribed by `state-projection.ts`) → `TaskProjection.learnings` → `#### Learnings` in `progress.md`.                                                                                                                                            |
+| `ChangeSignal`                                           | Same path as `NoteSignal` → `TaskProjection.changes` → `#### Changes` in `progress.md`.                                                                                                                                                                                          |
+| `DecisionSignal`                                         | `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars); mined by `collectDecisions` (same cap) → `## Decisions` in `progress.md` (render-time clip at 160 chars)                                                                                          |
+| `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                                                                                                              |
+| `SetupScriptSignal`                                      | `detect-scripts` flow persists on `Repository.setupScript`                                                                                                                                                                                                                       |
+| `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                                                                                                                      |
+| `AgentsMdProposalSignal`                                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)                                                                                                                                                               |
+| `SetupSkillProposalSignal` / `VerifySkillProposalSignal` | `detect-skills` flow surfaces suggestions                                                                                                                                                                                                                                        |
+| `SkillSuggestionsSignal`                                 | Parsed; no flow consumer yet (deferred — see Future Work)                                                                                                                                                                                                                        |
+| `ContextCompactedSignal`                                 | TUI renders a dedented separator marker in the signal stream at the compaction boundary                                                                                                                                                                                          |
 
 EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
 `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,

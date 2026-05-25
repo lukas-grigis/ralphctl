@@ -36,7 +36,8 @@ it done; when a behaviour regresses, untick it.
       `typescript-result` imports.
 - [ ] **Storage paths** — `resolveStoragePaths` honours `RALPHCTL_HOME`; on-disk layout is
       `<root>/{config,data,state}/…`. Per-sprint directory contains `sprint.json` + `execution.json` +
-      `tasks.json` + `events.ndjson` + `progress.md` + per-flow sandbox folders.
+      `tasks.json` + `progress.md` + per-flow sandbox folders. `events.ndjson` lands here too when
+      `RALPHCTL_DEBUG_TRACE=1` (opt-in debug sink, no-op otherwise).
 - [ ] **Cross-project sprint lock** — `<stateRoot>/locks/sprints/<sprint-id>.lock` blocks two ralphctl
       processes from racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS`.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
@@ -51,9 +52,11 @@ it done; when a behaviour regresses, untick it.
       `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
-- [x] **Persistent events.ndjson** — every `Implement` (and other long-running) chain run appends its trace to
-      `<sprintDir>/events.ndjson`, bracketed by `=== chain-run <id> <flowId> started <iso> ===` /
-      `… completed/failed/aborted …` delimiters. Survives TUI exit; `tail -f`-friendly.
+- [x] **Optional events.ndjson** — opt-in via `RALPHCTL_DEBUG_TRACE=1`. When enabled, every `Implement` (and
+      other long-running) chain run appends its trace to `<sprintDir>/events.ndjson`, bracketed by
+      `=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters.
+      Survives TUI exit; `tail -f`-friendly. Bounded in-memory drain queue with drop-newer back-pressure
+      so the sink cannot OOM. Default factory is no-op; harness state never reads from events.ndjson.
 - [ ] **Session scoping** — `AsyncLocalStorage` tags every log / signal emission with the owning chain's
       session id. Outside any chain, `currentSessionId()` returns `undefined`.
 - [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler
