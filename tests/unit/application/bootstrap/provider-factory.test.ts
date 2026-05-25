@@ -8,6 +8,8 @@ const harnessConfig: Settings['harness'] = {
   maxAttempts: 3,
   rateLimitRetries: 2,
   plateauThreshold: 2,
+  escalateOnPlateau: false,
+  escalationMap: {},
 };
 
 const claudeConfig: Settings['ai'] = {

@@ -22,7 +22,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold}, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
@@ -146,6 +146,28 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
       return Result.ok({ ...current, ai: { ...current.ai, effort: trimmed } as AiSettings });
     }
   }
+  // Per-entry escalation-map setter: `harness.escalationMap.<fromModel>` takes the upgraded
+  // model id; empty input clears the entry (mirrors per-flow effort clearing).
+  if (key.startsWith('harness.escalationMap.')) {
+    const fromModel = key.slice('harness.escalationMap.'.length);
+    if (fromModel.length === 0) {
+      return Result.error(
+        new ValidationError({
+          field: 'key',
+          value: key,
+          message: `'${key}' is missing the source model id`,
+          hint: 'use harness.escalationMap.<fromModel>',
+        })
+      );
+    }
+    const nextMap = { ...current.harness.escalationMap };
+    if (raw.trim().length === 0) {
+      delete nextMap[fromModel];
+    } else {
+      nextMap[fromModel] = raw;
+    }
+    return Result.ok({ ...current, harness: { ...current.harness, escalationMap: nextMap } });
+  }
   switch (key) {
     case 'harness.maxTurns':
     case 'harness.maxAttempts':
@@ -155,8 +177,22 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
       if (!Number.isFinite(n)) {
         return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));
       }
-      const which = key.split('.')[1] as keyof Settings['harness'];
+      const which = key.split('.')[1] as 'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'plateauThreshold';
       return Result.ok({ ...current, harness: { ...current.harness, [which]: n } });
+    }
+    case 'harness.escalateOnPlateau': {
+      const b = parseBool(raw);
+      if (b === undefined) {
+        return Result.error(
+          new ValidationError({
+            field: key,
+            value: raw,
+            message: `'${raw}' is not a boolean`,
+            hint: "use 'true' or 'false'",
+          })
+        );
+      }
+      return Result.ok({ ...current, harness: { ...current.harness, escalateOnPlateau: b } });
     }
     case 'logging.level': {
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });

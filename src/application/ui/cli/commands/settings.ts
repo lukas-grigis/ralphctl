@@ -25,6 +25,8 @@ import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
  *   ai.implement.{generator|evaluator}.{provider,model,effort}
  *                                                      implement splits into a generator + evaluator pair
  *   harness.maxTurns | maxAttempts | rateLimitRetries | plateauThreshold    integer (range-checked)
+ *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
+ *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry
  *   logging.level                                      silent | debug | info | warn | error
  *   concurrency.maxParallelTasks                       positive integer
  *   ui.notifications.enabled                           boolean

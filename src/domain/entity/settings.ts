@@ -164,6 +164,21 @@ export const SettingsSchema = z.object({
      * skip the plateau even when the threshold is met.
      */
     plateauThreshold: z.number().int().min(2).max(5).default(2),
+    /**
+     * When the gen-eval loop exits on a plateau, escalate the generator's model one rung up
+     * the ladder defined by {@link escalationMap} (merged with the built-in
+     * `DEFAULT_ESCALATION_MAP`) and reissue the attempt instead of transitioning the task
+     * straight to `blocked`. Defaults `false` — the runtime wiring lands in a follow-up task.
+     */
+    escalateOnPlateau: z.boolean().default(false),
+    /**
+     * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
+     * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
+     * to escalate to. Empty by default; merged at read time with user keys winning on
+     * conflict and extending the default ladder. Non-string entries fail schema validation
+     * with a typed Zod error naming the offending field.
+     */
+    escalationMap: z.record(z.string(), z.string()).default({}),
   }),
   logging: z.object({
     level: LogLevelSchema,

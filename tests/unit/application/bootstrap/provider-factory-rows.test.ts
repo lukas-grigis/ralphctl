@@ -30,6 +30,8 @@ const harnessConfig: Settings['harness'] = {
   maxAttempts: 3,
   rateLimitRetries: 2,
   plateauThreshold: 2,
+  escalateOnPlateau: false,
+  escalationMap: {},
 };
 
 const claudeRow: AiFlowSettings = { provider: 'claude-code', model: 'claude-opus-4-7' };
