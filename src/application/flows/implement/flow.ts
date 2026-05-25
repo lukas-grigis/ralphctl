@@ -312,6 +312,8 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         {
           shellScriptRunner: deps.shellScriptRunner,
           taskRepo: deps.taskRepo,
+          sprintExecutionRepo: deps.sprintExecutionRepo,
+          interactive: deps.interactive,
           clock: deps.clock,
           eventBus: deps.eventBus,
           logger: deps.logger,

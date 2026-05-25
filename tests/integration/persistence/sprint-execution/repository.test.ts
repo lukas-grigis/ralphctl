@@ -129,4 +129,47 @@ describe('createFsSprintExecutionRepository', () => {
     expect((row as Record<string, unknown> | undefined)?.['stdoutTailBytes']).toBeUndefined();
     expect((row as Record<string, unknown> | undefined)?.['stderrTailBytes']).toBeUndefined();
   });
+
+  it('decodes an execution.json that omits baselineBrokenPolicy (field is optional — no migration needed)', async () => {
+    // The pre-task-verify operator-gate feature added `baselineBrokenPolicy?: 'proceed'` as
+    // an optional field. Files written before the feature simply lack the key; the schema
+    // accepts the absence as `undefined` and no schemaVersion bump is required.
+    const repo = createFsSprintExecutionRepository({ root });
+    const sprintId = SprintId.generate();
+    const legacyPath = executionFile(root, sprintId);
+    await mkdir(dirname(legacyPath), { recursive: true });
+    await writeFile(
+      legacyPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        id: String(sprintId),
+        sprintId: String(sprintId),
+        branch: 'feat/x',
+        pullRequestUrl: null,
+        setupRanAt: [],
+      }),
+      'utf8'
+    );
+
+    const loaded = await repo.findById(sprintId);
+    if (!loaded.ok) throw new Error(`expected ok, got ${loaded.error.message}`);
+    expect(loaded.value.baselineBrokenPolicy).toBeUndefined();
+    // Re-saving a loaded execution with the field still undefined must round-trip cleanly.
+    const resaved = await repo.save(loaded.value);
+    expect(resaved.ok).toBe(true);
+    const reloaded = await repo.findById(sprintId);
+    if (!reloaded.ok) throw new Error('expected ok on reload');
+    expect(reloaded.value.baselineBrokenPolicy).toBeUndefined();
+  });
+
+  it('round-trips an execution with baselineBrokenPolicy = "proceed"', async () => {
+    const repo = createFsSprintExecutionRepository({ root });
+    const { execution } = makeDraftSprintBundle();
+    const withPolicy = { ...execution, baselineBrokenPolicy: 'proceed' as const };
+    const saved = await repo.save(withPolicy);
+    expect(saved.ok).toBe(true);
+    const loaded = await repo.findById(execution.sprintId);
+    if (!loaded.ok) throw new Error('expected ok');
+    expect(loaded.value.baselineBrokenPolicy).toBe('proceed');
+  });
 });

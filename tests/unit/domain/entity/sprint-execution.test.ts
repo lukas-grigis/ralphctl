@@ -4,6 +4,7 @@ import {
   createSprintExecution,
   recordExecutionPullRequestUrl,
   type SetupRun,
+  setExecutionBaselineBrokenPolicy,
   setExecutionBranch,
 } from '@src/domain/entity/sprint-execution.ts';
 import { FIXED_NOW, FIXED_LATER, FIXED_REPOSITORY_ID, isoTimestamp } from '@tests/fixtures/domain.ts';
@@ -44,6 +45,22 @@ describe('SprintExecution mutators', () => {
     expect(ok.ok).toBe(true);
     const bad = recordExecutionPullRequestUrl(seed, 'ftp://nope');
     expect(bad.ok).toBe(false);
+  });
+
+  it('createSprintExecution leaves baselineBrokenPolicy undefined (one-shot amnesty starts cleared)', () => {
+    const e = createSprintExecution({ sprintId });
+    expect(e.baselineBrokenPolicy).toBeUndefined();
+  });
+
+  it('setExecutionBaselineBrokenPolicy stamps proceed, then clears back to undefined (key omitted)', () => {
+    const seed = createSprintExecution({ sprintId });
+    const stamped = setExecutionBaselineBrokenPolicy(seed, 'proceed');
+    expect(stamped.baselineBrokenPolicy).toBe('proceed');
+    expect(seed.baselineBrokenPolicy).toBeUndefined();
+    const cleared = setExecutionBaselineBrokenPolicy(stamped, undefined);
+    expect(cleared.baselineBrokenPolicy).toBeUndefined();
+    // Key should not be present at all once cleared, so JSON round-trips drop the field.
+    expect(Object.prototype.hasOwnProperty.call(cleared, 'baselineBrokenPolicy')).toBe(false);
   });
 });
 

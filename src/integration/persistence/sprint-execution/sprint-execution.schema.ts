@@ -29,6 +29,13 @@ export const SprintExecutionSchema = z.object({
   branch: z.union([z.string(), z.null()]),
   pullRequestUrl: z.union([HttpUrlSchema, z.null()]),
   setupRanAt: z.array(SetupRunSchema).readonly(),
+  /**
+   * Optional. Stamped `'proceed'` by `pre-task-verify` when the operator opts to continue on a
+   * red baseline; cleared back to undefined on the next green pre-verify. Files written by
+   * ralphctl ≤ 0.7.0 simply lack the field — Zod accepts the absence as `undefined`, no
+   * `schemaVersion` bump or migration step needed.
+   */
+  baselineBrokenPolicy: z.literal('proceed').optional(),
 });
 
 /**

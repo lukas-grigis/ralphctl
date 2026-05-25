@@ -31,6 +31,15 @@ export interface SprintExecution extends Entity<SprintId> {
    * insertion order — the most recent run wins on display when consumers dedupe by repo.
    */
   readonly setupRanAt: readonly SetupRun[];
+  /**
+   * One-time operator amnesty for a red `verifyScript` baseline. Set to `'proceed'` by the
+   * `pre-task-verify` leaf when the operator picks "Proceed anyway" on the broken-baseline
+   * prompt — subsequent tasks in the same sprint skip the prompt and run on the broken tree.
+   * Cleared back to `undefined` on the next green pre-verify, so a baseline that goes red
+   * again later in the sprint re-prompts (the policy is amnesty for ONE consecutive red
+   * stretch, not a permanent override).
+   */
+  readonly baselineBrokenPolicy?: 'proceed';
 }
 
 /** Outcome bucket for one harness-side setup attempt. */
@@ -106,3 +115,21 @@ export const appendExecutionSetupRun = (execution: SprintExecution, run: SetupRu
   ...execution,
   setupRanAt: [...execution.setupRanAt, run],
 });
+
+/**
+ * Set (or clear) the one-time amnesty for a red verifyScript baseline. Pass `'proceed'` to
+ * persist the operator's "continue on broken baseline" choice so the next task does not
+ * re-prompt; pass `undefined` to clear the amnesty once the baseline turns green again (the
+ * pre-task-verify leaf clears on green so a fresh red later in the sprint re-prompts).
+ */
+export const setExecutionBaselineBrokenPolicy = (
+  execution: SprintExecution,
+  policy: 'proceed' | undefined
+): SprintExecution => {
+  if (policy === undefined) {
+    const { baselineBrokenPolicy: _omit, ...rest } = execution;
+    void _omit;
+    return rest;
+  }
+  return { ...execution, baselineBrokenPolicy: policy };
+};
