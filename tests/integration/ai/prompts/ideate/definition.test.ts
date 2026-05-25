@@ -38,7 +38,7 @@ describe('buildIdeatePrompt — end-to-end', () => {
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
     expect(result.value).toContain('CSV export');
     expect(result.value).toContain('## Output contract');
-    expect(result.value).toContain('## Prior progress');
+    expect(result.value).toContain('<prior_progress>');
   });
 
   it('rejects empty ideaTitle', async () => {
