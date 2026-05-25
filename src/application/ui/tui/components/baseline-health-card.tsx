@@ -31,25 +31,24 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { VerifyRun } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import {
+  type AttributionCounts,
+  type BaselineTier,
+  countAttributions,
+  latestVerifyRun,
+  synthesiseBaselineHealth,
+} from '@src/application/ui/tui/components/baseline-health.ts';
 
 /**
  * Visual tier driven by status — maps to the existing semantic-state tokens.
  * `ok` / `warning` / `error` mirror the Card tone vocabulary; `pending` covers not-yet-run.
  */
 type Tier = 'ok' | 'warning' | 'error' | 'pending';
-
-/** @public */
-export interface AttributionCounts {
-  readonly clean: number;
-  readonly regressed: number;
-  readonly fixedBaseline: number;
-  readonly baselineBroken: number;
-}
 
 /** @public */
 export interface BaselineHealthCardProps {
@@ -168,24 +167,6 @@ const setupRowData = (execution: SprintExecution | undefined, now: number): RowD
 // ---------------------------------------------------------------------------
 
 /**
- * Walk every attempt across every task and return the most recent {@link VerifyRun} for the
- * given phase. Ordered by `ranAt`. Returns `undefined` when no row exists.
- */
-const latestVerifyRun = (tasks: readonly Task[], phase: 'pre' | 'post'): VerifyRun | undefined => {
-  let latest: VerifyRun | undefined;
-  for (const task of tasks) {
-    for (const attempt of task.attempts) {
-      if (attempt.verifyRuns === undefined) continue;
-      for (const row of attempt.verifyRuns) {
-        if (row.phase !== phase) continue;
-        if (latest === undefined || row.ranAt > latest.ranAt) latest = row;
-      }
-    }
-  }
-  return latest;
-};
-
-/**
  * Map a VerifyRun (or absence of one) to a RowData entry.
  * `shortLabel` is the display name for the row — callers pass "Pre verify" / "Post verify"
  * (≤12 chars) to guarantee the label never wraps inside the 28-col card.
@@ -216,24 +197,6 @@ const verifyRowData = (run: VerifyRun | undefined, now: number, shortLabel: stri
 // Attribution derivation
 // ---------------------------------------------------------------------------
 
-/** @public */
-export const countAttributions = (tasks: readonly Task[]): AttributionCounts => {
-  let clean = 0;
-  let regressed = 0;
-  let fixedBaseline = 0;
-  let baselineBroken = 0;
-  for (const task of tasks) {
-    for (const attempt of task.attempts) {
-      const a: Attribution | undefined = attempt.attribution;
-      if (a === 'clean') clean++;
-      else if (a === 'regressed') regressed++;
-      else if (a === 'fixed-baseline') fixedBaseline++;
-      else if (a === 'baseline-broken') baselineBroken++;
-    }
-  }
-  return { clean, regressed, fixedBaseline, baselineBroken };
-};
-
 const attributionRowData = (counts: AttributionCounts): RowData => {
   // "Attrib" keeps the label ≤12 chars and avoids wrap in the 28-col card.
   const label = 'Attrib';
@@ -256,36 +219,35 @@ const attributionRowData = (counts: AttributionCounts): RowData => {
 // Card-level tone
 // ---------------------------------------------------------------------------
 
+/** Card-tone palette. Mirrors the {@link Card} tone vocabulary. */
+type CardTone = 'success' | 'warning' | 'error' | 'rule';
+
 /**
- * Synthesise the overall card tone from the four indicator rows:
- *  - any `error` → `error`
- *  - any `warning` → `warning`
- *  - all `ok` (at least one ran) → `success`
- *  - everything `pending` → `rule` (quiet)
+ * Map the shared baseline tier onto a Card tone. This is the load-bearing call that keeps
+ * the card's border / title color in sync with the {@link BaselineHealthChip} — both surfaces
+ * read the same tier from {@link synthesiseBaselineHealth}.
  */
-const cardTone = (rows: readonly RowData[]): 'success' | 'warning' | 'error' | 'rule' => {
-  if (rows.some((r) => r.tier === 'error')) return 'error';
-  if (rows.some((r) => r.tier === 'warning')) return 'warning';
-  if (rows.some((r) => r.tier === 'ok')) return 'success';
+const toneFromTier = (tier: BaselineTier): CardTone => {
+  if (tier === 'red') return 'error';
+  if (tier === 'amber') return 'warning';
+  if (tier === 'green') return 'success';
   return 'rule';
 };
 
 /**
- * Build the title suffix from the dominant error in the rows.
- * Returns `undefined` when there is no suffix to add.
+ * Title-suffix logic uses the same predicate tier as the tone, then refines with the rows
+ * for fine-grained labels:
  *
- * - `error`   → `"<label> failed"` (e.g. `"setup failed"`)
- * - all `ok`  → `"clean"` (only when EVERY row has run and passed — not mixed)
- * - otherwise → no suffix; plain `"Baseline"` title
+ *  - tier `red`   → first failing row's label, e.g. `"setup failed"` / `"post verify failed"`.
+ *  - tier `green` → `"clean"` only when EVERY row is ok (not mixed ok + pending).
+ *  - otherwise    → no suffix; plain `"Baseline"` title.
  */
-const titleSuffix = (rows: readonly RowData[], tone: ReturnType<typeof cardTone>): string | undefined => {
-  if (tone === 'error') {
-    // Surface the first failing row's label as context.
+const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | undefined => {
+  if (tier === 'red') {
     const errRow = rows.find((r) => r.tier === 'error');
     return errRow !== undefined ? `${errRow.label.toLowerCase()} failed` : 'failed';
   }
-  // "clean" only when every single row is ok — not a mixed ok+pending state.
-  if (rows.every((r) => r.tier === 'ok')) return 'clean';
+  if (tier === 'green' && rows.every((r) => r.tier === 'ok')) return 'clean';
   return undefined;
 };
 
@@ -398,8 +360,14 @@ export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHea
   const attribData = attributionRowData(counts);
 
   const rows: readonly RowData[] = [setupData, preData, postData, attribData];
-  const tone = cardTone(rows);
-  const suffix = titleSuffix(rows, tone);
+  // Tier (and therefore tone) come from the shared predicate so chip + card never disagree.
+  const health = synthesiseBaselineHealth({
+    ...(execution !== undefined ? { execution } : {}),
+    tasks: taskList,
+    now: tNow,
+  });
+  const tone = toneFromTier(health.tier);
+  const suffix = titleSuffix(rows, health.tier);
   const title = suffix !== undefined ? `Baseline · ${suffix}` : 'Baseline';
 
   const isAllPending =
