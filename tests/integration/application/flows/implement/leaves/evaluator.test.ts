@@ -80,7 +80,7 @@ describe('evaluatorLeaf', () => {
     const promptPath = join(String(root.root), 'rounds', '3', 'evaluator', 'prompt.md');
     const content = await fs.readFile(promptPath, 'utf8');
     expect(content).toContain(task.name);
-    expect(content).toContain('# Code Review:');
+    expect(content).toContain('independent code reviewer');
   });
 
   it('writes prompt.md atomically — no .tmp leftover on the target dir', async () => {
