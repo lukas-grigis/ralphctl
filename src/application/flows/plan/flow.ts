@@ -22,6 +22,7 @@ import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
 
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
@@ -34,6 +35,8 @@ export interface CreatePlanFlowOpts {
    * auto-loads, and the planner treats every repo symmetrically.
    */
   readonly additionalRoots?: readonly AbsolutePath[];
+  /** Provider id used to attribute the per-run spawn in its `meta.json` sidecar. */
+  readonly providerId: string;
   /** Configured model — `settings.ai.plan.model`. */
   readonly model: string;
   /** Resolved effort / reasoning level for the plan chain — optional. */
@@ -148,6 +151,29 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
             });
           }
           return ctx.currentUnitRoot;
+        },
+      }
+    ),
+    stampSessionMetaLeaf<PlanCtx>(
+      { writeFile: deps.writeFile, clock: deps.clock },
+      {
+        name: 'stamp-meta-plan',
+        resolve: (ctx) => {
+          if (ctx.currentUnitRoot === undefined) {
+            throw new InvalidStateError({
+              entity: 'chain',
+              currentState: 'pre-stamp-meta',
+              attemptedAction: 'stamp-meta-plan',
+              message: 'stamp-meta-plan: currentUnitRoot missing — build-plan-unit must run first',
+            });
+          }
+          return {
+            outputDir: ctx.currentUnitRoot,
+            flow: 'plan',
+            provider: opts.providerId,
+            model: opts.model,
+            effort: opts.effort ?? null,
+          };
         },
       }
     ),

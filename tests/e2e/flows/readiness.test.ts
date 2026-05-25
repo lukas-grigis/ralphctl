@@ -222,6 +222,8 @@ describe('createReadinessFlow', () => {
       'pick-repository',
       'probe-claude-code',
       'install-skills-claude-code',
+      'allocate-run-dir-claude-code',
+      'stamp-meta-claude-code',
       'propose-claude-code',
       'uninstall-skills-claude-code',
       'confirm-claude-code',
@@ -475,7 +477,9 @@ describe('createReadinessFlow', () => {
     expect(runner.status).toBe('failed');
     const failed = runner.trace.find((e) => e.status === 'failed');
     expect(failed?.elementName).toBe('propose-claude-code');
-    expect(writer.writes).toHaveLength(0);
+    // The upstream stamp-meta leaf writes meta.json before propose runs (intentional —
+    // attribution survives propose-side failures). Nothing else lands on disk.
+    expect(writer.writes.map((w) => w.path)).toEqual([expect.stringMatching(/meta\.json$/)]);
 
     // Post-Wave-6 the leaf validates the AI's signals.json against the readiness contract,
     // then projects the agents-md-proposal body onto ctx. When the AI emits no proposal at

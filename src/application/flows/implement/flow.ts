@@ -1,8 +1,8 @@
-import { basename } from 'node:path';
+import { basename, dirname } from 'node:path';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
@@ -30,11 +30,20 @@ import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settl
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
+import { resolveRoundNumLeaf } from '@src/application/flows/implement/leaves/resolve-round-num.ts';
+import {
+  stampEvaluatorRoleMetaLeaf,
+  stampGeneratorRoleMetaLeaf,
+} from '@src/application/flows/implement/leaves/stamp-role-meta.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
 import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import type { SessionMetaInput } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { roundSignalsPath } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 
 /**
  * Per-task subchain's terminal leaf — the leaf that marks "this task is fully settled" for the
@@ -84,10 +93,22 @@ export interface CreateImplementFlowOpts {
    * repos the sprint touches).
    */
   readonly sprintDir: AbsolutePath;
+  /**
+   * Generator-role provider id — `settings.ai.implement.generator.provider`. Stamped into
+   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
+   * sidecar) for attribution.
+   */
+  readonly generatorProviderId: string;
   /** Generator-role model — `settings.ai.implement.generator.model`. */
   readonly generatorModel: string;
   /** Generator-role effort / reasoning level — threaded into the generator AiSession. */
   readonly generatorEffort?: string;
+  /**
+   * Evaluator-role provider id — `settings.ai.implement.evaluator.provider`. Stamped into
+   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
+   * sidecar) for attribution.
+   */
+  readonly evaluatorProviderId: string;
   /** Evaluator-role model — `settings.ai.implement.evaluator.model`. */
   readonly evaluatorModel: string;
   /** Evaluator-role effort / reasoning level — threaded into the evaluator AiSession. */
@@ -188,6 +209,62 @@ export interface CreateImplementFlowOpts {
  * `<sprintDir>/progress.md` is the per-sprint shared learnings log. The chain caller resolves
  * the absolute path; `ensureProgressFileLeaf` materialises it if missing.
  */
+
+/**
+ * Project the implement ctx onto a {@link SessionMetaInput} for one gen-eval spawn. Resolves
+ * `outputDir` from the workspace root + round number + role so the meta sidecar lands at
+ * `rounds/<N>/<role>/meta.json` — sibling of the provider-written `signals.json`.
+ *
+ * Throws `InvalidStateError` when ctx preconditions are missing (round-num / workspace-root /
+ * current-task). The chain wires `resolve-round-num` directly upstream so these throws only
+ * fire on a wiring regression.
+ */
+const resolveImplementMetaInput = (
+  ctx: ImplementCtx,
+  taskId: TaskId,
+  role: 'generator' | 'evaluator',
+  providerId: string,
+  model: string,
+  effort?: string
+): SessionMetaInput => {
+  if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
+    throw new InvalidStateError({
+      entity: 'chain',
+      currentState: 'pre-stamp-meta',
+      attemptedAction: `stamp-meta-${role}-${String(taskId)}`,
+      message: `stamp-meta-${role}-${String(taskId)}: ctx.currentTask missing or mismatched`,
+    });
+  }
+  if (ctx.taskWorkspaceRoot === undefined || ctx.currentRoundNum === undefined) {
+    throw new InvalidStateError({
+      entity: 'chain',
+      currentState: 'pre-stamp-meta',
+      attemptedAction: `stamp-meta-${role}-${String(taskId)}`,
+      message: `stamp-meta-${role}-${String(taskId)}: workspace root / round num missing — resolve-round-num must run first`,
+    });
+  }
+  const signalsPath = roundSignalsPath(ctx.taskWorkspaceRoot, ctx.currentRoundNum, role);
+  const outputDir = AbsolutePath.parse(dirname(signalsPath));
+  if (!outputDir.ok) throw outputDir.error;
+  // Generator escalation: when `escalatedFromModel` is stamped, attribute the spawn to the
+  // RESOLVED model (which is `escalatedToModel`, not the configured `model` opt). For the
+  // evaluator role we leave the configured model — the evaluator is held constant across the
+  // task by design (see CLAUDE.md § Escalation).
+  const task = ctx.currentTask;
+  const effectiveModel = role === 'generator' && task.escalatedToModel !== undefined ? task.escalatedToModel : model;
+  return {
+    outputDir: outputDir.value,
+    flow: `implement-${role}`,
+    provider: providerId,
+    model: effectiveModel,
+    effort: effort ?? null,
+    attemptN: task.attempts.length,
+    roundN: ctx.currentRoundNum,
+    taskId: String(taskId),
+    ...(task.escalatedFromModel !== undefined ? { escalatedFromModel: task.escalatedFromModel } : {}),
+  };
+};
+
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
   const readConfig = (): Promise<{
     readonly maxTurns: number;
@@ -314,6 +391,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           taskRepo: deps.taskRepo,
           sprintExecutionRepo: deps.sprintExecutionRepo,
           interactive: deps.interactive,
+          gitRunner: deps.gitRunner,
           clock: deps.clock,
           eventBus: deps.eventBus,
           logger: deps.logger,
@@ -328,14 +406,75 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
       // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
       // self-blocked this turn it set `lastExit` and the evaluator must not run.
+      //
+      // Each turn opens with `resolve-round-num` which claims the next `rounds/<N>/` on disk
+      // and stamps `ctx.currentRoundNum`. Two attribution sidecars then fire before each spawn:
+      //   - `stamp-meta-<role>` writes the generic `rounds/<N>/<role>/meta.json` (the same
+      //     shape every AI flow stamps beside its `signals.json`).
+      //   - `stamp-role-meta-<role>` writes the implement-specific
+      //     `rounds/<N>/<role>/role-meta.json`, which carries the attempt / escalation context
+      //     the generic shape doesn't (`role`, `attemptN`, `escalatedFromModel`).
+      // Both sidecars land BEFORE the spawn so attribution survives a mid-spawn crash
+      // (signals.json may be absent post-failure; the meta files name the provider regardless).
       loop<ImplementCtx>(
         `gen-eval-${String(taskId)}`,
         sequential<ImplementCtx>(`gen-eval-turn-${String(taskId)}`, [
+          resolveRoundNumLeaf(taskId),
+          stampSessionMetaLeaf<ImplementCtx>(
+            { writeFile: deps.writeFile, clock: deps.clock },
+            {
+              name: `stamp-meta-generator-${String(taskId)}`,
+              resolve: (ctx) =>
+                resolveImplementMetaInput(
+                  ctx,
+                  taskId,
+                  'generator',
+                  opts.generatorProviderId,
+                  opts.generatorModel,
+                  opts.generatorEffort
+                ),
+            }
+          ),
+          stampGeneratorRoleMetaLeaf(
+            { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+            {
+              provider: opts.generatorProviderId,
+              model: opts.generatorModel,
+              ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+            },
+            taskId
+          ),
           generatorLeaf(generatorLeafDeps, taskId),
           guard<ImplementCtx>(
             `evaluator-guard-${String(taskId)}`,
             (ctx) => ctx.lastExit === undefined,
-            evaluatorLeaf(evaluatorLeafDeps, taskId)
+            sequential<ImplementCtx>(`evaluator-step-${String(taskId)}`, [
+              stampSessionMetaLeaf<ImplementCtx>(
+                { writeFile: deps.writeFile, clock: deps.clock },
+                {
+                  name: `stamp-meta-evaluator-${String(taskId)}`,
+                  resolve: (ctx) =>
+                    resolveImplementMetaInput(
+                      ctx,
+                      taskId,
+                      'evaluator',
+                      opts.evaluatorProviderId,
+                      opts.evaluatorModel,
+                      opts.evaluatorEffort
+                    ),
+                }
+              ),
+              stampEvaluatorRoleMetaLeaf(
+                { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+                {
+                  provider: opts.evaluatorProviderId,
+                  model: opts.evaluatorModel,
+                  ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
+                },
+                taskId
+              ),
+              evaluatorLeaf(evaluatorLeafDeps, taskId),
+            ])
           ),
         ]),
         {

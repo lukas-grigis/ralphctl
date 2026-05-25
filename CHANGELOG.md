@@ -7,6 +7,32 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Per-spawn AI attribution sidecar.** Every AI spawn (refine, plan, implement
+  generator + evaluator, readiness, ideate) now writes `meta.json` beside
+  `signals.json` capturing `provider` / `model` / `effort` / `timestamp` so
+  historical attribution survives later `settings.json` mutation and
+  signals-missing crashes. Implement additionally stamps per-round
+  `rounds/<N>/<role>/meta.json` with `attempt` / `round` for full
+  generator-vs-evaluator provenance. Forward-only — pre-existing sprint dirs
+  are not back-filled.
+
+### Changed
+
+- **Implement skips pre-task-verify when the carried baseline is green.**
+  Post-verify outcome (`cwd` + `success`) is carried on
+  `ctx.priorPostVerifyOutcome`; pre-task-verify short-circuits when it matches
+  the current `cwd` and `git status` is clean. Cuts `verifyScript` runs from
+  2N to N+1 on happy-path sprints (~50% wallclock on 4+ tasks). Dirty trees
+  or git probe errors fall through to the real verify path unchanged.
+
+### Fixed
+
+- **Implement: gen-eval `AiSession` now sets `outputDir`** so codex's
+  `workspace-write` sandbox accepts the per-round `signals.json` Write call.
+  Without this, the evaluator failed with `signals-missing` on every round.
+
 ## [0.8.1] - 2026-05-25
 
 ### Added

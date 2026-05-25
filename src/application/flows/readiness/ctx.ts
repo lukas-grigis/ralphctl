@@ -13,6 +13,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  */
 export interface ReadinessToolEntry {
   readonly probedState?: ReadinessState;
+  /**
+   * Pre-allocated per-tool run directory under `<runsRoot>/readiness/<run-id>/`. Stamped by
+   * the `allocate-run-dir-<tool>` leaf BEFORE the propose leaf so the per-spawn `meta.json`
+   * sidecar can land beside the AI-written `signals.json`. Threaded into the propose leaf
+   * (via input projection) so the AI session's `outputDir` matches this dir exactly.
+   */
+  readonly runDir?: AbsolutePath;
   readonly proposal?: {
     readonly proposedContent: string;
     readonly targetPath: AbsolutePath;

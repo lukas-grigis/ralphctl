@@ -10,6 +10,7 @@ import {
   type PreTaskVerifyEnvironment,
 } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
@@ -30,11 +31,31 @@ const TTY_ENV: PreTaskVerifyEnvironment = { isStdinTty: true, isCi: false, isNoT
 const NON_TTY_ENV: PreTaskVerifyEnvironment = { isStdinTty: false, isCi: false, isNoTui: false };
 const CI_ENV: PreTaskVerifyEnvironment = { isStdinTty: true, isCi: true, isNoTui: false };
 
+interface ShellRunnerCounter {
+  readonly runner: ShellScriptRunner;
+  readonly callCount: () => number;
+}
+
 const fakeRunner = (result: { passed: boolean; exitCode: number | null; output: string }): ShellScriptRunner => ({
   async run() {
     return Result.ok({ ...result, durationMs: 0 });
   },
 });
+
+const countingShellRunner = (result: {
+  passed: boolean;
+  exitCode: number | null;
+  output: string;
+}): ShellRunnerCounter => {
+  let calls = 0;
+  const runner: ShellScriptRunner = {
+    async run() {
+      calls += 1;
+      return Result.ok({ ...result, durationMs: 0 });
+    },
+  };
+  return { runner, callCount: () => calls };
+};
 
 const errorRunner = (message = 'shell missing'): ShellScriptRunner => ({
   async run() {
@@ -99,6 +120,55 @@ const neverPrompt: InteractivePrompt = {
   },
 };
 
+/**
+ * Stub GitRunner — answers `git status --porcelain` deterministically. Default fixture uses
+ * the "clean" variant so existing tests (which don't seed `priorPostVerifyOutcome` on ctx)
+ * still take the real-script path; the short-circuit branch only activates when the carry is
+ * present.
+ */
+interface GitRunnerCounter {
+  readonly runner: GitRunner;
+  readonly callCount: () => number;
+}
+
+const cleanGitRunner = (): GitRunnerCounter => {
+  let calls = 0;
+  const runner: GitRunner = {
+    async run() {
+      calls += 1;
+      return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+    },
+  };
+  return { runner, callCount: () => calls };
+};
+
+const dirtyGitRunner = (): GitRunnerCounter => {
+  let calls = 0;
+  const runner: GitRunner = {
+    async run() {
+      calls += 1;
+      return Result.ok({ stdout: ' M src/foo.ts\n', stderr: '', exitCode: 0 });
+    },
+  };
+  return { runner, callCount: () => calls };
+};
+
+const errorGitRunner = (): GitRunnerCounter => {
+  let calls = 0;
+  const runner: GitRunner = {
+    async run() {
+      calls += 1;
+      return Result.error({
+        code: 'storage-error',
+        subCode: 'io',
+        name: 'StorageError',
+        message: 'git not found',
+      } as never);
+    },
+  };
+  return { runner, callCount: () => calls };
+};
+
 interface PromptCounter {
   readonly prompt: InteractivePrompt;
   readonly callCount: () => number;
@@ -134,6 +204,7 @@ interface FixtureOpts {
   readonly env?: PreTaskVerifyEnvironment;
   readonly interactive?: InteractivePrompt;
   readonly execution?: SprintExecution;
+  readonly gitRunner?: GitRunner;
 }
 
 interface Fixture {
@@ -162,6 +233,7 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
       taskRepo: repo,
       sprintExecutionRepo: execRepo,
       interactive: opts.interactive ?? neverPrompt,
+      gitRunner: opts.gitRunner ?? cleanGitRunner().runner,
       clock: () => FIXED_NOW,
       eventBus: bus.bus,
       logger: noopLogger,
@@ -236,6 +308,7 @@ describe('preTaskVerifyLeaf — red baseline interactive gate', () => {
         taskRepo: repo,
         sprintExecutionRepo: execRepo,
         interactive: promptCounter.prompt,
+        gitRunner: cleanGitRunner().runner,
         clock: () => FIXED_NOW,
         eventBus: bus.bus,
         logger: noopLogger,
@@ -314,6 +387,7 @@ describe('preTaskVerifyLeaf — red baseline interactive gate', () => {
         taskRepo: repo,
         sprintExecutionRepo: execRepo,
         interactive: neverPrompt,
+        gitRunner: cleanGitRunner().runner,
         clock: () => FIXED_NOW,
         eventBus: bus.bus,
         logger: noopLogger,
@@ -399,6 +473,7 @@ describe('preTaskVerifyLeaf — ctx contract', () => {
         taskRepo: repo,
         sprintExecutionRepo: execRepo,
         interactive: neverPrompt,
+        gitRunner: cleanGitRunner().runner,
         clock: () => FIXED_NOW,
         eventBus: bus.bus,
         logger: noopLogger,
@@ -409,5 +484,277 @@ describe('preTaskVerifyLeaf — ctx contract', () => {
     );
     const out = await leaf.execute(ctx);
     expect(out.ok).toBe(false);
+  });
+});
+
+describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
+  it('carried success + same cwd + clean tree → short-circuits (no script, no audit row, no prompt)', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // Verify script NEVER ran.
+    expect(shell.callCount()).toBe(0);
+    // Git status was probed exactly once.
+    expect(git.callCount()).toBe(1);
+    // No audit row appended onto the running attempt.
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns ?? []).toHaveLength(0);
+    // No taskRepo.update call (nothing to persist).
+    expect(repo.updates).toHaveLength(0);
+    // No execution save either — baseline amnesty is untouched on the short-circuit path.
+    expect(execRepo.saves).toHaveLength(0);
+    // The synthetic green carries through as `lastPreVerifyOutcome = 'success'` so
+    // post-task-verify's attribution sees a green pre.
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+    // No info banner — only the short-circuit log line.
+    expect(
+      bus.events.some((e) => e.type === 'log' && e.message.includes('short-circuited (carried green baseline'))
+    ).toBe(true);
+  });
+
+  it('carried success + same cwd + dirty tree → falls through to real script', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = dirtyGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // Verify script ran, audit row appended, repo persisted.
+    expect(shell.callCount()).toBe(1);
+    expect(git.callCount()).toBe(1);
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns?.[0]?.phase).toBe('pre');
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns?.[0]?.outcome).toBe('success');
+    expect(repo.updates).toHaveLength(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('carried success + DIFFERENT cwd → falls through (no git probe, real script)', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const otherCwd = absolutePath('/tmp/other-repo');
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: otherCwd, outcome: 'success' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // No short-circuit attempted — cwd mismatch is checked before the git probe.
+    expect(git.callCount()).toBe(0);
+    // Real script ran.
+    expect(shell.callCount()).toBe(1);
+    expect(repo.updates).toHaveLength(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('carried failed outcome → falls through to real script (no short-circuit, reaches red-baseline prompt)', async () => {
+    const shell = countingShellRunner({ passed: false, exitCode: 1, output: 'still broken' });
+    const git = cleanGitRunner();
+    const promptCounter = scriptedChoicePrompt(Result.ok('skip' as const));
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'failed' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: promptCounter.prompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // No short-circuit attempted because the carried outcome is not 'success'.
+    expect(git.callCount()).toBe(0);
+    // Real script ran AND the red-baseline prompt fired.
+    expect(shell.callCount()).toBe(1);
+    expect(promptCounter.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('failed');
+    expect(out.value.ctx.lastBlockReason).toBe('operator skipped task on broken baseline');
+  });
+
+  it('no carried outcome (task 1 of sprint) → falls through, no git probe, real script', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      // priorPostVerifyOutcome intentionally undefined — task 1 case.
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // No git probe when there's nothing carried.
+    expect(git.callCount()).toBe(0);
+    expect(shell.callCount()).toBe(1);
+    expect(repo.updates).toHaveLength(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('carried success + git probe errors → demotes to ineligible, real script runs (error not surfaced)', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = errorGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    // Leaf returns ok — the git error is NOT propagated; the operator just gets the real
+    // verify run instead of a regression.
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(git.callCount()).toBe(1);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
   });
 });

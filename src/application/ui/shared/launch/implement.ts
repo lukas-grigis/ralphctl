@@ -174,8 +174,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       // `extras.modelOverride` is a legacy single-model knob from the flows-view picker;
       // applied to the generator role since that's the one that drove the prior single-model
       // implement path. Evaluator model stays bound to its settings row.
+      generatorProviderId: implementPair.generator.provider,
       generatorModel: extras.modelOverride ?? implementPair.generator.model,
       ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+      evaluatorProviderId: implementPair.evaluator.provider,
       evaluatorModel: implementPair.evaluator.model,
       ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
     }

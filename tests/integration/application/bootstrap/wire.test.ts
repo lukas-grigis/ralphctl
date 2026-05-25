@@ -184,10 +184,12 @@ describe('wire', () => {
         logger: deps.logger,
         skillsAdapter: deps.skillsAdapter,
         skillSource: deps.skillSource,
+        clock: deps.clock,
       },
       {
         sprintId: withTicket.value.id,
         pendingTickets: [ticket],
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot.value,
       }

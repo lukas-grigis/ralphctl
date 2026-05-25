@@ -20,6 +20,8 @@ import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 export interface CreateIdeateFlowOpts {
   readonly sprintId: SprintId;
@@ -28,6 +30,8 @@ export interface CreateIdeateFlowOpts {
   readonly ideaText: string;
   /** Working directory for the AI session — typically the repo root the user wants Claude to navigate. */
   readonly cwd: AbsolutePath;
+  /** Provider id used to attribute the per-run spawn in its `meta.json` sidecar. */
+  readonly providerId: string;
   /** Configured model for ideate. Flows from `settings.ai.ideate.model`. */
   readonly model: string;
   /** Resolved effort / reasoning level for the ideate chain — optional. */
@@ -127,6 +131,29 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
         // Skills land in the AI session's cwd (the repo) — the provider-native conventions
         // only auto-discover skills from cwd, not from `--add-dir` roots.
         cwdPicker: () => opts.cwd,
+      }
+    ),
+    stampSessionMetaLeaf<IdeateCtx>(
+      { writeFile: deps.writeFile, clock: deps.clock },
+      {
+        name: 'stamp-meta-ideate',
+        resolve: (ctx) => {
+          if (ctx.currentUnitRoot === undefined) {
+            throw new InvalidStateError({
+              entity: 'chain',
+              currentState: 'pre-stamp-meta',
+              attemptedAction: 'stamp-meta-ideate',
+              message: 'stamp-meta-ideate: currentUnitRoot missing — build-ideate-unit must run first',
+            });
+          }
+          return {
+            outputDir: ctx.currentUnitRoot,
+            flow: 'ideate',
+            provider: opts.providerId,
+            model: opts.model,
+            effort: opts.effort ?? null,
+          };
+        },
       }
     ),
     ideateAndPlanLeaf({

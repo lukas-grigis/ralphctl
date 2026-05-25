@@ -90,6 +90,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
     currentTask: task,
     progressFile: absolutePath(join(String(root.root), 'progress.md')),
     taskWorkspaceRoot: root.root,
+    currentRoundNum: 1,
   });
 
   const captureBus = (eventBus = createInMemoryEventBus()): { events: AppEvent[]; eventBus: typeof eventBus } => {

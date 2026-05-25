@@ -11,6 +11,7 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
  * Narrow dependency contract for the refine chain. Refine is **always interactive** — it
@@ -31,6 +32,11 @@ export interface RefineDeps {
   readonly logger: Logger;
   readonly skillsAdapter: SkillsAdapter;
   readonly skillSource: SkillSource;
+  /**
+   * ISO timestamp source — stamped onto the per-spawn `meta.json` sidecar so attribution
+   * records when the AI session was kicked off.
+   */
+  readonly clock: () => IsoTimestamp;
   readonly issueFetcher?: IssueFetcher;
   /**
    * Optional pusher for the refine flow's "Approve & update origin" path. Same lifetime as

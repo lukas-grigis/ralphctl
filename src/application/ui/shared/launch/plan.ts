@@ -65,6 +65,7 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
       // navigate across them without per-file approval prompts. No repo enjoys cwd privilege —
       // the session's cwd is the per-sprint plan unit root.
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
+      providerId: settings.ai.plan.provider,
       model: extras.modelOverride ?? settings.ai.plan.model,
       ...(effort !== undefined ? { effort } : {}),
       planRoot: planRoot.value,

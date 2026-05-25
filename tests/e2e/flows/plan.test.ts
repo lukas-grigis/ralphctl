@@ -204,6 +204,7 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
+      providerId: 'claude-code',
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });
@@ -234,6 +235,7 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
+      providerId: 'claude-code',
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });
@@ -271,6 +273,7 @@ describe('createPlanFlow — interactive', () => {
     const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
       sprintId: sprint.id,
       projectId: project.id,
+      providerId: 'claude-code',
       model: 'claude-opus-4-7',
       planRoot: planRoot(),
     });

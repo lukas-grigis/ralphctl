@@ -1,8 +1,9 @@
+import { dirname } from 'node:path';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 /**
  * Per-call AiSession profile for implement and evaluate calls. The session "plugs onto" the
@@ -54,14 +55,25 @@ export const implementSession = (
   role: 'generator' | 'evaluator',
   resume?: SessionId,
   effort?: string
-): AiSession => ({
-  prompt,
-  cwd: repoPath,
-  additionalRoots: [sandboxCwd, sprintDir],
-  model,
-  permissions: FULL_AUTO,
-  signalsFile,
-  role,
-  ...(resume !== undefined ? { resume } : {}),
-  ...(effort !== undefined ? { effort } : {}),
-});
+): AiSession => {
+  // The per-round output dir is the directory containing `signalsFile` (e.g.
+  // `<sandboxCwd>/rounds/<N>/<role>/`). Stamping it on the session lets every adapter's
+  // `resolveWritableRoots` auto-mount it as a `--add-dir` writable root, matching the
+  // audit-[09] migration every other flow (review, detect-skills, readiness, …) already
+  // adopted. Without this, codex's `workspace-write` sandbox refused the AI's Write call
+  // for `signals.json` in the per-round dir, leaving the file absent and the leaf failing
+  // with `signals-missing`.
+  const outputDir = AbsolutePath.parse(dirname(String(signalsFile)));
+  return {
+    prompt,
+    cwd: repoPath,
+    additionalRoots: [sandboxCwd, sprintDir],
+    model,
+    permissions: FULL_AUTO,
+    signalsFile,
+    role,
+    ...(outputDir.ok ? { outputDir: outputDir.value } : {}),
+    ...(resume !== undefined ? { resume } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  };
+};

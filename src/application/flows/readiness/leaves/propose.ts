@@ -71,13 +71,18 @@ export interface ProposeReadinessLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded into the AiSession. */
   readonly effort?: string;
-  /** `<dataRoot>/runs`; forwarded into the engine for artifact persistence. */
-  readonly runsRoot: AbsolutePath;
 }
 
 interface ProposeReadinessInput {
   readonly repository: Repository;
   readonly probedState: ReadinessState;
+  /**
+   * Pre-allocated per-run forensic directory — `<runsRoot>/readiness/<run-id>/`. Resolved
+   * upstream by the chain's `allocate-run-dir-<tool>` leaf so the per-spawn `meta.json`
+   * sidecar (written by the chain's `stamp-session-meta` leaf BEFORE this propose leaf
+   * spawns the AI) lands beside the AI-written `signals.json`.
+   */
+  readonly runDir: AbsolutePath;
 }
 
 interface ProposeReadinessOutput {
@@ -135,12 +140,12 @@ const proposeReadinessUseCase = async (
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
         readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort),
       logger: deps.logger,
-      runsRoot: deps.runsRoot,
     },
     {
       repository: input.repository,
       tool,
       probedState: input.probedState,
+      runDir: input.runDir,
       ...(existingBody !== undefined ? { existingContextFile: existingBody } : {}),
     }
   );
@@ -239,7 +244,15 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
           message: `propose: ctx.entries[${tool}].probedState is undefined — probe must run first`,
         });
       }
-      return { repository: ctx.repository, probedState: entry.probedState };
+      if (entry.runDir === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-propose',
+          attemptedAction: 'propose',
+          message: `propose: ctx.entries[${tool}].runDir is undefined — allocate-run-dir must run first`,
+        });
+      }
+      return { repository: ctx.repository, probedState: entry.probedState, runDir: entry.runDir };
     },
     output: (ctx, out) => ({
       ...ctx,

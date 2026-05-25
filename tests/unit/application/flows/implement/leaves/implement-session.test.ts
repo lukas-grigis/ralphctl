@@ -8,7 +8,7 @@ const PROMPT = 'unit-test prompt body' as unknown as Prompt;
 const SANDBOX = absolutePath('/tmp/sandbox');
 const REPO = absolutePath('/tmp/repo');
 const SPRINT_DIR = absolutePath('/tmp/sprint');
-const SIGNALS = absolutePath('/tmp/signals.json');
+const SIGNALS = absolutePath('/tmp/sandbox/rounds/2/evaluator/signals.json');
 
 describe('implementSession', () => {
   it('omits `resume` when no prior session id is supplied (round 1 / fresh task path)', () => {
@@ -37,5 +37,15 @@ describe('implementSession', () => {
     const evaluator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'evaluator');
     expect(generator.role).toBe('generator');
     expect(evaluator.role).toBe('evaluator');
+  });
+
+  // Regression: pre-0.8.1 implementSession only set `signalsFile`; codex's `workspace-write`
+  // sandbox refused the per-round Write call so signals.json never landed and the evaluator
+  // leaf failed with `signals-missing`. Every other audit-[09]-migrated flow (review,
+  // detect-skills, readiness, …) sets `outputDir` to the directory containing signalsFile —
+  // bringing implement in line closes the gap (see audit-[09] field doc on AiSession).
+  it('stamps `outputDir` as the parent dir of signalsFile so the adapter auto-mounts the per-round dir', () => {
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'evaluator');
+    expect(String(session.outputDir)).toBe('/tmp/sandbox/rounds/2/evaluator');
   });
 });
