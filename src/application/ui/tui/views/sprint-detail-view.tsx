@@ -9,17 +9,19 @@
  *  - Tasks section — one bordered card per task, showing ticket reference, deps, repo, attempts.
  *
  * Inline expand-in-place: every ticket / task card stays in the list. Pressing ↵/o on the
- * focused card expands it inline (full description, requirements, referenced tasks for
- * tickets; steps, verification criteria, dependencies, attempt history for tasks) inside the
- * same border. Same key (or `esc`) collapses it. Cursor still moves between cards via ↑/↓ /
- * j/k across both sections without auto-collapsing.
+ * focused card toggles its expansion inline (full description, requirements, referenced tasks
+ * for tickets; steps, verification criteria, dependencies, attempt history for tasks) inside
+ * the same border. Each card's expansion is tracked independently by stable id, so opening a
+ * second card leaves the first one open. Cursor still moves between cards via ↑/↓ / j/k
+ * across both sections without changing which cards are expanded. Pressing `esc` / `q` while
+ * any card is expanded collapses every expansion in one action.
  *
  * Local keys:
  *   a       add ticket (draft only)
  *   d       remove the focused ticket (draft only) after a confirm
  *   ↑/↓     move the focus cursor across BOTH tickets and tasks
  *   ↵/o     expand / collapse the focused card inline
- *   esc     collapse the expanded card (back to list)
+ *   esc/q   collapse every expanded card (back to list)
  *   n       open Flows, scoped to this sprint
  */
 
@@ -188,13 +190,13 @@ export const SprintDetailView = (): React.JSX.Element => {
   const focusList = useMemo(() => (sprint !== undefined ? buildFocusList(sprint, tasks) : []), [sprint, tasks]);
 
   const [cursorIdx, setCursorIdx] = useState(0);
-  const [openIdx, setOpenIdx] = useState<number | undefined>(undefined);
+  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
   // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
   const ticketsEditable = sprint?.status === 'draft';
-  const inDetail = openIdx !== undefined;
+  const inDetail = openIds.size > 0;
   const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
   // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
   // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
@@ -329,9 +331,9 @@ export const SprintDetailView = (): React.JSX.Element => {
 
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || sprint === undefined) return;
-    // Esc collapses an inline-expanded card; falls through to global pop otherwise.
+    // Esc/q collapses every expanded card in one action; falls through to global pop otherwise.
     if ((key.escape || input === 'q') && inDetail) {
-      setOpenIdx(undefined);
+      setOpenIds(new Set());
       return;
     }
     if (input === 'a' && ticketsEditable) {
@@ -360,8 +362,15 @@ export const SprintDetailView = (): React.JSX.Element => {
       return;
     }
     if ((key.return || input === 'o') && focusList.length > 0) {
-      const target = Math.min(cursorIdx, focusList.length - 1);
-      setOpenIdx((prev) => (prev === target ? undefined : target));
+      const target = focusList[Math.min(cursorIdx, focusList.length - 1)];
+      if (target === undefined) return;
+      const targetId = target.kind === 'ticket' ? String(target.ticket.id) : String(target.task.id);
+      setOpenIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(targetId)) next.delete(targetId);
+        else next.add(targetId);
+        return next;
+      });
       return;
     }
     if (input === 'd' && ticketsEditable) {
@@ -444,7 +453,7 @@ export const SprintDetailView = (): React.JSX.Element => {
           project={project}
           focusList={focusList}
           cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
-          openIdx={openIdx}
+          openIds={openIds}
           ticketsEditable={ticketsEditable}
           feedback={feedback ?? edit.feedback}
           isCurrent={selection.sprintId === state.value.sprint.id}
@@ -459,7 +468,7 @@ interface BodyProps {
   readonly project: Project | undefined;
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
-  readonly openIdx: number | undefined;
+  readonly openIds: ReadonlySet<string>;
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
   readonly isCurrent: boolean;
@@ -470,14 +479,13 @@ const Body = ({
   project,
   focusList,
   cursorIdx,
-  openIdx,
+  openIds,
   ticketsEditable,
   feedback,
   isCurrent,
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   const action = phaseAction(sprint, tasks);
-  const expandedFocusItem = openIdx !== undefined ? focusList[openIdx] : undefined;
   return (
     <Box flexDirection="column">
       <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
@@ -511,7 +519,7 @@ const Body = ({
         cursorIdx={cursorIdx}
         ticketsEditable={ticketsEditable}
         feedback={feedback}
-        expandedFocusItem={expandedFocusItem}
+        openIds={openIds}
       />
       <TasksSection
         sprint={sprint}
@@ -519,7 +527,7 @@ const Body = ({
         focusList={focusList}
         cursorIdx={cursorIdx}
         project={project}
-        expandedFocusItem={expandedFocusItem}
+        openIds={openIds}
       />
 
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
@@ -711,7 +719,7 @@ interface TicketsSectionProps {
   readonly cursorIdx: number;
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
-  readonly expandedFocusItem: FocusItem | undefined;
+  readonly openIds: ReadonlySet<string>;
 }
 
 const TicketsSection = ({
@@ -721,7 +729,7 @@ const TicketsSection = ({
   cursorIdx,
   ticketsEditable,
   feedback,
-  expandedFocusItem,
+  openIds,
 }: TicketsSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tickets</Text>
@@ -738,7 +746,7 @@ const TicketsSection = ({
       <Box flexDirection="column" marginTop={1}>
         {sprint.tickets.map((ticket, idx) => {
           const focused = focusList[cursorIdx]?.kind === 'ticket' && focusList[cursorIdx]?.ticket.id === ticket.id;
-          const expanded = expandedFocusItem?.kind === 'ticket' && expandedFocusItem.ticket.id === ticket.id;
+          const expanded = openIds.has(String(ticket.id));
           const taskCount = tasks.filter((t) => t.ticketId === ticket.id).length;
           return (
             <TicketCard
@@ -823,7 +831,7 @@ interface TasksSectionProps {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly project: Project | undefined;
-  readonly expandedFocusItem: FocusItem | undefined;
+  readonly openIds: ReadonlySet<string>;
 }
 
 const TasksSection = ({
@@ -832,7 +840,7 @@ const TasksSection = ({
   focusList,
   cursorIdx,
   project,
-  expandedFocusItem,
+  openIds,
 }: TasksSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tasks</Text>
@@ -845,7 +853,7 @@ const TasksSection = ({
         {tasks.map((task, idx) => {
           const focusItem = focusList[cursorIdx];
           const focused = focusItem?.kind === 'task' && focusItem.task.id === task.id;
-          const expanded = expandedFocusItem?.kind === 'task' && expandedFocusItem.task.id === task.id;
+          const expanded = openIds.has(String(task.id));
           const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
           const repoName = repositoryName(project, task.repositoryId);
           return (
