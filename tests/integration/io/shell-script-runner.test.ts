@@ -148,4 +148,52 @@ describe('createShellScriptRunner', () => {
     // Some host env var leaks through (e.g. HOME or PATH).
     expect(Object.keys(calls[0]?.options.env ?? {}).length).toBeGreaterThan(1);
   });
+
+  describe('NO_COLOR default', () => {
+    // Persisted setup/verify logs are plain text — ANSI escape codes from vitest / eslint /
+    // tsc render as `^[[1m^[[30m…` garbage when viewed in an editor. The runner sets
+    // NO_COLOR=1 by default; modern Node / Python / Rust / Go / Ruby CLIs honour it. The
+    // default sits BEFORE process.env so a user who exports NO_COLOR= (empty) or
+    // FORCE_COLOR=1 can override; opts.env wins last.
+
+    it('defaults NO_COLOR=1 on the spawn env', async () => {
+      const originalNoColor = process.env['NO_COLOR'];
+      const originalForceColor = process.env['FORCE_COLOR'];
+      delete process.env['NO_COLOR'];
+      delete process.env['FORCE_COLOR'];
+      try {
+        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+        const runner = createShellScriptRunner({ spawn });
+        await runner.run(cwd, 'true');
+
+        expect(calls[0]?.options.env?.['NO_COLOR']).toBe('1');
+      } finally {
+        if (originalNoColor !== undefined) process.env['NO_COLOR'] = originalNoColor;
+        if (originalForceColor !== undefined) process.env['FORCE_COLOR'] = originalForceColor;
+      }
+    });
+
+    it('lets caller-supplied opts.env override the NO_COLOR default', async () => {
+      const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      await runner.run(cwd, 'true', { env: { NO_COLOR: '' } });
+
+      expect(calls[0]?.options.env?.['NO_COLOR']).toBe('');
+    });
+
+    it('lets a user-exported process.env.NO_COLOR override the default', async () => {
+      const originalNoColor = process.env['NO_COLOR'];
+      process.env['NO_COLOR'] = 'custom';
+      try {
+        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+        const runner = createShellScriptRunner({ spawn });
+        await runner.run(cwd, 'true');
+
+        expect(calls[0]?.options.env?.['NO_COLOR']).toBe('custom');
+      } finally {
+        if (originalNoColor === undefined) delete process.env['NO_COLOR'];
+        else process.env['NO_COLOR'] = originalNoColor;
+      }
+    });
+  });
 });

@@ -1350,7 +1350,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(sprintRepo.current().status).not.toBe('review');
   });
 
-  it('baseline-broken (pre=red, post=red) preserves the AI verdict — pre-existing failure does NOT block', async () => {
+  it('baseline-broken (pre=red, post=red) preserves the AI verdict when operator has opted into the amnesty', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1365,7 +1365,10 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     // Both pre and post return red — pre-existing failure. The harness must NOT blame the AI
     // (attribution: 'baseline-broken') — task settles `done` so the operator can fix the
-    // baseline without losing the AI's work.
+    // baseline without losing the AI's work. Under the operator-gate change, the silent
+    // pass-through only kicks in once the operator has opted into the amnesty for this red
+    // stretch (`SprintExecution.baselineBrokenPolicy = 'proceed'`); without the amnesty the
+    // leaf would prompt (in TTY context) or hard-block (non-interactive — the e2e setup).
     const persistentlyRedShell: ShellScriptRunner = {
       async run() {
         return Result.ok({ passed: false, exitCode: 1, output: 'pre-existing failure\n', durationMs: 12 });
@@ -1375,10 +1378,15 @@ describe('createImplementFlow — gen-eval loop', () => {
     const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
 
     const git = commitCapturingGit(1);
+    // Seed the execution with the amnesty already granted — simulates the operator having
+    // picked "proceed anyway" on the first red task of this sprint. With the amnesty in
+    // place, pre-task-verify falls through silently and the prior attribution-only behaviour
+    // remains exercised by this regression test.
+    const executionWithAmnesty = { ...f.execution, baselineBrokenPolicy: 'proceed' as const };
     const deps: ImplementDeps = {
       ...buildDeps(
         sprintRepo.repo,
-        inMemoryExecutionRepo(f.execution).repo,
+        inMemoryExecutionRepo(executionWithAmnesty).repo,
         taskRepo.repo,
         provider,
         f.dir,

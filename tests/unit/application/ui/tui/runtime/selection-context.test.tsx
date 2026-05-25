@@ -91,15 +91,18 @@ describe('SelectionProvider.setProject', () => {
       </SelectionProvider>
     );
 
-    await new Promise((res) => setTimeout(res, 30));
-
-    // Final persisted state must still carry the sprint.
-    expect(seeds[seeds.length - 1]).toEqual({
-      projectId: PID_A,
-      projectLabel: 'Project A',
-      sprintId: SID_X,
-      sprintLabel: 'Sprint X',
-    });
+    await vi.waitFor(
+      () => {
+        // Final persisted state must still carry the sprint.
+        expect(seeds[seeds.length - 1]).toEqual({
+          projectId: PID_A,
+          projectLabel: 'Project A',
+          sprintId: SID_X,
+          sprintLabel: 'Sprint X',
+        });
+      },
+      { timeout: 500, interval: 5 }
+    );
     r.unmount();
   });
 
@@ -126,12 +129,15 @@ describe('SelectionProvider.setProject', () => {
       </SelectionProvider>
     );
 
-    await new Promise((res) => setTimeout(res, 30));
-
-    expect(seeds[seeds.length - 1]).toEqual({
-      projectId: PID_B,
-      projectLabel: 'Project B',
-    });
+    await vi.waitFor(
+      () => {
+        expect(seeds[seeds.length - 1]).toEqual({
+          projectId: PID_B,
+          projectLabel: 'Project B',
+        });
+      },
+      { timeout: 500, interval: 5 }
+    );
     r.unmount();
   });
 });
@@ -155,36 +161,40 @@ describe('SelectionProvider.setProjectAndSprint', () => {
       </SelectionProvider>
     );
 
-    await new Promise((res) => setTimeout(res, 30));
-
-    expect(baselineCalls).toBeGreaterThanOrEqual(0);
-    // Exactly one additional onChange after baseline — the four state setters batched into one
-    // commit, one effect run, one persistence write.
-    expect(onChange.mock.calls.length - baselineCalls).toBe(1);
-    const lastSeed = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
-    expect(lastSeed).toEqual({
-      projectId: PID_B,
-      projectLabel: 'Project B',
-      sprintId: SID_Y,
-      sprintLabel: 'Sprint Y',
-    });
+    await vi.waitFor(
+      () => {
+        expect(baselineCalls).toBeGreaterThanOrEqual(0);
+        // Exactly one additional onChange after baseline — the four state setters batched into one
+        // commit, one effect run, one persistence write.
+        expect(onChange.mock.calls.length - baselineCalls).toBe(1);
+        const lastSeed = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+        expect(lastSeed).toEqual({
+          projectId: PID_B,
+          projectLabel: 'Project B',
+          sprintId: SID_Y,
+          sprintLabel: 'Sprint Y',
+        });
+      },
+      { timeout: 500, interval: 5 }
+    );
     r.unmount();
   });
 
-  it('does not transiently clear sprintId between project and sprint writes', async () => {
-    // Seed the provider with an existing project + sprint, then atomically switch to a new
-    // project + sprint. If the implementation regressed to chaining setProject() then
-    // setSprint(), onChange would be invoked with a missing sprintId between the two writes.
+  it('still fires onChange exactly once when atomically switching from a populated seed', async () => {
+    // Populated seed exercises the populated→populated transition: setProject's side effect
+    // (clear sprintId/sprintLabel when project changes) WOULD fire if the implementation
+    // regressed to chaining setProject() + setSprint(). The empty-seed variant above can't catch
+    // that case because there's no prior sprint to clear. A chained regression here would
+    // produce two onChange calls (one per setter) instead of the one expected from atomic
+    // batching — the call-count assertion catches it without walking seeds for intermediate
+    // states.
     const onChange = vi.fn<(s: SelectionSeed) => void>();
-    const seeds: SelectionSeed[] = [];
-    onChange.mockImplementation((s) => {
-      seeds.push(s);
-    });
     const triggered = { current: false };
+    let baselineCalls = -1;
     const Trigger = makeTrigger(
       triggered,
       () => {
-        /* baseline captured implicitly via seeds[] */
+        baselineCalls = onChange.mock.calls.length;
       },
       (api) => api.setProjectAndSprint(PID_B, 'Project B', SID_Y, 'Sprint Y')
     );
@@ -198,22 +208,20 @@ describe('SelectionProvider.setProjectAndSprint', () => {
       </SelectionProvider>
     );
 
-    await new Promise((res) => setTimeout(res, 30));
-
-    // The intermediate seeds (initial + post-setter) must never have a defined projectId with an
-    // undefined sprintId — that would be the "setProject clears sprint" leak we are guarding.
-    for (const s of seeds) {
-      if (s.projectId !== undefined && s.sprintId === undefined) {
-        throw new Error(`leaked intermediate state: projectId set, sprintId cleared`);
-      }
-    }
-    // Final state is the new pair.
-    expect(seeds[seeds.length - 1]).toEqual({
-      projectId: PID_B,
-      projectLabel: 'Project B',
-      sprintId: SID_Y,
-      sprintLabel: 'Sprint Y',
-    });
+    await vi.waitFor(
+      () => {
+        expect(baselineCalls).toBeGreaterThanOrEqual(0);
+        expect(onChange.mock.calls.length - baselineCalls).toBe(1);
+        const lastSeed = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+        expect(lastSeed).toEqual({
+          projectId: PID_B,
+          projectLabel: 'Project B',
+          sprintId: SID_Y,
+          sprintLabel: 'Sprint Y',
+        });
+      },
+      { timeout: 500, interval: 5 }
+    );
     r.unmount();
   });
 });
