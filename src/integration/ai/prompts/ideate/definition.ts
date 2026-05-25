@@ -80,7 +80,7 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['ideated-tickets'],
+  expectedSignals: ['ideated-tickets', 'note', 'learning', 'decision'],
 };
 
 export const renderRepositories = (project: Project): string => {

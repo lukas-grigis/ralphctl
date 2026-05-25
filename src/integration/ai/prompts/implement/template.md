@@ -13,8 +13,8 @@ lifecycle and context compaction.
 
 <goal>
 Complete every declared implementation step for the task defined below. Write `signals.json` to the
-path specified in `<output_contract>`. Emit `task-complete` only after every declared step is done
-and every verification command passes.
+path specified in the Output contract section at the bottom of this prompt. Emit `task-complete`
+only after every declared step is done and every verification command passes.
 </goal>
 
 <success_criteria>
@@ -23,7 +23,8 @@ and every verification command passes.
 - Every verification command in `<verify_script>` exits 0 (or, when no script is configured, the
   project's own check commands pass).
 - `task-verified` has been emitted with the verbatim command output.
-- `commit-message` has been emitted with a subject and a WHY-focused body.
+- `commit-message` has been emitted with a subject and a WHY-focused body — except for a pure
+  investigation task that wrote no files, where the signal may be omitted (see Phase 3 step 4).
 - `task-complete` has been emitted.
 - No test has been removed or disabled to achieve a passing verify run.
 - No file outside the declared implementation steps has been modified — except for the project's

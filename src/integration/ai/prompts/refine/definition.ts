@@ -75,7 +75,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['refined-ticket'],
+  expectedSignals: ['refined-ticket', 'note', 'learning', 'decision'],
 };
 
 /** Render a {@link Ticket} into the markdown block the refine template's `{{TICKET}}` slot expects. */

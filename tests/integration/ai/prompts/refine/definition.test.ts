@@ -14,6 +14,12 @@ import {
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
 describe('refinePromptDef — completeness', () => {
+  it('expectedSignals advertises the refined-ticket plus the narrative fan-out trio', () => {
+    // Locked down so future template edits that drop / add a signal kind force a conscious
+    // expectedSignals review. The refine contract schema accepts the same four kinds.
+    expect(refinePromptDef.expectedSignals).toEqual(['refined-ticket', 'note', 'learning', 'decision']);
+  });
+
   it('every placeholder in refine.md is declared by the definition (parameters or partials)', async () => {
     const path = `${String(defaultTemplatesDir())}/refine/template.md`;
     const template = await fs.readFile(path, 'utf8');

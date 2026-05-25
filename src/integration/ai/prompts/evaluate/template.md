@@ -396,9 +396,9 @@ were executed this round.
 Verdict: `status: "failed"`, critique:
 
 - "[Completeness] (a) completeness, (b) working tree is clean — no uncommitted changes visible, suggesting
-  the generator produced no output this round, (c) the generator must implement the task steps and leave
-  changes uncommitted for the evaluator to review, (d) inspect the generator's output log or re-run the
-  generator)."
+  the generator produced no output this round, (c) execute the declared task steps and leave the resulting
+  changes uncommitted in the working tree so the next evaluator round has a diff to review, (d) declared
+  steps in the task specification above — start there."
   </example>
 
 </examples>

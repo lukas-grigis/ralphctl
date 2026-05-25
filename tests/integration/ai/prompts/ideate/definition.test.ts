@@ -12,6 +12,12 @@ const readTemplate = async (): Promise<string> =>
   fs.readFile(`${String(defaultTemplatesDir())}/ideate/template.md`, 'utf8');
 
 describe('ideatePromptDef — completeness', () => {
+  it('expectedSignals advertises ideated-tickets plus the narrative fan-out trio', () => {
+    // Locked down so future template edits that drop / add a signal kind force a conscious
+    // expectedSignals review. The ideate contract schema accepts the same four kinds.
+    expect(ideatePromptDef.expectedSignals).toEqual(['ideated-tickets', 'note', 'learning', 'decision']);
+  });
+
   it('placeholder ↔ parameter parity', async () => {
     const rawTemplate = await readTemplate();
     const partials = await loadPartialMap(ideatePromptDef, loader);
