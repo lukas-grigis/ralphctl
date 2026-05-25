@@ -162,8 +162,20 @@ low-stakes work.
 
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Body is
 `generator-leaf → evaluator-leaf → settle-attempt-leaf`. Exits when the evaluator passes or `maxAttempts`
-fires (the task then transitions to `blocked`). Provider / model / effort all come from the
-`settings.ai.implement` row (see _AI Settings_ below).
+fires (the task then transitions to `blocked`). `settings.ai.implement` is a nested
+`{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
+the two sessions can run on different providers / models / effort levels (effort resolution rules
+described under _AI Settings_ below apply per-row). Default: generator runs `claude-code` /
+`claude-opus-4-7`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
+side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
+`ideate`) keeps the flat `{ provider, model, effort? }` row shape; the analogous generator-evaluator
+split for the `plan` flow is deferred to future work.
+
+**Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
+as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
+nested shape, with `generator` and `evaluator` both set to a copy of the legacy row — no
+`schemaVersion` bump and no user-facing notice. The next `save()` rewrites the file in the canonical
+nested shape, so the promotion fires at most once per file.
 
 **TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
