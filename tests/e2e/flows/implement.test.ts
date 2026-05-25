@@ -308,7 +308,16 @@ const buildDeps = (
   eventBus: createInMemoryEventBus(),
   logger: noopLogger,
   clock: () => FIXED_LATER,
-  config: { harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
+  config: {
+    harness: {
+      maxTurns: 5,
+      maxAttempts: 3,
+      rateLimitRetries: 0,
+      plateauThreshold: 2,
+      escalateOnPlateau: false,
+      escalationMap: {},
+    },
+  },
   gitRunner,
   shellScriptRunner: passingShell,
   fileLocker: createFileLocker(),
@@ -708,7 +717,16 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     const deps: ImplementDeps = {
       ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
-      config: { harness: { maxTurns: 3, maxAttempts: 3, rateLimitRetries: 0, plateauThreshold: 2 } },
+      config: {
+        harness: {
+          maxTurns: 3,
+          maxAttempts: 3,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: false,
+          escalationMap: {},
+        },
+      },
     };
     const flow = createImplementFlow(deps, {
       sprintId: f.sprint.id,
@@ -1426,7 +1444,16 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     const deps: ImplementDeps = {
       ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
-      config: { harness: { maxTurns: 3, maxAttempts: 1, rateLimitRetries: 0, plateauThreshold: 2 } },
+      config: {
+        harness: {
+          maxTurns: 3,
+          maxAttempts: 1,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: false,
+          escalationMap: {},
+        },
+      },
     };
     const flow = createImplementFlow(deps, {
       sprintId: f.sprint.id,

@@ -1,4 +1,5 @@
 import { Result } from '@src/domain/result.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
@@ -8,7 +9,9 @@ import type { InvalidStateError } from '@src/domain/value/error/invalid-state-er
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
+import { applyEscalation, decideEscalation } from '@src/business/task/escalation-policy.ts';
 
 /**
  * Settle a finished gen-eval loop. Maps the loop's terminal `GenEvalExit` to the
@@ -33,9 +36,29 @@ export interface FinalizeGenEvalProps {
   readonly exit?: GenEvalExit;
   /** Read when `exit` is undefined to synthesise a `budget-exhausted` outcome. */
   readonly turnsUsed: number;
-  readonly readConfig: () => Promise<{ readonly maxTurns: number }>;
+  /**
+   * Reads the live harness slice the use case needs:
+   *   - `maxTurns`           — used to synthesise a budget-exhausted exit when the loop
+   *                            terminated without writing a terminal exit.
+   *   - `escalateOnPlateau`  — gates the model-escalation policy on plateau exits.
+   *   - `escalationMap`      — user overrides merged over `DEFAULT_ESCALATION_MAP`.
+   */
+  readonly readConfig: () => Promise<{
+    readonly maxTurns: number;
+    readonly escalateOnPlateau: boolean;
+    readonly escalationMap: Readonly<Record<string, string>>;
+  }>;
   readonly taskRepo: UpdateTask;
   readonly logger: Logger;
+  /**
+   * Generator model id the just-finished attempt ran on — read by the escalation policy so
+   * the merged `escalationMap` can look up the next rung. The leaf passes either
+   * `task.escalatedToModel` (when a prior escalation set the override) or the configured
+   * `settings.ai.implement.generator.model`, mirroring the generator-leaf resolution order.
+   */
+  readonly generatorModel: string;
+  readonly eventBus: EventBus;
+  readonly clock: () => IsoTimestamp;
 }
 
 export interface FinalizeGenEvalOutput {
@@ -44,6 +67,14 @@ export interface FinalizeGenEvalOutput {
   readonly verdict: RunTaskVerdict;
   readonly warning?: AttemptWarning;
   readonly blockedReason?: string;
+  /**
+   * True when the escalation policy stamped `escalatedFromModel`/`escalatedToModel` on the
+   * task. The caller propagates this onto ctx so settle-attempt fails the running attempt
+   * (leaving the task `in_progress` for the next chain invocation, modulo `maxAttempts`)
+   * instead of marking it `done`. Mutually exclusive with `blockedReason` — the policy emits
+   * one or the other.
+   */
+  readonly shouldFailAttempt?: boolean;
 }
 
 const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: AttemptWarning; blockedReason?: string } => {
@@ -69,11 +100,11 @@ export const finalizeGenEvalUseCase = async (
 ): Promise<Result<FinalizeGenEvalOutput, InvalidStateError | NotFoundError | StorageError | ValidationError>> => {
   const log = props.logger.named('task.finalize-gen-eval');
 
+  const cfg = await props.readConfig();
   let exit: GenEvalExit;
   if (props.exit !== undefined) {
     exit = props.exit;
   } else {
-    const cfg = await props.readConfig();
     exit = { kind: 'budget-exhausted', turnsUsed: props.turnsUsed, turnBudget: Math.max(1, cfg.maxTurns) };
   }
 
@@ -81,23 +112,54 @@ export const finalizeGenEvalUseCase = async (
 
   const mapped = mapExit(exit);
 
-  const persisted = await props.taskRepo.update(props.sprintId, props.task);
+  // On a plateau exit, consult the model-escalation policy. The policy may stamp the task
+  // with `escalatedFromModel`/`escalatedToModel` (escalation applied — task stays in_progress
+  // for the next attempt), or it may surface a blocking reason (already-escalated, no map
+  // rung above the current model, attempt-budget exhausted). When the operator opted out
+  // (`escalateOnPlateau === false`) the policy is a no-op and the legacy plateau path
+  // (done-with-warning) is preserved.
+  let taskForPersist: InProgressTask = props.task;
+  let blockedReason: string | undefined = mapped.blockedReason;
+  let shouldFailAttempt = false;
+  if (exit.kind === 'plateau') {
+    const decision = decideEscalation({
+      task: props.task,
+      generatorModel: props.generatorModel,
+      flagOn: cfg.escalateOnPlateau,
+      userMap: cfg.escalationMap,
+    });
+    const applied = applyEscalation({
+      task: props.task,
+      decision,
+      eventBus: props.eventBus,
+      logger: props.logger,
+      clock: props.clock,
+    });
+    if (!applied.ok) return Result.error(applied.error);
+    taskForPersist = applied.value.task;
+    if (applied.value.blockedReason !== undefined) blockedReason = applied.value.blockedReason;
+    if (decision.kind === 'escalate') shouldFailAttempt = true;
+  }
+
+  const persisted = await props.taskRepo.update(props.sprintId, taskForPersist);
   if (!persisted.ok) {
-    log.error('persist failed', { taskId: props.task.id, error: persisted.error.message });
+    log.error('persist failed', { taskId: taskForPersist.id, error: persisted.error.message });
     return Result.error(persisted.error);
   }
 
   log.info(`gen-eval finalised → verdict=${mapped.verdict}`, {
-    taskId: props.task.id,
+    taskId: taskForPersist.id,
     exitKind: exit.kind,
     verdict: mapped.verdict,
     ...(mapped.warning !== undefined ? { warningKind: mapped.warning.kind } : {}),
+    ...(blockedReason !== undefined ? { blockedReason } : {}),
   });
   return Result.ok({
-    task: props.task,
+    task: taskForPersist,
     exit,
     verdict: mapped.verdict,
     ...(mapped.warning !== undefined ? { warning: mapped.warning } : {}),
-    ...(mapped.blockedReason !== undefined ? { blockedReason: mapped.blockedReason } : {}),
+    ...(blockedReason !== undefined ? { blockedReason } : {}),
+    ...(shouldFailAttempt ? { shouldFailAttempt: true } : {}),
   });
 };

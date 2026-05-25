@@ -189,8 +189,16 @@ export interface CreateImplementFlowOpts {
  * the absolute path; `ensureProgressFileLeaf` materialises it if missing.
  */
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  const readConfig = (): Promise<{ readonly maxTurns: number }> =>
-    Promise.resolve({ maxTurns: deps.config.harness.maxTurns });
+  const readConfig = (): Promise<{
+    readonly maxTurns: number;
+    readonly escalateOnPlateau: boolean;
+    readonly escalationMap: Readonly<Record<string, string>>;
+  }> =>
+    Promise.resolve({
+      maxTurns: deps.config.harness.maxTurns,
+      escalateOnPlateau: deps.config.harness.escalateOnPlateau,
+      escalationMap: deps.config.harness.escalationMap,
+    });
 
   // Resolve every task's repository config at construction time so per-task leaves can inject
   // the right `cwd` / `verifyScript`. A task that references an unknown repo id is a planning
@@ -336,7 +344,17 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           shouldStop: (ctx) => ctx.lastExit !== undefined,
         }
       ),
-      finalizeGenEvalLeaf({ taskRepo: deps.taskRepo, readConfig, logger: deps.logger }, taskId),
+      finalizeGenEvalLeaf(
+        {
+          taskRepo: deps.taskRepo,
+          readConfig,
+          logger: deps.logger,
+          eventBus: deps.eventBus,
+          clock: deps.clock,
+          configuredGeneratorModel: opts.generatorModel,
+        },
+        taskId
+      ),
       // Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
       // broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
       // the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.

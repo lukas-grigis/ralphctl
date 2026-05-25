@@ -46,6 +46,7 @@ interface SettleInput {
   readonly workspaceRoot?: AbsolutePath;
   readonly roundNum?: number;
   readonly evaluation?: EvaluationSignal;
+  readonly shouldFailAttempt?: boolean;
 }
 
 /**
@@ -136,6 +137,7 @@ export const settleAttemptLeaf = (
         ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
         ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),
         ...(ctx.lastEvaluation !== undefined ? { evaluation: ctx.lastEvaluation } : {}),
+        ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
       };
     },
     output: (ctx, settled) => {
@@ -152,6 +154,7 @@ export const settleAttemptLeaf = (
         lastVerifyResult: undefined,
         lastPreVerifyOutcome: undefined,
         lastCommitSha: undefined,
+        lastShouldFailAttempt: undefined,
       };
     },
   });
