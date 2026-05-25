@@ -1,19 +1,26 @@
 /**
- * Settings view — read + write surface. Navigation is field-by-field: ↑/↓ moves the cursor
- * through editable fields, Enter mounts the prompt appropriate to the field's type
- * (`SelectPrompt` for enums, `TextPrompt` for numbers/strings). Most routes funnel through
- * `applySettingsKey` (validation) → `settingsSet` use-case (persistence) so the TUI and the
- * `ralphctl settings set` CLI share a single mutation grammar.
+ * Settings view — read + write surface, organised into a tabbed section strip so the cursor
+ * path within any one section stays bounded (≤ ~8 rows). `←/→` switch sections; `↑/↓` navigate
+ * fields inside the active section; `↵/e` mounts the prompt appropriate to the field's type
+ * (`SelectPrompt` for enums + model catalogs, `TextPrompt` for numbers / free-text strings).
+ * Most routes funnel through `applySettingsKey` (validation) → `settingsSet` use-case
+ * (persistence) so the TUI and the `ralphctl settings set` CLI share a single mutation
+ * grammar.
  *
- * AI configuration is per-flow. Each row shows three editable fields — provider (enum), model
- * (provider catalog + a `+ custom` affordance for off-catalog ids), and effort
- * (provider-native levels, or `Default` to clear). A global `effort` row supplies a default
- * when a per-flow row leaves its `effort` unset. Switching a row's provider routes through
- * `settings-set-provider` (which rebuilds that row's `{ provider, model }` from the new
- * provider's defaults so the persistence schema stays satisfied).
+ * AI configuration is per-flow. Each flow renders as a dedicated section with three editable
+ * rows — provider (enum), model (provider catalog only), and effort (provider-native levels,
+ * or `Default` to clear). The Implement section carries six rows (generator + evaluator
+ * triples) which still falls inside the per-section cap. A global `effort` row supplies a
+ * default when a per-flow row leaves its `effort` unset. Switching a row's provider routes
+ * through `settings-set-provider` (which rebuilds that row's `{ provider, model }` from the
+ * new provider's defaults so the persistence schema stays satisfied).
  *
- * Storage paths remain read-only — they reflect the resolved runtime root rather than a
- * mutable setting.
+ * Off-catalog persisted model values stay visible on read — the model row renders whatever
+ * `s.ai.<flow>.model` is. Only the editor surface is catalog-only: picking a catalog entry
+ * overwrites the off-catalog string; until the user does so, the persisted value remains.
+ *
+ * Storage paths sit in their own read-only section so they don't compete with editable rows;
+ * they reflect the resolved runtime root rather than a mutable setting.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -39,7 +46,7 @@ import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
-import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
@@ -59,21 +66,9 @@ type EditableField =
   | { readonly kind: 'text'; readonly key: string; readonly label: string; readonly current: string }
   | {
       /**
-       * Model picker — a select prompt with a "+ custom" affordance that, when chosen, swaps
-       * to a TextPrompt for a free-form model id. Used only by the per-flow model rows.
-       */
-      readonly kind: 'model';
-      readonly key: string;
-      readonly label: string;
-      readonly options: readonly string[];
-      readonly current: string;
-    }
-  | {
-      /**
        * Preset button — activating it opens a confirmation prompt and (on yes) stamps the
        * preset onto the settings record via the apply-preset flow. The preset action group
-       * renders as four equal buttons above the global effort row; no preset is marked as
-       * "recommended" or "default".
+       * renders as four equal buttons; no preset is marked as "recommended" or "default".
        */
       readonly kind: 'preset';
       readonly key: string;
@@ -81,6 +76,32 @@ type EditableField =
       readonly preset: PresetName;
       readonly current: string;
     };
+
+/**
+ * Top-level section identifier — drives the segmented strip and the per-section field list.
+ * Sections are picked so no one section exceeds the ~8-row cursor cap; Implement (six rows —
+ * generator + evaluator triples) is the largest.
+ */
+type SectionId =
+  | 'presets'
+  | 'global'
+  | 'refine'
+  | 'plan'
+  | 'implement'
+  | 'readiness'
+  | 'ideate'
+  | 'harness'
+  | 'other'
+  | 'storage';
+
+interface SettingsSection {
+  readonly id: SectionId;
+  readonly label: string;
+  readonly title: string;
+  readonly fields: readonly EditableField[];
+  /** `true` when the section carries no editable fields (just read-only display). */
+  readonly readonly: boolean;
+}
 
 const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
   mixed: 'Apply: Mixed',
@@ -92,7 +113,6 @@ const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
 const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;
 
 const DEFAULT_TOKEN = 'Default' as const;
-const CUSTOM_TOKEN = '+ custom' as const;
 
 const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string[]>> = {
   'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -113,64 +133,65 @@ const modelOptionsFor = (provider: AiProvider): readonly string[] => {
   }
 };
 
-const buildEditableFields = (s: Settings): readonly EditableField[] => {
-  const fields: EditableField[] = [];
+const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
-  for (const preset of PRESET_NAMES) {
-    fields.push({
-      kind: 'preset',
-      key: `presets.${preset}`,
-      label: PRESET_LABEL[preset],
-      preset,
-      current: '↵ apply',
-    });
-  }
-
-  fields.push({
+const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings): readonly EditableField[] => [
+  {
     kind: 'select',
-    key: 'ai.effort',
-    label: 'Global effort',
-    options: [DEFAULT_TOKEN, ...GLOBAL_EFFORT_LEVELS],
-    current: s.ai.effort ?? DEFAULT_TOKEN,
+    key: `${keyPrefix}.provider`,
+    label: `${label} provider`,
+    options: AI_PROVIDERS,
+    current: row.provider,
+  },
+  {
+    kind: 'select',
+    key: `${keyPrefix}.model`,
+    label: `${label} model`,
+    options: modelOptionsFor(row.provider),
+    current: row.model,
+  },
+  {
+    kind: 'select',
+    key: `${keyPrefix}.effort`,
+    label: `${label} effort`,
+    options: [DEFAULT_TOKEN, ...PROVIDER_EFFORT_LEVELS[row.provider]],
+    current: row.effort ?? DEFAULT_TOKEN,
+  },
+];
+
+const buildSections = (s: Settings): readonly SettingsSection[] => {
+  const presetFields: readonly EditableField[] = PRESET_NAMES.map((preset) => ({
+    kind: 'preset' as const,
+    key: `presets.${preset}`,
+    label: PRESET_LABEL[preset],
+    preset,
+    current: '↵ apply',
+  }));
+
+  const globalFields: readonly EditableField[] = [
+    {
+      kind: 'select',
+      key: 'ai.effort',
+      label: 'Global effort',
+      options: [DEFAULT_TOKEN, ...GLOBAL_EFFORT_LEVELS],
+      current: s.ai.effort ?? DEFAULT_TOKEN,
+    },
+  ];
+
+  const implementFields: readonly EditableField[] = [
+    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator),
+    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator),
+  ];
+
+  const flowSection = (flow: Exclude<FlowId, 'implement'>): SettingsSection => ({
+    id: flow,
+    label: capitalize(flow),
+    title: `AI — ${capitalize(flow)}`,
+    fields: buildFlowFields(`ai.${flow}`, capitalize(flow), s.ai[flow]),
+    readonly: false,
   });
 
-  const pushRowFields = (keyPrefix: string, label: string, row: AiFlowSettings): void => {
-    fields.push({
-      kind: 'select',
-      key: `${keyPrefix}.provider`,
-      label: `${label} provider`,
-      options: AI_PROVIDERS,
-      current: row.provider,
-    });
-    fields.push({
-      kind: 'model',
-      key: `${keyPrefix}.model`,
-      label: `${label} model`,
-      options: [...modelOptionsFor(row.provider), CUSTOM_TOKEN],
-      current: row.model,
-    });
-    fields.push({
-      kind: 'select',
-      key: `${keyPrefix}.effort`,
-      label: `${label} effort`,
-      options: [DEFAULT_TOKEN, ...PROVIDER_EFFORT_LEVELS[row.provider]],
-      current: row.effort ?? DEFAULT_TOKEN,
-    });
-  };
-
-  for (const flow of FLOW_IDS) {
-    if (flow === 'implement') {
-      // Implement splits into a generator / evaluator pair — render one set of fields per
-      // role so the user can configure each independently. Keys mirror the dotted-path
-      // grammar consumed by `applySettingsKey`.
-      pushRowFields('ai.implement.generator', 'Implement (generator)', s.ai.implement.generator);
-      pushRowFields('ai.implement.evaluator', 'Implement (evaluator)', s.ai.implement.evaluator);
-      continue;
-    }
-    pushRowFields(`ai.${flow}`, capitalize(flow), s.ai[flow]);
-  }
-
-  fields.push(
+  const harnessFields: readonly EditableField[] = [
     { kind: 'text', key: 'harness.maxTurns', label: 'Max turns', current: String(s.harness.maxTurns) },
     { kind: 'text', key: 'harness.maxAttempts', label: 'Max attempts', current: String(s.harness.maxAttempts) },
     {
@@ -185,19 +206,39 @@ const buildEditableFields = (s: Settings): readonly EditableField[] => {
       label: 'Plateau threshold',
       current: String(s.harness.plateauThreshold),
     },
+  ];
+
+  const otherFields: readonly EditableField[] = [
     { kind: 'select', key: 'logging.level', label: 'Log level', options: LOG_LEVELS, current: s.logging.level },
     {
       kind: 'text',
       key: 'concurrency.maxParallelTasks',
       label: 'Concurrency',
       current: String(s.concurrency.maxParallelTasks),
-    }
-  );
+    },
+  ];
 
-  return fields;
+  return [
+    { id: 'presets', label: 'Presets', title: 'Presets', fields: presetFields, readonly: false },
+    { id: 'global', label: 'Global', title: 'AI — global', fields: globalFields, readonly: false },
+    flowSection('refine'),
+    flowSection('plan'),
+    { id: 'implement', label: 'Implement', title: 'AI — Implement', fields: implementFields, readonly: false },
+    flowSection('readiness'),
+    flowSection('ideate'),
+    { id: 'harness', label: 'Harness', title: 'Harness budgets', fields: harnessFields, readonly: false },
+    { id: 'other', label: 'Other', title: 'Other', fields: otherFields, readonly: false },
+    { id: 'storage', label: 'Storage', title: 'Storage paths', fields: [], readonly: true },
+  ];
 };
 
-const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
+const HARNESS_HINTS: Readonly<Record<string, string>> = {
+  'harness.maxTurns': 'Cap on gen/eval iterations inside ONE task attempt — generator → evaluator → repeat.',
+  'harness.maxAttempts':
+    'How many times a single task may be re-attempted across separate Implement runs before it blocks.',
+  'harness.rateLimitRetries': 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
+  'harness.plateauThreshold': 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
+};
 
 export const SettingsView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -214,10 +255,9 @@ export const SettingsView = (): React.JSX.Element => {
    * enabled" so the picker is usable in the rare frame between mount and probe-completion.
    */
   const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
+  const [sectionIdx, setSectionIdx] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
-  /** Holds a model field when the user picked "+ custom" — the editor swaps to a TextPrompt. */
-  const [customModelField, setCustomModelField] = useState<EditableField | undefined>(undefined);
   /** Pending preset confirmation — populated when the user activates a preset button. */
   const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
   const [feedback, setFeedback] = useState<{ readonly tone: 'ok' | 'error'; readonly text: string } | undefined>(
@@ -229,6 +269,7 @@ export const SettingsView = (): React.JSX.Element => {
    */
   const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
   useViewHints([
+    { keys: '←/→', label: 'section' },
     { keys: '↑/↓', label: 'navigate' },
     { keys: '↵/e', label: 'edit' },
   ]);
@@ -254,29 +295,51 @@ export const SettingsView = (): React.JSX.Element => {
     };
   }, []);
 
-  const fields = useMemo<readonly EditableField[]>(
-    () => (settings === undefined ? [] : buildEditableFields(settings)),
+  const sections = useMemo<readonly SettingsSection[]>(
+    () => (settings === undefined ? [] : buildSections(settings)),
     [settings]
   );
 
-  // Clamp cursor when the field set changes (e.g. provider switch resets model + effort).
+  const activeSection = sections[sectionIdx];
+  const activeFields = activeSection?.fields ?? [];
+
+  // Clamp cursor when the active section's field set changes (e.g. a provider switch resets
+  // the model + effort options on the same section).
   useEffect(() => {
-    if (cursor >= fields.length && fields.length > 0) setCursor(fields.length - 1);
-  }, [fields, cursor]);
+    if (cursor >= activeFields.length && activeFields.length > 0) setCursor(activeFields.length - 1);
+  }, [activeFields, cursor]);
+
+  // Clamp the section pointer if the section list ever shrinks below the current index.
+  useEffect(() => {
+    if (sectionIdx >= sections.length && sections.length > 0) setSectionIdx(sections.length - 1);
+  }, [sections, sectionIdx]);
 
   useInput((input, key) => {
     if (ui.helpOpen || editingField !== undefined || pendingPreset !== undefined || ui.promptActive) return;
-    if (fields.length === 0) return;
+    if (sections.length === 0) return;
+    if (key.leftArrow || input === '[') {
+      setSectionIdx((i) => (i - 1 + sections.length) % sections.length);
+      setCursor(0);
+      setFeedback(undefined);
+      return;
+    }
+    if (key.rightArrow || input === ']') {
+      setSectionIdx((i) => (i + 1) % sections.length);
+      setCursor(0);
+      setFeedback(undefined);
+      return;
+    }
+    if (activeFields.length === 0) return;
     if (key.upArrow || input === 'k') {
       setCursor((c) => Math.max(0, c - 1));
       return;
     }
     if (key.downArrow || input === 'j') {
-      setCursor((c) => Math.min(fields.length - 1, c + 1));
+      setCursor((c) => Math.min(activeFields.length - 1, c + 1));
       return;
     }
     if (key.return || input === 'e') {
-      const field = fields[cursor];
+      const field = activeFields[cursor];
       if (field === undefined) return;
       setFeedback(undefined);
       if (field.kind === 'preset') {
@@ -294,16 +357,12 @@ export const SettingsView = (): React.JSX.Element => {
   // got clobbered by the PromptHost when its queue was empty.
   const claimPrompt = ui.claimPrompt;
   useEffect(
-    () =>
-      editingField !== undefined || customModelField !== undefined || pendingPreset !== undefined
-        ? claimPrompt()
-        : undefined,
-    [editingField, customModelField, pendingPreset, claimPrompt]
+    () => (editingField !== undefined || pendingPreset !== undefined ? claimPrompt() : undefined),
+    [editingField, pendingPreset, claimPrompt]
   );
 
   const closeEditor = (): void => {
     setEditingField(undefined);
-    setCustomModelField(undefined);
   };
 
   const applyPreset = async (preset: PresetName): Promise<void> => {
@@ -412,18 +471,8 @@ export const SettingsView = (): React.JSX.Element => {
   };
 
   const renderEditor = (field: EditableField): React.JSX.Element => {
-    if (field.kind === 'model' && customModelField !== undefined) {
-      return (
-        <TextPrompt
-          message={`${field.label} (custom id, current: ${field.current})`}
-          initial={field.current}
-          onSubmit={(value) => void submit(value, field)}
-          onCancel={closeEditor}
-        />
-      );
-    }
-    if (field.kind === 'select' || field.kind === 'model') {
-      if (field.kind === 'select' && isProviderField(field)) {
+    if (field.kind === 'select') {
+      if (isProviderField(field)) {
         const { choices, footer } = buildProviderOptions(field.options);
         return (
           <SelectPrompt
@@ -439,13 +488,7 @@ export const SettingsView = (): React.JSX.Element => {
         <SelectPrompt
           message={`${field.label} (current: ${field.current})`}
           options={field.options.map((value) => ({ label: value, value }))}
-          onSubmit={(value) => {
-            if (field.kind === 'model' && String(value) === CUSTOM_TOKEN) {
-              setCustomModelField(field);
-              return;
-            }
-            void submit(String(value), field);
-          }}
+          onSubmit={(value) => void submit(String(value), field)}
           onCancel={closeEditor}
         />
       );
@@ -462,8 +505,8 @@ export const SettingsView = (): React.JSX.Element => {
 
   const valueFor = (key: string): React.ReactNode => {
     if (settings === undefined) return null;
-    const focused = fields[cursor]?.key === key;
-    const field = fields.find((f) => f.key === key);
+    const focused = activeFields[cursor]?.key === key;
+    const field = activeFields.find((f) => f.key === key);
     const value = field?.current ?? '';
     return (
       <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
@@ -473,8 +516,139 @@ export const SettingsView = (): React.JSX.Element => {
     );
   };
 
+  const renderSectionStrip = (): React.JSX.Element => (
+    <Box flexWrap="wrap">
+      {sections.map((sec, i) => {
+        const isActive = i === sectionIdx;
+        return (
+          <Box key={sec.id} marginRight={spacing.indent}>
+            <Text {...(isActive ? { color: inkColors.primary } : { dimColor: true })} bold={isActive}>
+              {isActive ? `${glyphs.actionCursor} ${sec.label}` : `  ${sec.label}`}
+            </Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
+  const renderSectionBody = (section: SettingsSection): React.JSX.Element => {
+    if (section.id === 'storage') {
+      return (
+        <Card title={section.title} tone="rule">
+          <FieldList
+            fields={[
+              { label: 'App root', value: <Text dimColor>{storage.appRoot}</Text> },
+              { label: 'Data root', value: <Text dimColor>{storage.dataRoot}</Text> },
+              { label: 'Config root', value: <Text dimColor>{storage.configRoot}</Text> },
+            ]}
+          />
+        </Card>
+      );
+    }
+    if (section.id === 'presets') {
+      return (
+        <Card title={section.title} tone="primary">
+          <FieldList
+            fields={PRESET_NAMES.map((preset) => ({
+              label: PRESET_LABEL[preset],
+              value: valueFor(`presets.${preset}`),
+            }))}
+          />
+          {presetWarnings.length > 0 && (
+            <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
+              {presetWarnings.map((w) => (
+                <Text key={w.provider} dimColor>
+                  ⚠ {w.provider} CLI not found on PATH; affects flows: {w.flows.join(', ')}
+                </Text>
+              ))}
+            </Box>
+          )}
+        </Card>
+      );
+    }
+    if (section.id === 'implement') {
+      // Implement is the only flow whose runtime carries two AI sessions per task — the
+      // generator that proposes a commit and the evaluator that judges it. Render the parent
+      // section title once; the two roles render as indented sub-rows underneath so the
+      // operator sees at a glance that they're two halves of the same flow rather than two
+      // independent flows. Edits on either role flow through the same dotted-path keys
+      // (`ai.implement.<role>.<field>`), so changing one role's provider/model/effort cannot
+      // perturb the other.
+      return (
+        <Card title={section.title} tone="primary">
+          {(['generator', 'evaluator'] as const).map((role, idx) => (
+            <Box
+              key={role}
+              flexDirection="column"
+              paddingLeft={spacing.indent}
+              marginTop={idx === 0 ? 0 : spacing.section}
+            >
+              <Text dimColor bold>
+                {role}
+              </Text>
+              <FieldList
+                fields={[
+                  { label: 'Provider', value: valueFor(`ai.implement.${role}.provider`) },
+                  { label: 'Model', value: valueFor(`ai.implement.${role}.model`) },
+                  { label: 'Effort', value: valueFor(`ai.implement.${role}.effort`) },
+                ]}
+              />
+            </Box>
+          ))}
+        </Card>
+      );
+    }
+    if (section.id === 'harness') {
+      return (
+        <Card title={section.title} tone="primary">
+          <FieldList
+            fields={section.fields.map((f) => {
+              const hint = HARNESS_HINTS[f.key];
+              return {
+                label: f.label,
+                value: valueFor(f.key),
+                ...(hint !== undefined ? { hint } : {}),
+              };
+            })}
+          />
+        </Card>
+      );
+    }
+    if (section.id === 'global') {
+      return (
+        <Card title={section.title} tone="primary">
+          <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
+        </Card>
+      );
+    }
+    if (section.id === 'other') {
+      return (
+        <Card title={section.title} tone="primary">
+          <FieldList
+            fields={[
+              { label: 'Log level', value: valueFor('logging.level') },
+              { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
+            ]}
+          />
+        </Card>
+      );
+    }
+    // Per-flow section (refine / plan / readiness / ideate) — three editable rows.
+    return (
+      <Card title={section.title} tone="primary">
+        <FieldList
+          fields={[
+            { label: 'Provider', value: valueFor(`ai.${section.id}.provider`) },
+            { label: 'Model', value: valueFor(`ai.${section.id}.model`) },
+            { label: 'Effort', value: valueFor(`ai.${section.id}.effort`) },
+          ]}
+        />
+      </Card>
+    );
+  };
+
   return (
-    <ViewShell title="Settings" subtitle="↑/↓ navigate · ↵ edit · esc cancel">
+    <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ navigate · ↵ edit · esc cancel">
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : pendingPreset !== undefined ? (
@@ -494,129 +668,14 @@ export const SettingsView = (): React.JSX.Element => {
         <Box paddingX={spacing.indent}>
           <Text color="red">Failed to load settings: {loadError}</Text>
         </Box>
-      ) : settings === undefined ? (
+      ) : settings === undefined || activeSection === undefined ? (
         <Box paddingX={spacing.indent}>
           <Text dimColor>Loading…</Text>
         </Box>
       ) : (
         <Box flexDirection="column">
-          <Card title="Presets" tone="primary">
-            <FieldList
-              fields={PRESET_NAMES.map((preset) => ({
-                label: PRESET_LABEL[preset],
-                value: valueFor(`presets.${preset}`),
-              }))}
-            />
-            {presetWarnings.length > 0 && (
-              <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
-                {presetWarnings.map((w) => (
-                  <Text key={w.provider} dimColor>
-                    ⚠ {w.provider} CLI not found on PATH; affects flows: {w.flows.join(', ')}
-                  </Text>
-                ))}
-              </Box>
-            )}
-          </Card>
-          <Box marginTop={spacing.section}>
-            <Card title="AI — global" tone="primary">
-              <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
-            </Card>
-          </Box>
-          {FLOW_IDS.map((flow) =>
-            flow === 'implement' ? (
-              // Implement is the only flow whose runtime carries two AI sessions per task — the
-              // generator that proposes a commit and the evaluator that judges it. Render the
-              // parent flow name as a non-editable card title; the two roles render as indented
-              // sub-rows underneath so the operator sees at a glance that they're two halves of
-              // the same flow rather than two independent flows. Edits on either role flow
-              // through the same dotted-path keys (`ai.implement.<role>.<field>`), so changing
-              // one role's provider/model/effort cannot perturb the other.
-              <Box key={flow} marginTop={spacing.section}>
-                <Card title="AI — Implement" tone="primary">
-                  {(['generator', 'evaluator'] as const).map((role, idx) => (
-                    <Box
-                      key={role}
-                      flexDirection="column"
-                      paddingLeft={spacing.indent}
-                      marginTop={idx === 0 ? 0 : spacing.section}
-                    >
-                      <Text dimColor bold>
-                        {role}
-                      </Text>
-                      <FieldList
-                        fields={[
-                          { label: 'Provider', value: valueFor(`ai.implement.${role}.provider`) },
-                          { label: 'Model', value: valueFor(`ai.implement.${role}.model`) },
-                          { label: 'Effort', value: valueFor(`ai.implement.${role}.effort`) },
-                        ]}
-                      />
-                    </Box>
-                  ))}
-                </Card>
-              </Box>
-            ) : (
-              <Box key={flow} marginTop={spacing.section}>
-                <Card title={`AI — ${capitalize(flow)}`} tone="primary">
-                  <FieldList
-                    fields={[
-                      { label: 'Provider', value: valueFor(`ai.${flow}.provider`) },
-                      { label: 'Model', value: valueFor(`ai.${flow}.model`) },
-                      { label: 'Effort', value: valueFor(`ai.${flow}.effort`) },
-                    ]}
-                  />
-                </Card>
-              </Box>
-            )
-          )}
-          <Box marginTop={spacing.section}>
-            <Card title="Harness budgets" tone="primary">
-              <FieldList
-                fields={[
-                  {
-                    label: 'Max turns',
-                    value: valueFor('harness.maxTurns'),
-                    hint: 'Cap on gen/eval iterations inside ONE task attempt — generator → evaluator → repeat.',
-                  },
-                  {
-                    label: 'Max attempts',
-                    value: valueFor('harness.maxAttempts'),
-                    hint: 'How many times a single task may be re-attempted across separate Implement runs before it blocks.',
-                  },
-                  {
-                    label: 'Rate-limit retries',
-                    value: valueFor('harness.rateLimitRetries'),
-                    hint: 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
-                  },
-                  {
-                    label: 'Plateau threshold',
-                    value: valueFor('harness.plateauThreshold'),
-                    hint: 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
-                  },
-                ]}
-              />
-            </Card>
-          </Box>
-          <Box marginTop={spacing.section}>
-            <Card title="Other" tone="primary">
-              <FieldList
-                fields={[
-                  { label: 'Log level', value: valueFor('logging.level') },
-                  { label: 'Concurrency', value: valueFor('concurrency.maxParallelTasks') },
-                ]}
-              />
-            </Card>
-          </Box>
-          <Box marginTop={spacing.section}>
-            <Card title="Storage paths" tone="rule">
-              <FieldList
-                fields={[
-                  { label: 'App root', value: <Text dimColor>{storage.appRoot}</Text> },
-                  { label: 'Data root', value: <Text dimColor>{storage.dataRoot}</Text> },
-                  { label: 'Config root', value: <Text dimColor>{storage.configRoot}</Text> },
-                ]}
-              />
-            </Card>
-          </Box>
+          {renderSectionStrip()}
+          <Box marginTop={spacing.section}>{renderSectionBody(activeSection)}</Box>
           {feedback !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
               <Text color={feedback.tone === 'ok' ? inkColors.primary : 'red'}>
