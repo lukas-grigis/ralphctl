@@ -35,13 +35,6 @@ export interface DimensionScore {
   readonly executionEvidence?: string;
 }
 
-export interface ProgressSignal {
-  readonly type: 'progress';
-  readonly summary: string;
-  readonly files?: readonly string[];
-  readonly timestamp: IsoTimestamp;
-}
-
 /**
  * Outcome of an evaluator run. The signal carries a PASS / FAIL verdict (`status`), the
  * per-dimension findings (`dimensions`), and an optional `critique` the generator reads on
@@ -173,31 +166,6 @@ export interface VerifyScriptSignal {
 export interface SkillSuggestionsSignal {
   readonly type: 'skill-suggestions';
   readonly names: readonly string[];
-  readonly timestamp: IsoTimestamp;
-}
-
-/**
- * Structured per-task progress entry — the v1 4-section block (`task` / `filesChanged` /
- * `learnings` / `notesForNext`) emitted by the generator and rendered as a single section
- * inside `<sprintDir>/progress.md`. Higher-fidelity than the legacy short-form `<progress>`
- * one-liner; both stay supported, the progress sink decides how to render each.
- *
- * Domain rules:
- *  - `task` is the human-readable task identifier the generator just worked on (typically the
- *    task name). The signal carries narrative only — the harness injects git facts
- *    (commit SHA, files actually touched) from the `commit-task` leaf, NOT from this signal.
- *  - `filesChanged` is the generator's own list of files it intentionally edited this round;
- *    may be empty if the work was investigative. The harness may augment with git-derived
- *    facts at render time.
- *  - `learnings` and `notesForNext` are free-form prose. Empty strings are valid and render
- *    as `_None._` so the v1 4-section shape is preserved on disk.
- */
-export interface ProgressEntrySignal {
-  readonly type: 'progress-entry';
-  readonly task: string;
-  readonly filesChanged: readonly string[];
-  readonly learnings: string;
-  readonly notesForNext: string;
   readonly timestamp: IsoTimestamp;
 }
 
@@ -335,8 +303,6 @@ export interface PrContentSignal {
  * `HarnessSignal` references with `AiSignal`.
  */
 export type HarnessSignal =
-  | ProgressSignal
-  | ProgressEntrySignal
   | EvaluationSignal
   | TaskCompleteSignal
   | TaskVerifiedSignal

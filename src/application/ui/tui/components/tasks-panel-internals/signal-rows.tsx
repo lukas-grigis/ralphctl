@@ -41,8 +41,6 @@ export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   decision: inkColors.highlight,
   commit: inkColors.info,
   note: inkColors.muted,
-  progress: inkColors.info,
-  'progress-entry': inkColors.info,
   done: inkColors.success,
   verified: inkColors.success,
   blocked: inkColors.error,
@@ -74,10 +72,6 @@ export const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     }
     case 'note':
       return { label: 'note', text: sig.text };
-    case 'progress':
-      return { label: 'progress', text: sig.summary };
-    case 'progress-entry':
-      return { label: 'progress-entry', text: sig.task };
     case 'task-complete':
       return { label: 'done', text: 'task complete' };
     case 'task-verified':
@@ -120,7 +114,7 @@ const SignalLine = ({
   // Shape backup — when NO_COLOR is in effect the colour swatch on the label disappears, so
   // prefix the label with a per-kind glyph (`+` change, `~` learning, `■` commit, …). The
   // glyph reads as a visual prefix without consuming the body column. `glyphFor` returns the
-  // empty string for kinds whose label already self-discriminates (`progress`, `done`, …).
+  // empty string for kinds whose label already self-discriminates (`done`, `script`, …).
   const shapeGlyph = noColor ? glyphFor(row.label as SignalKind) : '';
   // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the
   // terminal's actual width via Ink's `wrap="truncate-end"`. The body is a row that may

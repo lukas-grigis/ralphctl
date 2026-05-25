@@ -56,7 +56,7 @@ describe('createFakeAiProvider', () => {
     const provider = createFakeAiProvider({
       signals: {
         refine: [
-          { type: 'progress', summary: 'thinking', timestamp: ts },
+          { type: 'learning', text: 'thinking', timestamp: ts },
           { type: 'note', text: 'almost', timestamp: ts },
         ],
       },
@@ -66,7 +66,7 @@ describe('createFakeAiProvider', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const signals = await readSignals(String(result.value.signalsFile));
-      expect(signals.map((s) => s.type)).toEqual(['progress', 'note']);
+      expect(signals.map((s) => s.type)).toEqual(['learning', 'note']);
     }
   });
 
