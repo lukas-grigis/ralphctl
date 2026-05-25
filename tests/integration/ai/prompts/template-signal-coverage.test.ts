@@ -57,14 +57,11 @@ const loadTemplateWithPartials = async (flow: string, partialNames: readonly str
 };
 
 /**
- * Pre-existing drift: implement's `expectedSignals` lists `progress`, but the canonical
- * progress signal type is `progress-entry`; the template body uses neither. Documented as a
- * known gap during the cross-provider audit (PR #157) — not introduced by it. Tracked
- * separately; not a regression for this test to police.
+ * Per-flow allowlist of signals expected to be absent from the template body — empty by
+ * default. Use only as a documented escape hatch when a flow advertises a signal that's
+ * legitimately emitted by harness-rendered prose rather than the template author's text.
  */
-const PRE_EXISTING_GAPS: Readonly<Record<string, ReadonlySet<string>>> = {
-  implement: new Set(['progress']),
-};
+const PRE_EXISTING_GAPS: Readonly<Record<string, ReadonlySet<string>>> = {};
 
 describe('prompt template signal coverage', () => {
   for (const { name, def } of FLOWS) {

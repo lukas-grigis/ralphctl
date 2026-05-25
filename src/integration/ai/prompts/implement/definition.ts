@@ -173,7 +173,20 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.
-  expectedSignals: ['progress', 'note', 'task-verified', 'task-complete', 'task-blocked', 'commit-message'],
+  // Aligned with generator.contract.ts: narrative fan-out (change, decision, learning, note)
+  // plus lifecycle signals (task-verified, task-complete, task-blocked, commit-message).
+  // Legacy `progress` is omitted (contract rejects it); `progress-entry` is omitted (schema
+  // accepts but no production consumer).
+  expectedSignals: [
+    'change',
+    'decision',
+    'learning',
+    'note',
+    'task-verified',
+    'task-complete',
+    'task-blocked',
+    'commit-message',
+  ],
 };
 
 export interface BuildImplementPromptInput {
