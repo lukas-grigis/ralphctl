@@ -20,6 +20,11 @@
  * cursor. The early return on `max === 0` (content fits the viewport) keeps the dominant case
  * — a list shorter than the screen — conflict-free; only when the page itself overflows do
  * both handlers fire on the same key, which is the intended UX (cursor moves AND page scrolls).
+ *
+ * Mouse tracking is also gated on `disabled`: while a prompt is open the SGR enable sequence
+ * is withdrawn so wheel events stop emitting `\x1b[<64;…M` / `\x1b[<65;…M` bytes onto stdin,
+ * which would otherwise leak through Ink's input parser into TextPrompt / TextAreaPrompt as
+ * stray printable characters (`M`, `;`, digits).
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -101,10 +106,14 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
 
   useEffect(() => {
     if (!isRawModeSupported || !stdin || !stdout || !stdout.isTTY) return undefined;
+    if (disabled) return undefined;
     const enable = '\x1b[?1000h\x1b[?1006h';
     const disableSeq = '\x1b[?1006l\x1b[?1000l';
     stdout.write(enable);
     const onData = (chunk: Buffer): void => {
+      // Belt-and-suspenders: a wheel chunk can still arrive after `disabled` flipped on but
+      // before the OS has stopped delivering bytes from the previous enable sequence.
+      if (disabled) return;
       const str = chunk.toString('utf8');
       // xterm SGR mouse sequences start with ESC[< — `\x1b` is the literal escape byte the
       // terminal emits, not a stylistic choice, so the no-control-regex lint disable stays.
@@ -126,7 +135,7 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
       stdin.off('data', onData);
       stdout.write(disableSeq);
     };
-  }, [stdin, stdout, isRawModeSupported]);
+  }, [stdin, stdout, isRawModeSupported, disabled]);
 
   return (
     // Viewport: takes all remaining vertical space (flexGrow=1) AND clips overflow so an
