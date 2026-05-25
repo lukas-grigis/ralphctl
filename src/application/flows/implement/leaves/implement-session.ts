@@ -51,6 +51,7 @@ export const implementSession = (
   prompt: Prompt,
   model: string,
   signalsFile: AbsolutePath,
+  role: 'generator' | 'evaluator',
   resume?: SessionId,
   effort?: string
 ): AiSession => ({
@@ -60,6 +61,7 @@ export const implementSession = (
   model,
   permissions: FULL_AUTO,
   signalsFile,
+  role,
   ...(resume !== undefined ? { resume } : {}),
   ...(effort !== undefined ? { effort } : {}),
 });

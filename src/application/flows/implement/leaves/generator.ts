@@ -241,6 +241,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
               prompt.value,
               deps.model,
               signalsFile,
+              'generator',
               input.priorGeneratorSessionId,
               deps.effort
             )

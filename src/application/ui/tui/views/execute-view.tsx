@@ -387,6 +387,18 @@ export const ExecuteView = (): React.JSX.Element => {
     setCancelScopeOpen(false);
   }, []);
 
+  // Active-attempt model display. For implement runs the launcher projects both gen/eval
+  // models onto the descriptor; when they differ render `<gen> → <eval> (eval)` so the
+  // operator can tell at a glance which model judges which model. When they match (single-
+  // provider, single-model implement) collapse to the bare model name — the arrow form would
+  // be noise. Non-implement flows leave both undefined and the row is omitted entirely.
+  const modelLine =
+    descriptor.generatorModel !== undefined && descriptor.evaluatorModel !== undefined
+      ? descriptor.generatorModel === descriptor.evaluatorModel
+        ? descriptor.generatorModel
+        : `${descriptor.generatorModel} ${glyphs.arrowRight} ${descriptor.evaluatorModel} (eval)`
+      : undefined;
+
   const headerCard = (
     <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
       <Box flexDirection="column">
@@ -415,6 +427,12 @@ export const ExecuteView = (): React.JSX.Element => {
             </Box>
           )}
         </Box>
+        {modelLine !== undefined && (
+          <Box>
+            <Text dimColor>{glyphs.activityArrow} model </Text>
+            <Text color={inkColors.highlight}>{modelLine}</Text>
+          </Box>
+        )}
         {currentTask !== undefined && currentTaskName !== undefined && (
           <Box>
             <Text dimColor>{glyphs.activityArrow} task </Text>

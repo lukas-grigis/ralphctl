@@ -75,6 +75,14 @@ export interface SessionDescriptor {
    * task header. Empty / undefined when no task is resuming.
    */
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
+  /**
+   * Implement-flow gen-eval models, captured from the launcher at click time. The execute
+   * view renders `<gen-model> → <eval-model> (eval)` on the active-attempt rail when the two
+   * models differ, and collapses to a single name when they match. Only set for the implement
+   * flow; every other flow leaves these undefined.
+   */
+  readonly generatorModel?: string;
+  readonly evaluatorModel?: string;
 }
 
 export interface SessionRecord {
@@ -103,6 +111,8 @@ export interface SessionManager {
     readonly planLabelByName?: ReadonlyMap<string, string>;
     readonly terminalSubstepName?: string;
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
+    readonly generatorModel?: string;
+    readonly evaluatorModel?: string;
   }): SessionRecord;
   /** Request the runner to abort. No-op if the session is already terminal. */
   abort(id: string): void;
@@ -186,6 +196,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       planLabelByName,
       terminalSubstepName,
       taskRecovering,
+      generatorModel,
+      evaluatorModel,
     }): SessionRecord {
       evict(clock());
       const descriptor: SessionDescriptor = {
@@ -201,6 +213,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(planLabelByName !== undefined ? { planLabelByName } : {}),
         ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),
         ...(taskRecovering !== undefined ? { taskRecovering } : {}),
+        ...(generatorModel !== undefined ? { generatorModel } : {}),
+        ...(evaluatorModel !== undefined ? { evaluatorModel } : {}),
       };
       const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
       records.set(runner.id, record);

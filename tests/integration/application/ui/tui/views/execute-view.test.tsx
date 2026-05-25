@@ -162,6 +162,57 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
+  it('renders the gen → eval (eval) model line when the two implement models differ', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-models', 'running');
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Cross-provider',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'gpt-5.5',
+    });
+
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-models' } },
+      sessions,
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('claude-opus-4-7');
+    expect(frame).toContain('gpt-5.5');
+    expect(frame).toContain('→');
+    expect(frame).toContain('(eval)');
+    result.unmount();
+  });
+
+  it('collapses the model line to a single name when both implement models match', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-models-same', 'running');
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Single model',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'claude-opus-4-7',
+    });
+
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-models-same' } },
+      sessions,
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('claude-opus-4-7');
+    // The arrow / (eval) tag stay hidden when the two models match — single-provider runs
+    // shouldn't pay the visual cost of an arrow that points at the same name.
+    expect(frame).not.toContain('→');
+    expect(frame).not.toContain('(eval)');
+    result.unmount();
+  });
+
   it('Enter on a completed session routes to sprint-detail when a sprint is selected', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-3', 'completed');

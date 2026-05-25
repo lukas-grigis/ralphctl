@@ -7,6 +7,10 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { TokenUsageEvent } from '@src/business/observability/events.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -536,6 +540,92 @@ describe('createImplementFlow — gen-eval loop', () => {
     // generatorModel / evaluatorModel split flows down to the leaf's AiSession.
     expect(generatorFake.recordedSessions[0]?.model).toBe('claude-opus-4-7');
     expect(evaluatorFake.recordedSessions[0]?.model).toBe('gpt-5.5');
+  });
+
+  it('per-round implement run publishes one role-tagged TokenUsageEvent for each of generator and evaluator', async () => {
+    // C4: subscribers should be able to attribute token spend to one half of the implement
+    // pair without inferring from `provider` alone. The production adapters stamp `role` on
+    // every `TokenUsageEvent` they publish; we mirror that contract here with a thin wrapper
+    // over the fake provider so the bus-subscriber assertion runs end-to-end through a real
+    // chain run without touching the real CLIs.
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const generatorFake = createFakeAiProvider({
+      signals: { implement: [taskVerified('tests pass')] },
+    });
+    const evaluatorFake = createFakeAiProvider({
+      signals: { evaluate: [evaluationPassed()] },
+    });
+
+    const eventBus: EventBus = createInMemoryEventBus();
+    const tokenEvents: TokenUsageEvent[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'token-usage') tokenEvents.push(e);
+    });
+
+    const tokenEmittingWrapper = (
+      inner: HeadlessAiProvider,
+      provider: TokenUsageEvent['provider']
+    ): HeadlessAiProvider => ({
+      async generate(session) {
+        const out = await inner.generate(session);
+        if (out.ok) {
+          eventBus.publish({
+            type: 'token-usage',
+            sessionId: out.value.sessionId ?? `${provider}-sess`,
+            provider,
+            model: session.model,
+            ...(session.role !== undefined ? { role: session.role } : {}),
+            at: IsoTimestamp.now(),
+          });
+        }
+        return out;
+      },
+    });
+
+    const baseDeps = buildDeps(
+      sprintRepo.repo,
+      inMemoryExecutionRepo(f.execution).repo,
+      taskRepo.repo,
+      generatorFake,
+      f.dir
+    );
+    const deps: ImplementDeps = {
+      ...baseDeps,
+      eventBus,
+      generatorProvider: tokenEmittingWrapper(generatorFake, 'claude-code'),
+      evaluatorProvider: tokenEmittingWrapper(evaluatorFake, 'openai-codex'),
+    };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorModel: 'claude-opus-4-7',
+      evaluatorModel: 'gpt-5.5',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+    const runner = createRunner({
+      id: 'r-impl-token-roles',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    const generatorEvents = tokenEvents.filter((e) => e.role === 'generator');
+    const evaluatorEvents = tokenEvents.filter((e) => e.role === 'evaluator');
+    expect(generatorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(evaluatorEvents.length).toBeGreaterThanOrEqual(1);
+    // The role tag flows hand-in-hand with the per-role model the launcher picks — confirms
+    // a future regression that drops `role` from the AiSession or the event would surface as
+    // both halves of the pair landing on the same role.
+    expect(generatorEvents[0]?.model).toBe('claude-opus-4-7');
+    expect(evaluatorEvents[0]?.model).toBe('gpt-5.5');
   });
 
   it('pass-after-retry: turn 1 fails, turn 2 passes — single attempt, two recorded turns', async () => {

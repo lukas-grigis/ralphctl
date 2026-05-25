@@ -227,6 +227,13 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   for (const leaf of flattened) {
     if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
   }
+  // The generator model honours the legacy single-model `extras.modelOverride` (flows-view's
+  // pre-launch picker) — same precedence the per-task subchain uses upstream. The evaluator
+  // model is always bound to its settings row. Both fields are projected onto the session
+  // descriptor so the execute view's rail/banner can render `<gen> → <eval> (eval)` (or
+  // collapse to one name when they match) without re-reading settings.
+  const generatorModel = extras.modelOverride ?? implementPair.generator.model;
+  const evaluatorModel = implementPair.evaluator.model;
   return {
     ok: true,
     runner: bridge(runner) as Runner<unknown>,
@@ -237,5 +244,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...(planLabelByName.size > 0 ? { planLabelByName } : {}),
     terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
+    generatorModel,
+    evaluatorModel,
   };
 };

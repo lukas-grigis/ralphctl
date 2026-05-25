@@ -183,6 +183,14 @@ export interface TokenUsageEvent {
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
   readonly contextWindow?: number;
+  /**
+   * Implement-flow gen-eval role the spawn ran under. Stamped on the event by the provider
+   * adapter when the {@link AiSession} carries a `role`; absent for single-role flows
+   * (refine / plan / readiness / ideate / review) and for one-shot inventory roundtrips
+   * (detect-scripts / detect-skills). Lets per-session subscribers attribute token spend to
+   * one half of the cross-provider implement pair without inferring from `provider` alone.
+   */
+  readonly role?: 'generator' | 'evaluator';
   readonly at: IsoTimestamp;
 }
 

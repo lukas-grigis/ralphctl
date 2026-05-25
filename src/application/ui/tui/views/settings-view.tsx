@@ -452,10 +452,25 @@ export const SettingsView = (): React.JSX.Element => {
           </Box>
           {FLOW_IDS.map((flow) =>
             flow === 'implement' ? (
-              <Box key={flow} marginTop={spacing.section} flexDirection="column">
-                {(['generator', 'evaluator'] as const).map((role) => (
-                  <Box key={role} marginTop={role === 'generator' ? 0 : spacing.section}>
-                    <Card title={`AI — Implement (${role})`} tone="primary">
+              // Implement is the only flow whose runtime carries two AI sessions per task — the
+              // generator that proposes a commit and the evaluator that judges it. Render the
+              // parent flow name as a non-editable card title; the two roles render as indented
+              // sub-rows underneath so the operator sees at a glance that they're two halves of
+              // the same flow rather than two independent flows. Edits on either role flow
+              // through the same dotted-path keys (`ai.implement.<role>.<field>`), so changing
+              // one role's provider/model/effort cannot perturb the other.
+              <Box key={flow} marginTop={spacing.section}>
+                <Card title="AI — Implement" tone="primary">
+                  {(['generator', 'evaluator'] as const).map((role, idx) => (
+                    <Box
+                      key={role}
+                      flexDirection="column"
+                      paddingLeft={spacing.indent}
+                      marginTop={idx === 0 ? 0 : spacing.section}
+                    >
+                      <Text dimColor bold>
+                        {role}
+                      </Text>
                       <FieldList
                         fields={[
                           { label: 'Provider', value: valueFor(`ai.implement.${role}.provider`) },
@@ -463,9 +478,9 @@ export const SettingsView = (): React.JSX.Element => {
                           { label: 'Effort', value: valueFor(`ai.implement.${role}.effort`) },
                         ]}
                       />
-                    </Card>
-                  </Box>
-                ))}
+                    </Box>
+                  ))}
+                </Card>
               </Box>
             ) : (
               <Box key={flow} marginTop={spacing.section}>

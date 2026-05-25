@@ -83,6 +83,15 @@ export type LaunchResult =
        * no task is resuming.
        */
       readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
+      /**
+       * Implement-flow gen-eval models, projected onto the SessionDescriptor so the execute
+       * view can render `<gen-model> → <eval-model> (eval)` on the active-attempt rail when the
+       * two roles point at different models — collapsed to a single model name when they
+       * match. Only the implement launcher sets these; every other flow leaves them undefined
+       * and the rail falls back to the existing single-model display path.
+       */
+      readonly generatorModel?: string;
+      readonly evaluatorModel?: string;
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -146,6 +155,8 @@ export const sessionHintsFromLaunchResult = (
   readonly planLabelByName?: ReadonlyMap<string, string>;
   readonly terminalSubstepName?: string;
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
+  readonly generatorModel?: string;
+  readonly evaluatorModel?: string;
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
@@ -153,6 +164,8 @@ export const sessionHintsFromLaunchResult = (
   ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
   ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
+  ...(result.generatorModel !== undefined ? { generatorModel: result.generatorModel } : {}),
+  ...(result.evaluatorModel !== undefined ? { evaluatorModel: result.evaluatorModel } : {}),
 });
 
 /**

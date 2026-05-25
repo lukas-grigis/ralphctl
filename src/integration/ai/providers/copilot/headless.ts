@@ -367,6 +367,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
         ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
         ...(window !== undefined ? { contextWindow: window } : {}),
+        ...(session.role !== undefined ? { role: session.role } : {}),
         at: IsoTimestamp.now(),
       });
     }

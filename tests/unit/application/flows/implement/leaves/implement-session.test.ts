@@ -12,23 +12,30 @@ const SIGNALS = absolutePath('/tmp/signals.json');
 
 describe('implementSession', () => {
   it('omits `resume` when no prior session id is supplied (round 1 / fresh task path)', () => {
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS);
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator');
     expect(session).not.toHaveProperty('resume');
   });
 
   it('forwards `resume` onto the session descriptor when a prior session id is supplied', () => {
     const prior = 'gen-session-abc-123' as SessionId;
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, prior);
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator', prior);
     expect(session.resume).toBe(prior);
   });
 
   it('keeps cwd at the repo and mounts BOTH the sandbox and the sprint dir via additionalRoots', () => {
     const prior = 'gen-session-abc-123' as SessionId;
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, prior);
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator', prior);
     expect(session.cwd).toBe(REPO);
     // Order matters: the sandbox comes first (per-task workspace the AI uses every spawn),
     // sprintDir second (sibling artifacts like progress.md).
     expect(session.additionalRoots).toEqual([SANDBOX, SPRINT_DIR]);
     expect(session.signalsFile).toBe(SIGNALS);
+  });
+
+  it('stamps the gen-eval role onto the AiSession so adapters can tag token-usage events', () => {
+    const generator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator');
+    const evaluator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'evaluator');
+    expect(generator.role).toBe('generator');
+    expect(evaluator.role).toBe('evaluator');
   });
 });
