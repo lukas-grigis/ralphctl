@@ -17,6 +17,8 @@ import {
 } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
+import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import {
   DEFAULT_BACKOFF_SCHEDULE,
   delayForRetry,
@@ -225,11 +227,6 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
   };
 };
 
-type AttemptOutcome =
-  | { readonly kind: 'success'; readonly output: ProviderOutput }
-  | { readonly kind: 'rate-limit'; readonly error: RateLimitError }
-  | { readonly kind: 'error'; readonly error: DomainError };
-
 interface SpawnAttemptArgs {
   readonly deps: CopilotProviderDeps;
   readonly spawnFn: ProviderSpawn;
@@ -258,6 +255,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   let model: string | undefined;
   let usage: CopilotUsage = {};
   let stderrBuf = '';
+
+  // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
+  const watchdogBannerId = `watchdog-copilot-${String(child.pid ?? 'unknown')}`;
 
   const onLine = (line: CopilotStreamLine): void => {
     if (line.json !== undefined) {
@@ -322,7 +322,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
       deps.eventBus.publish({
         type: 'banner-show',
-        id: `watchdog-copilot-${String(child.pid ?? 'unknown')}`,
+        id: watchdogBannerId,
         tier: 'warn',
         message: `Watchdog killed stuck copilot process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
         at: IsoTimestamp.now(),
@@ -331,24 +331,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   });
   parser.flush(onLine);
 
-  if (signal === 'SIGTERM') {
-    return {
-      kind: 'error',
-      error: new InvalidStateError({
-        entity: 'copilot-provider',
-        currentState: 'terminated',
-        attemptedAction: 'complete generation',
-        message: 'copilot-provider: process terminated via SIGTERM',
-      }),
-    };
-  }
-
-  if (code === 0) {
+  const onSuccess = async (): Promise<AttemptOutcome> => {
     // audit-[09]: the AI writes `signals.json` directly via its Write tool into
     // `session.outputDir`; the harness validates it post-spawn. The provider never writes
     // signals.json itself. The forensic body buffer below stays — operators inspect it when
     // a proposal comes back empty to decide whether the prompt, the AI, or the validator is
-    // at fault.
+    // at fault. On SIGTERM-recovery `events[]` may be partial; the join still produces a
+    // useful snapshot of what the model emitted before the watchdog stepped in.
     const forensicBody = events.map((e) => e.text).join('\n');
     // Mirror raw body for diagnostic capture. Best-effort: a write failure here is logged but
     // does not fail the session. Critically, the body is captured even when the AI emits no
@@ -366,7 +355,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       }
     }
     if (sessionId !== undefined) {
-      // Emit one TokenUsageEvent per clean-termination spawn — even when Copilot omits usage
+      // Emit one TokenUsageEvent per success spawn — even when Copilot omits usage
       // counters from the meta line, sessionId + provider + (maybe) model is still useful for
       // a TUI widget that correlates rounds with provider sessions. Honest about absent fields.
       const window = contextWindowFor(model);
@@ -398,32 +387,23 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       kind: 'success',
       output: {
         signalsFile: session.signalsFile,
-        exitCode: code,
+        exitCode: code ?? 0,
         ...(sessionId !== undefined ? { sessionId } : {}),
       },
     };
-  }
-
-  if (RATE_LIMIT_RE.test(stderrBuf)) {
-    return {
-      kind: 'rate-limit',
-      error: new RateLimitError({
-        subCode: 'spawn-stderr',
-        message: `copilot-provider: rate-limit detected in stderr (exit ${String(code)})`,
-        ...(sessionId !== undefined ? { sessionId } : {}),
-      }),
-    };
-  }
-
-  return {
-    kind: 'error',
-    error: new InvalidStateError({
-      entity: 'copilot-provider',
-      currentState: `exit-${String(code)}`,
-      attemptedAction: 'complete generation',
-      message: `copilot-provider: process exited with code ${String(code)}: ${stderrBuf.trim() || '<empty stderr>'}`,
-    }),
   };
+
+  return classifySpawnExit({
+    session,
+    exit: { code, signal },
+    stderr: stderrBuf,
+    rateLimitRe: RATE_LIMIT_RE,
+    ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
+    providerName: 'copilot-provider',
+    eventBus: deps.eventBus,
+    watchdogBannerId,
+    onSuccess,
+  });
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>

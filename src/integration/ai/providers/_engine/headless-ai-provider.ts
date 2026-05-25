@@ -30,4 +30,13 @@ export interface ProviderOutput {
   readonly sessionId?: string;
   /** The child process's exit code (0 on the success path). Surfaced so callers can decide their own outcome semantics. */
   readonly exitCode: number;
+  /**
+   * Present only when the spawn exited non-clean (SIGTERM from the idle-stdout watchdog,
+   * or code 143 — macOS Node surfaces SIGTERM either way) but the AI had already written
+   * `signals.json` per the audit-[09] contract, so the harness honoured the work and
+   * recovered. `undefined` on every clean (`code === 0`) exit. Lets the round summary
+   * distinguish a healthy spawn from one that was killed post-Write without log-scraping
+   * — set in `_engine/classify-spawn-exit.ts`.
+   */
+  readonly recoveredFromExit?: { readonly code: number | null; readonly signal: string | null };
 }
