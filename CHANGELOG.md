@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Setup/verify logs no longer contain ANSI colour codes — the harness now sets `NO_COLOR=1`
+  on the shell-script-runner spawn env and the detect-scripts prompt suggests JVM-specific
+  flags (`mvn -B`, `gradle --console=plain`, `sbt -no-colors`) which don't respect `NO_COLOR`.
+
 ## [0.8.0] - 2026-05-24
 
 ### Notes

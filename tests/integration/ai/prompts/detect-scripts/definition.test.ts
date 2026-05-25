@@ -125,18 +125,21 @@ describe('detect-scripts template — detection guidance', () => {
   it('teaches the polyglot-monorepo chain principle generically', async () => {
     const body = await renderedBody();
     // Must mention polyglot monorepos AND the chaining principle (one tool per sub-tree, &&
-    // composition, directory flags). No specific stack name should appear in this section
-    // (mvn / pnpm / gradle / cargo) — the prior version baked the user's example verbatim.
-    const polyglotSection = body.slice(body.indexOf('Polyglot'));
-    expect(polyglotSection.length).toBeGreaterThan(0);
-    expect(polyglotSection).toMatch(/chain.+sub-tree/i);
-    expect(polyglotSection).toMatch(/directory flag/i);
-    // Section must NOT bake in stack-specific recipes.
-    const head = polyglotSection.slice(0, polyglotSection.indexOf('Evidence rule'));
-    expect(head).not.toMatch(/\bmvn\b/);
-    expect(head).not.toMatch(/\bpnpm\b/);
-    expect(head).not.toMatch(/\bgradle\b/);
-    expect(head).not.toMatch(/\bcargo\b/);
+    // composition, directory flags). The polyglot *paragraph itself* must not bake in stack
+    // names (mvn / pnpm / gradle / cargo) — the prior version baked the user's example verbatim.
+    // We slice the polyglot paragraph specifically (up to the next double-newline) rather than
+    // everything after the anchor, because legitimate JVM-flag guidance + worked examples
+    // downstream of the polyglot block do name those tools by necessity.
+    const polyglotStart = body.indexOf('Polyglot');
+    const polyglotParagraph = body.slice(polyglotStart, body.indexOf('\n\n', polyglotStart));
+    expect(polyglotParagraph.length).toBeGreaterThan(0);
+    expect(polyglotParagraph).toMatch(/chain.+sub-tree/i);
+    expect(polyglotParagraph).toMatch(/directory flag/i);
+    // Paragraph must NOT bake in stack-specific recipes.
+    expect(polyglotParagraph).not.toMatch(/\bmvn\b/);
+    expect(polyglotParagraph).not.toMatch(/\bpnpm\b/);
+    expect(polyglotParagraph).not.toMatch(/\bgradle\b/);
+    expect(polyglotParagraph).not.toMatch(/\bcargo\b/);
   });
 
   it('keeps the read-only invariant — the proposal step must not edit or run', async () => {

@@ -30,6 +30,13 @@ lift it verbatim. Prefer this over any inference from manifest scripts.
 entries). **Monorepos**: inspect the root manifest and one or two representative sub-modules to
 confirm the stack, then propose root-level commands that build/verify the whole tree.
 
+**Non-interactive flags for JVM stacks.** The harness captures the script's combined stdout/stderr
+to a plain-text log file. Maven, Gradle, and sbt emit ANSI colour codes by default that render
+poorly there. When proposing a command for one of these tools, append the standard non-interactive
+flag — `mvn -B …`, `gradle --console=plain …`, `sbt -no-colors …` — unless the project's own docs
+prescribe a different invocation. Modern Node / Python / Rust tooling respects `NO_COLOR` which the
+harness sets automatically, so no per-tool flag is needed there.
+
 **Polyglot monorepos.** When sub-trees use different toolchains, chain each sub-tree's command so
 the harness prepares / verifies every half from the repo root. Use `&&` so the first failure stops
 the chain. Prefer each tool's own directory flag over `cd … &&` so the line stays portable; fall
@@ -72,6 +79,15 @@ When only a manifest exists with install + test scripts and no context file:
 <setup-script><tool> install</setup-script>
 <verify-script><tool> test</verify-script>
 <note>No context file found; commands inferred from package.json scripts.</note>
+```
+
+When a JVM build descriptor (e.g. `pom.xml`) drives the project and `CLAUDE.md` names install +
+verify steps:
+
+```
+<setup-script>mvn -B -DskipTests install</setup-script>
+<verify-script>mvn -B verify</verify-script>
+<note>Commands lifted from CLAUDE.md; -B disables interactive prompts and ANSI colour for clean persisted logs.</note>
 ```
 
 </example>

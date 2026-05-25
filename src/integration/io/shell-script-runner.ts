@@ -87,9 +87,20 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
           //     `node_modules/` (lockfile / store mismatch). The same setting is also exposed
           //     as `.npmrc:confirm-modules-purge=false` and `--config.confirm-modules-purge=false`.
           //
+          //   NO_COLOR=1   — the well-defined cross-tool convention (https://no-color.org)
+          //     suppresses ANSI colour codes in tool output. The harness persists script
+          //     output verbatim to `<sprintDir>/logs/{setup,verify}/...` plain-text files;
+          //     without this default the logs fill with `^[[1m^[[30m…` escape sequences that
+          //     render as garbage in editors. Honoured by Node / Python / Rust / Go / Ruby
+          //     and modern CLI tools; tools that don't recognise it ignore it harmlessly.
+          //     Exception: JVM tools (Maven / Gradle / sbt) do NOT respect `NO_COLOR` — those
+          //     are handled at script-authoring time by the `detect-scripts` prompt suggesting
+          //     `mvn -B`, `gradle --console=plain`, `sbt -no-colors`.
+          //
           // Add more entries here as we hit narrow per-tool prompts; do NOT reach for `CI=true`.
-          // Caller-supplied `opts.env` and the user's own env still take precedence.
-          env: { npm_config_confirm_modules_purge: 'false', ...process.env, ...opts.env },
+          // Defaults sit BEFORE `...process.env` so a user who exports `NO_COLOR=` (empty) or
+          // `FORCE_COLOR=1` can override; caller-supplied `opts.env` wins last.
+          env: { npm_config_confirm_modules_purge: 'false', NO_COLOR: '1', ...process.env, ...opts.env },
         });
       } catch (cause) {
         resolve(
