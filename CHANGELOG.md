@@ -9,11 +9,51 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [0.8.1] - 2026-05-25
 
+### Added
+
+- **Implement gen/eval split.** `settings.ai.implement` is now a nested
+  `{ generator, evaluator }` pair — each role carries its own
+  `{ provider, model, effort? }` row so the produce-side and the score-side can
+  run on different providers / models / effort levels. Default: generator
+  `claude-code` / `claude-opus-4-7`, evaluator `openai-codex` / `gpt-5.5`.
+  Legacy flat `ai.implement` rows from ≤ 0.8.0 are silently promoted on read
+  (no schema bump, no user notice); the next `save()` rewrites in the canonical
+  nested shape.
+- **Plateau-driven generator-model escalation.** Two new opt-in
+  `settings.harness` knobs let the gen-eval loop retry a plateaued task on a
+  stronger generator model instead of immediately blocking:
+  `escalateOnPlateau` (default `false`) and `escalationMap` (user overrides
+  merged over the built-in `DEFAULT_ESCALATION_MAP` covering the common
+  in-provider rungs). Escalation is generator-only, fires at most once per
+  task, and stamps `Task.escalatedFromModel` / `escalatedToModel` on first use.
+- **Broken-baseline operator gate.** When the pre-task verify reveals a
+  broken baseline, implement now prompts the operator before launching the AI
+  on the task — so a known-bad baseline can be acknowledged, deferred, or
+  fixed manually instead of silently being attributed away.
+- **Provider availability gating across all four surfaces.** Settings TUI
+  picker, settings TUI submission, CLI `settings set ai.<flow>.provider`, and
+  launch preflight now uniformly refuse providers whose CLI is missing on
+  PATH. The picker labels missing providers as `(not installed)` and surfaces
+  the install command in the footer; CLI / flow rejections embed the exact
+  dotted-path key and the install command in the error. `PROVIDER_INSTALL_HINT`
+  - `renderProviderInstallGuidance` in `detect-cli` are the single source for
+    install copy.
+
 ### Fixed
 
-- Setup/verify logs no longer contain ANSI colour codes — the harness now sets `NO_COLOR=1`
-  on the shell-script-runner spawn env and the detect-scripts prompt suggests JVM-specific
-  flags (`mvn -B`, `gradle --console=plain`, `sbt -no-colors`) which don't respect `NO_COLOR`.
+- **TUI scroll-bleed in prompts**, plus the inline sprint-detail toggle and
+  the active-task collapse toggle no longer redraw outside their region.
+- **Providers — `signals.json` recovery on watchdog SIGTERM / code 143.**
+  A wedged headless AI child that the idle-stdout watchdog kills now has its
+  partial `signals.json` surfaced to the harness instead of being dropped on
+  the floor.
+- **Runtime — plugged three `runner.subscribe()` leaks** that accumulated
+  long-lived listeners across multi-flow TUI navigation.
+- **Setup/verify logs no longer contain ANSI colour codes** — the harness
+  sets `NO_COLOR=1` on the shell-script-runner spawn env and the
+  detect-scripts prompt suggests JVM-specific flags
+  (`mvn -B`, `gradle --console=plain`, `sbt -no-colors`) which don't respect
+  `NO_COLOR`.
 
 ## [0.8.0] - 2026-05-24
 
