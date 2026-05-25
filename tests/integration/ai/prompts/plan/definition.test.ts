@@ -127,7 +127,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('# Interactive Task Planning Protocol');
+    expect(result.value).toContain('<role>');
     expect(result.value).toContain('Approved tickets');
     expect(result.value).toContain('## Output contract');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
