@@ -60,7 +60,9 @@ describe('buildDetectScriptsPrompt — end-to-end against the real template', ()
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const body = result.value as unknown as string;
-    expect(body).toContain('# Repository Script Detection Protocol');
+    expect(body).toContain('<role>');
+    expect(body).toContain('<goal>');
+    expect(body).toContain('<output_contract>');
     expect(body).toContain('/repo/api');
     expect(body).toContain('## Output contract');
     // No placeholders remain.
