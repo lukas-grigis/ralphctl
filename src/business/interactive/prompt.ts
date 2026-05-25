@@ -11,6 +11,12 @@ export interface Choice<T> {
   readonly value: T;
   /** Optional one-line clarifier rendered next to the label. Reserved for richer renderers. */
   readonly description?: string;
+  /**
+   * When `true` the renderer must skip the entry on keyboard navigation, dim the label, and
+   * reject submission. Used by gating surfaces (e.g. the Settings provider picker dimming
+   * providers whose CLI is missing). Defaults to `false` / undefined.
+   */
+  readonly disabled?: boolean;
 }
 
 /** Input bag for {@link InteractivePrompt.askConfirm}. Object form keeps room for future fields. */

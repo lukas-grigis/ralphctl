@@ -4,6 +4,11 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
+import {
+  detectInstalledProviders as defaultDetect,
+  PROVIDER_BINARY,
+  renderProviderInstallGuidance,
+} from '@src/integration/system/detect-cli.ts';
 
 import type {
   SettingsSetProviderCtx,
@@ -33,6 +38,26 @@ export const createSettingsSetProviderFlow = (deps: SettingsSetProviderDeps): El
       async execute(input) {
         const current = await deps.settingsRepo.load();
         if (!current.ok) return Result.error(current.error);
+        // Availability gate runs BEFORE the schema rebuild so an unavailable provider never
+        // touches disk. The probe is the same one the launch-time fail-fast helper uses, so
+        // operators see a consistent gate across surfaces: a provider that fails here also
+        // fails the next launch.
+        const detect = deps.detectInstalledProviders ?? defaultDetect;
+        const installed = await detect();
+        if (!installed.has(input.provider)) {
+          const settingsKey =
+            input.flow === 'implement'
+              ? `ai.implement.${input.role ?? 'generator'}.provider`
+              : `ai.${input.flow}.provider`;
+          return Result.error(
+            new ValidationError({
+              field: settingsKey,
+              value: input.provider,
+              message: `${input.provider} CLI (${PROVIDER_BINARY[input.provider]}) not on PATH — cannot set ${settingsKey}`,
+              hint: renderProviderInstallGuidance(input.provider),
+            })
+          );
+        }
         const defaultsForProvider = defaultAiSettingsForProvider(input.provider);
         let nextAi: AiSettings;
         if (input.flow === 'implement') {

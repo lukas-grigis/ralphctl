@@ -117,4 +117,38 @@ describe('checkCli', () => {
     expect(result.reason).toContain('ai.implement.evaluator.provider');
     expect(result.reason).not.toContain('ai.implement.generator.provider');
   });
+
+  it('includes an install command and a docs URL in the failure reason', async () => {
+    // Operators reading the launch-time banner shouldn't have to guess how to install the
+    // missing CLI — the message names a one-shot command for the operator's OS plus a link
+    // to the vendor's setup docs.
+    const settings = withFlowProvider('refine', 'openai-codex');
+    const result = await checkCli('refine', settings, { detect: detectFor([]) });
+    expect(result).toBeDefined();
+    if (result === undefined || result.ok) return;
+    expect(result.reason).toMatch(/install with: \S/);
+    expect(result.reason).toContain('https://github.com/openai/codex');
+  });
+
+  it('install-guidance coverage spans every provider', async () => {
+    // Probe each provider in isolation so changes to the install guidance table cause the
+    // test to fail loudly rather than slipping past one-by-one assertions. Asserts on the
+    // vendor's setup docs URL (OS-invariant) rather than a per-OS command.
+    const cases = [
+      { provider: 'claude-code' as const, docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup' },
+      {
+        provider: 'github-copilot' as const,
+        docsUrl: 'https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli',
+      },
+      { provider: 'openai-codex' as const, docsUrl: 'https://github.com/openai/codex' },
+    ];
+    for (const { provider, docsUrl } of cases) {
+      const settings = withFlowProvider('refine', provider);
+      const result = await checkCli('refine', settings, { detect: detectFor([]) });
+      expect(result).toBeDefined();
+      if (result === undefined || result.ok) continue;
+      expect(result.reason).toMatch(/install with: \S/);
+      expect(result.reason).toContain(docsUrl);
+    }
+  });
 });

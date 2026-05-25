@@ -16,6 +16,133 @@ export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
 };
 
 /**
+ * The three desktop OS families ralphctl supports. `darwin` / `linux` / `win32` mirror Node's
+ * `process.platform` values; any other value the runtime might report (`aix`, `freebsd`, …)
+ * is mapped onto `linux` by {@link resolveInstallPlatform}, since the POSIX install paths apply.
+ */
+export type InstallPlatform = 'darwin' | 'linux' | 'win32';
+
+/**
+ * Per-provider install guidance derived from each vendor's official setup docs. Each OS lists
+ * commands in recommended order — the first entry is the one ralphctl points operators at
+ * inline; the rest surface as "alternatives" in the richer render. `docsUrl` is the canonical
+ * setup page operators can open when none of the listed commands fit their environment.
+ *
+ * Sources (verified against vendor docs at the time of writing):
+ *   - claude-code:    https://docs.claude.com/en/docs/claude-code/setup
+ *   - github-copilot: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli
+ *                     plus https://cli.github.com (for the underlying `gh` install)
+ *   - openai-codex:   https://github.com/openai/codex
+ *
+ * Single source of truth — adding a new provider means one entry here plus the existing entry
+ * in `PROVIDER_BINARY`.
+ */
+export interface ProviderInstallGuidance {
+  readonly docsUrl: string;
+  readonly commandsByPlatform: Readonly<Record<InstallPlatform, readonly string[]>>;
+}
+
+export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInstallGuidance>> = {
+  'claude-code': {
+    docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup',
+    commandsByPlatform: {
+      darwin: [
+        'brew install --cask claude-code',
+        'curl -fsSL https://claude.ai/install.sh | bash',
+        'npm install -g @anthropic-ai/claude-code',
+      ],
+      linux: ['curl -fsSL https://claude.ai/install.sh | bash', 'npm install -g @anthropic-ai/claude-code'],
+      win32: [
+        'winget install Anthropic.ClaudeCode',
+        'irm https://claude.ai/install.ps1 | iex',
+        'npm install -g @anthropic-ai/claude-code',
+      ],
+    },
+  },
+  'github-copilot': {
+    docsUrl: 'https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli',
+    commandsByPlatform: {
+      darwin: ['brew install gh && gh extension install github/gh-copilot', 'gh extension install github/gh-copilot'],
+      linux: [
+        'install gh from https://github.com/cli/cli/blob/trunk/docs/install_linux.md, then: gh extension install github/gh-copilot',
+        'gh extension install github/gh-copilot',
+      ],
+      win32: [
+        'winget install --id GitHub.cli && gh extension install github/gh-copilot',
+        'gh extension install github/gh-copilot',
+      ],
+    },
+  },
+  'openai-codex': {
+    docsUrl: 'https://github.com/openai/codex',
+    commandsByPlatform: {
+      darwin: [
+        'brew install --cask codex',
+        'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+        'npm install -g @openai/codex',
+      ],
+      linux: ['curl -fsSL https://chatgpt.com/codex/install.sh | sh', 'npm install -g @openai/codex'],
+      win32: [
+        'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+        'npm install -g @openai/codex',
+      ],
+    },
+  },
+};
+
+/**
+ * Collapse Node's `process.platform` onto the three OS families we publish guidance for.
+ * Unknown values (e.g. `aix`, `freebsd`) fall back to `linux` — its POSIX install commands
+ * are the closest match.
+ */
+export const resolveInstallPlatform = (platform: NodeJS.Platform = process.platform): InstallPlatform => {
+  if (platform === 'darwin' || platform === 'win32') return platform;
+  return 'linux';
+};
+
+/**
+ * One-line install command tailored to the operator's OS — the first entry in the OS-specific
+ * list (brew on macOS, winget on Windows, the curl installer on Linux). Used in inline,
+ * space-constrained surfaces (TUI footer, single-line launch banner, ValidationError summary).
+ */
+export const primaryInstallCommand = (provider: AiProvider, platform: NodeJS.Platform = process.platform): string => {
+  const os = resolveInstallPlatform(platform);
+  const list = PROVIDER_INSTALL_GUIDANCE[provider].commandsByPlatform[os];
+  const first = list[0];
+  if (first === undefined) {
+    throw new Error(`No install command registered for ${provider} on ${os}`);
+  }
+  return first;
+};
+
+/**
+ * Render the multi-line "install X" guidance ralphctl shows when an availability gate fires.
+ * Lists every OS-appropriate install option (brew, winget, native installer, npm) plus a link
+ * to the vendor's setup docs so operators can verify against the canonical source. Used in
+ * richer contexts (validation-error hint, doctor-style banners) where a single one-liner is
+ * not enough.
+ *
+ * Format:
+ *
+ *   <provider> CLI (<binary>) not on PATH
+ *   Install options (<os>):
+ *     • <cmd 1>
+ *     • <cmd 2>
+ *   Docs: <docs url>
+ */
+export const renderProviderInstallGuidance = (
+  provider: AiProvider,
+  platform: NodeJS.Platform = process.platform
+): string => {
+  const os = resolveInstallPlatform(platform);
+  const guidance = PROVIDER_INSTALL_GUIDANCE[provider];
+  const commands = guidance.commandsByPlatform[os];
+  const header = `${provider} CLI (${PROVIDER_BINARY[provider]}) not on PATH`;
+  const bullets = commands.map((c) => `  • ${c}`).join('\n');
+  return `${header}\nInstall options (${os}):\n${bullets}\nDocs: ${guidance.docsUrl}`;
+};
+
+/**
  * Test seam — async predicate that returns `true` when the binary resolves on the current
  * `PATH`. The production implementation shells out to `command -v <binary>`; tests inject a
  * stub that returns based on a mocked set.
