@@ -77,4 +77,11 @@ export interface AiSession {
    * and may be removed in a follow-up.
    */
   readonly outputDir?: AbsolutePath;
+  /**
+   * Implement-flow gen-eval role this spawn runs under. Adapters stamp it onto the
+   * {@link TokenUsageEvent} they publish post-spawn so per-session subscribers can attribute
+   * spend to one half of a cross-provider implement pair without inferring from `provider`
+   * alone. Single-role flows leave this unset; the adapters skip the field accordingly.
+   */
+  readonly role?: 'generator' | 'evaluator';
 }

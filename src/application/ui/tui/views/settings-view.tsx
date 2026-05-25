@@ -38,7 +38,7 @@ import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-a
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
-import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
@@ -133,29 +133,40 @@ const buildEditableFields = (s: Settings): readonly EditableField[] => {
     current: s.ai.effort ?? DEFAULT_TOKEN,
   });
 
-  for (const flow of FLOW_IDS) {
-    const row = s.ai[flow];
+  const pushRowFields = (keyPrefix: string, label: string, row: AiFlowSettings): void => {
     fields.push({
       kind: 'select',
-      key: `ai.${flow}.provider`,
-      label: `${capitalize(flow)} provider`,
+      key: `${keyPrefix}.provider`,
+      label: `${label} provider`,
       options: AI_PROVIDERS,
       current: row.provider,
     });
     fields.push({
       kind: 'model',
-      key: `ai.${flow}.model`,
-      label: `${capitalize(flow)} model`,
+      key: `${keyPrefix}.model`,
+      label: `${label} model`,
       options: [...modelOptionsFor(row.provider), CUSTOM_TOKEN],
       current: row.model,
     });
     fields.push({
       kind: 'select',
-      key: `ai.${flow}.effort`,
-      label: `${capitalize(flow)} effort`,
+      key: `${keyPrefix}.effort`,
+      label: `${label} effort`,
       options: [DEFAULT_TOKEN, ...PROVIDER_EFFORT_LEVELS[row.provider]],
       current: row.effort ?? DEFAULT_TOKEN,
     });
+  };
+
+  for (const flow of FLOW_IDS) {
+    if (flow === 'implement') {
+      // Implement splits into a generator / evaluator pair — render one set of fields per
+      // role so the user can configure each independently. Keys mirror the dotted-path
+      // grammar consumed by `applySettingsKey`.
+      pushRowFields('ai.implement.generator', 'Implement (generator)', s.ai.implement.generator);
+      pushRowFields('ai.implement.evaluator', 'Implement (evaluator)', s.ai.implement.evaluator);
+      continue;
+    }
+    pushRowFields(`ai.${flow}`, capitalize(flow), s.ai[flow]);
   }
 
   fields.push(
@@ -295,18 +306,24 @@ export const SettingsView = (): React.JSX.Element => {
     }
     // Per-flow provider switches route through `settings-set-provider` so the row's model
     // gets rebuilt from the target provider's defaults — keeps the schema's per-row
-    // discriminated union satisfied.
-    const providerMatch = /^ai\.(refine|plan|implement|readiness|ideate)\.provider$/.exec(field.key);
-    if (providerMatch !== null) {
-      const flow = providerMatch[1] as FlowId;
+    // discriminated union satisfied. Implement carries a generator + evaluator pair and is
+    // addressed via a 4-segment key; every other flow is the 3-segment shape.
+    const implementRoleProviderMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(field.key);
+    const flatProviderMatch = /^ai\.(refine|plan|readiness|ideate)\.provider$/.exec(field.key);
+    if (implementRoleProviderMatch !== null || flatProviderMatch !== null) {
       const providerFlow = createSettingsSetProviderFlow({ settingsRepo: deps.settingsRepo });
-      const saved = await providerFlow.execute({ input: { flow, provider: raw as AiProvider } });
+      const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);
+      const role = implementRoleProviderMatch?.[1] as 'generator' | 'evaluator' | undefined;
+      const saved = await providerFlow.execute({
+        input: { flow, provider: raw as AiProvider, ...(role !== undefined ? { role } : {}) },
+      });
       if (!saved.ok) {
         setFeedback({ tone: 'error', text: saved.error.error.message });
         closeEditor();
         return;
       }
-      setFeedback({ tone: 'ok', text: `${capitalize(flow)} provider = ${raw} · model reset to default` });
+      const label = role !== undefined ? `Implement (${role})` : capitalize(flow);
+      setFeedback({ tone: 'ok', text: `${label} provider = ${raw} · model reset to default` });
       closeEditor();
       await refresh();
       return;
@@ -433,19 +450,52 @@ export const SettingsView = (): React.JSX.Element => {
               <FieldList fields={[{ label: 'Effort (default)', value: valueFor('ai.effort') }]} />
             </Card>
           </Box>
-          {FLOW_IDS.map((flow) => (
-            <Box key={flow} marginTop={spacing.section}>
-              <Card title={`AI — ${capitalize(flow)}`} tone="primary">
-                <FieldList
-                  fields={[
-                    { label: 'Provider', value: valueFor(`ai.${flow}.provider`) },
-                    { label: 'Model', value: valueFor(`ai.${flow}.model`) },
-                    { label: 'Effort', value: valueFor(`ai.${flow}.effort`) },
-                  ]}
-                />
-              </Card>
-            </Box>
-          ))}
+          {FLOW_IDS.map((flow) =>
+            flow === 'implement' ? (
+              // Implement is the only flow whose runtime carries two AI sessions per task — the
+              // generator that proposes a commit and the evaluator that judges it. Render the
+              // parent flow name as a non-editable card title; the two roles render as indented
+              // sub-rows underneath so the operator sees at a glance that they're two halves of
+              // the same flow rather than two independent flows. Edits on either role flow
+              // through the same dotted-path keys (`ai.implement.<role>.<field>`), so changing
+              // one role's provider/model/effort cannot perturb the other.
+              <Box key={flow} marginTop={spacing.section}>
+                <Card title="AI — Implement" tone="primary">
+                  {(['generator', 'evaluator'] as const).map((role, idx) => (
+                    <Box
+                      key={role}
+                      flexDirection="column"
+                      paddingLeft={spacing.indent}
+                      marginTop={idx === 0 ? 0 : spacing.section}
+                    >
+                      <Text dimColor bold>
+                        {role}
+                      </Text>
+                      <FieldList
+                        fields={[
+                          { label: 'Provider', value: valueFor(`ai.implement.${role}.provider`) },
+                          { label: 'Model', value: valueFor(`ai.implement.${role}.model`) },
+                          { label: 'Effort', value: valueFor(`ai.implement.${role}.effort`) },
+                        ]}
+                      />
+                    </Box>
+                  ))}
+                </Card>
+              </Box>
+            ) : (
+              <Box key={flow} marginTop={spacing.section}>
+                <Card title={`AI — ${capitalize(flow)}`} tone="primary">
+                  <FieldList
+                    fields={[
+                      { label: 'Provider', value: valueFor(`ai.${flow}.provider`) },
+                      { label: 'Model', value: valueFor(`ai.${flow}.model`) },
+                      { label: 'Effort', value: valueFor(`ai.${flow}.effort`) },
+                    ]}
+                  />
+                </Card>
+              </Box>
+            )
+          )}
           <Box marginTop={spacing.section}>
             <Card title="Harness budgets" tone="primary">
               <FieldList

@@ -8,12 +8,17 @@ const harnessConfig: Settings['harness'] = {
   maxAttempts: 3,
   rateLimitRetries: 2,
   plateauThreshold: 2,
+  escalateOnPlateau: false,
+  escalationMap: {},
 };
 
 const claudeConfig: Settings['ai'] = {
   refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
-  implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  },
   readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
@@ -21,7 +26,10 @@ const claudeConfig: Settings['ai'] = {
 const copilotConfig: Settings['ai'] = {
   refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
   plan: { provider: 'github-copilot', model: 'gpt-5.4' },
-  implement: { provider: 'github-copilot', model: 'gpt-5.4' },
+  implement: {
+    generator: { provider: 'github-copilot', model: 'gpt-5.4' },
+    evaluator: { provider: 'github-copilot', model: 'gpt-5.4' },
+  },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
   ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
@@ -29,7 +37,10 @@ const copilotConfig: Settings['ai'] = {
 const codexConfig: Settings['ai'] = {
   refine: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
   plan: { provider: 'openai-codex', model: 'gpt-5.4' },
-  implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+  implement: {
+    generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+    evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+  },
   readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
   ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
@@ -57,7 +68,10 @@ describe('createAiProvider', () => {
     const mixed: Settings['ai'] = {
       refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
       plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
-      implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+      implement: {
+        generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+      },
       readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
       ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
     };

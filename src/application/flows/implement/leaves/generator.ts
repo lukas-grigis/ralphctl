@@ -28,6 +28,7 @@ import { renderSidecars } from '@src/integration/ai/contract/_engine/render-side
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
+import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import {
   nextRoundNum,
   readRoundSessionId,
@@ -186,6 +187,14 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           totalCap: deps.maxTurns,
           at: deps.clock(),
         });
+        // Release any prior escalation banner — once a new generator round starts on this
+        // task, the operator-facing "escalated to <model>" message has served its purpose and
+        // shouldn't hang around blocking the banner slot. Idempotent against an absent banner.
+        deps.eventBus.publish({
+          type: 'banner-clear',
+          id: escalationBannerId(String(taskId)),
+          at: deps.clock(),
+        });
         deps.logger
           .named('task.round-started')
           .info(`round ${String(roundNum)}/${String(deps.maxTurns)} of attempt ${String(input.task.attempts.length)}`, {
@@ -233,14 +242,20 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           // trail must never take down the chain).
           await writeRoundPrompt(input.workspaceRoot, roundNum, 'generator', String(prompt.value), deps.logger);
 
+          // Per-task generator-model escalation: when the task carries an `escalatedToModel`
+          // (stamped by the prior plateau's escalation policy), spawn the generator on that
+          // upgraded model instead of the configured row. Evaluator model is intentionally
+          // unaffected — escalation only touches the generator role.
+          const effectiveModel = task.escalatedToModel ?? deps.model;
           const spawn = await deps.provider.generate(
             implementSession(
               input.workspaceRoot,
               deps.cwd,
               deps.sprintDir,
               prompt.value,
-              deps.model,
+              effectiveModel,
               signalsFile,
+              'generator',
               input.priorGeneratorSessionId,
               deps.effort
             )

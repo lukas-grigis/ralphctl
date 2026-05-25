@@ -21,12 +21,18 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
  * `implement` and `plan` at `xhigh` for the deeper-reasoning autonomous flows; `readiness`
  * at `medium` (read-only inventory, no deep reasoning needed); `refine` and `ideate` leave
  * effort unset so they inherit the global `high`. Global `ai.effort` is stamped to `high`.
+ *
+ * Implement stamps the same row on both generator and evaluator — splitting roles across
+ * providers is configured explicitly by editing one of the role keys, not by a preset.
  */
 const MIXED: AiSettings = {
   effort: 'high',
   refine: { provider: 'openai-codex', model: 'gpt-5.5' },
   plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'xhigh' },
-  implement: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+  },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
   ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
 };
@@ -40,13 +46,17 @@ const MIXED: AiSettings = {
  *
  * Effort matrix mirrors Mixed: `implement` and `plan` at `xhigh` (Codex floors `xhigh`
  * back to `high` at resolve time via the provider ceiling), `readiness` at `medium`,
- * `refine` and `ideate` inherit global `high`.
+ * `refine` and `ideate` inherit global `high`. Implement.generator and implement.evaluator
+ * share the same row — the preset story is "every flow on this provider".
  */
 const CLAUDE_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   plan: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
-  implement: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+  },
   readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
   ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
 };
@@ -55,7 +65,10 @@ const COPILOT_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
   plan: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
-  implement: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+  implement: {
+    generator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+  },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
   ideate: { provider: 'github-copilot', model: 'claude-opus-4.6' },
 };
@@ -64,7 +77,10 @@ const CODEX_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'openai-codex', model: 'gpt-5.4' },
   plan: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
-  implement: { provider: 'openai-codex', model: 'gpt-5.3-codex', effort: 'high' },
+  implement: {
+    generator: { provider: 'openai-codex', model: 'gpt-5.3-codex', effort: 'high' },
+    evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex', effort: 'high' },
+  },
   readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
   ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
 };

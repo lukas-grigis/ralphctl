@@ -18,4 +18,18 @@ export interface IterationConfig {
    * progress and meaningfully-shifted critiques — see `business/task/plateau-detection.ts`.
    */
   readonly plateauThreshold: number;
+  /**
+   * When the gen-eval loop exits on a plateau, escalate the generator's model one rung up
+   * the ladder defined by {@link escalationMap} (merged with the built-in
+   * `DEFAULT_ESCALATION_MAP` in `business/task/escalation-map.ts`) and reissue the attempt
+   * instead of transitioning the task straight to `blocked`. Mirrors the boolean on
+   * `settings.harness.escalateOnPlateau`.
+   */
+  readonly escalateOnPlateau: boolean;
+  /**
+   * User overrides for `DEFAULT_ESCALATION_MAP`. Merged in
+   * `business/task/escalation-map.ts#mergeEscalationMap` (user keys win, user-only keys extend
+   * the ladder).
+   */
+  readonly escalationMap: Readonly<Record<string, string>>;
 }

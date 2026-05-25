@@ -20,9 +20,11 @@ describe('ralphctl settings apply-preset', () => {
     expect(show.exitCode).toBe(0);
     const parsed = JSON.parse(show.stdout) as Settings;
     expect(parsed.ai.effort).toBe('high');
-    for (const flow of ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const) {
+    for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
       expect(parsed.ai[flow].provider).toBe('openai-codex');
     }
+    expect(parsed.ai.implement.generator.provider).toBe('openai-codex');
+    expect(parsed.ai.implement.evaluator.provider).toBe('openai-codex');
   });
 
   it('stamps the mixed preset', async () => {
@@ -33,7 +35,8 @@ describe('ralphctl settings apply-preset', () => {
     const parsed = JSON.parse(show.stdout) as Settings;
     expect(parsed.ai.refine.provider).toBe('openai-codex');
     expect(parsed.ai.plan.provider).toBe('github-copilot');
-    expect(parsed.ai.implement.provider).toBe('claude-code');
+    expect(parsed.ai.implement.generator.provider).toBe('claude-code');
+    expect(parsed.ai.implement.evaluator.provider).toBe('claude-code');
     expect(parsed.ai.readiness.provider).toBe('github-copilot');
     expect(parsed.ai.ideate.provider).toBe('claude-code');
   });
@@ -42,12 +45,12 @@ describe('ralphctl settings apply-preset', () => {
     const apply = await runCliCaptured(cli, ['settings', 'apply-preset', 'claude-only']);
     expect(apply.exitCode).toBe(0);
 
-    const edit = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.model', 'claude-haiku-4-5']);
+    const edit = await runCliCaptured(cli, ['settings', 'set', 'ai.implement.generator.model', 'claude-haiku-4-5']);
     expect(edit.exitCode).toBe(0);
 
     const show = await runCliCaptured(cli, ['settings', 'show']);
     const parsed = JSON.parse(show.stdout) as Settings;
-    expect(parsed.ai.implement.model).toBe('claude-haiku-4-5');
+    expect(parsed.ai.implement.generator.model).toBe('claude-haiku-4-5');
     // Other rows still on the claude-only matrix.
     expect(parsed.ai.plan.provider).toBe('claude-code');
   });

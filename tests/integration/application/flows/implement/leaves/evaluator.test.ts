@@ -8,6 +8,7 @@ import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -98,5 +99,23 @@ describe('evaluatorLeaf', () => {
     const entries = await fs.readdir(dir);
     expect(entries).toContain('prompt.md');
     expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([]);
+  });
+
+  it('uses the configured evaluator model regardless of task.escalatedToModel — escalation never touches the evaluator role', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    if (!stamped.ok) throw stamped.error;
+    const task = stamped.value;
+    const deps = buildDeps();
+    const leaf = evaluatorLeaf({ ...deps, model: 'evaluator-model-fixed' }, task.id);
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    };
+    await leaf.execute(ctx);
+    expect(deps.provider.recordedSessions[0]?.model).toBe('evaluator-model-fixed');
   });
 });

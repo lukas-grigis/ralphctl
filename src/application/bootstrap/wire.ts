@@ -46,6 +46,7 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 import type { VersionChecker } from '@src/business/version/version-checker.ts';
 import { createNpmVersionChecker } from '@src/integration/version/npm-version-checker.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
+import { warnEscalationMapSelfLoops } from '@src/business/task/escalation-map.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
@@ -319,6 +320,10 @@ export const wire = (opts: WireOptions): AppDeps => {
   // unified pipe TUI panels, file appenders, and webhooks all subscribe to.
   const eventBus = createInMemoryEventBus();
   const logger = createEventBusLogger({ eventBus, clock: IsoTimestamp.now });
+  // Settings-load-time validation that emits, but does not reject: self-loop escalation-map
+  // entries (`'foo' → 'foo'`) parse cleanly through the schema but have no runtime effect, so
+  // we surface them as warn-level log records the user can spot in the TUI status panel.
+  warnEscalationMapSelfLoops(opts.settings.harness.escalationMap, logger);
   // OS-attention notifier slot. The TUI bootstrap (launch.ts) injects the real Darwin/Linux
   // adapter and ALSO calls `startNotificationSubscriber` to attach it to the bus; everything
   // else (tests, CLI one-shots) takes the no-op fallback and no subscriber is started, so an
@@ -378,7 +383,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     // Wire-time seed — the per-launch launcher rebuilds skillsAdapter from the dispatched
     // flow's provider. Tests / one-shot CLI paths that read `app.skillsAdapter` before any
     // flow launches get the implement row's provider as the default.
-    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.provider, logger }),
+    skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.generator.provider, logger }),
     skillSource: createBundledSkillSource(),
     notificationDispatcher,
     chainLogSink,

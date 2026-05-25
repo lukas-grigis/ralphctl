@@ -291,11 +291,14 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
         // Per-flow rows can each pick a provider; surface every provider that appears on any row
         // as "configured" so the doctor flags binaries the user actually relies on.
         const configuredProviders: ReadonlySet<AiProvider> = settings.ok
-          ? new Set<AiProvider>(
-              (['refine', 'plan', 'implement', 'readiness', 'ideate'] as const).map(
-                (f) => settings.value.ai[f].provider
-              )
-            )
+          ? new Set<AiProvider>([
+              settings.value.ai.refine.provider,
+              settings.value.ai.plan.provider,
+              settings.value.ai.implement.generator.provider,
+              settings.value.ai.implement.evaluator.provider,
+              settings.value.ai.readiness.provider,
+              settings.value.ai.ideate.provider,
+            ])
           : new Set<AiProvider>();
         let codexInstalled = false;
         for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {

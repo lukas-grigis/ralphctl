@@ -36,7 +36,19 @@ export interface ImplementDeps {
   readonly sprintRepo: SprintRepository;
   readonly sprintExecutionRepo: SprintExecutionRepository;
   readonly taskRepo: TaskRepository;
-  readonly provider: HeadlessAiProvider;
+  /**
+   * Generator-role provider — drives the generator leaf of every gen-eval turn. Built by the
+   * launcher from `settings.ai.implement.generator`. May share an instance with
+   * {@link evaluatorProvider} when both roles target the same provider; the per-call cost of a
+   * fresh adapter is negligible, so the launcher constructs one per role unconditionally.
+   */
+  readonly generatorProvider: HeadlessAiProvider;
+  /**
+   * Evaluator-role provider — drives the evaluator leaf of every gen-eval turn. Built from
+   * `settings.ai.implement.evaluator`. Separate from {@link generatorProvider} so the two
+   * roles can run on different providers (e.g. Claude generator + Codex evaluator).
+   */
+  readonly evaluatorProvider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   readonly signals: HarnessSignalSink;
   readonly eventBus: EventBus;

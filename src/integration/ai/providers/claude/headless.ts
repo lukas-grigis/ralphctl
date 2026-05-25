@@ -377,6 +377,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
           ? { cacheCreationTokens: envelope.usage.cacheCreationTokens }
           : {}),
         ...(window !== undefined ? { contextWindow: window } : {}),
+        ...(session.role !== undefined ? { role: session.role } : {}),
         at: IsoTimestamp.now(),
       });
     }

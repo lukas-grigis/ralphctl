@@ -5,7 +5,8 @@ import { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task.ts';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { tasksFile } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -99,6 +100,19 @@ describe('createFsTaskRepository', () => {
     if (!page.ok) throw new Error('expected ok');
     expect(page.value).toHaveLength(1);
     expect(page.value[0]?.name).toBe('new');
+  });
+
+  it('round-trips escalatedFromModel / escalatedToModel across save → load (resume path)', async () => {
+    const repo = createFsTaskRepository({ root });
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    if (!escalated.ok) throw escalated.error;
+    await repo.saveAll(sprintId, [escalated.value]);
+
+    const reloaded = await repo.findById(sprintId, escalated.value.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(reloaded.value.escalatedToModel).toBe('claude-opus-4-7');
   });
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {

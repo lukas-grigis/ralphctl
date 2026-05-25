@@ -8,10 +8,7 @@ const withGlobalEffort = (effort: Settings['ai']['effort']): Settings => ({
   ai: { ...DEFAULT_SETTINGS.ai, ...(effort !== undefined ? { effort } : {}) },
 });
 
-const withPerFlowEffort = (
-  flow: 'refine' | 'plan' | 'implement' | 'readiness' | 'ideate',
-  effort: string
-): Settings => ({
+const withPerFlowEffort = (flow: 'refine' | 'plan' | 'readiness' | 'ideate', effort: string): Settings => ({
   ...DEFAULT_SETTINGS,
   ai: {
     ...DEFAULT_SETTINGS.ai,
@@ -35,6 +32,9 @@ describe('resolveEffort', () => {
       } as Settings['ai'],
     };
     expect(resolveEffort('plan', settings)).toBe('max');
+    // Implement reads from the generator row — DEFAULT_SETTINGS.implement.generator has no
+    // explicit effort, so the global 'medium' surfaces. Codex evaluator's effort is read
+    // separately at the spawn site and is not the concern of resolveEffort.
     expect(resolveEffort('implement', settings)).toBe('medium');
   });
 
@@ -50,7 +50,10 @@ describe('resolveEffort', () => {
         effort: 'xhigh',
         refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         plan: { provider: 'openai-codex', model: 'gpt-5.5' },
-        implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        implement: {
+          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
       },
@@ -73,7 +76,10 @@ describe('resolveEffort', () => {
         effort: 'xhigh',
         refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
         plan: { provider: 'openai-codex', model: 'gpt-5.5' },
-        implement: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        implement: {
+          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
       },

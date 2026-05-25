@@ -36,6 +36,7 @@ import {
 } from '@src/application/ui/shared/launcher.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
+import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
@@ -168,6 +169,13 @@ export const FlowsView = (): React.JSX.Element => {
           // repo (detect-scripts / detect-skills / readiness) skip the prompt after the first
           // pick of the session. First launch leaves extras empty → the user picks → the
           // runner emits `completed` with the chosen `ctx.repository` and we record it below.
+          // Pull the CLI-derived implement-role overrides (parsed from
+          // `--implement-{generator,evaluator}-{provider,model}` on the bare `ralphctl`
+          // invocation) only when launching the implement flow — every other flow ignores
+          // them. Reading through the module-level holder keeps the override path
+          // out of the UI-state context while still threading the parsed shape into the
+          // launcher's `LaunchExtras`.
+          const implementRoleOverrides = entry.manifest.id === 'implement' ? getImplementRoleOverrides() : undefined;
           const result = await launchFlow(
             { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
             entry.manifest.id,
@@ -175,6 +183,7 @@ export const FlowsView = (): React.JSX.Element => {
             {
               ...(ui.sessionRepositoryId !== undefined ? { repositoryId: ui.sessionRepositoryId } : {}),
               ...(modelOverride !== undefined ? { modelOverride } : {}),
+              ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
               settingsSnapshot: settings,
             }
           );

@@ -52,9 +52,22 @@ describe('presets', () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         for (const flow of FLOW_IDS) {
           expect(out.ai[flow]).toBeDefined();
+          if (flow === 'implement') {
+            for (const role of ['generator', 'evaluator'] as const) {
+              expect(out.ai.implement[role].provider).toMatch(/^(claude-code|github-copilot|openai-codex)$/);
+              expect(out.ai.implement[role].model.length).toBeGreaterThan(0);
+            }
+            continue;
+          }
           expect(out.ai[flow].provider).toMatch(/^(claude-code|github-copilot|openai-codex)$/);
           expect(out.ai[flow].model.length).toBeGreaterThan(0);
         }
+      });
+
+      it(`'${preset}' stamps both implement.generator and implement.evaluator with the same provider`, () => {
+        const out = applyPreset(preset, DEFAULT_SETTINGS);
+        expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
+        expect(out.ai.implement.generator.model).toBe(out.ai.implement.evaluator.model);
       });
     }
 
@@ -64,13 +77,15 @@ describe('presets', () => {
       it('routes refine to openai-codex, plan to github-copilot, implement to claude-code', () => {
         expect(out.ai.refine.provider).toBe('openai-codex');
         expect(out.ai.plan.provider).toBe('github-copilot');
-        expect(out.ai.implement.provider).toBe('claude-code');
+        expect(out.ai.implement.generator.provider).toBe('claude-code');
+        expect(out.ai.implement.evaluator.provider).toBe('claude-code');
         expect(out.ai.readiness.provider).toBe('github-copilot');
         expect(out.ai.ideate.provider).toBe('claude-code');
       });
 
       it('sets implement and plan effort to xhigh, readiness to medium, refine/ideate unset', () => {
-        expect(out.ai.implement.effort).toBe('xhigh');
+        expect(out.ai.implement.generator.effort).toBe('xhigh');
+        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
         expect(out.ai.plan.effort).toBe('xhigh');
         expect(out.ai.readiness.effort).toBe('medium');
         expect(out.ai.refine.effort).toBeUndefined();
@@ -90,13 +105,19 @@ describe('presets', () => {
 
         it(`routes every flow to ${provider}`, () => {
           for (const flow of FLOW_IDS) {
+            if (flow === 'implement') {
+              expect(out.ai.implement.generator.provider).toBe(provider);
+              expect(out.ai.implement.evaluator.provider).toBe(provider);
+              continue;
+            }
             expect(out.ai[flow].provider).toBe(provider);
           }
         });
 
         it('matches the effort matrix (implement+plan xhigh / codex high, readiness medium, refine+ideate unset)', () => {
           const heavyEffort = provider === 'openai-codex' ? 'high' : 'xhigh';
-          expect(out.ai.implement.effort).toBe(heavyEffort);
+          expect(out.ai.implement.generator.effort).toBe(heavyEffort);
+          expect(out.ai.implement.evaluator.effort).toBe(heavyEffort);
           expect(out.ai.plan.effort).toBe(heavyEffort);
           expect(out.ai.readiness.effort).toBe('medium');
           expect(out.ai.refine.effort).toBeUndefined();
@@ -111,14 +132,17 @@ describe('presets', () => {
         ...applied,
         ai: {
           ...applied.ai,
-          implement: { ...applied.ai.implement, model: 'claude-haiku-4-5' },
+          implement: {
+            ...applied.ai.implement,
+            generator: { ...applied.ai.implement.generator, model: 'claude-haiku-4-5' },
+          },
         } as Settings['ai'],
       };
       // Re-parse to confirm no hidden "preset" residue clobbers the edit.
       const parsed = SettingsSchema.safeParse(edited);
       expect(parsed.success).toBe(true);
       if (parsed.success) {
-        expect(parsed.data.ai.implement.model).toBe('claude-haiku-4-5');
+        expect(parsed.data.ai.implement.generator.model).toBe('claude-haiku-4-5');
       }
     });
   });

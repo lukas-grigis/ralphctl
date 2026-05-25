@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { launchTui } from '@src/application/ui/tui/launch.ts';
+import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
 import { registerExportRequirementsCommand } from '@src/application/ui/cli/commands/export-requirements.ts';
 import { registerExportContextCommand } from '@src/application/ui/cli/commands/export-context.ts';
 import { registerCreatePrCommand } from '@src/application/ui/cli/commands/create-pr.ts';
@@ -29,8 +30,43 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
     .name('ralphctl')
     .description('ralphctl — interactive TUI and CLI')
     .version(CLI_METADATA.currentVersion, '-v, --version', 'show version')
-    .action(async () => {
-      await launchTui();
+    // Per-launch implement-role overrides. Each role is a {provider, model} pair — both
+    // flags must be supplied together for a role; supplying only one half errors out below.
+    // Operators reach for these to A/B a single implement run against a different provider
+    // without rewriting `settings.ai.implement`.
+    .option(
+      '--implement-generator-provider <provider>',
+      'override settings.ai.implement.generator.provider for this launch (requires --implement-generator-model)'
+    )
+    .option(
+      '--implement-generator-model <model>',
+      'override settings.ai.implement.generator.model for this launch (requires --implement-generator-provider)'
+    )
+    .option(
+      '--implement-evaluator-provider <provider>',
+      'override settings.ai.implement.evaluator.provider for this launch (requires --implement-evaluator-model)'
+    )
+    .option(
+      '--implement-evaluator-model <model>',
+      'override settings.ai.implement.evaluator.model for this launch (requires --implement-evaluator-provider)'
+    )
+    .action(async (opts: Record<string, unknown>) => {
+      const parsed = parseImplementRoleOverrides({
+        ...(typeof opts.implementGeneratorProvider === 'string'
+          ? { generatorProvider: opts.implementGeneratorProvider }
+          : {}),
+        ...(typeof opts.implementGeneratorModel === 'string' ? { generatorModel: opts.implementGeneratorModel } : {}),
+        ...(typeof opts.implementEvaluatorProvider === 'string'
+          ? { evaluatorProvider: opts.implementEvaluatorProvider }
+          : {}),
+        ...(typeof opts.implementEvaluatorModel === 'string' ? { evaluatorModel: opts.implementEvaluatorModel } : {}),
+      });
+      if (!parsed.ok) {
+        process.stderr.write(`ralphctl: ${parsed.error}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      await launchTui({ ...(parsed.overrides !== undefined ? { implementRoleOverrides: parsed.overrides } : {}) });
     });
 
   registerExportRequirementsCommand(program);

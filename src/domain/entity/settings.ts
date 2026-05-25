@@ -14,6 +14,7 @@ import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
  * Persisted settings format version. Bumped whenever the on-disk shape changes in a way that
@@ -79,26 +80,66 @@ const CodexFlowRowSchema = z.object({
 const FlowRowSchema = z.discriminatedUnion('provider', [ClaudeFlowRowSchema, CopilotFlowRowSchema, CodexFlowRowSchema]);
 
 /**
- * Flat per-flow AI settings:
+ * Implement runs two AI sessions per attempt — a generator that produces the change and an
+ * evaluator that scores it. Each role carries its own per-flow row so they can run on
+ * different providers / models / effort levels. The roles share the same row shape; only the
+ * `implement` slot under `ai` carries this pair, every other flow stays on the flat row.
+ */
+const AiImplementSchema = z.object({
+  generator: FlowRowSchema,
+  evaluator: FlowRowSchema,
+});
+
+/**
+ * Promote a legacy flat `implement: { provider, model, effort? }` object — written by
+ * ralphctl ≤ 0.7.0 — into the nested `{ generator, evaluator }` shape both roles use the
+ * same row. Runs at parse time without bumping {@link CURRENT_SCHEMA_VERSION}; the next
+ * `save()` rewrites the file in the new shape so the promotion only fires once per file.
+ *
+ * Returns the input untouched when the slot is already nested or when the shape doesn't
+ * match a legacy flat row — schema validation then surfaces the real error message.
+ */
+const promoteLegacyImplementRow = (ai: unknown): unknown => {
+  if (typeof ai !== 'object' || ai === null) return ai;
+  const aiObj = ai as Record<string, unknown>;
+  const implement = aiObj['implement'];
+  if (typeof implement !== 'object' || implement === null) return ai;
+  const implObj = implement as Record<string, unknown>;
+  // Already nested — leave alone.
+  if ('generator' in implObj || 'evaluator' in implObj) return ai;
+  // Flat shape: must carry a `provider` field (the discriminator). Anything else is a
+  // malformed input we hand to the schema for a proper error message.
+  if (!('provider' in implObj)) return ai;
+  const promoted = { generator: implObj, evaluator: implObj };
+  return { ...aiObj, implement: promoted };
+};
+
+/**
+ * Per-flow AI settings:
  *
  *   ai.effort?            // global default, used when a row omits its own effort
  *   ai.refine             // { provider, model, effort? }
  *   ai.plan               // { provider, model, effort? }
- *   ai.implement          // { provider, model, effort? }
+ *   ai.implement          // { generator: { provider, model, effort? }, evaluator: {...} }
  *   ai.readiness          // { provider, model, effort? }
  *   ai.ideate             // { provider, model, effort? }
  *
- * Rows are independent — refine can run on Claude while implement runs on Codex. The
- * discriminated union on each row keeps `model` enforced against the row's provider catalog.
+ * Rows are independent — refine can run on Claude while implement.evaluator runs on Codex.
+ * The discriminated union on each row keeps `model` enforced against the row's provider
+ * catalog. Implement splits into a generator/evaluator pair because those two sessions
+ * benefit from different reasoning profiles; every other flow runs a single AI session.
  */
-const AiSettingsSchema = z.object({
-  effort: GlobalEffortSchema.optional(),
-  refine: FlowRowSchema,
-  plan: FlowRowSchema,
-  implement: FlowRowSchema,
-  readiness: FlowRowSchema,
-  ideate: FlowRowSchema,
-});
+const AiSettingsSchema = z.preprocess(
+  promoteLegacyImplementRow,
+  z.object({
+    effort: GlobalEffortSchema.optional(),
+    refine: FlowRowSchema,
+    plan: FlowRowSchema,
+    implement: AiImplementSchema,
+    readiness: FlowRowSchema,
+    ideate: FlowRowSchema,
+  })
+);
 
 export const SettingsSchema = z.object({
   /**
@@ -123,6 +164,21 @@ export const SettingsSchema = z.object({
      * skip the plateau even when the threshold is met.
      */
     plateauThreshold: z.number().int().min(2).max(5).default(2),
+    /**
+     * When the gen-eval loop exits on a plateau, escalate the generator's model one rung up
+     * the ladder defined by {@link escalationMap} (merged with the built-in
+     * `DEFAULT_ESCALATION_MAP`) and reissue the attempt instead of transitioning the task
+     * straight to `blocked`. Defaults `false` — the runtime wiring lands in a follow-up task.
+     */
+    escalateOnPlateau: z.boolean().default(false),
+    /**
+     * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
+     * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
+     * to escalate to. Empty by default; merged at read time with user keys winning on
+     * conflict and extending the default ladder. Non-string entries fail schema validation
+     * with a typed Zod error naming the offending field.
+     */
+    escalationMap: z.record(z.string(), z.string()).default({}),
   }),
   logging: z.object({
     level: LogLevelSchema,
@@ -167,7 +223,30 @@ export const SettingsSchema = z.object({
 export type AiSettings = z.infer<typeof AiSettingsSchema>;
 /** Discriminated row type — one entry per flow under `settings.ai.<flow>`. */
 export type AiFlowSettings = z.infer<typeof FlowRowSchema>;
+/**
+ * Generator + evaluator pair under `settings.ai.implement`. Exposed for subsequent tasks in
+ * the #131 generator/evaluator-split initiative — `settings-set-provider` accepts an
+ * `AiImplementRole` today, and downstream consumers will read this type when wiring per-role
+ * provider / model selection at the implement launcher and gen-eval leaves.
+ *
+ * @public
+ */
+export type AiImplementSettings = z.infer<typeof AiImplementSchema>;
+/** Roles inside {@link AiImplementSettings} — addressed in dotted-path keys and per-leaf launches. */
+export type AiImplementRole = 'generator' | 'evaluator';
 export type Settings = z.infer<typeof SettingsSchema>;
+
+/**
+ * Resolve the primary {@link AiFlowSettings} row for `flow` — the row legacy single-session
+ * consumers (provider factory, readiness inventory, settings TUI) read when they only know
+ * how to spawn one AI per flow. For `implement` this returns the generator role; every other
+ * flow already has exactly one row. Call sites that genuinely need both implement roles read
+ * `ai.implement.generator` / `ai.implement.evaluator` directly.
+ */
+export const primaryFlowRow = (ai: AiSettings, flow: FlowId): AiFlowSettings => {
+  if (flow === 'implement') return ai.implement.generator;
+  return ai[flow];
+};
 
 // AiProviderSchema is intentionally not re-exported — callers should use the type alias
 // above; only the schema module re-uses the runtime enum for parsing.

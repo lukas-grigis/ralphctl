@@ -380,6 +380,47 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     expect(tokenEvents).toHaveLength(0);
   });
 
+  it('stamps the gen-eval role onto the event when the session carries one', async () => {
+    const cap = createCapturingBus();
+    const sess = session({ role: 'generator' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-role', model: 'claude-opus-4-7' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      result: '<task-complete/>',
+      session_id: 'sess-role',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.role).toBe('generator');
+  });
+
+  it('omits role from the event when the session has no role (single-role flows)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sess-norole',
+      model: 'claude-opus-4-7',
+    });
+    const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-norole' });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    await provider.generate(sess);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.role).toBeUndefined();
+  });
+
   it('emits the event without token counts when the result event lacks a usage object', async () => {
     const cap = createCapturingBus();
     const sess = session();

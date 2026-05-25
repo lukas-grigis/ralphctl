@@ -45,6 +45,15 @@ export interface SettleAttemptProps {
   readonly verdict: SettleVerdict;
   readonly blockedReason?: string;
   readonly warning?: AttemptWarning;
+  /**
+   * Fail the current running attempt instead of marking the task `done`. Set by the escalation
+   * policy when a plateau triggered a once-per-task generator-model upgrade — the attempt's
+   * critique stays useful but the task must stay `in_progress` so the next chain invocation
+   * picks it up with the escalated model. When the running attempt count then reaches
+   * `task.maxAttempts`, `failCurrentAttempt` itself transitions the task to `blocked`. Ignored
+   * when `blockedReason` is set (the block path already settles the attempt as aborted).
+   */
+  readonly shouldFailAttempt?: boolean;
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -63,7 +72,7 @@ export interface SettleAttemptProps {
 export type SettleAttemptOutput = DoneTask | InProgressTask | BlockedTask;
 
 const settleTask = (
-  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason'>,
+  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt'>,
   now: IsoTimestamp
 ): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
   let task: InProgressTask = props.task;
@@ -79,6 +88,12 @@ const settleTask = (
       return Result.ok({ ...aborted.value, blockedReason: props.blockedReason });
     }
     return markTaskBlocked(aborted.value, props.blockedReason);
+  }
+  if (props.shouldFailAttempt === true) {
+    // Escalation path: settle the running attempt as failed but keep the task `in_progress`
+    // (or transition to `blocked` if the running attempt count just hit `maxAttempts`). The
+    // next chain invocation re-attempts the task with the escalated generator model.
+    return failCurrentAttempt(task, now, 'failed');
   }
   return markTaskDone(task, now);
 };
@@ -97,10 +112,14 @@ export const settleAttemptUseCase = async (
   // Guardrail: if we're about to mark the task `done` but the worktree is dirty, refuse.
   // A dirty tree at this point means commit-task didn't capture every change — usually
   // because the AI wrote files (or touched .gitignored paths that became tracked) after
-  // commit ran. Marking "done" would lie about what's in git. The blocked-reason path is
-  // exempt: a self-blocked task is allowed to leave changes in place for the operator to
-  // inspect.
-  if (props.blockedReason === undefined && props.hasUncommittedChanges !== undefined) {
+  // commit ran. Marking "done" would lie about what's in git. The block + shouldFailAttempt
+  // paths are exempt: self-blocked and escalation-retry tasks are allowed to leave changes
+  // in place for the operator to inspect or the next attempt to consume.
+  if (
+    props.blockedReason === undefined &&
+    props.shouldFailAttempt !== true &&
+    props.hasUncommittedChanges !== undefined
+  ) {
     const dirty = await props.hasUncommittedChanges();
     if (!dirty.ok) {
       log.error('settle: worktree status check failed', {

@@ -187,6 +187,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
               prompt.value,
               deps.model,
               signalsFile,
+              'evaluator',
               input.priorEvaluatorSessionId,
               deps.effort
             )

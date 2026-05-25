@@ -162,8 +162,20 @@ low-stakes work.
 
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Body is
 `generator-leaf → evaluator-leaf → settle-attempt-leaf`. Exits when the evaluator passes or `maxAttempts`
-fires (the task then transitions to `blocked`). Provider / model / effort all come from the
-`settings.ai.implement` row (see _AI Settings_ below).
+fires (the task then transitions to `blocked`). `settings.ai.implement` is a nested
+`{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
+the two sessions can run on different providers / models / effort levels (effort resolution rules
+described under _AI Settings_ below apply per-row). Default: generator runs `claude-code` /
+`claude-opus-4-7`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
+side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
+`ideate`) keeps the flat `{ provider, model, effort? }` row shape; the analogous generator-evaluator
+split for the `plan` flow is deferred to future work.
+
+**Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
+as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
+nested shape, with `generator` and `evaluator` both set to a copy of the legacy row — no
+`schemaVersion` bump and no user-facing notice. The next `save()` rewrites the file in the canonical
+nested shape, so the promotion fires at most once per file.
 
 **TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
 Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
@@ -313,6 +325,30 @@ launch and re-enter the queue. No double-execution.
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
+
+**Escalation on plateau.** Two opt-in `settings.harness` knobs let the gen-eval loop retry a plateaued task
+on a stronger generator model instead of immediately blocking:
+
+- `escalateOnPlateau` (default `false`) — flag gate; when off, plateau exits keep today's
+  done-with-warning behaviour intact.
+- `escalationMap` (default `{}`) — user overrides merged over the built-in ladder. User keys win on
+  conflict (allowing redirects) and user-only keys extend the ladder. Self-loops (`{ 'foo': 'foo' }`)
+  parse but emit one warn-level log record per entry at settings load.
+
+`DEFAULT_ESCALATION_MAP` (in `src/business/task/escalation-map.ts`) is a code-managed constant seeding
+the common in-provider rungs from the per-provider model catalogs (Claude Haiku → Sonnet → Opus; Codex /
+Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`). It is kept in lockstep with
+`domain/value/settings-models/` by code review — operators don't need to spell out these rungs to opt in,
+the empty-map default already covers them once the flag flips on.
+
+Escalation is generator-only by design — the evaluator's model is held constant across the task so the
+scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires at
+most once per task: `Task.escalatedFromModel` / `escalatedToModel` are stamped on first escalation, and a
+second plateau on the same task transitions to `blocked` with no further escalation. Cost ceiling is
+therefore bounded — at worst one extra attempt per task on the upgraded model. Cross-provider escalation
+(e.g. swapping `claude-sonnet-4-6` → `gpt-5.5` instead of `claude-opus-4-7`) is intentionally deferred —
+the gen-eval split shipped the two-provider plumbing implement would need, but switching providers
+mid-task carries auth / context / tool-availability hazards that warrant a follow-up design pass.
 
 **Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
 (`src/application/ui/tui/views/execute-view.tsx`). The `TaskRoundStarted` event (carrying `roundN`,

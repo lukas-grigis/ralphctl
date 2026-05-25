@@ -73,6 +73,14 @@ export interface ImplementCtx {
   readonly lastVerdict?: RunTaskVerdict | undefined;
   readonly lastBlockReason?: string | undefined;
   readonly lastWarning?: AttemptWarning | undefined;
+  /**
+   * Set true by `finalize-gen-eval-<taskId>` when the model-escalation policy stamped the
+   * current task with `escalatedFromModel`/`escalatedToModel`. Read by
+   * `settle-attempt-<taskId>` to fail the running attempt instead of marking the task done —
+   * the next chain invocation then re-attempts the task with the escalated generator model.
+   * Cleared by settle-attempt along with the rest of the per-task verdict state.
+   */
+  readonly lastShouldFailAttempt?: boolean | undefined;
   readonly lastVerifyResult?:
     | { readonly kind: 'skipped' }
     | { readonly kind: 'passed' }

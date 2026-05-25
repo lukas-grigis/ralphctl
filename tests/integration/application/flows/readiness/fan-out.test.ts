@@ -131,7 +131,7 @@ const buildAi = (per: {
   return {
     refine: rowFor(per.refine),
     plan: rowFor(per.plan),
-    implement: rowFor(per.implement),
+    implement: { generator: rowFor(per.implement), evaluator: rowFor(per.implement) },
     readiness: rowFor(per.readiness),
     ideate: rowFor(per.ideate),
   };

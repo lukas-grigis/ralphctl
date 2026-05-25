@@ -91,6 +91,20 @@ interface TaskBase extends Entity<TaskId> {
    * PR / MR body's `## Related issues` section. Absent → no trailer, no entry.
    */
   readonly externalRefs?: readonly string[];
+  /**
+   * Generator model id the task was originally configured with at the moment a plateau
+   * escalation fired. Stamped by the escalation policy in `finalize-gen-eval` together with
+   * {@link escalatedToModel}. Together they record that the task escalated exactly once and
+   * also serve as the cap — both fields are checked before a second escalation can fire.
+   */
+  readonly escalatedFromModel?: string;
+  /**
+   * Generator model id the next attempt's generator leaf must spawn with. Stamped by the
+   * escalation policy in `finalize-gen-eval` when a plateau triggers a once-per-task model
+   * upgrade. The generator leaf prefers this value over `settings.ai.implement.generator.model`
+   * when present; the evaluator role is never affected.
+   */
+  readonly escalatedToModel?: string;
 }
 
 export interface TodoTask extends TaskBase {
@@ -462,6 +476,8 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.maxAttempts !== undefined ? { maxAttempts: guard.value.maxAttempts } : {}),
     ...(guard.value.extraDimensions !== undefined ? { extraDimensions: guard.value.extraDimensions } : {}),
     ...(guard.value.externalRefs !== undefined ? { externalRefs: guard.value.externalRefs } : {}),
+    ...(guard.value.escalatedFromModel !== undefined ? { escalatedFromModel: guard.value.escalatedFromModel } : {}),
+    ...(guard.value.escalatedToModel !== undefined ? { escalatedToModel: guard.value.escalatedToModel } : {}),
     status: 'done',
     attempts,
     finalAttemptN: verified.n,
@@ -506,6 +522,34 @@ export const failCurrentAttempt = (
     return Result.ok(blocked);
   }
   return Result.ok(inProgressNext);
+};
+
+/**
+ * Stamp the once-per-task generator model escalation onto an `in_progress` task. The fields are
+ * write-once: a task that already carries either side is rejected so the escalation cap is
+ * enforced at the domain layer rather than every caller re-deriving the check.
+ */
+export const recordTaskEscalation = (
+  task: InProgressTask,
+  fromModel: string,
+  toModel: string
+): Result<InProgressTask, InvalidStateError | ValidationError> => {
+  if (task.escalatedFromModel !== undefined || task.escalatedToModel !== undefined) {
+    return Result.error(
+      new InvalidStateError({
+        entity: 'task',
+        currentState: 'in_progress',
+        attemptedAction: 'record-escalation',
+        message: `task '${task.id}' already escalated (${String(task.escalatedFromModel)} → ${String(task.escalatedToModel)})`,
+        hint: 'The once-per-task cap blocks a second escalation; transition to blocked instead.',
+      })
+    );
+  }
+  const from = parseRequiredString('task.escalatedFromModel', fromModel);
+  if (!from.ok) return Result.error(from.error);
+  const to = parseRequiredString('task.escalatedToModel', toModel);
+  if (!to.ok) return Result.error(to.error);
+  return Result.ok({ ...task, escalatedFromModel: from.value, escalatedToModel: to.value });
 };
 
 // ───────────────────────── manual lifecycle transitions ─────────────────────────

@@ -44,15 +44,20 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
  * `resolveEffort` falls through to the per-flow `effort` (also unset by default), so a fresh
  * record leaves the AI CLI to use its built-in default.
  *
+ * `implement` stamps the same provider+model on both `generator` and `evaluator` so the
+ * "every flow runs on one provider" preset story stays intact; cross-provider splits are
+ * configured explicitly by editing the role keys.
+ *
  * This shape is what `settings-set-provider` writes when the user "reset every flow to this
  * provider"; welcome uses it for first-run.
  */
 export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings => {
   const models = DEFAULT_MODELS_BY_PROVIDER[provider];
+  const implementRow = { provider, model: models.implement };
   return {
     refine: { provider, model: models.refine },
     plan: { provider, model: models.plan },
-    implement: { provider, model: models.implement },
+    implement: { generator: implementRow, evaluator: implementRow },
     readiness: { provider, model: models.readiness },
     ideate: { provider, model: models.ideate },
   } as AiSettings;
@@ -62,11 +67,28 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  * Defaults applied when no settings file exists. Conservative across the board — small turn /
  * attempt budgets, serial execution, info-level logging. Users opt into more aggressive
  * settings via the TUI settings panel or `ralphctl settings set <key> <value>`.
+ *
+ * The implement row deliberately splits roles across providers: Claude Opus drives the
+ * generator (deep coder reasoning) while Codex GPT-5.5 drives the evaluator (independent
+ * second opinion). Single-provider users override via a preset.
  */
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: CURRENT_SCHEMA_VERSION,
-  ai: defaultAiSettingsForProvider('claude-code'),
-  harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+  ai: {
+    ...defaultAiSettingsForProvider('claude-code'),
+    implement: {
+      generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+    },
+  },
+  harness: {
+    maxTurns: 5,
+    maxAttempts: 3,
+    rateLimitRetries: 3,
+    plateauThreshold: 2,
+    escalateOnPlateau: false,
+    escalationMap: {},
+  },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
   ui: { notifications: { enabled: true } },

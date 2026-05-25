@@ -183,6 +183,14 @@ export interface TokenUsageEvent {
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
   readonly contextWindow?: number;
+  /**
+   * Implement-flow gen-eval role the spawn ran under. Stamped on the event by the provider
+   * adapter when the {@link AiSession} carries a `role`; absent for single-role flows
+   * (refine / plan / readiness / ideate / review) and for one-shot inventory roundtrips
+   * (detect-scripts / detect-skills). Lets per-session subscribers attribute token spend to
+   * one half of the cross-provider implement pair without inferring from `provider` alone.
+   */
+  readonly role?: 'generator' | 'evaluator';
   readonly at: IsoTimestamp;
 }
 
@@ -269,6 +277,31 @@ export interface AiSignalEvent {
   readonly source: string;
 }
 
+/**
+ * Once-per-task generator model escalation fired. Published by the escalation policy in
+ * `finalize-gen-eval` immediately after the task entity is stamped with
+ * `escalatedFromModel` / `escalatedToModel` — i.e. before the attempt settles — so subscribers
+ * (TUI banner, persistent `chain.log`) see the upgrade decision in chronological order with
+ * the surrounding settle / round trace.
+ *
+ *  - `taskId`    — the in-flight task whose generator model just escalated.
+ *  - `attemptN`  — 1-indexed `task.attempts.length` at decision time, i.e. the attempt that
+ *                  just plateaued. The next attempt (`attemptN + 1`) is the one that spawns
+ *                  with the upgraded model.
+ *  - `from` / `to` — model ids the policy moved between. Always non-empty.
+ *  - `reason`    — only `'plateau'` is emitted today; future escalation triggers (rate-limit
+ *                  burnout, evaluator inconclusive, etc.) would extend this discriminator.
+ */
+export interface ModelEscalatedEvent {
+  readonly type: 'model-escalated';
+  readonly taskId: string;
+  readonly attemptN: number;
+  readonly from: string;
+  readonly to: string;
+  readonly reason: 'plateau';
+  readonly at: IsoTimestamp;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -288,4 +321,5 @@ export type AppEvent =
   | BannerShowEvent
   | BannerClearEvent
   | HarnessSignalEvent
-  | AiSignalEvent;
+  | AiSignalEvent
+  | ModelEscalatedEvent;

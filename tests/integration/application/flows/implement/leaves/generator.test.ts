@@ -13,6 +13,8 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -195,6 +197,41 @@ describe('generatorLeaf', () => {
     expect(provider.recordedSessions[1]?.resume).toBe('gen-r1');
     // After round 2, the latest captured id wins (and replaces the prior one in ctx).
     expect(second.value.ctx.priorGeneratorSessionId).toBe('gen-r2');
+  });
+
+  it('uses task.escalatedToModel as the spawn model when the task carries an escalation', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    if (!stamped.ok) throw stamped.error;
+    const task = stamped.value;
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider, model: 'claude-sonnet-4-6' }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-7');
+  });
+
+  it('falls back to the configured model when the task has no escalatedToModel', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider, model: 'claude-sonnet-4-6' }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('publishes a banner-clear for the escalation banner when a new round starts', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const events: AppEvent[] = [];
+    eventBus.subscribe((e) => events.push(e));
+    const leaf = generatorLeaf(buildDeps(eventBus), task.id);
+    await leaf.execute(baseCtx(task));
+    const clears = events.filter(
+      (e): e is Extract<AppEvent, { type: 'banner-clear' }> =>
+        e.type === 'banner-clear' && e.id === escalationBannerId(String(task.id))
+    );
+    expect(clears).toHaveLength(1);
   });
 
   it('publishes the round event regardless of the AI call outcome (event fires before the call)', async () => {

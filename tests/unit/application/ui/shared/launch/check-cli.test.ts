@@ -36,7 +36,7 @@ describe('checkCli', () => {
     if (result.ok) return;
     expect(result.reason).toContain('claude');
     expect(result.reason).toContain('implement');
-    expect(result.reason).toContain('ai.implement.provider');
+    expect(result.reason).toContain('ai.implement.generator.provider');
   });
 
   it('maps detect-scripts and detect-skills to the readiness row', async () => {
@@ -56,7 +56,7 @@ describe('checkCli', () => {
     if (result === undefined || result.ok) return;
     expect(result.reason).toContain('codex');
     expect(result.reason).toContain('implement');
-    expect(result.reason).toContain('ai.implement.provider');
+    expect(result.reason).toContain('ai.implement.generator.provider');
   });
 
   it('returns undefined for non-AI flows', async () => {
@@ -71,5 +71,50 @@ describe('checkCli', () => {
     if (result === undefined || result.ok) return;
     expect(result.reason).toContain('CLI gh not on PATH');
     expect(result.reason).toContain('refine');
+  });
+
+  it('implement: when both generator and evaluator providers are missing, surfaces BOTH in a single message', async () => {
+    // Cross-provider implement: generator on claude-code, evaluator on openai-codex; neither
+    // binary is installed. The probe must name both rows + settings keys so the operator sees
+    // the full picture in one shot rather than bailing on the first missing provider.
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+        },
+      },
+    };
+    const result = await checkCli('implement', settings, { detect: detectFor([]) });
+    expect(result).toBeDefined();
+    if (result === undefined || result.ok) return;
+    expect(result.reason).toContain('claude');
+    expect(result.reason).toContain('codex');
+    expect(result.reason).toContain('ai.implement.generator.provider');
+    expect(result.reason).toContain('ai.implement.evaluator.provider');
+    expect(result.reason).toContain('generator');
+    expect(result.reason).toContain('evaluator');
+  });
+
+  it('implement: when only evaluator provider is missing, surfaces the evaluator role without the generator', async () => {
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+        },
+      },
+    };
+    const result = await checkCli('implement', settings, { detect: detectFor(['claude-code']) });
+    expect(result).toBeDefined();
+    if (result === undefined || result.ok) return;
+    expect(result.reason).toContain('codex');
+    expect(result.reason).toContain('evaluator');
+    expect(result.reason).toContain('ai.implement.evaluator.provider');
+    expect(result.reason).not.toContain('ai.implement.generator.provider');
   });
 });
