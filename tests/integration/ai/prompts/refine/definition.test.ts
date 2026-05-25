@@ -90,10 +90,12 @@ describe('buildRefinePrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value).toContain('# Requirements Refinement Protocol');
+    expect(result.value).toContain('<role>');
+    expect(result.value).toContain('<goal>');
+    expect(result.value).toContain('<output_contract>');
     expect(result.value).toContain('**Title:** Add CSV export');
     expect(result.value).toContain('## Output contract');
-    expect(result.value).toContain('## Prior progress');
+    expect(result.value).toContain('<prior_progress>');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
