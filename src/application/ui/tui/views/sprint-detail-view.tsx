@@ -40,6 +40,7 @@ import { useEditField, type OpenEditPromptInput } from '@src/application/ui/tui/
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import {
   StatusChip,
@@ -60,6 +61,7 @@ import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { fmtDuration, fmtIsoAbsolute } from '@src/application/ui/tui/theme/duration.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
@@ -792,35 +794,28 @@ const TicketCard = ({
   readonly expanded: boolean;
   readonly index: number;
 }): React.JSX.Element => (
-  <Box marginBottom={1}>
-    <Card
-      tone={focused ? 'info' : 'rule'}
-      right={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
-    >
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <Box>
-          <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
-            {focused ? `${glyphs.actionCursor} ` : `  `}#{String(index + 1)}
-          </Text>
-          <Text bold> {ticket.title}</Text>
-        </Box>
-        <Box>
-          <Text dimColor>
-            {glyphs.bullet} {String(taskCount)} task{taskCount === 1 ? '' : 's'}
-          </Text>
-          {ticket.link !== undefined && (
-            <Text dimColor>
-              {' '}
-              {glyphs.bullet} {String(ticket.link)}
-            </Text>
-          )}
-          {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
-        </Box>
-        {!expanded && ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
-        {expanded && <TicketDetailBody ticket={ticket} tasks={tasks} />}
-      </Box>
-    </Card>
-  </Box>
+  <ListCard
+    focused={focused}
+    expanded={expanded}
+    rightSlot={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
+    indexLabel={`#${String(index + 1)}`}
+    title={ticket.title}
+  >
+    <Box>
+      <Text dimColor>
+        {glyphs.bullet} {String(taskCount)} task{taskCount === 1 ? '' : 's'}
+      </Text>
+      {ticket.link !== undefined && (
+        <Text dimColor>
+          {' '}
+          {glyphs.bullet} {String(ticket.link)}
+        </Text>
+      )}
+      {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
+    </Box>
+    {!expanded && ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
+    {expanded && <TicketDetailBody ticket={ticket} tasks={tasks} />}
+  </ListCard>
 );
 
 // ─── Tasks section ────────────────────────────────────────────────────────────────────────────
@@ -902,63 +897,116 @@ const TaskCard = ({
 }): React.JSX.Element => {
   const lastAttempt: Attempt | undefined = task.attempts[task.attempts.length - 1];
   const lastAttemptElapsed = lastAttempt !== undefined ? attemptElapsedMs(lastAttempt) : undefined;
+  const { atLeast } = useBreakpoint();
+  // At ≥md (≥100 cols) the metadata row stays on a single line and ellides on overflow so the
+  // task card height stays a predictable two lines. Below md, the row is allowed to wrap so
+  // narrow terminals don't lose information at the tail.
+  const singleLineMetadata = atLeast('md');
+  const metadataParts: readonly React.ReactNode[] = buildTaskMetadataParts({
+    ticketTitle,
+    dependsOnCount: task.dependsOn.length,
+    repoName,
+    attempts: task.attempts.length,
+    maxAttempts: task.maxAttempts,
+    lastAttemptElapsed,
+  });
   return (
-    <Box marginBottom={1}>
-      <Card
-        tone={focused ? 'info' : 'rule'}
-        right={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
-      >
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Box>
-            <Text {...(focused ? { color: inkColors.primary } : { dimColor: true })}>
-              {focused ? `${glyphs.actionCursor} ` : `  `}#{String(index)}
-            </Text>
-            <Text bold> {task.name}</Text>
-          </Box>
-          <Box flexWrap="wrap">
-            {ticketTitle !== undefined && (
-              <Text dimColor>
-                {glyphs.bullet} ticket: <Text bold>{ticketTitle}</Text>
-              </Text>
-            )}
-            {task.dependsOn.length > 0 && (
-              <Text dimColor>
-                {' '}
-                {glyphs.bullet} {String(task.dependsOn.length)} dep{task.dependsOn.length === 1 ? '' : 's'}
-              </Text>
-            )}
-            {repoName !== undefined && (
-              <Text dimColor>
-                {' '}
-                {glyphs.bullet} repo: <Text>{repoName}</Text>
-              </Text>
-            )}
-            <Text dimColor>
-              {' '}
-              {glyphs.bullet} attempts: {String(task.attempts.length)}
-              {task.maxAttempts !== undefined ? `/${String(task.maxAttempts)}` : ''}
-            </Text>
-            {lastAttemptElapsed !== undefined && (
-              <Text dimColor>
-                {' '}
-                {glyphs.bullet} last: {fmtDuration(lastAttemptElapsed)}
-              </Text>
-            )}
-          </Box>
-          {!expanded && task.description !== undefined && <Description text={task.description} maxLines={2} />}
-          {!expanded && task.status === 'blocked' && (
-            <Box paddingLeft={2}>
-              <Text color={inkColors.error}>
-                {glyphs.cross} blocked: {task.blockedReason}
-              </Text>
-            </Box>
-          )}
-          {expanded && <TaskDetailBody task={task} sprint={sprint} tasks={tasks} project={project} />}
+    <ListCard
+      focused={focused}
+      expanded={expanded}
+      rightSlot={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
+      indexLabel={`#${String(index)}`}
+      title={task.name}
+    >
+      {singleLineMetadata ? (
+        <Box>
+          <Text wrap="truncate-end" dimColor>
+            {joinMetadataInline(metadataParts)}
+          </Text>
         </Box>
-      </Card>
-    </Box>
+      ) : (
+        <Box flexWrap="wrap">
+          {metadataParts.map((node, i) => (
+            <Text key={`meta-${String(i)}`} dimColor>
+              {i > 0 ? ' ' : ''}
+              {node}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {!expanded && task.description !== undefined && <Description text={task.description} maxLines={2} />}
+      {!expanded && task.status === 'blocked' && (
+        <Box paddingLeft={2}>
+          <Text color={inkColors.error}>
+            {glyphs.cross} blocked: {task.blockedReason}
+          </Text>
+        </Box>
+      )}
+      {expanded && <TaskDetailBody task={task} sprint={sprint} tasks={tasks} project={project} />}
+    </ListCard>
   );
 };
+
+interface TaskMetadataInput {
+  readonly ticketTitle: string | undefined;
+  readonly dependsOnCount: number;
+  readonly repoName: string | undefined;
+  readonly attempts: number;
+  readonly maxAttempts: number | undefined;
+  readonly lastAttemptElapsed: number | undefined;
+}
+
+/**
+ * Build the per-field React nodes for the task metadata row. Each entry already carries its
+ * leading bullet glyph (`·`); the caller decides whether to join them on one line (with an
+ * intervening space) or render them as wrapped flex items.
+ */
+const buildTaskMetadataParts = (input: TaskMetadataInput): readonly React.ReactNode[] => {
+  const parts: React.ReactNode[] = [];
+  if (input.ticketTitle !== undefined) {
+    parts.push(
+      <React.Fragment key="ticket">
+        {glyphs.bullet} ticket: <Text bold>{input.ticketTitle}</Text>
+      </React.Fragment>
+    );
+  }
+  if (input.dependsOnCount > 0) {
+    parts.push(
+      <React.Fragment key="deps">
+        {glyphs.bullet} {String(input.dependsOnCount)} dep{input.dependsOnCount === 1 ? '' : 's'}
+      </React.Fragment>
+    );
+  }
+  if (input.repoName !== undefined) {
+    parts.push(
+      <React.Fragment key="repo">
+        {glyphs.bullet} repo: <Text>{input.repoName}</Text>
+      </React.Fragment>
+    );
+  }
+  parts.push(
+    <React.Fragment key="attempts">
+      {glyphs.bullet} attempts: {String(input.attempts)}
+      {input.maxAttempts !== undefined ? `/${String(input.maxAttempts)}` : ''}
+    </React.Fragment>
+  );
+  if (input.lastAttemptElapsed !== undefined) {
+    parts.push(
+      <React.Fragment key="last">
+        {glyphs.bullet} last: {fmtDuration(input.lastAttemptElapsed)}
+      </React.Fragment>
+    );
+  }
+  return parts;
+};
+
+const joinMetadataInline = (parts: readonly React.ReactNode[]): React.ReactNode =>
+  parts.map((node, i) => (
+    <React.Fragment key={`inline-${String(i)}`}>
+      {i > 0 ? ' ' : ''}
+      {node}
+    </React.Fragment>
+  ));
 
 const repositoryName = (project: Project | undefined, id: RepositoryId): string | undefined => {
   if (project === undefined) return undefined;
