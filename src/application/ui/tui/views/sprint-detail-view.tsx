@@ -8,16 +8,18 @@
  *  - Tickets section (always first) — one bordered Jira-style card per ticket.
  *  - Tasks section — one bordered card per task, showing ticket reference, deps, repo, attempts.
  *
- * Two view modes: list (default) and detail (one card expanded with everything we know about
- * it — full description, steps, verification criteria, ticket lookup, dependency names, attempt
- * history with elapsed/sessionId/commitSha/evaluation/warning).
+ * Inline expand-in-place: every ticket / task card stays in the list. Pressing ↵/o on the
+ * focused card expands it inline (full description, requirements, referenced tasks for
+ * tickets; steps, verification criteria, dependencies, attempt history for tasks) inside the
+ * same border. Same key (or `esc`) collapses it. Cursor still moves between cards via ↑/↓ /
+ * j/k across both sections without auto-collapsing.
  *
  * Local keys:
  *   a       add ticket (draft only)
  *   d       remove the focused ticket (draft only) after a confirm
  *   ↑/↓     move the focus cursor across BOTH tickets and tasks
- *   ↵/o     open the focused card in detail view
- *   esc     close detail view (back to list)
+ *   ↵/o     expand / collapse the focused card inline
+ *   esc     collapse the expanded card (back to list)
  *   n       open Flows, scoped to this sprint
  */
 
@@ -208,25 +210,21 @@ export const SprintDetailView = (): React.JSX.Element => {
     focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
 
-  useViewHints(
-    inDetail
-      ? [{ keys: 'esc', label: 'back to list' }]
-      : [
-          { keys: 'n', label: 'flows' },
-          { keys: '↵/o', label: 'open' },
-          { keys: 'a', label: 'add ticket' },
-          ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
-          { keys: 'd', label: 'remove ticket' },
-          // Surface the `m` chord only when this sprint is not already the current one — once
-          // they match, the action is a no-op and the hint adds noise. Suppressed while a
-          // stuck task is focused so the `u unblock` hint (a more urgent operator action)
-          // stays prominent in the footer without competing for horizontal space.
-          ...(sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined
-            ? [{ keys: 'm', label: 'current' }]
-            : []),
-          ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
-        ]
-  );
+  useViewHints([
+    { keys: 'n', label: 'flows' },
+    { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
+    { keys: 'a', label: 'add ticket' },
+    ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
+    { keys: 'd', label: 'remove ticket' },
+    // Surface the `m` chord only when this sprint is not already the current one — once
+    // they match, the action is a no-op and the hint adds noise. Suppressed while a
+    // stuck task is focused so the `u unblock` hint (a more urgent operator action)
+    // stays prominent in the footer without competing for horizontal space.
+    ...(sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined
+      ? [{ keys: 'm', label: 'current' }]
+      : []),
+    ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
+  ]);
 
   type TicketFieldKey = 'title' | 'description' | 'requirements';
   type TaskFieldKey = 'name' | 'description';
@@ -329,8 +327,9 @@ export const SprintDetailView = (): React.JSX.Element => {
 
   useInput((input, key) => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || sprint === undefined) return;
-    if (inDetail) {
-      if (key.escape || input === 'q') setOpenIdx(undefined);
+    // Esc collapses an inline-expanded card; falls through to global pop otherwise.
+    if ((key.escape || input === 'q') && inDetail) {
+      setOpenIdx(undefined);
       return;
     }
     if (input === 'a' && ticketsEditable) {
@@ -359,7 +358,8 @@ export const SprintDetailView = (): React.JSX.Element => {
       return;
     }
     if ((key.return || input === 'o') && focusList.length > 0) {
-      setOpenIdx(Math.min(cursorIdx, focusList.length - 1));
+      const target = Math.min(cursorIdx, focusList.length - 1);
+      setOpenIdx((prev) => (prev === target ? undefined : target));
       return;
     }
     if (input === 'd' && ticketsEditable) {
@@ -473,28 +473,7 @@ const Body = ({
 }: BodyProps): React.JSX.Element => {
   const { sprint, tasks } = bundle;
   const action = phaseAction(sprint, tasks);
-  if (openIdx !== undefined) {
-    const focused = focusList[openIdx];
-    return (
-      <Box flexDirection="column">
-        <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
-        {focused !== undefined && (
-          <Box marginTop={spacing.section}>
-            {focused.kind === 'ticket' ? (
-              <TicketDetail ticket={focused.ticket} tasks={tasks} />
-            ) : (
-              <TaskDetail task={focused.task} sprint={sprint} tasks={tasks} project={project} />
-            )}
-          </Box>
-        )}
-        <Box paddingX={spacing.indent} marginTop={spacing.section}>
-          <Text dimColor>
-            {glyphs.bullet} esc back to list {glyphs.bullet} ↑/↓ scroll
-          </Text>
-        </Box>
-      </Box>
-    );
-  }
+  const expandedFocusItem = openIdx !== undefined ? focusList[openIdx] : undefined;
   return (
     <Box flexDirection="column">
       <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
@@ -528,12 +507,20 @@ const Body = ({
         cursorIdx={cursorIdx}
         ticketsEditable={ticketsEditable}
         feedback={feedback}
+        expandedFocusItem={expandedFocusItem}
       />
-      <TasksSection sprint={sprint} tasks={tasks} focusList={focusList} cursorIdx={cursorIdx} project={project} />
+      <TasksSection
+        sprint={sprint}
+        tasks={tasks}
+        focusList={focusList}
+        cursorIdx={cursorIdx}
+        project={project}
+        expandedFocusItem={expandedFocusItem}
+      />
 
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
         <Text dimColor>
-          {glyphs.bullet} ↑/↓ focus {glyphs.bullet} ↵/o open {glyphs.bullet} n flows {glyphs.bullet} esc back
+          {glyphs.bullet} ↑/↓ focus {glyphs.bullet} ↵/o expand/collapse {glyphs.bullet} n flows {glyphs.bullet} esc back
         </Text>
       </Box>
     </Box>
@@ -720,6 +707,7 @@ interface TicketsSectionProps {
   readonly cursorIdx: number;
   readonly ticketsEditable: boolean;
   readonly feedback: string | undefined;
+  readonly expandedFocusItem: FocusItem | undefined;
 }
 
 const TicketsSection = ({
@@ -729,6 +717,7 @@ const TicketsSection = ({
   cursorIdx,
   ticketsEditable,
   feedback,
+  expandedFocusItem,
 }: TicketsSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tickets</Text>
@@ -745,16 +734,27 @@ const TicketsSection = ({
       <Box flexDirection="column" marginTop={1}>
         {sprint.tickets.map((ticket, idx) => {
           const focused = focusList[cursorIdx]?.kind === 'ticket' && focusList[cursorIdx]?.ticket.id === ticket.id;
+          const expanded = expandedFocusItem?.kind === 'ticket' && expandedFocusItem.ticket.id === ticket.id;
           const taskCount = tasks.filter((t) => t.ticketId === ticket.id).length;
-          return <TicketCard key={ticket.id} ticket={ticket} taskCount={taskCount} focused={focused} index={idx} />;
+          return (
+            <TicketCard
+              key={ticket.id}
+              ticket={ticket}
+              tasks={tasks}
+              taskCount={taskCount}
+              focused={focused}
+              expanded={expanded}
+              index={idx}
+            />
+          );
         })}
       </Box>
     )}
     <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text dimColor>
         {ticketsEditable
-          ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o open ${glyphs.bullet} d remove`
-          : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o open`}
+          ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o expand/collapse ${glyphs.bullet} d remove`
+          : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
       </Text>
     </Box>
     {feedback !== undefined && (
@@ -767,13 +767,17 @@ const TicketsSection = ({
 
 const TicketCard = ({
   ticket,
+  tasks,
   taskCount,
   focused,
+  expanded,
   index,
 }: {
   readonly ticket: Ticket;
+  readonly tasks: readonly Task[];
   readonly taskCount: number;
   readonly focused: boolean;
+  readonly expanded: boolean;
   readonly index: number;
 }): React.JSX.Element => (
   <Box marginBottom={1}>
@@ -800,7 +804,8 @@ const TicketCard = ({
           )}
           {ticket.status === 'approved' && <Text dimColor> {glyphs.bullet} requirements ✓</Text>}
         </Box>
-        {ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
+        {!expanded && ticket.description !== undefined && <Description text={ticket.description} maxLines={2} />}
+        {expanded && <TicketDetailBody ticket={ticket} tasks={tasks} />}
       </Box>
     </Card>
   </Box>
@@ -814,9 +819,17 @@ interface TasksSectionProps {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly project: Project | undefined;
+  readonly expandedFocusItem: FocusItem | undefined;
 }
 
-const TasksSection = ({ sprint, tasks, focusList, cursorIdx, project }: TasksSectionProps): React.JSX.Element => (
+const TasksSection = ({
+  sprint,
+  tasks,
+  focusList,
+  cursorIdx,
+  project,
+  expandedFocusItem,
+}: TasksSectionProps): React.JSX.Element => (
   <Box marginTop={spacing.section} flexDirection="column">
     <Text bold>{glyphs.badge} Tasks</Text>
     {tasks.length === 0 ? (
@@ -828,35 +841,51 @@ const TasksSection = ({ sprint, tasks, focusList, cursorIdx, project }: TasksSec
         {tasks.map((task, idx) => {
           const focusItem = focusList[cursorIdx];
           const focused = focusItem?.kind === 'task' && focusItem.task.id === task.id;
+          const expanded = expandedFocusItem?.kind === 'task' && expandedFocusItem.task.id === task.id;
           const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
           const repoName = repositoryName(project, task.repositoryId);
           return (
             <TaskCard
               key={task.id}
               task={task}
+              sprint={sprint}
+              tasks={tasks}
+              project={project}
               ticketTitle={ticket?.title}
               repoName={repoName}
               focused={focused}
+              expanded={expanded}
               index={idx + 1}
             />
           );
         })}
       </Box>
     )}
+    <Box paddingX={spacing.indent} marginTop={spacing.section}>
+      <Text dimColor>{glyphs.bullet} ↵/o expand/collapse</Text>
+    </Box>
   </Box>
 );
 
 const TaskCard = ({
   task,
+  sprint,
+  tasks,
+  project,
   ticketTitle,
   repoName,
   focused,
+  expanded,
   index,
 }: {
   readonly task: Task;
+  readonly sprint: Sprint;
+  readonly tasks: readonly Task[];
+  readonly project: Project | undefined;
   readonly ticketTitle: string | undefined;
   readonly repoName: string | undefined;
   readonly focused: boolean;
+  readonly expanded: boolean;
   readonly index: number;
 }): React.JSX.Element => {
   const lastAttempt: Attempt | undefined = task.attempts[task.attempts.length - 1];
@@ -904,14 +933,15 @@ const TaskCard = ({
               </Text>
             )}
           </Box>
-          {task.description !== undefined && <Description text={task.description} maxLines={2} />}
-          {task.status === 'blocked' && (
+          {!expanded && task.description !== undefined && <Description text={task.description} maxLines={2} />}
+          {!expanded && task.status === 'blocked' && (
             <Box paddingLeft={2}>
               <Text color={inkColors.error}>
                 {glyphs.cross} blocked: {task.blockedReason}
               </Text>
             </Box>
           )}
+          {expanded && <TaskDetailBody task={task} sprint={sprint} tasks={tasks} project={project} />}
         </Box>
       </Card>
     </Box>
@@ -931,9 +961,9 @@ const attemptElapsedMs = (attempt: Attempt): number | undefined => {
   return Number.isFinite(finished) && Number.isFinite(started) ? finished - started : undefined;
 };
 
-// ─── Detail views ─────────────────────────────────────────────────────────────────────────────
+// ─── Detail bodies (inline-expanded card contents) ────────────────────────────────────────────
 
-const TicketDetail = ({
+const TicketDetailBody = ({
   ticket,
   tasks,
 }: {
@@ -942,48 +972,34 @@ const TicketDetail = ({
 }): React.JSX.Element => {
   const referencedTasks = tasks.filter((t) => t.ticketId === ticket.id);
   return (
-    <Card
-      title={`Ticket — ${ticket.title}`}
-      tone="info"
-      right={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
-    >
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <FieldList
-          fields={[
-            { label: 'Title', value: ticket.title },
-            { label: 'Status', value: ticket.status },
-            ...(ticket.link !== undefined ? [{ label: 'Link', value: String(ticket.link) }] : []),
-            { label: 'Tasks', value: String(referencedTasks.length) },
-          ]}
-        />
-        {ticket.description !== undefined && (
-          <Section heading="Description">
-            <Description text={ticket.description} maxLines={Number.POSITIVE_INFINITY} />
-          </Section>
-        )}
-        {ticket.status === 'approved' && (
-          <Section heading="Requirements">
-            <Description text={ticket.requirements} maxLines={Number.POSITIVE_INFINITY} />
-          </Section>
-        )}
-        {referencedTasks.length > 0 && (
-          <Section heading="Referenced tasks">
-            <Box flexDirection="column" paddingLeft={2}>
-              {referencedTasks.map((t) => (
-                <Box key={t.id}>
-                  <StatusChip label={t.status} kind={taskStatusKind(t.status)} />
-                  <Text bold> {t.name}</Text>
-                </Box>
-              ))}
-            </Box>
-          </Section>
-        )}
-      </Box>
-    </Card>
+    <Box flexDirection="column">
+      {ticket.description !== undefined && (
+        <Section heading="Description">
+          <Description text={ticket.description} maxLines={Number.POSITIVE_INFINITY} />
+        </Section>
+      )}
+      {ticket.status === 'approved' && (
+        <Section heading="Requirements">
+          <Description text={ticket.requirements} maxLines={Number.POSITIVE_INFINITY} />
+        </Section>
+      )}
+      {referencedTasks.length > 0 && (
+        <Section heading="Referenced tasks">
+          <Box flexDirection="column" paddingLeft={2}>
+            {referencedTasks.map((t) => (
+              <Box key={t.id}>
+                <StatusChip label={t.status} kind={taskStatusKind(t.status)} />
+                <Text bold> {t.name}</Text>
+              </Box>
+            ))}
+          </Box>
+        </Section>
+      )}
+    </Box>
   );
 };
 
-const TaskDetail = ({
+const TaskDetailBody = ({
   task,
   sprint,
   tasks,
@@ -1000,93 +1016,81 @@ const TaskDetail = ({
     .filter((t): t is Task => t !== undefined);
   const repoName = repositoryName(project, task.repositoryId);
   return (
-    <Card
-      title={`Task — ${task.name}`}
-      tone="info"
-      right={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
-    >
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <FieldList
-          fields={[
-            { label: 'Name', value: task.name },
-            { label: 'Status', value: task.status },
-            { label: 'Order', value: String(task.order) },
-            {
-              label: 'Repository',
-              value: repoName !== undefined ? `${repoName}  (${String(task.repositoryId)})` : String(task.repositoryId),
-            },
-            {
-              label: 'Ticket',
-              value: ticket !== undefined ? `${ticket.title}  [${ticket.status}]` : String(task.ticketId),
-            },
-            {
-              label: 'Attempts',
-              value: `${String(task.attempts.length)}${task.maxAttempts !== undefined ? `/${String(task.maxAttempts)}` : ''}`,
-            },
-            ...(task.status === 'done' ? [{ label: 'Final attempt', value: `#${String(task.finalAttemptN)}` }] : []),
-            ...(task.extraDimensions !== undefined && task.extraDimensions.length > 0
-              ? [{ label: 'Extra dims', value: task.extraDimensions.join(', ') }]
-              : []),
-          ]}
-        />
-        {task.status === 'blocked' && (
-          <Box marginTop={1}>
-            <Text color={inkColors.error}>
-              {glyphs.cross} blocked: {task.blockedReason}
-            </Text>
+    <Box flexDirection="column">
+      <FieldList
+        fields={[
+          { label: 'Order', value: String(task.order) },
+          {
+            label: 'Repository',
+            value: repoName !== undefined ? `${repoName}  (${String(task.repositoryId)})` : String(task.repositoryId),
+          },
+          {
+            label: 'Ticket',
+            value: ticket !== undefined ? `${ticket.title}  [${ticket.status}]` : String(task.ticketId),
+          },
+          ...(task.status === 'done' ? [{ label: 'Final attempt', value: `#${String(task.finalAttemptN)}` }] : []),
+          ...(task.extraDimensions !== undefined && task.extraDimensions.length > 0
+            ? [{ label: 'Extra dims', value: task.extraDimensions.join(', ') }]
+            : []),
+        ]}
+      />
+      {task.status === 'blocked' && (
+        <Box marginTop={1}>
+          <Text color={inkColors.error}>
+            {glyphs.cross} blocked: {task.blockedReason}
+          </Text>
+        </Box>
+      )}
+      {task.description !== undefined && (
+        <Section heading="Description">
+          <Description text={task.description} maxLines={Number.POSITIVE_INFINITY} />
+        </Section>
+      )}
+      {task.steps.length > 0 && (
+        <Section heading="Steps">
+          <Box flexDirection="column" paddingLeft={2}>
+            {task.steps.map((s, i) => (
+              <Text key={`step-${String(i)}`} dimColor>
+                {String(i + 1)}. {s}
+              </Text>
+            ))}
           </Box>
-        )}
-        {task.description !== undefined && (
-          <Section heading="Description">
-            <Description text={task.description} maxLines={Number.POSITIVE_INFINITY} />
-          </Section>
-        )}
-        {task.steps.length > 0 && (
-          <Section heading="Steps">
-            <Box flexDirection="column" paddingLeft={2}>
-              {task.steps.map((s, i) => (
-                <Text key={`step-${String(i)}`} dimColor>
-                  {String(i + 1)}. {s}
-                </Text>
-              ))}
-            </Box>
-          </Section>
-        )}
-        {task.verificationCriteria.length > 0 && (
-          <Section heading="Verification">
-            <Box flexDirection="column" paddingLeft={2}>
-              {task.verificationCriteria.map((c, i) => (
-                <Text key={`vc-${String(i)}`} dimColor>
-                  {glyphs.bullet} [{c.id}] {c.check}
-                  {c.check === 'auto' && c.command !== undefined ? ` \`${c.command}\`` : ''} — {c.assertion}
-                </Text>
-              ))}
-            </Box>
-          </Section>
-        )}
-        {dependsOnTasks.length > 0 && (
-          <Section heading="Depends on">
-            <Box flexDirection="column" paddingLeft={2}>
-              {dependsOnTasks.map((d) => (
-                <Box key={d.id}>
-                  <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
-                  <Text bold> {d.name}</Text>
-                </Box>
-              ))}
-            </Box>
-          </Section>
-        )}
-        {task.attempts.length > 0 && (
-          <Section heading="Attempt history">
-            <Box flexDirection="column" paddingLeft={2}>
-              {task.attempts.map((attempt) => (
-                <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
-              ))}
-            </Box>
-          </Section>
-        )}
-      </Box>
-    </Card>
+        </Section>
+      )}
+      {task.verificationCriteria.length > 0 && (
+        <Section heading="Verification">
+          <Box flexDirection="column" paddingLeft={2}>
+            {task.verificationCriteria.map((c, i) => (
+              <Text key={`vc-${String(i)}`} dimColor>
+                {glyphs.bullet} [{c.id}] {c.check}
+                {c.check === 'auto' && c.command !== undefined ? ` \`${c.command}\`` : ''} — {c.assertion}
+              </Text>
+            ))}
+          </Box>
+        </Section>
+      )}
+      {dependsOnTasks.length > 0 && (
+        <Section heading="Depends on">
+          <Box flexDirection="column" paddingLeft={2}>
+            {dependsOnTasks.map((d) => (
+              <Box key={d.id}>
+                <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
+                <Text bold> {d.name}</Text>
+              </Box>
+            ))}
+          </Box>
+        </Section>
+      )}
+      {task.attempts.length > 0 && (
+        <Section heading="Attempt history">
+          <Box flexDirection="column" paddingLeft={2}>
+            {task.attempts.map((attempt) => (
+              <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
+            ))}
+          </Box>
+        </Section>
+      )}
+    </Box>
   );
 };
 

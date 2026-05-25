@@ -2,13 +2,13 @@
  * TasksPanel — collapsed-by-default task cards with j/k expansion.
  *
  * Layout rules:
- *   - The active (first non-completed) task is always auto-expanded.
+ *   - The active (first non-completed) task auto-expands when it becomes active; the user
+ *     can collapse it (Esc or Enter) like any other card.
  *   - All other tasks are collapsed by default to a one-line summary:
  *       <icon> <name> · <status> · <attempts>× · <lastCommitSha?>
- *   - j/k moves the card cursor when the focused card is collapsed; Enter/Space expands.
- *   - When a card is expanded, j/k moves between its signal rows (legacy active-task behaviour).
- *   - Esc collapses a manually-expanded card; the active task is exempt (it would hide the
- *     live stream).
+ *   - j/k moves the card cursor when the focused card is collapsed; Enter/Space toggles
+ *     expansion. When a card is expanded, j/k moves between its signal rows.
+ *   - Esc collapses an expanded focused card.
  */
 
 import { render } from 'ink-testing-library';
@@ -87,13 +87,64 @@ describe('TasksPanel card collapse / expand', () => {
     r.unmount();
   });
 
-  it('Esc on the active card is a no-op — the live stream stays visible', async () => {
+  it('Esc on the active card collapses it (auto-expand is a seed, not a permanent lock)', async () => {
     const r = render(<TasksPanel bucketed={bucketed} running={true} inputActive={true} />);
     await tick(30);
-    // Cursor defaults to the active task — pressing Esc must not collapse it.
+    // Cursor defaults to the active task. Active task is auto-expanded so its stream is visible.
+    expect(r.lastFrame() ?? '').toContain('task-2 active change');
     r.stdin.write(ESC);
     await tick(40);
+    expect(r.lastFrame() ?? '').not.toContain('task-2 active change');
+    r.unmount();
+  });
+
+  it('Enter on an expanded card (with no row anchor) collapses it', async () => {
+    const r = render(<TasksPanel bucketed={bucketed} running={true} inputActive={true} />);
+    await tick(30);
+    // Active task is auto-expanded; cursor is on it.
     expect(r.lastFrame() ?? '').toContain('task-2 active change');
+    r.stdin.write(ENTER);
+    await tick(40);
+    expect(r.lastFrame() ?? '').not.toContain('task-2 active change');
+    r.unmount();
+  });
+
+  it('Enter on an expanded then collapsed card re-expands it (toggle)', async () => {
+    const r = render(<TasksPanel bucketed={bucketed} running={true} inputActive={true} />);
+    await tick(30);
+    r.stdin.write(ENTER);
+    await tick(40);
+    expect(r.lastFrame() ?? '').not.toContain('task-2 active change');
+    r.stdin.write(ENTER);
+    await tick(40);
+    expect(r.lastFrame() ?? '').toContain('task-2 active change');
+    r.unmount();
+  });
+
+  it('when the active task transitions to a new id, the new id auto-expands', async () => {
+    const r = render(<TasksPanel bucketed={bucketed} running={true} inputActive={true} />);
+    await tick(30);
+    expect(r.lastFrame() ?? '').toContain('task-2 active change');
+
+    // Simulate the run advancing: task-2 completes, task-3 is now the active one.
+    const advanced: BucketedExecution = {
+      tasks: [
+        ...bucketed.tasks.map((t) => (t.id === 'task-2' ? { ...t, status: 'completed' as const } : t)),
+        {
+          id: 'task-3',
+          status: 'running' as const,
+          subSteps: [],
+          evaluations: [],
+          signals: [{ type: 'change' as const, text: 'task-3 active change', timestamp: ts(20) }],
+          genEvalRound: 0,
+        },
+      ],
+      orphanSignals: [],
+    };
+    r.rerender(<TasksPanel bucketed={advanced} running={true} inputActive={true} />);
+    await tick(40);
+    // New active task auto-expanded → its stream shows.
+    expect(r.lastFrame() ?? '').toContain('task-3 active change');
     r.unmount();
   });
 

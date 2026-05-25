@@ -18,7 +18,7 @@
  * bucketed structure.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type {
   BucketedExecution,
@@ -1146,29 +1146,44 @@ export const TasksPanel = ({
   // Task ids whose criteria block is currently expanded (full bullet list). Default state is
   // the 3-line summary. Toggled by pressing `e` while the panel owns input.
   const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
-  // Per-task card expansion. The active (running) task is auto-expanded — the operator's eye
-  // always lives there. Other cards default collapsed to a one-line summary; pressing
-  // Enter / Space on a focused card-row expands it, Esc re-collapses (active task excepted).
-  const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(() => new Set());
-  // Card cursor — index into `bucketed.tasks`. Default `undefined` means "no manual focus
-  // yet"; the panel anchors on the active task on first interaction.
-  const [cardCursor, setCardCursor] = useState<number | undefined>(undefined);
-
-  // No async hydration step — criteria flow synchronously from props.
-
   // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
   // default card-cursor position. Recomputed each render so the `useInput` callback always
   // sees the latest active id.
   const activeTaskIdx = bucketed.tasks.findIndex((t) => t.status !== 'completed');
   const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
 
-  // Effective expansion set: the manual set unioned with the active task (auto-expanded).
-  // Recomputed each render so the panel reacts immediately when the active task transitions.
-  const isCardExpanded = (taskId: string): boolean => {
-    if (expandedTaskIds.has(taskId)) return true;
-    if (taskId === activeTaskId) return true;
-    return false;
-  };
+  // Per-task card expansion. The active (running) task auto-expands when it becomes active so
+  // the operator's eye anchors on the live stream — but the user can collapse it with Esc or
+  // Enter just like any other card. Other cards default collapsed to a one-line summary.
+  // Initial state seeds the active task on mount so the very first paint already shows the
+  // live stream (no `useEffect`-induced flicker).
+  const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(
+    () => new Set(activeTaskId !== undefined ? [activeTaskId] : [])
+  );
+  // Card cursor — index into `bucketed.tasks`. Default `undefined` means "no manual focus
+  // yet"; the panel anchors on the active task on first interaction.
+  const [cardCursor, setCardCursor] = useState<number | undefined>(undefined);
+
+  // No async hydration step — criteria flow synchronously from props.
+
+  // Seed `expandedTaskIds` with the active task whenever it transitions to a new id (post-mount
+  // transitions only — mount itself is handled by the lazy initial state). This gives the
+  // auto-expand-on-activation UX without making the expansion permanent: once the active id is
+  // in the set, Esc / Enter on it works the same as on any manually-expanded card.
+  const prevActiveTaskIdRef = useRef<string | undefined>(activeTaskId);
+  useEffect(() => {
+    if (activeTaskId !== undefined && prevActiveTaskIdRef.current !== activeTaskId) {
+      setExpandedTaskIds((prev) => {
+        if (prev.has(activeTaskId)) return prev;
+        const next = new Set(prev);
+        next.add(activeTaskId);
+        return next;
+      });
+    }
+    prevActiveTaskIdRef.current = activeTaskId;
+  }, [activeTaskId]);
+
+  const isCardExpanded = (taskId: string): boolean => expandedTaskIds.has(taskId);
 
   // The card cursor — defaults to the active task on first render, falls back to the last
   // card when the active task no longer exists (e.g. the run has finished). Stays put across
@@ -1197,11 +1212,11 @@ export const TasksPanel = ({
         });
         return;
       }
-      // Esc collapses an expanded card (when manually expanded). The active task stays
-      // auto-expanded — Esc on the active card is a no-op so the operator can't accidentally
-      // hide the live stream.
+      // Esc collapses an expanded focused card. Works on any expanded card, including the
+      // active task — the auto-expand-on-activation seed only fires when the active id
+      // transitions, so collapsing it stays collapsed until the next transition.
       if (key.escape) {
-        if (focusedCardId !== undefined && focusedCardId !== activeTaskId && expandedTaskIds.has(focusedCardId)) {
+        if (focusedCardId !== undefined && expandedTaskIds.has(focusedCardId)) {
           setExpandedTaskIds((prev) => {
             const next = new Set(prev);
             next.delete(focusedCardId);
@@ -1247,11 +1262,14 @@ export const TasksPanel = ({
         return;
       }
       if (key.return || input === ' ') {
-        // Card-scope: expand the focused card.
-        if (!focusedCardExpanded && focusedCardId !== undefined) {
+        // Card-scope: toggle the focused card's expansion. Row-scope only kicks in when the
+        // card is already expanded AND a row cursor is anchored.
+        const rowCursorAnchored = focusedCardExpanded && flatKeys.length > 0 && focusedIndex >= 0;
+        if (focusedCardId !== undefined && !rowCursorAnchored) {
           setExpandedTaskIds((prev) => {
             const next = new Set(prev);
-            next.add(focusedCardId);
+            if (next.has(focusedCardId)) next.delete(focusedCardId);
+            else next.add(focusedCardId);
             return next;
           });
           return;
