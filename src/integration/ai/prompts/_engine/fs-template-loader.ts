@@ -14,7 +14,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *      Pairs with the `ai/prompts/<name>/definition.ts` so the template sits next to its
  *      definition — one folder per prompt.
  *   2. `<dir>/_partials/<name>.md`    — cross-cutting partial (harness-context, decisions,
- *      signals-feedback, validation-checklist). Underscore prefix keeps them sorted above
+ *      decisions, validation-checklist). Underscore prefix keeps them sorted above
  *      the named prompts.
  *
  * The loader is plain — no built-in cache. Each call hits the filesystem; callers wrap with a
