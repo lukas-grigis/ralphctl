@@ -20,6 +20,7 @@ import type {
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { absolutePath, makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
@@ -166,6 +167,7 @@ describe('createIdeateFlow', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
       },
       {
         sprintId: sprint.id,
@@ -173,6 +175,7 @@ describe('createIdeateFlow', () => {
         ideaTitle: 'Quick CSV export',
         ideaText: 'Need to let users download their data.',
         cwd: FAKE_CWD,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         ideateRoot: ideateRoot(),
       }
@@ -233,6 +236,7 @@ describe('createIdeateFlow', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
       },
       {
         sprintId: sprint.id,
@@ -240,6 +244,7 @@ describe('createIdeateFlow', () => {
         ideaTitle: 'Bad JSON',
         ideaText: 'whatever',
         cwd: FAKE_CWD,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         ideateRoot: ideateRoot(),
       }

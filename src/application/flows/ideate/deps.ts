@@ -9,6 +9,7 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
  * Narrow dependency contract for the ideate chain. Always interactive — uses
@@ -27,4 +28,6 @@ export interface IdeateDeps {
   readonly logger: Logger;
   readonly skillsAdapter: SkillsAdapter;
   readonly skillSource: SkillSource;
+  /** ISO timestamp source — stamped onto the per-spawn `meta.json` sidecar. */
+  readonly clock: () => IsoTimestamp;
 }

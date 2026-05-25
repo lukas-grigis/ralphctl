@@ -20,6 +20,8 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 export interface CreateRefineFlowOpts {
   readonly sprintId: SprintId;
@@ -29,6 +31,8 @@ export interface CreateRefineFlowOpts {
    * time so the trace names every ticket — a crash mid-run shows exactly which ticket failed.
    */
   readonly pendingTickets: readonly PendingTicket[];
+  /** Provider id used to attribute every per-ticket spawn in its `meta.json` sidecar. */
+  readonly providerId: string;
   /** Configured model for the refine chain. */
   readonly model: string;
   /** Resolved effort / reasoning level for the refine chain — optional. */
@@ -150,6 +154,30 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
               );
             }
             return ctx.currentUnitRoot;
+          },
+        }
+      ),
+      stampSessionMetaLeaf<RefineCtx>(
+        { writeFile: deps.writeFile, clock: deps.clock },
+        {
+          name: `stamp-meta-refine-${String(ticket.id)}`,
+          resolve: (ctx) => {
+            if (ctx.currentUnitRoot === undefined) {
+              throw new InvalidStateError({
+                entity: 'chain',
+                currentState: 'pre-stamp-meta',
+                attemptedAction: `stamp-meta-refine-${String(ticket.id)}`,
+                message: `stamp-meta-refine-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`,
+              });
+            }
+            return {
+              outputDir: ctx.currentUnitRoot,
+              flow: 'refine',
+              provider: opts.providerId,
+              model: opts.model,
+              effort: opts.effort ?? null,
+              ticketId: String(ticket.id),
+            };
           },
         }
       ),

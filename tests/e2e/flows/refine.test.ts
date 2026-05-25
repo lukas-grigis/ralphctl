@@ -18,6 +18,7 @@ import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
 import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
 import { makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -129,10 +130,12 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
       },
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -185,11 +188,13 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
         issueFetcher,
       },
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -242,11 +247,13 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
         issueFetcher,
       },
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -302,12 +309,14 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
         issuePusher,
         reviewBeforeApprove,
       },
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -376,6 +385,7 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
         issuePusher,
         defaultIssueOrigin,
         reviewBeforeApprove,
@@ -383,6 +393,7 @@ describe('createRefineFlow — interactive', () => {
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }
@@ -430,10 +441,12 @@ describe('createRefineFlow — interactive', () => {
         logger: noopLogger,
         skillsAdapter: noopSkillsAdapter,
         skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
       },
       {
         sprintId: sprint.id,
         pendingTickets: tickets,
+        providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
         refinementRoot: refinementRoot(),
       }

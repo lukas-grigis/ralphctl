@@ -130,6 +130,7 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
       runInTerminal: deps.runInTerminal,
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
+      clock: deps.app.clock,
       skillsAdapter,
       skillSource,
       reviewBeforeApprove,
@@ -140,6 +141,7 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
     {
       sprintId: snapshot.sprint.id,
       pendingTickets: pending,
+      providerId: settings.ai.refine.provider,
       model: extras.modelOverride ?? settings.ai.refine.model,
       ...(effort !== undefined ? { effort } : {}),
       refinementRoot: refinementRoot.value,

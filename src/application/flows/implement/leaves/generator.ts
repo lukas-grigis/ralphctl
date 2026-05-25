@@ -30,7 +30,6 @@ import { implementSession } from '@src/application/flows/implement/leaves/implem
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import {
-  nextRoundNum,
   readRoundSessionId,
   roundSignalsPath,
   writeRoundPrompt,
@@ -105,6 +104,12 @@ interface GeneratorInput {
   readonly turn: number;
   readonly workspaceRoot: AbsolutePath;
   /**
+   * Round number for this turn — resolved upstream by `resolve-round-num-<taskId>` and
+   * threaded through ctx. Single source of truth across the round's stamp + generator +
+   * evaluator leaves so the meta sidecar and the spawn share the same `<N>`.
+   */
+  readonly roundNum: number;
+  /**
    * Captured Claude `session_id` from the prior round's generator turn for this task. Forwarded
    * to `implementSession({ resume })` so the model continues a single conversational thread
    * across rounds. `undefined` on round 1 of a task (or when the prior spawn failed before
@@ -169,7 +174,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
   leaf<ImplementCtx, GeneratorInput, GeneratorOutput>(`generator-${String(taskId)}`, {
     useCase: {
       execute: async (input) => {
-        const roundNum = await nextRoundNum(input.workspaceRoot);
+        const roundNum = input.roundNum;
         const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
         if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
         const signalsFile = signalsFilePath.value;
@@ -350,10 +355,19 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           message: `generator-${String(taskId)}: ctx.taskWorkspaceRoot missing — buildTaskWorkspaceLeaf must run first`,
         });
       }
+      if (ctx.currentRoundNum === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-generator',
+          attemptedAction: `generator-${String(taskId)}`,
+          message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
+        });
+      }
       return {
         task: ctx.currentTask,
         turn: (ctx.genEvalTurn ?? 0) + 1,
         workspaceRoot: ctx.taskWorkspaceRoot,
+        roundNum: ctx.currentRoundNum,
         ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
       };
     },

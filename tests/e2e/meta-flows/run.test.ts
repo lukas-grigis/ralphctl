@@ -292,6 +292,7 @@ describe('createRunFlow', () => {
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-7',
+        providerId: 'claude-code',
       }
     );
 
@@ -378,6 +379,7 @@ describe('createRunFlow', () => {
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-7',
+        providerId: 'claude-code',
         noReview: true,
       }
     );

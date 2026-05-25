@@ -56,6 +56,7 @@ describe('generatorLeaf', () => {
     currentTask: task,
     progressFile: absolutePath(join(String(root.root), 'progress.md')),
     taskWorkspaceRoot: root.root,
+    currentRoundNum: 1,
   });
 
   it('persists generator prompt.md under rounds/<N>/generator/ on round 1', async () => {
@@ -81,11 +82,12 @@ describe('generatorLeaf', () => {
     if (!critiqued.ok) return;
     const task = critiqued.value;
 
-    // Pre-create rounds/1/ so `nextRoundNum` returns 2.
+    // Round number now flows from `ctx.currentRoundNum` (resolved by the upstream
+    // `resolve-round-num` leaf in production); the test feeds it directly.
     await fs.mkdir(join(String(root.root), 'rounds', '1', 'generator'), { recursive: true });
 
     const leaf = generatorLeaf(buildDeps(), task.id);
-    const result = await leaf.execute(baseCtx(task));
+    const result = await leaf.execute({ ...baseCtx(task), currentRoundNum: 2 });
     expect(result.ok).toBe(true);
 
     const promptPath = join(String(root.root), 'rounds', '2', 'generator', 'prompt.md');
@@ -156,9 +158,9 @@ describe('generatorLeaf', () => {
     const first = await leaf.execute(baseCtx(task));
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    // The leaf's `output` projection threads `currentTask`/`genEvalTurn`/`currentRoundNum`.
-    // Use it as the next call's ctx — that's exactly what the surrounding loop does.
-    const second = await leaf.execute(first.value.ctx);
+    // In production the upstream `resolve-round-num` leaf bumps `currentRoundNum` between
+    // iterations; the test simulates that handoff.
+    const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
     expect(second.ok).toBe(true);
 
     const rounds = events.filter((e): e is TaskRoundStartedEvent => e.type === 'task-round-started');

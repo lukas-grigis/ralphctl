@@ -3,7 +3,6 @@ import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -68,18 +67,18 @@ export interface SetupReadinessDeps {
   /** Pre-bound session builder — wraps the prompt + signalsFile into the chain's per-call profile. */
   readonly buildSession: BuildReadinessSessionFn;
   readonly logger: Logger;
-  /**
-   * `<dataRoot>/runs`. The use case materialises `<runsRoot>/readiness/<run-id>/prompt.md` and
-   * (for Claude) `body.txt`. Under audit-[09] the AI writes `signals.json` here directly; the
-   * calling leaf validates it post-spawn.
-   */
-  readonly runsRoot: AbsolutePath;
 }
 
 export interface SetupReadinessInput {
   readonly repository: Repository;
   readonly tool: AssistantTool;
   readonly probedState: ReadinessState;
+  /**
+   * Pre-allocated per-run forensic directory. Threaded in from the chain layer so the per-
+   * spawn `meta.json` sidecar (written by the upstream `stamp-session-meta` leaf) lands in
+   * the same directory the AI writes `signals.json` to.
+   */
+  readonly runDir: AbsolutePath;
   /**
    * Existing context file body, when one was found. Threaded by the chain leaf via the
    * filesystem after the probe runs; we accept it here as a string so the use case stays free
@@ -130,39 +129,39 @@ export const setupReadinessUseCase = async (
     state: input.probedState.kind,
   });
 
-  // Resolve `runDir` first so the prompt can embed the absolute `signals.json` path the AI
-  // must write to. Without it, the rendered contract section would say "spawn output
-  // directory" without naming the path and the AI's `Write` lands nowhere harness reads.
-  const runDir = AbsolutePath.parse(join(String(deps.runsRoot), 'readiness', buildRunDirName()));
-  if (!runDir.ok) return Result.error(runDir.error);
+  // `runDir` is pre-allocated upstream by the `allocate-run-dir-<tool>` leaf so the per-spawn
+  // `meta.json` sidecar (written by the chain's `stamp-session-meta` leaf BEFORE this spawn)
+  // lands beside the AI-written `signals.json`. The directory exists on disk by the time we
+  // get here.
+  const runDir = input.runDir;
 
   const prompt = await deps.buildPrompt({
     repositoryPath: String(input.repository.path),
     currentTool: input.tool,
     probedState: input.probedState,
-    outputDir: runDir.value,
+    outputDir: runDir,
     ...(input.existingContextFile !== undefined ? { existingContextFile: input.existingContextFile } : {}),
   });
   if (!prompt.ok) return Result.error(prompt.error);
-  const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
+  const promptFile = AbsolutePath.parse(join(String(runDir), 'prompt.md'));
   if (!promptFile.ok) return Result.error(promptFile.error);
-  const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
+  const bodyFile = AbsolutePath.parse(join(String(runDir), 'body.txt'));
   if (!bodyFile.ok) return Result.error(bodyFile.error);
   // Under audit-[09] the AI writes `signals.json` into `outputDir`. `signalsFile` is still on
   // the session shape; we wire it to the same path so the file lands at `<runDir>/signals.json`.
-  const signalsFile = AbsolutePath.parse(join(String(runDir.value), 'signals.json'));
+  const signalsFile = AbsolutePath.parse(join(String(runDir), 'signals.json'));
   if (!signalsFile.ok) return Result.error(signalsFile.error);
 
   const promptWrote = await writeTextAtomic(String(promptFile.value), String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
-  const session = deps.buildSession(prompt.value, signalsFile.value, bodyFile.value, runDir.value);
+  const session = deps.buildSession(prompt.value, signalsFile.value, bodyFile.value, runDir);
   const spawned = await deps.provider.generate(session);
   if (!spawned.ok) {
     log.error(`provider failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
       error: spawned.error.message,
-      runDir: String(runDir.value),
+      runDir: String(runDir),
     });
     return Result.error(spawned.error);
   }
@@ -173,8 +172,8 @@ export const setupReadinessUseCase = async (
   log.info(`provider spawn complete for repo ${input.repository.name}`, {
     repositoryId: String(input.repository.id),
     targetPath: String(targetPath.value),
-    runDir: String(runDir.value),
+    runDir: String(runDir),
   });
 
-  return Result.ok({ runDir: runDir.value, targetPath: targetPath.value });
+  return Result.ok({ runDir, targetPath: targetPath.value });
 };

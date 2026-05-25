@@ -167,13 +167,17 @@ describe('proposeReadinessLeaf — audit-[09] contract', () => {
       logger: noopLogger,
       cwd: absolutePath('/tmp/ralph/fake-readiness-cwd'),
       model: 'claude-sonnet-4-6',
-      runsRoot,
     };
+    // Pre-allocate a per-test run dir on disk so the propose leaf (which no longer allocates
+    // its own runDir) has somewhere to land sidecars. Mirrors the chain composition where
+    // `allocate-run-dir-<tool>` runs upstream of propose.
+    const runDir = absolutePath(join(String(runsRoot), 'readiness', `test-${Math.random().toString(36).slice(2, 8)}`));
+    await fs.mkdir(String(runDir), { recursive: true });
     const ctx: ReadinessCtx = {
       projectId: 'p1' as unknown as ReadinessCtx['projectId'],
       repository,
       tools: ['claude-code'],
-      entries: { 'claude-code': { probedState: stateResult.value } },
+      entries: { 'claude-code': { probedState: stateResult.value, runDir } },
     };
     return { deps, writer, ctx };
   };

@@ -14,6 +14,9 @@ import { proposeReadinessLeaf } from '@src/application/flows/readiness/leaves/pr
 import { writeReadinessLeaf } from '@src/application/flows/readiness/leaves/write.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { toolForProvider, type AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
@@ -107,6 +110,39 @@ const buildPerToolSubchain = (
       { skillsAdapter, skillSource: deps.skillSource },
       { name: `install-skills-${tool}`, flowId: 'readiness', cwdPicker: () => opts.cwd }
     ),
+    allocateRunDirLeaf<ReadinessCtx>({
+      name: `allocate-run-dir-${tool}`,
+      runsRoot: () => deps.runsRoot,
+      flowSegment: 'readiness',
+      write: (ctx, runDir) => ({
+        ...ctx,
+        entries: { ...ctx.entries, [tool]: { ...ctx.entries[tool], runDir } },
+      }),
+    }),
+    stampSessionMetaLeaf<ReadinessCtx>(
+      { writeFile: deps.writeFile, clock: deps.clock },
+      {
+        name: `stamp-meta-${tool}`,
+        resolve: (ctx) => {
+          const runDir = ctx.entries[tool]?.runDir;
+          if (runDir === undefined) {
+            throw new InvalidStateError({
+              entity: 'chain',
+              currentState: 'pre-stamp-meta',
+              attemptedAction: `stamp-meta-${tool}`,
+              message: `stamp-meta-${tool}: runDir missing — allocate-run-dir-${tool} must run first`,
+            });
+          }
+          return {
+            outputDir: runDir,
+            flow: 'readiness',
+            provider: row.provider,
+            model: row.model,
+            effort: effort ?? null,
+          };
+        },
+      }
+    ),
     proposeReadinessLeaf(
       {
         provider: provideAi,
@@ -117,7 +153,6 @@ const buildPerToolSubchain = (
         cwd: opts.cwd,
         model: row.model,
         ...(effort !== undefined ? { effort } : {}),
-        runsRoot: deps.runsRoot,
       },
       tool
     ),

@@ -53,6 +53,13 @@ export interface CreateRunFlowOpts {
   readonly sprintDir: AbsolutePath;
   readonly feedbackFile: AbsolutePath;
   readonly model: string;
+  /**
+   * Provider id used to attribute each gen-eval spawn in its per-round `meta.json` sidecar.
+   * The meta-run flow's external composer (the `pnpm dev run` entry point) carries one
+   * provider for the whole run; per-role split lives on the primary launcher. Required so
+   * attribution never silently degrades to "unknown".
+   */
+  readonly providerId: string;
   readonly verifyScript?: string;
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
@@ -78,7 +85,9 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
     repositories: opts.repositories,
     progressFile: opts.progressFile,
     sprintDir: opts.sprintDir,
+    generatorProviderId: opts.providerId,
     generatorModel: opts.model,
+    evaluatorProviderId: opts.providerId,
     evaluatorModel: opts.model,
   });
   const reviewFlow = createReviewFlow(deps.review, {
