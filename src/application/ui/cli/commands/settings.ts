@@ -3,8 +3,28 @@ import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 import { isPresetName, PRESET_NAMES } from '@src/business/settings/presets.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
+import { createSettingsSetProviderFlow } from '@src/application/flows/settings-set-provider/flow.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import type { AiImplementRole, AiProvider } from '@src/domain/entity/settings.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
+
+const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
+const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
+
+/**
+ * Detect a provider-setting key and return the parsed flow+role tuple. Returns `undefined` for
+ * any other key; `applySettingsKey` (the legacy path) still handles those. Recognised shapes:
+ *   - `ai.<flow>.provider`              (flow ∈ refine | plan | readiness | ideate)
+ *   - `ai.implement.<role>.provider`    (role ∈ generator | evaluator)
+ */
+const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?: AiImplementRole } | undefined => {
+  const implementMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(key);
+  if (implementMatch !== null) return { flow: 'implement', role: implementMatch[1] as AiImplementRole };
+  const flatMatch = /^ai\.(refine|plan|readiness|ideate)\.provider$/.exec(key);
+  if (flatMatch !== null) return { flow: flatMatch[1] as FlowId };
+  return undefined;
+};
 
 /**
  * Register the `settings` command group.
@@ -58,6 +78,40 @@ export const registerSettingsCommand = (program: Command): void => {
     .description('mutate one setting and persist (read-modify-write, schema-validated)')
     .action(async (key: string, value: string) => {
       const { deps } = await bootstrapCli();
+      // Provider keys route through the dedicated `settings-set-provider` flow rather than the
+      // generic apply-key path. That flow rebuilds the row's `{ provider, model }` pair from
+      // the new provider's defaults (so the schema stays satisfied) AND runs the same
+      // PATH-availability gate as the launch-time fail-fast helper — so an `openai-codex`
+      // assignment fails here exactly as it would on the next implement run. Unknown provider
+      // ids still surface as a ValidationError so callers can distinguish "wrong shape" from
+      // "valid shape but CLI missing".
+      const providerKey = parseProviderKey(key);
+      if (providerKey !== undefined) {
+        if (!isAiProvider(value)) {
+          process.stderr.write(
+            `error: '${value}' is not a recognised provider (expected one of: ${AI_PROVIDERS.join(', ')})\n`
+          );
+          process.exit(1);
+          return;
+        }
+        const providerFlow = createSettingsSetProviderFlow({ settingsRepo: deps.settingsRepo });
+        const saved = await providerFlow.execute({
+          input: {
+            flow: providerKey.flow,
+            provider: value,
+            ...(providerKey.role !== undefined ? { role: providerKey.role } : {}),
+          },
+        });
+        if (!saved.ok) {
+          const err = saved.error.error;
+          const hint = 'hint' in err && typeof err.hint === 'string' ? ` (${err.hint})` : '';
+          process.stderr.write(`error: ${err.message}${hint}\n`);
+          process.exit(1);
+          return;
+        }
+        process.stdout.write(`${key} = ${value}\n`);
+        return;
+      }
       const showFlow = createSettingsShowFlow({ settingsRepo: deps.settingsRepo });
       const current = await showFlow.execute({ input: undefined });
       if (!current.ok) {

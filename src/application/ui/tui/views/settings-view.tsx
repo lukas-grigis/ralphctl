@@ -44,6 +44,7 @@ import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { detectInstalledProviders, primaryInstallCommand } from '@src/integration/system/detect-cli.ts';
 
 const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 
@@ -205,6 +206,14 @@ export const SettingsView = (): React.JSX.Element => {
   const logLevel = useLogLevel();
   const [settings, setSettings] = useState<Settings | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
+  /**
+   * Set of providers whose CLI binary resolved on PATH at mount time. Probed once per Settings
+   * session — the per-row Settings editor never re-probes; the user has to leave and re-enter
+   * Settings to refresh the gate (matches the apply-preset / launch-time probe sites). Stays
+   * `undefined` while the probe is in flight; the provider picker treats `undefined` as "all
+   * enabled" so the picker is usable in the rare frame between mount and probe-completion.
+   */
+  const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
   const [cursor, setCursor] = useState(0);
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
   /** Holds a model field when the user picked "+ custom" — the editor swaps to a TextPrompt. */
@@ -234,6 +243,16 @@ export const SettingsView = (): React.JSX.Element => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void detectInstalledProviders().then((installed) => {
+      if (!cancelled) setInstalledProviders(installed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fields = useMemo<readonly EditableField[]>(
     () => (settings === undefined ? [] : buildEditableFields(settings)),
@@ -351,6 +370,46 @@ export const SettingsView = (): React.JSX.Element => {
     await refresh();
   };
 
+  /**
+   * `true` when `field` is a per-flow / per-role provider picker. Provider fields surface the
+   * availability gate (dimmed unavailable rows, install-guidance footer); every other select
+   * stays plain.
+   */
+  const isProviderField = (field: EditableField): boolean =>
+    field.kind === 'select' && (field.key.endsWith('.provider') || field.key === 'ai.provider');
+
+  /**
+   * Build the option list for a provider picker. Unavailable providers render `'(not installed)'`
+   * suffixed and are marked `disabled` so SelectPrompt skips them on keyboard navigation and
+   * refuses submission. When the availability probe has not completed yet, every option stays
+   * enabled — the gate still fires server-side via the settings-set-provider flow.
+   */
+  const buildProviderOptions = (
+    options: readonly string[]
+  ): {
+    readonly choices: ReadonlyArray<{ readonly label: string; readonly value: string; readonly disabled?: boolean }>;
+    readonly footer?: string;
+  } => {
+    const installed = installedProviders;
+    const choices = options.map((value) => {
+      const provider = value as AiProvider;
+      const available = installed === undefined || installed.has(provider);
+      const label = available ? value : `${value} (not installed)`;
+      return available ? { label, value } : { label, value, disabled: true };
+    });
+    const anyEnabled = choices.some((o) => o.disabled !== true);
+    const missing = options.filter((v) => installed !== undefined && !installed.has(v as AiProvider));
+    const footerParts: string[] = [];
+    if (!anyEnabled) {
+      footerParts.push('No AI provider CLI is installed.');
+    }
+    for (const m of missing) {
+      footerParts.push(`install ${m}: ${primaryInstallCommand(m as AiProvider)}`);
+    }
+    if (footerParts.length === 0) return { choices };
+    return { choices, footer: footerParts.join(' · ') };
+  };
+
   const renderEditor = (field: EditableField): React.JSX.Element => {
     if (field.kind === 'model' && customModelField !== undefined) {
       return (
@@ -363,6 +422,18 @@ export const SettingsView = (): React.JSX.Element => {
       );
     }
     if (field.kind === 'select' || field.kind === 'model') {
+      if (field.kind === 'select' && isProviderField(field)) {
+        const { choices, footer } = buildProviderOptions(field.options);
+        return (
+          <SelectPrompt
+            message={`${field.label} (current: ${field.current})`}
+            options={choices}
+            {...(footer !== undefined ? { footer } : {})}
+            onSubmit={(value) => void submit(String(value), field)}
+            onCancel={closeEditor}
+          />
+        );
+      }
       return (
         <SelectPrompt
           message={`${field.label} (current: ${field.current})`}

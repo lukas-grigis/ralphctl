@@ -15,7 +15,12 @@
  * invokes this helper exactly once — no internal caching is needed.
  */
 
-import { detectInstalledProviders, PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
+import {
+  detectInstalledProviders,
+  PROVIDER_BINARY,
+  PROVIDER_INSTALL_GUIDANCE,
+  primaryInstallCommand,
+} from '@src/integration/system/detect-cli.ts';
 import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
@@ -85,8 +90,10 @@ const rowExpectationsFor = (aiFlow: FlowId, settings: Settings): readonly RowExp
 const renderMissing = (missing: readonly RowExpectation[], aiFlow: FlowId): string => {
   const formatOne = (m: RowExpectation): string => {
     const binary = PROVIDER_BINARY[m.provider];
+    const installHint = primaryInstallCommand(m.provider);
+    const docsUrl = PROVIDER_INSTALL_GUIDANCE[m.provider].docsUrl;
     const roleSuffix = m.role !== undefined ? ` (${m.role})` : '';
-    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${m.settingsKey} or install the CLI.`;
+    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${m.settingsKey} or install with: ${installHint} (alternatives: ${docsUrl}).`;
   };
   if (missing.length === 1) return formatOne(missing[0]!);
   return missing.map(formatOne).join(' ');
