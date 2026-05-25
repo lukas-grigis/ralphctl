@@ -16,8 +16,18 @@ export interface ViewHint {
 
 interface HintsRegistryApi {
   readonly hints: readonly ViewHint[];
+  /**
+   * Set of global hint `keys` strings that should be hidden from the status bar while at least
+   * one view requests it. The status bar filters `GLOBAL_HINTS` against this set, leaving the
+   * local hint list untouched. Used by views whose locally-active surface contradicts a global
+   * hint (e.g. the Review-step scroll widget hides the global `↑/↓ scroll` hint when the
+   * description fits and arrows are inert).
+   */
+  readonly suppressedGlobalKeys: ReadonlySet<string>;
   set(id: number, hints: readonly ViewHint[]): void;
   remove(id: number): void;
+  setSuppressed(id: number, keys: readonly string[]): void;
+  removeSuppressed(id: number): void;
 }
 
 const HintsContext = createContext<HintsRegistryApi | undefined>(undefined);
@@ -37,9 +47,20 @@ const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): boolean => 
   return true;
 };
 
+const keysEqual = (a: readonly string[], b: readonly string[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
 export const HintsProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   // Map id → hints; merge in registration order on read.
   const [registry, setRegistry] = useState<ReadonlyMap<number, readonly ViewHint[]>>(new Map());
+  // Map id → suppressed global hint keys. Merged into a single set on read.
+  const [suppressions, setSuppressions] = useState<ReadonlyMap<number, readonly string[]>>(new Map());
 
   const set = useCallback((id: number, hints: readonly ViewHint[]): void => {
     setRegistry((prev) => {
@@ -60,9 +81,47 @@ export const HintsProvider = ({ children }: { readonly children: React.ReactNode
     });
   }, []);
 
-  const merged = useMemo<readonly ViewHint[]>(() => [...registry.values()].flat(), [registry]);
+  const setSuppressed = useCallback((id: number, keys: readonly string[]): void => {
+    setSuppressions((prev) => {
+      const cur = prev.get(id);
+      if (cur !== undefined && keysEqual(cur, keys)) return prev;
+      if (cur === undefined && keys.length === 0) return prev;
+      const next = new Map(prev);
+      if (keys.length === 0) {
+        next.delete(id);
+      } else {
+        next.set(id, keys);
+      }
+      return next;
+    });
+  }, []);
 
-  const api = useMemo<HintsRegistryApi>(() => ({ hints: merged, set, remove }), [merged, set, remove]);
+  const removeSuppressed = useCallback((id: number): void => {
+    setSuppressions((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const merged = useMemo<readonly ViewHint[]>(() => [...registry.values()].flat(), [registry]);
+  const mergedSuppressed = useMemo<ReadonlySet<string>>(
+    () => new Set([...suppressions.values()].flat()),
+    [suppressions]
+  );
+
+  const api = useMemo<HintsRegistryApi>(
+    () => ({
+      hints: merged,
+      suppressedGlobalKeys: mergedSuppressed,
+      set,
+      remove,
+      setSuppressed,
+      removeSuppressed,
+    }),
+    [merged, mergedSuppressed, set, remove, setSuppressed, removeSuppressed]
+  );
 
   return <HintsContext.Provider value={api}>{children}</HintsContext.Provider>;
 };
@@ -108,4 +167,39 @@ export const useViewHints = (hints: readonly ViewHint[]): void => {
 export const useActiveHints = (): readonly ViewHint[] => {
   const ctx = useContext(HintsContext);
   return ctx?.hints ?? [];
+};
+
+/**
+ * Suppress one or more global hints by their `keys` string while this component is mounted (or
+ * while `keys` is non-empty). Passing an empty array clears the suppression. Used when a view
+ * temporarily owns a key combo whose default meaning the global hint advertises — the global
+ * hint disappears so the footer never lies about what `↑/↓` does on this screen.
+ *
+ * Other views are unaffected; suppressions are scoped per component instance, removed on
+ * unmount, and merged into a single set the StatusBar filters GLOBAL_HINTS against.
+ */
+export const useSuppressGlobalHints = (keys: readonly string[]): void => {
+  const ctx = useContext(HintsContext);
+  const [id] = useState<number>(() => nextHintId++);
+
+  const ctxRef = useRef<HintsRegistryApi | undefined>(ctx);
+  ctxRef.current = ctx;
+
+  useEffect(() => {
+    return (): void => {
+      ctxRef.current?.removeSuppressed(id);
+    };
+  }, [id]);
+
+  // Push the latest set into the registry every render. `setSuppressed` short-circuits when
+  // contents match, so a fresh-array ref on a steady caller is a no-op at the registry level.
+  useEffect(() => {
+    ctxRef.current?.setSuppressed(id, keys);
+  }, [id, keys]);
+};
+
+/** Read the suppressed global hint set. Used by StatusBar to filter GLOBAL_HINTS. */
+export const useSuppressedGlobalKeys = (): ReadonlySet<string> => {
+  const ctx = useContext(HintsContext);
+  return ctx?.suppressedGlobalKeys ?? new Set<string>();
 };
