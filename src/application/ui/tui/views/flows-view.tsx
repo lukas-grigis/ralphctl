@@ -184,11 +184,19 @@ export const FlowsView = (): React.JSX.Element => {
           }
           // Subscribe BEFORE start() so we don't miss the synchronous completion of a
           // fast-path flow. Capture the chosen repository id from the final ctx for
-          // subsequent launches in this session.
-          result.runner.subscribe((event) => {
+          // subsequent launches in this session. Self-unsubscribe on terminal events so
+          // every flow launch doesn't pin a dead listener (and its closure scope, incl.
+          // the `ui` ref + the event's `ctx` object) to the runner's listener Set across
+          // a long TUI session — historically a load-bearing OOM contributor.
+          const unsubRepoCapture: () => void = result.runner.subscribe((event) => {
+            if (event.type === 'failed' || event.type === 'aborted') {
+              unsubRepoCapture();
+              return;
+            }
             if (event.type !== 'completed') return;
             const ctx = event.ctx as { readonly repository?: { readonly id: RepositoryId } };
             if (ctx.repository !== undefined) ui.setSessionRepositoryId(ctx.repository.id);
+            unsubRepoCapture();
           });
           sessions.register({
             runner: result.runner,

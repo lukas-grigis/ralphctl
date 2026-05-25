@@ -126,12 +126,15 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   });
   // Stop the file-log + bus subscriptions when the runner reaches a terminal state.
   // Pending writes still drain in the background — events.ndjson remains consistent
-  // post-exit.
-  runner.subscribe((evt) => {
+  // post-exit. The subscription self-unsubscribes on the terminal event so we don't pin
+  // a dead listener (and its closure scope) to the runner's internal listener Set across
+  // a long multi-run TUI session — historically a load-bearing OOM contributor.
+  const unsubRunner: () => void = runner.subscribe((evt) => {
     if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
       chainLog.stop();
       void chainLog.flush();
       unsubTaskTracker();
+      unsubRunner();
     }
   });
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));

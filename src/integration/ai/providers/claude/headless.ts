@@ -22,6 +22,8 @@ import {
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -266,11 +268,6 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
   };
 };
 
-type AttemptOutcome =
-  | { readonly kind: 'success'; readonly output: ProviderOutput }
-  | { readonly kind: 'rate-limit'; readonly error: RateLimitError }
-  | { readonly kind: 'error'; readonly error: DomainError };
-
 interface SpawnAttemptArgs {
   readonly deps: ClaudeProviderDeps;
   readonly spawnFn: ProviderSpawn;
@@ -281,10 +278,15 @@ interface SpawnAttemptArgs {
 
 /**
  * One spawn attempt: launch `claude`, write prompt, stream stdout JSONL through the
- * stream-json parser, accumulate the authoritative assistant body from the `{type:"result"}`
- * event, then on close extract harness signals and write them to `session.signalsFile`.
- * Optionally mirrors the body to `session.bodyFile`. The body goes out of scope at function
- * return — never retained on a domain entity.
+ * stream-json parser, then delegate exit classification to `classifySpawnExit` (decides
+ * success / rate-limit / abort / signals-recovery / hard-fail uniformly across the three
+ * adapters). Per-provider success block (token-usage publish, persistSessionIdFile,
+ * optional bodyFile mirror) lives in the `onSuccess` closure passed to the classifier —
+ * the closure runs on `code === 0` AND on signals-present recovery, so a watchdog SIGTERM
+ * that landed after the AI completed its work still produces a success.
+ *
+ * The `envelope.body` string goes out of scope at function return — never retained on a
+ * domain entity.
  */
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session } = input;
@@ -303,6 +305,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   const onLine = (line: ClaudeStreamLine): void => {
     parser.ingest(line);
   };
+
+  // Bound once so the onIdle banner-show id and the classifier's banner-clear id match.
+  const watchdogBannerId = `watchdog-claude-${String(child.pid ?? 'unknown')}`;
 
   // Wait for the child to fully `'close'` — NOT just `'exit'`. `'exit'` can fire before the
   // final stdout chunk has been delivered to our listener; `'close'` guarantees the streams
@@ -332,7 +337,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
       deps.eventBus.publish({
         type: 'banner-show',
-        id: `watchdog-claude-${String(child.pid ?? 'unknown')}`,
+        id: watchdogBannerId,
         tier: 'warn',
         message: `Watchdog killed stuck claude process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
         at: IsoTimestamp.now(),
@@ -341,24 +346,12 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   });
   parser.flush(onLine);
 
-  if (signal === 'SIGTERM') {
-    return {
-      kind: 'error',
-      error: new InvalidStateError({
-        entity: 'claude-provider',
-        currentState: 'terminated',
-        attemptedAction: 'complete generation',
-        message: 'claude-provider: process terminated via SIGTERM',
-      }),
-    };
-  }
-
   // `envelope.body` is sourced from `parser.snapshot()` in O(1) — the parser holds a single
   // string reassigned from the latest `result` event. No per-line concatenation in this
   // adapter; preserve that invariant.
   const envelope = parser.snapshot();
 
-  if (code === 0) {
+  const onSuccess = async (): Promise<AttemptOutcome> => {
     if (envelope.sessionId !== undefined) {
       deps.eventBus.publish({
         type: 'log',
@@ -367,9 +360,10 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         meta: { sessionId: envelope.sessionId },
         at: IsoTimestamp.now(),
       });
-      // Emit one TokenUsageEvent per clean-termination spawn — only when we have a sessionId
+      // Emit one TokenUsageEvent per success spawn — only when we have a sessionId
       // (downstream subscribers correlate by it). Absence of usage counters is honest: the
-      // result event may carry zero usage subkeys on degenerate spawns.
+      // result event may carry zero usage subkeys on degenerate spawns or when the spawn
+      // was SIGTERM-recovered before the final result event landed.
       const window = contextWindowFor(envelope.model);
       deps.eventBus.publish({
         type: 'token-usage',
@@ -420,34 +414,23 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       kind: 'success',
       output: {
         signalsFile: session.signalsFile,
-        exitCode: code,
+        exitCode: code ?? 0,
         ...(envelope.sessionId !== undefined ? { sessionId: envelope.sessionId } : {}),
       },
     };
-  }
-
-  // Non-zero exit. Rate-limit detection: stderr regex match — lean heuristic, easy to widen.
-  if (RATE_LIMIT_RE.test(stderrBuf)) {
-    // Best-effort: surface any session id the stream already carried, even on failure.
-    return {
-      kind: 'rate-limit',
-      error: new RateLimitError({
-        subCode: 'spawn-stderr',
-        message: `claude-provider: rate-limit detected in stderr (exit ${String(code)})`,
-        ...(envelope.sessionId !== undefined ? { sessionId: envelope.sessionId } : {}),
-      }),
-    };
-  }
-
-  return {
-    kind: 'error',
-    error: new InvalidStateError({
-      entity: 'claude-provider',
-      currentState: `exit-${String(code)}`,
-      attemptedAction: 'complete generation',
-      message: `claude-provider: process exited with code ${String(code)}: ${stderrBuf.trim() || '<empty stderr>'}`,
-    }),
   };
+
+  return classifySpawnExit({
+    session,
+    exit: { code, signal },
+    stderr: stderrBuf,
+    rateLimitRe: RATE_LIMIT_RE,
+    ...(envelope.sessionId !== undefined ? { capturedSessionId: envelope.sessionId } : {}),
+    providerName: 'claude-provider',
+    eventBus: deps.eventBus,
+    watchdogBannerId,
+    onSuccess,
+  });
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>

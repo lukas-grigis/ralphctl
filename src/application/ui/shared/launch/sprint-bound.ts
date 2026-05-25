@@ -75,15 +75,21 @@ const attachReseatSubscriber = (
   fallbackLabel: string | undefined,
   onReseat: (info: { readonly id: SprintId; readonly name: string }) => void
 ): void => {
-  runner.subscribe((event) => {
+  // Self-unsubscribe on terminal events so the listener (and the captured `onReseat`
+  // closure) doesn't pin the runner across a long TUI session — historically a load-bearing
+  // OOM contributor for sprint-bound flows that get re-launched repeatedly.
+  const unsub: () => void = runner.subscribe((event) => {
+    if (event.type === 'failed' || event.type === 'aborted') {
+      unsub();
+      return;
+    }
     if (event.type !== 'completed') return;
     const ctx = event.ctx as SprintBoundCtx;
     if (ctx.sprint !== undefined) {
       onReseat({ id: ctx.sprint.id, name: ctx.sprint.name });
-      return;
-    }
-    if (ctx.sprintId !== undefined) {
+    } else if (ctx.sprintId !== undefined) {
       onReseat({ id: ctx.sprintId, name: fallbackLabel ?? String(ctx.sprintId) });
     }
+    unsub();
   });
 };

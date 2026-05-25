@@ -16,6 +16,8 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
+import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
+import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import {
   DEFAULT_BACKOFF_SCHEDULE,
   delayForRetry,
@@ -268,11 +270,6 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
   };
 };
 
-type AttemptOutcome =
-  | { readonly kind: 'success'; readonly output: ProviderOutput }
-  | { readonly kind: 'rate-limit'; readonly error: RateLimitError }
-  | { readonly kind: 'error'; readonly error: DomainError };
-
 interface SpawnAttemptArgs {
   readonly deps: CodexProviderDeps;
   readonly spawnFn: ProviderSpawn;
@@ -359,6 +356,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   let sessionId: string | undefined;
   let stdoutLineBuf = '';
 
+  // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
+  const watchdogBannerId = `watchdog-codex-${String(child.pid ?? 'unknown')}`;
+
   // Codex `exec` reads the prompt from stdin; codex streams tokens to stdout so we attach a
   // line-buffering session-id sniffer and wait for `'exit'` (no need to wait for streams to
   // flush after exit — the session id is captured inline).
@@ -406,7 +406,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
       deps.eventBus.publish({
         type: 'banner-show',
-        id: `watchdog-codex-${String(child.pid ?? 'unknown')}`,
+        id: watchdogBannerId,
         tier: 'warn',
         message: `Watchdog killed stuck codex process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
         at: IsoTimestamp.now(),
@@ -414,24 +414,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     },
   });
 
-  if (signal === 'SIGTERM') {
-    return {
-      kind: 'error',
-      error: new InvalidStateError({
-        entity: 'codex-provider',
-        currentState: 'terminated',
-        attemptedAction: 'complete generation',
-        message: 'codex-provider: process terminated via SIGTERM',
-      }),
-    };
-  }
-
-  if (code === 0) {
+  const onSuccess = async (): Promise<AttemptOutcome> => {
     let body: string;
     try {
       // Single-shot read of the codex output tempfile — no per-line in-process accumulation.
       // Preserve that: any future streaming variant must use an O(N) accumulator (see the
-      // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts).
+      // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts). On SIGTERM-recovery
+      // the tempfile may be partial or empty; bodyFile mirror simply writes what we have.
       body = await readFile(outputFile);
     } catch (err) {
       return {
@@ -473,7 +462,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       }
     }
     if (sessionId !== undefined) {
-      // Emit one TokenUsageEvent per clean-termination spawn. Codex commonly omits token counts
+      // Emit one TokenUsageEvent per success spawn. Codex commonly omits token counts
       // from the JSONL records on v0.130.x; the event still fires so subscribers can correlate
       // sessionId → provider without inferring success from token-field absence.
       const window = contextWindowFor(model);
@@ -492,32 +481,23 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       kind: 'success',
       output: {
         signalsFile: session.signalsFile,
-        exitCode: code,
+        exitCode: code ?? 0,
         ...(sessionId !== undefined ? { sessionId } : {}),
       },
     };
-  }
-
-  if (RATE_LIMIT_RE.test(stderrBuf)) {
-    return {
-      kind: 'rate-limit',
-      error: new RateLimitError({
-        subCode: 'spawn-stderr',
-        message: `codex-provider: rate-limit detected in stderr (exit ${String(code)})`,
-        ...(sessionId !== undefined ? { sessionId } : {}),
-      }),
-    };
-  }
-
-  return {
-    kind: 'error',
-    error: new InvalidStateError({
-      entity: 'codex-provider',
-      currentState: `exit-${String(code)}`,
-      attemptedAction: 'complete generation',
-      message: `codex-provider: process exited with code ${String(code)}: ${stderrBuf.trim() || '<empty stderr>'}`,
-    }),
   };
+
+  return classifySpawnExit({
+    session,
+    exit: { code, signal },
+    stderr: stderrBuf,
+    rateLimitRe: RATE_LIMIT_RE,
+    ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
+    providerName: 'codex-provider',
+    eventBus: deps.eventBus,
+    watchdogBannerId,
+    onSuccess,
+  });
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>

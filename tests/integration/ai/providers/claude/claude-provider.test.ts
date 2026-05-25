@@ -555,4 +555,24 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/extra-root');
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-xyz');
   });
+
+  it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
+    // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
+    // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already
+    // written signals.json via its Write tool before the child wedged.
+    const cap = createCapturingBus();
+    const sess = session();
+    await fs.mkdir(dirname(String(sess.signalsFile)), { recursive: true });
+    await fs.writeFile(String(sess.signalsFile), '{"signals":[]}', 'utf8');
+    const { spawn } = makeSpawn([{ exitCode: 143 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.recoveredFromExit).toEqual({ code: 143, signal: null });
+    // The recovery branch emits a warn log mentioning the signals capture.
+    const warn = cap.logs.find((l) => l.level === 'warn' && l.message.includes('signals.json captured'));
+    expect(warn).toBeDefined();
+  });
 });
