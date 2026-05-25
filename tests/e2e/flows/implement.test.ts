@@ -1121,6 +1121,137 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(round2GenSignals)).toEqual([]);
   });
 
+  it('stamps rounds/<N>/<role>/meta.json with provider/model/effort for each gen-eval turn', async () => {
+    // Per-round / per-role AI attribution sidecar (stamp-role-meta leaves). Settings.ai
+    // mutates between runs, so persisting the row in `settings.json` alone loses historical
+    // attribution — the on-disk meta.json captures who ran each round at the moment of the
+    // spawn. Asserts both the generator pass (round-claiming) and the evaluator pass
+    // (reading the round seeded by the generator pass).
+    const f = await buildFixture(1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        // Mixed providers so the asserted strings can't accidentally match the wrong row —
+        // generator on Claude, evaluator on Codex. The cross-provider gen-eval split is the
+        // load-bearing case this attribution data exists to disambiguate.
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-7',
+        generatorEffort: 'high',
+        evaluatorProviderId: 'openai-codex',
+        evaluatorModel: 'gpt-5.5',
+        evaluatorEffort: 'medium',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-role-meta',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+
+    const task = f.tasks[0];
+    if (task === undefined) throw new Error('test setup: missing task');
+    const workspace = join(f.dir, 'implement', String(task.id));
+
+    // Generator pass: role-meta.json carries the implement-specific shape (explicit role,
+    // attemptN, escalatedFromModel). The sibling meta.json (written by the generic
+    // _shared/stamp-session-meta leaf) covers the cross-flow shape and is asserted further
+    // down.
+    const genRoleMeta = JSON.parse(
+      await fs.readFile(join(workspace, 'rounds', '1', 'generator', 'role-meta.json'), 'utf8')
+    );
+    expect(genRoleMeta).toMatchObject({
+      role: 'generator',
+      provider: 'claude-code',
+      model: 'claude-opus-4-7',
+      effort: 'high',
+      attemptN: 1,
+      roundN: 1,
+      escalatedFromModel: null,
+    });
+    expect(typeof genRoleMeta.startedAt).toBe('string');
+
+    // Generic meta.json sidecar (one stamped per AI spawn across all flows). Encodes role
+    // into `flow` (`implement-generator` / `implement-evaluator`) rather than carrying an
+    // explicit `role` field — the two sidecars are intentionally complementary, not
+    // duplicates.
+    const genMeta = JSON.parse(await fs.readFile(join(workspace, 'rounds', '1', 'generator', 'meta.json'), 'utf8'));
+    expect(genMeta).toMatchObject({
+      flow: 'implement-generator',
+      provider: 'claude-code',
+      model: 'claude-opus-4-7',
+      effort: 'high',
+      attemptN: 1,
+      roundN: 1,
+    });
+    expect(typeof genMeta.startedAt).toBe('string');
+
+    // Evaluator pass: different provider/model/effort than the generator, written into the
+    // same round directory. Cross-provider attribution is the whole point.
+    const evalRoleMeta = JSON.parse(
+      await fs.readFile(join(workspace, 'rounds', '1', 'evaluator', 'role-meta.json'), 'utf8')
+    );
+    expect(evalRoleMeta).toMatchObject({
+      role: 'evaluator',
+      provider: 'openai-codex',
+      model: 'gpt-5.5',
+      effort: 'medium',
+      attemptN: 1,
+      roundN: 1,
+      escalatedFromModel: null,
+    });
+    expect(typeof evalRoleMeta.startedAt).toBe('string');
+
+    const evalMeta = JSON.parse(await fs.readFile(join(workspace, 'rounds', '1', 'evaluator', 'meta.json'), 'utf8'));
+    expect(evalMeta).toMatchObject({
+      flow: 'implement-evaluator',
+      provider: 'openai-codex',
+      model: 'gpt-5.5',
+      effort: 'medium',
+      attemptN: 1,
+      roundN: 1,
+    });
+    expect(typeof evalMeta.startedAt).toBe('string');
+
+    // The stamp leaves are wired in the chain trace BEFORE each spawn — assert the ordering
+    // so a refactor that inadvertently moves them after the spawn is caught here.
+    // Use exact names (the per-task leaves carry the task id suffix) to avoid `startsWith`
+    // false matches between `stamp-role-meta-generator-<id>` and `generator-<id>`.
+    const trace = runner.trace.map((e) => e.elementName);
+    const expectedStampGen = `stamp-role-meta-generator-${String(task.id)}`;
+    const expectedGen = `generator-${String(task.id)}`;
+    const expectedStampEval = `stamp-role-meta-evaluator-${String(task.id)}`;
+    const expectedEval = `evaluator-${String(task.id)}`;
+    const idxStampGen = trace.indexOf(expectedStampGen);
+    const idxGen = trace.indexOf(expectedGen);
+    const idxStampEval = trace.indexOf(expectedStampEval);
+    const idxEval = trace.indexOf(expectedEval);
+    expect(idxStampGen).toBeGreaterThanOrEqual(0);
+    expect(idxStampEval).toBeGreaterThanOrEqual(0);
+    expect(idxGen).toBeGreaterThanOrEqual(0);
+    expect(idxEval).toBeGreaterThanOrEqual(0);
+    expect(idxStampGen).toBeLessThan(idxGen);
+    expect(idxStampEval).toBeLessThan(idxEval);
+  });
+
   it('progress.md grows append-only — one task-attempt section per settled attempt plus a status separator on review', async () => {
     // Audit-[07]: progress.md is the sole writer for the sprint's chronological journal. The
     // implement chain appends one section per settled attempt (via progress-journal-leaf) and

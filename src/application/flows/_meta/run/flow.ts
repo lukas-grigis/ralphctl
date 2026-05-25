@@ -54,10 +54,10 @@ export interface CreateRunFlowOpts {
   readonly feedbackFile: AbsolutePath;
   readonly model: string;
   /**
-   * Provider id used to attribute each gen-eval spawn in its per-round `meta.json` sidecar.
-   * The meta-run flow's external composer (the `pnpm dev run` entry point) carries one
-   * provider for the whole run; per-role split lives on the primary launcher. Required so
-   * attribution never silently degrades to "unknown".
+   * Provider id used to attribute each gen-eval spawn in its per-round `meta.json` and
+   * `role-meta.json` sidecars. The meta-run flow's external composer (the `pnpm dev run`
+   * entry point) carries one provider for the whole run; per-role split lives on the primary
+   * launcher. Required so attribution never silently degrades to "unknown".
    */
   readonly providerId: string;
   readonly verifyScript?: string;

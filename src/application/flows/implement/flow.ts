@@ -31,6 +31,10 @@ import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/s
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { resolveRoundNumLeaf } from '@src/application/flows/implement/leaves/resolve-round-num.ts';
+import {
+  stampEvaluatorRoleMetaLeaf,
+  stampGeneratorRoleMetaLeaf,
+} from '@src/application/flows/implement/leaves/stamp-role-meta.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
 import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
@@ -89,13 +93,21 @@ export interface CreateImplementFlowOpts {
    * repos the sprint touches).
    */
   readonly sprintDir: AbsolutePath;
-  /** Generator-role provider id — `settings.ai.implement.generator.provider`. Stamped into per-spawn `meta.json` for attribution. */
+  /**
+   * Generator-role provider id — `settings.ai.implement.generator.provider`. Stamped into
+   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
+   * sidecar) for attribution.
+   */
   readonly generatorProviderId: string;
   /** Generator-role model — `settings.ai.implement.generator.model`. */
   readonly generatorModel: string;
   /** Generator-role effort / reasoning level — threaded into the generator AiSession. */
   readonly generatorEffort?: string;
-  /** Evaluator-role provider id — `settings.ai.implement.evaluator.provider`. Stamped into per-spawn `meta.json` for attribution. */
+  /**
+   * Evaluator-role provider id — `settings.ai.implement.evaluator.provider`. Stamped into
+   * per-spawn `meta.json` (generic shared sidecar) and `role-meta.json` (implement-specific
+   * sidecar) for attribution.
+   */
   readonly evaluatorProviderId: string;
   /** Evaluator-role model — `settings.ai.implement.evaluator.model`. */
   readonly evaluatorModel: string;
@@ -396,10 +408,14 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       // self-blocked this turn it set `lastExit` and the evaluator must not run.
       //
       // Each turn opens with `resolve-round-num` which claims the next `rounds/<N>/` on disk
-      // and stamps `ctx.currentRoundNum`. The stamp leaves and the spawn leaves all read that
-      // single source of truth — no in-leaf disk re-reads, no race between sibling stamps.
-      // Meta sidecars are written BEFORE the spawn so attribution survives a mid-spawn crash
-      // (signals.json may be absent post-failure; meta.json names the provider regardless).
+      // and stamps `ctx.currentRoundNum`. Two attribution sidecars then fire before each spawn:
+      //   - `stamp-meta-<role>` writes the generic `rounds/<N>/<role>/meta.json` (the same
+      //     shape every AI flow stamps beside its `signals.json`).
+      //   - `stamp-role-meta-<role>` writes the implement-specific
+      //     `rounds/<N>/<role>/role-meta.json`, which carries the attempt / escalation context
+      //     the generic shape doesn't (`role`, `attemptN`, `escalatedFromModel`).
+      // Both sidecars land BEFORE the spawn so attribution survives a mid-spawn crash
+      // (signals.json may be absent post-failure; the meta files name the provider regardless).
       loop<ImplementCtx>(
         `gen-eval-${String(taskId)}`,
         sequential<ImplementCtx>(`gen-eval-turn-${String(taskId)}`, [
@@ -418,6 +434,15 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
                   opts.generatorEffort
                 ),
             }
+          ),
+          stampGeneratorRoleMetaLeaf(
+            { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+            {
+              provider: opts.generatorProviderId,
+              model: opts.generatorModel,
+              ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+            },
+            taskId
           ),
           generatorLeaf(generatorLeafDeps, taskId),
           guard<ImplementCtx>(
@@ -438,6 +463,15 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
                       opts.evaluatorEffort
                     ),
                 }
+              ),
+              stampEvaluatorRoleMetaLeaf(
+                { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+                {
+                  provider: opts.evaluatorProviderId,
+                  model: opts.evaluatorModel,
+                  ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
+                },
+                taskId
               ),
               evaluatorLeaf(evaluatorLeafDeps, taskId),
             ])
