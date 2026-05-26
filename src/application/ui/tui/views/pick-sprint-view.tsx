@@ -266,7 +266,12 @@ export const PickSprintView = (): React.JSX.Element => {
     [deps.sprintRepo, deps.projectRepo]
   );
 
-  const data: PickerData = state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map() };
+  // Stabilise the loading-state placeholder so `useMemo(buildGroups, [data, …])` keeps its
+  // identity across renders while the fetch is pending.
+  const data: PickerData = useMemo(
+    () => (state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map() }),
+    [state]
+  );
 
   const groups = useMemo(() => buildGroups(data, selection.projectId, scopeAll), [data, selection.projectId, scopeAll]);
   // Only inject the `+ Create new sprint` action row when a project is selected — without one

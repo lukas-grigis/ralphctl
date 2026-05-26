@@ -94,7 +94,8 @@ export const AddTicketView = (): React.JSX.Element => {
   const { sprintId } = useViewProps<AddTicketProps>();
   const [step, setStep] = useState<Step>({ kind: 'link' });
 
-  useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  useEffect(() => claimPrompt(), [claimPrompt]);
 
   const cancel = (): void => router.pop();
 

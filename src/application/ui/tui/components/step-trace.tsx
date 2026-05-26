@@ -200,12 +200,17 @@ export const StepTrace = ({
   // every render adds avoidable GC pressure even though the cost is fast in absolute terms.
   //
   // The runner mutates `trace` in place via push (+ ring eviction at the cap), so the array
-  // reference is stable across pushes. Including `trace.length` AND the last-entry identity in
-  // the dep list keeps the memo correct: length flips while the buffer fills; once we hit the
-  // ring cap, length sticks but the last entry's object identity still changes per push.
+  // reference is stable across pushes — react-hooks/exhaustive-deps believes a single `trace`
+  // dep is sufficient (and so flags `trace.length` + `traceLastEntry` as "unnecessary"). It is
+  // NOT: with `trace` ref-stable, listing only `trace` would freeze the memo on the initial
+  // value and never recompute as items are pushed. The length + last-entry identity covers
+  // both regimes (length flips while the buffer fills; once we hit the ring cap, length sticks
+  // but the last entry's object identity still changes per push). Disable the rule locally
+  // with this explanation rather than restructuring around it.
   const traceLastEntry = trace[trace.length - 1];
   const merged = useMemo(
     () => (plan !== undefined ? mergePlanWithTrace(plan, trace, running, labelByName) : traceToRows(trace)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- in-place ring-buffer mutation; see comment above
     [plan, labelByName, trace, trace.length, traceLastEntry, running]
   );
   const filtered = useMemo(

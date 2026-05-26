@@ -40,7 +40,9 @@ export const PickProjectView = (): React.JSX.Element => {
     return r.value;
   }, []);
 
-  const projects = state.kind === 'ok' ? state.value : [];
+  // Stable identity for the loading-state fallback so the downstream `useMemo` keyed on
+  // `projects` doesn't re-run on every render while loading.
+  const projects = useMemo(() => (state.kind === 'ok' ? state.value : []), [state]);
 
   // Pre-seed the cursor to the already-selected project (set by launch from the persisted
   // last-selection). On reload we re-cap the index against the current list length.

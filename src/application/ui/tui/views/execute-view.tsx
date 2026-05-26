@@ -272,31 +272,13 @@ export const ExecuteView = (): React.JSX.Element => {
     return { ...rawBucketed, tasks };
   }, [rawBucketed, taskRounds]);
 
-  if (!session) {
-    return (
-      <ViewShell title="Implement" subtitle="(unknown session)">
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>The session id was not found in the registry. It may have been removed.</Text>
-        </Box>
-      </ViewShell>
-    );
-  }
-
-  const { descriptor } = session;
-  const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
+  // Derived values gated on session presence. Computed BEFORE the early return so they can
+  // feed the hooks below — every Hook must run on every render in the same order, including
+  // renders where `session` is absent. The values below collapse to undefined when no session
+  // is registered, and each downstream hook short-circuits to a safe default in that case.
+  const descriptor = session?.descriptor;
   const tasksDone = bucketed?.tasks.filter((t) => t.status === 'completed').length ?? 0;
   const tasksTotal = bucketed?.tasks.length ?? 0;
-  const threeColumn = term.columns >= THREE_COL_BREAKPOINT;
-  const twoColumn = !threeColumn && term.columns >= TWO_COL_BREAKPOINT;
-  // Intermediate breakpoint (100–139 cols): a compact two-column layout with the rail
-  // collapsed to status glyphs (no labels). Below 100 cols we drop the rail entirely.
-  const compactTwoColumn = !threeColumn && !twoColumn && term.columns >= NARROW_FLOW_STEPS_BREAKPOINT;
-  const singleColumn = !threeColumn && !twoColumn && !compactTwoColumn;
-
-  const baseFlowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
-  const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
-  const tasksMaxSignals = isRunning ? 6 : 12;
-  const logRows = isRunning ? 6 : 10;
 
   // Current task = the first non-completed one — which is `running` mid-task and `pending` in
   // the brief transition window between tasks. Completed/failed/aborted/skipped tasks are
@@ -306,9 +288,8 @@ export const ExecuteView = (): React.JSX.Element => {
   const currentTask = currentTaskIdx >= 0 ? bucketed?.tasks[currentTaskIdx] : undefined;
   const currentTaskName =
     currentTask !== undefined
-      ? (descriptor.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
+      ? (descriptor?.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
       : undefined;
-  const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
 
   // Register the active-task summary provider so the global `y` (yank) hotkey can copy a
   // markdown snapshot of whatever task the operator is currently watching. The provider closes
@@ -316,18 +297,23 @@ export const ExecuteView = (): React.JSX.Element => {
   // change, so the closure always reflects the current frame. Cleanup clears the registration
   // on unmount or when the deps change — important because the global handler reads the
   // provider through a ref and a stale closure would leak yesterday's task name into copies.
+  //
+  // Stash `ui.setActiveTaskSummaryProvider` in a local so the dep is the stable callback —
+  // depending on `ui` itself would re-fire the effect every time any unrelated UI state
+  // (helpOpen, claims, …) toggled.
+  const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
   useEffect(() => {
     if (currentTask === undefined || currentTaskName === undefined) {
-      ui.setActiveTaskSummaryProvider(undefined);
+      setActiveTaskSummaryProvider(undefined);
       return undefined;
     }
     const task = currentTask;
     const displayName = currentTaskName;
-    ui.setActiveTaskSummaryProvider(() => renderActiveTaskSummary({ task, displayName }));
+    setActiveTaskSummaryProvider(() => renderActiveTaskSummary({ task, displayName }));
     return () => {
-      ui.setActiveTaskSummaryProvider(undefined);
+      setActiveTaskSummaryProvider(undefined);
     };
-  }, [currentTask, currentTaskName, ui]);
+  }, [currentTask, currentTaskName, setActiveTaskSummaryProvider]);
 
   // Elapsed time on the latest attempt of the active task — drives the cancel-scope overlay's
   // "estimated wasted output" hint. Sourced from the most recent `task-attempt-started` event
@@ -386,6 +372,54 @@ export const ExecuteView = (): React.JSX.Element => {
   const onDismissCancelScope = React.useCallback(() => {
     setCancelScopeOpen(false);
   }, []);
+
+  // Synchronous criteria map — built from the in-memory Task[] state already polled above.
+  // Audit [05]: `Task.verificationCriteria` is the canonical source; the panel never reads
+  // `done-criteria.md` (file no longer exists). Each criterion renders to a single line that
+  // surfaces the id + check kind + (auto) command + assertion so operators can audit auto
+  // checks at a glance. Empty arrays are passed through so the panel can render a "no
+  // criteria declared" affordance instead of guessing.
+  const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, readonly string[]>();
+    for (const t of taskState) {
+      const bullets = t.verificationCriteria.map((c) =>
+        c.check === 'auto' && c.command !== undefined
+          ? `[${c.id}] auto \`${c.command}\` — ${c.assertion}`
+          : `[${c.id}] manual — ${c.assertion}`
+      );
+      m.set(String(t.id), bullets);
+    }
+    return m;
+  }, [taskState]);
+
+  // Early-return for "no session in registry" must come AFTER every hook above so the Hook
+  // call order is identical across renders. Hooks below this line do not exist — every Hook
+  // the view needs has already run.
+  if (!session || descriptor === undefined) {
+    return (
+      <ViewShell title="Implement" subtitle="(unknown session)">
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>The session id was not found in the registry. It may have been removed.</Text>
+        </Box>
+      </ViewShell>
+    );
+  }
+
+  const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
+  const threeColumn = term.columns >= THREE_COL_BREAKPOINT;
+  const twoColumn = !threeColumn && term.columns >= TWO_COL_BREAKPOINT;
+  // Intermediate breakpoint (100–139 cols): a compact two-column layout with the rail
+  // collapsed to status glyphs (no labels). Below 100 cols we drop the rail entirely.
+  const compactTwoColumn = !threeColumn && !twoColumn && term.columns >= NARROW_FLOW_STEPS_BREAKPOINT;
+  const singleColumn = !threeColumn && !twoColumn && !compactTwoColumn;
+
+  const baseFlowStepsRows = isRunning ? Math.max(8, term.rows - 22) : 16;
+  const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
+  const tasksMaxSignals = isRunning ? 6 : 12;
+  const logRows = isRunning ? 6 : 10;
+
+  const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
 
   // Active-attempt model display. For implement runs the launcher projects both gen/eval
   // models onto the descriptor; when they differ render `<gen> → <eval> (eval)` so the
@@ -508,26 +542,6 @@ export const ExecuteView = (): React.JSX.Element => {
   // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
   // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
   const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
-
-  // Synchronous criteria map — built from the in-memory Task[] state already polled above.
-  // Audit [05]: `Task.verificationCriteria` is the canonical source; the panel never reads
-  // `done-criteria.md` (file no longer exists). Each criterion renders to a single line that
-  // surfaces the id + check kind + (auto) command + assertion so operators can audit auto
-  // checks at a glance. Empty arrays are passed through so the panel can render a "no
-  // criteria declared" affordance instead of guessing.
-  const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
-    if (taskState === undefined) return undefined;
-    const m = new Map<string, readonly string[]>();
-    for (const t of taskState) {
-      const bullets = t.verificationCriteria.map((c) =>
-        c.check === 'auto' && c.command !== undefined
-          ? `[${c.id}] auto \`${c.command}\` — ${c.assertion}`
-          : `[${c.id}] manual — ${c.assertion}`
-      );
-      m.set(String(t.id), bullets);
-    }
-    return m;
-  }, [taskState]);
 
   const tasksPanel =
     bucketed !== undefined ? (

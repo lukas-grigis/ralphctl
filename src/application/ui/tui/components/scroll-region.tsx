@@ -59,7 +59,10 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
     }
     const max = maxOffset();
     if (offset > max) setOffset(max);
-  });
+    // `offset` is the only externally-visible state this effect reads; including it in the dep
+    // list keeps the clamp correct AND tames the previous "no-deps" form which the React-Hooks
+    // linter flagged as an infinite-update risk (every render → setOffset → render).
+  }, [offset]);
 
   useInput(
     (input, key) => {

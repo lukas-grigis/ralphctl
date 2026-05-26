@@ -68,12 +68,13 @@ export const AddRepositoryView = (): React.JSX.Element => {
   // Claim prompt focus only while a real prompt is rendered. In 'saving' / 'error' states no
   // component is listening for Esc, so we must release the claim so the parent router's global
   // Esc handler fires and the "Press esc to go back" hint becomes truthful.
+  const claimPrompt = ui.claimPrompt;
   useEffect(() => {
     if (step.kind === 'path' || step.kind === 'name' || step.kind === 'confirm') {
-      return ui.claimPrompt();
+      return claimPrompt();
     }
     return undefined;
-  }, [ui.claimPrompt, step.kind]);
+  }, [claimPrompt, step.kind]);
 
   const cancel = (): void => router.pop();
 

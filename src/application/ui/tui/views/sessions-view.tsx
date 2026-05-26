@@ -39,7 +39,8 @@ export const SessionsView = (): React.JSX.Element => {
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
   // Claim the global-key mute while the confirm prompt is mounted.
-  useEffect(() => (confirmCancel !== undefined ? ui.claimPrompt() : undefined), [confirmCancel, ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  useEffect(() => (confirmCancel !== undefined ? claimPrompt() : undefined), [confirmCancel, claimPrompt]);
 
   useInput((input) => {
     if (ui.helpOpen || ui.promptActive || confirmCancel !== undefined) return;

@@ -120,7 +120,8 @@ export const CreateProjectView = (): React.JSX.Element => {
 
   // The wizard owns input focus end-to-end; suspend global keybindings so `n`/`s`/etc don't
   // hijack characters the user is typing into the prompt.
-  useEffect(() => ui.claimPrompt(), [ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  useEffect(() => claimPrompt(), [claimPrompt]);
 
   const cancel = (): void => router.pop();
 

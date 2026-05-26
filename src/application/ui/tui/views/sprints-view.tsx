@@ -81,6 +81,9 @@ export const SprintsView = (): React.JSX.Element => {
     return () => {
       cancelled = true;
     };
+    // `focusedSprint?.id` is the only piece of focusedSprint we read; depending on the full
+    // object would re-fire whenever the sprint list reloads with semantically-identical data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- id is the load axis
   }, [focusedSprint?.id, deps.taskRepo]);
 
   const stuckTasks = focusedSprintTasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
@@ -96,7 +99,8 @@ export const SprintsView = (): React.JSX.Element => {
   ]);
 
   // Claim the global-key mute while the confirm prompt is mounted.
-  useEffect(() => (confirmDelete !== undefined ? ui.claimPrompt() : undefined), [confirmDelete, ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  useEffect(() => (confirmDelete !== undefined ? claimPrompt() : undefined), [confirmDelete, claimPrompt]);
 
   const launchCreateSprint = async (): Promise<void> => {
     if (selection.projectId === undefined) {
