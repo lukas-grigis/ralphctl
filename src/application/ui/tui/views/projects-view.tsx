@@ -92,7 +92,8 @@ export const ProjectsView = (): React.JSX.Element => {
   });
 
   // Claim the global-key mute while the confirm prompt is mounted.
-  useEffect(() => (confirmDelete !== undefined ? ui.claimPrompt() : undefined), [confirmDelete, ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  useEffect(() => (confirmDelete !== undefined ? claimPrompt() : undefined), [confirmDelete, claimPrompt]);
 
   const handleDeleteConfirmed = async (target: Project, confirmed: boolean): Promise<void> => {
     setConfirmDelete(undefined);

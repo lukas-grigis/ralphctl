@@ -1,7 +1,9 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
-import type { Linter } from 'eslint';
+import reactHooks from 'eslint-plugin-react-hooks';
+import sonarjs from 'eslint-plugin-sonarjs';
+import type { ESLint, Linter } from 'eslint';
 
 /**
  * Layer rules.
@@ -348,6 +350,32 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
       },
+    },
+  },
+
+  // ── memory-leak + correctness hygiene plugins ─────────────────────────────────
+  // `react-hooks/rules-of-hooks` is the plugin that surfaced the conditional-Hook bug
+  // in execute-view.tsx (suspected root of the recurring 8h OOM). `exhaustive-deps`
+  // catches stale closures that retain references across re-renders. The sonarjs
+  // subset is a cheap collection-correctness net for the same class of slow leaks.
+  //
+  // react-hooks's exported Plugin type doesn't align with `Linter.Config['plugins']`
+  // under `exactOptionalPropertyTypes`, so we cast once at the boundary — the rules
+  // themselves are still type-checked through ESLint's runtime config validator.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: {
+      'react-hooks': reactHooks as unknown as ESLint.Plugin,
+      sonarjs: sonarjs as unknown as ESLint.Plugin,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      'sonarjs/no-unused-collection': 'warn',
+      'sonarjs/no-ignored-return': 'warn',
+      'sonarjs/no-element-overwrite': 'warn',
+      'sonarjs/no-identical-conditions': 'warn',
+      'sonarjs/no-collection-size-mischeck': 'warn',
     },
   },
 

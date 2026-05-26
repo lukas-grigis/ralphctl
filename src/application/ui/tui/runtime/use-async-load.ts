@@ -13,7 +13,7 @@
  * running until natural completion, then gets discarded).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type AsyncLoadState<T, E> =
   | { readonly kind: 'idle' }
@@ -36,11 +36,21 @@ export const useAsyncLoad = <T, E = unknown>(
   const [state, setState] = useState<AsyncLoadState<T, E>>({ kind: 'idle' });
   const [version, setVersion] = useState(0);
 
+  // Capture `loader` and `errorMap` in refs so the effect reads the latest closure WITHOUT
+  // re-firing on every render (callers commonly pass fresh arrows). The dep list stays
+  // `[version, ...deps]` — the caller-supplied `deps` are the trigger axis; loader/errorMap
+  // identity is not. Mirrors the filterRef pattern in use-event-bus.ts.
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
+  const errorMapRef = useRef(errorMap);
+  errorMapRef.current = errorMap;
+
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
     setState({ kind: 'loading' });
-    loader(controller.signal)
+    loaderRef
+      .current(controller.signal)
       .then((value) => {
         if (cancelled) return;
         setState({ kind: 'ok', value });
@@ -50,12 +60,13 @@ export const useAsyncLoad = <T, E = unknown>(
         // Treat AbortError as a silent cancel rather than an error state — the view is about
         // to unmount or re-fetch; surfacing "aborted" to the user would be confusing.
         if (err instanceof Error && err.name === 'AbortError') return;
-        setState({ kind: 'error', error: errorMap(err) });
+        setState({ kind: 'error', error: errorMapRef.current(err) });
       });
     return () => {
       cancelled = true;
       controller.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- spread of caller-supplied deps is the entire API; loader + errorMap captured via refs above
   }, [version, ...deps]);
 
   return {

@@ -381,7 +381,11 @@ const CompactCleanRow = ({ rows }: { readonly rows: readonly RowData[] }): React
 /** @public */
 export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHealthCardProps): React.JSX.Element => {
   const tNow = now ?? Date.now();
-  const taskList = tasks ?? [];
+  // Wrap the `tasks ?? []` fallback in its own useMemo so the identity is stable across
+  // renders that don't change `tasks`. Without this, the inline `??` allocates a fresh empty
+  // array each render, which would cascade into re-running every downstream `useMemo` that
+  // takes `taskList` as a dep — defeating the memo'd setup/verify-row computations.
+  const taskList = useMemo(() => tasks ?? [], [tasks]);
   const cardWidth = width ?? CONTEXT_WIDTH;
 
   const setupData = useMemo(() => setupRowData(execution, tNow), [execution, tNow]);

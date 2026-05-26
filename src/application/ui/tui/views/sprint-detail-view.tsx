@@ -182,7 +182,9 @@ export const SprintDetailView = (): React.JSX.Element => {
   // navigation.
 
   const sprint = state.kind === 'ok' ? state.value.sprint : undefined;
-  const tasks = state.kind === 'ok' ? state.value.tasks : [];
+  // Stable identity for the empty-tasks fallback so the downstream `useMemo` doesn't re-fire
+  // on every render while loading.
+  const tasks = useMemo(() => (state.kind === 'ok' ? state.value.tasks : []), [state]);
   const focusList = useMemo(() => (sprint !== undefined ? buildFocusList(sprint, tasks) : []), [sprint, tasks]);
 
   const [cursorIdx, setCursorIdx] = useState(0);
@@ -373,11 +375,13 @@ export const SprintDetailView = (): React.JSX.Element => {
   });
 
   // Mute global keys while the confirm prompt is mounted.
-  useEffect(() => (confirmRemove !== undefined ? ui.claimPrompt() : undefined), [confirmRemove, ui.claimPrompt]);
+  const claimPrompt = ui.claimPrompt;
+  const claimEscape = ui.claimEscape;
+  useEffect(() => (confirmRemove !== undefined ? claimPrompt() : undefined), [confirmRemove, claimPrompt]);
 
   // Claim `esc` while the detail card is open so the local handler can close the card without
   // the global `router.pop()` racing it and dumping the user back to the Sprints list.
-  useEffect(() => (inDetail ? ui.claimEscape() : undefined), [inDetail, ui.claimEscape]);
+  useEffect(() => (inDetail ? claimEscape() : undefined), [inDetail, claimEscape]);
 
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);

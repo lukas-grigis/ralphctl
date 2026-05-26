@@ -292,12 +292,13 @@ export const SettingsView = (): React.JSX.Element => {
   // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
   // the claim 1:1. Earlier we toggled imperatively from inside event handlers and the boolean
   // got clobbered by the PromptHost when its queue was empty.
+  const claimPrompt = ui.claimPrompt;
   useEffect(
     () =>
       editingField !== undefined || customModelField !== undefined || pendingPreset !== undefined
-        ? ui.claimPrompt()
+        ? claimPrompt()
         : undefined,
-    [editingField, customModelField, pendingPreset, ui.claimPrompt]
+    [editingField, customModelField, pendingPreset, claimPrompt]
   );
 
   const closeEditor = (): void => {

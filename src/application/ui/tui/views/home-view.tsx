@@ -69,7 +69,9 @@ export const HomeView = (): React.JSX.Element => {
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
   const currentSprint = snapshot?.sprint;
-  const recentSprints = snapshot?.recentSprints ?? [];
+  // Stabilise the empty-array fallback so downstream `useMemo`s keyed on `recentSprints` don't
+  // re-run whenever this render's `??` would allocate a fresh `[]`.
+  const recentSprints = useMemo(() => snapshot?.recentSprints ?? [], [snapshot?.recentSprints]);
 
   // Transient "✓ now on <sprint-name>" line above the menu. Two sources feed it:
   //   1. The shared `selection.lastSwitch` record — fires for picker / sprint-detail `m` /

@@ -66,6 +66,9 @@ const enqueueText = (queue: PromptQueue, title: string, kind: EditFieldKind, ini
 export const useEditField = (): UseEditFieldState => {
   const queue = usePromptQueue();
   const ui = useUiState();
+  // Pin the stable callback so the useCallback dep list can reference it without re-firing on
+  // every unrelated UI-state change (helpOpen, claims counter, …).
+  const claimPrompt = ui.claimPrompt;
   const [feedback, setFeedbackState] = useState<string | undefined>(undefined);
 
   // Mounted-ref guard: `openEditPrompt` is async and the host view can unmount between the
@@ -91,7 +94,7 @@ export const useEditField = (): UseEditFieldState => {
       // the operator is typing. The prompt-host already does this for queued prompts but the
       // release is tied to the host's render cycle; we mirror the claim here for symmetry with
       // confirm-prompt consumers and so feedback runs the same code path on cancel.
-      const release = ui.claimPrompt();
+      const release = claimPrompt();
       try {
         const raw = await enqueueText(queue, input.title, input.kind, input.currentValue ?? '');
         const normalised = input.validate ? input.validate(raw) : Result.ok(raw);
@@ -115,7 +118,7 @@ export const useEditField = (): UseEditFieldState => {
         release();
       }
     },
-    [queue, ui.claimPrompt, setFeedback]
+    [queue, claimPrompt, setFeedback]
   );
 
   const reset = useCallback((): void => {
