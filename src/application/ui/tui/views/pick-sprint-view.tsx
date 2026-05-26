@@ -9,13 +9,15 @@
  * `selection.setProjectAndSprint` so both ids switch in a single state batch — chaining
  * `setProject` + `setSprint` would briefly null the sprint cursor (setProject side effect)
  * and fire the persistence write twice.
+ *
+ * List shaping (group/flatten/cursor walk) lives under `pick-sprint-internals/`; this file is
+ * the orchestrator that wires data → hooks → row presentation.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -36,202 +38,28 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-
-const UNKNOWN_PROJECT_KEY = '__unknown__';
-const UNKNOWN_PROJECT_LABEL = 'Unknown project';
-
-/**
- * Vertical chrome the picker reserves above + below the row list: title bar (≈3), subtitle (1),
- * summary header + spacing (≈3), footer hint (≈2), scroll indicators (≈2), bottom margin (≈1).
- * The window slice consumes `terminalRows - VERTICAL_CHROME_ROWS`, bounded by
- * {@link MIN_VISIBLE_ROWS} so very short terminals still render a usable list.
- */
-const VERTICAL_CHROME_ROWS = 12;
-const MIN_VISIBLE_ROWS = 8;
-
-/** @public */
-export interface RowWindow {
-  readonly start: number;
-  readonly end: number;
-  readonly hiddenAbove: number;
-  readonly hiddenBelow: number;
-}
+import type { PickerData } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
+import {
+  buildGroups,
+  cursorableRowIndices,
+  flatten,
+  nextCursorableIndex,
+} from '@src/application/ui/tui/views/pick-sprint-internals/group-builder.ts';
+import {
+  MIN_VISIBLE_ROWS,
+  VERTICAL_CHROME_ROWS,
+  computeWindow,
+} from '@src/application/ui/tui/views/pick-sprint-internals/window.ts';
+import { RowWindowView } from '@src/application/ui/tui/views/pick-sprint-internals/row-views.tsx';
 
 /**
- * Compute a cursor-centred slice of the flat row list. Keeps the focused row near the middle of
- * the window so the user always sees one screen of context above and below. Clamps to row-list
- * bounds; if total rows fit within `visible`, returns the full list with no overflow indicators.
- *
- * Defined as a pure function (test-friendly) — the view memoises the call against `rows`,
- * `cursor`, `visible`.
+ * Re-export of the windowing helper. Kept at this canonical path so the existing unit-test
+ * import (`@src/application/ui/tui/views/pick-sprint-view.tsx`) continues to resolve without
+ * churn after the split.
  *
  * @public
  */
-export const computeWindow = (totalRows: number, cursor: number, visible: number): RowWindow => {
-  if (totalRows <= visible) return { start: 0, end: totalRows, hiddenAbove: 0, hiddenBelow: 0 };
-  const half = Math.floor(visible / 2);
-  let start = Math.max(0, cursor - half);
-  let end = start + visible;
-  if (end > totalRows) {
-    end = totalRows;
-    start = Math.max(0, end - visible);
-  }
-  return { start, end, hiddenAbove: start, hiddenBelow: totalRows - end };
-};
-
-interface PickerData {
-  readonly sprints: readonly Sprint[];
-  readonly projectsById: ReadonlyMap<ProjectId, Project>;
-}
-
-interface HeaderRow {
-  readonly kind: 'header';
-  readonly groupKey: string;
-  readonly label: string;
-  readonly orphan: boolean;
-  readonly empty: boolean;
-}
-
-interface SprintRow {
-  readonly kind: 'sprint';
-  readonly groupKey: string;
-  readonly sprint: Sprint;
-}
-
-/**
- * Synthetic top row that routes through the create-sprint flow. Sits above the project groups
- * so the user can launch creation without scrolling past every existing sprint, and so an
- * "empty-storage" picker (no sprints anywhere yet) still surfaces a productive action.
- */
-interface CreateActionRow {
-  readonly kind: 'create';
-}
-
-type FlatRow = HeaderRow | SprintRow | CreateActionRow;
-
-interface SprintGroup {
-  readonly key: string;
-  readonly label: string;
-  readonly orphan: boolean;
-  readonly sprints: readonly Sprint[];
-}
-
-/**
- * Build the grouped + sorted list of sprint groups.
- *
- * Ordering:
- *  - Current project first (when known and non-empty / present in projects).
- *  - Then alphabetical by displayName.
- *  - Within each group: newest first (UUIDv7 lex sort, reversed).
- *  - Orphan "unknown project" group always last.
- *
- * When `scopeAll` is false we filter to only the current project's group.
- */
-const buildGroups = (
-  data: PickerData,
-  currentProjectId: ProjectId | undefined,
-  scopeAll: boolean
-): readonly SprintGroup[] => {
-  const buckets = new Map<string, { label: string; orphan: boolean; sprints: Sprint[] }>();
-
-  // Pre-seed a bucket for every known project so empty projects still render a header when
-  // scopeAll is true. Orphan bucket is created lazily on the first orphan sprint.
-  for (const project of data.projectsById.values()) {
-    buckets.set(project.id, { label: project.displayName, orphan: false, sprints: [] });
-  }
-  for (const sprint of data.sprints) {
-    const bucket = buckets.get(sprint.projectId);
-    if (bucket !== undefined) {
-      bucket.sprints.push(sprint);
-      continue;
-    }
-    // Orphan: project deleted but sprint persists. Bucket lazily.
-    const orphanBucket = buckets.get(UNKNOWN_PROJECT_KEY) ?? {
-      label: UNKNOWN_PROJECT_LABEL,
-      orphan: true,
-      sprints: [] as Sprint[],
-    };
-    orphanBucket.sprints.push(sprint);
-    buckets.set(UNKNOWN_PROJECT_KEY, orphanBucket);
-  }
-
-  // Newest first within each bucket.
-  for (const bucket of buckets.values()) {
-    bucket.sprints.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
-  }
-
-  const all: SprintGroup[] = Array.from(buckets.entries()).map(([key, b]) => ({
-    key,
-    label: b.label,
-    orphan: b.orphan,
-    sprints: b.sprints,
-  }));
-
-  // Sort: current project first; orphan last; alphabetical between.
-  all.sort((a, b) => {
-    if (a.orphan && !b.orphan) return 1;
-    if (!a.orphan && b.orphan) return -1;
-    if (currentProjectId !== undefined) {
-      if (a.key === currentProjectId && b.key !== currentProjectId) return -1;
-      if (b.key === currentProjectId && a.key !== currentProjectId) return 1;
-    }
-    return a.label.localeCompare(b.label);
-  });
-
-  if (scopeAll) return all;
-  // scoped: keep only the current project's group (if it exists; otherwise return empty).
-  return all.filter((g) => g.key === currentProjectId);
-};
-
-/**
- * Flatten groups into the cursor-navigable row list. Empty groups still emit a header. The
- * `+ Create new sprint` action row is prepended (when `includeCreate` is true) so it sits at
- * the top of the cursor's reachable rows; Enter on it launches create-sprint via the shared
- * launcher (which reseats selection on success).
- */
-const flatten = (groups: readonly SprintGroup[], includeCreate: boolean): readonly FlatRow[] => {
-  const rows: FlatRow[] = [];
-  if (includeCreate) rows.push({ kind: 'create' });
-  for (const g of groups) {
-    rows.push({
-      kind: 'header',
-      groupKey: g.key,
-      label: g.label,
-      orphan: g.orphan,
-      empty: g.sprints.length === 0,
-    });
-    for (const sprint of g.sprints) {
-      rows.push({ kind: 'sprint', groupKey: g.key, sprint });
-    }
-  }
-  return rows;
-};
-
-/** Indices of the rows the cursor is allowed to land on (sprint + create rows; never headers). */
-const cursorableRowIndices = (rows: readonly FlatRow[]): readonly number[] => {
-  const indices: number[] = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    const kind = rows[i]?.kind;
-    if (kind === 'sprint' || kind === 'create') indices.push(i);
-  }
-  return indices;
-};
-
-const nextCursorableIndex = (rows: readonly FlatRow[], from: number, direction: 1 | -1): number => {
-  const candidates = cursorableRowIndices(rows);
-  if (candidates.length === 0) return from;
-  if (direction === 1) {
-    const next = candidates.find((i) => i > from);
-    return next ?? from;
-  }
-  // direction === -1
-  let prev = from;
-  for (const i of candidates) {
-    if (i < from) prev = i;
-    else break;
-  }
-  return prev === from && candidates.includes(from) ? from : prev;
-};
+export { computeWindow };
 
 export const PickSprintView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -466,124 +294,5 @@ export const PickSprintView = (): React.JSX.Element => {
         </Box>
       )}
     </ViewShell>
-  );
-};
-
-interface RowWindowViewProps {
-  readonly rows: readonly FlatRow[];
-  readonly cursor: number;
-  readonly visibleRows: number;
-  readonly currentSprintId: string | undefined;
-}
-
-const RowWindowView = ({ rows, cursor, visibleRows, currentSprintId }: RowWindowViewProps): React.JSX.Element => {
-  const window = useMemo(() => computeWindow(rows.length, cursor, visibleRows), [rows.length, cursor, visibleRows]);
-  const slice = rows.slice(window.start, window.end);
-  return (
-    <Box flexDirection="column">
-      {window.hiddenAbove > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>▲ {String(window.hiddenAbove)} more above</Text>
-        </Box>
-      )}
-      {slice.map((row, i) => {
-        const absoluteIndex = i + window.start;
-        if (row.kind === 'header') {
-          return <HeaderRowView key={`h-${row.groupKey}-${String(absoluteIndex)}`} row={row} />;
-        }
-        if (row.kind === 'create') {
-          return <CreateRowView key={`create-${String(absoluteIndex)}`} focused={absoluteIndex === cursor} />;
-        }
-        return (
-          <SprintRowView
-            key={row.sprint.id}
-            sprint={row.sprint}
-            focused={absoluteIndex === cursor}
-            isCurrent={currentSprintId === row.sprint.id}
-          />
-        );
-      })}
-      {window.hiddenBelow > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>▼ {String(window.hiddenBelow)} more below</Text>
-        </Box>
-      )}
-    </Box>
-  );
-};
-
-const CreateRowView = ({ focused }: { readonly focused: boolean }): React.JSX.Element => (
-  <Box flexDirection="column" paddingX={spacing.indent}>
-    <Box>
-      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
-      <Text>
-        {' '}
-        <Text color={focused ? inkColors.primary : inkColors.highlight} bold>
-          + Create new sprint
-        </Text>
-      </Text>
-    </Box>
-    {focused && (
-      <Box paddingLeft={3}>
-        <Text dimColor>{glyphs.activityArrow} launches the create-sprint flow</Text>
-      </Box>
-    )}
-  </Box>
-);
-
-const HeaderRowView = ({ row }: { readonly row: HeaderRow }): React.JSX.Element => {
-  const color = row.orphan ? inkColors.warning : inkColors.muted;
-  const prefix = row.orphan ? `${glyphs.warningGlyph} ` : '';
-  return (
-    <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
-      <Text bold color={color}>
-        {prefix}
-        {row.label}
-      </Text>
-      {row.empty && (
-        <Box paddingLeft={3}>
-          <Text dimColor>{glyphs.bullet} no sprints</Text>
-        </Box>
-      )}
-    </Box>
-  );
-};
-
-const SprintRowView = ({
-  sprint,
-  focused,
-  isCurrent,
-}: {
-  readonly sprint: Sprint;
-  readonly focused: boolean;
-  readonly isCurrent: boolean;
-}): React.JSX.Element => {
-  return (
-    <Box flexDirection="column" paddingX={spacing.indent}>
-      <Box>
-        <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
-        <Text>
-          {' '}
-          <Text color={focused ? inkColors.primary : inkColors.muted} bold={focused}>
-            {sprint.name}
-          </Text>{' '}
-          <StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />
-          {isCurrent && (
-            <Text dimColor italic>
-              {' '}
-              {glyphs.bullet} current
-            </Text>
-          )}
-        </Text>
-      </Box>
-      {focused && (
-        <Box paddingLeft={3}>
-          <Text dimColor>
-            {glyphs.activityArrow} {String(sprint.tickets.length)} ticket
-            {sprint.tickets.length === 1 ? '' : 's'}
-          </Text>
-        </Box>
-      )}
-    </Box>
   );
 };
