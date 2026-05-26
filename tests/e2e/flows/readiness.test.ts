@@ -41,6 +41,7 @@ const claudeOnlySettings: AiSettings = {
   },
   readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  createPr: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
 
 // ── fakes ────────────────────────────────────────────────────────────────

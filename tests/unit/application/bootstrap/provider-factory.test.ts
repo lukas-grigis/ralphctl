@@ -21,6 +21,7 @@ const claudeConfig: Settings['ai'] = {
   },
   readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  createPr: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
 
 const copilotConfig: Settings['ai'] = {
@@ -32,6 +33,7 @@ const copilotConfig: Settings['ai'] = {
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
   ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
 
 const codexConfig: Settings['ai'] = {
@@ -43,6 +45,7 @@ const codexConfig: Settings['ai'] = {
   },
   readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
   ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
 describe('createAiProvider', () => {
@@ -74,6 +77,7 @@ describe('createAiProvider', () => {
       },
       readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
       ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
     };
     const eventBus = createInMemoryEventBus();
     const refineProvider = createAiProvider({ flow: 'refine', ai: mixed, harnessConfig, eventBus });

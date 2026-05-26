@@ -170,8 +170,8 @@ the two sessions can run on different providers / models / effort levels (effort
 described under _AI Settings_ below apply per-row). Default: generator runs `claude-code` /
 `claude-opus-4-7`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
 side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
-`ideate`) keeps the flat `{ provider, model, effort? }` row shape; the analogous generator-evaluator
-split for the `plan` flow is deferred to future work.
+`ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
+generator-evaluator split for the `plan` flow is deferred to future work.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
@@ -205,11 +205,14 @@ per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>`
 
 ## AI Settings
 
-`settings.ai` is a flat record: one optional global `ai.effort` plus five per-flow rows
-`ai.{refine,plan,implement,readiness,ideate}`, each `{ provider, model, effort? }`. `detect-scripts` /
-`detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no dedicated settings rows.
-Per-flow `model` accepts the matching provider's catalog or any non-empty trimmed custom string; per-flow
-`effort` validates against the provider's native vocabulary.
+`settings.ai` is a flat record: one optional global `ai.effort` plus six per-flow rows
+`ai.{refine,plan,implement,readiness,ideate,createPr}`, each `{ provider, model, effort? }`.
+`detect-scripts` / `detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no
+dedicated settings rows. The `createPr` row drives the optional AI step inside `create-pr --ai`; settings
+files written by ralphctl ≤ 0.8.x are missing it and the load path silently seeds it from `ai.refine` (no
+`schemaVersion` bump; canonical shape lands on the next save). Per-flow `model` accepts the matching
+provider's catalog or any non-empty trimmed custom string; per-flow `effort` validates against the
+provider's native vocabulary.
 
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;

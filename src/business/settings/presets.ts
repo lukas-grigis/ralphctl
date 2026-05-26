@@ -35,6 +35,9 @@ const MIXED: AiSettings = {
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
   ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  // PR content drafting mirrors refine's "light summary" reasoning profile — a fast Codex
+  // model is fine, no need to pay for Opus tokens just to summarise a diff.
+  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
 /**
@@ -59,6 +62,7 @@ const CLAUDE_ONLY: AiSettings = {
   },
   readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
   ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  createPr: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
 
 const COPILOT_ONLY: AiSettings = {
@@ -71,6 +75,7 @@ const COPILOT_ONLY: AiSettings = {
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
   ideate: { provider: 'github-copilot', model: 'claude-opus-4.6' },
+  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
 
 const CODEX_ONLY: AiSettings = {
@@ -83,6 +88,7 @@ const CODEX_ONLY: AiSettings = {
   },
   readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
   ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
+  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
 const PRESETS: Readonly<Record<PresetName, AiSettings>> = {

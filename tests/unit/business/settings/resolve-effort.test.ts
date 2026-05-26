@@ -56,6 +56,7 @@ describe('resolveEffort', () => {
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
+        createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
     };
     expect(resolveEffort('implement', codexEverywhere)).toBe('high');
@@ -82,6 +83,7 @@ describe('resolveEffort', () => {
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
+        createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
     };
     expect(resolveEffort('refine', settings)).toBe('minimal');

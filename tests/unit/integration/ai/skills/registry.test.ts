@@ -8,11 +8,18 @@ import { flowRegistry } from '@src/application/registry.ts';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_ROOT = join(HERE, '../../../../../src/integration/ai/skills/bundled');
 
+/**
+ * Map a camelCase {@link FlowId} (used in `settings.ai.<flow>` and `FLOW_SKILLS`) to the
+ * kebab-case orchestration id. Most ids round-trip identically; `createPr` ↔ `create-pr`
+ * is the one entry that diverges, mirroring the launcher's `aiFlowIdFor` mapping.
+ */
+const flowIdToRegistryId = (flowId: string): string => (flowId === 'createPr' ? 'create-pr' : flowId);
+
 describe('FLOW_SKILLS', () => {
   it('every flow id in FLOW_SKILLS exists in the orchestration registry', () => {
     const knownFlows = new Set(flowRegistry.map((entry) => entry.manifest.id));
     for (const flowId of Object.keys(FLOW_SKILLS)) {
-      expect(knownFlows.has(flowId)).toBe(true);
+      expect(knownFlows.has(flowIdToRegistryId(flowId))).toBe(true);
     }
   });
 

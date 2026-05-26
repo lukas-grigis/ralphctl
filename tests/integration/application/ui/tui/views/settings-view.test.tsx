@@ -80,6 +80,7 @@ const SECTIONS = [
   'implement',
   'readiness',
   'ideate',
+  'createPr',
   'harness',
   'other',
   'storage',

@@ -50,6 +50,7 @@ export type SectionId =
   | 'implement'
   | 'readiness'
   | 'ideate'
+  | 'createPr'
   | 'harness'
   | 'other'
   | 'storage';
@@ -96,6 +97,9 @@ export const modelOptionsFor = (provider: AiProvider): readonly string[] => {
 };
 
 export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
+
+const FLOW_DISPLAY_LABEL: Partial<Record<FlowId, string>> = { createPr: 'Create-PR' };
+const flowLabel = (flow: FlowId): string => FLOW_DISPLAY_LABEL[flow] ?? capitalize(flow);
 
 const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings): readonly EditableField[] => [
   {
@@ -147,9 +151,9 @@ export const buildSections = (s: Settings): readonly SettingsSection[] => {
 
   const flowSection = (flow: Exclude<FlowId, 'implement'>): SettingsSection => ({
     id: flow,
-    label: capitalize(flow),
-    title: `AI — ${capitalize(flow)}`,
-    fields: buildFlowFields(`ai.${flow}`, capitalize(flow), s.ai[flow]),
+    label: flowLabel(flow),
+    title: `AI — ${flowLabel(flow)}`,
+    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow]),
     readonly: false,
   });
 
@@ -188,6 +192,7 @@ export const buildSections = (s: Settings): readonly SettingsSection[] => {
     { id: 'implement', label: 'Implement', title: 'AI — Implement', fields: implementFields, readonly: false },
     flowSection('readiness'),
     flowSection('ideate'),
+    flowSection('createPr'),
     { id: 'harness', label: 'Harness', title: 'Harness budgets', fields: harnessFields, readonly: false },
     { id: 'other', label: 'Other', title: 'Other', fields: otherFields, readonly: false },
     { id: 'storage', label: 'Storage', title: 'Storage paths', fields: [], readonly: true },

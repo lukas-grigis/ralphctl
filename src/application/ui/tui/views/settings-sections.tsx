@@ -89,6 +89,7 @@ export const SectionBody = ({ section, valueFor, storage, presetWarnings }: Sect
     case 'plan':
     case 'readiness':
     case 'ideate':
+    case 'createPr':
       return <AiRow title={section.title} sectionId={section.id} valueFor={valueFor} />;
   }
 };

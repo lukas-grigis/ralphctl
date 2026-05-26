@@ -106,6 +106,7 @@ describe('JsonSettingsRepository', () => {
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
       harness: {
         maxTurns: 5,
@@ -140,6 +141,7 @@ describe('JsonSettingsRepository', () => {
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
+        createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
       },
       harness: {
         maxTurns: 8,
@@ -283,6 +285,48 @@ describe('JsonSettingsRepository', () => {
     const raw = await fs.readFile(path, 'utf8');
     const onDisk = JSON.parse(raw) as { readonly ai: { readonly implement: unknown } };
     expect(onDisk.ai.implement).toEqual({ provider: 'claude-code', model: 'claude-opus-4-7' });
+  });
+
+  it('load silently seeds a missing ai.createPr row from ai.refine (no schemaVersion bump)', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    // ≤ 0.8.x file shape — every row present except `createPr`, plus the already-promoted
+    // nested implement form. Loading must succeed (the new required row is filled in from
+    // refine) without touching schemaVersion or the on-disk file.
+    const legacyMissingCreatePr = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      ai: {
+        refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        },
+        readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+        ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      },
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+      logging: { level: 'info' },
+      concurrency: { maxParallelTasks: 1 },
+      ui: { notifications: { enabled: true } },
+      developer: { showEvaluatorFailureUI: false },
+    };
+    await fs.writeFile(path, `${JSON.stringify(legacyMissingCreatePr, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    // createPr ends up as a shallow copy of refine — same provider + model, no effort.
+    expect(loaded.value.ai.createPr).toEqual({ provider: 'claude-code', model: 'claude-sonnet-4-6' });
+    // Refine itself is untouched.
+    expect(loaded.value.ai.refine).toEqual({ provider: 'claude-code', model: 'claude-sonnet-4-6' });
+
+    // The load path is pure read-seed — no rewrite triggered. The on-disk file still has
+    // no createPr; a subsequent save() will normalise it.
+    const raw = await fs.readFile(path, 'utf8');
+    const onDisk = JSON.parse(raw) as { readonly ai: Record<string, unknown> };
+    expect(onDisk.ai['createPr']).toBeUndefined();
   });
 
   it('load rejects a settings file from a newer ralphctl version', async () => {

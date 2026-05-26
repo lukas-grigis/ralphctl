@@ -22,7 +22,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, ui.notifications.enabled';
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);

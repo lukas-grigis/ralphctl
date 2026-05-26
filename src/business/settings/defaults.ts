@@ -21,6 +21,9 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     implement: 'claude-opus-4-7',
     readiness: 'claude-sonnet-4-6',
     ideate: 'claude-opus-4-7',
+    // PR-content drafting is a single-shot summarisation task — Sonnet matches refine's
+    // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
+    createPr: 'claude-sonnet-4-6',
   },
   'github-copilot': {
     refine: 'gpt-5-mini',
@@ -28,6 +31,7 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     implement: 'gpt-5.4',
     readiness: 'gpt-5-mini',
     ideate: 'gpt-5.4',
+    createPr: 'gpt-5-mini',
   },
   'openai-codex': {
     refine: 'gpt-5.4-mini',
@@ -35,6 +39,7 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     implement: 'gpt-5.3-codex',
     readiness: 'gpt-5.4-mini',
     ideate: 'gpt-5.5',
+    createPr: 'gpt-5.4-mini',
   },
 };
 
@@ -60,6 +65,7 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
     implement: { generator: implementRow, evaluator: implementRow },
     readiness: { provider, model: models.readiness },
     ideate: { provider, model: models.ideate },
+    createPr: { provider, model: models.createPr },
   } as AiSettings;
 };
 

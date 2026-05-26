@@ -42,6 +42,9 @@ describe('v1 → v2 settings migration', () => {
     expect(ai.implement).toEqual({ generator: implementRow, evaluator: implementRow });
     expect(ai.readiness).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' });
     expect(ai.ideate).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
+    // v1 had no `models.createPr` slot — the migration seeds the new row by falling back to
+    // refine's model so post-migration the create-pr AI step has a sane catalog entry.
+    expect(ai.createPr).toEqual({ provider: 'github-copilot', model: 'gpt-5-mini' });
   });
 
   it('post-migration resolveEffort yields the documented matrix', () => {

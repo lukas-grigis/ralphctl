@@ -115,6 +115,32 @@ const promoteLegacyImplementRow = (ai: unknown): unknown => {
 };
 
 /**
+ * Seed `ai.createPr` from `ai.refine` when the row is absent — settings files written by
+ * ralphctl ≤ 0.8.x had no dedicated create-pr row and the harness reused `ai.refine.model`
+ * for the optional PR-content AI step. Runs at parse time without bumping
+ * {@link CURRENT_SCHEMA_VERSION}; the next `save()` rewrites the file with the new row
+ * inlined so the seeding only fires once per file. Same silence policy as
+ * {@link promoteLegacyImplementRow}: no user notice.
+ *
+ * Returns the input untouched when `createPr` already exists or when `refine` isn't a
+ * usable row — schema validation then surfaces the real error message.
+ */
+const seedLegacyCreatePrRow = (ai: unknown): unknown => {
+  if (typeof ai !== 'object' || ai === null) return ai;
+  const aiObj = ai as Record<string, unknown>;
+  if ('createPr' in aiObj) return ai;
+  const refine = aiObj['refine'];
+  if (typeof refine !== 'object' || refine === null) return ai;
+  if (!('provider' in (refine as Record<string, unknown>))) return ai;
+  // Shallow-copy refine into createPr — the schema's discriminated row union validates
+  // both rows independently, so a stale shape on refine surfaces twice (once per row).
+  return { ...aiObj, createPr: { ...(refine as Record<string, unknown>) } };
+};
+
+/** Compose the two legacy-row preprocessors so both fire on every parse. */
+const promoteLegacyAiRows = (ai: unknown): unknown => seedLegacyCreatePrRow(promoteLegacyImplementRow(ai));
+
+/**
  * Per-flow AI settings:
  *
  *   ai.effort?            // global default, used when a row omits its own effort
@@ -123,14 +149,19 @@ const promoteLegacyImplementRow = (ai: unknown): unknown => {
  *   ai.implement          // { generator: { provider, model, effort? }, evaluator: {...} }
  *   ai.readiness          // { provider, model, effort? }
  *   ai.ideate             // { provider, model, effort? }
+ *   ai.createPr           // { provider, model, effort? }
  *
  * Rows are independent — refine can run on Claude while implement.evaluator runs on Codex.
  * The discriminated union on each row keeps `model` enforced against the row's provider
  * catalog. Implement splits into a generator/evaluator pair because those two sessions
  * benefit from different reasoning profiles; every other flow runs a single AI session.
+ *
+ * The `createPr` row was added after the original five — settings files written by
+ * ralphctl ≤ 0.8.x are missing it. The preprocess seeds it from `refine` at parse time so
+ * legacy files load without manual editing; the next `save()` rewrites the canonical shape.
  */
 const AiSettingsSchema = z.preprocess(
-  promoteLegacyImplementRow,
+  promoteLegacyAiRows,
   z.object({
     effort: GlobalEffortSchema.optional(),
     refine: FlowRowSchema,
@@ -138,6 +169,7 @@ const AiSettingsSchema = z.preprocess(
     implement: AiImplementSchema,
     readiness: FlowRowSchema,
     ideate: FlowRowSchema,
+    createPr: FlowRowSchema,
   })
 );
 
