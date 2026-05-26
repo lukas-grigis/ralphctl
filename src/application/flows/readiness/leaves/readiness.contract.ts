@@ -15,6 +15,7 @@ import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/n
 import { setupSkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/setup-skill-proposal/schema.ts';
 import { skillSuggestionsSignalSchema } from '@src/integration/ai/contract/_engine/signals/skill-suggestions/schema.ts';
 import { verifySkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-skill-proposal/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -76,7 +77,7 @@ const signalsArraySchemaRaw = z.array(
  * narrows the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile` and `renderSidecars`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly ReadinessSignal[]>;
+const signalsArraySchema = brandSignalArray<ReadinessSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. The readiness leaf synthesises a bare top-level array of contract-

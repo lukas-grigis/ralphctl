@@ -16,6 +16,7 @@ import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/n
 import { taskBlockedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-blocked/schema.ts';
 import { taskVerifiedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-verified/schema.ts';
 import { renderEvaluationMarkdown } from '@src/integration/ai/contract/_engine/render-evaluation-markdown.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -76,7 +77,7 @@ const signalsArraySchemaRaw = z
  * narrows the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile` and `renderSidecars`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly EvaluatorSignal[]>;
+const signalsArraySchema = brandSignalArray<EvaluatorSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. In-flight sprints on disk may carry a bare top-level array from an

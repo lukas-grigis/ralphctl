@@ -3,6 +3,7 @@ import type { AiSignal, TaskBlockedSignal, TaskCompleteSignal } from '@src/domai
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { taskBlockedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-blocked/schema.ts';
 import { taskCompleteSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-complete/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -43,7 +44,7 @@ const signalsArraySchemaRaw = z
  * the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly ReviewRoundSignal[]>;
+const signalsArraySchema = brandSignalArray<ReviewRoundSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. Older sprint review rounds (pre-contract) produced bare arrays via

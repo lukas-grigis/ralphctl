@@ -5,6 +5,7 @@ import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signa
 import { ideatedTicketsSignalSchema } from '@src/integration/ai/contract/_engine/signals/ideated-tickets/schema.ts';
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -41,7 +42,7 @@ const signalsArraySchemaRaw = z
  * under `exactOptionalPropertyTypes`) and the strict-optional `IdeateSignal` union the
  * leaf consumes downstream. The runtime check is the source of truth.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly IdeateSignal[]>;
+const signalsArraySchema = brandSignalArray<IdeateSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. Today's ideate leaf synthesises a bare top-level array of signals

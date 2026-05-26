@@ -5,6 +5,7 @@ import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signa
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { refinedTicketSignalSchema } from '@src/integration/ai/contract/_engine/signals/refined-ticket/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -114,7 +115,7 @@ const signalsArraySchemaRaw = z
  * narrows the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly RefineSignal[]>;
+const signalsArraySchema = brandSignalArray<RefineSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. Today's refine leaf synthesises a bare top-level array of signals
