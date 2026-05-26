@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-05-26
+
 ### Added
 
 - **Per-spawn AI attribution sidecar.** Every AI spawn (refine, plan, implement
@@ -17,6 +19,15 @@ to [Semantic Versioning](https://semver.org/).
   `rounds/<N>/<role>/meta.json` with `attempt` / `round` for full
   generator-vs-evaluator provenance. Forward-only — pre-existing sprint dirs
   are not back-filled.
+- **Per-launch AI customize picker.** Every AI-driven flow (refine / plan /
+  implement / readiness / ideate) now offers a per-launch provider / model /
+  effort override, so you can target a different backend for a single run
+  without changing saved settings (#151).
+- **Per-card expand/collapse in sprint detail.** Ticket and task cards expand
+  and collapse individually, keyed by a stable id so the state survives
+  re-renders (#149).
+- **Scrollable description in the add-ticket Review step** — long ticket bodies
+  scroll inside the review pane instead of overflowing the terminal (#150).
 
 ### Changed
 
@@ -26,12 +37,39 @@ to [Semantic Versioning](https://semver.org/).
   the current `cwd` and `git status` is clean. Cuts `verifyScript` runs from
   2N to N+1 on happy-path sprints (~50% wallclock on 4+ tasks). Dirty trees
   or git probe errors fall through to the real verify path unchanged.
+- **Section-tabbed Settings view.** Settings is reorganised into a tabbed
+  section strip (`←/→` to switch, `↑/↓` to navigate) with a catalog-only model
+  field per flow, keeping each section's cursor path short. Settings labels now
+  render in full (no more truncation) and the per-section cards size to their
+  widest label (#151).
 
 ### Fixed
 
 - **Implement: gen-eval `AiSession` now sets `outputDir`** so codex's
   `workspace-write` sandbox accepts the per-round `signals.json` Write call.
   Without this, the evaluator failed with `signals-missing` on every round.
+- **A non-Claude generator/evaluator turn failure no longer aborts the whole
+  implement run.** A missing / malformed / schema-invalid `signals.json` now
+  blocks just that task (surfaced and re-runnable on the next run) instead of
+  tearing down the entire run — most visible with non-Claude evaluators, which
+  trip the strict contract more often. `AbortError` / `RateLimitError` still
+  propagate. The evaluator's recoverable path routes to a self-block, so an
+  ungraded change is never silently marked done (#165).
+- **codex session-id capture** — codex-cli 0.130.0 reports the id as
+  `thread_id` on its `thread.started` record, not `session_id`; the adapter now
+  reads it, restoring cross-round `--resume` continuity and token-usage
+  telemetry for codex (#165).
+- **Refine no longer loses a refinement to one malformed signal.** A single
+  malformed auxiliary signal (e.g. a `decision` emitted with the wrong field)
+  used to fail the whole contract and silently discard the refined ticket.
+  Refine now drops only the bad auxiliary signal, keeps the valid
+  `refined-ticket`, and surfaces an actionable message when the AI session
+  exits before writing `signals.json` (#165).
+- **Execute view scroll** — `↑/↓` now scrolls the live implement view again;
+  the scroll region was reading a stale content height and never engaged on
+  dynamically growing content (#165).
+- **Plugged a React Hook desync in the execute view** and wired the
+  `react-hooks` lint rule to catch the class.
 
 ## [0.8.1] - 2026-05-25
 
