@@ -196,8 +196,9 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
 
           // Validate `signals.json` against the evaluator contract. Failure surfaces a
           // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
-          // with a precise hint — the surrounding loop's critique injection picks it up on
-          // the next round.
+          // with a precise hint. `runEvaluatorTurnUseCase` converts a recoverable validation
+          // failure into a `self-blocked` exit (task settles as blocked — the ungraded change is
+          // NOT marked done; run continues); only a fatal `Aborted`/`RateLimit` propagates.
           const validated = await validateSignalsFile(outputDir, evaluatorOutputContract);
           if (!validated.ok) return Result.error(validated.error);
           const signals = validated.value;

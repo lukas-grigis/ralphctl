@@ -57,9 +57,11 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * validates it post-spawn — the provider never touches signals.json. When `session.bodyFile`
  * is set, the adapter mirrors the raw body there for diagnostic capture (best-effort).
  *
- * Session id capture: codex emits JSONL meta events on stdout that carry `session_id` on the
- * leading config / startup record. The adapter line-buffers stdout, picks the first id out,
- * and discards the rest of the stream (the body is read from the tempfile).
+ * Session id capture: codex emits JSONL meta events on stdout. On codex-cli 0.130.x the id
+ * arrives as `thread_id` on the leading `{type:"thread.started"}` record (legacy `session_id` /
+ * `sessionId` are still recognised). The adapter line-buffers stdout, picks the first id out,
+ * and discards the rest of the stream (the body is read from the tempfile). The captured id is
+ * what `codex exec resume <id>` accepts, so it round-trips through `session.resume`.
  *
  * Permissions: only the two locked profiles (READ_ONLY / FULL_AUTO) are supported, since
  * those cover every wired chain. Half-permission combos surface `InvalidStateError` —
@@ -288,14 +290,21 @@ interface CodexMetaUpdate {
 }
 
 /**
- * Line-extract `session_id` / `model` / token-usage fields from codex's JSONL stdout. Returns
+ * Line-extract session-id / `model` / token-usage fields from codex's JSONL stdout. Returns
  * the residual tail (unterminated trailing chars). `onMeta` is invoked once per recognised
  * line carrying any of the fields; the caller dedupes (sessionId / model = first wins; usage
  * = last wins).
  *
- * Codex's `--json` stream is JSONL: the leading `{type:"config"}` record carries `session_id`,
- * subsequent `{type:"task_complete"|"thread_meta"|...}` records may carry `model` and/or a
- * token-count object. Schema-tolerant: any unrecognised structure is skipped silently.
+ * Codex's `--json` stream is JSONL. On codex-cli 0.130.x the session id arrives on the leading
+ * `{type:"thread.started", thread_id:"<uuid>"}` record — NOT a `session_id` field. We also keep
+ * recognising the legacy `session_id` / `sessionId` keys (older / future builds, and forward
+ * compat) so either shape populates the id. Token usage arrives on the trailing
+ * `{type:"turn.completed", usage:{input_tokens, output_tokens, …}}` record. Schema-tolerant:
+ * any unrecognised structure is skipped silently.
+ *
+ * The captured `thread_id` UUID is exactly what `codex exec resume <id>` accepts ("conversation/
+ * session id (UUID) or thread name"), so it round-trips back through `session.resume` to continue
+ * the conversation across gen-eval rounds.
  */
 const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => void): string => {
   let remaining = buffer;
@@ -308,7 +317,10 @@ const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => v
     if (trimmed.length === 0 || !trimmed.startsWith('{')) continue;
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      const id = stringField(obj, 'session_id', 'sessionId');
+      // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
+      // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
+      // the caller), so listing `thread_id` first matches the stream order.
+      const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
       const model = stringField(obj, 'model');
       const usageObj = obj['usage'];
       const source = isRecord(usageObj) ? usageObj : obj;
@@ -382,8 +394,8 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         if (update.model !== undefined && model === undefined) {
           model = update.model;
         }
-        // Last-write-wins on usage — codex's `task_complete` record carries the cumulative
-        // figure; earlier records (config / streaming chunks) report partials or nothing.
+        // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
+        // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
         if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
         if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
       });
@@ -437,8 +449,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     // `session.outputDir`; the harness validates it post-spawn. The provider never writes
     // signals.json itself. The codex output tempfile body remains the forensic source for
     // `session.bodyFile` mirroring below.
-    // Persist captured session id as a sibling `sessionId` file. Codex emits the id on the
-    // leading JSONL config record; missing → skip (no empty marker). See persistSessionIdFile.
+    // Persist captured session id as a sibling `sessionId` file. Codex emits the id as
+    // `thread_id` on the leading `thread.started` JSONL record; missing → skip (no empty
+    // marker). See persistSessionIdFile.
     const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
     if (sidWrote !== undefined && !sidWrote.ok) {
       deps.eventBus.publish({

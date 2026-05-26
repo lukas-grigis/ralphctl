@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -237,18 +240,62 @@ describe('runEvaluatorTurnUseCase', () => {
     if (result.ok) expect(result.value.exit).toBeUndefined();
   });
 
-  it('spawn error (callEvaluate fails) bubbles up as a Result.error — no crash', async () => {
+  it('recoverable evaluate failure (bad signals.json) self-blocks the task — does NOT propagate', async () => {
+    // A non-Claude reviewer that never wrote a usable signals.json surfaces a domain error.
+    // The turn must self-block so the task settles `blocked` (finalize maps self-blocked →
+    // blockedReason → settle marks blocked) — NOT `malformed`, which settle treats as
+    // done-with-warning and would mark an UNGRADED change `done`.
     const task = verifiedTask();
-    const evError = new Error('spawn ENOENT') as unknown as Error & { readonly _tag: 'fake' };
+    const err = new InvalidStateError({
+      entity: 'codex-provider',
+      currentState: 'signals-missing',
+      attemptedAction: 'complete evaluation',
+      message: 'signals.json not found in outputDir',
+    });
     const result = await runEvaluatorTurnUseCase({
       task,
       plateauThreshold: 2,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      callEvaluate: async () => Result.error(evError as any),
+      callEvaluate: async () => Result.error(err),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.exit?.kind).toBe('self-blocked');
+      if (result.value.exit?.kind === 'self-blocked') {
+        expect(result.value.exit.reason).toContain('evaluator did not produce a valid signals.json');
+        expect(result.value.exit.reason).toContain('signals.json not found in outputDir');
+      }
+      expect(result.value.task).toBe(task); // unchanged — no evaluation recorded
+    }
+  });
+
+  it('propagates an AbortError (user cancel) instead of self-blocking', async () => {
+    const task = verifiedTask();
+    const err = new AbortError({ elementName: 'codex-provider', reason: 'aborted by caller' });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.error(err),
       evaluationFile: EVAL_FILE,
       logger: noopLogger,
     });
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe(err);
+  });
+
+  it('propagates a RateLimitError (retries already exhausted) instead of self-blocking', async () => {
+    const task = verifiedTask();
+    const err = new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limit retries exhausted' });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.error(err),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe(err);
   });
 
   it('continues (no exit) when failed but with a fresh critique and no prior turns', async () => {

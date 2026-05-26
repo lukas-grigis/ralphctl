@@ -5,7 +5,6 @@ import { Result } from '@src/domain/result.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { AppEvent, AiSignalEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
@@ -189,34 +188,46 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expect(result.value.ctx.lastEvaluation?.status).toBe('failed');
   });
 
+  // A recoverable signals-contract failure (missing / malformed / schema-mismatch / refinement)
+  // no longer aborts the run via Result.error — the evaluator turn converts it into a
+  // `self-blocked` exit so ONLY this task blocks (settled `blocked`, NOT done-with-warning, so
+  // the generator's ungraded change is never committed). The leaf returns `Result.ok` with
+  // `ctx.lastExit` set; the precise validator message is preserved in the block reason.
+  const expectSelfBlock = (
+    result: Awaited<ReturnType<ReturnType<typeof evaluatorLeaf>['execute']>>,
+    messageFragment: string
+  ): void => {
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.lastExit?.kind).toBe('self-blocked');
+    if (result.value.ctx.lastExit?.kind === 'self-blocked') {
+      expect(result.value.ctx.lastExit.reason).toContain('evaluator did not produce a valid signals.json');
+      expect(result.value.ctx.lastExit.reason).toContain(messageFragment);
+    }
+  };
+
   // ── 2. signals.json missing ───────────────────────────────────────────────────
-  it('ok-missing: surfaces signals-missing as InvalidStateError', async () => {
+  it('ok-missing: self-blocks with signals-missing in the reason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'ok-missing' }]]);
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(InvalidStateError);
-    expect(result.error.error.message).toContain('signals-missing');
+    expectSelfBlock(result, 'signals-missing');
   });
 
   // ── 3. Malformed JSON ─────────────────────────────────────────────────────────
-  it('ok-raw with invalid JSON: surfaces ParseError(invalid-json)', async () => {
+  it('ok-raw with invalid JSON: self-blocks with malformed JSON in the reason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [signalsFilePath(), { kind: 'ok-raw', rawBody: '{ this is not json' }],
     ]);
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(ParseError);
-    expect(result.error.error.message).toContain('malformed JSON');
+    expectSelfBlock(result, 'malformed JSON');
   });
 
   // ── 4. Schema fails Zod (wrong shape) ─────────────────────────────────────────
-  it('ok with generator-only commit-message signal: surfaces ParseError(schema-mismatch)', async () => {
+  it('ok with generator-only commit-message signal: self-blocks with schema in the reason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [
@@ -234,14 +245,11 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     ]);
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(ParseError);
-    expect(result.error.error.message).toContain('schema');
+    expectSelfBlock(result, 'schema');
   });
 
   // ── 5a. Schema fails refine — zero evaluations ───────────────────────────────
-  it('ok with zero evaluation signals: refinement rejects', async () => {
+  it('ok with zero evaluation signals: refinement rejects → self-block', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [
@@ -257,14 +265,11 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     ]);
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(ParseError);
-    expect(result.error.error.message).toContain('exactly one evaluation');
+    expectSelfBlock(result, 'exactly one evaluation');
   });
 
   // ── 5b. Schema fails refine — two evaluations ────────────────────────────────
-  it('ok with two evaluation signals: refinement rejects', async () => {
+  it('ok with two evaluation signals: refinement rejects → self-block', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [
@@ -280,10 +285,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     ]);
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBeInstanceOf(ParseError);
-    expect(result.error.error.message).toContain('exactly one evaluation');
+    expectSelfBlock(result, 'exactly one evaluation');
   });
 
   // ── 7 (migration). Legacy top-level-array shape ───────────────────────────────
@@ -316,7 +318,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   });
 
   // ── 8. Spawn error ────────────────────────────────────────────────────────────
-  it('spawn-error: leaf surfaces the spawn error, no validation attempted', async () => {
+  it('spawn-error: self-blocks the task with the spawn error message, no validation attempted', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const spawnError = new InvalidStateError({
       entity: 'provider',
@@ -328,9 +330,9 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
 
     const result = await leaf.execute(baseCtx(task));
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.error).toBe(spawnError);
+    // A non-zero spawn (InvalidStateError, recoverable) blocks this task rather than aborting
+    // the whole run; the spawn error message is preserved in the block reason.
+    expectSelfBlock(result, 'simulated spawn failure');
 
     // No signals.json file should exist on disk (the mock didn't write one) and no sidecar.
     await expect(fs.access(signalsFilePath())).rejects.toThrow();

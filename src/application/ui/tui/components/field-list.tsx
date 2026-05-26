@@ -21,6 +21,12 @@ export interface Field {
 
 export interface FieldListProps {
   readonly fields: readonly Field[];
+  /**
+   * Fixed label column width. When omitted the column auto-sizes to the widest label in the
+   * `fields` array (label length + colon + 1 space of padding), with `FIELD_LABEL_WIDTH` as
+   * the floor so callers with short labels still get the standard rhythm. Pass an explicit
+   * value to override (e.g. when two adjacent `FieldList` instances must share a column width).
+   */
   readonly labelWidth?: number;
 }
 
@@ -33,28 +39,43 @@ const padLabel = (label: string, width: number): string => {
   return withColon.padEnd(width, ' ');
 };
 
-export const FieldList = ({ fields, labelWidth = FIELD_LABEL_WIDTH }: FieldListProps): React.JSX.Element => (
-  <Box flexDirection="column">
-    {fields.map((f, i) => (
-      <Box key={`${f.label}-${String(i)}`} flexDirection="column">
-        <Box>
-          <Text dimColor>{padLabel(f.label, labelWidth)}</Text>
+/**
+ * Compute the label column width from the field set when no explicit width was given.
+ * Formula: max(label.length) + 2 (colon + one trailing space), floored at FIELD_LABEL_WIDTH.
+ * The extra space keeps a breathing gap between the longest label and its value.
+ */
+const resolveWidth = (fields: readonly Field[], explicit?: number): number => {
+  if (explicit !== undefined) return explicit;
+  if (fields.length === 0) return FIELD_LABEL_WIDTH;
+  const maxLen = fields.reduce((m, f) => Math.max(m, f.label.length), 0);
+  return Math.max(FIELD_LABEL_WIDTH, maxLen + 2);
+};
+
+export const FieldList = ({ fields, labelWidth }: FieldListProps): React.JSX.Element => {
+  const width = resolveWidth(fields, labelWidth);
+  return (
+    <Box flexDirection="column">
+      {fields.map((f, i) => (
+        <Box key={`${f.label}-${String(i)}`} flexDirection="column">
           <Box>
-            {typeof f.value === 'string' || typeof f.value === 'number' ? (
-              <Text dimColor={f.dim ?? false}>{f.value}</Text>
-            ) : (
-              f.value
-            )}
+            <Text dimColor>{padLabel(f.label, width)}</Text>
+            <Box>
+              {typeof f.value === 'string' || typeof f.value === 'number' ? (
+                <Text dimColor={f.dim ?? false}>{f.value}</Text>
+              ) : (
+                f.value
+              )}
+            </Box>
           </Box>
+          {f.hint !== undefined && (
+            <Box paddingLeft={width}>
+              <Text dimColor italic>
+                {f.hint}
+              </Text>
+            </Box>
+          )}
         </Box>
-        {f.hint !== undefined && (
-          <Box paddingLeft={labelWidth}>
-            <Text dimColor italic>
-              {f.hint}
-            </Text>
-          </Box>
-        )}
-      </Box>
-    ))}
-  </Box>
-);
+      ))}
+    </Box>
+  );
+};

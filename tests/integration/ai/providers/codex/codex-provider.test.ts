@@ -167,6 +167,43 @@ describe('createCodexProvider', () => {
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
   });
 
+  it('captures the session id from `thread_id` on a {type:"thread.started"} record (codex 0.130.x)', async () => {
+    // Real codex-cli 0.130.0 stdout: the session id arrives as `thread_id` on the leading
+    // `thread.started` record — NOT a `session_id` field. Confirmed against the installed binary.
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"type":"thread.started","thread_id":"019e6373-c4f1-7ac2-89f9-e9e4f3f6b231"}\n',
+          '{"type":"turn.started"}\n',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Done."}}\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+    const fsStub = stubFs('completed task; wrote signals.json.');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBe('019e6373-c4f1-7ac2-89f9-e9e4f3f6b231');
+
+    // And it round-trips to disk so the next gen-eval round can resume the thread.
+    const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
+    const sidContent = await fs.readFile(sidPath, 'utf8');
+    expect(sidContent).toBe('019e6373-c4f1-7ac2-89f9-e9e4f3f6b231\n');
+  });
+
   it('forwards session.cwd to the spawned child (context-file autoload, parity with claude/copilot)', async () => {
     const cap = createCapturingBus();
     const cwd = absolutePath('/tmp/codex-target-repo');
@@ -427,6 +464,44 @@ describe('createCodexProvider — TokenUsageEvent emission', () => {
     expect(evt.sessionId).toBe('sess-u');
     expect(evt.inputTokens).toBe(900);
     expect(evt.outputTokens).toBe(300);
+  });
+
+  it('captures usage from a real {type:"turn.completed", usage:{…}} record keyed off thread_id', async () => {
+    // Faithful repro of codex-cli 0.130.0 stdout: thread.started carries the id, turn.completed
+    // carries the cumulative usage. With the id now populated the TokenUsageEvent fires.
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          '{"type":"thread.started","thread_id":"019e6373-c4f1-7ac2-89f9-e9e4f3f6b231"}\n',
+          '{"type":"turn.started"}\n',
+          '{"type":"turn.completed","usage":{"input_tokens":27669,"cached_input_tokens":25344,"output_tokens":582,"reasoning_output_tokens":516}}\n',
+        ],
+        exitCode: 0,
+      },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.provider).toBe('openai-codex');
+    expect(evt.sessionId).toBe('019e6373-c4f1-7ac2-89f9-e9e4f3f6b231');
+    expect(evt.inputTokens).toBe(27669);
+    expect(evt.outputTokens).toBe(582);
   });
 
   it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
