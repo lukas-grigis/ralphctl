@@ -50,6 +50,13 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
   const maxOffset = (): number => Math.max(0, sizeRef.current.content - sizeRef.current.viewport);
   const clamp = (next: number): number => Math.max(0, Math.min(next, maxOffset()));
 
+  // No dep array: runs after every render so sizeRef stays current as content grows or
+  // shrinks (e.g. live trace entries arriving during an Implement run). The concern about
+  // "every render → setOffset → render" looping does NOT apply here: setOffset only fires
+  // when offset > max, i.e. when we need to clamp down. Once clamped, offset ≤ max on the
+  // next render so setOffset is not called again. Measurement reads Yoga computed heights
+  // which change only when layout changes; reading them is side-effect-free and cheap.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (viewportRef.current) {
       sizeRef.current.viewport = measureElement(viewportRef.current).height;
@@ -59,10 +66,7 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
     }
     const max = maxOffset();
     if (offset > max) setOffset(max);
-    // `offset` is the only externally-visible state this effect reads; including it in the dep
-    // list keeps the clamp correct AND tames the previous "no-deps" form which the React-Hooks
-    // linter flagged as an infinite-update risk (every render → setOffset → render).
-  }, [offset]);
+  });
 
   useInput(
     (input, key) => {
