@@ -133,12 +133,22 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 /**
  * Representative refine payload. The required `refined-ticket` carries the AI-authored
- * requirements body verbatim; the markdown content shape is left to operator convention.
+ * requirements body verbatim in its `body` field; the markdown content shape is left to
+ * operator convention. The optional narrative signals (`decision` / `note` / `learning`) each
+ * carry their prose in a `text` field — NOT `body`. Both shapes are shown here so the rendered
+ * `{{OUTPUT_CONTRACT_SECTION}}` is the authoritative source the AI copies, rather than relying
+ * on prose in the template that can drift from the schemas (a `decision` emitted with `body`
+ * fails validation and silently sinks the whole refinement).
  */
 const refineExampleSignals: readonly RefineSignal[] = [
   {
     type: 'refined-ticket',
     body: '# Export to CSV\n\n## Problem\n\nUsers cannot move their data out of the app.\n\n## Acceptance criteria\n\n### AC1 — CSV export\n\n- **Given** a logged-in user, **When** they click Export, **Then** a CSV download starts.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'decision',
+    text: 'Scoped export to CSV only for v1; XLSX deferred to a follow-up ticket.',
     timestamp: EXAMPLE_TS,
   },
 ];

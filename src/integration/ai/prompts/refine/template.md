@@ -255,17 +255,19 @@ or zero/multiple `refined-ticket` entries are all validation failures.
 
 Permitted signal kinds:
 
-- `refined-ticket` (REQUIRED, exactly one) — carries the approved requirements markdown in `body`.
-- `note` (OPTIONAL) — narrative annotation; use sparingly for facts worth surfacing to the operator.
-- `learning` (OPTIONAL) — a non-obvious finding about the ticket worth recording in the sprint log.
-- `decision` (OPTIONAL) — a scope or design decision made during the interview (body capped at
-  500 chars).
+Field names differ by kind — match the `signals.json` shape below exactly:
+
+- `refined-ticket` (REQUIRED, exactly one) — carries the approved requirements markdown in its `body` field.
+- `note` (OPTIONAL) — narrative annotation in its `text` field; use sparingly for facts worth surfacing to the operator.
+- `learning` (OPTIONAL) — a non-obvious finding about the ticket, in its `text` field, worth recording in the sprint log.
+- `decision` (OPTIONAL) — a scope or design decision made during the interview, in its `text` field (keep it
+  concise — roughly 500 characters).
 
 **Failure mode.** If, after the interview, the ticket cannot be refined as stated — due to
 contradictory requirements or information you cannot extract from the user — emit the `refined-ticket`
 signal with whatever you have, appending a final `## Unresolved` section to the body that names the
-gap. Also emit a `note` signal with `status: clarification-failed` explaining what is missing. Do
-not silently invent requirements.
+gap. Also emit a `note` signal whose `text` explains what is missing. Do not silently invent
+requirements.
 
 Emit nothing outside `signals.json`. No prose commentary, no additional files.
 
