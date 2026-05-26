@@ -136,8 +136,6 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
 
 /**
  * Evaluator contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const evaluatorOutputContract: AiOutputContract<EvaluatorSignal> = {
   schemaVersion: 1,

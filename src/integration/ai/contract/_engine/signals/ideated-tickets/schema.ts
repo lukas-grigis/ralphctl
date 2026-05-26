@@ -12,7 +12,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Wave 6 will replace `outputJson` with structured fields once the prompt asks the AI to
  * write the wrapper directly.
  */
-/** @public */
 export const ideatedTicketsSignalSchema = z.object({
   type: z.literal('ideated-tickets'),
   outputJson: z.string(),

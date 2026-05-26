@@ -1,9 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { BlockedTask, Task, TodoTask } from '@src/domain/entity/task.ts';
-import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 export const markTaskBlocked = (task: Task, reason: string): Result<BlockedTask, InvalidStateError> => {
   const guard = requireStatus(
@@ -52,22 +50,4 @@ export const resetTaskToTodo = (task: Task): Result<TodoTask, InvalidStateError>
     );
   }
   return Result.ok({ ...guard.value, status: 'todo' });
-};
-
-/**
- * Replace `dependsOn`. Rejects self-edges; deeper cycle detection (A→B→A) needs the
- * full task graph and lives in `validateTaskGraph`.
- * @public
- */
-export const setTaskDependsOn = (task: Task, deps: readonly TaskId[]): Result<Task, ValidationError> => {
-  if (deps.includes(task.id)) {
-    return Result.error(
-      new ValidationError({
-        field: 'task.dependsOn',
-        value: deps,
-        message: `task '${task.id}' cannot depend on itself`,
-      })
-    );
-  }
-  return Result.ok({ ...task, dependsOn: [...deps] });
 };

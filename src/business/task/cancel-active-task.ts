@@ -33,7 +33,6 @@ export interface CancelActiveTaskProps {
 /** @public */
 export type CancelActiveTaskOutput = BlockedTask;
 
-/** @public */
 export const cancelActiveTaskUseCase = async (
   props: CancelActiveTaskProps
 ): Promise<Result<CancelActiveTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {

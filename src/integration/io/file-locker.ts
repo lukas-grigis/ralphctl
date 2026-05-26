@@ -153,16 +153,21 @@ const isStale = async (
   } catch {
     return true;
   }
-  let parsed: LockInfo;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as LockInfo;
+    parsed = JSON.parse(raw);
   } catch {
     return true;
   }
-  const ts = Date.parse(parsed.timestamp);
+  // Narrow guard: a malformed lock file (wrong shape, missing fields, wrong types) is
+  // indistinguishable from a stale lock — treat it as stale so the next acquire takes over.
+  if (typeof parsed !== 'object' || parsed === null) return true;
+  const rec = parsed as { timestamp?: unknown; pid?: unknown };
+  if (typeof rec.timestamp !== 'string' || typeof rec.pid !== 'number') return true;
+  const ts = Date.parse(rec.timestamp);
   if (!Number.isFinite(ts)) return true;
   if (now() - ts > staleAfterMs) return true;
-  return !isPidAlive(parsed.pid);
+  return !isPidAlive(rec.pid);
 };
 
 const clampStaleAfter = (value: number | undefined): number => {

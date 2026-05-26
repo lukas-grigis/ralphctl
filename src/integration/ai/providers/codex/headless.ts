@@ -296,6 +296,9 @@ const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => v
     const trimmed = line.trim();
     if (trimmed.length === 0 || !trimmed.startsWith('{')) continue;
     try {
+      // Why: codex stream records arrive line-by-line at high volume; downstream
+      // `stringField` / `numberField` helpers narrowly type-check the fields we care
+      // about (`thread_id`, `session_id`, `model`, `usage.*`). Unknown shapes are skipped.
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
       // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
       // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by

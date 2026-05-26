@@ -154,8 +154,6 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
  *  - pre=spawn-error           → undefined             (unknown state; skip attribution)
  *  - pre=skipped OR post=skipped → undefined           (no script; nothing to attribute)
  *  - post=spawn-error          → undefined             (verdict couldn't run)
- *
- * @public
  */
 export const attributeVerify = (
   pre: VerifyRun['outcome'],

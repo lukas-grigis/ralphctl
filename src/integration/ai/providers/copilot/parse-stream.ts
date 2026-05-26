@@ -112,6 +112,9 @@ export const createCopilotStreamParser = (): CopilotStreamParser => {
     if (raw.length === 0) return;
     if (raw.startsWith('{') && raw.endsWith('}')) {
       try {
+        // Why: stdout-stream records arrive at high volume — extractors below
+        // (`stringField`, `extractUsage`, `extractBodyText`) narrowly type-check
+        // every field they consume; unknown keys are ignored.
         const json = JSON.parse(raw) as Record<string, unknown>;
         const sessionId = stringField(json, 'session_id', 'sessionId');
         const model = stringField(json, 'model');

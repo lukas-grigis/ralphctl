@@ -75,8 +75,6 @@ export interface DroppedRefineSignal {
  * the declared `type` and a compact reason for the leaf's warn log). The single source of
  * truth for the leniency — both `signalsSchema` and the leaf's warn path call through here so
  * "what the schema kept" and "what the leaf reports dropped" can never diverge.
- *
- * @public
  */
 export const partitionRefineSignals = (
   raw: readonly unknown[]
@@ -147,8 +145,6 @@ const refineExampleSignals: readonly RefineSignal[] = [
 
 /**
  * Refine contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const refineOutputContract: AiOutputContract<RefineSignal> = {
   schemaVersion: 1,

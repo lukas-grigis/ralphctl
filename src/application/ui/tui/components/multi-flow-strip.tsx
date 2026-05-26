@@ -67,7 +67,6 @@ const Chip = ({
   );
 };
 
-/** @public */
 export const MultiFlowStrip = ({
   sessions,
   activeId,

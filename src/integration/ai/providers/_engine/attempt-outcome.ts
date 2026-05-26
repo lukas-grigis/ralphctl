@@ -10,8 +10,6 @@ import type { ProviderOutput } from '@src/integration/ai/providers/_engine/headl
  * Shared across claude/codex/copilot to avoid per-provider duplication of an identical type
  * and to let `classifySpawnExit` (in this same `_engine/` directory) return one canonical
  * shape that every adapter consumes verbatim.
- *
- * @public
  */
 export type AttemptOutcome =
   | { readonly kind: 'success'; readonly output: ProviderOutput }

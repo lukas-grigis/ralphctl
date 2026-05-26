@@ -74,7 +74,6 @@ const EXAMPLE_SIGNALS: readonly DetectScriptsSignal[] = [
   },
 ];
 
-/** @public */
 export const detectScriptsOutputContract: AiOutputContract<DetectScriptsSignal> = {
   schemaVersion: 1,
   signalsSchema: signalsArraySchema,

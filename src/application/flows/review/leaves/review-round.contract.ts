@@ -66,7 +66,6 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
  */
 const EXAMPLE_SIGNALS: readonly ReviewRoundSignal[] = [{ type: 'task-complete', timestamp: EXAMPLE_TS }];
 
-/** @public */
 export const reviewRoundOutputContract: AiOutputContract<ReviewRoundSignal> = {
   schemaVersion: 1,
   signalsSchema: signalsArraySchema,

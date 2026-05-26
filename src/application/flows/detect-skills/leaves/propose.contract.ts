@@ -94,7 +94,6 @@ const verifySkillSidecar: SidecarRule<'verify-skill-proposal'> = {
   extract: (signal) => signal.content,
 };
 
-/** @public */
 export const detectSkillsOutputContract: AiOutputContract<DetectSkillsSignal> = {
   schemaVersion: 1,
   signalsSchema: signalsArraySchema,

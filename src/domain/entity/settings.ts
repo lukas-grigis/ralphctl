@@ -260,8 +260,6 @@ export type AiFlowSettings = z.infer<typeof FlowRowSchema>;
  * the #131 generator/evaluator-split initiative — `settings-set-provider` accepts an
  * `AiImplementRole` today, and downstream consumers will read this type when wiring per-role
  * provider / model selection at the implement launcher and gen-eval leaves.
- *
- * @public
  */
 export type AiImplementSettings = z.infer<typeof AiImplementSchema>;
 /** Roles inside {@link AiImplementSettings} — addressed in dotted-path keys and per-leaf launches. */

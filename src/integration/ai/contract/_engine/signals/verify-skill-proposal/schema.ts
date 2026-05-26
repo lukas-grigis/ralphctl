@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * renders as `<sprintDir>/readiness/<repo-id>/verify-skill.md` and installs as
  * `<repo>/<parentDir>/skills/verify/SKILL.md` after operator approval.
  */
-/** @public */
 export const verifySkillProposalSignalSchema = z.object({
   type: z.literal('verify-skill-proposal'),
   content: z.string(),

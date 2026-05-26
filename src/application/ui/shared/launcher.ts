@@ -237,8 +237,6 @@ const mergeRow = (base: AiFlowSettings, override: NonNullable<LaunchExtras['over
  * For review (and any other flow that aliases another flow's row via {@link aiFlowIdFor}),
  * the override applies to the aliased row. Review uses `ai.implement.generator`; an override
  * at review-launch time rewrites generator only — evaluator is untouched.
- *
- * @public
  */
 export const applyOverrideToSettings = (
   settings: Settings,

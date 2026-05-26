@@ -93,8 +93,6 @@ export const FIELD_LABEL_WIDTH = 14;
  *   lg   ≥ 140  — two-column layouts viable (rail + main).
  *   xl   ≥ 180  — three-column layouts viable (rail + main + context).
  *   xxl  ≥ 220  — extra horizontal room; rails and context can grow.
- *
- * @public
  */
 export const breakpoints = {
   sm: 80,
@@ -104,14 +102,11 @@ export const breakpoints = {
   xxl: 220,
 } as const;
 
-/** Discriminator for the breakpoint a view is currently rendering at. @public */
 export type Breakpoint = keyof typeof breakpoints;
 
 /**
  * Resolve the active breakpoint for a given terminal width. Returns the largest breakpoint key
  * whose threshold is satisfied — `sm` is the floor, so any width ≥ 0 maps to at least `sm`.
- *
- * @public
  */
 export const breakpointFor = (columns: number): Breakpoint => {
   if (columns >= breakpoints.xxl) return 'xxl';
@@ -125,8 +120,6 @@ export const breakpointFor = (columns: number): Breakpoint => {
  * Fluid sizing helper — clamps `floor(columns * ratio)` to `[min, max]`. Use for widths that
  * should grow with the terminal but never overwhelm or vanish (e.g. a sidebar that wants ~18%
  * of the screen but at least 28 cols and at most 40).
- *
- * @public
  */
 export const fluid = (
   columns: number,
@@ -138,7 +131,8 @@ export const fluid = (
  * specified — `sm` is required as the floor. Use for non-numeric responsive choices (e.g.
  * "show full label vs. abbreviation").
  *
- * @public
+ * @public — canonical breakpoint helper (see CLAUDE.md § TUI), retained for downstream consumers
+ *   even when no current call-site exists.
  */
 export const responsive = <T>(
   columns: number,
@@ -186,8 +180,6 @@ export const CONTEXT_WIDTH = 28;
  * `setup-script-runner — setup-script for <abs-path> exited 1` — keep their error tail on a
  * single row on wide terminals (≥200 cols). The Tasks column still has flex-grow so any
  * extra width the rail doesn't claim flows there.
- *
- * @public
  */
 export const resolveRailWidth = (columns: number): number => {
   if (columns < breakpoints.xl) return RAIL_WIDTH;
@@ -198,8 +190,6 @@ export const resolveRailWidth = (columns: number): number => {
  * Signal-kind family used by the Tasks panel. Mirrors the keys of `SIGNAL_LABEL_COLOR` in
  * `tasks-panel.tsx`; declared here so {@link glyphFor} can name its discriminator without
  * pulling tasks-panel into tokens (sibling-isolation kept clean — tokens has no upward deps).
- *
- * @public
  */
 export type SignalKind =
   | 'change'
@@ -228,8 +218,6 @@ export type SignalKind =
  * Returns the empty string for kinds that already read distinctly from their label text
  * (`progress` / `progress-entry` / `done` / `script` / `proposal` / `skills`) — adding a glyph
  * there would clutter the row without adding shape information.
- *
- * @public
  */
 export const glyphFor = (kind: SignalKind): string => {
   switch (kind) {

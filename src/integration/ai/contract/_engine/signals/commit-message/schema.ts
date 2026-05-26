@@ -9,7 +9,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * the signal is advisory. The harness appends a ` (#123, !456)` subject suffix at commit time
  * when the task carries external refs; this suffix is not surfaced back onto the signal.
  */
-/** @public */
 export const commitMessageSignalSchema = z.object({
   type: z.literal('commit-message'),
   subject: z.string(),

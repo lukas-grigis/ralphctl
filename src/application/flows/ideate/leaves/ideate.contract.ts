@@ -73,8 +73,6 @@ const ideateExampleSignals: readonly IdeateSignal[] = [
 
 /**
  * Ideate contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const ideateOutputContract: AiOutputContract<IdeateSignal> = {
   schemaVersion: 1,

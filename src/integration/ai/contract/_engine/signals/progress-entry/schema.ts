@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * learnings / notesForNext. Empty `learnings` / `notesForNext` strings are valid; the
  * harness renders them as `_None._` on disk.
  */
-/** @public */
 export const progressEntrySignalSchema = z.object({
   type: z.literal('progress-entry'),
   task: z.string(),

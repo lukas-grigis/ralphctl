@@ -124,6 +124,10 @@ const remapRefineSignalsError = <E extends { readonly message?: string }>(error:
 const warnDroppedSignals = async (deps: RefineTicketInteractiveDeps, outputDir: AbsolutePath): Promise<void> => {
   try {
     const bytes = await fs.readFile(join(String(outputDir), 'signals.json'), 'utf8');
+    // Why: diagnostics-only re-read of a file the authoritative validator
+    // (`validateSignalsFile`) already parsed + Zod-validated. The narrow guards below
+    // (`Array.isArray`, `typeof === 'object'`) handle any unexpected shape; the partition
+    // helper exits cleanly on non-array payloads.
     const raw: unknown = JSON.parse(bytes);
     // Legacy bare-array shape (migrations[0] target) or the canonical { signals } wrapper.
     const inner = Array.isArray(raw) ? raw : (raw as { signals?: unknown }).signals;

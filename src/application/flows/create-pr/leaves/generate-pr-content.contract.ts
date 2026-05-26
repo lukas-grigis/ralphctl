@@ -69,8 +69,6 @@ const createPrExampleSignals: readonly CreatePrSignal[] = [
 
 /**
  * create-pr contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const generatePrContentOutputContract: AiOutputContract<CreatePrSignal> = {
   schemaVersion: 1,

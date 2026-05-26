@@ -340,7 +340,6 @@ const CompactCleanRow = ({ rows }: { readonly rows: readonly RowData[] }): React
 // Card
 // ---------------------------------------------------------------------------
 
-/** @public */
 export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHealthCardProps): React.JSX.Element => {
   const tNow = now ?? Date.now();
   // Wrap the `tasks ?? []` fallback in its own useMemo so the identity is stable across

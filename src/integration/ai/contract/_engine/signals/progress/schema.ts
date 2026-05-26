@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * optional file list. Retained for in-flight compatibility; new flows produce the richer
  * `progress-entry` shape instead.
  */
-/** @public */
 export const progressSignalSchema = z.object({
   type: z.literal('progress'),
   summary: z.string(),

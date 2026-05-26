@@ -10,7 +10,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * the AI used the tool-specific tag matching the readiness row's provider
  * (`settings.ai.readiness.provider`).
  */
-/** @public */
 export const agentsMdProposalSignalSchema = z.object({
   type: z.literal('agents-md-proposal'),
   tag: z.union([z.literal('claude-md'), z.literal('copilot-instructions'), z.literal('agents-md')]),

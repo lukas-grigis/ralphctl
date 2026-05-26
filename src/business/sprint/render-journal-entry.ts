@@ -36,8 +36,6 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  *
  * Lists are emitted verbatim — dedupe / trim happen at the leaf-call site so the renderer
  * stays a pure formatter.
- *
- * @public
  */
 export interface JournalEntryInput {
   readonly taskName: string;
@@ -105,8 +103,6 @@ const appendSubsection = (lines: string[], heading: string, entries: readonly st
  * Render one journal section. The string is intended to be appended verbatim to an existing
  * journal file via the `AppendFile` port — it carries its own leading + trailing whitespace
  * so consecutive sections never abut.
- *
- * @public
  */
 export const renderJournalEntry = (input: JournalEntryInput): string => {
   const sha = input.commitSha !== undefined ? input.commitSha.slice(0, SHA_DISPLAY_LENGTH) : EM_DASH;
@@ -134,8 +130,6 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
 /**
  * Render the sprint header — the single block written once at sprint creation. Header carries
  * invariant metadata only (no ticket list); the canonical ticket source is `sprint.json`.
- *
- * @public
  */
 export const renderJournalSprintHeader = (input: {
   readonly sprintName: string;
@@ -155,8 +149,6 @@ export const renderJournalSprintHeader = (input: {
  * Render a status-transition separator line. Status transitions (active / review / done)
  * append one of these between task-attempt sections so the operator sees the lifecycle in
  * chronological order. Pure.
- *
- * @public
  */
 export const renderJournalSeparator = (input: {
   readonly status: 'activated' | 'review' | 'closed';

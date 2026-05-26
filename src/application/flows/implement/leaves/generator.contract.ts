@@ -142,8 +142,6 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
 
 /**
  * Generator contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const generatorOutputContract: AiOutputContract<GeneratorSignal> = {
   schemaVersion: 1,

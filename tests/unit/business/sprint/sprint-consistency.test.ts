@@ -63,7 +63,7 @@ describe('validateSprintConsistency', () => {
 
   it('passes through TaskGraphIssue from validateTaskGraph', () => {
     const b = buildBundle();
-    // Self-edge via setTaskDependsOn would normally be rejected; bypass for the test.
+    // Direct self-edge — bypass any setter-level cycle check so validateTaskGraph sees it.
     const broken = { ...b.tasks[0]!, dependsOn: [b.tasks[0]!.id] };
     const r = validateSprintConsistency({ ...b, tasks: [broken] });
     expect(r.ok).toBe(false);

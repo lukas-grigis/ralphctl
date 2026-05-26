@@ -24,7 +24,6 @@ export interface BreakpointState {
 
 const ORDER: readonly Breakpoint[] = ['sm', 'md', 'lg', 'xl', 'xxl'];
 
-/** @public */
 export const useBreakpoint = (): BreakpointState => {
   const size = useTerminalSize();
   const breakpoint = breakpointFor(size.columns);

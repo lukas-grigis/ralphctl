@@ -96,7 +96,6 @@ export interface ActiveTaskSummaryInput {
 /**
  * Render the markdown summary for one task bucket. Spec line ordering is preserved verbatim so
  * the operator can grep the clipboard payload reliably (e.g. paste into a bug report).
- * @public
  */
 export const renderActiveTaskSummary = ({ task, displayName }: ActiveTaskSummaryInput): string => {
   const lines: string[] = [];

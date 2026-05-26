@@ -7,7 +7,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Zod schema for the `decision` AI signal — an architectural / design choice pinned under
  * `## Decisions` in `progress.md`. Body is uncapped on persistence per audit [03].
  */
-/** @public */
 export const decisionSignalSchema = z.object({
   type: z.literal('decision'),
   text: z.string(),

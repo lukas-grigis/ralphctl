@@ -155,8 +155,6 @@ const readinessExampleSignals: readonly ReadinessSignal[] = [
 
 /**
  * Readiness contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const readinessOutputContract: AiOutputContract<ReadinessSignal> = {
   schemaVersion: 1,

@@ -7,7 +7,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Zod schema for the `task-blocked` AI signal — generator-emitted self-block reason. Drives
  * the task transition to `blocked` status; the reason becomes the audit row's body.
  */
-/** @public */
 export const taskBlockedSignalSchema = z.object({
   type: z.literal('task-blocked'),
   reason: z.string(),

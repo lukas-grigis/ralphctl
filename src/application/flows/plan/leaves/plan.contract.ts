@@ -75,8 +75,6 @@ const planExampleSignals: readonly PlanSignal[] = [
 
 /**
  * Plan contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const planOutputContract: AiOutputContract<PlanSignal> = {
   schemaVersion: 1,

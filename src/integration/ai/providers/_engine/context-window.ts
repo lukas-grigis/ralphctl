@@ -31,8 +31,6 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
  * Look up the canonical context window for a provider-reported model id. Returns `undefined`
  * for unknown / unset models — emit the {@link TokenUsageEvent} without `contextWindow`, the
  * subscriber renders the raw counts.
- *
- * @public
  */
 export const contextWindowFor = (model: string | undefined): number | undefined => {
   if (model === undefined) return undefined;

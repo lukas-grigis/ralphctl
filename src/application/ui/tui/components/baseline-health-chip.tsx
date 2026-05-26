@@ -42,7 +42,6 @@ export interface BaselineHealthChipProps {
   readonly now?: number;
 }
 
-/** @public */
 export const BaselineHealthChip = ({ execution, tasks, now }: BaselineHealthChipProps): React.JSX.Element => {
   const summary = synthesiseBaselineHealth({
     ...(execution !== undefined ? { execution } : {}),

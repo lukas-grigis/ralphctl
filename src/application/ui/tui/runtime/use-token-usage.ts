@@ -30,7 +30,6 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  */
 const TOKEN_USAGE_SESSION_CAP = 100;
 
-/** @public */
 export interface TokenUsage {
   readonly provider: TokenUsageEvent['provider'];
   readonly model?: string;
@@ -56,13 +55,12 @@ const toUsage = (e: TokenUsageEvent): TokenUsage => ({
 /**
  * Subscribe to `token-usage` events on `bus` and return the latest usage per sessionId. Returns
  * a fresh Map on every update so React's referential equality check triggers re-renders.
- * @public
  */
 export const useTokenUsage = (bus: EventBus): ReadonlyMap<string, TokenUsage> => {
   const [usage, setUsage] = useState<ReadonlyMap<string, TokenUsage>>(() => new Map());
 
   useEffect(() => {
-    const unsub = bus.subscribe((event) => {
+    return bus.subscribe((event) => {
       if (!isTokenUsage(event)) return;
       setUsage((prev) => {
         const next = new Map(prev);
@@ -79,7 +77,6 @@ export const useTokenUsage = (bus: EventBus): ReadonlyMap<string, TokenUsage> =>
         return next;
       });
     });
-    return unsub;
   }, [bus]);
 
   return usage;

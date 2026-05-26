@@ -61,6 +61,9 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     if (raw.length === 0) return;
     if (raw.startsWith('{') && raw.endsWith('}')) {
       try {
+        // Why: stdout-stream records arrive at high volume — a Zod schema per record
+        // is overkill. `ingest()` downstream extracts known fields with narrow
+        // `stringField` / `numberField` helpers; unknown keys are ignored.
         const json = JSON.parse(raw) as Record<string, unknown>;
         onLine({ raw, json });
         return;
