@@ -6,8 +6,8 @@ import {
   primaryInstallCommand,
   renderProviderInstallGuidance,
   resolveInstallPlatform,
-  type WhichFn,
 } from '@src/integration/system/detect-cli.ts';
+import type { WhichFn } from '@src/integration/system/_engine/detect-cli.ts';
 
 const whichFor =
   (present: ReadonlySet<string>): WhichFn =>

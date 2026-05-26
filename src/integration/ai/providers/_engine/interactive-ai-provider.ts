@@ -50,9 +50,12 @@ export interface InteractiveAiProviderInput {
 
 export interface InteractiveAiProviderOutput {
   /**
-   * Best-effort session id captured from the underlying CLI. Empty for stdio-inherit adapters
-   * (claude / codex / copilot interactive today) because the parent can't read the child's
-   * stdout while the user owns the terminal. Reserved for a future PTY-mirroring implementation.
+   * Best-effort session id. Claude and Copilot accept a harness-supplied `--session-id <uuid>`
+   * flag at launch; their adapters pre-generate the id, pass it in, and return it on success
+   * (mirrored to `session-id.txt` next to `outputFile`, matching the headless contract). Codex's
+   * interactive command has no equivalent launch-time override, so its adapter leaves the field
+   * unset. Subscribers MUST treat absence as non-fatal — fall back to the runner's session id
+   * (from `AsyncLocalStorage`) when correlation is needed.
    */
   readonly sessionId?: string;
 }

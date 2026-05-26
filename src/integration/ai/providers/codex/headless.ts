@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
@@ -77,30 +77,10 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * Docs:
  *   - https://developers.openai.com/codex/cli/reference (top-level + `exec` flags)
  *   - https://developers.openai.com/codex/noninteractive (`-o`, `--json`, stdin sentinel)
+ *
+ * Composition-root inputs ({@link CodexProviderDeps}) live in `_engine/` so the contract is
+ * a port, not an implementation detail of this file.
  */
-export interface CodexProviderDeps {
-  readonly rateLimitRetries: number;
-  readonly eventBus: EventBus;
-  readonly spawn?: ProviderSpawn;
-  /** Test seam: overrides the executable name. Defaults to `'codex'`. */
-  readonly command?: string;
-  /** Test seam: read the captured tempfile. Defaults to `fs.readFile`. */
-  readonly readFile?: (path: string) => Promise<string>;
-  /** Test seam: delete the captured tempfile. Defaults to `fs.unlink` (best-effort). */
-  readonly unlink?: (path: string) => Promise<void>;
-  /** Test seam: pick the tempfile path. Defaults to `os.tmpdir()/ralphctl-codex-<n>.txt`. */
-  readonly mkTempPath?: () => string;
-  /**
-   * Milliseconds of stdio silence before the adapter SIGTERMs a wedged child. Defaults to
-   * {@link DEFAULT_IDLE_MS} (5 min). Lower in tests to exercise the watchdog path.
-   */
-  readonly idleMs?: number;
-  /**
-   * Wait schedule between rate-limit retries. Defaults to {@link DEFAULT_BACKOFF_SCHEDULE}.
-   * Tests pass `[0, 0, …]` to skip the waits.
-   */
-  readonly backoffSchedule?: readonly number[];
-}
 
 const RATE_LIMIT_RE = /rate.?limit/i;
 
@@ -403,7 +383,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onStderr: (chunk) => {
       stderrBuf += chunk;
     },
-    stdin: session.prompt as unknown as string,
+    stdin: session.prompt,
     resolveOn: 'exit',
     ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
     ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),

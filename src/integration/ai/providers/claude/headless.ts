@@ -3,15 +3,16 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
-import { createClaudeStreamParser, type ClaudeStreamLine } from '@src/integration/ai/providers/claude/parse-stream.ts';
+import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
+import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import {
@@ -70,33 +71,10 @@ import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classif
  *
  * Docs: https://code.claude.com/docs/en/cli-reference (`--model`, `--add-dir`,
  * `--permission-mode`, `--output-format`, `--resume`).
+ *
+ * Composition-root inputs ({@link ClaudeProviderDeps}) live in `_engine/` so the contract is
+ * a port, not an implementation detail of this file.
  */
-export interface ClaudeProviderDeps {
-  /** Adapter-side retries on `RateLimitError` before surfacing the failure. */
-  readonly rateLimitRetries: number;
-  /** Sink for adapter-level logs (session id capture, retries, raw lines at debug level). */
-  readonly eventBus: EventBus;
-  /** Test seam: defaults to `node:child_process.spawn`. */
-  readonly spawn?: ProviderSpawn;
-  /**
-   * Test seam: overrides the executable name. Defaults to `'claude'` so the binary must be on
-   * `$PATH` (vendoring is a follow-up — see decision log).
-   */
-  readonly command?: string;
-  /**
-   * Milliseconds of stdio silence before the adapter SIGTERMs a wedged child. Defaults to
-   * {@link DEFAULT_IDLE_MS} (5 min). Real sessions stream tokens continuously; this only fires
-   * on truly stuck children. Surface as an opt-in to keep tests fast (lower the threshold to
-   * a few ms to exercise the watchdog path).
-   */
-  readonly idleMs?: number;
-  /**
-   * Wait schedule between rate-limit retries, in ms. Defaults to
-   * {@link DEFAULT_BACKOFF_SCHEDULE} (1 min → 5 min → 30 min → 2 h). Tests pass `[0, 0, …]`
-   * to keep retry assertions fast.
-   */
-  readonly backoffSchedule?: readonly number[];
-}
 
 const RATE_LIMIT_RE = /rate.?limit/i;
 
@@ -322,7 +300,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onStderr: (chunk) => {
       stderrBuf += chunk;
     },
-    stdin: session.prompt as unknown as string,
+    stdin: session.prompt,
     resolveOn: 'close',
     ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
     ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),

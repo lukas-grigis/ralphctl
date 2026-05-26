@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createCopilotStreamParser,
-  type CopilotStreamLine,
-} from '@src/integration/ai/providers/copilot/parse-stream.ts';
+import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
+import type { CopilotStreamLine } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
 
 /** Drive a parser through one or more chunks; return every line it emitted. */
 const drive = (chunks: readonly string[]): readonly CopilotStreamLine[] => {

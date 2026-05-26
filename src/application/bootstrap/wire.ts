@@ -52,11 +52,8 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
-import {
-  startFileLogSink,
-  type FileLogSink,
-  type FileLogSinkDeps,
-} from '@src/integration/observability/sinks/file-log-sink.ts';
+import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
+import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
  * Slim, launch-time-supplied subset of {@link FileLogSinkDeps} — `appendFile` is bound at

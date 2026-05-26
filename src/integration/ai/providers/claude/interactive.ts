@@ -5,11 +5,14 @@ import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { InteractiveClaudeDeps } from '@src/integration/ai/providers/_engine/claude-interactive-deps.ts';
+import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
+import { uuidv7 } from '@src/domain/value/uuid7.ts';
 
 /**
  * Interactive `claude` adapter. Spawns the Claude CLI with `stdio: 'inherit'` so the user
@@ -43,27 +46,13 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
  * `--permission-mode acceptEdits`, `--add-dir`, `--model`).
  */
 
-/** Test seam — same shape as `node:child_process.spawn` with `stdio: 'inherit'`. */
-export type InteractiveSpawn = (
-  command: string,
-  args: readonly string[],
-  options: { readonly stdio: 'inherit'; readonly cwd: string }
-) => ChildProcess;
-
-export interface InteractiveClaudeDeps {
-  readonly eventBus: EventBus;
-  /** Test seam: defaults to `node:child_process.spawn`. */
-  readonly spawn?: InteractiveSpawn;
-  /** Override the binary name for tests / packaging. Defaults to `'claude'`. */
-  readonly command?: string;
-}
-
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
   nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
 
 export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): InteractiveAiProvider => {
   const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
   const command = deps.command ?? 'bash';
+  const newSessionId = deps.newSessionId ?? uuidv7;
 
   return {
     async run(input: InteractiveAiProviderInput) {
@@ -101,6 +90,13 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         })
         .flatMap((p) => ['--add-dir', shellQuote(p)]);
 
+      // Pre-generate the session id and pass it via `--session-id <uuid>`. This is the
+      // interactive analogue of the headless `session-id.txt` sidechannel: the parent can't read
+      // the child's stdout while the user owns the terminal (stdio-inherit), but Claude's CLI
+      // accepts a harness-supplied UUID at launch, so we know the id without parsing logs.
+      // Persisted to `<dirname(outputFile)>/session-id.txt` post-exit and returned on success.
+      const sessionId = newSessionId();
+
       const inner = [
         'claude',
         ...dirFlags,
@@ -108,6 +104,8 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         shellQuote(input.model),
         '--permission-mode',
         'acceptEdits',
+        '--session-id',
+        shellQuote(sessionId),
         `"$(cat ${shellQuote(String(input.promptFile))})"`,
       ].join(' ');
 
@@ -115,7 +113,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         type: 'log',
         level: 'info',
         message: `interactive-claude: starting session (cwd=${String(input.cwd)})`,
-        meta: { promptFile: String(input.promptFile), outputFile: String(input.outputFile) },
+        meta: { promptFile: String(input.promptFile), outputFile: String(input.outputFile), sessionId },
         at: IsoTimestamp.now(),
       });
 
@@ -144,21 +142,31 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         at: IsoTimestamp.now(),
       });
 
-      // TODO(sessionId): the InteractiveAiProvider port declares an optional `sessionId` in
-      // its result type, but `stdio: 'inherit'` hands stdout straight to the user — the parent
-      // process has no read-side on the stream while the session is live. Capturing the id
-      // requires PTY-mirroring (e.g. node-pty) or polling Claude's per-project session log at
-      // ~/.claude/projects/<cwd>/session-<id>.jsonl after exit. Returning `{}` until then; the
-      // requirements doc (REQ-3) explicitly allows absence and treats it as non-fatal.
-      if (exitCode === 0) return Result.ok({});
-      return Result.error(
-        new InvalidStateError({
-          entity: 'interactive-claude',
-          currentState: 'session-exit',
-          attemptedAction: 'run',
-          message: `interactive-claude: session exited with code ${String(exitCode ?? 'null')}`,
-        })
-      );
+      if (exitCode !== 0) {
+        return Result.error(
+          new InvalidStateError({
+            entity: 'interactive-claude',
+            currentState: 'session-exit',
+            attemptedAction: 'run',
+            message: `interactive-claude: session exited with code ${String(exitCode ?? 'null')}`,
+          })
+        );
+      }
+
+      // Persist the captured session id next to `outputFile` (mirrors the headless contract,
+      // which lands the file next to `signalsFile`). Best-effort: a write failure is logged
+      // and ignored — the id is still returned in the Result so subscribers can correlate.
+      const sidWrote = await persistSessionIdFile(input.outputFile, sessionId);
+      if (sidWrote !== undefined && !sidWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: 'interactive-claude: failed to write sessionId file — resume re-attach may need log parsing',
+          meta: { error: sidWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+      return Result.ok({ sessionId });
     },
   };
 };

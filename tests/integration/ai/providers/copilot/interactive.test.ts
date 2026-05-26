@@ -4,10 +4,8 @@ import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
-import {
-  createInteractiveCopilotProvider,
-  type InteractiveSpawn,
-} from '@src/integration/ai/providers/copilot/interactive.ts';
+import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
+import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;

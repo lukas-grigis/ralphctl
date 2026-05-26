@@ -1,13 +1,11 @@
-import type { AppendFile } from '@src/business/io/append-file.ts';
 import type {
   AppEvent,
   ChainAbortedEvent,
   ChainCompletedEvent,
   ChainFailedEvent,
 } from '@src/business/observability/events.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
 
 /**
  * Opt-in append-only NDJSON trace of every `AppEvent` published on the bus for the lifetime
@@ -72,22 +70,6 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * unbounded RAM.
  */
 const MAX_QUEUE = 10_000;
-
-export interface FileLogSinkDeps {
-  /** Absolute path to the NDJSON file. Parent directory is created on first write. */
-  readonly file: AbsolutePath;
-  /** Event bus to subscribe to. The sink installs its own handler. */
-  readonly bus: EventBus;
-  /** Append adapter — the sink does not call `fs.appendFile` directly. */
-  readonly appendFile: AppendFile;
-}
-
-export interface FileLogSink {
-  /** Unsubscribe from the bus. Idempotent. Pending writes still drain. */
-  stop(): void;
-  /** Resolves once every queued event has been written. Errors are swallowed. */
-  flush(): Promise<void>;
-}
 
 interface ChainState {
   readonly flowId: string;
