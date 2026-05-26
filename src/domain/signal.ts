@@ -214,18 +214,12 @@ export interface ProgressEntrySignal {
  *  - `preservedTopics` is the optional list of topic / summary headings the provider says it
  *    retained. Empty / absent when the provider does not name what it kept.
  *
- * Per-provider emission gap (no parser implemented yet — TODO):
- *  - Claude Code: the `claude -p --verbose --output-format stream-json` line family includes a
- *    `{"type":"system","subtype":"compact_boundary"}` event in recent CLI versions; once
- *    confirmed stable, wire it through `parse-stream.ts` and emit this signal from the headless
- *    adapter. Older CLI versions omit the event entirely.
- *  - GitHub Copilot CLI: no documented compaction marker on the stream as of v0.7.0; treat as
- *    unobservable until the vendor surfaces one.
- *  - OpenAI Codex CLI: no documented compaction marker; same status as Copilot.
- *
- * The signal-type is therefore present in the union (so renderers + future parsers can land
- * incrementally) but is not yet produced by any adapter. The TUI marker rendering is the
- * forward-compatible target; emitters follow in a P3 task once vendor markers stabilise.
+ * Per-provider emission status: no provider currently produces this signal. The harness moved
+ * to a file-based contract (`signals.json` written by the AI) under audit [09], so a compaction
+ * marker would need the AI itself to self-report a vendor lifecycle event — none of Claude Code,
+ * GitHub Copilot, or OpenAI Codex surfaces this on the file-based contract today. The type +
+ * Zod schema + TUI marker rendering remain in place as a forward-compatible target so emitters
+ * can land incrementally once a vendor exposes a stable marker.
  */
 export interface ContextCompactedSignal {
   readonly type: 'context-compacted';
