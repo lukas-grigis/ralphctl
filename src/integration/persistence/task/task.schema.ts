@@ -154,10 +154,7 @@ export const fromJsonTasksFile = (
     input,
     TASKS_FILE_SCHEMA_VERSION,
     tasksFileMigrations,
-    TasksFileSchema as unknown as z.ZodType<{
-      schemaVersion: typeof TASKS_FILE_SCHEMA_VERSION;
-      tasks: readonly Task[];
-    }>,
+    TasksFileSchema,
     filePath
   );
   if (!parsed.ok) return parsed;

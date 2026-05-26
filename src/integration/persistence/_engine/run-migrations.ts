@@ -35,12 +35,18 @@ export const readSchemaVersion = (raw: unknown): number => {
  *
  * `filePath` is used purely for error messages so a downstream operator can locate the
  * offending artefact.
+ *
+ * The `schema` parameter is typed as `z.ZodType` rather than `z.ZodType<T>` so callers can
+ * pass discriminated-union / variadic-tuple schemas whose inferred shape is structurally
+ * compatible with `T` but not type-identical (Zod cannot express variadic tuples or branded
+ * `readonly` precisely). Callers pass `T` explicitly to assert the richer domain shape —
+ * the sibling `Compatible<>` type-level checks vouch for the structural compatibility.
  */
 export const runMigrations = <T>(
   raw: unknown,
   currentVersion: number,
   migrations: Readonly<Record<number, EntityMigration>>,
-  schema: z.ZodType<T>,
+  schema: z.ZodType,
   filePath: string
 ): Result<T, MigrationGapError | ParseError> => {
   const fileVersion = readSchemaVersion(raw);
@@ -64,5 +70,5 @@ export const runMigrations = <T>(
       })
     );
   }
-  return Result.ok(parsed.data) as Result<T, MigrationGapError | ParseError>;
+  return Result.ok(parsed.data as T) as Result<T, MigrationGapError | ParseError>;
 };
