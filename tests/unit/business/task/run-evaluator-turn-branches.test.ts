@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

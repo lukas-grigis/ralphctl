@@ -18,7 +18,7 @@ import {
   warnEscalationMapSelfLoops,
 } from '@src/business/task/escalation-map.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
