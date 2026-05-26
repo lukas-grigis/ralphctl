@@ -3,6 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { type InProgressTask, recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
 
 /**
  * Run one generator turn of the gen-eval loop. Drives a single AI implement call, inspects the
@@ -68,8 +69,23 @@ export const runGeneratorTurnUseCase = async (
 
   const signalsResult = await props.callImplement(props.task);
   if (!signalsResult.ok) {
-    log.error('implement call failed', { taskId: props.task.id, error: signalsResult.error.message });
-    return Result.error(signalsResult.error);
+    const err = signalsResult.error;
+    // Fatal errors (user abort, rate-limit-after-retries) must abort the whole run — propagate.
+    // Everything else is a recoverable signals-contract failure: block THIS task (so it surfaces
+    // and re-runs next launch) instead of taking down every remaining task. The error message
+    // lands in the block reason so the operator/progress.md shows WHY the turn failed.
+    if (!isRecoverableTurnError(err)) {
+      log.error('implement call failed (fatal — propagating)', { taskId: props.task.id, error: err.message });
+      return Result.error(err);
+    }
+    log.warn('generator did not produce a valid signals.json — blocking task', {
+      taskId: props.task.id,
+      error: err.message,
+    });
+    return Result.ok({
+      task: props.task,
+      exit: { kind: 'self-blocked', reason: `generator did not produce a valid signals.json: ${err.message}` },
+    });
   }
   const signals = signalsResult.value;
 

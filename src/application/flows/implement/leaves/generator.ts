@@ -269,8 +269,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
 
           // Validate `signals.json` against the generator contract. Failure surfaces a
           // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
-          // with a precise hint — the surrounding loop's critique injection picks it up on
-          // the next round.
+          // with a precise hint. `runGeneratorTurnUseCase` converts a recoverable validation
+          // failure into a `self-blocked` exit (task settles as blocked, run continues); only
+          // a fatal `Aborted`/`RateLimit` propagates and aborts the run.
           const validated = await validateSignalsFile(outputDir, generatorOutputContract);
           if (!validated.ok) return Result.error(validated.error);
           const signals = validated.value;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -40,9 +42,41 @@ describe('runGeneratorTurnUseCase', () => {
     }
   });
 
-  it('forwards the AI provider error', async () => {
+  it('blocks the task (self-blocked exit) on a recoverable signals-contract failure — does NOT propagate', async () => {
+    // A non-Claude provider that wrote a malformed signals.json surfaces a ParseError. The
+    // turn must self-block THIS task (so it surfaces + re-runs) rather than abort the whole run.
     const task = makeInProgressTaskWithRunningAttempt();
-    const err = new ValidationError({ field: 'ai', value: 0, message: 'boom' });
+    const err = new ParseError({ subCode: 'schema-mismatch', message: 'signals-invalid (schema) at root' });
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.exit?.kind).toBe('self-blocked');
+      // The precise validator message lands in the block reason for the operator / progress.md.
+      expect(result.value.exit?.reason).toContain('generator did not produce a valid signals.json');
+      expect(result.value.exit?.reason).toContain('signals-invalid (schema) at root');
+      expect(result.value.task).toBe(task); // unchanged — no verification recorded
+    }
+  });
+
+  it('propagates an AbortError (user cancel) instead of blocking', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const err = new AbortError({ elementName: 'codex-provider', reason: 'aborted by caller' });
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe(err);
+  });
+
+  it('propagates a RateLimitError (retries already exhausted) instead of blocking', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const err = new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limit retries exhausted' });
     const result = await runGeneratorTurnUseCase({
       task,
       callImplement: async () => Result.error(err),

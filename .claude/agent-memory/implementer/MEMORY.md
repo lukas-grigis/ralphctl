@@ -8,3 +8,5 @@
 - [project_global_modal_overlay_pattern.md](project_global_modal_overlay_pattern.md) — per-view inline vs App-Layout-level overlay modal; Layout-level wins for sprint-scoped overlays (~3 files vs 15)
 - [project_display_clip_markers.md](project_display_clip_markers.md) — audit-[03] display-clip marker tokens (`…` / `▼ more`); truncate at display boundary, never at persistence
 - [project_implement_role_meta_sidecar.md](project_implement_role_meta_sidecar.md) — stamp-role-meta leaves persist per-round AI attribution to rounds/<N>/<role>/meta.json; preStampedRoundNum ctx seam isolates round claiming
+- [project_recoverable_turn_error_policy.md](project_recoverable_turn_error_policy.md) — gen-eval turn errors block the task (self-blocked exit) instead of aborting the run; Aborted/RateLimit still propagate; via isRecoverableTurnError
+- [project_provider_stream_session_fields.md](project_provider_stream_session_fields.md) — empirical session-id/usage JSONL field names: codex thread_id on thread.started; copilot sessionId on result record

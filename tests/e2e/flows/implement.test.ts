@@ -20,6 +20,7 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -904,6 +905,89 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(startEntries[1]).toContain(String(f.tasks[1]?.id));
   });
 
+  it('evaluator signals-contract failure on task 1 blocks task 1 but the run continues to task 2', async () => {
+    // Regression: a non-Claude evaluator that fails to produce a usable signals.json (wrong
+    // shape, wrong place, non-zero spawn exit) used to abort the WHOLE implement run via the
+    // loop's error propagation. It must now self-block ONLY task 1 (settled `blocked`, NOT
+    // `done` — the generator's ungraded change is never committed) and let task 2 run.
+    const f = await buildFixture(2, 1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    // Generator always succeeds; the evaluator FAILS its signals.json on its first call only.
+    const generatorFake = createFakeAiProvider({
+      signals: { implement: [taskVerified('work landed')] },
+    });
+    const baseEvaluator = createFakeAiProvider({
+      signals: { evaluate: [evaluationPassed()] },
+    });
+    let evalCalls = 0;
+    // Wrap the evaluator so the FIRST evaluate spawn returns a signals-contract failure
+    // (mirrors a codex/copilot reviewer writing a malformed/absent signals.json); later
+    // evaluates pass through and write a valid passing verdict.
+    const evaluatorFake: HeadlessAiProvider = {
+      async generate(session) {
+        evalCalls += 1;
+        if (evalCalls === 1) {
+          return Result.error(
+            new InvalidStateError({
+              entity: 'codex-provider',
+              currentState: 'signals-missing',
+              attemptedAction: 'complete evaluation',
+              message: 'signals.json not found in outputDir',
+            })
+          );
+        }
+        return baseEvaluator.generate(session);
+      },
+    };
+
+    const baseDeps = buildDeps(
+      sprintRepo.repo,
+      inMemoryExecutionRepo(f.execution).repo,
+      taskRepo.repo,
+      generatorFake,
+      f.dir
+    );
+    const deps: ImplementDeps = { ...baseDeps, generatorProvider: generatorFake, evaluatorProvider: evaluatorFake };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-opus-4-7',
+      evaluatorProviderId: 'openai-codex',
+      evaluatorModel: 'gpt-5.5',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-eval-block',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    // The whole run does NOT abort — it completes.
+    expect(runner.status).toBe('completed');
+    // Both tasks got an evaluate turn (task 1's failed, task 2's passed).
+    expect(evalCalls).toBe(2);
+
+    const persisted = taskRepo.tasks();
+    expect(persisted[0]?.status).toBe('blocked');
+    if (persisted[0]?.status === 'blocked') {
+      // The validator's precise message lands in the block reason for the operator.
+      expect(persisted[0].blockedReason).toContain('evaluator did not produce a valid signals.json');
+      expect(persisted[0].blockedReason).toContain('signals.json not found in outputDir');
+    }
+    expect(persisted[1]?.status).toBe('done');
+    // A mixed run (one done) still transitions the sprint to review.
+    expect(sprintRepo.current().status).toBe('review');
+  });
+
   it('proposed <commit-message> signal: harness commits with subject+body, not the default factory', async () => {
     const f = await buildFixture(1);
     tracking(f);
@@ -1591,10 +1675,11 @@ describe('createImplementFlow — gen-eval loop', () => {
   // An overnight run could hit a model output that's plain prose with no harness tags —
   // missed prompt cue, model degradation, etc. Under the audit-[09] contract, the evaluator's
   // `signals.json` MUST carry exactly one `evaluation` signal (`exactlyOne('evaluation')`
-  // refinement). A silent evaluator violates the schema; the leaf surfaces a ParseError and
-  // the chain terminates cleanly without running away. Wave 6 will swap the prompt to push
-  // the AI toward the new contract; until then, the failure surface is the operator's signal.
-  it('AI emits zero harness signals: chain terminates with a schema failure, no infinite loop', async () => {
+  // refinement). A silent evaluator violates the schema; the evaluator turn converts that
+  // recoverable ParseError into a self-block, so the TASK settles `blocked` (surfaced + re-
+  // runnable) while the CHAIN completes cleanly without running away. This is the resilience
+  // fix: one bad turn must not abort the whole run.
+  it('AI emits zero harness signals: task blocks on the schema failure, chain completes, no infinite loop', async () => {
     const f = await buildFixture(1, 1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1646,16 +1731,26 @@ describe('createImplementFlow — gen-eval loop', () => {
     });
     await runner.start();
 
-    // Schema violation in the evaluator surfaces as a ParseError — chain terminates failed,
-    // not completed. The point of THIS test is that the chain doesn't hang in a runaway loop:
-    // each role is called at most maxTurns (3) times.
-    expect(runner.status).toBe('failed');
+    // Schema violation in the evaluator surfaces as a recoverable ParseError → self-block →
+    // the task settles `blocked` and the chain COMPLETES (does not abort). The point of THIS
+    // test is that the chain doesn't hang in a runaway loop: each role is called at most
+    // maxTurns (3) times.
+    expect(runner.status).toBe('completed');
     expect(implCalls).toBeLessThanOrEqual(3);
     expect(evalCalls).toBeLessThanOrEqual(3);
     // Generator runs at least once; evaluator runs at least once (it's what surfaces the
     // schema error). Confirms the chain didn't short-circuit before invoking the AI at all.
     expect(implCalls).toBeGreaterThanOrEqual(1);
     expect(evalCalls).toBeGreaterThanOrEqual(1);
+
+    // The lone task is blocked, not done — its ungraded change is never marked complete.
+    const finalTask = taskRepo.tasks()[0];
+    expect(finalTask?.status).toBe('blocked');
+    if (finalTask?.status === 'blocked') {
+      expect(finalTask.blockedReason).toContain('evaluator did not produce a valid signals.json');
+    }
+    // No task settled `done`, so the sprint stays `active` for a clean re-run.
+    expect(sprintRepo.current().status).toBe('active');
   });
 
   // ─── Multi-repo project: each task gets its repo's cwd ────────────────────────────

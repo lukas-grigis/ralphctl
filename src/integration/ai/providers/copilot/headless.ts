@@ -371,9 +371,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         at: IsoTimestamp.now(),
       });
     }
-    // Persist captured session id as a sibling `sessionId` file. Copilot streams the id on a
-    // leading JSON meta line; if it was missing (banner-only streams, crash before meta) we
-    // skip rather than write an empty marker. See persistSessionIdFile for the contract.
+    // Persist captured session id as a sibling `sessionId` file. Copilot 1.0.51 emits the id as
+    // `sessionId` on the TRAILING `{type:"result"}` record (not a leading meta line); the parser
+    // captures it via first-`sessionId`-wins, and only that record carries the key so there is no
+    // false positive. If missing (banner-only streams, crash before the result record) we skip
+    // rather than write an empty marker. See persistSessionIdFile for the contract.
     const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
     if (sidWrote !== undefined && !sidWrote.ok) {
       deps.eventBus.publish({
