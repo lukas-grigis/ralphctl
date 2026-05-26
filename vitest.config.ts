@@ -14,16 +14,16 @@ export default defineConfig({
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/application/ui/**'],
-      // Regression floor — set ~5% below the 2026-05-23 baseline so natural drift doesn't
-      // fail CI but a real coverage drop does. Baseline measured at that date:
-      //   statements 86.96 · branches 74.5 · functions 95.1 · lines 90.46.
+      // Regression floor — set ~1% below the 2026-05-26 baseline (post the F1 business-layer
+      // unit-test density lift). Baseline measured at that date:
+      //   statements 87.87 · branches 75.91 · functions 95.47 · lines 91.38.
       // Raise these in lockstep with new tests; do NOT tighten retroactively in a commit
       // that isn't adding tests.
       thresholds: {
-        statements: 80,
-        branches: 70,
-        functions: 90,
-        lines: 85,
+        statements: 87,
+        branches: 75,
+        functions: 95,
+        lines: 90,
       },
     },
     // Two projects so the heavy TUI render tests can run with file-level serialisation
