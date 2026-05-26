@@ -17,7 +17,8 @@ import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { makeDraftSprint, makePendingTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { failCurrentAttempt, startNextAttempt } from '@src/domain/entity/task.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;

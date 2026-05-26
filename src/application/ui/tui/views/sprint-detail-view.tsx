@@ -35,7 +35,7 @@ import {
   setTicketTitle,
   type ApprovedTicket,
 } from '@src/domain/entity/ticket.ts';
-import { updateTask } from '@src/domain/entity/task.ts';
+import { updateTask } from '@src/domain/entity/task-factory.ts';
 import { useEditField, type OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';

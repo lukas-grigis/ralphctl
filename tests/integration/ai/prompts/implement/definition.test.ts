@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import { createTask, type TodoTask, type VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';

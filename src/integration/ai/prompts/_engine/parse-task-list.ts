@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
-import { createTask, type TodoTask } from '@src/domain/entity/task.ts';
+import type { TodoTask } from '@src/domain/entity/task.ts';
+import { createTask } from '@src/domain/entity/task-factory.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { TicketId as TicketIdValue } from '@src/domain/value/id/ticket-id.ts';

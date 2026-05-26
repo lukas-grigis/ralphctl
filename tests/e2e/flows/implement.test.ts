@@ -31,7 +31,7 @@ import {
   repositoryId,
 } from '@tests/fixtures/domain.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
-import { startNextAttempt } from '@src/domain/entity/task.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { FIXED_NOW } from '@tests/fixtures/domain.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';

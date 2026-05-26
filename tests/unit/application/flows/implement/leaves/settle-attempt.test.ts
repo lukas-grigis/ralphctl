@@ -3,12 +3,8 @@ import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import {
-  type InProgressTask,
-  recordRunningAttemptVerification,
-  startNextAttempt,
-  type Task,
-} from '@src/domain/entity/task.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptVerification, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { absolutePath, FIXED_LATER, FIXED_NOW, makeTodoTask } from '@tests/fixtures/domain.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';

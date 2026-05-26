@@ -8,7 +8,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { finalizeGenEvalUseCase } from '@src/business/task/finalize-gen-eval.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 
 const okRepo: UpdateTask = {
   async update() {

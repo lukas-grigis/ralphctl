@@ -6,7 +6,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { tasksFile } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';

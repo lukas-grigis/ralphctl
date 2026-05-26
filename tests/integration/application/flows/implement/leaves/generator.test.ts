@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { recordRunningAttemptCritique } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptCritique } from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -13,7 +13,7 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';

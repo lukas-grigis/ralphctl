@@ -3,15 +3,10 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import {
-  type BlockedTask,
-  type DoneTask,
-  failCurrentAttempt,
-  type InProgressTask,
-  markTaskBlocked,
-  markTaskDone,
-  recordRunningAttemptWarning,
-} from '@src/domain/entity/task.ts';
+import type { BlockedTask, DoneTask, InProgressTask } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';

@@ -1,21 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import type { DoneTask, InProgressTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import { createTask, updateTask } from '@src/domain/entity/task-factory.ts';
 import {
-  createTask,
-  failCurrentAttempt,
-  markTaskBlocked,
-  markTaskDone,
   recordRunningAttemptCommit,
   recordRunningAttemptCritique,
   recordRunningAttemptEvaluation,
   recordRunningAttemptVerification,
-  resetTaskToTodo,
   startNextAttempt,
-  unblockTask,
-  updateTask,
-  type DoneTask,
-  type InProgressTask,
-  type VerificationCriterion,
-} from '@src/domain/entity/task.ts';
+} from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { markTaskBlocked, resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import {
   commitSha,
   FIXED_LATER,

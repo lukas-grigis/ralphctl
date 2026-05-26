@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  markTaskBlocked,
-  markTaskDone,
-  nextAvailableTask,
-  recordRunningAttemptVerification,
-  startNextAttempt,
-} from '@src/domain/entity/task.ts';
+import { recordRunningAttemptVerification, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { nextAvailableTask } from '@src/domain/entity/task-graph.ts';
 import { FIXED_LATER, FIXED_NOW, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const through = <T>(r: { readonly ok: true; readonly value: T } | { readonly ok: false }): T => {
