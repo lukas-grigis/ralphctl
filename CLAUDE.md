@@ -26,6 +26,8 @@ pnpm build             # tsup + tsx scripts/build-assets.ts → dist/cli.mjs + d
 pnpm typecheck         # tsc --noEmit
 pnpm lint              # ESLint
 pnpm test              # vitest
+pnpm coverage          # vitest run --coverage (ad-hoc threshold check; not in verify)
+pnpm verify:coverage   # alias for pnpm coverage
 pnpm format:check      # prettier
 pnpm deadcode          # knip (clean tree exits 0)
 pnpm gen:flow <name>   # scaffold a new flow (manifest + stub + tests)
