@@ -24,11 +24,23 @@ import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
  * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the
- * persisted `settings.ai.implement` pair. Each role accepts `{ provider, model }` together —
- * the CLI parser rejects half-supplied pairs before we reach this point, so the merge is
- * straightforward: when a role override is present, swap its row entirely; otherwise leave
- * the persisted row alone.
+ * persisted `settings.ai.implement` pair. Each role accepts `{ provider?, model?, effort? }`
+ * with every field independently optional — supplying only `provider` keeps the persisted
+ * model / effort for that role. The TUI customize picker assembles coherent overrides (a
+ * provider switch always rides with a fresh model from the new provider's catalog); the CLI
+ * parser still rejects half-supplied provider/model pairs upstream. The discriminated-union
+ * cast remains sound under both call sites.
  */
+const mergeImplementRole = (
+  base: AiFlowSettings,
+  override: NonNullable<NonNullable<LaunchContext['extras']['implementRoleOverrides']>['generator']>
+): AiFlowSettings => {
+  const provider = override.provider ?? base.provider;
+  const model = override.model ?? base.model;
+  const effort = override.effort ?? base.effort;
+  return { provider, model, ...(effort !== undefined ? { effort } : {}) } as AiFlowSettings;
+};
+
 const applyImplementRoleOverrides = (
   base: AiImplementSettings,
   overrides: NonNullable<LaunchContext['extras']['implementRoleOverrides']> | undefined
@@ -39,10 +51,10 @@ const applyImplementRoleOverrides = (
     evaluator: base.evaluator,
   };
   if (overrides.generator !== undefined) {
-    next.generator = { provider: overrides.generator.provider, model: overrides.generator.model } as AiFlowSettings;
+    next.generator = mergeImplementRole(base.generator, overrides.generator);
   }
   if (overrides.evaluator !== undefined) {
-    next.evaluator = { provider: overrides.evaluator.provider, model: overrides.evaluator.model } as AiFlowSettings;
+    next.evaluator = mergeImplementRole(base.evaluator, overrides.evaluator);
   }
   return next;
 };
@@ -58,7 +70,9 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...settings,
     ai: { ...settings.ai, implement: implementPair },
   };
-  const missing = await checkCli('implement', effectiveSettings);
+  const missing = await checkCli('implement', effectiveSettings, {
+    implementRoleOverrides: extras.implementRoleOverrides,
+  });
   if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
@@ -171,11 +185,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       repositories,
       progressFile: progressPath.value,
       sprintDir: sprintDirPath.value,
-      // `extras.modelOverride` is a legacy single-model knob from the flows-view picker;
-      // applied to the generator role since that's the one that drove the prior single-model
-      // implement path. Evaluator model stays bound to its settings row.
       generatorProviderId: implementPair.generator.provider,
-      generatorModel: extras.modelOverride ?? implementPair.generator.model,
+      generatorModel: implementPair.generator.model,
       ...(generatorEffort !== undefined ? { generatorEffort } : {}),
       evaluatorProviderId: implementPair.evaluator.provider,
       evaluatorModel: implementPair.evaluator.model,
@@ -229,12 +240,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   for (const leaf of flattened) {
     if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
   }
-  // The generator model honours the legacy single-model `extras.modelOverride` (flows-view's
-  // pre-launch picker) — same precedence the per-task subchain uses upstream. The evaluator
-  // model is always bound to its settings row. Both fields are projected onto the session
-  // descriptor so the execute view's rail/banner can render `<gen> → <eval> (eval)` (or
-  // collapse to one name when they match) without re-reading settings.
-  const generatorModel = extras.modelOverride ?? implementPair.generator.model;
+  // Both role models are drawn from the post-merge implementPair so per-launch role overrides
+  // (TUI customize picker or CLI flags) flow through to the rail/banner without a second
+  // settings read.
+  const generatorModel = implementPair.generator.model;
   const evaluatorModel = implementPair.evaluator.model;
   return {
     ok: true,

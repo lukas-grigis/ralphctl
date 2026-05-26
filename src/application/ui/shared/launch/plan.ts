@@ -9,9 +9,8 @@ import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } =
-    ctx;
-  const missing = await checkCli('plan', settings);
+  const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('plan', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
@@ -66,7 +65,7 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
       // the session's cwd is the per-sprint plan unit root.
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
       providerId: settings.ai.plan.provider,
-      model: extras.modelOverride ?? settings.ai.plan.model,
+      model: settings.ai.plan.model,
       ...(effort !== undefined ? { effort } : {}),
       planRoot: planRoot.value,
     }

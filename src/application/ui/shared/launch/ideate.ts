@@ -9,20 +9,8 @@ import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const {
-    deps,
-    snapshot,
-    extras,
-    settings,
-    interactiveAi,
-    skillsAdapter,
-    skillSource,
-    cwd,
-    bridge,
-    sessionId,
-    effort,
-  } = ctx;
-  const missing = await checkCli('ideate', settings);
+  const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, cwd, bridge, sessionId, effort } = ctx;
+  const missing = await checkCli('ideate', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
@@ -57,7 +45,7 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
       ideaText: bodyAns.value,
       cwd,
       providerId: settings.ai.ideate.provider,
-      model: extras.modelOverride ?? settings.ai.ideate.model,
+      model: settings.ai.ideate.model,
       ...(effort !== undefined ? { effort } : {}),
       ideateRoot: ideateRoot.value,
     }

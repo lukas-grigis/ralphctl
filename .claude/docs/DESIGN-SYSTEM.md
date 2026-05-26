@@ -362,7 +362,46 @@ pushes a dedicated `*-detail-view.tsx`).
 - Behave like a workflow view: `SectionStamp`, phase state, `ResultCard` for outcome.
 - No bespoke input handlers — everything goes through the injected `PromptPort`.
 
-### 7.5 Render caps for list data
+### 7.5 Settings view — section tabs
+
+`SettingsView` is the only configuration surface dense enough to need an in-view nav primitive.
+It uses a **segmented section strip** (text tabs, no chrome) along the top: `← / →` cycle
+sections; `↑ / ↓` navigate fields inside the active section; `↵ / e` opens the editor for the
+focused field. Only one section's fields render at a time.
+
+**Why tabs over collapsible cards or a two-pane split.** A flat scroll listed ~30 editable rows
+in one column; the cursor path from the first preset button to the last harness budget was a
+keypress-counting exercise. Three candidate fixes:
+
+- **Collapsible cards** (one expanded at a time) — saves vertical space but keeps every label
+  on screen and still requires the user to land on the right header before the editable rows
+  appear. The collapsed strip is busier than a tab row.
+- **Two-pane layout** (left section list, right active section body) — clean at wide widths but
+  forces a `←/→` pane-switch idiom that fights every other list view in the app (where `←/→`
+  pages or does nothing) and degrades to a single-column stack below ~140 cols anyway.
+- **Section tabs** — one horizontal strip, one body card below it. Discoverable (every section
+  label is always on screen), bounded (the per-section row count is the per-section keypress
+  budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
+  [§6.3](#63-view-local-keys--published-via-useviewhints).
+
+Per-section row counts (all ≤ ~8): `Presets 4`, `Global 1`, `Refine 3`, `Plan 3`, `Implement 6`
+(generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Harness 4`, `Other 2`,
+`Storage 0` (read-only). Implement is the largest and is the right stress-test for the cap.
+
+**Responsive fallback.** The section strip uses `flexWrap="wrap"`, so on terminals narrower
+than the strip's natural width (~76 cols at the default 10 labels) the strip wraps onto a
+second row. The body card below the strip is a stock `<Card>` — it follows the same
+single-column layout at every breakpoint, since the per-section field lists are short enough
+that wrapping was never the bottleneck. No special handling at `sm` is needed beyond the strip
+wrap; the active-section glyph (`▸`) keeps the focused label identifiable even when wrapped.
+
+**Model field is catalog-only.** The per-flow model row mounts a `SelectPrompt` populated from
+the active provider's catalog. There is no "+ custom" / free-text affordance; pinning to an
+off-catalog model is done by editing the settings file directly (or via `ralphctl settings set
+ai.<flow>.model <id>`). The read side still shows whatever is persisted — an off-catalog model
+remains visible on screen until the user picks a catalog entry to overwrite it.
+
+### 7.6 Render caps for list data
 
 Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries, settings options, fixed phase order) may render in full — comment the bound at the call site.
 

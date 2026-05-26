@@ -11,7 +11,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { useActiveHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import {
+  useActiveHints,
+  useSuppressedGlobalKeys,
+  type ViewHint,
+} from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { KeyboardHints } from '@src/application/ui/tui/components/keyboard-hints.tsx';
@@ -37,7 +41,13 @@ const STETHOSCOPE = '🩺';
 export const StatusBar = (): React.JSX.Element => {
   const sessions = useSessions();
   const localHints = useActiveHints();
+  const suppressedKeys = useSuppressedGlobalKeys();
   const system = useSystemStatus();
+  // Per-view suppressions hide specific global hints so the footer never advertises a key combo
+  // whose default meaning is contradicted by the currently-mounted view (e.g. a Review-step
+  // description that fits the viewport mutes the ↑/↓ scroll hint because arrows are inert).
+  const visibleGlobalHints =
+    suppressedKeys.size === 0 ? GLOBAL_HINTS : GLOBAL_HINTS.filter((h) => !suppressedKeys.has(h.keys));
 
   const running = sessions.filter((s) => s.descriptor.status === 'running').length;
   const sessionSummary =
@@ -64,7 +74,7 @@ export const StatusBar = (): React.JSX.Element => {
         </Box>
       </Box>
       <Box paddingX={spacing.indent}>
-        <KeyboardHints hints={[...localHints, ...GLOBAL_HINTS]} />
+        <KeyboardHints hints={[...localHints, ...visibleGlobalHints]} />
       </Box>
     </Box>
   );

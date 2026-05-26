@@ -23,7 +23,7 @@ import {
 } from '@src/integration/system/detect-cli.ts';
 import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
-import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { LaunchExtras, LaunchResult } from '@src/application/ui/shared/launcher.ts';
 
 /**
  * Map a launcher flow id to the AI {@link FlowId} that owns its session — same mapping as
@@ -51,31 +51,55 @@ const aiFlowIdForCheck = (flowId: string): FlowId | undefined => {
 export interface CheckCliOptions {
   /** Test seam — defaults to the production `detectInstalledProviders`. */
   readonly detect?: () => Promise<ReadonlySet<AiProvider>>;
+  /**
+   * Per-launch single-row override (from the TUI customize picker). When the missing
+   * provider matches `override.provider`, the failure message names the source as a per-run
+   * override rather than a saved settings key — the operator should not be told to "change
+   * ai.<flow>.provider" when they actually picked it transiently from the picker.
+   */
+  readonly override?: LaunchExtras['override'];
+  /**
+   * Per-launch implement-role overrides (from the TUI customize picker or the bare-`ralphctl`
+   * CLI flags). Same intent as {@link override}: when the missing provider for an implement
+   * role matches its override, the failure message identifies the source as a per-run
+   * override.
+   */
+  readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];
 }
 
 /**
  * One row's expectation under the launch-time probe. `role` is set for implement's two-row
  * fan-out (so the failure message can name the offending role); single-row flows leave it
- * undefined and the message names just the flow.
+ * undefined and the message names just the flow. `fromOverride` is `true` when the row's
+ * provider was supplied by a per-launch override (TUI picker / CLI flag) — the failure
+ * message then identifies the source as a per-run override rather than the settings key the
+ * operator never actually edited.
  */
 interface RowExpectation {
   readonly provider: AiProvider;
   readonly settingsKey: string;
   readonly role?: 'generator' | 'evaluator';
+  readonly fromOverride: boolean;
 }
 
-const rowExpectationsFor = (aiFlow: FlowId, settings: Settings): readonly RowExpectation[] => {
+const rowExpectationsFor = (
+  aiFlow: FlowId,
+  settings: Settings,
+  options: CheckCliOptions
+): readonly RowExpectation[] => {
   if (aiFlow === 'implement') {
     return [
       {
         provider: settings.ai.implement.generator.provider,
         settingsKey: 'ai.implement.generator.provider',
         role: 'generator',
+        fromOverride: options.implementRoleOverrides?.generator?.provider !== undefined,
       },
       {
         provider: settings.ai.implement.evaluator.provider,
         settingsKey: 'ai.implement.evaluator.provider',
         role: 'evaluator',
+        fromOverride: options.implementRoleOverrides?.evaluator?.provider !== undefined,
       },
     ];
   }
@@ -83,6 +107,7 @@ const rowExpectationsFor = (aiFlow: FlowId, settings: Settings): readonly RowExp
     {
       provider: primaryFlowRow(settings.ai, aiFlow).provider,
       settingsKey: `ai.${aiFlow}.provider`,
+      fromOverride: options.override?.provider !== undefined,
     },
   ];
 };
@@ -93,7 +118,12 @@ const renderMissing = (missing: readonly RowExpectation[], aiFlow: FlowId): stri
     const installHint = primaryInstallCommand(m.provider);
     const docsUrl = PROVIDER_INSTALL_GUIDANCE[m.provider].docsUrl;
     const roleSuffix = m.role !== undefined ? ` (${m.role})` : '';
-    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${m.settingsKey} or install with: ${installHint} (alternatives: ${docsUrl}).`;
+    // Per-run overrides come from the customize picker / CLI flag — the operator picked
+    // this provider transiently and the saved settings key is unchanged. Naming "per-run
+    // override" instead of the settings key prevents the operator from chasing the wrong
+    // edit surface to undo the failure.
+    const source = m.fromOverride ? `per-run override (${m.settingsKey} unchanged)` : m.settingsKey;
+    return `CLI ${binary} not on PATH for flow ${aiFlow}${roleSuffix}. Change ${source} or install with: ${installHint} (alternatives: ${docsUrl}).`;
   };
   if (missing.length === 1) return formatOne(missing[0]!);
   return missing.map(formatOne).join(' ');
@@ -106,7 +136,7 @@ export const checkCli = async (
 ): Promise<LaunchResult | undefined> => {
   const aiFlow = aiFlowIdForCheck(flowId);
   if (aiFlow === undefined) return undefined;
-  const expectations = rowExpectationsFor(aiFlow, settings);
+  const expectations = rowExpectationsFor(aiFlow, settings, options);
   const detect = options.detect ?? (() => detectInstalledProviders());
   const installed = await detect();
   // Dedupe by provider+role — when implement's two roles target the same provider, a single

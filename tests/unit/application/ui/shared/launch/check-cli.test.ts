@@ -130,6 +130,62 @@ describe('checkCli', () => {
     expect(result.reason).toContain('https://github.com/openai/codex');
   });
 
+  describe('per-run override source identification', () => {
+    it("names 'per-run override' instead of the settings key when the missing provider came from a single-row override", async () => {
+      // The launcher applies override to settings before calling checkCli, so the effective
+      // settings row already reflects the override. The override flag tells check-cli that
+      // the row's provider was supplied transiently — so the failure message should NOT
+      // tell the operator to change the saved settings key (it hasn't changed).
+      const effective = withFlowProvider('refine', 'openai-codex');
+      const result = await checkCli('refine', effective, {
+        detect: detectFor([]),
+        override: { provider: 'openai-codex' },
+      });
+      expect(result).toBeDefined();
+      if (result === undefined || result.ok) return;
+      expect(result.reason).toContain('codex');
+      expect(result.reason).toContain('per-run override');
+      expect(result.reason).toContain('ai.refine.provider unchanged');
+    });
+
+    it('keeps the original settings-key message form when the missing provider came from saved settings', async () => {
+      const settings = withFlowProvider('refine', 'openai-codex');
+      const result = await checkCli('refine', settings, { detect: detectFor([]) });
+      expect(result).toBeDefined();
+      if (result === undefined || result.ok) return;
+      // No override supplied; the reason names the saved settings key plainly.
+      expect(result.reason).toContain('Change ai.refine.provider');
+      expect(result.reason).not.toContain('per-run override');
+    });
+
+    it('implement: identifies generator-only override source when only the generator provider was swapped per-run', async () => {
+      // Effective implement pair: generator on the missing codex (per-run override),
+      // evaluator on the missing codex (saved). Both rows surface missing — but only the
+      // generator row identifies the source as a per-run override.
+      const effective: Settings = {
+        ...DEFAULT_SETTINGS,
+        ai: {
+          ...DEFAULT_SETTINGS.ai,
+          implement: {
+            generator: { provider: 'openai-codex', model: 'gpt-5.5' },
+            evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+          },
+        },
+      };
+      const result = await checkCli('implement', effective, {
+        detect: detectFor([]),
+        implementRoleOverrides: { generator: { provider: 'openai-codex' } },
+      });
+      expect(result).toBeDefined();
+      if (result === undefined || result.ok) return;
+      expect(result.reason).toContain('generator');
+      expect(result.reason).toContain('per-run override');
+      expect(result.reason).toContain('ai.implement.generator.provider unchanged');
+      // Evaluator (saved) keeps the original settings-key form.
+      expect(result.reason).toContain('Change ai.implement.evaluator.provider');
+    });
+  });
+
   it('install-guidance coverage spans every provider', async () => {
     // Probe each provider in isolation so changes to the install guidance table cause the
     // test to fail loudly rather than slipping past one-by-one assertions. Asserts on the
