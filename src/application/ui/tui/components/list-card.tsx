@@ -9,9 +9,7 @@
  *   focused   → tone='info'  (highlighted border, no dim)
  *   unfocused → tone='rule'  (recessive divider tone, dimmed border)
  *
- * The `expanded` prop is part of the public contract — call-sites pass it so the API is explicit
- * about open/closed state — but the layout itself does not vary by open/closed today; consumers
- * decide what to render inside `children` for the two states.
+ * Open/closed state is the caller's concern — pass the expanded / collapsed body via `children`.
  */
 
 import React from 'react';
@@ -21,7 +19,6 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 
 export interface ListCardProps {
   readonly focused: boolean;
-  readonly expanded: boolean;
   readonly rightSlot?: React.ReactNode;
   readonly indexLabel: string;
   readonly title: string;

@@ -796,7 +796,6 @@ const TicketCard = ({
 }): React.JSX.Element => (
   <ListCard
     focused={focused}
-    expanded={expanded}
     rightSlot={<StatusChip label={ticket.status} kind={ticketStatusKind(ticket.status)} />}
     indexLabel={`#${String(index + 1)}`}
     title={ticket.title}
@@ -913,7 +912,6 @@ const TaskCard = ({
   return (
     <ListCard
       focused={focused}
-      expanded={expanded}
       rightSlot={<StatusChip label={task.status} kind={taskStatusKind(task.status)} />}
       indexLabel={`#${String(index)}`}
       title={task.name}
