@@ -1,0 +1,67 @@
+/**
+ * Adapter that wires the live bucketed-task derivation into the shared `TasksPanel`. Folds
+ * three concerns the orchestrator would otherwise carry inline:
+ *
+ *   - Translates the `Task.verificationCriteria` array into per-task bullet strings (the
+ *     panel renders one criterion per line; audit-[05] says `Task.verificationCriteria`
+ *     is the canonical source — never read `done-criteria.md`).
+ *   - Forwards optional descriptor maps (`taskNames`, `taskRecovering`) only when present
+ *     so the panel's prop diff stays clean.
+ *   - Returns `null` when no bucket has been produced yet (early descriptor / no session),
+ *     keeping the orchestrator's JSX a single expression.
+ */
+
+import React, { useMemo } from 'react';
+import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
+import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+
+interface TasksPanelHostProps {
+  readonly bucketed: BucketedExecution | undefined;
+  readonly descriptor: SessionDescriptor;
+  readonly isRunning: boolean;
+  readonly maxSignalsPerTask: number;
+  readonly inputActive: boolean;
+  readonly now: number;
+  readonly taskState: readonly Task[] | undefined;
+}
+
+export const TasksPanelHost = ({
+  bucketed,
+  descriptor,
+  isRunning,
+  maxSignalsPerTask,
+  inputActive,
+  now,
+  taskState,
+}: TasksPanelHostProps): React.JSX.Element | null => {
+  const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, readonly string[]>();
+    for (const t of taskState) {
+      const bullets = t.verificationCriteria.map((c) =>
+        c.check === 'auto' && c.command !== undefined
+          ? `[${c.id}] auto \`${c.command}\` — ${c.assertion}`
+          : `[${c.id}] manual — ${c.assertion}`
+      );
+      m.set(String(t.id), bullets);
+    }
+    return m;
+  }, [taskState]);
+
+  if (bucketed === undefined) return null;
+
+  return (
+    <TasksPanel
+      bucketed={bucketed}
+      running={isRunning}
+      maxSignalsPerTask={maxSignalsPerTask}
+      inputActive={inputActive}
+      nowMs={now}
+      {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
+      {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
+      {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
+    />
+  );
+};
