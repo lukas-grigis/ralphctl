@@ -1,4 +1,5 @@
-import { dirname } from 'node:path';
+import { promises as fs } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -15,7 +16,7 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
-import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
+import { partitionRefineSignals, refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
 import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 
@@ -88,6 +89,65 @@ export interface RefineTicketInteractiveDeps {
 
 /** Footer appended to every pushed body so future readers know where it came from. */
 const REFINED_FOOTER = (now: string): string => `\n\n---\n_Refined by ralphctl on ${now}_`;
+
+/**
+ * Refine-specific signals-missing message. The shared `validateSignalsFile` hint is generic
+ * ("inspect the per-spawn directory…"); for refine the common real cause is the user exiting
+ * the interactive AI session before it finished writing `signals.json`. Rewrite the
+ * `signals-missing` error with an actionable, refine-framed message so the TUI's failure card
+ * tells the user exactly what happened and what to do — the ticket is untouched, re-run and let
+ * the AI finish. Every other error (invalid-json / schema-mismatch / migration-gap / I/O, and
+ * `AbortError` if it ever reached here) passes through verbatim.
+ */
+const remapRefineSignalsError = <E extends { readonly message?: string }>(error: E): E => {
+  if (error instanceof InvalidStateError && error.message.includes('signals-missing')) {
+    return new InvalidStateError({
+      entity: 'refine-ticket-interactive',
+      currentState: 'post-spawn',
+      attemptedAction: 'validate-signals',
+      message:
+        'Refinement not saved — the AI session ended before writing signals.json. The ticket is unchanged; re-run refine and let the AI finish writing before you exit.',
+      hint: 'The interactive AI must write signals.json (carrying the refined-ticket) before it exits. Closing the session early leaves nothing for the harness to read.',
+    }) as unknown as E;
+  }
+  return error;
+};
+
+/**
+ * Best-effort warn-log for malformed auxiliary signals the lenient refine contract dropped.
+ * `validateSignalsFile` only returns the survivors, so to name what was discarded the leaf
+ * re-reads `signals.json` and runs the same per-element partition the contract schema uses
+ * (see {@link partitionRefineSignals}). Diagnostics only — never blocks refinement and never
+ * throws; any read / parse hiccup here is swallowed (the authoritative validation already
+ * succeeded by the time this runs).
+ */
+const warnDroppedSignals = async (deps: RefineTicketInteractiveDeps, outputDir: AbsolutePath): Promise<void> => {
+  try {
+    const bytes = await fs.readFile(join(String(outputDir), 'signals.json'), 'utf8');
+    const raw: unknown = JSON.parse(bytes);
+    // Legacy bare-array shape (migrations[0] target) or the canonical { signals } wrapper.
+    const inner = Array.isArray(raw) ? raw : (raw as { signals?: unknown }).signals;
+    if (!Array.isArray(inner)) return;
+    // Match `validateSignalsFile`'s timestamp leniency so a signal missing only `timestamp`
+    // (which the validator stamps and keeps) is not mis-reported here as dropped.
+    const now = new Date().toISOString();
+    const defaulted = inner.map((sig) => {
+      if (typeof sig !== 'object' || sig === null) return sig;
+      const s = sig as Record<string, unknown>;
+      return typeof s.timestamp === 'string' && s.timestamp.length > 0 ? sig : { ...s, timestamp: now };
+    });
+    const { dropped } = partitionRefineSignals(defaulted);
+    if (dropped.length === 0) return;
+    const summary = dropped.map((d) => `[${String(d.index)}] type=${d.type ?? '?'} (${d.reason})`).join('; ');
+    deps.logger
+      .named('refine.signals')
+      .warn(`dropped ${String(dropped.length)} malformed auxiliary signal(s) — refinement kept`, {
+        dropped: summary,
+      });
+  } catch {
+    // Diagnostics only — never let a re-read failure disturb a successful refinement.
+  }
+};
 
 interface RefineTicketInteractiveInput {
   readonly sprint: Sprint;
@@ -180,10 +240,16 @@ export const refineTicketInteractiveLeaf = (
 
         // Validate signals.json against the refine contract. Failure surfaces a domain error
         // (signals-missing / invalid-json / schema-mismatch / migration-gap) with a precise
-        // hint.
+        // hint. The refine contract is resilient — malformed auxiliary signals are dropped, not
+        // fatal — so the only validation failures left are genuine: a missing file, unparseable
+        // JSON, or zero / two valid `refined-ticket` entries.
         const validated = await validateSignalsFile(outputDir, refineOutputContract);
-        if (!validated.ok) return Result.error(validated.error);
+        if (!validated.ok) return Result.error(remapRefineSignalsError(validated.error));
         const signals = validated.value;
+
+        // Diagnostics — name any malformed auxiliary signals the lenient contract just dropped.
+        // Refinement still succeeds; the warn keeps the drop out of the silent zone.
+        await warnDroppedSignals(deps, outputDir);
 
         // Fan out every validated signal to the application bus so the TUI's `ai-signal`
         // subscribers render live updates. Source tag identifies the leaf for multi-leaf

@@ -166,7 +166,7 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
   });
 
   // ── 2. signals.json missing ───────────────────────────────────────────────────
-  it('ok-missing: surfaces signals-missing as InvalidStateError', async () => {
+  it('signals-missing: surfaces a refine-specific actionable InvalidStateError', async () => {
     await ensureUnitDir();
     // AI exits cleanly but never writes signals.json.
     const provider = fakeAi(async () => {});
@@ -177,7 +177,46 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(InvalidStateError);
-    expect(result.error.error.message).toContain('signals-missing');
+    // The leaf rewrites the generic `signals-missing` token into an actionable, refine-framed
+    // message — what happened (session ended early), what is safe (ticket unchanged), what to
+    // do (re-run and let the AI finish).
+    expect(result.error.error.message).toContain('Refinement not saved');
+    expect(result.error.error.message).toContain('signals.json');
+    expect(result.error.error.message).toContain('ticket is unchanged');
+  });
+
+  // ── 2b. Resilience: valid refined-ticket + malformed auxiliary signal ──────────
+  it('resilience: keeps the refinement when only auxiliary signals are malformed', async () => {
+    await ensureUnitDir();
+    // One valid refined-ticket plus a malformed `decision` (carries `body` where the schema
+    // wants `text`). The lenient refine contract drops the decision and keeps the refinement.
+    await fs.writeFile(
+      signalsFilePath(),
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [
+          refinedTicketSignal('## Refined\n\n- the essential body survives'),
+          { type: 'decision', body: 'wrong field — should be text', timestamp: '2026-05-22T10:00:00.000Z' },
+        ],
+      }),
+      'utf8'
+    );
+    const { events, eventBus } = captureBus();
+    const provider = fakeAi(async () => {});
+    const { ctx, ticket } = buildCtx();
+    const leaf = refineTicketInteractiveLeaf(buildDeps(provider, eventBus), ticket);
+
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Only the valid refined-ticket fanned out — the malformed decision was dropped.
+    const aiSignals = events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
+    expect(aiSignals.map((e) => e.signal.type)).toEqual(['refined-ticket']);
+
+    const approved = result.value.ctx.refinedTickets?.[0];
+    expect(approved?.status).toBe('approved');
+    expect(approved?.requirements).toBe('## Refined\n\n- the essential body survives');
   });
 
   // ── 3. Malformed JSON ─────────────────────────────────────────────────────────
@@ -195,15 +234,17 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
     expect(result.error.error.message).toContain('malformed JSON');
   });
 
-  // ── 4. Schema fails Zod (wrong shape) ─────────────────────────────────────────
-  it('ok with generator-only commit-message signal: surfaces ParseError(schema-mismatch)', async () => {
+  // ── 4. Unknown signal kind with no valid refined-ticket → still fails ─────────
+  it('ok with only a generator-only commit-message signal: surfaces ParseError', async () => {
     await ensureUnitDir();
     await fs.writeFile(
       signalsFilePath(),
       JSON.stringify({
         schemaVersion: 1,
         // `commit-message` is intentionally not part of the refine contract — the generator
-        // emits it. A refine-side `commit-message` MUST be rejected by Zod.
+        // emits it. The lenient contract drops it as an unknown element; with no surviving
+        // `refined-ticket` the `.refine` then rejects, so this is still a real failure
+        // (not a silent success) — the user must know nothing was refined.
         signals: [{ type: 'commit-message', subject: 'feat: x', timestamp: '2026-05-22T10:00:00.000Z' }],
       }),
       'utf8'
@@ -216,7 +257,32 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(ParseError);
-    expect(result.error.error.message).toContain('schema');
+    expect(result.error.error.message).toContain('exactly one refined-ticket');
+  });
+
+  // ── 4b. Malformed refined-ticket (the essential signal) → still fails ─────────
+  it('malformed refined-ticket: dropped, then rejected as zero refined-tickets', async () => {
+    await ensureUnitDir();
+    await fs.writeFile(
+      signalsFilePath(),
+      JSON.stringify({
+        schemaVersion: 1,
+        // The refined-ticket carries `text` where the schema wants `body`. The lenient parse
+        // drops it like any malformed element — but a malformed ESSENTIAL signal must surface
+        // as a real failure, which the exactly-one refinement enforces (zero survivors).
+        signals: [{ type: 'refined-ticket', text: 'wrong field', timestamp: '2026-05-22T10:00:00.000Z' }],
+      }),
+      'utf8'
+    );
+    const provider = fakeAi(async () => {});
+    const { ctx, ticket } = buildCtx();
+    const leaf = refineTicketInteractiveLeaf(buildDeps(provider), ticket);
+
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(ParseError);
+    expect(result.error.error.message).toContain('exactly one refined-ticket');
   });
 
   // ── 5a. Schema fails refine — zero refined-tickets ────────────────────────────

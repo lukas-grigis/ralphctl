@@ -8,7 +8,9 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
 import type { PendingTicket } from '@src/domain/entity/ticket.ts';
+import { readSprintDir } from '@tests/helpers/sprint-dir-snapshot.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
@@ -95,6 +97,21 @@ const fakeInteractiveAi = (
   return { session, calls };
 };
 
+/**
+ * Fake `InteractiveAiProvider` that writes a caller-supplied `signals.json` payload verbatim.
+ * `payload(input)` returns either the raw object to JSON-stringify into `outputFile`, or
+ * `undefined` to leave the file absent entirely (simulating an AI that exited before writing).
+ */
+const fakeInteractiveAiRaw = (payload: (input: InteractiveAiProviderInput) => unknown): InteractiveAiProvider => ({
+  async run(input) {
+    const body = payload(input);
+    if (body !== undefined) {
+      await fs.writeFile(String(input.outputFile), JSON.stringify(body), 'utf8');
+    }
+    return Result.ok({});
+  },
+});
+
 describe('createRefineFlow — interactive', () => {
   let dir: string;
   beforeEach(async () => {
@@ -108,6 +125,31 @@ describe('createRefineFlow — interactive', () => {
     const r = AbsolutePath.parse(join(dir, 'refinement'));
     if (!r.ok) throw new Error('test setup');
     return r.value;
+  };
+
+  /**
+   * Real filesystem-backed sprint repo rooted at the test tmpdir, with `sprint` pre-persisted
+   * to disk so refine's `load-sprint` reads it back. Filesystem-truth: every assertion reads
+   * the sprint dir off disk, not from an in-memory double whose shape can drift from production.
+   */
+  const realFsRepo = async (sprint: Sprint): Promise<{ repo: SprintRepository; root: AbsolutePath }> => {
+    const root = AbsolutePath.parse(dir);
+    if (!root.ok) throw new Error('test setup');
+    const repo = createFsSprintRepository({ root: root.value });
+    const saved = await repo.save(sprint);
+    if (!saved.ok) throw new Error(`fixture: initial save failed: ${saved.error.message}`);
+    return { repo, root: root.value };
+  };
+
+  const readTicketsFromDisk = async (
+    root: AbsolutePath,
+    sprintId: SprintId
+  ): Promise<ReadonlyArray<{ readonly title: string; readonly status: string; readonly requirements?: string }>> => {
+    const snap = await readSprintDir(join(String(root), 'sprints', String(sprintId)));
+    const json = snap.json<{ tickets: ReadonlyArray<{ title: string; status: string; requirements?: string }> }>(
+      'sprint.json'
+    );
+    return json.tickets;
   };
 
   it('refines every pending ticket via interactive session, persists after each one', async () => {
@@ -458,5 +500,155 @@ describe('createRefineFlow — interactive', () => {
     expect(runner.status).toBe('failed');
     // No save persisted — the leaf erred before approveTicketRequirements ran.
     expect(saves).toHaveLength(0);
+  });
+
+  // ── Filesystem-truth: happy / resilience / missing, asserted against real persistence ──
+
+  it('filesystem-truth: a valid refined-ticket lands the ticket as approved with body on disk', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo, root } = await realFsRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+
+    const refinedBody = '## Refined requirements\n\n- AC1: the body is persisted verbatim';
+    const ai = fakeInteractiveAiRaw(() => ({
+      schemaVersion: 1,
+      signals: [{ type: 'refined-ticket', body: refinedBody, timestamp: '2026-05-22T10:00:00.000Z' }],
+    }));
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: ai,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-fs-ok', element: flow, initialCtx: { sprintId: sprint.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // Read the sprint back off disk — the ticket is approved with the AI's body persisted.
+    const onDisk = await readTicketsFromDisk(root, sprint.id);
+    expect(onDisk).toHaveLength(1);
+    expect(onDisk[0]?.status).toBe('approved');
+    expect(onDisk[0]?.requirements).toBe(refinedBody);
+  });
+
+  it('filesystem-truth: resilience — a malformed auxiliary signal is dropped, refinement survives', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo, root } = await realFsRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+    const aiSignalTypes: string[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'ai-signal') aiSignalTypes.push(e.signal.type);
+    });
+
+    const refinedBody = '## Refined\n\n- the essential refined-ticket survives a bad sibling';
+    const ai = fakeInteractiveAiRaw(() => ({
+      schemaVersion: 1,
+      signals: [
+        { type: 'refined-ticket', body: refinedBody, timestamp: '2026-05-22T10:00:00.000Z' },
+        // Malformed: `decision` carries `body` where the schema wants `text`. The exact drift
+        // that previously discarded the whole refinement. Now it is dropped, not fatal.
+        { type: 'decision', body: 'wrong field', timestamp: '2026-05-22T10:00:00.000Z' },
+      ],
+    }));
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: ai,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-fs-resilient', element: flow, initialCtx: { sprintId: sprint.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // Only the valid refined-ticket fanned out; the malformed decision was dropped.
+    expect(aiSignalTypes).toEqual(['refined-ticket']);
+    // The refinement still landed on disk.
+    const onDisk = await readTicketsFromDisk(root, sprint.id);
+    expect(onDisk[0]?.status).toBe('approved');
+    expect(onDisk[0]?.requirements).toBe(refinedBody);
+  });
+
+  it('filesystem-truth: missing signals.json fails clearly and leaves the ticket pending on disk', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo, root } = await realFsRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+
+    // AI exits cleanly but never writes signals.json (the user closed the session early).
+    const ai = fakeInteractiveAiRaw(() => undefined);
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: ai,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-fs-missing', element: flow, initialCtx: { sprintId: sprint.id } });
+    // Capture the failure error off the runner's event stream — this is the exact message the
+    // TUI's failure card renders (`descriptor.error.message`).
+    let failureMessage: string | undefined;
+    runner.subscribe((event) => {
+      if (event.type === 'failed') failureMessage = event.error.message;
+    });
+    await runner.start();
+
+    // The flow fails — this is a real failure the user must know about, not a silent success.
+    expect(runner.status).toBe('failed');
+    // The surfaced error is the refine-specific, actionable signals-missing message.
+    expect(failureMessage).toContain('Refinement not saved');
+    expect(failureMessage).toContain('signals.json');
+    // The ticket on disk is unchanged — still pending, no requirements body.
+    const onDisk = await readTicketsFromDisk(root, sprint.id);
+    expect(onDisk[0]?.status).toBe('pending');
+    expect(onDisk[0]?.requirements ?? '').toBe('');
   });
 });
