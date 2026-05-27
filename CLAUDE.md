@@ -303,15 +303,18 @@ when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
-**Implement is strictly sequential.** Tasks run one at a time in the order assigned by the planner —
-`Task.order` is the canonical ordering field, populated at planning time with full graph context (the
-planner sees every ticket, repo, and dependency before laying out the task list). `Task.blockedBy` is
-parsed + validated against the same context (cycle detection + dangling-ref check) by
-`parseTaskList` in `src/integration/ai/prompts/_engine/parse-task-list.ts`, then persisted on each
-task for downstream tooling, but it is NOT consulted again at implement-launch — the planner-provided
-order is trusted. Launch-time sort is status-only: `in_progress` tasks first (so a resumed sprint
-picks up the previously aborted task before any fresh work), then `todo`. `settings.concurrency.maxParallelTasks`
-is wired but only `1` is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred).
+**Implement is strictly sequential.** Tasks run one at a time in the order the planner emits them —
+`Task.order` is the canonical ordering field, set as `i + 1` (array index) by
+`parseTaskList` in `src/integration/ai/prompts/_engine/parse-task-list.ts`. The harness trusts the
+planner's emission order to be topologically sound; it doesn't sort by `Task.blockedBy` at any point.
+`parseTaskList` validates `blockedBy` references against known task ids (dangling-ref check) and
+persists them on each task, but cycle detection lives separately in `validateTaskGraph`
+(`src/domain/entity/task-graph.ts`) and is currently only invoked by `validateSprintConsistency` —
+NOT wired into the implement-launch path. Launch-time sort is status-only: `in_progress` tasks first
+(so a resumed sprint picks up the previously aborted task before any fresh work), then `todo`;
+V8's stable sort preserves the planner-assigned `Task.order` within each group.
+`settings.concurrency.maxParallelTasks` is wired but only `1` is supported in 0.7.0; concurrent
+fan-out needs a new chain primitive (deferred).
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
