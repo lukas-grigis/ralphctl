@@ -5,6 +5,7 @@ import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import { parseTaskList } from '@src/integration/ai/prompts/_engine/parse-task-list.ts';
 import { IdeateOutputSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
@@ -34,6 +35,8 @@ export interface ParseIdeateOutputInput {
    * (e.g. tests, legacy call-sites) can omit; the propagation then no-ops cleanly.
    */
   readonly ticket?: Ticket;
+  /** Optional logger; forwarded to {@link parseTaskList} for the topological-reorder log line. */
+  readonly logger?: Logger;
 }
 
 export interface ParseIdeateOutputResult {
@@ -70,6 +73,7 @@ export const parseIdeateOutput = (
   const tasks = parseTaskList(parsed.data.tasks, {
     project: ctx.project,
     mode: { kind: 'fixed', ticketId: ctx.ticketId, ...(ctx.ticket !== undefined ? { ticket: ctx.ticket } : {}) },
+    ...(ctx.logger !== undefined ? { logger: ctx.logger } : {}),
   });
   if (!tasks.ok) return Result.error(tasks.error);
 

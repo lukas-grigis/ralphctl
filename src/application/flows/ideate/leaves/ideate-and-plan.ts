@@ -135,6 +135,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
           // Pass the freshly minted ticket so any `externalRef` on it (currently unused by the
           // ideate input surface, but ready when added) propagates to every generated task.
           ticket: pending.value,
+          logger: deps.logger,
         });
         if (!parsed.ok) return Result.error(parsed.error);
 

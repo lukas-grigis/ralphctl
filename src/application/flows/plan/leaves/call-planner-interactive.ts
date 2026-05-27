@@ -144,7 +144,11 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
           );
         }
 
-        const parsed = parsePlanOutput(planSignal.tasksJson, { project: input.project, sprint: input.sprint });
+        const parsed = parsePlanOutput(planSignal.tasksJson, {
+          project: input.project,
+          sprint: input.sprint,
+          logger: deps.logger,
+        });
         if (!parsed.ok) return Result.error(parsed.error);
 
         return planSprintUseCase({
