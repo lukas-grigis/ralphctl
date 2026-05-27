@@ -76,7 +76,7 @@ Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
 is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
 `Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShow/Clear`, `LogEvent`).
-TUI panels subscribe live; `<sprintDir>/chain.log` sink subscribes for durable post-hoc trace. **One bus per
+TUI panels subscribe live; `<sprintDir>/events.ndjson` sink subscribes for durable post-hoc trace. **One bus per
 `wire()` call** — production / test bus state cannot cross-talk.
 
 **Logger publishes to the same bus.** `createEventBusLogger({ eventBus, clock })` is the only Logger factory;
@@ -303,9 +303,15 @@ when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
-**Implement is strictly sequential.** Tasks run one at a time in topological order over `Task.blockedBy`,
-linearised via `topologicalReorder` (Kahn's). `settings.concurrency.maxParallelTasks` is wired but only `1`
-is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred).
+**Implement is strictly sequential.** Tasks run one at a time in the order assigned by the planner —
+`Task.order` is the canonical ordering field, populated at planning time with full graph context (the
+planner sees every ticket, repo, and dependency before laying out the task list). `Task.blockedBy` is
+parsed + validated against the same context (cycle detection + dangling-ref check) by
+`parseTaskList` in `src/integration/ai/prompts/_engine/parse-task-list.ts`, then persisted on each
+task for downstream tooling, but it is NOT consulted again at implement-launch — the planner-provided
+order is trusted. Launch-time sort is status-only: `in_progress` tasks first (so a resumed sprint
+picks up the previously aborted task before any fresh work), then `todo`. `settings.concurrency.maxParallelTasks`
+is wired but only `1` is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred).
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
@@ -359,7 +365,7 @@ mid-task carries auth / context / tool-availability hazards that warrant a follo
 (`src/application/ui/tui/views/execute-view.tsx`). The `TaskRoundStarted` event (carrying `roundN`,
 `attemptN`, `totalCap`) drives the `round N/M` display — replacing the old React-ref high-water mark.
 
-**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace, bracketed by
+**Persistent `<sprintDir>/events.ndjson`** — every implement-style run appends its full trace, bracketed by
 `=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters. `tail -f`-friendly.
 
 **`progress.md` is snapshot-rendered**, not streaming. `renderProgressMarkdown(state)` regenerates from
@@ -369,7 +375,7 @@ The old `progress-file-sink` is removed.
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
 
-**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `chain.log` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
+**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `events.ndjson` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
 
 `settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 

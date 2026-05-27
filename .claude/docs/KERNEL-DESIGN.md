@@ -278,9 +278,11 @@ const perTask = sequential('task-<id>', [
   uninstallSkillsLeaf, // removes harness-installed ralphctl-* skills from <repo>
 ]);
 
-// Linearise tasks via topologicalReorder over `task.blockedBy` and feed
-// the result into a sequential so they run strictly one at a time.
-const orderedTasks = topologicalReorder(tasks);
+// Order is set at planning time via `Task.order` (the planner has full graph context;
+// `Task.blockedBy` is validated for cycles + dangling refs by `parseTaskList` but not
+// re-consulted at launch). Launch-time sort is status-only — in_progress first, so a
+// resumed sprint picks up the prior aborted task before any fresh work.
+const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.status === 'in_progress' ? -1 : 1));
 
 sequential('implement', [
   loadSprintLeaf,
