@@ -19,6 +19,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { projectId, makeProject, makeRepository, absolutePath } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -132,7 +133,7 @@ describe('PickSprintView', () => {
       initial: { id: 'pick-sprint' },
       selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
     });
-    await tick(60);
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('beta sprint one'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Alpha Project');
     expect(frame).toContain('Beta Project');
@@ -155,14 +156,12 @@ describe('PickSprintView', () => {
       initial: { id: 'pick-sprint' },
       selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
     });
-    await tick(60);
-    expect(result.lastFrame() ?? '').toContain('Beta Project');
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('Beta Project'));
     result.stdin.write('t');
-    await tick(30);
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('current project only'));
     const after = result.lastFrame() ?? '';
     expect(after).toContain('Alpha Project');
     expect(after).not.toContain('Beta Project');
-    expect(after).toContain('current project only');
     expect(after).toContain('1 sprint');
   });
 
@@ -176,18 +175,16 @@ describe('PickSprintView', () => {
       initial: { id: 'pick-sprint' },
       selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
     });
-    await tick(60);
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('beta sprint'));
     // Initial cursor is on the first sprint row (alpha). Press j once — it must skip the
     // Beta header row and land on the beta sprint row, which becomes the focused row.
     result.stdin.write('j');
     await tick(30);
     // Press j again — there's no further sprint, cursor stays put.
     result.stdin.write('j');
-    await tick(30);
-    const frame = result.lastFrame() ?? '';
     // The focus marker (▍) precedes whichever sprint is focused; assert beta sprint shows
     // the focused-line marker (focused rows print a "↳ N tickets" hint, headers do not).
-    expect(frame).toContain('↳ 0 tickets');
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('↳ 0 tickets'));
   });
 
   it('picking a sprint from a different project calls setProjectAndSprint atomically', async () => {
@@ -216,13 +213,12 @@ describe('PickSprintView', () => {
         selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
       }
     );
-    await tick(60);
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('beta sprint'));
     // Move cursor down past the Beta header onto the beta sprint, then Enter.
     result.stdin.write('j');
     await tick(30);
     result.stdin.write('\r');
-    await tick(30);
-    expect(setProjectAndSprint).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(setProjectAndSprint).toHaveBeenCalledTimes(1));
     const [calledProjectId, calledProjectLabel, calledSprintId, calledSprintLabel] = setProjectAndSprint.mock
       .calls[0] as [unknown, unknown, unknown, unknown];
     expect(calledProjectId).toBe(PID_B);
@@ -242,7 +238,7 @@ describe('PickSprintView', () => {
       initial: { id: 'pick-sprint' },
       selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
     });
-    await tick(60);
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('lonely sprint'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Unknown project');
     expect(frame).toContain('lonely sprint');
@@ -257,9 +253,13 @@ describe('PickSprintView', () => {
       initial: { id: 'pick-sprint' },
       selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
     });
-    await tick(60);
-    const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Gamma Project');
-    expect(frame).toContain('no sprints');
+    // Poll until the async load has settled rather than racing a fixed sleep — under
+    // coverage-instrumented CI forks the load can resolve after a wall-clock `tick`, leaving
+    // the spinner frame and dropping the group header this test asserts on.
+    await waitFor(() => {
+      const frame = result.lastFrame() ?? '';
+      expect(frame).toContain('Gamma Project');
+      expect(frame).toContain('no sprints');
+    });
   });
 });
