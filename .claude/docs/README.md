@@ -13,7 +13,6 @@ data models changes.
 | [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md)               | TUI design system — tokens, components, state surfaces, copy, anti-patterns. Read before building new views. |
 | [MANUAL-TEST-PLAYBOOK.md](./MANUAL-TEST-PLAYBOOK.md) | Manual smoke-test script. Read before cutting a release.                                                     |
 | [diagrams/](./diagrams/README.md)                    | Mermaid sequence + data-flow diagrams: chain framework, flow lifecycle, sprint, task, AI session contract.   |
-| [audit-archive/](./audit-archive/)                   | Historical design backlogs whose islands have all landed. Read for "why this shape" archaeology.             |
 
 The filename `KERNEL-DESIGN.md` is preserved from v0.6.x for cross-reference continuity — v0.7.0 has no
 `kernel/` module; the chain primitives live inside `application/`.

@@ -20,15 +20,10 @@ import {
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createProject, type Project } from '@src/domain/entity/project.ts';
 import { createRepository, type Repository } from '@src/domain/entity/repository.ts';
-import {
-  createTask,
-  type DoneTask,
-  type InProgressTask,
-  markTaskDone,
-  recordRunningAttemptVerification,
-  startNextAttempt,
-  type TodoTask,
-} from '@src/domain/entity/task.ts';
+import type { DoneTask, InProgressTask, TodoTask } from '@src/domain/entity/task.ts';
+import { createTask } from '@src/domain/entity/task-factory.ts';
+import { recordRunningAttemptVerification, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { CommitSha } from '@src/domain/value/commit-sha.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';

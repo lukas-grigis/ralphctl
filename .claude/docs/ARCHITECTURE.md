@@ -239,7 +239,7 @@ ChainStarted |
   LogEvent;
 ```
 
-TUI panels subscribe; the persistent `<sprintDir>/chain.log` sink
+TUI panels subscribe; the persistent `<sprintDir>/events.ndjson` sink
 (`integration/observability/sinks/file-log-sink.ts`) and the decisions-log sink
 (`integration/observability/sinks/decisions-log-sink.ts`) subscribe. The same bus is the fan-out point
 for any future telemetry adapter.
@@ -341,7 +341,7 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           ├── sprint.json          ← planning: tickets, requirements, status, project ref
 │           ├── execution.json       ← runtime audit: branch, PR URL, structured setup-run history
 │           ├── tasks.json           ← task list with status, attempts, evaluations
-│           ├── chain.log            ← persistent EventBus trace (each run bracketed by === … === lines)
+│           ├── events.ndjson            ← persistent EventBus trace (each run bracketed by === … === lines)
 │           ├── decisions.log        ← AI-emitted <decision> tags, one JSON line each
 │           ├── progress.md          ← snapshot-rendered from SprintState; regenerated on each settle
 │           ├── refinement/<ticket-slug>/  ← per-ticket sandbox for refine AI session
@@ -432,9 +432,9 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `TaskCompleteSignal`                                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                                                                                            |
 | `TaskVerifiedSignal`                                     | Use case sets `verified` on the task entity                                                                                                                                               |
 | `TaskBlockedSignal`                                      | Use case transitions task to `blocked`                                                                                                                                                    |
-| `NoteSignal`                                             | Fans out as `HarnessSignalEvent` (`signalKind: 'note'`) → `chain.log`; mined per-task by `state-projection.ts` into `TaskProjection.notes` → `#### Notes` in `progress.md`                |
-| `LearningSignal`                                         | Fans out as `HarnessSignalEvent` (`signalKind: 'learning'`) → `chain.log`; mined into `TaskProjection.learnings` → `#### Learnings` in `progress.md`                                      |
-| `ChangeSignal`                                           | Fans out as `HarnessSignalEvent` (`signalKind: 'change'`) → `chain.log`; mined into `TaskProjection.changes` → `#### Changes` in `progress.md`                                            |
+| `NoteSignal`                                             | Fans out as `HarnessSignalEvent` (`signalKind: 'note'`) → `events.ndjson`; mined per-task by `state-projection.ts` into `TaskProjection.notes` → `#### Notes` in `progress.md`            |
+| `LearningSignal`                                         | Fans out as `HarnessSignalEvent` (`signalKind: 'learning'`) → `events.ndjson`; mined into `TaskProjection.learnings` → `#### Learnings` in `progress.md`                                  |
+| `ChangeSignal`                                           | Fans out as `HarnessSignalEvent` (`signalKind: 'change'`) → `events.ndjson`; mined into `TaskProjection.changes` → `#### Changes` in `progress.md`                                        |
 | `DecisionSignal`                                         | `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars); mined by `collectDecisions` (same cap) → `## Decisions` in `progress.md` (render-time clip at 160 chars)   |
 | `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                       |
 | `ProgressEntrySignal`                                    | Structured 4-section progress entry (task / filesChanged / learnings / notesForNext) surfaced in TUI; not written directly to `progress.md` — snapshot renderer derives from entity state |
@@ -491,7 +491,7 @@ application/ui/
 │   ├── bootstrap.ts                 ← wire() + sinks setup for one-shot commands
 │   └── commands/<name>.ts           ← per-command flag definitions + Result-aware action
 ├── shared/
-│   └── launch/<flow>.ts             ← chain launcher (creates runner, tees chain.log)
+│   └── launch/<flow>.ts             ← chain launcher (creates runner, tees events.ndjson)
 └── tui/
     ├── runtime/                     ← mount.tsx (alt-screen takeover) + use-event-bus.ts subscriber
     ├── theme/                       ← tokens.ts (single source of visual truth)

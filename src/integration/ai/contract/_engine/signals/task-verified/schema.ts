@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * verification gate passed inside the model. The harness still runs its own verify gate
  * after the spawn; this signal is advisory.
  */
-/** @public */
 export const taskVerifiedSignalSchema = z.object({
   type: z.literal('task-verified'),
   output: z.string(),

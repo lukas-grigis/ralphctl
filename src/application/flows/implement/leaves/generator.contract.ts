@@ -21,6 +21,7 @@ import { progressEntrySignalSchema } from '@src/integration/ai/contract/_engine/
 import { taskBlockedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-blocked/schema.ts';
 import { taskCompleteSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-complete/schema.ts';
 import { taskVerifiedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-verified/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -87,7 +88,7 @@ const signalsArraySchemaRaw = z
  * narrows the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile` and `renderSidecars`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly GeneratorSignal[]>;
+const signalsArraySchema = brandSignalArray<GeneratorSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. In-flight sprints on disk may carry a bare top-level array from an
@@ -141,8 +142,6 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
 
 /**
  * Generator contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const generatorOutputContract: AiOutputContract<GeneratorSignal> = {
   schemaVersion: 1,

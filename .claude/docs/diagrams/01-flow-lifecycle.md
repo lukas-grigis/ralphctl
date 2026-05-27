@@ -15,7 +15,7 @@ sequenceDiagram
     participant Factory as flows/&lt;flow&gt;/flow.ts
     participant Runner as chain/run/runner.ts
     participant Bus as EventBus
-    participant Sinks as TUI · chain.log · console
+    participant Sinks as TUI · events.ndjson · console
 
     User->>UI: pick flow
     UI->>Registry: read FlowManifest + triggers

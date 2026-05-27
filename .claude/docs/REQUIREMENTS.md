@@ -36,7 +36,7 @@ it done; when a behaviour regresses, untick it.
       `typescript-result` imports.
 - [ ] **Storage paths** — `resolveStoragePaths` honours `RALPHCTL_HOME`; on-disk layout is
       `<root>/{config,data,state}/…`. Per-sprint directory contains `sprint.json` + `execution.json` +
-      `tasks.json` + `chain.log` + `progress.md` + per-flow sandbox folders.
+      `tasks.json` + `events.ndjson` + `progress.md` + per-flow sandbox folders.
 - [ ] **Cross-project sprint lock** — `<stateRoot>/locks/sprints/<sprint-id>.lock` blocks two ralphctl
       processes from racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS`.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
@@ -51,8 +51,8 @@ it done; when a behaviour regresses, untick it.
       `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
-- [x] **Persistent chain.log** — every `Implement` (and other long-running) chain run appends its trace to
-      `<sprintDir>/chain.log`, bracketed by `=== chain-run <id> <flowId> started <iso> ===` /
+- [x] **Persistent events.ndjson** — every `Implement` (and other long-running) chain run appends its trace to
+      `<sprintDir>/events.ndjson`, bracketed by `=== chain-run <id> <flowId> started <iso> ===` /
       `… completed/failed/aborted …` delimiters. Survives TUI exit; `tail -f`-friendly.
 - [ ] **Session scoping** — `AsyncLocalStorage` tags every log / signal emission with the owning chain's
       session id. Outside any chain, `currentSessionId()` returns `undefined`.

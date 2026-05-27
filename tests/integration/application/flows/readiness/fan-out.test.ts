@@ -113,8 +113,10 @@ const recordingWriteFile = (): { write: WriteFile; writes: Array<{ path: string;
 };
 
 /**
- * Settings builder — five per-flow rows pointing at the requested per-flow providers. Models
+ * Settings builder — six per-flow rows pointing at the requested per-flow providers. Models
  * are valid catalog entries for each provider so the discriminated union accepts the record.
+ * `createPr` mirrors refine's provider — the row was added late; tests that don't care about
+ * it just inherit refine's choice.
  */
 const buildAi = (per: {
   refine: 'claude-code' | 'github-copilot' | 'openai-codex';
@@ -134,6 +136,7 @@ const buildAi = (per: {
     implement: { generator: rowFor(per.implement), evaluator: rowFor(per.implement) },
     readiness: rowFor(per.readiness),
     ideate: rowFor(per.ideate),
+    createPr: rowFor(per.refine),
   };
 };
 

@@ -1,6 +1,6 @@
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import type { DetectInstalledProvidersOptions } from '@src/integration/system/detect-cli.ts';
+import type { DetectInstalledProvidersOptions } from '@src/integration/system/_engine/detect-cli.ts';
 
 export interface SettingsSetProviderDeps {
   readonly settingsRepo: SettingsRepository;

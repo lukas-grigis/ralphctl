@@ -35,7 +35,6 @@ export interface ClipboardError {
   readonly message: string;
 }
 
-/** @public */
 export type CopyToClipboard = (text: string) => Promise<Result<void, ClipboardError>>;
 
 interface HelperCommand {
@@ -140,7 +139,6 @@ export interface CreateCopyToClipboardOptions {
  * — when one returns `no-helper` (binary missing) we try the next; any other error is returned
  * as-is. On platforms without a known helper the adapter returns `unsupported-platform` on every
  * invocation so the TUI hotkey can surface "clipboard unavailable" without spawning anything.
- * @public
  */
 export const createCopyToClipboard = (opts: CreateCopyToClipboardOptions = {}): CopyToClipboard => {
   const spawn = opts.spawn ?? (nodeSpawn as Spawn);

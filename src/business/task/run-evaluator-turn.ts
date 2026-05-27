@@ -1,11 +1,11 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
 import {
-  type InProgressTask,
   recordRunningAttemptCritique,
   recordRunningAttemptEvaluation,
   recordRunningAttemptWarning,
-} from '@src/domain/entity/task.ts';
+} from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import { computePlateauVerdict, type PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';

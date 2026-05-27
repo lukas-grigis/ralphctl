@@ -26,6 +26,8 @@ pnpm build             # tsup + tsx scripts/build-assets.ts → dist/cli.mjs + d
 pnpm typecheck         # tsc --noEmit
 pnpm lint              # ESLint
 pnpm test              # vitest
+pnpm coverage          # vitest run --coverage (ad-hoc threshold check; not in verify)
+pnpm verify:coverage   # alias for pnpm coverage
 pnpm format:check      # prettier
 pnpm deadcode          # knip (clean tree exits 0)
 pnpm gen:flow <name>   # scaffold a new flow (manifest + stub + tests)
@@ -74,7 +76,7 @@ Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
 is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
 `Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShow/Clear`, `LogEvent`).
-TUI panels subscribe live; `<sprintDir>/chain.log` sink subscribes for durable post-hoc trace. **One bus per
+TUI panels subscribe live; `<sprintDir>/events.ndjson` sink subscribes for durable post-hoc trace. **One bus per
 `wire()` call** — production / test bus state cannot cross-talk.
 
 **Logger publishes to the same bus.** `createEventBusLogger({ eventBus, clock })` is the only Logger factory;
@@ -168,8 +170,8 @@ the two sessions can run on different providers / models / effort levels (effort
 described under _AI Settings_ below apply per-row). Default: generator runs `claude-code` /
 `claude-opus-4-7`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
 side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
-`ideate`) keeps the flat `{ provider, model, effort? }` row shape; the analogous generator-evaluator
-split for the `plan` flow is deferred to future work.
+`ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
+generator-evaluator split for the `plan` flow is deferred to future work.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
@@ -203,11 +205,14 @@ per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>`
 
 ## AI Settings
 
-`settings.ai` is a flat record: one optional global `ai.effort` plus five per-flow rows
-`ai.{refine,plan,implement,readiness,ideate}`, each `{ provider, model, effort? }`. `detect-scripts` /
-`detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no dedicated settings rows.
-Per-flow `model` accepts the matching provider's catalog or any non-empty trimmed custom string; per-flow
-`effort` validates against the provider's native vocabulary.
+`settings.ai` is a flat record: one optional global `ai.effort` plus six per-flow rows
+`ai.{refine,plan,implement,readiness,ideate,createPr}`, each `{ provider, model, effort? }`.
+`detect-scripts` / `detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no
+dedicated settings rows. The `createPr` row drives the optional AI step inside `create-pr --ai`; settings
+files written by ralphctl ≤ 0.8.x are missing it and the load path silently seeds it from `ai.refine` (no
+`schemaVersion` bump; canonical shape lands on the next save). Per-flow `model` accepts the matching
+provider's catalog or any non-empty trimmed custom string; per-flow `effort` validates against the
+provider's native vocabulary.
 
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
@@ -298,9 +303,18 @@ when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
-**Implement is strictly sequential.** Tasks run one at a time in topological order over `Task.blockedBy`,
-linearised via `topologicalReorder` (Kahn's). `settings.concurrency.maxParallelTasks` is wired but only `1`
-is supported in 0.7.0; concurrent fan-out needs a new chain primitive (deferred).
+**Implement is strictly sequential.** Tasks run one at a time in the order the planner emits them —
+`Task.order` is the canonical ordering field, set as `i + 1` (array index) by
+`parseTaskList` in `src/integration/ai/prompts/_engine/parse-task-list.ts`. The harness trusts the
+planner's emission order to be topologically sound; it doesn't sort by `Task.blockedBy` at any point.
+`parseTaskList` validates `blockedBy` references against known task ids (dangling-ref check) and
+persists them on each task, but cycle detection lives separately in `validateTaskGraph`
+(`src/domain/entity/task-graph.ts`) and is currently only invoked by `validateSprintConsistency` —
+NOT wired into the implement-launch path. Launch-time sort is status-only: `in_progress` tasks first
+(so a resumed sprint picks up the previously aborted task before any fresh work), then `todo`;
+V8's stable sort preserves the planner-assigned `Task.order` within each group.
+`settings.concurrency.maxParallelTasks` is wired but only `1` is supported in 0.7.0; concurrent
+fan-out needs a new chain primitive (deferred).
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
@@ -354,7 +368,7 @@ mid-task carries auth / context / tool-availability hazards that warrant a follo
 (`src/application/ui/tui/views/execute-view.tsx`). The `TaskRoundStarted` event (carrying `roundN`,
 `attemptN`, `totalCap`) drives the `round N/M` display — replacing the old React-ref high-water mark.
 
-**Persistent `<sprintDir>/chain.log`** — every implement-style run appends its full trace, bracketed by
+**Persistent `<sprintDir>/events.ndjson`** — every implement-style run appends its full trace, bracketed by
 `=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters. `tail -f`-friendly.
 
 **`progress.md` is snapshot-rendered**, not streaming. `renderProgressMarkdown(state)` regenerates from
@@ -364,7 +378,7 @@ The old `progress-file-sink` is removed.
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
 
-**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `chain.log` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
+**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` → `events.ndjson` → mined per-task by `state-projection.ts` → `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
 
 `settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 

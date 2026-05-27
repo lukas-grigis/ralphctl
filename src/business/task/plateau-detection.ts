@@ -131,8 +131,6 @@ const trigrams = (text: string): ReadonlySet<string> => {
  * Jaccard similarity over character trigrams in `[0, 1]`. Two identical strings return `1`;
  * two strings sharing no trigrams return `0`. Cheap by construction — both inputs are
  * already short (one critique paragraph each).
- *
- * @public
  */
 export const trigramJaccard = (a: string, b: string): number => {
   const ta = trigrams(a);
@@ -156,8 +154,6 @@ const CRITIQUE_SHIFT_SIMILARITY = 0.5;
  * exemption rules.
  *
  * Pure. The caller wires the threshold from `settings.harness.plateauThreshold`.
- *
- * @public
  */
 export const computePlateauVerdict = (
   priorTurns: readonly PlateauTurnRecord[],

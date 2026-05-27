@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * (e.g. "added foo", "renamed bar to baz"). Validates the inbound `signals.json` shape;
  * the per-leaf contract composes this into a discriminated union of accepted kinds.
  */
-/** @public */
 export const changeSignalSchema = z.object({
   type: z.literal('change'),
   text: z.string(),

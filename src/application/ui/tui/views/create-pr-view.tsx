@@ -108,9 +108,7 @@ export const CreatePrView = (): React.JSX.Element => {
           templateLoader: deps.templateLoader,
           writeFile: deps.writeFile,
           logger: deps.logger,
-          // TODO(settings.ai.createPr): reuse refine's row until a dedicated create-pr
-          // row + settings migration lands. Easy to grep later.
-          model: deps.settings.ai.refine.model,
+          model: deps.settings.ai.createPr.model,
         },
         { useAi }
       );

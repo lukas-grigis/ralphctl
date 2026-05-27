@@ -19,57 +19,15 @@
  * yields `body=''` and `sessionId=undefined`, so callers receive a well-shaped envelope even on
  * truly empty input rather than throwing.
  *
- * Replaces the prior single-envelope `--output-format json` parser: stream-json is required so
- * the idle-stdout watchdog at `src/integration/ai/providers/_engine/idle-watchdog.ts` sees
- * progress bytes during long sessions. Plain `json` buffers everything until end-of-session and
- * the watchdog SIGTERMs healthy children mid-task.
+ * Port-shaped types (`ClaudeStreamLine`, `ClaudeStreamParser`, `ClaudeEnvelope`, `ClaudeUsage`)
+ * live in `_engine/claude-stream.ts`; this file holds the factory only.
  */
 
-/**
- * Per-spawn token counts pulled from the final `{type:"result"}` event's `usage` object.
- * Every field is optional because cache reads / creations are zero on a stateless spawn and
- * Claude omits the field rather than emitting `0`. Cumulative — already the spawn total at
- * the moment Claude emits the result event, no in-process aggregation needed.
- */
-export interface ClaudeUsage {
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly cacheReadTokens?: number;
-  readonly cacheCreationTokens?: number;
-}
-
-export interface ClaudeEnvelope {
-  /** Assistant body — `.result` from the `{type:"result"}` event, or `''` if none arrived. */
-  readonly body: string;
-  /** Earliest `session_id` seen on any event (init wins under normal operation). */
-  readonly sessionId: string | undefined;
-  /** Model name from the `system` init event, when present. */
-  readonly model: string | undefined;
-  /** Token counts from the final `result` event's `usage` object, when present. */
-  readonly usage: ClaudeUsage;
-}
-
-export interface ClaudeStreamLine {
-  /** Raw line text (no trailing newline). */
-  readonly raw: string;
-  /** Parsed JSON object when the line was a valid JSON record; absent for non-JSON noise. */
-  readonly json?: Record<string, unknown>;
-}
-
-export interface ClaudeStreamParser {
-  /** Feed a chunk of stdout. Calls `onLine` once per complete newline-terminated line. */
-  feed(chunk: string, onLine: (line: ClaudeStreamLine) => void): void;
-  /** Flush a trailing partial line if any (called once on child close). */
-  flush(onLine: (line: ClaudeStreamLine) => void): void;
-  /**
-   * Accumulate state from a parsed line. Called by the adapter for every line `feed`/`flush`
-   * yields, so the running `{ body, sessionId, model }` snapshot stays internal to the parser
-   * and there is one canonical reduction over the stream.
-   */
-  ingest(line: ClaudeStreamLine): void;
-  /** Snapshot the accumulated envelope (body / sessionId / model so far). */
-  snapshot(): ClaudeEnvelope;
-}
+import type {
+  ClaudeStreamLine,
+  ClaudeStreamParser,
+  ClaudeUsage,
+} from '@src/integration/ai/providers/_engine/claude-stream.ts';
 
 const stringField = (obj: Record<string, unknown>, ...names: readonly string[]): string | undefined => {
   for (const name of names) {
@@ -103,6 +61,9 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     if (raw.length === 0) return;
     if (raw.startsWith('{') && raw.endsWith('}')) {
       try {
+        // Why: stdout-stream records arrive at high volume — a Zod schema per record
+        // is overkill. `ingest()` downstream extracts known fields with narrow
+        // `stringField` / `numberField` helpers; unknown keys are ignored.
         const json = JSON.parse(raw) as Record<string, unknown>;
         onLine({ raw, json });
         return;

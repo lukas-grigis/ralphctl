@@ -79,7 +79,6 @@ const collapseEvidence = (text: string): string => {
   return `${collapsed.slice(0, EVIDENCE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
 };
 
-/** @public */
 export const EvaluatorFailurePanel = ({
   evaluation,
   isFinalRound,

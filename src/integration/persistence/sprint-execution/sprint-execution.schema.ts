@@ -59,11 +59,12 @@ export const fromJsonSprintExecution = (
 /**
  * The persisted file carries `schemaVersion`; the in-memory domain entity does not. Strip
  * the field at the schema boundary so the rest of the codebase consumes a pure domain shape.
+ * Structural compatibility with `SprintExecution` is asserted by the `_checkSprintExecution`
+ * tripwire below.
  */
-const PersistedSchema = SprintExecutionSchema.transform((value) => {
-  const next: Record<string, unknown> = { ...value };
-  delete next.schemaVersion;
-  return next as unknown as SprintExecution;
+const PersistedSchema = SprintExecutionSchema.transform(({ schemaVersion: _omit, ...rest }) => {
+  void _omit;
+  return rest;
 });
 
 /**

@@ -7,7 +7,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Zod schema for the `learning` AI signal — a cross-task insight pinned under `## Learnings`
  * in `progress.md`.
  */
-/** @public */
 export const learningSignalSchema = z.object({
   type: z.literal('learning'),
   text: z.string(),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createClaudeStreamParser, type ClaudeStreamLine } from '@src/integration/ai/providers/claude/parse-stream.ts';
+import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
+import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 
 /** Drive a parser through one or more chunks; return the accumulated envelope + collected lines. */
 const drive = (chunks: readonly string[]) => {

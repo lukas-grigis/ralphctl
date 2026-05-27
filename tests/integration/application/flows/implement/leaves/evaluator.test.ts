@@ -8,7 +8,7 @@ import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';

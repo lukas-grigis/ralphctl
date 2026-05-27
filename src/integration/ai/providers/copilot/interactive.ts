@@ -6,11 +6,14 @@ import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { InteractiveCopilotDeps } from '@src/integration/ai/providers/_engine/copilot-interactive-deps.ts';
+import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { uuidv7 } from '@src/domain/value/uuid7.ts';
 
 /**
  * Interactive `copilot` adapter. Spawns the GitHub Copilot CLI with `stdio: 'inherit'` so the
@@ -41,23 +44,6 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
  * Docs: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
  */
 
-/** Test seam — same shape as `node:child_process.spawn` with `stdio: 'inherit'`. */
-export type InteractiveSpawn = (
-  command: string,
-  args: readonly string[],
-  options: { readonly stdio: 'inherit'; readonly cwd: string }
-) => ChildProcess;
-
-export interface InteractiveCopilotDeps {
-  readonly eventBus: EventBus;
-  /** Test seam: defaults to `node:child_process.spawn`. */
-  readonly spawn?: InteractiveSpawn;
-  /** Override the binary name for tests / packaging. Defaults to `'copilot'`. */
-  readonly command?: string;
-  /** Test seam for prompt-file reads. Defaults to `fs.readFile`. */
-  readonly readFile?: (path: string) => Promise<string>;
-}
-
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
   nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
 
@@ -67,6 +53,7 @@ export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): 
   const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
   const command = deps.command ?? 'copilot';
   const readFile = deps.readFile ?? defaultReadFile;
+  const newSessionId = deps.newSessionId ?? uuidv7;
 
   return {
     async run(input: InteractiveAiProviderInput) {
@@ -113,13 +100,27 @@ export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): 
         })
         .map((p) => `--add-dir=${p}`);
 
-      const args = [...dirFlags, `--model=${input.model}`, '--allow-all-tools', '-i', prompt];
+      // Pre-generate the session id and pass it via `--session-id=<uuid>`. Mirrors the
+      // headless `session-id.txt` sidechannel: the parent can't read the child's stdout while
+      // the user owns the terminal (stdio-inherit), but Copilot's CLI accepts a harness-supplied
+      // id at launch, so we know it without parsing logs. Persisted next to `outputFile`
+      // post-exit and returned on success.
+      const sessionId = newSessionId();
+
+      const args = [
+        ...dirFlags,
+        `--model=${input.model}`,
+        '--allow-all-tools',
+        `--session-id=${sessionId}`,
+        '-i',
+        prompt,
+      ];
 
       deps.eventBus.publish({
         type: 'log',
         level: 'info',
         message: `interactive-copilot: starting session (cwd=${String(input.cwd)})`,
-        meta: { promptFile: String(input.promptFile), outputFile: String(input.outputFile) },
+        meta: { promptFile: String(input.promptFile), outputFile: String(input.outputFile), sessionId },
         at: IsoTimestamp.now(),
       });
 
@@ -148,19 +149,28 @@ export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): 
         at: IsoTimestamp.now(),
       });
 
-      // TODO(sessionId): see claude/interactive.ts for the rationale — stdio-inherit means the
-      // parent can't read stdout while the user owns the terminal. Copilot doesn't expose a
-      // per-session logfile, so capture here needs PTY-mirroring. Per requirements REQ-3,
-      // absence is non-fatal.
-      if (exitCode === 0) return Result.ok({});
-      return Result.error(
-        new InvalidStateError({
-          entity: 'interactive-copilot',
-          currentState: 'session-exit',
-          attemptedAction: 'run',
-          message: `interactive-copilot: session exited with code ${String(exitCode ?? 'null')}`,
-        })
-      );
+      if (exitCode !== 0) {
+        return Result.error(
+          new InvalidStateError({
+            entity: 'interactive-copilot',
+            currentState: 'session-exit',
+            attemptedAction: 'run',
+            message: `interactive-copilot: session exited with code ${String(exitCode ?? 'null')}`,
+          })
+        );
+      }
+
+      const sidWrote = await persistSessionIdFile(input.outputFile, sessionId);
+      if (sidWrote !== undefined && !sidWrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: 'interactive-copilot: failed to write sessionId file — resume re-attach may need log parsing',
+          meta: { error: sidWrote.error.message },
+          at: IsoTimestamp.now(),
+        });
+      }
+      return Result.ok({ sessionId });
     },
   };
 };

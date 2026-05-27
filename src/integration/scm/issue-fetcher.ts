@@ -181,6 +181,10 @@ const fetchGitHub = async (
   }
   let parsedJson: GhIssueResponse;
   try {
+    // Why: `gh issue view --json` output is shape-narrowed via the `GhIssueResponse`
+    // interface with every field optional + nullable-checked at each use-site below
+    // (`?.` / `?? ''`). A missing or malformed field collapses to the default rather
+    // than throwing — sufficient for a best-effort issue fetch.
     parsedJson = JSON.parse(result.value.stdout) as GhIssueResponse;
   } catch (cause) {
     return Result.error(
@@ -235,6 +239,10 @@ const fetchGitLabNotes = async (
   }
   let notes: readonly GlabNote[];
   try {
+    // Why: `glab issue note list --output json` produces an array of records that we
+    // narrow via the `GlabNote` interface with every field optional; downstream `?.` /
+    // `?? ''` access tolerates missing fields. Non-array payloads still parse, then
+    // `.filter()` / `.sort()` no-op cleanly.
     notes = JSON.parse(result.value.stdout) as readonly GlabNote[];
   } catch (cause) {
     return {
@@ -275,6 +283,8 @@ const fetchGitLab = async (
   }
   let parsedJson: GlabIssueResponse;
   try {
+    // Why: `glab issue view --output json` is shape-narrowed via the `GlabIssueResponse`
+    // interface with every field optional + nullable-checked at each use-site below.
     parsedJson = JSON.parse(result.value.stdout) as GlabIssueResponse;
   } catch (cause) {
     return Result.error(

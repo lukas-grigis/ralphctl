@@ -339,7 +339,7 @@ const noBarrels: Linter.RuleEntry = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**'],
+    ignores: ['dist/**', 'node_modules/**', '.claude/worktrees/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -376,6 +376,30 @@ export default [
       'sonarjs/no-element-overwrite': 'warn',
       'sonarjs/no-identical-conditions': 'warn',
       'sonarjs/no-collection-size-mischeck': 'warn',
+      // ── SonarQube-style maintainability rules (warn-only, calibrated) ─────
+      // These surface long-running drift without blocking. The B-group TUI splits
+      // will mop up the bulk of the warnings; they're intentionally not errors so
+      // refactor work can land incrementally.
+      'sonarjs/cognitive-complexity': ['warn', 15],
+      'sonarjs/no-duplicate-string': 'warn',
+      'sonarjs/no-identical-functions': 'warn',
+      'sonarjs/no-collapsible-if': 'warn',
+      'sonarjs/no-redundant-jump': 'warn',
+      'sonarjs/prefer-immediate-return': 'warn',
+    },
+  },
+
+  // ── core ESLint size + complexity rules (warn-only) ──────────────────────────
+  // Calibrated thresholds: complexity 15 (matches sonarjs/cognitive-complexity);
+  // max-lines-per-function 80; max-lines 400 per file. Tests are exempted from
+  // size limits because table-driven specs and integration scaffolding routinely
+  // exceed both budgets without indicating production-code drift.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      complexity: ['warn', 15],
+      'max-lines-per-function': ['warn', { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true }],
+      'max-lines': ['warn', { max: 400, skipBlankLines: true, skipComments: true }],
     },
   },
 

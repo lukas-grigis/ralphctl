@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyEscalation, decideEscalation, escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';

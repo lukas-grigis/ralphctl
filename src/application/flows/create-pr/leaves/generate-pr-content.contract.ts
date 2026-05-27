@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AiSignal, PrContentSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/signals/pr-content/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -40,7 +41,7 @@ const signalsArraySchemaRaw = z
  * narrows the static type so the contract's generic argument flows precisely through
  * `validateSignalsFile`.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly CreatePrSignal[]>;
+const signalsArraySchema = brandSignalArray<CreatePrSignal>(signalsArraySchemaRaw);
 
 const prContentSidecar: SidecarRule<'pr-content'> = {
   signalKind: 'pr-content',
@@ -68,8 +69,6 @@ const createPrExampleSignals: readonly CreatePrSignal[] = [
 
 /**
  * create-pr contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const generatePrContentOutputContract: AiOutputContract<CreatePrSignal> = {
   schemaVersion: 1,

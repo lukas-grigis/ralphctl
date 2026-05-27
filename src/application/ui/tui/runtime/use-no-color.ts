@@ -14,5 +14,4 @@
 
 import { useMemo } from 'react';
 
-/** @public */
 export const useNoColor = (): boolean => useMemo(() => Boolean(process.env['NO_COLOR']), []);

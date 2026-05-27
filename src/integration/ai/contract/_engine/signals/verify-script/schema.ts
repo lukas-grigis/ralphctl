@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * post-task verify gate. Audit [02] drops this kind from the new contract in favour of
  * `verify-skill-proposal`; retained for in-flight readiness sessions on older flows.
  */
-/** @public */
 export const verifyScriptSignalSchema = z.object({
   type: z.literal('verify-script'),
   command: z.string(),

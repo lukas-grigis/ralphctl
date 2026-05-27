@@ -13,8 +13,6 @@ import type { ArtifactRef, NamedArtifactRef } from '@src/integration/ai/readines
  * regular file. Missing paths resolve to `undefined` (a normal absence); permission / I/O
  * failures surface as {@link ProbeError}. Shared across per-tool readiness probes so they all
  * classify FS errors identically.
- *
- * @public
  */
 export const probeFile = async (path: string): Promise<Result<ArtifactRef | undefined, ProbeError>> => {
   try {
@@ -37,8 +35,6 @@ export const probeFile = async (path: string): Promise<Result<ArtifactRef | unde
  * immediate sub-directory of `dir` that contains the `childMarker` file becomes a
  * {@link NamedArtifactRef} whose `name` is the slugified directory name. Sub-directories
  * without the marker, or with names that don't slugify, are silently skipped.
- *
- * @public
  */
 export const probeNamedDirCollection = async (
   dir: string,
@@ -67,8 +63,6 @@ export const probeNamedDirCollection = async (
  * Walk a flat `<dir>/<name>.md` collection (e.g. `.claude/commands/<name>.md`). Each `.md`
  * file becomes a {@link NamedArtifactRef} keyed on the slugified base name. Non-`.md` entries
  * and names that don't slugify are silently skipped.
- *
- * @public
  */
 export const probeNamedFileCollection = async (dir: string): Promise<Result<NamedArtifactRef[], ProbeError>> => {
   const entries = await listDir(dir);
@@ -91,8 +85,6 @@ export const probeNamedFileCollection = async (dir: string): Promise<Result<Name
 /**
  * List a directory's immediate entries. Missing or non-directory paths resolve to an empty
  * list (normal absence); permission / I/O failures surface as {@link ProbeError}.
- *
- * @public
  */
 export const listDir = async (dir: string): Promise<Result<string[], ProbeError>> => {
   try {
@@ -133,8 +125,6 @@ export const statSafely = async (path: string): Promise<Result<Stats | undefined
  * Read a UTF-8 text file. Missing files resolve to `undefined` (a normal absence); permission
  * / I/O failures surface as {@link ProbeError}. Used by probes that need to spelunk the
  * contents of a config file (e.g. extracting hook commands from `settings.json`).
- *
- * @public
  */
 export const readFileSafely = async (path: AbsolutePath): Promise<Result<string | undefined, ProbeError>> => {
   try {

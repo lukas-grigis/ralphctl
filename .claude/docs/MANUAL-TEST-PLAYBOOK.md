@@ -133,12 +133,12 @@ its alt-screen behaviour differs.
 
 ## Scenario 5 — forensic CLI commands (snapshot + runs)
 
-**Setup:** a sprint that has had at least one implement run (so `chain.log` and `progress.md` exist).
+**Setup:** a sprint that has had at least one implement run (so `events.ndjson` and `progress.md` exist).
 
 1. Run `ralphctl snapshot` (or `ralphctl snapshot --sprint <id>`)
 2. **Expected:** one static text frame of the sprint state prints to stdout — task counts, branch, last-run
    outcome. Exit 0. No Ink mount.
-3. Verify `chain.log` contains `=== chain-run <id> <flowId> started <iso> ===` / `… completed …` brackets
+3. Verify `events.ndjson` contains `=== chain-run <id> <flowId> started <iso> ===` / `… completed …` brackets
    around each run.
 4. Run `ralphctl runs list`
 5. **Expected:** table of per-run forensic artifacts (run id, flow, started, outcome, step counts). Exit 0.
@@ -204,7 +204,7 @@ For every prompt context (an editor, a select, an input):
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
 5. AI exits; verify scripts re-run; evaluator re-runs
-6. **Expected:** progress.md gets the new round's entries; chain.log captures the trace
+6. **Expected:** progress.md gets the new round's entries; events.ndjson captures the trace
 7. From the same flow, submit an EMPTY input (just Ctrl+D)
 8. **Expected:** the loop exits cleanly, sprint stays in `review`
 

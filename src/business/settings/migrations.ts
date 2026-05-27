@@ -32,7 +32,7 @@ export interface SettingsMigration {
  * `readiness` floored to `medium` (a read-only inventory round-trip — `xhigh` is wasteful).
  * Runs silently; the user does not see a banner or warning when the migration fires.
  */
-const FLOW_KEYS = ['refine', 'plan', 'implement', 'readiness', 'ideate'] as const;
+const FLOW_KEYS = ['refine', 'plan', 'implement', 'readiness', 'ideate', 'createPr'] as const;
 
 const migrateV1ToV2 = (raw: Record<string, unknown>): Record<string, unknown> => {
   const aiRaw = raw['ai'];
@@ -48,7 +48,10 @@ const migrateV1ToV2 = (raw: Record<string, unknown>): Record<string, unknown> =>
   };
   const nextAi: Record<string, unknown> = { effort: 'high' };
   for (const flow of FLOW_KEYS) {
-    const modelRaw = models[flow];
+    // v1 never had a `models.createPr` slot — the harness reused `models.refine` for the
+    // PR-content draft. Fall back to refine here so the migrated row points at a sensible
+    // model rather than emitting an off-catalog blank.
+    const modelRaw = flow === 'createPr' ? models['refine'] : models[flow];
     const row: Record<string, unknown> = {
       provider,
       ...(typeof modelRaw === 'string' ? { model: modelRaw } : {}),

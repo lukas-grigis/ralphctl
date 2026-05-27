@@ -12,18 +12,11 @@
  * delegates to {@link createFilesystemSkillsAdapter}.
  */
 
-import type { AiProvider } from '@src/domain/entity/settings.ts';
-import type { Logger } from '@src/business/observability/logger.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
+import type { SkillsAdapterFactoryDeps } from '@src/integration/ai/skills/_engine/skills-adapter-factory-deps.ts';
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
-
-export interface SkillsAdapterFactoryDeps {
-  readonly provider: AiProvider;
-  /** Optional logger — surfaces best-effort `.git/info/exclude` write failures as warnings. */
-  readonly logger?: Logger;
-}
 
 export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter => {
   const logger = deps.logger;

@@ -52,6 +52,15 @@ export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
     'ralphctl-abstraction-first',
     'ralphctl-minimal-scaffolding',
   ],
+  // `createPr` is the camelCase FlowId for the kebab-case orchestration flow `create-pr`.
+  // The mapping lives in the registry test (and in the launcher's `aiFlowIdFor`). Skills
+  // mirror the rest — same default bundle.
+  createPr: [
+    'ralphctl-alignment',
+    'ralphctl-iterative-review',
+    'ralphctl-abstraction-first',
+    'ralphctl-minimal-scaffolding',
+  ],
 };
 
 /** Type-safe lookup. Returns the configured skill ids or an empty list. */

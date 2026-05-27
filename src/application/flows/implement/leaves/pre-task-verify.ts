@@ -6,7 +6,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import { runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task.ts';
+import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';

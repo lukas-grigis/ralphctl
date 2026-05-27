@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * preceding `task-verified` signal. Ordering is enforced by the consuming leaf (or schema-
  * level refinement), not the type.
  */
-/** @public */
 export const taskCompleteSignalSchema = z.object({
   type: z.literal('task-complete'),
   timestamp: IsoTimestampSchema,

@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * recommends linking into the agentic working directory. Empty `names` is the canonical
  * "no suggestions" state.
  */
-/** @public */
 export const skillSuggestionsSignalSchema = z.object({
   type: z.literal('skill-suggestions'),
   names: z.array(z.string()).readonly(),

@@ -45,7 +45,6 @@ export interface RoundOutcomeInput {
  * Round-level verdict. `passed` / `failed` mirror the evaluator's two terminal verdicts; the
  * synthesised `plateau` covers "two consecutive failed evals with identical failed-dimension
  * sets" which the harness handles distinctly.
- * @public
  */
 export type RoundVerdict = 'passed' | 'failed' | 'plateau';
 

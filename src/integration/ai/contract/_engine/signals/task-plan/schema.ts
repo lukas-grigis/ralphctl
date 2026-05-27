@@ -12,7 +12,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Wave 6 will replace `tasksJson` with a structured `TaskImportSpec[]` once the prompt asks
  * the AI to write the wrapper directly.
  */
-/** @public */
 export const taskPlanSignalSchema = z.object({
   type: z.literal('task-plan'),
   tasksJson: z.string(),

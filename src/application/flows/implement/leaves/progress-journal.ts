@@ -92,8 +92,6 @@ const attemptDurationMs = (attempt: Attempt | undefined): number | undefined => 
 /**
  * Factory — `progress-journal-<taskId>`. Reads ctx.tasks to find the just-settled task by id
  * (settle-attempt clears `currentTask` so we look up by the captured taskId), then appends.
- *
- * @public
  */
 export const progressJournalLeaf = (
   deps: ProgressJournalLeafDeps,

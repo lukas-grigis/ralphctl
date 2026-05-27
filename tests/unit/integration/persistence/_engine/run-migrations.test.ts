@@ -11,6 +11,7 @@ const targetSchema = z.object({
   name: z.string(),
   flags: z.array(z.string()),
 });
+type Target = z.infer<typeof targetSchema>;
 
 describe('readSchemaVersion', () => {
   it('returns 0 when the field is missing', () => {
@@ -38,7 +39,7 @@ describe('runMigrations', () => {
       0: (raw: unknown): unknown => ({ ...(raw as Record<string, unknown>), name: 'fromV0' }),
       1: (raw: unknown): unknown => ({ ...(raw as Record<string, unknown>), schemaVersion: 2, flags: [] }),
     };
-    const result = runMigrations({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
+    const result = runMigrations<Target>({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value).toEqual({ schemaVersion: 2, name: 'fromV0', flags: [] });
@@ -50,7 +51,7 @@ describe('runMigrations', () => {
       0: (raw: unknown): unknown => ({ ...(raw as Record<string, unknown>), name: 'fromBare' }),
       1: (raw: unknown): unknown => ({ ...(raw as Record<string, unknown>), schemaVersion: 2, flags: ['a'] }),
     };
-    const result = runMigrations({}, 2, migrations, targetSchema, SAMPLE_PATH);
+    const result = runMigrations<Target>({}, 2, migrations, targetSchema, SAMPLE_PATH);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.name).toBe('fromBare');
@@ -66,7 +67,13 @@ describe('runMigrations', () => {
         return raw;
       },
     };
-    const result = runMigrations({ schemaVersion: 2, name: 'x', flags: [] }, 2, migrations, targetSchema, SAMPLE_PATH);
+    const result = runMigrations<Target>(
+      { schemaVersion: 2, name: 'x', flags: [] },
+      2,
+      migrations,
+      targetSchema,
+      SAMPLE_PATH
+    );
     expect(result.ok).toBe(true);
     expect(calls).toBe(0);
   });
@@ -76,7 +83,7 @@ describe('runMigrations', () => {
       // missing the `0 → 1` step
       1: (raw: unknown): unknown => raw,
     };
-    const result = runMigrations({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
+    const result = runMigrations<Target>({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(MigrationGapError);
@@ -93,7 +100,7 @@ describe('runMigrations', () => {
       1: (raw: unknown): unknown => raw,
     };
     // Missing the required `name` field — final parse fails.
-    const result = runMigrations({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
+    const result = runMigrations<Target>({ schemaVersion: 0 }, 2, migrations, targetSchema, SAMPLE_PATH);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ParseError);

@@ -9,8 +9,6 @@ import type { Task } from '@src/domain/entity/task.ts';
  * the per-task fields the live TUI was reading from that projection.
  *
  * Pure — no I/O. Same Task in, same projection out.
- *
- * @public
  */
 export interface TaskProjection {
   readonly id: string;
@@ -24,7 +22,6 @@ export interface TaskProjection {
   readonly medianRoundDurationMs?: number;
 }
 
-/** @public */
 export interface SprintState {
   readonly tasks: readonly TaskProjection[];
 }

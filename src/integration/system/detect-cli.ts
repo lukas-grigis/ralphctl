@@ -1,5 +1,11 @@
 import { spawn } from 'node:child_process';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type {
+  DetectInstalledProvidersOptions,
+  InstallPlatform,
+  ProviderInstallGuidance,
+  WhichFn,
+} from '@src/integration/system/_engine/detect-cli.ts';
 
 /**
  * Map provider id → the binary the user must have on PATH for that provider to function.
@@ -16,32 +22,17 @@ export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
 };
 
 /**
- * The three desktop OS families ralphctl supports. `darwin` / `linux` / `win32` mirror Node's
- * `process.platform` values; any other value the runtime might report (`aix`, `freebsd`, …)
- * is mapped onto `linux` by {@link resolveInstallPlatform}, since the POSIX install paths apply.
- */
-export type InstallPlatform = 'darwin' | 'linux' | 'win32';
-
-/**
- * Per-provider install guidance derived from each vendor's official setup docs. Each OS lists
- * commands in recommended order — the first entry is the one ralphctl points operators at
- * inline; the rest surface as "alternatives" in the richer render. `docsUrl` is the canonical
- * setup page operators can open when none of the listed commands fit their environment.
- *
- * Sources (verified against vendor docs at the time of writing):
+ * Per-vendor install guidance entries. Sources (verified against vendor docs at the time of
+ * writing):
  *   - claude-code:    https://docs.claude.com/en/docs/claude-code/setup
  *   - github-copilot: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli
  *                     plus https://cli.github.com (for the underlying `gh` install)
  *   - openai-codex:   https://github.com/openai/codex
  *
  * Single source of truth — adding a new provider means one entry here plus the existing entry
- * in `PROVIDER_BINARY`.
+ * in `PROVIDER_BINARY`. Port-shaped types ({@link ProviderInstallGuidance}, {@link InstallPlatform})
+ * live in `_engine/detect-cli.ts`.
  */
-export interface ProviderInstallGuidance {
-  readonly docsUrl: string;
-  readonly commandsByPlatform: Readonly<Record<InstallPlatform, readonly string[]>>;
-}
-
 export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInstallGuidance>> = {
   'claude-code': {
     docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup',
@@ -143,13 +134,6 @@ export const renderProviderInstallGuidance = (
 };
 
 /**
- * Test seam — async predicate that returns `true` when the binary resolves on the current
- * `PATH`. The production implementation shells out to `command -v <binary>`; tests inject a
- * stub that returns based on a mocked set.
- */
-export type WhichFn = (binary: string) => Promise<boolean>;
-
-/**
  * Default `which`-equivalent. Spawns `command -v <binary>` with `stdio: 'pipe'` (suppressing
  * output) and resolves based on the exit code. POSIX-portable: `command -v` is a shell builtin
  * mandated by the spec, available in every POSIX shell.
@@ -173,11 +157,6 @@ const defaultWhich: WhichFn = (binary) =>
     child.on('error', () => settle(false));
     child.on('exit', (code) => settle(code === 0));
   });
-
-export interface DetectInstalledProvidersOptions {
-  /** Test seam — defaults to the `command -v <binary>` implementation. */
-  readonly which?: WhichFn;
-}
 
 /**
  * Probe PATH for every supported provider's CLI binary; return the set of providers whose

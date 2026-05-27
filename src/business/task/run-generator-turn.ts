@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { type InProgressTask, recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';

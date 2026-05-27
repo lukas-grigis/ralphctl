@@ -9,7 +9,8 @@ import {
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { type InProgressTask, latestCritique } from '@src/domain/entity/task.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';

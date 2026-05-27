@@ -47,8 +47,6 @@ import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attem
  * `rate-limit` — backoff/retry is the right response even if a partial `signals.json` from
  * a previous attempt happens to be on disk (per-round outputDir means it shouldn't be, but
  * the precedence keeps the semantics safe under reuse).
- *
- * @public
  */
 export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider';
 

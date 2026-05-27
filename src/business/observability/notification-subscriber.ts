@@ -81,8 +81,6 @@ interface NotificationDecision {
 /**
  * Pure decision function over an AppEvent. Exported so unit tests can pin the trigger taxonomy
  * without driving the bus end-to-end.
- *
- * @public
  */
 export const classifyEventForNotification = (event: AppEvent): NotificationDecision | undefined => classify(event);
 

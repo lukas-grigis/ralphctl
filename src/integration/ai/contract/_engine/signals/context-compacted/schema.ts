@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * context-window auto-compaction. Both token counts and the preserved-topics list are
  * optional; providers vary on what they expose.
  */
-/** @public */
 export const contextCompactedSignalSchema = z.object({
   type: z.literal('context-compacted'),
   beforeTokens: z.number().optional(),

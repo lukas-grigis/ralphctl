@@ -4,6 +4,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import { parseTaskList } from '@src/integration/ai/prompts/_engine/parse-task-list.ts';
 import { PlanBlockedSchema } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
@@ -23,6 +24,8 @@ import { PlanBlockedSchema } from '@src/integration/ai/prompts/_engine/task-impo
 export interface ParsePlanOutputInput {
   readonly project: Project;
   readonly sprint: Sprint;
+  /** Optional logger; forwarded to {@link parseTaskList} for the topological-reorder log line. */
+  readonly logger?: Logger;
 }
 
 export const parsePlanOutput = (
@@ -64,5 +67,6 @@ export const parsePlanOutput = (
   return parseTaskList(json, {
     project: ctx.project,
     mode: { kind: 'lookup', tickets: approvedTickets },
+    ...(ctx.logger !== undefined ? { logger: ctx.logger } : {}),
   });
 };

@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  failCurrentAttempt,
-  latestCritique,
-  recordRunningAttemptCritique,
-  startNextAttempt,
-  type InProgressTask,
-} from '@src/domain/entity/task.ts';
+import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptCritique, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
+import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import { FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const withCritique = (task: InProgressTask, critique: string): InProgressTask => {

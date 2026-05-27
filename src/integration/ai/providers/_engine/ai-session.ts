@@ -1,4 +1,3 @@
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -15,8 +14,13 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * rather than silently using only `cwd`. Fail loud beats silent surprise.
  */
 export interface AiSession {
-  /** Fully-rendered prompt — branded so a non-validated string cannot be passed. */
-  readonly prompt: Prompt;
+  /**
+   * Fully-rendered prompt body. At construction sites the caller passes a `Prompt` (the
+   * branded validated string from `prompts/_engine/`); the port declares `string` because
+   * `Prompt` is a subtype and every consumer (spawn stdin, argv) only needs `string`. The
+   * brand still gates upstream — only validated prompts can flow into an `AiSession`.
+   */
+  readonly prompt: string;
   /** Primary working directory the AI session opens in. */
   readonly cwd: AbsolutePath;
   /**

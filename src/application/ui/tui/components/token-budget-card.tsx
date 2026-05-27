@@ -66,7 +66,6 @@ const pctColor = (pct: number): string => {
   return inkColors.error;
 };
 
-/** @public */
 export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): React.JSX.Element => {
   const title = `Tokens · ${shortSession(sessionId)}`;
   if (usage === undefined) {

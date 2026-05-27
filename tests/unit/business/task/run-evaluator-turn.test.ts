@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { recordRunningAttemptVerification } from '@src/domain/entity/task.ts';
+import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';

@@ -45,7 +45,6 @@ void _dimensionTypeCheck;
  *  - `status: 'malformed'` is the escape hatch the harness uses when the AI emits dimension
  *     rows but no terminal verdict; no consistency check applies.
  */
-/** @public */
 export const evaluationSignalSchema = z
   .object({
     type: z.literal('evaluation'),

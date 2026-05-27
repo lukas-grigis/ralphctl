@@ -5,6 +5,7 @@ import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signa
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { taskPlanSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-plan/schema.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
 /**
@@ -42,7 +43,7 @@ const signalsArraySchemaRaw = z
  * under `exactOptionalPropertyTypes`) and the strict-optional `PlanSignal` union the
  * leaf consumes downstream. The runtime check is the source of truth.
  */
-const signalsArraySchema = signalsArraySchemaRaw as unknown as z.ZodType<readonly PlanSignal[]>;
+const signalsArraySchema = brandSignalArray<PlanSignal>(signalsArraySchemaRaw);
 
 /**
  * Legacy → v1 wrapping. Today's plan leaf synthesises a bare top-level array of signals from
@@ -74,8 +75,6 @@ const planExampleSignals: readonly PlanSignal[] = [
 
 /**
  * Plan contract — audit-[09]. Composed only from `contract/_engine/` building blocks.
- *
- * @public
  */
 export const planOutputContract: AiOutputContract<PlanSignal> = {
   schemaVersion: 1,

@@ -88,13 +88,7 @@ export const fromJsonSprint = (
   input: unknown,
   filePath = 'sprint.json'
 ): Result<Sprint, MigrationGapError | ParseError> =>
-  runMigrations<Sprint>(
-    input,
-    SPRINT_SCHEMA_VERSION,
-    sprintMigrations,
-    SprintSchema as unknown as z.ZodType<Sprint>,
-    filePath
-  );
+  runMigrations<Sprint>(input, SPRINT_SCHEMA_VERSION, sprintMigrations, SprintSchema, filePath);
 
 export const toJsonSprint = (sprint: Sprint): unknown => ({
   schemaVersion: SPRINT_SCHEMA_VERSION,

@@ -49,6 +49,6 @@ export interface CreatePrDeps {
   readonly writeFile: WriteFile;
   /** Logger — used by the AI sub-chain to surface fallback reasons at warn level. */
   readonly logger: Logger;
-  /** Model identifier — picked from `settings.ai.refine.model` for now; see flow.ts TODO. */
+  /** Model identifier — picked from `settings.ai.createPr.model` by the CLI / TUI surfaces. */
   readonly model: string;
 }

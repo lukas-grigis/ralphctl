@@ -65,7 +65,6 @@ export type AttemptWarning =
  * Stored alongside `signalOrExitCode` (POSIX signal name or numeric exit code, when known).
  * The TUI's resume-from-aborted banner reads both fields to render a one-line parenthetical
  * (`(SIGTERM)`, `(rate limit)`, etc.).
- * @public
  */
 export type AbortCause =
   | 'user-cancel'
@@ -88,7 +87,6 @@ export type AbortCause =
  *                      the same clock value as the new running attempt's `startedAt` for
  *                      in-process aborts. For cross-process resumes (the process-crash path)
  *                      it's the resume clock, which is the closest proxy we have.
- * @public
  */
 export interface RecoveryContext {
   readonly fromAttemptN: number;
@@ -124,7 +122,6 @@ export type VerifyRunOutcome =
  * Discriminates whether a {@link VerifyRun} was captured BEFORE the AI generator turn
  * (the baseline-state snapshot) or AFTER it (the harness's authoritative verdict over the
  * AI's `task-verified` self-report).
- * @public
  */
 export type VerifyRunPhase = 'pre' | 'post';
 
@@ -143,7 +140,6 @@ export type VerifyRunPhase = 'pre' | 'post';
  * The full untruncated stdout/stderr lives at
  * `<sprintDir>/logs/verify/<task-id>/{pre,post}-attempt-<N>.log` (per audit-[01]); readers
  * derive the path from `taskId + attemptN + phase` and lazy-load via the `LogTailReader` port.
- * @public
  */
 export interface VerifyRun {
   readonly phase: VerifyRunPhase;
@@ -171,7 +167,6 @@ export interface VerifyRun {
  *
  * Absent when attribution can't be determined (e.g. pre-check spawn-error, or check-script
  * skipped entirely). The TUI baseline-health card aggregates these counts per sprint.
- * @public
  */
 export type Attribution = 'clean' | 'regressed' | 'baseline-broken' | 'fixed-baseline';
 

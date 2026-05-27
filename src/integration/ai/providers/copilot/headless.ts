@@ -3,18 +3,16 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import type { CopilotProviderDeps } from '@src/integration/ai/providers/_engine/copilot-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
-import {
-  createCopilotStreamParser,
-  type CopilotStreamLine,
-} from '@src/integration/ai/providers/copilot/parse-stream.ts';
+import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
+import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -27,7 +25,6 @@ import {
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
-import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+).
@@ -72,24 +69,10 @@ import type { CopilotUsage } from '@src/integration/ai/providers/copilot/parse-s
  * Docs:
  *   - https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
  *   - https://docs.github.com/en/copilot/how-tos/copilot-cli/allowing-tools (tool-kind syntax)
+ *
+ * Composition-root inputs ({@link CopilotProviderDeps}) live in `_engine/` so the contract is
+ * a port, not an implementation detail of this file.
  */
-export interface CopilotProviderDeps {
-  readonly rateLimitRetries: number;
-  readonly eventBus: EventBus;
-  readonly spawn?: ProviderSpawn;
-  /** Test seam: overrides the executable name. Defaults to `'copilot'`. */
-  readonly command?: string;
-  /**
-   * Milliseconds of stdio silence before the adapter SIGTERMs a wedged child. Defaults to
-   * {@link DEFAULT_IDLE_MS} (5 min). Lower in tests to exercise the watchdog path.
-   */
-  readonly idleMs?: number;
-  /**
-   * Wait schedule between rate-limit retries. Defaults to {@link DEFAULT_BACKOFF_SCHEDULE}.
-   * Tests pass `[0, 0, …]` to skip the waits.
-   */
-  readonly backoffSchedule?: readonly number[];
-}
 
 const RATE_LIMIT_RE = /rate.?limit/i;
 
@@ -153,7 +136,7 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   for (const root of resolveWritableRoots(session)) {
     args.push(`--add-dir=${String(root)}`);
   }
-  args.push('-p', session.prompt as unknown as string);
+  args.push('-p', session.prompt);
   return Result.ok(args);
 };
 

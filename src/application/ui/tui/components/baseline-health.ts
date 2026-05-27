@@ -22,7 +22,6 @@ import type { Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
 /** Stale threshold for "baseline state may be out of date", in ms. */
 const STALE_MS = 30 * 60 * 1000;
 
-/** @public */
 export type BaselineTier = 'green' | 'amber' | 'red' | 'unknown';
 
 /** @public */
@@ -31,7 +30,6 @@ export interface BaselineHealth {
   readonly label: string;
 }
 
-/** @public */
 export interface AttributionCounts {
   readonly clean: number;
   readonly regressed: number;
@@ -39,7 +37,6 @@ export interface AttributionCounts {
   readonly baselineBroken: number;
 }
 
-/** @public */
 export const countAttributions = (tasks: readonly Task[]): AttributionCounts => {
   let clean = 0;
   let regressed = 0;
@@ -60,7 +57,6 @@ export const countAttributions = (tasks: readonly Task[]): AttributionCounts => 
 /**
  * Walk every attempt across every task and return the most recent {@link VerifyRun} for the
  * given phase. Ordered by `ranAt`. Returns `undefined` when no row exists.
- * @public
  */
 export const latestVerifyRun = (tasks: readonly Task[], phase: 'pre' | 'post'): VerifyRun | undefined => {
   let latest: VerifyRun | undefined;
@@ -95,7 +91,6 @@ export interface SynthesiseBaselineHealthInput {
   readonly now: number;
 }
 
-/** @public */
 export const synthesiseBaselineHealth = ({ execution, tasks, now }: SynthesiseBaselineHealthInput): BaselineHealth => {
   const taskList = tasks ?? [];
   const counts = countAttributions(taskList);

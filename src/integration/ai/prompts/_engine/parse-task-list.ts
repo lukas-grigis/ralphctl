@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
-import { createTask, type TodoTask } from '@src/domain/entity/task.ts';
+import type { TodoTask } from '@src/domain/entity/task.ts';
+import { createTask } from '@src/domain/entity/task-factory.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { TicketId as TicketIdValue } from '@src/domain/value/id/ticket-id.ts';
@@ -7,6 +8,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import type { Logger } from '@src/business/observability/logger.ts';
 import { TaskImportListSchema, type TaskImportSpec } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 import type { z } from 'zod';
 
@@ -57,6 +59,12 @@ export type ParseTaskListMode =
 export interface ParseTaskListInput {
   readonly project: Project;
   readonly mode: ParseTaskListMode;
+  /**
+   * Optional logger — when supplied, the parser emits one `info` line iff the topological
+   * reorder rearranged tasks vs the planner's emission order. Omitted in tests / callers that
+   * don't observe the bus; behaviour is otherwise identical.
+   */
+  readonly logger?: Logger;
 }
 
 export const parseTaskList = (
@@ -171,7 +179,133 @@ export const parseTaskList = (
     tasks.push(created.value);
   }
 
-  return Result.ok(tasks);
+  // Pass 3: topological reorder via Kahn's algorithm.
+  // Dependencies must precede dependents; emission index is the stable tiebreaker so a
+  // planner that already emitted tasks in topological order produces a strict no-op.
+  // Cycles surface as a ParseError naming the unprocessed subset.
+  const reordered = topologicallyReorder(tasks);
+  if (!reordered.ok) return Result.error(reordered.error);
+  if (reordered.value.changed) {
+    input.logger?.info(
+      `[parseTaskList] reordered ${String(reordered.value.tasks.length)} of ${String(tasks.length)} tasks to satisfy blockedBy graph`
+    );
+  }
+
+  return Result.ok(reordered.value.tasks);
+};
+
+interface ReorderedTasks {
+  readonly tasks: readonly TodoTask[];
+  /** `true` iff Kahn's produced a different sequence vs the input emission order. */
+  readonly changed: boolean;
+}
+
+/**
+ * Kahn's algorithm — topologically order tasks so every `dependsOn` precedes its dependent.
+ * Ties (multiple in-degree-zero nodes) are broken by lowest original emission index so an
+ * already-sound input is preserved verbatim. The renumbered `order` field is rewritten to
+ * match the post-sort 1-based array position; persistence and TUI rendering rely on that
+ * equality.
+ *
+ * Cycle detection — Kahn's terminates with unprocessed nodes when a cycle exists. The result
+ * names at least one task id in the cycle subset; operators can grep from there.
+ */
+const topologicallyReorder = (tasks: readonly TodoTask[]): Result<ReorderedTasks, ParseError> => {
+  if (tasks.length === 0) return Result.ok({ tasks, changed: false });
+
+  // Index by id for O(1) lookup; index by id → emission position for the tiebreaker.
+  const indexById = new Map<string, number>();
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (task === undefined) continue;
+    indexById.set(String(task.id), i);
+  }
+
+  // In-degree counts: how many of each task's `dependsOn` are still unsatisfied.
+  const inDegree = new Map<number, number>();
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (task === undefined) continue;
+    inDegree.set(i, task.dependsOn.length);
+  }
+
+  // Successor adjacency: for each task index, the list of indices that depend on it.
+  const successors = new Map<number, number[]>();
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (task === undefined) continue;
+    for (const depId of task.dependsOn) {
+      const depIdx = indexById.get(String(depId));
+      if (depIdx === undefined) continue; // pass 2 already validated dangling refs
+      const list = successors.get(depIdx) ?? [];
+      list.push(i);
+      successors.set(depIdx, list);
+    }
+  }
+
+  // Ready set — task indices with in-degree 0, kept sorted-ascending so we always pick the
+  // lowest emission index next. A sorted array is fine here: task lists are O(10²) at worst.
+  const ready: number[] = [];
+  for (let i = 0; i < tasks.length; i++) {
+    if ((inDegree.get(i) ?? 0) === 0) ready.push(i);
+  }
+  // Already in emission order since we pushed in ascending i; no sort needed initially.
+
+  const sortedIndices: number[] = [];
+  while (ready.length > 0) {
+    const next = ready.shift()!;
+    sortedIndices.push(next);
+    for (const succ of successors.get(next) ?? []) {
+      const remaining = (inDegree.get(succ) ?? 0) - 1;
+      inDegree.set(succ, remaining);
+      if (remaining === 0) {
+        // Insert preserving ascending emission-index order.
+        let lo = 0;
+        let hi = ready.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (ready[mid]! < succ) lo = mid + 1;
+          else hi = mid;
+        }
+        ready.splice(lo, 0, succ);
+      }
+    }
+  }
+
+  if (sortedIndices.length !== tasks.length) {
+    // Cycle: at least one task never reached in-degree 0. Surface the unprocessed subset.
+    const unprocessed: string[] = [];
+    for (let i = 0; i < tasks.length; i++) {
+      if (!sortedIndices.includes(i)) {
+        const t = tasks[i];
+        if (t !== undefined) unprocessed.push(String(t.id));
+      }
+    }
+    return Result.error(
+      new ParseError({
+        subCode: 'schema-mismatch',
+        message: `task-list: dependency cycle detected among tasks: ${unprocessed.join(', ')}`,
+        hint: "remove the offending blockedBy edge(s) — Kahn's could not order these tasks",
+      })
+    );
+  }
+
+  // Detect whether order changed; if not, return the input unchanged so callers see a no-op.
+  let changed = false;
+  for (let i = 0; i < sortedIndices.length; i++) {
+    if (sortedIndices[i] !== i) {
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) return Result.ok({ tasks, changed: false });
+
+  // Renumber `order` to match the post-sort 1-based position.
+  const reordered: TodoTask[] = sortedIndices.map((origIdx, newIdx) => {
+    const task = tasks[origIdx]!;
+    return { ...task, order: newIdx + 1 };
+  });
+  return Result.ok({ tasks: reordered, changed: true });
 };
 
 interface ResolvedTicketRef {

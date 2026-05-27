@@ -9,8 +9,6 @@ import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
  * failing verify script in a TUI popover without streaming an unbounded body. Callers
  * passing a smaller `maxBytes` get the cap they ask for; passing a larger value is honoured
  * but discouraged for live-render paths.
- *
- * @public
  */
 export const DEFAULT_LOG_TAIL_BYTES = 4096;
 

@@ -7,7 +7,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Zod schema for the `note` AI signal — a low-stakes narrative pin under `## Notes`
  * in `progress.md`.
  */
-/** @public */
 export const noteSignalSchema = z.object({
   type: z.literal('note'),
   text: z.string(),

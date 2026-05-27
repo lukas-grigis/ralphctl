@@ -2,7 +2,8 @@ import { Result } from '@src/domain/result.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import { type Task, type TaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import { type TaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 export interface SprintConsistencyInput {

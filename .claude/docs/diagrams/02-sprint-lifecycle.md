@@ -64,7 +64,7 @@ sequenceDiagram
 ├── sprint.json          ← planning aggregate (tickets, status, project ref)
 ├── execution.json       ← runtime audit (branch, PR URL, per-repo setupRunAt)
 ├── tasks.json           ← task list with status + attempts
-├── chain.log            ← EventBus trace (opt-in via RALPHCTL_DEBUG_TRACE)
+├── events.ndjson            ← EventBus trace (opt-in via RALPHCTL_DEBUG_TRACE)
 ├── progress.md          ← human-readable journal (one section per settled attempt)
 ├── logs/setup/          ← full setup-script stdout/stderr per repo
 ├── logs/verify/         ← full verify-script stdout/stderr per task per attempt

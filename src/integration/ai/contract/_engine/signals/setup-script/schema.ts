@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * setup gate. Audit [02] drops this kind from the new contract in favour of the
  * `setup-skill-proposal` sidecar; retained for in-flight readiness sessions on older flows.
  */
-/** @public */
 export const setupScriptSignalSchema = z.object({
   type: z.literal('setup-script'),
   command: z.string(),

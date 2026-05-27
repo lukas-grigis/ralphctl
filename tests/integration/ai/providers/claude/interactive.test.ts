@@ -4,10 +4,8 @@ import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
-import {
-  createInteractiveClaudeProvider,
-  type InteractiveSpawn,
-} from '@src/integration/ai/providers/claude/interactive.ts';
+import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
+import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;

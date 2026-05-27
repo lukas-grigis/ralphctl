@@ -38,7 +38,6 @@ export interface CancelScopeOverlayProps {
   readonly onDismiss: () => void;
 }
 
-/** @public */
 export const CancelScopeOverlay = ({
   attemptElapsedMs,
   remainingTaskCount,

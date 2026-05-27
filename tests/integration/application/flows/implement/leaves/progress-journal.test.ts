@@ -24,7 +24,7 @@ import {
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
-import { markTaskBlocked } from '@src/domain/entity/task.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 

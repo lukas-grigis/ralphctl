@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * renders as `<sprintDir>/readiness/<repo-id>/setup-skill.md` and installs as
  * `<repo>/<parentDir>/skills/setup/SKILL.md` after operator approval.
  */
-/** @public */
 export const setupSkillProposalSignalSchema = z.object({
   type: z.literal('setup-skill-proposal'),
   content: z.string(),

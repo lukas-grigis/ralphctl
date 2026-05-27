@@ -8,7 +8,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Body is markdown prose; uncapped on persistence per audit [03]. The harness projects the
  * body onto the `PendingTicket` entity via `refineTicketUseCase`; no sidecar is written.
  */
-/** @public */
 export const refinedTicketSignalSchema = z.object({
   type: z.literal('refined-ticket'),
   body: z.string(),

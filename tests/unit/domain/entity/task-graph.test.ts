@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type Task, validateTaskGraph } from '@src/domain/entity/task.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import { validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
 
 describe('validateTaskGraph', () => {

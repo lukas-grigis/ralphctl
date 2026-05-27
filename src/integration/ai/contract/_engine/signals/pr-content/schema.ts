@@ -11,7 +11,6 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
  * Closed for modification (OCP): future PR-authoring extensions (labels, reviewers,
  * draft-rationale, …) MUST land as additional signal kinds — never by widening this one.
  */
-/** @public */
 export const prContentSignalSchema = z.object({
   type: z.literal('pr-content'),
   title: z.string(),
