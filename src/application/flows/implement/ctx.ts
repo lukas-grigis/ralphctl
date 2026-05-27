@@ -19,7 +19,8 @@ export type { GenEvalExit, RunTaskVerdict };
  *  - `execution` — set by `loadSprintExecutionLeaf`.
  *  - `tasks` — set by `loadTasksLeaf`; mutated by per-task leaves so persistence carries the
  *    latest transitions.
- *  - `progressFile` — absolute path to `<sprintDir>/progress.md`, set by `ensureProgressFileLeaf`.
+ *  - `progressFile` — absolute path to `<sprintDir>/progress.md`, supplied via `opts.progressFile`
+ *    (derived by the launcher); appended to by the `progress-journal` leaves.
  *  - `currentTaskId` / `currentTask` — written by `start-attempt` for the in-flight task; consumed
  *    by gen-eval leaves, `commit-task`, and `settle-attempt`.
  *  - `genEvalTurn` — turn counter inside the gen-eval loop, incremented by `generator` leaf.

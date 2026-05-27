@@ -62,9 +62,9 @@ it done; when a behaviour regresses, untick it.
 - [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler
       level; one Zod schema per kind under `integration/ai/contract/_engine/signals/<kind>/schema.ts`;
       `validateSignalsFile` rejects unknown shapes with a precise hint.
-- [x] **Harness-owned output writes** — `progress.md` (snapshot-rendered, not streamed), per-round
-      `prompt.md` and `outcome.md`, `decisions.log`, and `tasks.json` are written by the harness, never by
-      the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
+- [x] **Harness-owned output writes** — `progress.md` (append-only journal — header at creation, one section
+      appended per settled attempt), per-round `prompt.md` and `outcome.md`, and `tasks.json` are written by
+      the harness, never by the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
 
 ## Flow registry
 
@@ -132,8 +132,9 @@ Status flow: `draft → active → review → done`.
 - [x] **Per-round artifacts** — generator and evaluator prompts written to
       `rounds/<N>/{generator,evaluator}/prompt.md` before each spawn; `outcome.md` written to
       `rounds/<N>/outcome.md` after settlement.
-- [x] **Decisions log** — `<sprintDir>/decisions.log` captures AI-emitted `<decision>` tags;
-      merged into `progress.md § Decisions`.
+- [x] **Decision capture** — AI-emitted `<decision>` tags accumulate per-attempt on the implement ctx and
+      render as the `### Decisions` subsection of each `progress.md` journal entry (audit-[07] retired the
+      standalone `decisions.log` sink).
 - [x] **Notifications** — terminal bell + macOS `osascript` fire on attention events when
       `settings.ui.notifications.enabled` is `true` (default).
 - [x] **Snapshot CLI** — `ralphctl snapshot [--sprint <id>]` renders one deterministic text frame of the
@@ -196,7 +197,7 @@ Status flow: `draft → active → review → done`.
       readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands + one-shot operations:
       `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
       `settings {show,set}`, `project {list,show,remove}`,
-      `sprint {list,show,set-current,activate,close,remove,progress,regenerate-progress}`,
+      `sprint {list,show,set-current,activate,close,remove,progress}`,
       `ticket {list,show,add,remove}`, `task {list,show}`,
       `runs {list,prune}`, `snapshot`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.

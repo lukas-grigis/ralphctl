@@ -76,10 +76,9 @@ Each flow declares a slim `<Flow>Deps` subset of `AppDeps`.
 is the fan-out for chain progress (`ChainStarted`, `ChainStep{Started,Completed,Failed}`,
 `Chain{Completed,Failed,Aborted}`, `TaskAttempt{Started,Evaluated}`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShow/Clear`, `LogEvent`).
-TUI panels subscribe live; `state-projection.ts` subscribes to build the in-memory `SprintState` that
-`progress.md` renders from. The `<sprintDir>/events.ndjson` sink — opt-in via `RALPHCTL_DEBUG_TRACE=1` — also
-subscribes when enabled, for a durable post-hoc trace. **One bus per `wire()` call** — production / test
-bus state cannot cross-talk.
+TUI panels subscribe live; the `<sprintDir>/events.ndjson` sink — opt-in via `RALPHCTL_DEBUG_TRACE=1`, a
+no-op factory otherwise — subscribes when enabled for a durable post-hoc trace. **One bus per `wire()` call**
+— production / test bus state cannot cross-talk.
 
 **Logger publishes to the same bus.** `createEventBusLogger({ eventBus, clock })` is the only Logger factory;
 every `logger.info(...)` emits a `LogEvent`.
@@ -376,14 +375,16 @@ implement-style run appends its full trace, bracketed by `=== chain-run <id> <fl
 with drop-newer back-pressure) so it cannot OOM under high event rate. Default factory is no-op so unset
 envs incur zero memory cost.
 
-**`progress.md` is snapshot-rendered**, not streaming. `renderProgressMarkdown(state)` regenerates from
-the `SprintState` projection at sprint start, after every `settle-attempt-leaf`, and on status transitions.
-The old `progress-file-sink` is removed.
+**`progress.md` is an append-only journal** (audit-[07]), not streamed or regenerated. `init-progress-journal`
+writes a one-time sprint header at creation; after each `settle-attempt-<taskId>` the `progress-journal` leaf
+appends one task-attempt section via `renderJournalEntry` (a pure formatter). It reads no log files — the
+canonical state lives in `tasks.json` / `execution.json`. Appends are best-effort: a write failure is logged
+and the next attempt's append heals the file.
 
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
 
-**AI signal routing.** `<change>` / `<learning>` / `<note>` signals fan out as `HarnessSignalEvent` on the EventBus. `state-projection.ts` subscribes directly to the bus and mines them per-task into `TaskProjection`; `renderProgressMarkdown(state)` then writes `#### Changes` / `#### Learnings` / `#### Notes` in `progress.md`. When `RALPHCTL_DEBUG_TRACE=1` the same events also land in `<sprintDir>/events.ndjson` for debug — but `events.ndjson` is never read back by the harness. `<decision>` signals flow via `decisions-log-sink` → `<sprintDir>/decisions.log` (body capped at 500 chars; render-time clip at 160 chars) → `## Decisions`. `progress.md` ends with a `<!-- machine:begin -->` … `<!-- machine:end -->` JSON block (`sprintId`, `status`, task array) for tooling. **`ralphctl sprint regenerate-progress <id>`** rebuilds `progress.md` from disk without running implement — operator escape hatch when the file is corrupt or entities were edited by hand.
+**AI signal routing.** `<change>` / `<decision>` / `<learning>` / `<note>` signals accumulate per-attempt on the implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the generator / evaluator leaves parse them; `progress-journal` dedupes each list and `renderJournalEntry` writes the per-attempt `### Changes` / `### Decisions` / `### Learnings` / `### Notes` subsections (empty subsections are dropped). The same signals also fan out as `HarnessSignalEvent` on the EventBus for live TUI panels; when `RALPHCTL_DEBUG_TRACE=1` they additionally land in `<sprintDir>/events.ndjson` for debug — never read back by the harness.
 
 `settings.ui.notifications.enabled` (default `true`) gates terminal bell + macOS `osascript`.
 
