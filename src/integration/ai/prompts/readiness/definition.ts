@@ -4,7 +4,7 @@ import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
+import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 

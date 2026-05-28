@@ -17,7 +17,8 @@ single-line verify script by writing `signals.json` to the output directory.
 - Each script is a single shell line — no here-docs, no multi-line bodies.
 - Setup and verify commands reflect the project's own documented contract, not inferred guesses.
 - If no evidence exists for a script class, that signal is absent rather than fabricated.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>
@@ -90,9 +91,21 @@ When `CLAUDE.md` (or equivalent) contains "Verification: `<tool> typecheck && <t
 ```json
 {
   "signals": [
-    { "type": "setup-script", "command": "<tool> install", "timestamp": "..." },
-    { "type": "verify-script", "command": "<tool> typecheck && <tool> lint && <tool> test", "timestamp": "..." },
-    { "type": "note", "text": "Commands lifted verbatim from CLAUDE.md.", "timestamp": "..." }
+    {
+      "type": "setup-script",
+      "command": "<tool> install",
+      "timestamp": "..."
+    },
+    {
+      "type": "verify-script",
+      "command": "<tool> typecheck && <tool> lint && <tool> test",
+      "timestamp": "..."
+    },
+    {
+      "type": "note",
+      "text": "Commands lifted verbatim from CLAUDE.md.",
+      "timestamp": "..."
+    }
   ]
 }
 ```
@@ -102,9 +115,21 @@ When only a manifest exists with install + test scripts and no context file:
 ```json
 {
   "signals": [
-    { "type": "setup-script", "command": "<tool> install", "timestamp": "..." },
-    { "type": "verify-script", "command": "<tool> test", "timestamp": "..." },
-    { "type": "note", "text": "No context file found; commands inferred from manifest scripts.", "timestamp": "..." }
+    {
+      "type": "setup-script",
+      "command": "<tool> install",
+      "timestamp": "..."
+    },
+    {
+      "type": "verify-script",
+      "command": "<tool> test",
+      "timestamp": "..."
+    },
+    {
+      "type": "note",
+      "text": "No context file found; commands inferred from manifest scripts.",
+      "timestamp": "..."
+    }
   ]
 }
 ```
@@ -115,8 +140,16 @@ verify steps:
 ```json
 {
   "signals": [
-    { "type": "setup-script", "command": "mvn -B -DskipTests install", "timestamp": "..." },
-    { "type": "verify-script", "command": "mvn -B verify", "timestamp": "..." },
+    {
+      "type": "setup-script",
+      "command": "mvn -B -DskipTests install",
+      "timestamp": "..."
+    },
+    {
+      "type": "verify-script",
+      "command": "mvn -B verify",
+      "timestamp": "..."
+    },
     {
       "type": "note",
       "text": "Commands lifted from CLAUDE.md; -B disables interactive prompts and ANSI colour for clean persisted logs.",

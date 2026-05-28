@@ -29,7 +29,8 @@ only after every declared step is done and every verification command passes.
 - No test has been removed or disabled to achieve a passing verify run.
 - No file outside the declared implementation steps has been modified — except for the project's
   AI context file (when a declared step calls for it).
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 

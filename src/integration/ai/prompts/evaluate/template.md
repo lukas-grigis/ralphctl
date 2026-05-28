@@ -53,7 +53,8 @@ output contract section at the bottom of this prompt.
 - The critique (when `status: "failed"`) names each failed item using the (a/b/c/d) format defined in
   `<constraints>`.
 - Signal written to `<outputDir>/signals.json` — no other files written.
-  </success_criteria>
+
+</success_criteria>
 
 <task_specification>
 

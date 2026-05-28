@@ -27,7 +27,8 @@ plausible target when the location is unclear).
   concrete reason.
 - No sprint-local identifiers (`AC1`, ticket IDs, task IDs, sprint IDs) appear in any committed artefact —
   name the underlying invariant instead.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <sprint_context>{{SPRINT_CONTEXT}}</sprint_context>

@@ -20,7 +20,8 @@ covers that responsibility for this repo.
   a file you read in this repo or its context files. No training-data generics.
 - Skill bodies are written in second-person, present tense, 4–10 short paragraphs each.
 - `signals.json` is valid JSON that parses against the output contract schema.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>

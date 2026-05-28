@@ -21,7 +21,8 @@ warranted. Write all signals to the `signals.json` path described in `<output_co
 - Setup and verify skill proposals, when emitted, cite only commands that resolve in this specific repo
   (shell commands verified against manifest files, not assumed from language defaults).
 - `signals.json` is valid JSON and passes the harness schema check.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>

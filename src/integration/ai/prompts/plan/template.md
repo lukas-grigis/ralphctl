@@ -23,8 +23,10 @@ Produce a dependency-ordered task array and write it as a `task-plan` signal to
 - The task array forms a valid DAG over `blockedBy` (no cycles; each blocker id exists).
 - `signals.json` is valid JSON and validates against the `task-plan` signal schema.
 - All repository paths in task `projectPath` fields match paths listed in `<repositories>`.
-- If the plan cannot be produced, a `task-plan` signal with a `{ "blocked": "reason" }` payload is emitted — no speculative tasks are invented.
-  </success_criteria>
+- If the plan cannot be produced, a `task-plan` signal with a `{ "blocked": "reason" }` payload is emitted — no
+  speculative tasks are invented.
+
+</success_criteria>
 
 <session_topology>
 Your working directory for this session is the per-sprint plan unit root

@@ -28,7 +28,8 @@ only after the user has approved both phases in sequence.
 - Every `auto`-check verification criterion includes a `command` field; every `manual`-check criterion
   omits it.
 - No task is silently dropped — every requirement produces at least one task.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <idea_title>{{IDEA_TITLE}}</idea_title>

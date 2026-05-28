@@ -22,7 +22,8 @@ approved, covers the happy path plus edge/error cases, and contains no implement
   choices, no database terms).
 - `signals.json` is written exactly once, contains exactly one `refined-ticket` signal, and parses
   as valid JSON.
-  </success_criteria>
+
+</success_criteria>
 
 <inputs>
 <ticket>{{TICKET}}</ticket>
@@ -259,7 +260,8 @@ Field names differ by kind — match the `signals.json` shape below exactly:
 
 - `refined-ticket` (REQUIRED, exactly one) — carries the approved requirements markdown in its `body` field.
 - `note` (OPTIONAL) — narrative annotation in its `text` field; use sparingly for facts worth surfacing to the operator.
-- `learning` (OPTIONAL) — a non-obvious finding about the ticket, in its `text` field, worth recording in the sprint log.
+- `learning` (OPTIONAL) — a non-obvious finding about the ticket, in its `text` field, worth recording in the sprint
+  log.
 - `decision` (OPTIONAL) — a scope or design decision made during the interview, in its `text` field (keep it
   concise — roughly 500 characters).
 

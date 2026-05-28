@@ -1,4 +1,4 @@
-import { promises as fs, type Dirent } from 'node:fs';
+import { type Dirent, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
