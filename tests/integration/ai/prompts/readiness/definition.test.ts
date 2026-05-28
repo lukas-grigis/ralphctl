@@ -8,6 +8,7 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildReadinessPrompt,
   collectArtefactPaths,
+  conventionsPartialName,
   readinessPromptDef,
   renderDetectedArtefacts,
   renderExistingContextFile,
@@ -166,6 +167,7 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
       wireTag: 'claude-md',
       existingContextFile: 'x',
       detectedArtefacts: 'x',
+      targetFileConventions: 'x',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
     });
     expect(result.ok).toBe(false);
@@ -214,5 +216,58 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(body).toContain('"agents-md"');
     expect(body).not.toContain('"claude-md"');
     expect(body).not.toContain('"copilot-instructions"');
+  });
+});
+
+describe('conventionsPartialName', () => {
+  it('maps claude-code → conventions-claude-md', () => {
+    expect(conventionsPartialName('claude-code')).toBe('conventions-claude-md');
+  });
+  it('maps copilot → conventions-copilot-instructions', () => {
+    expect(conventionsPartialName('copilot')).toBe('conventions-copilot-instructions');
+  });
+  it('maps codex → conventions-agents-md', () => {
+    expect(conventionsPartialName('codex')).toBe('conventions-agents-md');
+  });
+});
+
+describe('buildReadinessPrompt — per-tool conventions partial selection', () => {
+  it('injects CLAUDE.md conventions for claude-code (distinctive first-line phrase)', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'claude-code',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    // Distinctive text from conventions-claude-md.md
+    expect(body).toContain("Claude Code's native project context file");
+  });
+
+  it('injects Copilot conventions for copilot (distinctive first-line phrase)', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'copilot',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    // Distinctive text from conventions-copilot-instructions.md
+    expect(body).toContain("GitHub Copilot's native project context file");
+  });
+
+  it('injects AGENTS.md conventions for codex (distinctive first-line phrase)', async () => {
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'codex',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    // Distinctive text from conventions-agents-md.md
+    expect(body).toContain('cross-tool agent context file');
   });
 });

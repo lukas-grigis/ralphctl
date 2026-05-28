@@ -68,8 +68,8 @@ export const renderContractSection = (params: RenderContractSectionParams): stri
   lines.push('other files — the harness renders every operator-readable sidecar from the validated');
   lines.push('signals.');
   lines.push('');
-  lines.push('Use the `Write` tool with the absolute path above — your cwd is the project repo, not');
-  lines.push('the spawn output directory, so a relative `signals.json` would land in the wrong place.');
+  lines.push('Always write to the **absolute path** shown above — do not use a relative path, which');
+  lines.push('would resolve against your working directory and may land in the wrong place.');
   lines.push('');
   if (params.sidecars.length > 0) {
     lines.push('Files the harness will render from your signals (you must NOT write these):');

@@ -30,6 +30,9 @@ warranted. Write all signals to the `signals.json` path described in `<output_co
 <wire_tag>{{WIRE_TAG}}</wire_tag>
 <detected_artefacts>{{DETECTED_ARTEFACTS}}</detected_artefacts>
 <existing_context_file>{{EXISTING_CONTEXT_FILE}}</existing_context_file>
+<target_file_conventions>
+{{TARGET_FILE_CONVENTIONS}}
+</target_file_conventions>
 {{HARNESS_CONTEXT}}
 </inputs>
 
