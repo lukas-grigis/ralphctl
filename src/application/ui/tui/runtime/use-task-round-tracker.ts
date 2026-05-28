@@ -1,3 +1,10 @@
+// Retention audit: BOUNDED via `TASK_ROUND_CAP = 500` LRU on insertion order (was UNBOUNDED before
+// the cap landed — keyed by stable taskId, so a long sprint with many planned tasks would have
+// accumulated entries indefinitely). Each entry is a tiny `{ roundN, totalCap }` pair (~24 bytes),
+// so 500 keys × ref overhead is well under 100 KB. Sound because the monotonic guard still runs
+// first (no-op on stale events, so they never bump LRU order), and the eviction loop only fires
+// on net-new insertions past the cap — mirrors the `use-token-usage.ts` pattern.
+
 /**
  * Per-task gen-eval round tracker — subscribes to `task-round-started` AppEvents and folds
  * them into a Map<taskId, { roundN, totalCap }> indexed by taskId. The latest round per task
@@ -16,6 +23,15 @@
 import { useEffect, useState } from 'react';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+
+/**
+ * Hard cap on retained per-task round entries. A planner can legitimately emit dozens to low
+ * hundreds of tasks per sprint; 500 leaves comfortable headroom while pinning worst-case memory
+ * for a runaway sprint or a stuck process that accumulates state across many sessions. Eviction
+ * order is insertion (delete + re-set on update so the most recently bumped taskId stays hot),
+ * matching the LRU pattern in `use-token-usage.ts`.
+ */
+export const TASK_ROUND_CAP = 500;
 
 export interface TaskRound {
   readonly roundN: number;
@@ -38,7 +54,7 @@ export const useTaskRoundTracker = (bus: EventBus): ReadonlyMap<string, TaskRoun
   const [rounds, setRounds] = useState<ReadonlyMap<string, TaskRound>>(() => new Map());
 
   useEffect(() => {
-    const unsub = bus.subscribe((event) => {
+    return bus.subscribe((event) => {
       if (!isTaskRoundStarted(event)) return;
       setRounds((prev) => {
         const existing = prev.get(event.taskId);
@@ -46,11 +62,19 @@ export const useTaskRoundTracker = (bus: EventBus): ReadonlyMap<string, TaskRoun
         // not regress the high-water mark.
         if (existing !== undefined && existing.roundN >= event.roundN) return prev;
         const next = new Map(prev);
+        // Delete + re-set so an updated taskId jumps to the end of insertion order; the LRU
+        // eviction below then drops the actually-oldest entry, not whichever taskId hashed
+        // first in Map's insertion order.
+        next.delete(event.taskId);
         next.set(event.taskId, { roundN: event.roundN, totalCap: event.totalCap });
+        while (next.size > TASK_ROUND_CAP) {
+          const oldest = next.keys().next().value;
+          if (oldest === undefined) break;
+          next.delete(oldest);
+        }
         return next;
       });
     });
-    return unsub;
   }, [bus]);
 
   return rounds;

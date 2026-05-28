@@ -1,3 +1,9 @@
+// Retention audit: BOUNDED — `TOKEN_USAGE_SESSION_CAP = 100` enforces an LRU on the per-sessionId
+// Map. Each entry is a small `TokenUsage` value object (~100 bytes: provider/model strings plus a
+// handful of numbers), so the cap pins memory at roughly 10 KB regardless of session count. Sound
+// because every insert path goes through the same delete-then-set-then-evict reducer, and the
+// TokenBudgetCard only ever reads the most recent session anyway — evicted entries are unread.
+
 /**
  * Per-session token-usage tracker — subscribes to `TokenUsageEvent` on the EventBus and folds
  * the latest emission per `sessionId` into a `Map<sessionId, TokenUsage>`. Latest event wins
