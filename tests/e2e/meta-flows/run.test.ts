@@ -277,7 +277,7 @@ describe('createRunFlow', () => {
           fileLocker: locker,
           locksRoot,
           appendFile: createAppendFile(),
-          model: 'claude-opus-4-7',
+          model: 'claude-opus-4-8',
         },
       },
       {
@@ -291,7 +291,7 @@ describe('createRunFlow', () => {
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
         providerId: 'claude-code',
       }
     );
@@ -364,7 +364,7 @@ describe('createRunFlow', () => {
           fileLocker: locker,
           locksRoot,
           appendFile: createAppendFile(),
-          model: 'claude-opus-4-7',
+          model: 'claude-opus-4-8',
         },
       },
       {
@@ -378,7 +378,7 @@ describe('createRunFlow', () => {
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
         feedbackFile: absolutePath(f.feedbackFile),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
         providerId: 'claude-code',
         noReview: true,
       }

@@ -8,12 +8,12 @@
  * mistyped CLI input is caught with `InvalidStateError` rather than dispatched as
  * `--model <bogus>`.
  */
-export type ClaudeModel = 'claude-haiku-4-5' | 'claude-sonnet-4-6' | 'claude-opus-4-7';
+export type ClaudeModel = 'claude-haiku-4-5' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
 
 export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   'claude-haiku-4-5',
   'claude-sonnet-4-6',
-  'claude-opus-4-7',
+  'claude-opus-4-8',
 ] as const;
 
 export const isClaudeModel = (s: string): s is ClaudeModel => (CLAUDE_MODELS as readonly string[]).includes(s);

@@ -14,10 +14,10 @@ const harnessConfig: Settings['harness'] = {
 
 const claudeConfig: Settings['ai'] = {
   refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8' },
   },
   readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
   ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
@@ -70,13 +70,13 @@ describe('createAiProvider', () => {
   it('picks the dispatched flow row when rows use different providers', () => {
     const mixed: Settings['ai'] = {
       refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
-      plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
       implement: {
         generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
         evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
       },
       readiness: { provider: 'github-copilot', model: 'gpt-5-mini' },
-      ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
       createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
     };
     const eventBus = createInMemoryEventBus();

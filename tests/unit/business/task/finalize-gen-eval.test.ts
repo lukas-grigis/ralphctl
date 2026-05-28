@@ -213,7 +213,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-7');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(result.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
@@ -221,7 +221,7 @@ describe('finalizeGenEvalUseCase', () => {
 
   it('plateau + already-escalated: no new event, blockedReason set, shouldFailAttempt unset', async () => {
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -236,7 +236,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -260,7 +260,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;

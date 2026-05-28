@@ -29,11 +29,11 @@ describe('createClaudeStreamParser', () => {
       type: 'system',
       subtype: 'init',
       session_id: 'sess-init',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
     });
     const { envelope } = drive([`${init}\n`]);
     expect(envelope.sessionId).toBe('sess-init');
-    expect(envelope.model).toBe('claude-opus-4-7');
+    expect(envelope.model).toBe('claude-opus-4-8');
     // No `result` event yet — body stays empty.
     expect(envelope.body).toBe('');
   });

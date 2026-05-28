@@ -58,13 +58,13 @@ describe('applyEscalation — defensive failure branch (line 120)', () => {
     const alreadyEscalated = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-sonnet-4-6',
-      'claude-opus-4-7'
+      'claude-opus-4-8'
     );
     const bus = createInMemoryEventBus();
 
     const result = applyEscalation({
       task: alreadyEscalated,
-      decision: { kind: 'escalate', from: 'claude-opus-4-7', to: 'some-other-model' },
+      decision: { kind: 'escalate', from: 'claude-opus-4-8', to: 'some-other-model' },
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -151,7 +151,7 @@ describe('warnEscalationMapSelfLoops', () => {
     warnEscalationMapSelfLoops(
       {
         'claude-sonnet-4-6': 'claude-sonnet-4-6', // self-loop → warn
-        'claude-opus-4-7': 'gpt-5.5', // not a self-loop → no warn
+        'claude-opus-4-8': 'gpt-5.5', // not a self-loop → no warn
         'gpt-5-mini': 'gpt-5-mini', // self-loop → warn
       },
       logger

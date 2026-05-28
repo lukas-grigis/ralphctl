@@ -82,7 +82,7 @@ describe('checkCli', () => {
       ai: {
         ...DEFAULT_SETTINGS.ai,
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
         },
       },
@@ -104,7 +104,7 @@ describe('checkCli', () => {
       ai: {
         ...DEFAULT_SETTINGS.ai,
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
         },
       },

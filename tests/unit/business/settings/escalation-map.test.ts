@@ -13,13 +13,13 @@ const baseRecord = {
   schemaVersion: CURRENT_SCHEMA_VERSION,
   ai: {
     refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-    plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
     implement: {
-      generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
-      evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+      evaluator: { provider: 'claude-code', model: 'claude-opus-4-8' },
     },
     readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-    ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
   },
   harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
   logging: { level: 'info' },
@@ -72,7 +72,7 @@ describe('settings.harness — escalateOnPlateau + escalationMap', () => {
       harness: {
         ...baseRecord.harness,
         escalateOnPlateau: true,
-        escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-7' },
+        escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-8' },
       },
     };
     const parsed = SettingsSchema.safeParse(record);
@@ -80,7 +80,7 @@ describe('settings.harness — escalateOnPlateau + escalationMap', () => {
     if (!parsed.success) return;
     expect(parsed.data.harness.escalateOnPlateau).toBe(true);
     expect(parsed.data.harness.escalationMap).toEqual({
-      'claude-sonnet-4-6': 'claude-opus-4-7',
+      'claude-sonnet-4-6': 'claude-opus-4-8',
     });
   });
 

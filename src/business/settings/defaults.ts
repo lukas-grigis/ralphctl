@@ -17,10 +17,10 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<FlowId, string>>>> = {
   'claude-code': {
     refine: 'claude-sonnet-4-6',
-    plan: 'claude-opus-4-7',
-    implement: 'claude-opus-4-7',
+    plan: 'claude-opus-4-8',
+    implement: 'claude-opus-4-8',
     readiness: 'claude-sonnet-4-6',
-    ideate: 'claude-opus-4-7',
+    ideate: 'claude-opus-4-8',
     // PR-content drafting is a single-shot summarisation task — Sonnet matches refine's
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
     createPr: 'claude-sonnet-4-6',
@@ -83,7 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
-      generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
       evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
     },
   },

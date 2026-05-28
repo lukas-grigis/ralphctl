@@ -205,7 +205,7 @@ describe('createPlanFlow — interactive', () => {
       sprintId: sprint.id,
       projectId: project.id,
       providerId: 'claude-code',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       planRoot: planRoot(),
     });
 
@@ -236,7 +236,7 @@ describe('createPlanFlow — interactive', () => {
       sprintId: sprint.id,
       projectId: project.id,
       providerId: 'claude-code',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       planRoot: planRoot(),
     });
     const runner = createRunner({
@@ -274,7 +274,7 @@ describe('createPlanFlow — interactive', () => {
       sprintId: sprint.id,
       projectId: project.id,
       providerId: 'claude-code',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       planRoot: planRoot(),
     });
     const runner = createRunner({

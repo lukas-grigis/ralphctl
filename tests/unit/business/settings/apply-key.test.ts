@@ -88,7 +88,7 @@ describe('applySettingsKey', () => {
   });
 
   it('rejects ai.models.<flow> (v1 key) with `unknown settings key`', () => {
-    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.models.plan', 'claude-opus-4-7');
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.models.plan', 'claude-opus-4-8');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ValidationError);

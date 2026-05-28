@@ -105,7 +105,7 @@ describe('ralphctl settings', () => {
     });
 
     it('rejects the v1 ai.models.<flow> key with `unknown settings key`', async () => {
-      const result = await runCliCaptured(cli, ['settings', 'set', 'ai.models.plan', 'claude-opus-4-7']);
+      const result = await runCliCaptured(cli, ['settings', 'set', 'ai.models.plan', 'claude-opus-4-8']);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("unknown settings key 'ai.models.plan'");
     });
