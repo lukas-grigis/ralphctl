@@ -52,8 +52,12 @@ export const SprintsView = (): React.JSX.Element => {
   const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
     const r = await deps.sprintRepo.list();
     if (!r.ok) throw new Error(r.error.message);
-    const all = r.value;
-    return selection.projectId !== undefined ? all.filter((s) => s.projectId === selection.projectId) : all;
+    const scoped =
+      selection.projectId !== undefined ? r.value.filter((s) => s.projectId === selection.projectId) : r.value;
+    // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first
+    // so this list matches the home view and the cross-project picker. Copy before sorting —
+    // r.value may alias the repository's own array.
+    return [...scoped].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
   }, [selection.projectId]);
 
   const items = state.kind === 'ok' ? state.value : [];
