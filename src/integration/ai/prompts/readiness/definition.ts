@@ -26,6 +26,10 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *    non-empty body.
  *  - `detectedArtefacts` — bullet list of artefact paths discovered by the probe, or an explicit
  *    "no artefacts detected" line when the probe came back absent.
+ *  - `targetFileConventions` — per-provider style guide for the target context file (CLAUDE.md /
+ *    `.github/copilot-instructions.md` / AGENTS.md). Loaded from the matching conventions
+ *    partial via {@link conventionsPartialName} and passed as a rendered string so the template
+ *    can embed it inside `<target_file_conventions>` before the output contract section.
  */
 export interface ReadinessPromptParams {
   readonly repositoryPath: string;
@@ -33,6 +37,12 @@ export interface ReadinessPromptParams {
   readonly wireTag: string;
   readonly existingContextFile: string;
   readonly detectedArtefacts: string;
+  /**
+   * Per-provider style guide body — loaded from the conventions partial selected by
+   * {@link conventionsPartialName}. Placed in the template before `<output_contract>` so the
+   * AI reads format conventions before it sees the output shape.
+   */
+  readonly targetFileConventions: string;
   /**
    * Audit-[09] output contract section — rendered from the readiness `AiOutputContract` by
    * `renderContractSectionFor(readinessOutputContract)`. Tells the AI to write `signals.json`
@@ -55,6 +65,24 @@ export const wireTagFor = (tool: AssistantTool): string => {
       return 'copilot-instructions';
     case 'codex':
       return 'agents-md';
+  }
+};
+
+/**
+ * Map an {@link AssistantTool} to the partial name that holds its target-file conventions.
+ * The partial is loaded by `buildReadinessPrompt` and passed as `targetFileConventions` so
+ * the AI receives per-provider style guidance before it sees the output contract shape.
+ */
+export const conventionsPartialName = (
+  tool: AssistantTool
+): 'conventions-claude-md' | 'conventions-copilot-instructions' | 'conventions-agents-md' => {
+  switch (tool) {
+    case 'claude-code':
+      return 'conventions-claude-md';
+    case 'copilot':
+      return 'conventions-copilot-instructions';
+    case 'codex':
+      return 'conventions-agents-md';
   }
 };
 
@@ -105,6 +133,11 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
     detectedArtefacts: {
       placeholder: 'DETECTED_ARTEFACTS',
       description: 'Bullet list of artefact paths discovered by the probe, or "no artefacts detected".',
+    },
+    targetFileConventions: {
+      placeholder: 'TARGET_FILE_CONVENTIONS',
+      description:
+        'Per-provider style guide for the target context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md). Loaded from the matching conventions partial.',
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -194,16 +227,27 @@ export interface BuildReadinessPromptInput {
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
  * The chain leaf consumes this via function injection.
+ *
+ * Loads the per-provider conventions partial manually (rather than via `partials` auto-load)
+ * so the partial name can be computed dynamically from `currentTool` at call time. The loaded
+ * body is passed as `targetFileConventions` — a regular string parameter — which the template
+ * embeds inside `<target_file_conventions>` before the output contract section.
  */
 export const buildReadinessPrompt = async (
   deps: TemplateLoader,
   input: BuildReadinessPromptInput
-): Promise<Result<Prompt, BuildPromptError>> =>
-  buildPrompt(deps, readinessPromptDef, {
+): Promise<Result<Prompt, BuildPromptError>> => {
+  const partialName = conventionsPartialName(input.currentTool);
+  const conventionsResult = await deps.load(partialName);
+  if (!conventionsResult.ok) return Result.error(conventionsResult.error);
+
+  return buildPrompt(deps, readinessPromptDef, {
     repositoryPath: input.repositoryPath,
     currentTool: renderCurrentTool(input.currentTool),
     wireTag: wireTagFor(input.currentTool),
     existingContextFile: renderExistingContextFile(input.existingContextFile),
     detectedArtefacts: renderDetectedArtefacts(collectArtefactPaths(input.probedState)),
+    targetFileConventions: conventionsResult.value.trim(),
     outputContractSection: input.outputContractSection,
   });
+};
