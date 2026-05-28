@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseIdeateOutput } from '@src/integration/ai/prompts/ideate/parse-output.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { makeApprovedTicket, makeProject } from '@tests/fixtures/domain.ts';
+import { FIXTURE_REPO_PATH, makeApprovedTicket, makeProject } from '@tests/fixtures/domain.ts';
 
 const ticketId = (() => {
   const r = TicketId.parse('01900000-0000-7000-8000-00000000aaaa');
@@ -16,7 +16,7 @@ const sprintId = (() => {
   return r.value;
 })();
 
-const project = makeProject(); // single repo at /tmp/ralph/main-repo
+const project = makeProject(); // single repo at FIXTURE_REPO_PATH
 
 describe('parseIdeateOutput', () => {
   it('happy path: parses requirements + tasks, resolves projectPath, sets ticketId on each', () => {
@@ -27,7 +27,7 @@ describe('parseIdeateOutput', () => {
           id: '1',
           name: 'Add CSV export',
           description: 'wire it up',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['add schema', 'wire controller'],
           verificationCriteria: [{ id: 'C1', assertion: 'tests pass', check: 'manual' }],
           blockedBy: [],
@@ -35,7 +35,7 @@ describe('parseIdeateOutput', () => {
         {
           id: '2',
           name: 'Add UI button',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['add component'],
           verificationCriteria: [{ id: 'C1', assertion: 'button visible', check: 'manual' }],
           blockedBy: ['1'],
@@ -100,7 +100,7 @@ describe('parseIdeateOutput', () => {
         {
           id: '1',
           name: 'X',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['s'],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
           blockedBy: ['ghost'],
@@ -118,7 +118,7 @@ describe('parseIdeateOutput', () => {
       tasks: [
         {
           name: 'X',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: [],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
@@ -142,13 +142,13 @@ describe('parseIdeateOutput', () => {
       tasks: [
         {
           name: 'A',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['s'],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
         {
           name: 'B',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['s'],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
@@ -168,7 +168,7 @@ describe('parseIdeateOutput', () => {
       tasks: [
         {
           name: 'A',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['s'],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
@@ -186,7 +186,7 @@ describe('parseIdeateOutput', () => {
       tasks: [
         {
           name: 'A',
-          projectPath: '/tmp/ralph/main-repo',
+          projectPath: FIXTURE_REPO_PATH,
           steps: ['s'],
           verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
         },
