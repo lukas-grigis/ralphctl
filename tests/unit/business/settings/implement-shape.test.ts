@@ -120,3 +120,76 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
     expect(parsed.data.ai.implement.evaluator.provider).toBe('openai-codex');
   });
 });
+
+describe('settings.ai — retired claude-opus-4-7 migration', () => {
+  const nestedImplement = {
+    generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+    evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+  };
+
+  it('rewrites a flat row pinned to claude-opus-4-7 to claude-opus-4-8 at parse time', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.plan).toEqual({ provider: 'claude-code', model: 'claude-opus-4-8' });
+    // Silent migration does NOT bump the persisted version.
+    expect(parsed.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it('rewrites both nested implement roles pinned to claude-opus-4-7', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        implement: {
+          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        },
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.implement.generator.model).toBe('claude-opus-4-8');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('claude-opus-4-8');
+  });
+
+  it('leaves a non-claude-code row untouched even if its model string collides', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        // Off-catalog custom string on a Codex row — provider guard must spare it.
+        plan: { provider: 'openai-codex', model: 'claude-opus-4-7' },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.plan).toEqual({ provider: 'openai-codex', model: 'claude-opus-4-7' });
+  });
+
+  it('promotes a legacy flat implement row of claude-opus-4-7 and migrates BOTH roles (ordering proof)', () => {
+    const legacyFlatStale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      },
+    };
+    const parsed = SettingsSchema.safeParse(legacyFlatStale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-8' };
+    expect(parsed.data.ai.implement).toEqual({ generator: expectedRow, evaluator: expectedRow });
+  });
+});

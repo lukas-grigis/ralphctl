@@ -137,8 +137,63 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
   return { ...aiObj, createPr: { ...(refine as Record<string, unknown>) } };
 };
 
-/** Compose the two legacy-row preprocessors so both fire on every parse. */
-const promoteLegacyAiRows = (ai: unknown): unknown => seedLegacyCreatePrRow(promoteLegacyImplementRow(ai));
+/** Retired Claude model slug and its catalog successor — rewritten at parse time. */
+const RETIRED_CLAUDE_OPUS = 'claude-opus-4-7';
+const SUCCESSOR_CLAUDE_OPUS = 'claude-opus-4-8';
+
+/** Rewrite a single row in place when it pins the retired Claude Opus model. */
+const migrateRetiredOpusRow = (row: unknown): unknown => {
+  if (typeof row !== 'object' || row === null) return row;
+  const rowObj = row as Record<string, unknown>;
+  if (rowObj['provider'] === 'claude-code' && rowObj['model'] === RETIRED_CLAUDE_OPUS) {
+    return { ...rowObj, model: SUCCESSOR_CLAUDE_OPUS };
+  }
+  return row;
+};
+
+/**
+ * Rewrite any AI row pinned to the now-removed Claude model `claude-opus-4-7` to its catalog
+ * successor `claude-opus-4-8`. The settings schema accepts off-catalog model strings, so a
+ * persisted `claude-opus-4-7` row LOADS fine — but the Claude adapter rejects non-catalog
+ * models at spawn time with `InvalidStateError`. Rewriting at parse time keeps existing users
+ * on a working model across the catalog change.
+ *
+ * Covers the five flat rows (`refine` / `plan` / `readiness` / `ideate` / `createPr`) and the
+ * nested `implement.{generator,evaluator}` pair. Runs at parse time without bumping
+ * {@link CURRENT_SCHEMA_VERSION}; the next `save()` rewrites the file with the new slug so the
+ * migration only fires once per file. Same silence policy as {@link promoteLegacyImplementRow}
+ * and {@link seedLegacyCreatePrRow}: no user notice.
+ *
+ * Returns the input untouched for non-object / null shapes — it runs on raw `unknown` before
+ * validation, so schema validation still surfaces the real error message for malformed input.
+ */
+const migrateRetiredClaudeOpus = (ai: unknown): unknown => {
+  if (typeof ai !== 'object' || ai === null) return ai;
+  const aiObj = ai as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...aiObj };
+  for (const flow of ['refine', 'plan', 'readiness', 'ideate', 'createPr'] as const) {
+    if (flow in next) next[flow] = migrateRetiredOpusRow(next[flow]);
+  }
+  const implement = next['implement'];
+  if (typeof implement === 'object' && implement !== null) {
+    const implObj = implement as Record<string, unknown>;
+    next['implement'] = {
+      ...implObj,
+      generator: migrateRetiredOpusRow(implObj['generator']),
+      evaluator: migrateRetiredOpusRow(implObj['evaluator']),
+    };
+  }
+  return next;
+};
+
+/**
+ * Compose the parse-time preprocessors so they all fire on every parse. Order matters:
+ * {@link migrateRetiredClaudeOpus} runs LAST so it sees the implement row already nested into
+ * `{ generator, evaluator }` (so a legacy flat `claude-opus-4-7` implement row migrates both
+ * roles) and the createPr row already seeded from refine (so a 4-7 seeded createPr migrates too).
+ */
+const promoteLegacyAiRows = (ai: unknown): unknown =>
+  migrateRetiredClaudeOpus(seedLegacyCreatePrRow(promoteLegacyImplementRow(ai)));
 
 /**
  * Per-flow AI settings:
