@@ -392,6 +392,48 @@ describe('createCopilotProvider', () => {
     expect(contents).not.toContain('stale prior content');
   });
 
+  it('publishes one assistant debug LogEvent per recognised body line; skips system/malformed; truncates payloads to 120 chars; does not surface tool_use/tool_result (gap documented in adapter header)', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const longText = 'B'.repeat(200);
+    const assistantLine = JSON.stringify({
+      type: 'assistant.message',
+      data: { content: longText },
+    });
+    // These shapes are NOT recognised by the Copilot parser today — Copilot's stream JSON does
+    // not surface structured tool records, per the adapter header comment. The lines pass
+    // through onLine but produce no structured per-line debug event.
+    const synthToolUse = JSON.stringify({ type: 'tool_use', name: 'Bash', input: { command: 'ls' } });
+    const synthToolResult = JSON.stringify({ type: 'tool_result', tool: 'Bash', is_error: false, content: 'ok' });
+    const systemLine = JSON.stringify({ type: 'system', subtype: 'init', sessionId: 'sess-debug' });
+    const malformed = '{not-json-at-all';
+
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [`${systemLine}\n${assistantLine}\n${synthToolUse}\n${synthToolResult}\n${malformed}\n`],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const assistantEvents = cap.logs.filter((e) => e.level === 'debug' && e.message === 'copilot-provider: assistant');
+    expect(assistantEvents).toHaveLength(1);
+    expect(assistantEvents[0]?.meta).toEqual({ text: `${'B'.repeat(120)}…` });
+
+    // tool_use / tool_result analogues are absent in Copilot's stream — assert no structured
+    // debug event leaked from the synthetic shapes nor from the system/malformed lines.
+    const toolDebugs = cap.logs.filter(
+      (e) =>
+        e.level === 'debug' &&
+        (e.message === 'copilot-provider: tool_use' || e.message === 'copilot-provider: tool_result')
+    );
+    expect(toolDebugs).toHaveLength(0);
+  });
+
   it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
     // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
     // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already

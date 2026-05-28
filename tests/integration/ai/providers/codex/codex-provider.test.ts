@@ -370,6 +370,71 @@ describe('createCodexProvider', () => {
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
   });
 
+  it('publishes one debug LogEvent per recognised item.completed (agent_message / function_call / function_call_output); skips thread.started / turn.completed / malformed; truncates payloads to 120 chars', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const longText = 'C'.repeat(200);
+    const longArgs = `{"path":"${'D'.repeat(200)}"}`;
+    const longOutput = 'E'.repeat(200);
+
+    const threadStarted = JSON.stringify({ type: 'thread.started', thread_id: 'sess-debug' });
+    const agentMsg = JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'item_1', type: 'agent_message', text: longText },
+    });
+    const funcCall = JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'item_2', type: 'function_call', name: 'apply_patch', arguments: longArgs },
+    });
+    const funcOut = JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'item_3', type: 'function_call_output', call_id: 'item_2', output: longOutput, status: 'completed' },
+    });
+    const turnCompleted = JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } });
+    const malformed = '{not-json-at-all';
+
+    const fsStub = stubFs('body content');
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [`${threadStarted}\n${agentMsg}\n${funcCall}\n${funcOut}\n${turnCompleted}\n${malformed}\n`],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const streamEvents = cap.logs.filter(
+      (e) =>
+        e.level === 'debug' &&
+        (e.message === 'codex-provider: assistant' ||
+          e.message === 'codex-provider: tool_use' ||
+          e.message === 'codex-provider: tool_result')
+    );
+    expect(streamEvents).toHaveLength(3);
+
+    const assistantEvt = streamEvents.find((e) => e.message === 'codex-provider: assistant');
+    expect(assistantEvt?.meta).toEqual({ text: `${'C'.repeat(120)}…` });
+
+    const toolUseEvt = streamEvents.find((e) => e.message === 'codex-provider: tool_use');
+    expect(toolUseEvt?.meta?.['tool']).toBe('apply_patch');
+    expect(toolUseEvt?.meta?.['args']).toBe(`${longArgs.slice(0, 120)}…`);
+
+    const toolResultEvt = streamEvents.find((e) => e.message === 'codex-provider: tool_result');
+    expect(toolResultEvt?.meta?.['status']).toBe('ok');
+    expect(toolResultEvt?.meta?.['preview']).toBe(`${'E'.repeat(120)}…`);
+  });
+
   it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
     // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
     // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already

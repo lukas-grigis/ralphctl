@@ -25,6 +25,7 @@ import {
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the GitHub Copilot CLI (`copilot`, v1.0.12+).
@@ -62,6 +63,18 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * the provider never touches signals.json. When `session.bodyFile` is set, the raw accumulated
  * body is mirrored there for forensic capture — best-effort, a write failure here is logged
  * but does not fail the spawn.
+ *
+ * Per-line debug events: the headless adapter publishes one
+ * `{ type: 'log', level: 'debug', message: 'copilot-provider: assistant' }` event per
+ * recognised assistant body line (driven off `CopilotStreamLine.bodyText`, which the parser
+ * extracts from `assistant.message_delta` / `assistant.message` and the speculative SSE shapes
+ * in `parse-stream.ts`). The Copilot CLI's `--output-format=json` stream as of 1.0.51 does
+ * NOT surface `tool_use` / `tool_result` records in any shape the adapter can recognise — tool
+ * invocations are flattened into the `assistant.message` text body. The adapter therefore
+ * emits the assistant analogue only; the tool_use / tool_result analogues described in the
+ * shared per-line debug contract simply have no source in Copilot's stream JSON. Re-audit when
+ * a future Copilot release surfaces structured tool records (compare against
+ * `_engine/copilot-stream.ts` and `parse-stream.ts`).
  *
  * Test seam: `spawn` is a {@link ProviderSpawn} override so tests script stdout / stderr /
  * exit code without launching the real binary.
@@ -264,6 +277,18 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       }
       if (line.bodyText !== undefined && line.bodyText.length > 0) {
         events.push({ assistant: true, text: line.bodyText });
+        // Per-line assistant debug event. The bus → logger consumer drops debug events at
+        // the default `info` floor; only `RALPHCTL_LOG_LEVEL=debug` operators see them.
+        const text = truncateField(line.bodyText);
+        if (text !== undefined) {
+          deps.eventBus.publish({
+            type: 'log',
+            level: 'debug',
+            message: 'copilot-provider: assistant',
+            meta: { text },
+            at: IsoTimestamp.now(),
+          });
+        }
       } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
         // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
         // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:

@@ -26,6 +26,8 @@ import {
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
@@ -69,6 +71,27 @@ import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-
  * flag, so the headless adapter cannot currently translate `canAccessNetwork`; sessions run
  * without the native live-web-search tool even though the shared permission model keeps the
  * bit for cross-provider parity.
+ *
+ * Per-line debug events: the headless adapter publishes one
+ * `{ type: 'log', level: 'debug', message: 'codex-provider: assistant' | 'tool_use' | 'tool_result' }`
+ * event per recognised `item.completed` record on codex's JSONL stream. The mapping (best-effort
+ * on codex-cli 0.130.x — re-audit on vendor bumps):
+ *
+ *   - `item.completed` with `item.type === 'agent_message'` → `assistant` event (`meta.text`
+ *     pulled from `item.text`).
+ *   - `item.completed` with `item.type === 'command_execution'` → `tool_use` event
+ *     (`meta.tool = 'command_execution'`, `meta.args = item.command`).
+ *   - `item.completed` with `item.type === 'function_call'` → `tool_use` event
+ *     (`meta.tool = item.name`, `meta.args = item.arguments`).
+ *   - `item.completed` with `item.type === 'function_call_output'` → `tool_result` event
+ *     (`meta.tool = item.name | item.call_id`, `meta.status = 'ok' | 'error'`,
+ *     `meta.preview = item.output`).
+ *   - `thread.started`, `turn.started`, `turn.completed`, unknown / malformed lines: silently
+ *     skipped — they are accounted for by the session-id / token-usage telemetry above.
+ *
+ * The bus → logger consumer (`createEventBusLogger`) honours `RALPHCTL_LOG_LEVEL`, so these
+ * events stay invisible at the default `info` floor and only land in chain.log when an
+ * operator explicitly bumps the floor to `debug`.
  *
  * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
  * launching the real `codex` binary. `readFile` / `unlink` are also injectable for unit
@@ -286,7 +309,11 @@ interface CodexMetaUpdate {
  * session id (UUID) or thread name"), so it round-trips back through `session.resume` to continue
  * the conversation across gen-eval rounds.
  */
-const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => void): string => {
+const consumeMetaLines = (
+  buffer: string,
+  onMeta: (update: CodexMetaUpdate) => void,
+  onLine?: (obj: Record<string, unknown>) => void
+): string => {
   let remaining = buffer;
   while (true) {
     const nl = remaining.indexOf('\n');
@@ -295,30 +322,120 @@ const consumeMetaLines = (buffer: string, onMeta: (update: CodexMetaUpdate) => v
     remaining = remaining.slice(nl + 1);
     const trimmed = line.trim();
     if (trimmed.length === 0 || !trimmed.startsWith('{')) continue;
+    let obj: Record<string, unknown>;
     try {
       // Why: codex stream records arrive line-by-line at high volume; downstream
       // `stringField` / `numberField` helpers narrowly type-check the fields we care
       // about (`thread_id`, `session_id`, `model`, `usage.*`). Unknown shapes are skipped.
-      const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
-      // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
-      // the caller), so listing `thread_id` first matches the stream order.
-      const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
-      const model = stringField(obj, 'model');
-      const usageObj = obj['usage'];
-      const source = isRecord(usageObj) ? usageObj : obj;
-      const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
-      const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
-      if (id === undefined && model === undefined && i === undefined && o === undefined) continue;
-      onMeta({
-        ...(id !== undefined ? { sessionId: id } : {}),
-        ...(model !== undefined ? { model } : {}),
-        ...(i !== undefined ? { inputTokens: i } : {}),
-        ...(o !== undefined ? { outputTokens: o } : {}),
-      });
+      obj = JSON.parse(trimmed) as Record<string, unknown>;
     } catch {
       // non-JSON line — codex occasionally prints banner text alongside json records; skip
+      continue;
     }
+    // Per-line debug fan-out (assistant / tool_use / tool_result) BEFORE the meta extractors,
+    // so a single `item.completed` record both updates meta accumulators (when applicable)
+    // and surfaces as one debug event in chain.log.
+    if (onLine !== undefined) onLine(obj);
+    // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
+    // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
+    // the caller), so listing `thread_id` first matches the stream order.
+    const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
+    const model = stringField(obj, 'model');
+    const usageObj = obj['usage'];
+    const source = isRecord(usageObj) ? usageObj : obj;
+    const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
+    const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
+    if (id === undefined && model === undefined && i === undefined && o === undefined) continue;
+    onMeta({
+      ...(id !== undefined ? { sessionId: id } : {}),
+      ...(model !== undefined ? { model } : {}),
+      ...(i !== undefined ? { inputTokens: i } : {}),
+      ...(o !== undefined ? { outputTokens: o } : {}),
+    });
+  }
+};
+
+/**
+ * Emit one structured debug event per recognised codex `item.completed` record. See the
+ * module-level comment for the shape mapping. Returns early when the JSON record is not an
+ * `item.completed` envelope — `thread.started` / `turn.started` / `turn.completed` (and any
+ * unknown line type) intentionally produce no event because they have no assistant / tool
+ * payload to surface.
+ */
+const publishCodexStreamLineEvents = (eventBus: EventBus, obj: Record<string, unknown>): void => {
+  if (stringField(obj, 'type') !== 'item.completed') return;
+  const item = obj['item'];
+  if (!isRecord(item)) return;
+  const itemType = stringField(item, 'type');
+  if (itemType === 'agent_message') {
+    const text = truncateField(stringField(item, 'text'));
+    if (text !== undefined) {
+      eventBus.publish({
+        type: 'log',
+        level: 'debug',
+        message: 'codex-provider: assistant',
+        meta: { text },
+        at: IsoTimestamp.now(),
+      });
+    }
+    return;
+  }
+  if (itemType === 'command_execution') {
+    const args = truncateField(stringField(item, 'command'));
+    eventBus.publish({
+      type: 'log',
+      level: 'debug',
+      message: 'codex-provider: tool_use',
+      meta: {
+        tool: 'command_execution',
+        ...(args !== undefined ? { args } : {}),
+      },
+      at: IsoTimestamp.now(),
+    });
+    return;
+  }
+  if (itemType === 'function_call') {
+    const tool = stringField(item, 'name') ?? '';
+    const rawArgs = item['arguments'];
+    const argsPreview = typeof rawArgs === 'string' ? rawArgs : safeJson(rawArgs);
+    const args = truncateField(argsPreview);
+    eventBus.publish({
+      type: 'log',
+      level: 'debug',
+      message: 'codex-provider: tool_use',
+      meta: {
+        tool,
+        ...(args !== undefined ? { args } : {}),
+      },
+      at: IsoTimestamp.now(),
+    });
+    return;
+  }
+  if (itemType === 'function_call_output') {
+    const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
+    const status = item['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
+    const preview = truncateField(stringField(item, 'output'));
+    eventBus.publish({
+      type: 'log',
+      level: 'debug',
+      message: 'codex-provider: tool_result',
+      meta: {
+        tool,
+        status,
+        ...(preview !== undefined ? { preview } : {}),
+      },
+      at: IsoTimestamp.now(),
+    });
+  }
+};
+
+const safeJson = (v: unknown): string | undefined => {
+  if (v === undefined || v === null) return undefined;
+  try {
+    const s = JSON.stringify(v);
+    return s === '{}' || s === '[]' ? undefined : s;
+  } catch {
+    return undefined;
   }
 };
 
@@ -363,25 +480,29 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   const { code, signal } = await runHeadlessSpawn({
     child,
     onStdout: (chunk) => {
-      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, (update) => {
-        if (update.sessionId !== undefined && sessionId === undefined) {
-          sessionId = update.sessionId;
-          deps.eventBus.publish({
-            type: 'log',
-            level: 'debug',
-            message: 'codex-provider: session id captured',
-            meta: { sessionId: update.sessionId },
-            at: IsoTimestamp.now(),
-          });
-        }
-        if (update.model !== undefined && model === undefined) {
-          model = update.model;
-        }
-        // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
-        // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
-        if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-        if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-      });
+      stdoutLineBuf = consumeMetaLines(
+        stdoutLineBuf + chunk,
+        (update) => {
+          if (update.sessionId !== undefined && sessionId === undefined) {
+            sessionId = update.sessionId;
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'debug',
+              message: 'codex-provider: session id captured',
+              meta: { sessionId: update.sessionId },
+              at: IsoTimestamp.now(),
+            });
+          }
+          if (update.model !== undefined && model === undefined) {
+            model = update.model;
+          }
+          // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
+          // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
+          if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
+          if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
+        },
+        (obj) => publishCodexStreamLineEvents(deps.eventBus, obj)
+      );
     },
     onStderr: (chunk) => {
       stderrBuf += chunk;
