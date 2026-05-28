@@ -7,6 +7,34 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-05-28
+
+### Added
+
+- **Per-line debug events from the headless AI adapters.** Claude / Codex / Copilot headless
+  adapters each publish one `debug`-level log event per recognised stream line — surfacing tool
+  calls and intermediate assistant text during a long-running implement turn when
+  `RALPHCTL_LOG_LEVEL=debug`. Nothing appears at the default log level; message text is capped at
+  120 chars (#153).
+- **Per-provider conventions in the readiness flow.** Readiness now selects one of three
+  conventions partials by provider — `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md` —
+  and embeds it before the output contract, so the AI matches each target file's tone and structure
+  instead of writing every native context file like a `CLAUDE.md` (#170, closes #159).
+- **TUI resolves an initial selection at launch.** Defaults to the first project when nothing is
+  persisted, validates a persisted sprint against its project (seeding the most-recent sprint when
+  the stored one is invalid), and only persists selection changes made after mount — fresh installs
+  land on a usable project/sprint instead of an empty selection (#172).
+
+### Fixed
+
+- **`useTaskRoundTracker` memory is now bounded.** The hook caps retention at
+  `TASK_ROUND_CAP = 500` via the same delete-then-set-then-evict LRU reducer used by the
+  token-usage hook, bringing it in line with the other bounded TUI bus-subscriber hooks so a
+  long-running sprint can no longer grow the map without limit (#158).
+- **Sprints list now sorts newest-first.** `SprintsView` reverses the ascending-UUIDv7 repository
+  order for both the project-scoped and all-sprints branches, matching the home view and the
+  cross-project picker (#172).
+
 ### Changed
 
 - **Claude catalog moves to Opus 4.8.** `claude-opus-4-7` is replaced by `claude-opus-4-8` as the
@@ -15,6 +43,21 @@ to [Semantic Versioning](https://semver.org/).
   Existing settings files pinning `claude-opus-4-7` on a `claude-code` row are silently migrated to
   `claude-opus-4-8` at load time (no `schemaVersion` bump; rewritten on next save) — no manual
   action needed.
+- **Cross-provider audit and rewrite of every prompt template.** Templates now open with a `<role>`
+  block instead of Markdown H1s, use provider-agnostic vocabulary (no `Bash` / `Edit` / `WebFetch` /
+  `AskUserQuestion` tool-name leaks), and follow a `<role> → <goal> → <success_criteria> → <inputs>
+→ <constraints> → <output_contract>` skeleton. The `evaluate` template gains a pinned dimensional
+  rubric plus calibration examples; refine signal-field names, implement `expectedSignals`, and
+  review follow-up grading were realigned with the signal contract, with parity tests locking the
+  vocabulary. Bundled templates ship the rewrites to downstream consumers (#157).
+- **Prompt contract section no longer leaks Claude tool names.** `renderContractSection` drops the
+  Claude-specific `Write` tool name and the incorrect cwd claim (wrong for refine / plan / ideate /
+  readiness / create-pr), replaced with provider-agnostic absolute-path guidance (#170, closes #160).
+- **Flat field cursor in the project-detail view.** The "Edit which field?" modal is replaced with a
+  flat ↑/↓-navigable field list (project `displayName`, then each repo's `name` / `setupScript` /
+  `verifyScript`); `e` and Enter open the focused field's editor directly, per-repo actions derive
+  their target repo from the focused row, and row-level highlighting matches the settings view
+  (#161).
 
 ## [0.8.3] - 2026-05-28
 
