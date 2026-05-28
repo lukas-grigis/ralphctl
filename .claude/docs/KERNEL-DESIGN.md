@@ -289,7 +289,7 @@ sequential('implement', [
   activateSprintLeaf,
   loadSprintExecutionLeaf,
   loadTasksLeaf,
-  ensureProgressFileLeaf, // snapshot-renders progress.md from SprintState (no streaming sink)
+  appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
   setupScriptRunnerLeaf, // unconditional; appends SetupRun entries to SprintExecution.setupRanAt
   resolveBranchLeaf,
   sequential('preflight-tasks', preflightLeaves),

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Result } from '@src/domain/result.ts';
 import {
   type ApprovedTicket,
@@ -57,6 +58,13 @@ export const FIXED_LATEST = isoTimestamp('2026-05-08T12:00:00.000Z');
 export const FIXED_PROJECT_ID = projectId('01900000-0000-7000-8000-000000000001');
 export const FIXED_REPOSITORY_ID = repositoryId('01900000-0000-7000-8000-000000000002');
 
+/**
+ * Per-process repo path for the default fixture. Randomised at module load so a stale
+ * `/tmp/ralph/main-repo` left behind by a real ralphctl session (or another test run)
+ * cannot influence probes that stat repo paths.
+ */
+export const FIXTURE_REPO_PATH = `/tmp/ralph/${randomUUID()}/main-repo`;
+
 export const makeRepository = (
   overrides: Partial<{ id: RepositoryId; slug: string; name: string; path: string }> = {}
 ): Repository =>
@@ -64,7 +72,7 @@ export const makeRepository = (
     createRepository({
       id: overrides.id ?? FIXED_REPOSITORY_ID,
       ...(overrides.slug !== undefined ? { slug: slug(overrides.slug) } : {}),
-      path: absolutePath(overrides.path ?? '/tmp/ralph/main-repo'),
+      path: absolutePath(overrides.path ?? FIXTURE_REPO_PATH),
       name: overrides.name ?? 'main-repo',
     })
   );

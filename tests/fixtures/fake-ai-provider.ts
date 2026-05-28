@@ -75,16 +75,20 @@ export interface FakeAiProvider extends HeadlessAiProvider {
   readonly recordedSessions: readonly AiSession[];
 }
 
-/** Title-line markers for the bundled prompt templates. */
+/**
+ * Distinctive role-line substrings for the bundled prompt templates. Most templates open with a
+ * `<role>` block instead of a Markdown H1; markers therefore match a unique phrase from that
+ * block rather than a heading. `implement` keeps its `# Task Execution Protocol` H1.
+ */
 export const MARKERS: Readonly<Record<string, string>> = {
-  refine: '# Requirements Refinement Protocol',
-  plan: '# Interactive Task Planning Protocol',
+  refine: 'requirements analyst working interactively',
+  plan: 'task planning specialist',
   implement: '# Task Execution Protocol',
-  evaluate: '# Code Review:',
-  readiness: '# Repository Readiness Protocol',
-  'apply-feedback': '# Apply Feedback Protocol',
-  'detect-skills': '# Detect Skills Protocol',
-  'detect-scripts': '# Detect Scripts Protocol',
+  evaluate: 'independent code reviewer',
+  readiness: 'project context file proposal',
+  'apply-feedback': 'applying one round of human review feedback',
+  'detect-skills': 'author two short coding-agent skills',
+  'detect-scripts': 'inventorying a single repository',
 };
 
 const dispatchTemplate = (body: string, markers: Readonly<Record<string, string>>): string | undefined => {

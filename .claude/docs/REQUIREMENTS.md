@@ -36,7 +36,8 @@ it done; when a behaviour regresses, untick it.
       `typescript-result` imports.
 - [ ] **Storage paths** — `resolveStoragePaths` honours `RALPHCTL_HOME`; on-disk layout is
       `<root>/{config,data,state}/…`. Per-sprint directory contains `sprint.json` + `execution.json` +
-      `tasks.json` + `events.ndjson` + `progress.md` + per-flow sandbox folders.
+      `tasks.json` + `progress.md` + per-flow sandbox folders. `events.ndjson` lands here too when
+      `RALPHCTL_DEBUG_TRACE=1` (opt-in debug sink, no-op otherwise).
 - [ ] **Cross-project sprint lock** — `<stateRoot>/locks/sprints/<sprint-id>.lock` blocks two ralphctl
       processes from racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS`.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
@@ -51,17 +52,19 @@ it done; when a behaviour regresses, untick it.
       `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
-- [x] **Persistent events.ndjson** — every `Implement` (and other long-running) chain run appends its trace to
-      `<sprintDir>/events.ndjson`, bracketed by `=== chain-run <id> <flowId> started <iso> ===` /
-      `… completed/failed/aborted …` delimiters. Survives TUI exit; `tail -f`-friendly.
+- [x] **Optional events.ndjson** — opt-in via `RALPHCTL_DEBUG_TRACE=1`. When enabled, every `Implement` (and
+      other long-running) chain run appends its trace to `<sprintDir>/events.ndjson`, bracketed by
+      `=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters.
+      Survives TUI exit; `tail -f`-friendly. Bounded in-memory drain queue with drop-newer back-pressure
+      so the sink cannot OOM. Default factory is no-op; harness state never reads from events.ndjson.
 - [ ] **Session scoping** — `AsyncLocalStorage` tags every log / signal emission with the owning chain's
       session id. Outside any chain, `currentSessionId()` returns `undefined`.
 - [ ] **Harness signals** — `HarnessSignal` discriminated union exhaustiveness enforced at the compiler
       level; one Zod schema per kind under `integration/ai/contract/_engine/signals/<kind>/schema.ts`;
       `validateSignalsFile` rejects unknown shapes with a precise hint.
-- [x] **Harness-owned output writes** — `progress.md` (snapshot-rendered, not streamed), per-round
-      `prompt.md` and `outcome.md`, `decisions.log`, and `tasks.json` are written by the harness, never by
-      the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
+- [x] **Harness-owned output writes** — `progress.md` (append-only journal — header at creation, one section
+      appended per settled attempt), per-round `prompt.md` and `outcome.md`, and `tasks.json` are written by
+      the harness, never by the AI. Atomic writes use the `WriteFile` port; `FileLocker` guards cross-process safety.
 
 ## Flow registry
 
@@ -129,8 +132,9 @@ Status flow: `draft → active → review → done`.
 - [x] **Per-round artifacts** — generator and evaluator prompts written to
       `rounds/<N>/{generator,evaluator}/prompt.md` before each spawn; `outcome.md` written to
       `rounds/<N>/outcome.md` after settlement.
-- [x] **Decisions log** — `<sprintDir>/decisions.log` captures AI-emitted `<decision>` tags;
-      merged into `progress.md § Decisions`.
+- [x] **Decision capture** — AI-emitted `<decision>` tags accumulate per-attempt on the implement ctx and
+      render as the `### Decisions` subsection of each `progress.md` journal entry (audit-[07] retired the
+      standalone `decisions.log` sink).
 - [x] **Notifications** — terminal bell + macOS `osascript` fire on attention events when
       `settings.ui.notifications.enabled` is `true` (default).
 - [x] **Snapshot CLI** — `ralphctl snapshot [--sprint <id>]` renders one deterministic text frame of the
@@ -193,7 +197,7 @@ Status flow: `draft → active → review → done`.
       readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands + one-shot operations:
       `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
       `settings {show,set}`, `project {list,show,remove}`,
-      `sprint {list,show,set-current,activate,close,remove,progress,regenerate-progress}`,
+      `sprint {list,show,set-current,activate,close,remove,progress}`,
       `ticket {list,show,add,remove}`, `task {list,show}`,
       `runs {list,prune}`, `snapshot`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseTaskList } from '@src/integration/ai/prompts/_engine/parse-task-list.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { makeProject } from '@tests/fixtures/domain.ts';
+import { FIXTURE_REPO_PATH, makeProject } from '@tests/fixtures/domain.ts';
 
 const ticketId = (() => {
   const r = TicketId.parse('01900000-0000-7000-8000-00000000aaaa');
@@ -10,7 +10,7 @@ const ticketId = (() => {
   return r.value;
 })();
 
-const project = makeProject(); // single repo at /tmp/ralph/main-repo
+const project = makeProject(); // single repo at FIXTURE_REPO_PATH
 
 interface SpecOverrides {
   readonly id: string;
@@ -20,7 +20,7 @@ interface SpecOverrides {
 const spec = (o: SpecOverrides): unknown => ({
   id: o.id,
   name: `task ${o.id}`,
-  projectPath: '/tmp/ralph/main-repo',
+  projectPath: FIXTURE_REPO_PATH,
   steps: ['s'],
   verificationCriteria: [{ id: 'C1', assertion: 'v', check: 'manual' }],
   ...(o.blockedBy !== undefined ? { blockedBy: o.blockedBy } : {}),

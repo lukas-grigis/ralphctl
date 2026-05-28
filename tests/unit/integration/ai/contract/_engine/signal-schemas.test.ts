@@ -3,8 +3,6 @@ import { changeSignalSchema } from '@src/integration/ai/contract/_engine/signals
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
-import { progressSignalSchema } from '@src/integration/ai/contract/_engine/signals/progress/schema.ts';
-import { progressEntrySignalSchema } from '@src/integration/ai/contract/_engine/signals/progress-entry/schema.ts';
 import { evaluationSignalSchema } from '@src/integration/ai/contract/_engine/signals/evaluation/schema.ts';
 import { commitMessageSignalSchema } from '@src/integration/ai/contract/_engine/signals/commit-message/schema.ts';
 import { taskVerifiedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-verified/schema.ts';
@@ -41,21 +39,6 @@ describe('signal schemas (happy-path parses)', () => {
   });
   it('note', () => {
     expect(noteSignalSchema.safeParse({ type: 'note', text: 'just noting', timestamp: ts }).success).toBe(true);
-  });
-  it('progress (short-form)', () => {
-    expect(progressSignalSchema.safeParse({ type: 'progress', summary: 'did x', timestamp: ts }).success).toBe(true);
-  });
-  it('progress-entry', () => {
-    expect(
-      progressEntrySignalSchema.safeParse({
-        type: 'progress-entry',
-        task: 'T1',
-        filesChanged: [],
-        learnings: '',
-        notesForNext: '',
-        timestamp: ts,
-      }).success
-    ).toBe(true);
   });
   it('evaluation: PASS verdict with all dimensions passed', () => {
     expect(

@@ -87,8 +87,16 @@ describe('implementPromptDef — completeness', () => {
   });
 
   it('declares the documented harness signals the implement response is expected to carry', () => {
+    // Aligned with `generator.contract.ts` accepted union: narrative fan-out (`change`,
+    // `decision`, `learning`, `note`) + lifecycle signals (`task-verified`, `task-complete`,
+    // `task-blocked`, `commit-message`). The legacy `progress` short-form is intentionally
+    // omitted — the contract no longer accepts it. The richer `progress-entry` is also
+    // omitted: schema-accepted but has no consumer in production (the old `progress-file-sink`
+    // was removed and `progress.md` is now snapshot-rendered from change/learning/note/decision).
     expect(implementPromptDef.expectedSignals).toEqual([
-      'progress',
+      'change',
+      'decision',
+      'learning',
       'note',
       'task-verified',
       'task-complete',

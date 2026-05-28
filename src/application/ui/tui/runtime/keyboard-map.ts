@@ -149,7 +149,6 @@ const signalReference: KeySection = {
     { keys: [], label: 'blocked', description: 'task halted — check gate failed or AI self-reported stuck' },
     { keys: [], label: 'commit', description: 'proposed commit message for the task' },
     { keys: [], label: 'note', description: 'general annotation' },
-    { keys: [], label: 'progress', description: 'milestone marker from the AI' },
     { keys: [], label: 'script', description: 'setup or check script discovered or run' },
     { keys: [], label: 'proposal', description: 'AI-authored context file or skill draft' },
     { keys: [], label: 'skills', description: 'skill suggestions surfaced for this run' },

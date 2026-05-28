@@ -83,7 +83,9 @@ describe('buildCreatePrPrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value).toContain('# Pull Request Authoring Protocol');
+    expect(result.value).toContain('<role>');
+    expect(result.value).toContain('<goal>');
+    expect(result.value).toContain('<success_criteria>');
     expect(result.value).toContain('`feature/x`');
     expect(result.value).toContain('`main`');
     expect(result.value).toContain('- ticket one');

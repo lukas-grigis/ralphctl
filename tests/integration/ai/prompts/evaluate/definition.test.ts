@@ -120,7 +120,6 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value).toContain('# Code Review: export CSV');
     expect(result.value).toContain('**Task:** export CSV');
     expect(result.value).toContain('/tmp/ralph/main-repo');
     expect(result.value).toContain('## Description');
@@ -144,7 +143,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     if (!result.ok) return;
     expect(result.value).not.toContain('## Description');
     // Sanity: the rest of the prompt still rendered.
-    expect(result.value).toContain('# Code Review: short task');
+    expect(result.value).toContain('**Task:** short task');
     expect(result.value).toContain('No verify script configured for this repo.');
   });
 
@@ -187,7 +186,7 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toContain('## Prior progress');
+    expect(result.value).toContain('<prior_progress>');
     expect(result.value).toContain('## Task: shipped-earlier — Attempt 1');
   });
 

@@ -58,7 +58,7 @@ export interface CreateImplementFlowOpts {
    * task's repo so the implement chain works correctly on multi-repo projects.
    */
   readonly repositories: ReadonlyMap<RepositoryId, RepoExecConfig>;
-  /** Absolute path to `<sprintDir>/progress.md`. Materialised by `ensureProgressFileLeaf`. */
+  /** Absolute path to `<sprintDir>/progress.md`, derived by the launcher and passed in as opts. */
   readonly progressFile: AbsolutePath;
   /**
    * Absolute path to `<sprintDir>` — the sprint's persisted-state folder. Used by

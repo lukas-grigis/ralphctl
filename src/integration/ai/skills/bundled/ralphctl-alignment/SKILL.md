@@ -5,7 +5,8 @@ description: Cross-phase skill — establish a shared understanding of what will
 
 # Alignment
 
-> Concept from [Martin Fowler — "Alignment"](https://martinfowler.com/articles/structured-prompt-driven/alignment.html). Adapted for ralphctl's three phases.
+> Concept from [Martin Fowler — "Alignment"](https://martinfowler.com/articles/structured-prompt-driven/alignment.html).
+> Adapted for ralphctl's three phases.
 
 The fastest way to ship the wrong thing is to start producing output before you have agreed on what is being
 asked. Alignment is the discipline of restating the input, surfacing assumptions, and naming the non-goals

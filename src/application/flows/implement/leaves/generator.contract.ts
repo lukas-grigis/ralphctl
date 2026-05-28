@@ -6,7 +6,6 @@ import type {
   DecisionSignal,
   LearningSignal,
   NoteSignal,
-  ProgressEntrySignal,
   TaskBlockedSignal,
   TaskCompleteSignal,
   TaskVerifiedSignal,
@@ -17,7 +16,6 @@ import { commitMessageSignalSchema } from '@src/integration/ai/contract/_engine/
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import { learningSignalSchema } from '@src/integration/ai/contract/_engine/signals/learning/schema.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
-import { progressEntrySignalSchema } from '@src/integration/ai/contract/_engine/signals/progress-entry/schema.ts';
 import { taskBlockedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-blocked/schema.ts';
 import { taskCompleteSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-complete/schema.ts';
 import { taskVerifiedSignalSchema } from '@src/integration/ai/contract/_engine/signals/task-verified/schema.ts';
@@ -27,7 +25,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 /**
  * Per-leaf I/O contract for the gen-eval generator turn — audit-[09]. The generator may emit:
  *
- *   - narrative fan-out: `change`, `learning`, `note`, `decision`, `progress-entry`
+ *   - narrative fan-out: `change`, `learning`, `note`, `decision`
  *   - task-lifecycle markers: `task-verified`, `task-complete`, `task-blocked`
  *   - one optional commit-message proposal for the `commit-task` leaf to consume
  *
@@ -59,8 +57,7 @@ type GeneratorSignal =
   | TaskVerifiedSignal
   | TaskCompleteSignal
   | TaskBlockedSignal
-  | CommitMessageSignal
-  | ProgressEntrySignal;
+  | CommitMessageSignal;
 
 const atMostOneCommitMessage = (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
   signals.filter((s) => s.type === 'commit-message').length <= 1;
@@ -76,7 +73,6 @@ const signalsArraySchemaRaw = z
       taskCompleteSignalSchema,
       taskBlockedSignalSchema,
       commitMessageSignalSchema,
-      progressEntrySignalSchema,
     ])
   )
   .refine(atMostOneCommitMessage, 'at most one commit-message signal per generator spawn');

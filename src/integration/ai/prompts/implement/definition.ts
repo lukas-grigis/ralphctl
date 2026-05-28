@@ -2,15 +2,15 @@ import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
+import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
-  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
+  renderVerifyScriptSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
@@ -173,7 +173,18 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   },
   // Documents the harness signals the implement response is expected to carry. Validation is
   // not enforced at parse time — this list drives test authors and future scoped parsers.
-  expectedSignals: ['progress', 'note', 'task-verified', 'task-complete', 'task-blocked', 'commit-message'],
+  // Aligned with generator.contract.ts: narrative fan-out (change, decision, learning, note)
+  // plus lifecycle signals (task-verified, task-complete, task-blocked, commit-message).
+  expectedSignals: [
+    'change',
+    'decision',
+    'learning',
+    'note',
+    'task-verified',
+    'task-complete',
+    'task-blocked',
+    'commit-message',
+  ],
 };
 
 export interface BuildImplementPromptInput {

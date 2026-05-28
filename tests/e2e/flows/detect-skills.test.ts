@@ -27,7 +27,7 @@ import { detectSkillsSession } from '@src/application/flows/detect-skills/leaves
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 
-const DETECT_SKILLS_MARKER = '# Per-Repository Skill Authoring Protocol';
+const DETECT_SKILLS_MARKER = 'author two short coding-agent skills';
 
 const fakeProjectRepo = (project: Project): { repo: ProjectRepository; saves: Project[] } => {
   const saves: Project[] = [];

@@ -25,7 +25,7 @@ import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/f
 import { detectScriptsSession } from '@src/application/flows/detect-scripts/leaves/propose.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 
-const DETECT_MARKER = '# Repository Script Detection Protocol';
+const DETECT_MARKER = 'inventorying a single repository';
 
 /** Single-project repo with `findById` + a recording `save`. */
 const fakeProjectRepo = (project: Project): { repo: ProjectRepository; saves: Project[] } => {

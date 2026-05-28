@@ -1,3 +1,5 @@
+<decisions>
+
 ## Recording architectural decisions
 
 When you make a non-obvious architectural or implementation choice — one a future reviewer might disagree
@@ -12,3 +14,5 @@ it in the sprint's decisions log.
 - The harness appends timestamp + task id + commit sha automatically — do not include those yourself.
 - Multiple `<decision>` tags per task are allowed when distinct choices were made; emit one tag per
   decision rather than packing several into one body.
+
+</decisions>

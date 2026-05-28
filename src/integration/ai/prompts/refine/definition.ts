@@ -2,7 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import { type BuildPromptError, buildPrompt } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
+import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
@@ -75,7 +75,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['refined-ticket'],
+  expectedSignals: ['refined-ticket', 'note', 'learning', 'decision'],
 };
 
 /** Render a {@link Ticket} into the markdown block the refine template's `{{TICKET}}` slot expects. */
