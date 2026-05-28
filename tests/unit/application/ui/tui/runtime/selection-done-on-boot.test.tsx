@@ -14,10 +14,15 @@
  * NOTE: This test will FAIL until the implementer lands the rehydration-clear logic.
  */
 
+import React from 'react';
 import { render } from 'ink-testing-library';
 import { Text } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
-import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import {
+  SelectionProvider,
+  useSelection,
+  type SelectionSeed,
+} from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -95,19 +100,30 @@ describe('SelectionProvider — done-on-boot clear', () => {
   it('retains sprintId and sprintLabel when rehydrated sprint is not done', async () => {
     const draftSprint = { ...makeDraftSprint(), id: DRAFT_SPRINT_ID } as unknown as Sprint;
     const repo = makeSprintRepo(draftSprint);
-    const onChange = vi.fn<(s: SelectionSeed) => void>();
 
-    const { lastSeed, unmount } = await mountAndWait(
-      { sprintId: DRAFT_SPRINT_ID, sprintLabel: 'Active Sprint' },
-      repo,
-      onChange
+    // A non-done sprint produces NO state change on boot, so the first-run-guarded
+    // persistence effect writes nothing — assert retention via the live selection the
+    // provider exposes (its public interface), not via a persisted seed.
+    const Probe = (): React.JSX.Element => {
+      const api = useSelection();
+      return <Text>s={String(api.sprintId)}</Text>;
+    };
+
+    const r = render(
+      <SelectionProvider
+        seed={{ sprintId: DRAFT_SPRINT_ID, sprintLabel: 'Active Sprint' }}
+        sprintRepo={repo}
+        onChange={vi.fn()}
+      >
+        <Probe />
+      </SelectionProvider>
     );
+    await new Promise((res) => setTimeout(res, 50));
 
-    const seed = lastSeed();
     // Draft sprint must survive rehydration.
-    expect(seed?.sprintId).toBe(DRAFT_SPRINT_ID);
+    expect(r.lastFrame()).toContain(`s=${String(DRAFT_SPRINT_ID)}`);
 
-    unmount();
+    r.unmount();
   });
 
   it('is a no-op when the seed has no sprintId (no repo call needed)', async () => {

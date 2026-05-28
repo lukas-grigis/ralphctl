@@ -63,21 +63,65 @@ const makeTrigger = (
   };
 };
 
+describe('SelectionProvider first-run persistence guard', () => {
+  it('does NOT persist the seeded selection on mount, but DOES persist a post-mount change', async () => {
+    // The launch router may seed an auto-default project/sprint (first project + most-recent
+    // sprint) when nothing was persisted. Persisting that on mount would freeze the auto-default
+    // as if the user had chosen it. The first-run guard suppresses the initial write; only a
+    // post-mount selection change reaches the store.
+    const onChange = vi.fn<(s: SelectionSeed) => void>();
+    const triggered = { current: false };
+    let mountCalls = -1;
+    const Trigger = makeTrigger(
+      triggered,
+      () => {
+        // Sampled one microtask after mount — the suppressed initial write means zero calls.
+        mountCalls = onChange.mock.calls.length;
+      },
+      (api) => api.setSprint(SID_Y, 'Sprint Y')
+    );
+
+    const r = render(
+      <SelectionProvider seed={{ projectId: PID_A, projectLabel: 'Project A', sprintId: SID_X }} onChange={onChange}>
+        <Trigger />
+      </SelectionProvider>
+    );
+
+    await vi.waitFor(
+      () => {
+        // Mount must not have persisted the auto-default seed.
+        expect(mountCalls).toBe(0);
+        // The post-mount setSprint is the only write, and it carries the new selection.
+        expect(onChange.mock.calls.length).toBe(1);
+        expect(onChange.mock.calls[0]?.[0]).toEqual({
+          projectId: PID_A,
+          projectLabel: 'Project A',
+          sprintId: SID_Y,
+          sprintLabel: 'Sprint Y',
+        });
+      },
+      { timeout: 500, interval: 5 }
+    );
+    r.unmount();
+  });
+});
+
 describe('SelectionProvider.setProject', () => {
   it('keeps the sprint cursor when called with the same project id', async () => {
     // Regression: project-detail-view calls setProject on mount to stamp the display name.
     // If the user picked sprint X under project A, then navigates Home → Projects → opens A
     // to look at it, the sprint pick must survive. Clearing only matters when actually
     // switching projects (sprint ids are scoped to a project).
-    const seeds: SelectionSeed[] = [];
-    const onChange = vi.fn<(s: SelectionSeed) => void>((s) => {
-      seeds.push(s);
-    });
+    //
+    // Re-selecting the SAME project is a genuine no-op (no state change, no persistence write),
+    // so we assert on the rendered selection state — the sprint cursor must still be SID_X —
+    // rather than on `onChange`, which the first-run guard plus the no-op bail-out won't fire.
+    const onChange = vi.fn<(s: SelectionSeed) => void>();
     const triggered = { current: false };
     const Trigger = makeTrigger(
       triggered,
       () => {
-        /* baseline captured implicitly via seeds[] */
+        /* no baseline needed — assertion reads the rendered frame */
       },
       (api) => api.setProject(PID_A, 'Project A')
     );
@@ -93,13 +137,8 @@ describe('SelectionProvider.setProject', () => {
 
     await vi.waitFor(
       () => {
-        // Final persisted state must still carry the sprint.
-        expect(seeds[seeds.length - 1]).toEqual({
-          projectId: PID_A,
-          projectLabel: 'Project A',
-          sprintId: SID_X,
-          sprintLabel: 'Sprint X',
-        });
+        // The rendered frame reflects the live selection state: project A + sprint X survive.
+        expect(r.lastFrame()).toContain(`p=${String(PID_A)} s=${String(SID_X)}`);
       },
       { timeout: 500, interval: 5 }
     );

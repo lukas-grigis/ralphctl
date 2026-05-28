@@ -116,9 +116,17 @@ export const SelectionProvider = ({
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
-  // Persist whenever the canonical selection changes. The initial render also fires this, so
-  // closing the picker without changes is a no-op write — fine for our flat-file store.
+  // Persist whenever the canonical selection changes — but skip the initial render. The launch
+  // router may seed an auto-default project/sprint (first project + most-recent sprint) when
+  // nothing was persisted; persisting that on mount would freeze the auto-default as if it were
+  // a real user choice. A restored real selection is already on disk, so skipping the first
+  // write is a harmless no-op there too. Only post-mount selection changes reach the store.
+  const isFirstPersist = useRef(true);
   useEffect(() => {
+    if (isFirstPersist.current) {
+      isFirstPersist.current = false;
+      return;
+    }
     onChangeRef.current?.({
       ...(projectId !== undefined ? { projectId } : {}),
       ...(projectLabel !== undefined ? { projectLabel } : {}),

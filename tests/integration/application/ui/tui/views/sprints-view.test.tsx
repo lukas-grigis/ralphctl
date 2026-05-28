@@ -11,6 +11,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
@@ -262,6 +263,59 @@ describe('SprintsView', () => {
     await tick(120);
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
+    result.unmount();
+  });
+
+  it('renders sprints newest-first (most recently created at the top)', async () => {
+    // UUIDv7 ids sort lexicographically in creation order, so 'sprint-02' is newer than
+    // 'sprint-01'. The repo hands them back ascending; the view must reverse to newest-first.
+    const older = makeSprint({ id: 'sprint-01', name: 'Older Sprint', slug: 'older' });
+    const newer = makeSprint({ id: 'sprint-02', name: 'Newer Sprint', slug: 'newer' });
+    // Pass them oldest-first, mimicking sprintRepo.list()'s ascending order.
+    const { result } = renderView(<SprintsView />, { deps: stubDeps([older, newer]), initial: { id: 'sprints' } });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Newer Sprint');
+    expect(frame).toContain('Older Sprint');
+    expect(frame.indexOf('Newer Sprint')).toBeLessThan(frame.indexOf('Older Sprint'));
+    result.unmount();
+  });
+
+  it('renders newest-first when scoped to a project too', async () => {
+    const scopedProject = 'proj' as unknown as ProjectId;
+    const older = makeSprint({ id: 'sprint-01', name: 'Older Scoped', slug: 'older', projectId: 'proj' });
+    const newer = makeSprint({ id: 'sprint-02', name: 'Newer Scoped', slug: 'newer', projectId: 'proj' });
+    const { result } = renderView(<SprintsView />, {
+      deps: stubDeps([older, newer]),
+      initial: { id: 'sprints' },
+      selection: { projectId: scopedProject },
+    });
+    await tick(80);
+    const frame = result.lastFrame() ?? '';
+    expect(frame.indexOf('Newer Scoped')).toBeLessThan(frame.indexOf('Older Scoped'));
+    result.unmount();
+  });
+
+  it('renders a single sprint without error', async () => {
+    const sprint = makeSprint({ id: 'sprint-01', name: 'Solo Sprint', slug: 'solo' });
+    const { result } = renderView(<SprintsView />, { deps: stubDeps([sprint]), initial: { id: 'sprints' } });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Solo Sprint');
+    expect(frame).toContain('1 sprint(s)');
+    result.unmount();
+  });
+
+  it('renders the empty state for a project with no sprints', async () => {
+    const scopedProject = 'proj' as unknown as ProjectId;
+    const { result } = renderView(<SprintsView />, {
+      deps: stubDeps([]),
+      initial: { id: 'sprints' },
+      selection: { projectId: scopedProject },
+    });
+    await tick(80);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('No sprints yet');
     result.unmount();
   });
 });
