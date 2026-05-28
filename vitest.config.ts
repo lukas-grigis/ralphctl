@@ -53,6 +53,12 @@ export default defineConfig({
           include: ['tests/**/*.test.{ts,tsx}'],
           exclude: ['tests/integration/application/ui/tui/**'],
           pool: 'forks',
+          // E2E tests under `tests/e2e/cli/` spawn real child processes (git / gh / glab /
+          // provider CLIs) inside the in-process CLI run, and pay full module-import cost on
+          // a cold `node_modules` (Cold-install smoke job). Vitest's implicit 5 s default
+          // budget is too tight for that, and the resulting test-timeout failures masquerade
+          // as logic flakes. 15 s matches the `tui` project; raise here in lockstep with it.
+          testTimeout: 15000,
         },
       },
     ],

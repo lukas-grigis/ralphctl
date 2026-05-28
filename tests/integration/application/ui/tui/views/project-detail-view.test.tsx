@@ -15,7 +15,7 @@ import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { FIXED_PROJECT_ID, makeProject, makeRepository, repositoryId, slug } from '@tests/fixtures/domain.ts';
 import { DOWN, ENTER, UP, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const fakeProjectRepo = (project: Project): ProjectRepository =>
   ({
@@ -59,7 +59,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Mainline');
     expect(frame).toContain('mainline');
@@ -74,7 +74,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     result.stdin.write('a');
     await tick();
     expect(routeIds()).toContain('add-repository');
@@ -87,7 +87,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     const frame = result.lastFrame() ?? '';
     const nameRow = lineWithLabelAndValue(frame, 'Name', 'Mainline');
     expect(nameRow).toBeDefined();
@@ -100,7 +100,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     result.stdin.write(DOWN);
     await tick();
     const frame = result.lastFrame() ?? '';
@@ -122,7 +122,7 @@ describe('ProjectDetailView', () => {
       initial: { id: 'project-detail', props: { projectId: project.id } },
       queue,
     });
-    await tick(40);
+    await waitForViewReady(result);
     // displayName → repo1.name → repo1.setupScript (two DOWNs lands on setupScript).
     result.stdin.write(DOWN);
     await tick();
@@ -146,7 +146,7 @@ describe('ProjectDetailView', () => {
       initial: { id: 'project-detail', props: { projectId: project.id } },
       queue,
     });
-    await tick(40);
+    await waitForViewReady(result);
     // c / S / d on the project row must NOT push a new route nor queue a prompt and must NOT
     // mount the confirm-remove panel (which would replace the field-list region).
     result.stdin.write('c');
@@ -172,7 +172,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(project),
       initial: { id: 'project-detail', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     // Already at index 0 → UP stays put.
     result.stdin.write(UP);
     await tick();
@@ -226,7 +226,7 @@ describe('ProjectDetailView', () => {
       deps: stubDeps(empty),
       initial: { id: 'project-detail', props: { projectId: empty.id } },
     });
-    await tick(40);
+    await waitForViewReady(result);
     const frame = result.lastFrame() ?? '';
     const nameRow = lineWithLabelAndValue(frame, 'Name', 'Solo');
     expect(nameRow).toBeDefined();
@@ -251,12 +251,7 @@ describe('ProjectDetailView', () => {
       initial: { id: 'project-detail', props: { projectId: project.id } },
       queue,
     });
-    // Wait for the project to load — useInput bails out while `project === undefined`, so a
-    // fixed `tick(40)` races the async `findById` on a cold module import.
-    await waitFor(() => {
-      const frame = result.lastFrame() ?? '';
-      return frame.includes('Mainline') && frame.includes(glyphs.actionCursor);
-    });
+    await waitForViewReady(result);
     result.stdin.write(ENTER);
     await waitFor(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
