@@ -118,11 +118,13 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   // side-effecting inputs (settings + projects + persisted last-selection) and hand them off.
   const settingsExists = await deps.settingsRepo.exists();
   const projectsList = await deps.projectRepo.list();
+  const sprintsResult = await deps.sprintRepo.list();
   const lastSelectionStore = createLastSelectionStore(paths.value.stateRoot);
   const lastSelection = await lastSelectionStore.read();
   const { initialView, initialSelection } = resolveInitialState({
     settingsExist: settingsExists.ok ? settingsExists.value : false,
     projects: projectsList.ok ? projectsList.value : [],
+    sprints: sprintsResult.ok ? sprintsResult.value : [],
     ...(lastSelection !== undefined ? { lastProjectId: lastSelection.projectId } : {}),
     ...(lastSelection?.sprintId !== undefined ? { lastSprintId: lastSelection.sprintId } : {}),
   });
