@@ -7,6 +7,45 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-05-28
+
+### Added
+
+- **Planner task order is now topologically sorted at parse time.** `parseTaskList`
+  reorders emitted tasks via Kahn's algorithm using each task's `blockedBy` edges,
+  and rejects the list if a dependency cycle is detected at parse — surfacing the
+  offending cycle ids instead of trusting the planner's emission order silently.
+  Implement still launches tasks in `Task.order` (planner-assigned `i + 1`), so the
+  net effect is that out-of-order planner output gets straightened before it's
+  persisted (#167).
+- **`ai.createPr` settings row.** The optional `create-pr --ai` step now has its
+  own `{ provider, model, effort? }` settings row instead of borrowing `ai.refine`.
+  Settings files written by ralphctl ≤ 0.8.2 are silently promoted on load — the
+  missing row is seeded from `ai.refine` and the canonical shape lands on the next
+  save. No `schemaVersion` bump and no user-facing notice (#167).
+
+### Fixed
+
+- **`AbortError` now propagates cleanly through every chain primitive.** Locked in
+  by tests against `leaf` / `sequential` / `loop` / `guard` so user-initiated
+  cancellation (Ctrl+C, the TUI abort hotkey) is never swallowed by a guard or
+  fallback wrapper (#167).
+
+### Changed
+
+- **Hardened JSON parsing and atomic-write call sites** across persistence
+  adapters — typed schema declarations replace `as unknown as` casts in repository
+  serializers, and a single helper centralizes the signal-array Zod brand cast so
+  the contract surface stays type-safe at the boundary (#167).
+- **Architecture clean-up: god-files split, AI-provider ports moved to `_engine/`.**
+  `task` entity, `execute-view`, `sprint-detail-view`, `settings-view`,
+  `tasks-panel`, `pick-sprint`, `home`, and `add-ticket` views were each split
+  into focused sibling modules; `AiSession.prompt` was tightened and remaining
+  `sessionId` TODOs resolved; provider port-shaped interfaces consolidated under
+  `src/integration/ai/providers/_engine/` per the sibling-isolation rule. No
+  user-visible behaviour change — included for downstream contributors who pin
+  internal modules (#167).
+
 ## [0.8.2] - 2026-05-26
 
 ### Added
