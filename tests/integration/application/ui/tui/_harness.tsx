@@ -11,6 +11,7 @@
 import React from 'react';
 import { afterEach } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
+import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 
 type RenderResult = ReturnType<typeof render>;
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -137,6 +138,49 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
     result,
     routeIds: () => routes.map((r) => r.id),
   };
+};
+
+/**
+ * Wait until a view has finished its initial async load and its post-mount effects have
+ * settled, so a test can safely send input next.
+ *
+ * Two distinct issues this addresses:
+ *
+ * 1. **Async hydration race.** Views that hydrate state via async repositories (typically
+ *    `findById` / `list` in `useEffect`) show a `<Spinner label="Loading…" />` until the data
+ *    resolves; while in that state, their `useInput` handlers short-circuit so any keystroke
+ *    sent by a test gets silently dropped. A fixed `tick(N)` after `renderView` races that
+ *    load on cold module imports (CI coverage step pays JIT + c8-instrumentation cost on
+ *    every import).
+ *
+ * 2. **Post-commit effect race.** Many views run a follow-up `useEffect` after the first
+ *    successful load — e.g. resetting a cursor / focus index, kicking off a derived fetch.
+ *    React fires those effects AFTER the commit that flips loading→ok, so the first paint
+ *    of the loaded UI happens before they run. Without a trailing settle, a test that
+ *    presses a key immediately can have its `setState` overridden by the still-pending
+ *    effect.
+ *
+ * The implementation polls until the frame is non-empty and no longer contains the loading
+ * label (handles #1), then yields one extra tick to let post-commit effects flush (handles
+ * #2). Pass an optional `extra` predicate to also assert on a specific rendered element
+ * before proceeding — useful when "not loading" isn't a strong enough signal.
+ *
+ * **Use this instead of `tick(N)` immediately after `renderView`.**
+ */
+export const waitForViewReady = async (
+  result: { lastFrame: () => string | undefined },
+  extra?: (frame: string) => boolean
+): Promise<void> => {
+  await waitFor(() => {
+    const frame = result.lastFrame() ?? '';
+    if (frame.length === 0) return false;
+    if (frame.includes('Loading…')) return false;
+    return extra ? extra(frame) : true;
+  });
+  // Flush one tick so any `useEffect` queued by the loading→ok commit (cursor / focus /
+  // derived-state syncs) runs before the test sends its first keystroke. Without this the
+  // input race described in (2) above resurfaces.
+  await tick();
 };
 
 /**

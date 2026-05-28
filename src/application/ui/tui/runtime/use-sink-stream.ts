@@ -1,3 +1,9 @@
+// Retention audit: BOUNDED — `useSinkStream` keeps a trailing window of `T` refs sourced from the
+// upstream `BusSink` (default 100, trimmed via `.slice(-limit)` on push, and the initial replay is
+// also `.slice(-limit)`). Memory footprint is `limit` × ref-to-T; the sink itself owns the master
+// buffer so the component-side window is incremental, not duplicative. Sound because both the
+// mount-time seed and the per-publish reducer apply the same `limit` ceiling.
+
 /**
  * Hooks that subscribe to a {@link BusSink} and re-render on new values. The store-style API
  * keeps the most recent N entries in component state so a panel can show a live tail without
@@ -26,13 +32,12 @@ export const useSinkStream = <T>(bus: BusSink<T>, opts: UseSinkStreamOptions = {
 
   useEffect(() => {
     if (replay) setItems(bus.entries.slice(-limit));
-    const unsub = bus.subscribe((value) => {
+    return bus.subscribe((value) => {
       setItems((prev) => {
         const next = [...prev, value];
         return next.length > limit ? next.slice(next.length - limit) : next;
       });
     });
-    return unsub;
   }, [bus, limit, replay]);
 
   return items;

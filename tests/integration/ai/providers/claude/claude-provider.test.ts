@@ -597,6 +597,70 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-xyz');
   });
 
+  it('publishes one debug LogEvent per assistant / tool_use / tool_result block; skips system + malformed lines; truncates payloads to 120 chars', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const longText = 'A'.repeat(200); // expect truncation to 120 + '…'
+    const assistantText = JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: longText }] },
+      session_id: 'sess-debug',
+    });
+    const assistantToolUse = JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls -la' } }],
+      },
+      session_id: 'sess-debug',
+    });
+    const userToolResult = JSON.stringify({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'total 0\n', is_error: false }],
+      },
+      session_id: 'sess-debug',
+    });
+    const systemLine = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-debug', model: 'sonnet' });
+    const malformed = '{not-json-at-all';
+    const resultEvt = JSON.stringify({ type: 'result', subtype: 'success', result: 'done', session_id: 'sess-debug' });
+
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          `${systemLine}\n${assistantText}\n${assistantToolUse}\n${userToolResult}\n${malformed}\n${resultEvt}\n`,
+        ],
+        exitCode: 0,
+      },
+    ]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const streamEvents = cap.logs.filter(
+      (e) =>
+        e.level === 'debug' &&
+        (e.message === 'claude-provider: assistant' ||
+          e.message === 'claude-provider: tool_use' ||
+          e.message === 'claude-provider: tool_result')
+    );
+    expect(streamEvents).toHaveLength(3);
+
+    const assistantEvt = streamEvents.find((e) => e.message === 'claude-provider: assistant');
+    expect(assistantEvt?.meta).toEqual({ text: `${'A'.repeat(120)}…` });
+
+    const toolUseEvt = streamEvents.find((e) => e.message === 'claude-provider: tool_use');
+    expect(toolUseEvt?.meta?.['tool']).toBe('Bash');
+    expect(toolUseEvt?.meta?.['args']).toBe('{"command":"ls -la"}');
+
+    const toolResultEvt = streamEvents.find((e) => e.message === 'claude-provider: tool_result');
+    expect(toolResultEvt?.meta?.['status']).toBe('ok');
+    expect(toolResultEvt?.meta?.['preview']).toBe('total 0\n');
+  });
+
   it('non-zero exit (code 143) with signals.json present recovers and sets recoveredFromExit', async () => {
     // Faithful repro of the captured incident: macOS Node surfaces an idle-watchdog SIGTERM
     // as (code=143, signal=null), not (code=null, signal='SIGTERM'). The AI had already

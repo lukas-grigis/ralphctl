@@ -3,7 +3,7 @@
  * `r` jumps to this project's sprints; `n` opens the flow launcher with this project current.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -37,6 +37,15 @@ interface ProjectDetailProps extends Readonly<Record<string, unknown>> {
   readonly projectId: ProjectId;
 }
 
+type RepoFieldKey = 'name' | 'setupScript' | 'verifyScript';
+type Field =
+  | { readonly kind: 'project'; readonly field: 'displayName' }
+  | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
+
+type EditTarget =
+  | { readonly kind: 'project' }
+  | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
+
 export const ProjectDetailView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
@@ -45,7 +54,6 @@ export const ProjectDetailView = (): React.JSX.Element => {
   useViewHints([
     { keys: 'r', label: 'sprints' },
     { keys: 'a', label: 'add repo' },
-    { keys: 'e', label: 'edit project / repo field' },
     { keys: 'd', label: 'remove repo' },
     { keys: 'c', label: 'detect scripts' },
     { keys: 'S', label: 'detect skills' },
@@ -76,7 +84,34 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
   const project = state.kind === 'ok' ? state.value : undefined;
-  const repos = project?.repositories ?? [];
+
+  // Flat field cursor — every editable row gets one stable index. Top-to-bottom order matches
+  // the rendered card layout: project displayName first, then each repo's name / setup / verify
+  // in turn. The cursor advances through the same array the renderer walks. `repos` is derived
+  // from `project` so we close over the project itself, not the derived array (the linter would
+  // flag the derived value as a fresh reference per render).
+  const fields = useMemo<readonly Field[]>(() => {
+    if (project === undefined) return [];
+    return [
+      { kind: 'project', field: 'displayName' },
+      ...project.repositories.flatMap((r): readonly Field[] => [
+        { kind: 'repo', field: 'name', repo: r },
+        { kind: 'repo', field: 'setupScript', repo: r },
+        { kind: 'repo', field: 'verifyScript', repo: r },
+      ]),
+    ];
+  }, [project]);
+
+  const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
+
+  // Reset the cursor when the underlying project changes — both the first successful load
+  // (loading → ok) and a re-route to a different projectId. Without this, switching from a
+  // project with 4 fields to one with 1 would leave the cursor pinned at index 3 (clamped) and
+  // visually parked on the only available row, but a subsequent reload back to the larger
+  // project would resume mid-list — surprising.
+  useEffect(() => {
+    if (state.kind === 'ok') setCursorIdx(0);
+  }, [state.kind, projectId]);
 
   const launchPerRepoFlow = async (flowId: 'detect-scripts' | 'detect-skills', target: Repository): Promise<void> => {
     if (project === undefined) return;
@@ -105,11 +140,6 @@ export const ProjectDetailView = (): React.JSX.Element => {
     void result.runner.start();
     router.push({ id: 'execute', props: { sessionId: result.runner.id } });
   };
-
-  type RepoFieldKey = 'name' | 'setupScript' | 'verifyScript';
-  type EditTarget =
-    | { readonly kind: 'project' }
-    | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
   const renderEditPrompt = (target: EditTarget): OpenEditPromptInput | undefined => {
     if (project === undefined) return undefined;
@@ -166,35 +196,12 @@ export const ProjectDetailView = (): React.JSX.Element => {
   };
 
   const handleEdit = (): void => {
-    if (project === undefined) return;
+    if (project === undefined || focused === undefined) return;
     setFeedback(undefined);
-    const focusedRepo = repos[Math.min(cursorIdx, Math.max(0, repos.length - 1))];
-    const options: ReadonlyArray<{ readonly label: string; readonly value: EditTarget }> = [
-      { label: `Project: displayName  (${project.displayName})`, value: { kind: 'project' } },
-      ...(focusedRepo !== undefined
-        ? ([
-            { label: `Repo "${focusedRepo.name}": name`, value: { kind: 'repo', field: 'name', repo: focusedRepo } },
-            {
-              label: `Repo "${focusedRepo.name}": setupScript`,
-              value: { kind: 'repo', field: 'setupScript', repo: focusedRepo },
-            },
-            {
-              label: `Repo "${focusedRepo.name}": verifyScript`,
-              value: { kind: 'repo', field: 'verifyScript', repo: focusedRepo },
-            },
-          ] as const)
-        : []),
-    ];
-    new Promise<EditTarget>((resolve, reject) => {
-      queue.enqueue({ kind: 'choice', message: 'Edit which field?', options, resolve, reject });
-    })
-      .then((target) => {
-        const cfg = renderEditPrompt(target);
-        if (cfg !== undefined) void edit.openEditPrompt(cfg);
-      })
-      .catch(() => {
-        // user cancelled the field picker — nothing to do.
-      });
+    const target: EditTarget =
+      focused.kind === 'project' ? { kind: 'project' } : { kind: 'repo', field: focused.field, repo: focused.repo };
+    const cfg = renderEditPrompt(target);
+    if (cfg !== undefined) void edit.openEditPrompt(cfg);
   };
 
   useInput((input, key) => {
@@ -203,31 +210,28 @@ export const ProjectDetailView = (): React.JSX.Element => {
       router.push({ id: 'add-repository', props: { projectId: project.id } });
       return;
     }
-    if (input === 'e') {
+    if (input === 'e' || key.return) {
       handleEdit();
       return;
     }
-    if ((key.downArrow || input === 'j') && repos.length > 0) {
-      setCursorIdx((c) => Math.min(repos.length - 1, c + 1));
+    if (key.downArrow || input === 'j') {
+      setCursorIdx((c) => Math.min(Math.max(0, fields.length - 1), c + 1));
       return;
     }
-    if ((key.upArrow || input === 'k') && repos.length > 0) {
+    if (key.upArrow || input === 'k') {
       setCursorIdx((c) => Math.max(0, c - 1));
       return;
     }
-    if (input === 'd' && repos.length > 0) {
-      const target = repos[Math.min(cursorIdx, repos.length - 1)];
-      if (target !== undefined) setConfirmRemove(target);
+    if (input === 'd' && focused?.kind === 'repo') {
+      setConfirmRemove(focused.repo);
       return;
     }
-    if (input === 'c' && repos.length > 0) {
-      const target = repos[Math.min(cursorIdx, repos.length - 1)];
-      if (target !== undefined) void launchPerRepoFlow('detect-scripts', target);
+    if (input === 'c' && focused?.kind === 'repo') {
+      void launchPerRepoFlow('detect-scripts', focused.repo);
       return;
     }
-    if (input === 'S' && repos.length > 0) {
-      const target = repos[Math.min(cursorIdx, repos.length - 1)];
-      if (target !== undefined) void launchPerRepoFlow('detect-skills', target);
+    if (input === 'S' && focused?.kind === 'repo') {
+      void launchPerRepoFlow('detect-skills', focused.repo);
     }
   });
 
@@ -275,11 +279,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
           </Box>
         </Box>
       ) : (
-        <Body
-          project={state.value}
-          cursorIdx={Math.min(cursorIdx, Math.max(0, repos.length - 1))}
-          feedback={feedback ?? edit.feedback}
-        />
+        <Body project={state.value} focused={focused} feedback={feedback ?? edit.feedback} />
       )}
     </ViewShell>
   );
@@ -299,76 +299,93 @@ const removeRepoFromProject = async (
 
 interface BodyProps {
   readonly project: Project;
-  readonly cursorIdx: number;
+  readonly focused: Field | undefined;
   readonly feedback: string | undefined;
 }
 
-const Body = ({ project, cursorIdx, feedback }: BodyProps): React.JSX.Element => (
-  <Box flexDirection="column">
-    <Card title="Project" tone="primary">
+/** Wrap a field value with the action-cursor glyph + primary color when focused. Mirrors the
+ *  pattern from settings-view.tsx so the focus signal stays consistent across detail views. */
+const focusable = (focused: boolean, node: React.ReactNode): React.ReactNode => (
+  <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
+    {focused ? `${glyphs.actionCursor} ` : '  '}
+    {node}
+  </Text>
+);
+
+const noneText = (
+  <Text dimColor italic>
+    (none)
+  </Text>
+);
+
+interface RepoCardProps {
+  readonly repo: Repository;
+  readonly focused: Field | undefined;
+}
+
+const RepoCard = ({ repo, focused }: RepoCardProps): React.JSX.Element => {
+  const repoFocused = focused?.kind === 'repo' && focused.repo.id === repo.id;
+  const nameFocused = repoFocused && focused.field === 'name';
+  const setupFocused = repoFocused && focused.field === 'setupScript';
+  const verifyFocused = repoFocused && focused.field === 'verifyScript';
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={inkColors.rule}
+      paddingX={spacing.cardPadX}
+      marginTop={1}
+    >
+      <Text bold {...(nameFocused ? { color: inkColors.primary } : {})}>
+        {nameFocused ? `${glyphs.actionCursor} ` : '  '}
+        {repo.name} <Text dimColor>({repo.slug})</Text>
+      </Text>
       <FieldList
         fields={[
-          { label: 'Name', value: <Text bold>{project.displayName}</Text> },
-          { label: 'Slug', value: project.slug },
-          { label: 'Id', value: <Text dimColor>{project.id}</Text> },
-          ...(project.description !== undefined ? [{ label: 'Description', value: project.description }] : []),
-          { label: 'Repositories', value: String(project.repositories.length) },
+          { label: 'Path', value: <Text dimColor>{repo.path}</Text> },
+          { label: 'Setup', value: focusable(setupFocused, repo.setupScript ?? noneText) },
+          { label: 'Verify', value: focusable(verifyFocused, repo.verifyScript ?? noneText) },
         ]}
       />
-    </Card>
-    <Box marginTop={spacing.section} flexDirection="column">
-      <Text bold>{glyphs.badge} Repositories</Text>
-      {project.repositories.map((repo, idx) => {
-        const focused = idx === cursorIdx;
-        return (
-          <Box
-            key={repo.id}
-            flexDirection="column"
-            borderStyle="round"
-            borderColor={focused ? inkColors.primary : inkColors.rule}
-            borderDimColor={!focused}
-            paddingX={spacing.cardPadX}
-            marginTop={1}
-          >
-            <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-              {focused ? `${glyphs.actionCursor} ` : '  '}
-              {repo.name} <Text dimColor>({repo.slug})</Text>
-            </Text>
-            <FieldList
-              fields={[
-                { label: 'Path', value: <Text dimColor>{repo.path}</Text> },
-                {
-                  label: 'Setup',
-                  value: repo.setupScript ?? (
-                    <Text dimColor italic>
-                      (none)
-                    </Text>
-                  ),
-                },
-                {
-                  label: 'Verify',
-                  value: repo.verifyScript ?? (
-                    <Text dimColor italic>
-                      (none)
-                    </Text>
-                  ),
-                },
-              ]}
-            />
-          </Box>
-        );
-      })}
-      <Box paddingX={spacing.indent} marginTop={spacing.section}>
-        <Text dimColor>
-          {glyphs.bullet} a add {glyphs.bullet} ↑/↓ select {glyphs.bullet} e edit field {glyphs.bullet} c detect scripts{' '}
-          {glyphs.bullet} S detect skills {glyphs.bullet} d remove (keeps ≥ 1)
-        </Text>
-      </Box>
-      {feedback !== undefined && (
-        <Box paddingX={spacing.indent} marginTop={1}>
-          <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
-        </Box>
-      )}
     </Box>
-  </Box>
-);
+  );
+};
+
+const Body = ({ project, focused, feedback }: BodyProps): React.JSX.Element => {
+  const projectNameFocused = focused?.kind === 'project';
+  return (
+    <Box flexDirection="column">
+      <Card title="Project" tone="primary">
+        <FieldList
+          fields={[
+            {
+              label: 'Name',
+              value: focusable(projectNameFocused, <Text bold>{project.displayName}</Text>),
+            },
+            { label: 'Slug', value: project.slug },
+            { label: 'Id', value: <Text dimColor>{project.id}</Text> },
+            ...(project.description !== undefined ? [{ label: 'Description', value: project.description }] : []),
+            { label: 'Repositories', value: String(project.repositories.length) },
+          ]}
+        />
+      </Card>
+      <Box marginTop={spacing.section} flexDirection="column">
+        <Text bold>{glyphs.badge} Repositories</Text>
+        {project.repositories.map((repo) => (
+          <RepoCard key={repo.id} repo={repo} focused={focused} />
+        ))}
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
+          <Text dimColor>
+            a add {glyphs.bullet} ↑/↓ navigate {glyphs.bullet} e/↵ edit field {glyphs.bullet} c detect scripts{' '}
+            {glyphs.bullet} S detect skills {glyphs.bullet} d remove (keeps ≥ 1)
+          </Text>
+        </Box>
+        {feedback !== undefined && (
+          <Box paddingX={spacing.indent} marginTop={1}>
+            <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+};

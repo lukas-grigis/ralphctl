@@ -1,3 +1,9 @@
+// Retention audit: BOUNDED — `useEventBusBuffer` keeps a rolling window of `AppEvent` object refs
+// (default 100, trimmed via `.slice(-limit)` on every push). Memory footprint scales with `limit`
+// not session lifetime — each entry is a single ref to an already-allocated AppEvent (the bus does
+// not deep-clone), so worst-case retention is `limit` × ~one event object. Sound because the FIFO
+// trim runs synchronously inside the setState reducer; no path skips it.
+
 /**
  * Hooks that subscribe React components to the application {@link EventBus}.
  *
@@ -36,14 +42,13 @@ export const useEventBusBuffer = <T extends AppEvent>(bus: EventBus, opts: UseEv
   filterRef.current = opts.filter;
 
   useEffect(() => {
-    const unsub = bus.subscribe((event) => {
+    return bus.subscribe((event) => {
       if (!filterRef.current(event)) return;
       setItems((prev) => {
         const next = [...prev, event];
         return next.length > limit ? next.slice(next.length - limit) : next;
       });
     });
-    return unsub;
   }, [bus, limit]);
 
   return items;

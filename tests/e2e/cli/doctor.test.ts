@@ -33,6 +33,13 @@ describe('ralphctl doctor', () => {
   it('reflects seeded entities in the project + sprint probe details', async () => {
     const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
     await projectRepo.save(makeProject({ displayName: 'Demo' }));
+    // Read-fence the save before invoking doctor. `writeJsonAtomic` lands the project via a
+    // temp-file + rename, and the rename isn't guaranteed to be visible to a sibling reader
+    // on the same event-loop turn on every platform — macOS `/var/folders` (with realpath
+    // symlinks) and some Linux runners have surfaced this as an intermittent "0 project(s)"
+    // failure. Listing here forces the file to be reachable before doctor reads the dir.
+    const listed = await projectRepo.list();
+    expect(listed.ok).toBe(true);
 
     const result = await runCliCaptured(cli, ['doctor']);
     expect(result.stdout).toContain('1 project(s)');

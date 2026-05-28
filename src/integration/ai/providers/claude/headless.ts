@@ -23,8 +23,10 @@ import {
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -77,6 +79,137 @@ import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classif
  */
 
 const RATE_LIMIT_RE = /rate.?limit/i;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+
+const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+/**
+ * Stringify a tool's `input` object into a one-line preview suitable for chain.log. JSON
+ * encoding keeps array / nested-object shapes readable; we never feed multi-line previews into
+ * the debug stream because the bus → logger pipeline writes one record per call.
+ */
+const previewArgs = (input: unknown): string | undefined => {
+  if (input === undefined || input === null) return undefined;
+  if (typeof input === 'string') return input;
+  try {
+    const json = JSON.stringify(input);
+    return json === undefined || json === '{}' || json === '[]' ? undefined : json;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Coerce a `tool_result` block's `content` (Claude permits either a plain string or an array of
+ * content sub-blocks each with a `text` field) into a single preview string.
+ */
+const previewToolResult = (content: unknown): string | undefined => {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const texts: string[] = [];
+    for (const part of content) {
+      if (isRecord(part)) {
+        const t = asString(part['text']);
+        if (t !== undefined) texts.push(t);
+      }
+    }
+    if (texts.length > 0) return texts.join('\n');
+  }
+  return undefined;
+};
+
+/**
+ * Per-line debug publisher. Inspects Claude's stream-json envelope and fans out one
+ * `{ type: 'log', level: 'debug' }` event per recognised content block:
+ *
+ *  - `type:"assistant"` lines: emit ONE `claude-provider: assistant` event whose `meta.text` is
+ *    the concatenation of every `text` block in `message.content[]`, truncated to 120 chars.
+ *    Tool-use blocks nested in the same line each surface as their own `tool_use` event with
+ *    `{ tool: <name>, args: <truncated JSON preview> }` (the `args` key is omitted when the
+ *    block carries no input — matches the contract "omit args when none").
+ *  - `type:"user"` lines: emit one `tool_result` event per `tool_result` content block, with
+ *    `{ tool: <name | tool_use_id>, status: 'ok' | 'error', preview: <truncated content> }`.
+ *  - `type:"system"`, `type:"result"`, unknown / malformed lines: silently skipped — they are
+ *    accounted for by other telemetry (system → init logging; result → token-usage event).
+ *
+ * The `RALPHCTL_LOG_LEVEL=info` filter (applied by the bus → logger consumer at
+ * `createEventBusLogger`) drops every event published here under the default verbosity. The
+ * events only surface in chain.log when the operator explicitly lifts the floor to `debug`.
+ */
+const publishStreamLineEvents = (eventBus: EventBus, line: ClaudeStreamLine): void => {
+  const json = line.json;
+  if (json === undefined) return;
+  const type = asString(json['type']);
+  if (type !== 'assistant' && type !== 'user') return;
+
+  const message = json['message'];
+  if (!isRecord(message)) return;
+  const content = message['content'];
+  if (!Array.isArray(content)) return;
+
+  if (type === 'assistant') {
+    const texts: string[] = [];
+    const toolUses: Array<{ readonly name: string; readonly input: unknown }> = [];
+    for (const block of content) {
+      if (!isRecord(block)) continue;
+      const blockType = asString(block['type']);
+      if (blockType === 'text') {
+        const t = asString(block['text']);
+        if (t !== undefined) texts.push(t);
+      } else if (blockType === 'tool_use') {
+        const name = asString(block['name']) ?? '';
+        toolUses.push({ name, input: block['input'] });
+      }
+    }
+    if (texts.length > 0) {
+      const text = truncateField(texts.join('\n'));
+      if (text !== undefined) {
+        eventBus.publish({
+          type: 'log',
+          level: 'debug',
+          message: 'claude-provider: assistant',
+          meta: { text },
+          at: IsoTimestamp.now(),
+        });
+      }
+    }
+    for (const tool of toolUses) {
+      const args = truncateField(previewArgs(tool.input));
+      eventBus.publish({
+        type: 'log',
+        level: 'debug',
+        message: 'claude-provider: tool_use',
+        meta: {
+          tool: tool.name,
+          ...(args !== undefined ? { args } : {}),
+        },
+        at: IsoTimestamp.now(),
+      });
+    }
+    return;
+  }
+
+  // type === 'user' — emit one event per tool_result block.
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    if (asString(block['type']) !== 'tool_result') continue;
+    const tool = asString(block['name']) ?? asString(block['tool_use_id']) ?? '';
+    const status = block['is_error'] === true ? 'error' : 'ok';
+    const preview = truncateField(previewToolResult(block['content']));
+    eventBus.publish({
+      type: 'log',
+      level: 'debug',
+      message: 'claude-provider: tool_result',
+      meta: {
+        tool,
+        status,
+        ...(preview !== undefined ? { preview } : {}),
+      },
+      at: IsoTimestamp.now(),
+    });
+  }
+};
 
 /**
  * Headless permission mapping. Every session uses `--permission-mode bypassPermissions` paired
@@ -282,6 +415,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 
   const onLine = (line: ClaudeStreamLine): void => {
     parser.ingest(line);
+    // Per-line debug fan-out. The bus → logger consumer (`createEventBusLogger`) honours
+    // `RALPHCTL_LOG_LEVEL`, so these events stay invisible at the default `info` floor and
+    // only land in chain.log when an operator explicitly bumps the floor to `debug`. No
+    // extra gating needed at this site.
+    publishStreamLineEvents(deps.eventBus, line);
   };
 
   // Bound once so the onIdle banner-show id and the classifier's banner-clear id match.
