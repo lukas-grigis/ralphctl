@@ -12,19 +12,19 @@ const SIGNALS = absolutePath('/tmp/sandbox/rounds/2/evaluator/signals.json');
 
 describe('implementSession', () => {
   it('omits `resume` when no prior session id is supplied (round 1 / fresh task path)', () => {
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator');
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator');
     expect(session).not.toHaveProperty('resume');
   });
 
   it('forwards `resume` onto the session descriptor when a prior session id is supplied', () => {
     const prior = 'gen-session-abc-123' as SessionId;
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator', prior);
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator', prior);
     expect(session.resume).toBe(prior);
   });
 
   it('keeps cwd at the repo and mounts BOTH the sandbox and the sprint dir via additionalRoots', () => {
     const prior = 'gen-session-abc-123' as SessionId;
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator', prior);
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator', prior);
     expect(session.cwd).toBe(REPO);
     // Order matters: the sandbox comes first (per-task workspace the AI uses every spawn),
     // sprintDir second (sibling artifacts like progress.md).
@@ -33,8 +33,8 @@ describe('implementSession', () => {
   });
 
   it('stamps the gen-eval role onto the AiSession so adapters can tag token-usage events', () => {
-    const generator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'generator');
-    const evaluator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'evaluator');
+    const generator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator');
+    const evaluator = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'evaluator');
     expect(generator.role).toBe('generator');
     expect(evaluator.role).toBe('evaluator');
   });
@@ -45,7 +45,7 @@ describe('implementSession', () => {
   // detect-skills, readiness, …) sets `outputDir` to the directory containing signalsFile —
   // bringing implement in line closes the gap (see audit-[09] field doc on AiSession).
   it('stamps `outputDir` as the parent dir of signalsFile so the adapter auto-mounts the per-round dir', () => {
-    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-7', SIGNALS, 'evaluator');
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'evaluator');
     expect(String(session.outputDir)).toBe('/tmp/sandbox/rounds/2/evaluator');
   });
 });

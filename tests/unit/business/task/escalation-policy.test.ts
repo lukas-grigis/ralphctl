@@ -46,7 +46,7 @@ describe('decideEscalation', () => {
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') {
       expect(decision.from).toBe('claude-sonnet-4-6');
-      expect(decision.to).toBe('claude-opus-4-7');
+      expect(decision.to).toBe('claude-opus-4-8');
     }
   });
 
@@ -66,11 +66,11 @@ describe('decideEscalation', () => {
     const task = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-sonnet-4-6',
-      'claude-opus-4-7'
+      'claude-opus-4-8'
     );
     const decision = decideEscalation({
       task,
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
     });
@@ -81,7 +81,7 @@ describe('decideEscalation', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
     });
@@ -118,7 +118,7 @@ describe('applyEscalation', () => {
 
     const applied = applyEscalation({
       task,
-      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-7' },
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -127,7 +127,7 @@ describe('applyEscalation', () => {
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
     expect(applied.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-7');
+    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(applied.value.blockedReason).toBeUndefined();
 
     const escalated = events.find(
@@ -135,7 +135,7 @@ describe('applyEscalation', () => {
     );
     expect(escalated).toBeDefined();
     expect(escalated?.from).toBe('claude-sonnet-4-6');
-    expect(escalated?.to).toBe('claude-opus-4-7');
+    expect(escalated?.to).toBe('claude-opus-4-8');
     expect(escalated?.reason).toBe('plateau');
     expect(escalated?.taskId).toBe(String(task.id));
     expect(escalated?.attemptN).toBe(1);
@@ -150,12 +150,12 @@ describe('applyEscalation', () => {
     const task = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-sonnet-4-6',
-      'claude-opus-4-7'
+      'claude-opus-4-8'
     );
     const { bus, events } = captureBus();
     const applied = applyEscalation({
       task,
-      decision: { kind: 'already-escalated', from: 'claude-sonnet-4-6', to: 'claude-opus-4-7' },
+      decision: { kind: 'already-escalated', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -173,7 +173,7 @@ describe('applyEscalation', () => {
     const { bus, events } = captureBus();
     const applied = applyEscalation({
       task,
-      decision: { kind: 'no-mapping', currentModel: 'claude-opus-4-7' },
+      decision: { kind: 'no-mapping', currentModel: 'claude-opus-4-8' },
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -183,7 +183,7 @@ describe('applyEscalation', () => {
     expect(applied.value.blockedReason).toMatch(/top of configured escalation ladder/);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
-    expect(banner?.message).toMatch(/claude-opus-4-7/);
+    expect(banner?.message).toMatch(/claude-opus-4-8/);
   });
 
   it('on budget-exhausted: warn banner names budget exhaustion (not missing mapping)', () => {
@@ -229,15 +229,15 @@ describe('recordTaskEscalation domain helper', () => {
     const once = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-sonnet-4-6',
-      'claude-opus-4-7'
+      'claude-opus-4-8'
     );
-    const twice = recordTaskEscalation(once, 'claude-opus-4-7', 'another-model');
+    const twice = recordTaskEscalation(once, 'claude-opus-4-8', 'another-model');
     expect(twice.ok).toBe(false);
   });
 
   it('rejects empty model ids', () => {
     const task = makeInProgressTaskWithRunningAttempt();
-    const blank = recordTaskEscalation(task, '', 'claude-opus-4-7');
+    const blank = recordTaskEscalation(task, '', 'claude-opus-4-8');
     expect(blank.ok).toBe(false);
   });
 });

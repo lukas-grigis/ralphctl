@@ -103,7 +103,7 @@ describe('evaluatorLeaf', () => {
 
   it('uses the configured evaluator model regardless of task.escalatedToModel — escalation never touches the evaluator role', async () => {
     const initial = makeInProgressTaskWithRunningAttempt();
-    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const task = stamped.value;
     const deps = buildDeps();

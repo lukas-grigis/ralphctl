@@ -169,7 +169,7 @@ describe('ExecuteView', () => {
       runner,
       flowId: 'implement',
       title: 'Implement — Cross-provider',
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
       evaluatorModel: 'gpt-5.5',
     });
 
@@ -180,7 +180,7 @@ describe('ExecuteView', () => {
     });
     await tick(40);
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('claude-opus-4-7');
+    expect(frame).toContain('claude-opus-4-8');
     expect(frame).toContain('gpt-5.5');
     expect(frame).toContain('→');
     expect(frame).toContain('(eval)');
@@ -194,8 +194,8 @@ describe('ExecuteView', () => {
       runner,
       flowId: 'implement',
       title: 'Implement — Single model',
-      generatorModel: 'claude-opus-4-7',
-      evaluatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
+      evaluatorModel: 'claude-opus-4-8',
     });
 
     const { result } = renderView(<ExecuteView />, {
@@ -205,7 +205,7 @@ describe('ExecuteView', () => {
     });
     await tick(40);
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('claude-opus-4-7');
+    expect(frame).toContain('claude-opus-4-8');
     // The arrow / (eval) tag stay hidden when the two models match — single-provider runs
     // shouldn't pay the visual cost of an arrow that points at the same name.
     expect(frame).not.toContain('→');

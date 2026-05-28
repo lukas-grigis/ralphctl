@@ -31,8 +31,8 @@ const fakeLogger = () => {
 };
 
 describe('DEFAULT_ESCALATION_MAP', () => {
-  it('seeds the ticket-mandated ladders (claude-sonnet-4-6 → claude-opus-4-7, gpt-5-mini → gpt-5.5)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-7');
+  it('seeds the ticket-mandated ladders (claude-sonnet-4-6 → claude-opus-4-8, gpt-5-mini → gpt-5.5)', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
     expect(DEFAULT_ESCALATION_MAP['gpt-5-mini']).toBe('gpt-5.5');
   });
 });
@@ -53,7 +53,7 @@ describe('mergeEscalationMap', () => {
     const merged = mergeEscalationMap({ 'some-new-model': 'some-stronger-model' });
     expect(merged['some-new-model']).toBe('some-stronger-model');
     // Defaults still present.
-    expect(merged['claude-sonnet-4-6']).toBe('claude-opus-4-7');
+    expect(merged['claude-sonnet-4-6']).toBe('claude-opus-4-8');
   });
 
   it('does not mutate the default map when the user override carries new entries', () => {
@@ -67,12 +67,12 @@ describe('warnEscalationMapSelfLoops', () => {
   it('logs a warn-level record for each self-loop entry', () => {
     const { logger, warn } = fakeLogger();
     warnEscalationMapSelfLoops(
-      { 'claude-opus-4-7': 'claude-opus-4-7', 'gpt-5.5': 'gpt-5.5', 'gpt-5-mini': 'gpt-5.5' },
+      { 'claude-opus-4-8': 'claude-opus-4-8', 'gpt-5.5': 'gpt-5.5', 'gpt-5-mini': 'gpt-5.5' },
       logger
     );
     expect(warn).toHaveBeenCalledTimes(2);
     const messages = warn.mock.calls.map((call) => String(call[0]));
-    expect(messages.some((m) => m.includes('claude-opus-4-7'))).toBe(true);
+    expect(messages.some((m) => m.includes('claude-opus-4-8'))).toBe(true);
     expect(messages.some((m) => m.includes('gpt-5.5'))).toBe(true);
     // Non-self-loop entry was not flagged.
     expect(messages.every((m) => !m.includes("'gpt-5-mini'"))).toBe(true);
@@ -80,7 +80,7 @@ describe('warnEscalationMapSelfLoops', () => {
 
   it('emits nothing when no self-loop is present', () => {
     const { logger, warn } = fakeLogger();
-    warnEscalationMapSelfLoops({ 'claude-sonnet-4-6': 'claude-opus-4-7', 'gpt-5-mini': 'gpt-5.5' }, logger);
+    warnEscalationMapSelfLoops({ 'claude-sonnet-4-6': 'claude-opus-4-8', 'gpt-5-mini': 'gpt-5.5' }, logger);
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -95,20 +95,20 @@ describe('warnEscalationMapSelfLoops', () => {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
         refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
-          evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+          evaluator: { provider: 'claude-code', model: 'claude-opus-4-8' },
         },
         readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
       },
       harness: {
         maxTurns: 5,
         maxAttempts: 3,
         rateLimitRetries: 3,
         plateauThreshold: 2,
-        escalationMap: { 'claude-opus-4-7': 'claude-opus-4-7' },
+        escalationMap: { 'claude-opus-4-8': 'claude-opus-4-8' },
       },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
@@ -122,6 +122,6 @@ describe('warnEscalationMapSelfLoops', () => {
     const { logger, warn } = fakeLogger();
     warnEscalationMapSelfLoops(parsed.data.harness.escalationMap, logger);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain('claude-opus-4-7');
+    expect(String(warn.mock.calls[0]?.[0])).toContain('claude-opus-4-8');
   });
 });

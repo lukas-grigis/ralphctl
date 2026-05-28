@@ -182,7 +182,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       {
         sprintId: sprint.id,
@@ -232,7 +232,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       {
         sprintId: sprint.id,
@@ -300,7 +300,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       {
         sprintId: sprint.id,
@@ -376,7 +376,7 @@ describe('createReviewFlow', () => {
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       {
         sprintId: sprint.id,

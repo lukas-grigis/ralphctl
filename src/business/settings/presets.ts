@@ -30,11 +30,11 @@ const MIXED: AiSettings = {
   refine: { provider: 'openai-codex', model: 'gpt-5.5' },
   plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'xhigh' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
   // PR content drafting mirrors refine's "light summary" reasoning profile — a fast Codex
   // model is fine, no need to pay for Opus tokens just to summarise a diff.
   createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
@@ -55,13 +55,13 @@ const MIXED: AiSettings = {
 const CLAUDE_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
   },
   readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
   createPr: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
 };
 

@@ -34,7 +34,7 @@ const harnessConfig: Settings['harness'] = {
   escalationMap: {},
 };
 
-const claudeRow: AiFlowSettings = { provider: 'claude-code', model: 'claude-opus-4-7' };
+const claudeRow: AiFlowSettings = { provider: 'claude-code', model: 'claude-opus-4-8' };
 const codexRow: AiFlowSettings = { provider: 'openai-codex', model: 'gpt-5.5' };
 const copilotRow: AiFlowSettings = { provider: 'github-copilot', model: 'gpt-5.4' };
 

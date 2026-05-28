@@ -9,7 +9,7 @@
  * Prefer the latter — add a model when the vendor publishes the value, not before.
  *
  *  - **Claude (Anthropic)** — the public model cards on https://www.anthropic.com/news
- *    list 200 000 tokens for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.7).
+ *    list 200 000 tokens for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.8).
  *  - **Copilot** — model windows vary by upstream; the Copilot CLI does not surface the
  *    figure and we treat it as opaque until GitHub documents per-model windows. Omitted.
  *  - **Codex (OpenAI)** — `codex` proxies frontier models whose context windows the CLI
@@ -24,7 +24,7 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   // Claude (claude-code adapter — direct from Anthropic)
   'claude-haiku-4-5': 200_000,
   'claude-sonnet-4-6': 200_000,
-  'claude-opus-4-7': 200_000,
+  'claude-opus-4-8': 200_000,
 };
 
 /**

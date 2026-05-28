@@ -17,12 +17,12 @@ describe('parseImplementRoleOverrides', () => {
   it('accepts a fully-formed generator pair', () => {
     const result = parseImplementRoleOverrides({
       generatorProvider: 'claude-code',
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.overrides).toEqual({
-      generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
     });
   });
 
@@ -47,7 +47,7 @@ describe('parseImplementRoleOverrides', () => {
   });
 
   it('rejects generator-model without generator-provider and names the missing flag', () => {
-    const result = parseImplementRoleOverrides({ generatorModel: 'claude-opus-4-7' });
+    const result = parseImplementRoleOverrides({ generatorModel: 'claude-opus-4-8' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('--implement-generator-model');
@@ -96,14 +96,14 @@ describe('parseImplementRoleOverrides', () => {
   it('accepts independent generator + evaluator pairs targeting different providers', () => {
     const result = parseImplementRoleOverrides({
       generatorProvider: 'claude-code',
-      generatorModel: 'claude-opus-4-7',
+      generatorModel: 'claude-opus-4-8',
       evaluatorProvider: 'openai-codex',
       evaluatorModel: 'gpt-5.5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.overrides).toEqual({
-      generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+      generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
       evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
     });
   });

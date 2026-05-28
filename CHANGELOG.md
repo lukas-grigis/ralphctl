@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Claude catalog moves to Opus 4.8.** `claude-opus-4-7` is replaced by `claude-opus-4-8` as the
+  Claude top-tier model — catalog, context-window table, defaults, presets (`mixed` / `claude-only`),
+  and the escalation ladder (`claude-sonnet-4-6` → `claude-opus-4-8`) all point at 4.8.
+  `claude-opus-4-7` is no longer a valid Claude model; settings files pinning it must be updated
+  (the adapter rejects the stale value with `InvalidStateError` at the boundary).
+
 ## [0.8.3] - 2026-05-28
 
 ### Added

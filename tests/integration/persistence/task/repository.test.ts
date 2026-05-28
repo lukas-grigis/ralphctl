@@ -105,14 +105,14 @@ describe('createFsTaskRepository', () => {
   it('round-trips escalatedFromModel / escalatedToModel across save → load (resume path)', async () => {
     const repo = createFsTaskRepository({ root });
     const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!escalated.ok) throw escalated.error;
     await repo.saveAll(sprintId, [escalated.value]);
 
     const reloaded = await repo.findById(sprintId, escalated.value.id);
     if (!reloaded.ok) throw new Error('expected ok');
     expect(reloaded.value.escalatedFromModel).toBe('claude-sonnet-4-6');
-    expect(reloaded.value.escalatedToModel).toBe('claude-opus-4-7');
+    expect(reloaded.value.escalatedToModel).toBe('claude-opus-4-8');
   });
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {

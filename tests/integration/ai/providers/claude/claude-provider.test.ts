@@ -307,7 +307,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       type: 'system',
       subtype: 'init',
       session_id: 'sess-tu',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
     });
     const resultEvt = JSON.stringify({
       type: 'result',
@@ -332,12 +332,12 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     const evt = tokenEvents[0]!;
     expect(evt.provider).toBe('claude-code');
     expect(evt.sessionId).toBe('sess-tu');
-    expect(evt.model).toBe('claude-opus-4-7');
+    expect(evt.model).toBe('claude-opus-4-8');
     expect(evt.inputTokens).toBe(1234);
     expect(evt.outputTokens).toBe(567);
     expect(evt.cacheReadTokens).toBe(89);
     expect(evt.cacheCreationTokens).toBe(12);
-    // claude-opus-4-7 is in the static context-window table at 200k.
+    // claude-opus-4-8 is in the static context-window table at 200k.
     expect(evt.contextWindow).toBe(200_000);
   });
 
@@ -369,7 +369,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
   it('does NOT emit a TokenUsageEvent on spawn failure (non-zero exit)', async () => {
     const cap = createCapturingBus();
     const sess = session();
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-7' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-fail', model: 'claude-opus-4-8' });
     const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n`], stderrChunks: ['boom\n'], exitCode: 2 }]);
 
     const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
@@ -383,7 +383,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
   it('stamps the gen-eval role onto the event when the session carries one', async () => {
     const cap = createCapturingBus();
     const sess = session({ role: 'generator' });
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-role', model: 'claude-opus-4-7' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-role', model: 'claude-opus-4-8' });
     const resultEvt = JSON.stringify({
       type: 'result',
       result: '<task-complete/>',
@@ -408,7 +408,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
       type: 'system',
       subtype: 'init',
       session_id: 'sess-norole',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
     });
     const resultEvt = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-norole' });
     const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
@@ -572,7 +572,7 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
 
   it('passes the translated argv through spawn end-to-end', async () => {
     const cap = createCapturingBus();
-    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude-opus-4-7' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-e2e', model: 'claude-opus-4-8' });
     const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-e2e' });
     const captured = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
 
@@ -585,13 +585,13 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     const root = absolutePath('/tmp/extra-root');
     const id = 'sess-xyz' as unknown as SessionId;
     await provider.generate(
-      session({ model: 'claude-opus-4-7', permissions: FULL_AUTO, additionalRoots: [root], resume: id })
+      session({ model: 'claude-opus-4-8', permissions: FULL_AUTO, additionalRoots: [root], resume: id })
     );
 
     expect(captured.calls).toHaveLength(1);
     const args = captured.calls[0]?.args ?? [];
     expect(args).toContain('--model');
-    expect(args[args.indexOf('--model') + 1]).toBe('claude-opus-4-7');
+    expect(args[args.indexOf('--model') + 1]).toBe('claude-opus-4-8');
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
     expect(args[args.indexOf('--add-dir') + 1]).toBe('/tmp/extra-root');
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-xyz');

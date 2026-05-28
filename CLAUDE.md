@@ -169,7 +169,7 @@ fires (the task then transitions to `blocked`). `settings.ai.implement` is a nes
 `{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
 the two sessions can run on different providers / models / effort levels (effort resolution rules
 described under _AI Settings_ below apply per-row). Default: generator runs `claude-code` /
-`claude-opus-4-7`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
+`claude-opus-4-8`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
 side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.
@@ -361,7 +361,7 @@ scoring rubric does not shift mid-task, which would make plateau detection meani
 most once per task: `Task.escalatedFromModel` / `escalatedToModel` are stamped on first escalation, and a
 second plateau on the same task transitions to `blocked` with no further escalation. Cost ceiling is
 therefore bounded — at worst one extra attempt per task on the upgraded model. Cross-provider escalation
-(e.g. swapping `claude-sonnet-4-6` → `gpt-5.5` instead of `claude-opus-4-7`) is intentionally deferred —
+(e.g. swapping `claude-sonnet-4-6` → `gpt-5.5` instead of `claude-opus-4-8`) is intentionally deferred —
 the gen-eval split shipped the two-provider plumbing implement would need, but switching providers
 mid-task carries auth / context / tool-availability hazards that warrant a follow-up design pass.
 

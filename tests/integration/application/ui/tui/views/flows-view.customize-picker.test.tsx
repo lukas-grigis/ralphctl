@@ -496,15 +496,15 @@ describe('applyOverrideToSettings — launcher per-field fallback', () => {
   });
 
   it('refine: override.provider only — model + effort fall back to settings.ai.refine', () => {
-    const base = driveSettings({ refine: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'high' } });
+    const base = driveSettings({ refine: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' } });
     const effective = applyOverrideToSettings(base, 'refine', { provider: 'openai-codex' });
     expect(effective.ai.refine.provider).toBe('openai-codex');
-    expect(effective.ai.refine.model).toBe('claude-opus-4-7');
+    expect(effective.ai.refine.model).toBe('claude-opus-4-8');
     expect(effective.ai.refine.effort).toBe('high');
   });
 
   it('refine: override.model only — provider + effort fall back to settings.ai.refine', () => {
-    const base = driveSettings({ refine: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'medium' } });
+    const base = driveSettings({ refine: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'medium' } });
     const effective = applyOverrideToSettings(base, 'refine', { model: 'claude-sonnet-4-6' });
     expect(effective.ai.refine.provider).toBe('claude-code');
     expect(effective.ai.refine.model).toBe('claude-sonnet-4-6');

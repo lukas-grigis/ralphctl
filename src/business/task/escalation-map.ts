@@ -21,7 +21,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 export const DEFAULT_ESCALATION_MAP: Readonly<Record<string, string>> = {
   // Claude — Sonnet escalates to Opus; Haiku escalates to Sonnet.
   'claude-haiku-4-5': 'claude-sonnet-4-6',
-  'claude-sonnet-4-6': 'claude-opus-4-7',
+  'claude-sonnet-4-6': 'claude-opus-4-8',
   // Copilot/Codex — mini variants step up to their full-tier frontier.
   'gpt-5-mini': 'gpt-5.5',
   'gpt-5.4-mini': 'gpt-5.5',

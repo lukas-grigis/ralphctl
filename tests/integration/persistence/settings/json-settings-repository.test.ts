@@ -136,7 +136,7 @@ describe('JsonSettingsRepository', () => {
         refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
         plan: { provider: 'github-copilot', model: 'gpt-5.4', effort: 'xhigh' },
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'max' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
@@ -149,7 +149,7 @@ describe('JsonSettingsRepository', () => {
         rateLimitRetries: 5,
         plateauThreshold: 3,
         escalateOnPlateau: true,
-        escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-7' },
+        escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-8' },
       },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
@@ -222,10 +222,10 @@ describe('JsonSettingsRepository', () => {
         provider: 'claude-code',
         models: {
           refine: 'claude-sonnet-4-6',
-          plan: 'claude-opus-4-7',
-          implement: 'claude-opus-4-7',
+          plan: 'claude-opus-4-8',
+          implement: 'claude-opus-4-8',
           readiness: 'claude-sonnet-4-6',
-          ideate: 'claude-opus-4-7',
+          ideate: 'claude-opus-4-8',
         },
       },
       harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
@@ -255,10 +255,10 @@ describe('JsonSettingsRepository', () => {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
         refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
-        implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
+        implement: { provider: 'claude-code', model: 'claude-opus-4-8' },
         readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
       },
       harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
       logging: { level: 'info' },
@@ -276,7 +276,7 @@ describe('JsonSettingsRepository', () => {
     // version (there is no v2 → v3 migration; the implement-shape change is non-breaking
     // backwards-compatible at the schema layer).
     expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-7' };
+    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-8' };
     expect(loaded.value.ai.implement).toEqual({ generator: expectedRow, evaluator: expectedRow });
 
     // The file on disk is unchanged — no migration applied, no rewrite triggered. A
@@ -284,7 +284,7 @@ describe('JsonSettingsRepository', () => {
     // pure read-promote.
     const raw = await fs.readFile(path, 'utf8');
     const onDisk = JSON.parse(raw) as { readonly ai: { readonly implement: unknown } };
-    expect(onDisk.ai.implement).toEqual({ provider: 'claude-code', model: 'claude-opus-4-7' });
+    expect(onDisk.ai.implement).toEqual({ provider: 'claude-code', model: 'claude-opus-4-8' });
   });
 
   it('load silently seeds a missing ai.createPr row from ai.refine (no schemaVersion bump)', async () => {
@@ -296,13 +296,13 @@ describe('JsonSettingsRepository', () => {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
         refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
-          evaluator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+          evaluator: { provider: 'claude-code', model: 'claude-opus-4-8' },
         },
         readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-        ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
       },
       harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
       logging: { level: 'info' },

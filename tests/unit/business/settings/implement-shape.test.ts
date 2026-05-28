@@ -16,9 +16,9 @@ const baseRecord = {
   schemaVersion: CURRENT_SCHEMA_VERSION,
   ai: {
     refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-    plan: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    plan: { provider: 'claude-code', model: 'claude-opus-4-8' },
     readiness: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-    ideate: { provider: 'claude-code', model: 'claude-opus-4-7' },
+    ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
   },
   harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
   logging: { level: 'info' },
@@ -31,7 +31,7 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
   it('fresh-install defaults split implement across providers (generator=Claude, evaluator=Codex)', () => {
     expect(DEFAULT_SETTINGS.ai.implement.generator).toEqual({
       provider: 'claude-code',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
     });
     expect(DEFAULT_SETTINGS.ai.implement.evaluator).toEqual({
       provider: 'openai-codex',
@@ -44,13 +44,13 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        implement: { provider: 'claude-code', model: 'claude-opus-4-7' },
+        implement: { provider: 'claude-code', model: 'claude-opus-4-8' },
       },
     };
     const parsed = SettingsSchema.safeParse(legacyFlat);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-7' };
+    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-8' };
     expect(parsed.data.ai.implement).toEqual({ generator: expectedRow, evaluator: expectedRow });
     // schemaVersion stays at v2 — silent promotion does NOT bump the persisted version.
     expect(parsed.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
@@ -61,13 +61,13 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        implement: { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' },
+        implement: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
       },
     };
     const parsed = SettingsSchema.safeParse(legacyFlat);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'xhigh' };
+    const expectedRow = { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' };
     expect(parsed.data.ai.implement.generator).toEqual(expectedRow);
     expect(parsed.data.ai.implement.evaluator).toEqual(expectedRow);
   });
@@ -77,7 +77,7 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
       ...baseRecord,
       ai: {
         ...baseRecord.ai,
-        implement: { generator: { provider: 'claude-code', model: 'claude-opus-4-7' } },
+        implement: { generator: { provider: 'claude-code', model: 'claude-opus-4-8' } },
       },
     };
     const parsed = SettingsSchema.safeParse(partial);
@@ -108,7 +108,7 @@ describe('settings.ai.implement — nested generator/evaluator shape', () => {
       ai: {
         ...baseRecord.ai,
         implement: {
-          generator: { provider: 'claude-code', model: 'claude-opus-4-7' },
+          generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
           evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
         },
       },

@@ -203,14 +203,14 @@ describe('generatorLeaf', () => {
 
   it('uses task.escalatedToModel as the spawn model when the task carries an escalation', async () => {
     const initial = makeInProgressTaskWithRunningAttempt();
-    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-7');
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const task = stamped.value;
     const provider = createFakeAiProvider({ responses: { implement: '' } });
     const leaf = generatorLeaf({ ...buildDeps(), provider, model: 'claude-sonnet-4-6' }, task.id);
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
-    expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-7');
+    expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-8');
   });
 
   it('falls back to the configured model when the task has no escalatedToModel', async () => {

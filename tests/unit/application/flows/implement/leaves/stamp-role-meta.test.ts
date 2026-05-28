@@ -42,7 +42,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7', effort: 'high' },
+      { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
       task.id
     );
 
@@ -64,7 +64,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     expect(meta).toEqual({
       role: 'generator',
       provider: 'claude-code',
-      model: 'claude-opus-4-7',
+      model: 'claude-opus-4-8',
       effort: 'high',
       attemptN: 1,
       roundN: 1,
@@ -128,7 +128,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7' },
+      { provider: 'claude-code', model: 'claude-opus-4-8' },
       task.id
     );
 
@@ -150,7 +150,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7' },
+      { provider: 'claude-code', model: 'claude-opus-4-8' },
       task.id
     );
     await leafEl.execute({
@@ -174,7 +174,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: failingWrite, clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7' },
+      { provider: 'claude-code', model: 'claude-opus-4-8' },
       task.id
     );
 
@@ -193,7 +193,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7' },
+      { provider: 'claude-code', model: 'claude-opus-4-8' },
       task.id
     );
 
@@ -212,7 +212,7 @@ describe('stampGeneratorRoleMetaLeaf', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leafEl = stampGeneratorRoleMetaLeaf(
       { writeFile: createAtomicWriteFile(), clock: () => FIXED_LATER, logger: noopLogger },
-      { provider: 'claude-code', model: 'claude-opus-4-7' },
+      { provider: 'claude-code', model: 'claude-opus-4-8' },
       task.id
     );
 
