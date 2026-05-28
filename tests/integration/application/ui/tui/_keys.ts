@@ -25,3 +25,22 @@ export const CTRL_W = '';
 export const tick = async (ms = 30): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
+
+/**
+ * Poll `predicate` until it returns true or `timeoutMs` elapses. Use this in place of a fixed
+ * `tick(N)` when the test depends on an async settling step whose timing isn't bounded by a
+ * single Ink render tick — e.g. waiting for a stubbed repo `findById` to resolve before the
+ * view's `useInput` handler is responsive, or waiting for an async `openEditPrompt` to enqueue
+ * a prompt after a keystroke. Cheap on the happy path (~10ms first poll), bounded on cold CI.
+ */
+export const waitFor = async (
+  predicate: () => boolean,
+  opts: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<void> => {
+  const { timeoutMs = 1000, intervalMs = 10 } = opts;
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start >= timeoutMs) return;
+    await tick(intervalMs);
+  }
+};

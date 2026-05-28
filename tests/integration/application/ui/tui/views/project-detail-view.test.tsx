@@ -14,7 +14,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { FIXED_PROJECT_ID, makeProject, makeRepository, repositoryId, slug } from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, UP, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, UP, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const fakeProjectRepo = (project: Project): ProjectRepository =>
@@ -251,9 +251,14 @@ describe('ProjectDetailView', () => {
       initial: { id: 'project-detail', props: { projectId: project.id } },
       queue,
     });
-    await tick(40);
+    // Wait for the project to load — useInput bails out while `project === undefined`, so a
+    // fixed `tick(40)` races the async `findById` on a cold module import.
+    await waitFor(() => {
+      const frame = result.lastFrame() ?? '';
+      return frame.includes('Mainline') && frame.includes(glyphs.actionCursor);
+    });
     result.stdin.write(ENTER);
-    await tick();
+    await waitFor(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     expect(queue.head?.message ?? '').toContain('Rename project');
   });
