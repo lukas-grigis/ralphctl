@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-05-29
+
 ### Fixed
 
 - **Process spawning works on Windows across every flow.** All external-CLI spawns
