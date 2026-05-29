@@ -9,15 +9,19 @@ import type {
 
 /**
  * Map provider id → the binary the user must have on PATH for that provider to function.
- * `claude` and `codex` are the standalone CLIs; for `github-copilot` we probe `gh` (the GitHub
- * CLI), which is the entry point ralphctl reaches the Copilot extension through.
+ * All three are standalone CLIs: `claude`, `codex`, and `copilot` (the GitHub Copilot CLI,
+ * `copilot` v1.0.12+ — `npm install -g @github/copilot`). This MUST match the binary each
+ * provider adapter actually spawns (`providers/<tool>/{headless,interactive}.ts`); probing
+ * `gh` here while the adapter spawns `copilot` would let the launch fail-fast pass and then
+ * the real spawn fail (`gh` is a separate SCM dependency for create-pr / issue sync, not the
+ * Copilot AI backend).
  *
  * Single source of truth — used by `detectInstalledProviders`, the apply-preset warning surface,
  * and the fail-fast launch helper.
  */
 export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
   'claude-code': 'claude',
-  'github-copilot': 'gh',
+  'github-copilot': 'copilot',
   'openai-codex': 'codex',
 };
 
@@ -51,17 +55,11 @@ export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInst
     },
   },
   'github-copilot': {
-    docsUrl: 'https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli',
+    docsUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
     commandsByPlatform: {
-      darwin: ['brew install gh && gh extension install github/gh-copilot', 'gh extension install github/gh-copilot'],
-      linux: [
-        'install gh from https://github.com/cli/cli/blob/trunk/docs/install_linux.md, then: gh extension install github/gh-copilot',
-        'gh extension install github/gh-copilot',
-      ],
-      win32: [
-        'winget install --id GitHub.cli && gh extension install github/gh-copilot',
-        'gh extension install github/gh-copilot',
-      ],
+      darwin: ['brew install copilot-cli', 'npm install -g @github/copilot'],
+      linux: ['npm install -g @github/copilot', 'brew install copilot-cli'],
+      win32: ['winget install GitHub.Copilot', 'npm install -g @github/copilot'],
     },
   },
   'openai-codex': {

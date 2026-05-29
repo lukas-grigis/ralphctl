@@ -179,7 +179,7 @@ describe('settings use-cases — read/write through the JSON adapter', () => {
     if (!(err instanceof ValidationError)) return;
     expect(err.field).toBe('ai.implement.evaluator.provider');
     expect(err.message).toContain('ai.implement.evaluator.provider');
-    expect(err.hint).toContain('gh extension install github/gh-copilot');
+    expect(err.hint).toContain('npm install -g @github/copilot');
   });
 
   it('settings-set rejects an invalid record without writing to disk', async () => {

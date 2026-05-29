@@ -17,7 +17,7 @@ const detectRef = vi.hoisted(() => ({ installed: new Set<string>() }));
 vi.mock('@src/integration/system/detect-cli.ts', () => ({
   detectInstalledProviders: async (): Promise<ReadonlySet<AiProvider>> =>
     new Set(detectRef.installed) as ReadonlySet<AiProvider>,
-  PROVIDER_BINARY: { 'claude-code': 'claude', 'github-copilot': 'gh', 'openai-codex': 'codex' },
+  PROVIDER_BINARY: { 'claude-code': 'claude', 'github-copilot': 'copilot', 'openai-codex': 'codex' },
 }));
 
 import { WelcomeView } from '@src/application/ui/tui/views/welcome-view.tsx';

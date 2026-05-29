@@ -64,12 +64,12 @@ describe('checkCli', () => {
     expect(result).toBeUndefined();
   });
 
-  it('names gh as the missing binary for github-copilot', async () => {
+  it('names copilot as the missing binary for github-copilot', async () => {
     const settings = withFlowProvider('refine', 'github-copilot');
     const result = await checkCli('refine', settings, { detect: detectFor([]) });
     expect(result).toBeDefined();
     if (result === undefined || result.ok) return;
-    expect(result.reason).toContain('CLI gh not on PATH');
+    expect(result.reason).toContain('CLI copilot not on PATH');
     expect(result.reason).toContain('refine');
   });
 
@@ -194,7 +194,7 @@ describe('checkCli', () => {
       { provider: 'claude-code' as const, docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup' },
       {
         provider: 'github-copilot' as const,
-        docsUrl: 'https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli',
+        docsUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
       },
       { provider: 'openai-codex' as const, docsUrl: 'https://github.com/openai/codex' },
     ];

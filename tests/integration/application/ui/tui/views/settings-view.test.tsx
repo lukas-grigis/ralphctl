@@ -322,11 +322,12 @@ describe('SettingsView', () => {
       // footer across multiple lines depending on terminal width, but the install command must
       // still be present as a contiguous token sequence.
       const frame = (result.lastFrame() ?? '').replace(/\s+/g, ' ');
-      // Footer renders the OS-preferred command (brew on macOS, winget on Windows, the curl
-      // installer / gh-install hint on Linux). Assert on the OS-invariant prefix and the
-      // command fragment that every option references.
+      // Footer renders the OS-preferred command (brew on macOS, winget on Windows, npm on
+      // Linux). Assert on the OS-invariant prefix plus an alternation over the per-OS Copilot
+      // CLI install fragments — proving the install COMMAND rendered (not just the provider
+      // label, which already contains "copilot").
       expect(frame).toMatch(/install github-copilot: \S/);
-      expect(frame).toContain('gh-copilot');
+      expect(frame).toMatch(/copilot-cli|@github\/copilot|GitHub\.Copilot/);
       expect(frame).toMatch(/install openai-codex: \S/);
       expect(frame).toContain('codex');
     });
