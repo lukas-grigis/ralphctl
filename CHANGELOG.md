@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-05-29
+
+### Fixed
+
+- **CLI shim resolution on Windows.** `detect-cli` now resolves `.cmd` and `.ps1` wrapper shims
+  so AI flows (`claude`, `gh`, `codex`) launch correctly on Windows (#174).
+
 ## [0.8.4] - 2026-05-28
 
 ### Added
