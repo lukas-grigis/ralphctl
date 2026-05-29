@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
@@ -20,10 +21,22 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  * caller reads that file back after this session resolves.
  *
  * Codex's top-level (non-`exec`) command starts the TUI and accepts an optional positional
- * prompt — `codex "explain this codebase"`. We inline `"$(cat <promptFile>)"` via `bash -lc`
- * so very large prompt files don't hit argv length limits. `-s workspace-write -a never`
- * matches Claude's `--permission-mode acceptEdits` intent: file writes inside the workspace
- * run without a confirmation step (so the AI can drop its answer in `outputFile`).
+ * prompt — `codex "explain this codebase"`. The prompt is read from `promptFile` in Node.js
+ * and passed directly as a positional argument. `-s workspace-write -a never` matches
+ * Claude's `--permission-mode acceptEdits` intent: file writes inside the workspace run
+ * without a confirmation step (so the AI can drop its answer in `outputFile`).
+ *
+ * The previous approach ran `bash -lc "codex ... \"$(cat promptFile)\""`. That broke on
+ * Windows because:
+ *   1. Git Bash cannot execute `codex.cmd` shims (npm/winget installs) without the .cmd
+ *      extension, so the inner `codex` command exited with code 1.
+ *   2. Windows paths contain backslashes which break bash path resolution inside the
+ *      shell command string (`$(cat 'C:\Users\...')` is not a valid Unix path in bash).
+ *
+ * By reading the file in Node.js and spawning Codex directly, the bash dependency is
+ * eliminated. On Windows the default spawn uses `shell: true` so Node's `cmd.exe /c`
+ * wrapper resolves `.cmd` / `.ps1` shims that npm and winget install. On POSIX, direct
+ * spawn (no shell) is used — codex is a native binary.
  *
  * Audit [09]: harness-driven sessions want zero per-tool noise. `-a never` makes the sandbox
  * the only gate — anything outside the workspace fails immediately rather than prompting,
@@ -37,11 +50,20 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
+  // On Windows, spawn with shell:true so Node's cmd.exe wrapper resolves .cmd shims
+  // (codex.cmd) that npm and winget install. On POSIX, spawn directly.
+  nodeSpawn(command, [...args], {
+    stdio: options.stdio,
+    cwd: options.cwd,
+    ...(process.platform === 'win32' ? { shell: true } : {}),
+  });
+
+const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 
 export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): InteractiveAiProvider => {
   const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
-  const command = deps.command ?? 'bash';
+  const command = deps.command ?? 'codex';
+  const readFile = deps.readFile ?? defaultReadFile;
 
   return {
     async run(input: InteractiveAiProviderInput) {
@@ -52,6 +74,22 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
             currentState: 'model-validation',
             attemptedAction: 'run',
             message: `interactive-codex: '${input.model}' is not a known Codex model`,
+          })
+        );
+      }
+
+      // Read the prompt file in Node.js so its content can be passed as a direct argv
+      // element to codex. This avoids the bash $(cat ...) expansion that broke on Windows
+      // (backslash paths + .cmd shim resolution issues).
+      let prompt: string;
+      try {
+        prompt = await readFile(String(input.promptFile));
+      } catch (cause) {
+        return Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: `interactive-codex: failed to read prompt file ${String(input.promptFile)} — ${stringifyError(cause)}`,
+            cause,
           })
         );
       }
@@ -75,21 +113,20 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
           seen.add(p);
           return true;
         })
-        .flatMap((p) => ['--add-dir', shellQuote(p)]);
+        .flatMap((p) => ['--add-dir', p]);
 
-      const inner = [
-        'codex',
+      const args = [
         '--cd',
-        shellQuote(String(input.cwd)),
+        String(input.cwd),
         ...dirFlags,
         '--model',
-        shellQuote(input.model),
+        input.model,
         '-s',
         'workspace-write',
         '-a',
         'never',
-        `"$(cat ${shellQuote(String(input.promptFile))})"`,
-      ].join(' ');
+        prompt,
+      ];
 
       deps.eventBus.publish({
         type: 'log',
@@ -101,7 +138,7 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
 
       let child: ChildProcess;
       try {
-        child = spawnFn(command, ['-lc', inner], { stdio: 'inherit', cwd: String(input.cwd) });
+        child = spawnFn(command, args, { stdio: 'inherit', cwd: String(input.cwd) });
       } catch (cause) {
         return Result.error(
           new StorageError({
@@ -145,5 +182,4 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
   };
 };
 
-const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));

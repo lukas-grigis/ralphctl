@@ -45,7 +45,13 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
+  // On Windows, spawn with shell:true so Node's cmd.exe wrapper resolves .cmd shims
+  // (copilot.cmd / gh.cmd) that npm and winget install. On POSIX, spawn directly.
+  nodeSpawn(command, [...args], {
+    stdio: options.stdio,
+    cwd: options.cwd,
+    ...(process.platform === 'win32' ? { shell: true } : {}),
+  });
 
 const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 

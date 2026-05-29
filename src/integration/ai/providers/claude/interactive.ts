@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
 import { Result } from '@src/domain/result.ts';
@@ -21,15 +22,23 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * write its final answer to {@link InteractiveAiProviderInput.outputFile}, and the caller
  * reads that file back after this session resolves.
  *
- * The Claude CLI accepts the prompt as a positional argument. We pass the prompt FILE path
- * via shell-style command substitution so very large prompts don't blow the argv length
- * limit. Concretely we invoke:
+ * The prompt is read from `promptFile` in Node.js and passed directly as a positional
+ * argument so the Claude CLI receives it as the initial conversation message:
  *
  *   claude --add-dir <cwd> --add-dir <dirname(outputFile)> [--add-dir <extra>...]
- *          --model <model> --permission-mode acceptEdits "$(cat <promptFile>)"
+ *          --model <model> --permission-mode acceptEdits --session-id <uuid> <prompt>
  *
- * via `bash -lc`. This keeps the adapter portable: no need for the Claude CLI to support a
- * `--prompt-file` flag.
+ * The previous approach ran `bash -lc "claude ... \"$(cat promptFile)\""`. That broke on
+ * Windows because:
+ *   1. Git Bash cannot execute `claude.cmd` shims (npm/winget installs) without the .cmd
+ *      extension, so the inner `claude` command exited with code 1.
+ *   2. Windows paths contain backslashes which break bash path resolution inside the
+ *      shell command string (`$(cat 'C:\Users\...')` is not a valid Unix path in bash).
+ *
+ * By reading the file in Node.js and spawning Claude directly, the bash dependency is
+ * eliminated entirely. On Windows the default spawn uses `shell: true` so Node's
+ * `cmd.exe /c` wrapper resolves `.cmd` / `.ps1` shims that npm and winget install.
+ * On POSIX, direct spawn (no shell) is used — claude is a native binary.
  *
  * Permission strategy: `acceptEdits` auto-approves the `Edit`/`Write` tools — but ONLY for
  * paths inside one of the `--add-dir` roots. To make refine / plan / ideate "just work" for
@@ -47,11 +56,21 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
+  // On Windows, spawn with shell:true so Node's cmd.exe wrapper resolves .cmd shims
+  // (claude.cmd / gh.cmd / codex.cmd) that npm and winget install. On POSIX, spawn
+  // directly — native binaries need no shell wrapper.
+  nodeSpawn(command, [...args], {
+    stdio: options.stdio,
+    cwd: options.cwd,
+    ...(process.platform === 'win32' ? { shell: true } : {}),
+  });
+
+const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 
 export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): InteractiveAiProvider => {
   const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
-  const command = deps.command ?? 'bash';
+  const command = deps.command ?? 'claude';
+  const readFile = deps.readFile ?? defaultReadFile;
   const newSessionId = deps.newSessionId ?? uuidv7;
 
   return {
@@ -63,6 +82,22 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
             currentState: 'model-validation',
             attemptedAction: 'run',
             message: `interactive-claude: '${input.model}' is not a known Claude model`,
+          })
+        );
+      }
+
+      // Read the prompt file in Node.js so its content can be passed as a direct argv
+      // element to claude. This avoids the bash $(cat ...) expansion that broke on Windows
+      // (backslash paths + .cmd shim resolution issues).
+      let prompt: string;
+      try {
+        prompt = await readFile(String(input.promptFile));
+      } catch (cause) {
+        return Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: `interactive-claude: failed to read prompt file ${String(input.promptFile)} — ${stringifyError(cause)}`,
+            cause,
           })
         );
       }
@@ -88,7 +123,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
           seen.add(p);
           return true;
         })
-        .flatMap((p) => ['--add-dir', shellQuote(p)]);
+        .flatMap((p) => ['--add-dir', p]);
 
       // Pre-generate the session id and pass it via `--session-id <uuid>`. This is the
       // interactive analogue of the headless `session-id.txt` sidechannel: the parent can't read
@@ -97,17 +132,16 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
       // Persisted to `<dirname(outputFile)>/session-id.txt` post-exit and returned on success.
       const sessionId = newSessionId();
 
-      const inner = [
-        'claude',
+      const args = [
         ...dirFlags,
         '--model',
-        shellQuote(input.model),
+        input.model,
         '--permission-mode',
         'acceptEdits',
         '--session-id',
-        shellQuote(sessionId),
-        `"$(cat ${shellQuote(String(input.promptFile))})"`,
-      ].join(' ');
+        sessionId,
+        prompt,
+      ];
 
       deps.eventBus.publish({
         type: 'log',
@@ -119,7 +153,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
 
       let child: ChildProcess;
       try {
-        child = spawnFn(command, ['-lc', inner], { stdio: 'inherit', cwd: String(input.cwd) });
+        child = spawnFn(command, args, { stdio: 'inherit', cwd: String(input.cwd) });
       } catch (cause) {
         return Result.error(
           new StorageError({
@@ -171,5 +205,4 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
   };
 };
 
-const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
