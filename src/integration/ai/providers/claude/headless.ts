@@ -1,5 +1,5 @@
-import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -551,7 +551,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], {
+  crossPlatformSpawn(command, args, {
     stdio: [...options.stdio],
     ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
   }) as ChildProcessWithoutNullStreams;

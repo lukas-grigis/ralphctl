@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
@@ -34,9 +35,9 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  *      shell command string (`$(cat 'C:\Users\...')` is not a valid Unix path in bash).
  *
  * By reading the file in Node.js and spawning Codex directly, the bash dependency is
- * eliminated. On Windows the default spawn uses `shell: true` so Node's `cmd.exe /c`
- * wrapper resolves `.cmd` / `.ps1` shims that npm and winget install. On POSIX, direct
- * spawn (no shell) is used — codex is a native binary.
+ * eliminated. The spawn routes through `crossPlatformSpawn` (cross-spawn), which resolves
+ * `codex.cmd` / `.ps1` shims on Windows and escapes the positional prompt argument correctly
+ * without a shell — so a prompt containing spaces or `& | % "` round-trips safely.
  *
  * Audit [09]: harness-driven sessions want zero per-tool noise. `-a never` makes the sandbox
  * the only gate — anything outside the workspace fails immediately rather than prompting,
@@ -50,13 +51,10 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  // On Windows, spawn with shell:true so Node's cmd.exe wrapper resolves .cmd shims
-  // (codex.cmd) that npm and winget install. On POSIX, spawn directly.
-  nodeSpawn(command, [...args], {
-    stdio: options.stdio,
-    cwd: options.cwd,
-    ...(process.platform === 'win32' ? { shell: true } : {}),
-  });
+  // Route through the shared cross-platform primitive so `codex.cmd` shims resolve on
+  // Windows and the positional prompt argument is escaped correctly — without a shell.
+  // See cross-platform-spawn.ts.
+  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
 
 const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 

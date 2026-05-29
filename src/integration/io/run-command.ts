@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 
 /**
  * Result of running an external command. `ok` is true iff the process spawned and exited 0.
@@ -17,18 +17,64 @@ export interface RunCommandResult {
  * One-shot command runner used by sanity probes (doctor) — captures stdout/stderr and exit
  * code without surfacing process-spawn errors as exceptions. Stripped of the cwd/env knobs
  * the longer-running runners need; probes only ever ask "did `gh auth status` exit clean?".
+ *
+ * Spawns through {@link crossPlatformSpawn} rather than `execFile` so Windows `.cmd` shims
+ * resolve — `gh` / `codex` are installed as `gh.cmd` / `codex.cmd` by npm/winget, which a bare
+ * `execFile` cannot launch. A 5s wall-clock timeout kills a wedged probe and resolves with
+ * `ok: false`.
  */
 export type RunCommand = (name: string, args: readonly string[]) => Promise<RunCommandResult>;
 
+const PROBE_TIMEOUT_MS = 5000;
+
 export const runCommand: RunCommand = (name, args) =>
   new Promise((resolve) => {
-    execFile(name, [...args], { timeout: 5000, encoding: 'utf8' }, (err, stdout, stderr) => {
-      if (err === null) {
-        resolve({ ok: true, code: 0, stdout, stderr });
-        return;
+    let child;
+    try {
+      child = crossPlatformSpawn(name, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch {
+      // Synchronous spawn failure (e.g. invalid command shape) — treat as missing binary.
+      resolve({ ok: false, code: null, stdout: '', stderr: '' });
+      return;
+    }
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let settled = false;
+
+    const settle = (result: RunCommandResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // already dead
       }
-      // err.code is `'ENOENT'` when the binary is missing, the numeric exit code otherwise.
-      const code = typeof err.code === 'number' ? err.code : null;
-      resolve({ ok: false, code, stdout, stderr });
+      settle({
+        ok: false,
+        code: null,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      });
+    }, PROBE_TIMEOUT_MS);
+
+    child.stdout?.on('data', (c: Buffer) => stdoutChunks.push(c));
+    child.stderr?.on('data', (c: Buffer) => stderrChunks.push(c));
+
+    // ENOENT / EINVAL etc. — the binary couldn't be spawned at all.
+    child.on('error', () => settle({ ok: false, code: null, stdout: '', stderr: '' }));
+
+    child.on('close', (code) => {
+      settle({
+        ok: code === 0,
+        code,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      });
     });
   });

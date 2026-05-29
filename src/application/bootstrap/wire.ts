@@ -17,8 +17,8 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
-import { spawn as nodeSpawn } from 'node:child_process';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
@@ -276,7 +276,7 @@ const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value ===
  * — the same fake currently scripted for the headless provider.
  */
 const defaultPipeSpawn: Spawn = (command, args, options) =>
-  nodeSpawn(command, [...args], {
+  crossPlatformSpawn(command, args, {
     ...options,
     stdio: [...options.stdio],
   }) as ReturnType<Spawn>;

@@ -270,6 +270,14 @@ processes racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS` 
 **Atomic file writes** via `business/io/write-file.ts` for all persisted state. Direct `fs.writeFile` is
 fenced from business code by the layer rules.
 
+**Cross-platform process spawning** goes through `integration/io/cross-platform-spawn.ts`
+(`crossPlatformSpawn`, backed by `cross-spawn`) — the single primitive every external-CLI spawn
+(`claude` / `codex` / `gh` / `glab` / `git`, headless + interactive) delegates to. Never call
+`node:child_process.spawn` directly for a binary: on Node 24 Windows a bare spawn cannot launch the
+npm/winget `.cmd` shims, and `shell: true` mis-quotes arguments with spaces or `& | % "`. The
+exception is the setup/verify-script runner (`shell-script-runner.ts`), which intentionally keeps
+`shell: true` because it runs a user-authored command _string_, not a binary + args.
+
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`.

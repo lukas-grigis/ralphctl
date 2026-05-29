@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
@@ -36,9 +37,9 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  *      shell command string (`$(cat 'C:\Users\...')` is not a valid Unix path in bash).
  *
  * By reading the file in Node.js and spawning Claude directly, the bash dependency is
- * eliminated entirely. On Windows the default spawn uses `shell: true` so Node's
- * `cmd.exe /c` wrapper resolves `.cmd` / `.ps1` shims that npm and winget install.
- * On POSIX, direct spawn (no shell) is used — claude is a native binary.
+ * eliminated entirely. The spawn routes through `crossPlatformSpawn` (cross-spawn), which
+ * resolves `claude.cmd` / `.ps1` shims on Windows and escapes the positional prompt argument
+ * correctly without a shell — so a prompt containing spaces or `& | % "` round-trips safely.
  *
  * Permission strategy: `acceptEdits` auto-approves the `Edit`/`Write` tools — but ONLY for
  * paths inside one of the `--add-dir` roots. To make refine / plan / ideate "just work" for
@@ -56,14 +57,10 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  // On Windows, spawn with shell:true so Node's cmd.exe wrapper resolves .cmd shims
-  // (claude.cmd / gh.cmd / codex.cmd) that npm and winget install. On POSIX, spawn
-  // directly — native binaries need no shell wrapper.
-  nodeSpawn(command, [...args], {
-    stdio: options.stdio,
-    cwd: options.cwd,
-    ...(process.platform === 'win32' ? { shell: true } : {}),
-  });
+  // Route through the shared cross-platform primitive so `claude.cmd` shims resolve on
+  // Windows and the positional prompt argument (which may contain spaces or shell
+  // metacharacters) is escaped correctly — without a shell. See cross-platform-spawn.ts.
+  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
 
 const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 
