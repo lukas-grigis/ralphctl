@@ -7,6 +7,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Process spawning works on Windows across every flow.** All external-CLI spawns
+  (`claude` / `codex` / `gh` / `glab` / `git`, headless and interactive) now route through a
+  single `cross-spawn`-backed primitive (`integration/io/cross-platform-spawn.ts`). This
+  resolves the npm/winget `.cmd` shims that a bare `child_process.spawn` cannot launch on
+  Node 24 Windows, and escapes arguments correctly without a shell — so paths containing
+  spaces (`C:\Users\First Last\repo`) and prompts containing `& | % "` no longer break the
+  spawn. Replaces the earlier interactive-only `shell: true` workaround, which mis-quoted such
+  arguments. The `doctor` probes (`run-command`) and the setup/verify-script runner are covered
+  by the same fix. Fixes the immediate `refine` crash (`session exited with code 1`) and the
+  previously-unreachable `implement` / `create-pr` failures on Windows.
+- **Copilot provider probes the correct binary.** `detect-cli` now maps `github-copilot` to the
+  standalone GitHub Copilot CLI (`copilot`) — the binary the provider adapter actually spawns —
+  instead of `gh` (the separate SCM dependency). The launch fail-fast, fresh-install detection,
+  apply-preset warnings, and install guidance (`npm install -g @github/copilot` / `brew install
+copilot-cli` / `winget install GitHub.Copilot`) now reference the standalone CLI rather than the
+  deprecated `gh-copilot` extension, so a Copilot user with `gh` but not `copilot` is no longer
+  passed by the pre-flight check and then failed at spawn. The duplicated `PROVIDER_BINARY` map in
+  the `doctor` flow is unified onto the single source of truth in `detect-cli`.
+
 ## [0.8.5] - 2026-05-29
 
 ### Fixed

@@ -10,6 +10,8 @@ export interface InteractiveCodexDeps {
   readonly eventBus: EventBus;
   /** Test seam: defaults to `node:child_process.spawn`. */
   readonly spawn?: InteractiveSpawn;
-  /** Override the shell name for tests / packaging. Defaults to `'bash'`. */
+  /** Override the binary name for tests / packaging. Defaults to `'codex'`. */
   readonly command?: string;
+  /** Test seam for prompt-file reads. Defaults to `fs.readFile`. */
+  readonly readFile?: (path: string) => Promise<string>;
 }

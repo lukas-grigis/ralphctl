@@ -1,6 +1,6 @@
-import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
@@ -619,7 +619,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 };
 
 const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], {
+  crossPlatformSpawn(command, args, {
     stdio: [...options.stdio],
     ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
   }) as ChildProcessWithoutNullStreams;

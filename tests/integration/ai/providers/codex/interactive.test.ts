@@ -35,6 +35,9 @@ const makeSpawn = (): CapturingSpawnState => {
   };
 };
 
+const STUB_PROMPT = 'Refine this Codex task.';
+const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
+
 const PROMPT_FILE = absolutePath('/tmp/codex-prompt.md');
 const OUTPUT_FILE = absolutePath('/tmp/codex-output.md');
 const CWD = absolutePath('/tmp/codex-interactive-cwd');
@@ -43,7 +46,7 @@ describe('createInteractiveCodexProvider', () => {
   it('rejects an unknown model with InvalidStateError', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn();
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
     const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: 'gpt-4.1' });
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -51,10 +54,28 @@ describe('createInteractiveCodexProvider', () => {
     expect(r.error.message).toContain("'gpt-4.1'");
   });
 
-  it('spawns bash -lc with codex --cd <cwd> --model <m> -s workspace-write -a never "$(cat <promptFile>)"', async () => {
+  it('returns StorageError when the prompt file cannot be read', async () => {
+    const cap = createCapturingBus();
+    const { spawn } = makeSpawn();
+    const failRead = (): Promise<string> => Promise.reject(new Error('ENOENT'));
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: failRead });
+
+    const r = await provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CODEX_MODELS[0]!,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('storage-error');
+    expect(r.error.message).toContain('failed to read prompt file');
+  });
+
+  it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and prompt content', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
       cwd: CWD,
@@ -67,22 +88,27 @@ describe('createInteractiveCodexProvider', () => {
     expect(result.ok).toBe(true);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.command).toBe('bash');
-    expect(calls[0]!.args[0]).toBe('-lc');
-    const inner = calls[0]!.args[1];
-    expect(inner).toContain('codex');
-    expect(inner).toContain(`--cd '${String(CWD)}'`);
-    expect(inner).toContain(`--model '${CODEX_MODELS[0]!}'`);
-    expect(inner).toContain('-s workspace-write');
-    expect(inner).toContain('-a never');
-    expect(inner).toContain(`"$(cat '${String(PROMPT_FILE)}')"`);
+    // No bash wrapper — command is codex directly.
+    expect(calls[0]!.command).toBe('codex');
+    const args = calls[0]!.args;
+    expect(args).toContain('--cd');
+    expect(args).toContain(String(CWD));
+    expect(args).toContain('--model');
+    expect(args).toContain(CODEX_MODELS[0]!);
+    expect(args).toContain('-s');
+    expect(args).toContain('workspace-write');
+    expect(args).toContain('-a');
+    expect(args).toContain('never');
+    expect(args).toContain(STUB_PROMPT);
+    // No bash remnants.
+    expect(args).not.toContain('-lc');
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
   it('emits --add-dir for cwd, every additionalRoot, and the prompt / output dirs (deduped)', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const repoA = absolutePath('/tmp/codex-repo-a');
     const repoB = absolutePath('/tmp/codex-repo-b');
@@ -98,20 +124,21 @@ describe('createInteractiveCodexProvider', () => {
     const result = await runPromise;
     expect(result.ok).toBe(true);
 
-    const inner = calls[0]!.args[1]!;
-    expect(inner).toContain(`--add-dir '${String(CWD)}'`);
-    expect(inner).toContain(`--add-dir '${String(repoA)}'`);
-    expect(inner).toContain(`--add-dir '${String(repoB)}'`);
-    // dirname(promptFile) === dirname(outputFile) === '/tmp' here — dedupe collapses them
-    // to a single `--add-dir '/tmp'`. Asserting the count keeps the dedupe load-bearing.
-    const addDirOccurrences = inner.match(/--add-dir/g) ?? [];
-    expect(addDirOccurrences).toHaveLength(4);
+    const args = calls[0]!.args;
+    expect(args).toContain('--add-dir');
+    expect(args).toContain(String(CWD));
+    expect(args).toContain(String(repoA));
+    expect(args).toContain(String(repoB));
+    // dirname(promptFile) === dirname(outputFile) === '/tmp' — dedupe collapses them
+    // to a single --add-dir entry. Count via flag occurrences stays load-bearing.
+    const addDirCount = args.filter((a) => a === '--add-dir').length;
+    expect(addDirCount).toBe(4); // cwd + repoA + repoB + /tmp (deduped prompt/output dir)
   });
 
   it('returns InvalidStateError when the session exits non-zero', async () => {
     const cap = createCapturingBus();
     const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
       cwd: CWD,

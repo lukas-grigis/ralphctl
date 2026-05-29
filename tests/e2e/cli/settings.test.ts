@@ -159,7 +159,7 @@ describe('ralphctl settings', () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('github-copilot');
       expect(result.stderr).toContain('ai.implement.evaluator.provider');
-      expect(result.stderr).toContain('gh extension install github/gh-copilot');
+      expect(result.stderr).toContain('npm install -g @github/copilot');
     });
   });
 });

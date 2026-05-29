@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
@@ -45,7 +46,10 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  */
 
 const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { stdio: options.stdio, cwd: options.cwd });
+  // Route through the shared cross-platform primitive so `copilot.cmd` shims resolve on
+  // Windows and the seeded prompt argument is escaped correctly — without a shell.
+  // See cross-platform-spawn.ts.
+  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
 
 const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
 

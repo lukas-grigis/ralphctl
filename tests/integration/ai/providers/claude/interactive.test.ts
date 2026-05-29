@@ -35,6 +35,9 @@ const makeSpawn = (): CapturingSpawnState => {
   };
 };
 
+const STUB_PROMPT = 'You are helping refine a ticket. Do X.';
+const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
+
 const PROMPT_FILE = absolutePath('/tmp/claude-prompt.md');
 const OUTPUT_FILE = absolutePath('/tmp/claude-output.md');
 const CWD = absolutePath('/tmp/claude-interactive-cwd');
@@ -43,7 +46,7 @@ describe('createInteractiveClaudeProvider', () => {
   it('rejects an unknown model with InvalidStateError', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
     const r = await provider.run({
       cwd: CWD,
       promptFile: PROMPT_FILE,
@@ -56,6 +59,52 @@ describe('createInteractiveClaudeProvider', () => {
     expect(r.error.message).toContain("'gpt-5'");
   });
 
+  it('returns StorageError when the prompt file cannot be read', async () => {
+    const cap = createCapturingBus();
+    const { spawn } = makeSpawn();
+    const failRead = (): Promise<string> => Promise.reject(new Error('ENOENT: no such file'));
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: failRead });
+
+    const r = await provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CLAUDE_MODELS[0]!,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('storage-error');
+    expect(r.error.message).toContain('failed to read prompt file');
+  });
+
+  it('spawns claude directly (no bash wrapper) and passes prompt content as positional arg', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CLAUDE_MODELS[0]!,
+    });
+    emitExit(0);
+    const result = await runPromise;
+    expect(result.ok).toBe(true);
+
+    expect(calls).toHaveLength(1);
+    // No bash wrapper — command is claude directly.
+    expect(calls[0]!.command).toBe('claude');
+    const args = calls[0]!.args;
+    // --permission-mode and prompt content are present as raw argv elements.
+    expect(args).toContain('--permission-mode');
+    expect(args).toContain('acceptEdits');
+    expect(args).toContain(STUB_PROMPT);
+    // No -lc / bash remnants.
+    expect(args).not.toContain('-lc');
+    expect(args).not.toContain('bash');
+  });
+
   it('auto-mounts dirname(outputFile) and dirname(promptFile) so framework-controlled writes never prompt', async () => {
     // This is the bug fix: the user was hit by "Create file?" prompts inside refine because
     // the output file lives under `~/.ralphctl/data/sprints/…` (outside the project cwd)
@@ -63,7 +112,7 @@ describe('createInteractiveClaudeProvider', () => {
     // now mounts the prompt/output dirs unconditionally.
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const sprintRefinementDir = '/Users/x/.ralphctl/data/sprints/abc/refinement/foo';
     const runPromise = provider.run({
@@ -77,21 +126,21 @@ describe('createInteractiveClaudeProvider', () => {
     expect(result.ok).toBe(true);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.command).toBe('bash');
-    expect(calls[0]!.args[0]).toBe('-lc');
-    const inner = calls[0]!.args[1] ?? '';
-    expect(inner).toContain(`--add-dir '${String(CWD)}'`);
-    expect(inner).toContain(`--add-dir '${sprintRefinementDir}'`);
-    expect(inner).toContain('--permission-mode acceptEdits');
+    expect(calls[0]!.command).toBe('claude');
+    const args = calls[0]!.args;
+    // Flat argv: --add-dir followed by the path value.
+    expect(args).toContain('--add-dir');
+    expect(args).toContain(String(CWD));
+    expect(args).toContain(sprintRefinementDir);
     // Prompt and output share a dir → emitted exactly once (deduped).
-    const occurrences = inner.match(/--add-dir '\/Users\/x\/\.ralphctl\/data\/sprints\/abc\/refinement\/foo'/g) ?? [];
+    const occurrences = args.filter((a) => a === sprintRefinementDir);
     expect(occurrences).toHaveLength(1);
   });
 
   it('keeps caller-supplied additionalRoots and folds duplicates with the auto-mounted dirs', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const extraRepo = absolutePath('/Users/x/repos/sibling-repo');
     const runPromise = provider.run({
@@ -104,19 +153,20 @@ describe('createInteractiveClaudeProvider', () => {
     emitExit(0);
     await runPromise;
 
-    const inner = calls[0]!.args[1] ?? '';
-    expect(inner).toContain(`--add-dir '${String(CWD)}'`);
-    expect(inner).toContain(`--add-dir '${String(extraRepo)}'`);
-    expect(inner).toContain(`--add-dir '/tmp'`); // dirname of prompt and output
+    const args = calls[0]!.args;
+    expect(args).toContain(String(CWD));
+    expect(args).toContain(String(extraRepo));
+    // dirname of /tmp/claude-prompt.md and /tmp/claude-output.md is /tmp
+    expect(args).toContain('/tmp');
     // CWD must appear once even though additionalRoots also lists it.
-    const cwdHits = inner.match(/--add-dir '\/tmp\/claude-interactive-cwd'/g) ?? [];
+    const cwdHits = args.filter((a) => a === String(CWD));
     expect(cwdHits).toHaveLength(1);
   });
 
   it('returns InvalidStateError when the session exits non-zero', async () => {
     const cap = createCapturingBus();
     const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn });
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
       cwd: CWD,

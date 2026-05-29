@@ -1,8 +1,8 @@
-import { spawn as nodeSpawn } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 
 /**
  * Async wrapper around `git` invocations. Pure transport: no shell expansion, no
@@ -133,6 +133,6 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
 };
 
 const defaultSpawn: Spawn = (command, args, options) =>
-  nodeSpawn(command, [...args], { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
+  crossPlatformSpawn(command, args, { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
 
 const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));

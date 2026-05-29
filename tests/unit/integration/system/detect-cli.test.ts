@@ -15,10 +15,10 @@ const whichFor =
     present.has(binary);
 
 describe('detectInstalledProviders', () => {
-  it('maps providers to claude / gh / codex binaries', () => {
+  it('maps providers to claude / copilot / codex binaries', () => {
     expect(PROVIDER_BINARY).toEqual({
       'claude-code': 'claude',
-      'github-copilot': 'gh',
+      'github-copilot': 'copilot',
       'openai-codex': 'codex',
     });
   });
@@ -35,7 +35,7 @@ describe('detectInstalledProviders', () => {
 
   it('returns every provider when every binary is on PATH', async () => {
     const installed = await detectInstalledProviders({
-      which: whichFor(new Set(['claude', 'gh', 'codex'])),
+      which: whichFor(new Set(['claude', 'copilot', 'codex'])),
     });
     expect([...installed].sort()).toEqual(['claude-code', 'github-copilot', 'openai-codex']);
   });
@@ -47,7 +47,7 @@ describe('detectInstalledProviders', () => {
       return false;
     };
     await detectInstalledProviders({ which });
-    expect(calls.sort()).toEqual(['claude', 'codex', 'gh']);
+    expect(calls.sort()).toEqual(['claude', 'codex', 'copilot']);
   });
 });
 
@@ -65,7 +65,9 @@ describe('PROVIDER_INSTALL_GUIDANCE', () => {
   it('recommends brew first on macOS where the vendor publishes a cask', () => {
     expect(PROVIDER_INSTALL_GUIDANCE['claude-code'].commandsByPlatform.darwin[0]).toContain('brew install');
     expect(PROVIDER_INSTALL_GUIDANCE['openai-codex'].commandsByPlatform.darwin[0]).toContain('brew install');
-    expect(PROVIDER_INSTALL_GUIDANCE['github-copilot'].commandsByPlatform.darwin[0]).toContain('brew install gh');
+    expect(PROVIDER_INSTALL_GUIDANCE['github-copilot'].commandsByPlatform.darwin[0]).toContain(
+      'brew install copilot-cli'
+    );
   });
 
   it('recommends winget first on Windows where the vendor publishes a winget package', () => {
@@ -91,9 +93,7 @@ describe('primaryInstallCommand', () => {
     expect(primaryInstallCommand('claude-code', 'win32')).toBe('winget install Anthropic.ClaudeCode');
     expect(primaryInstallCommand('openai-codex', 'darwin')).toBe('brew install --cask codex');
     expect(primaryInstallCommand('openai-codex', 'linux')).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
-    expect(primaryInstallCommand('github-copilot', 'darwin')).toBe(
-      'brew install gh && gh extension install github/gh-copilot'
-    );
+    expect(primaryInstallCommand('github-copilot', 'darwin')).toBe('brew install copilot-cli');
   });
 });
 
@@ -120,11 +120,11 @@ describe('renderProviderInstallGuidance', () => {
     );
     expect(renderProviderInstallGuidance('github-copilot', 'win32')).toBe(
       [
-        'github-copilot CLI (gh) not on PATH',
+        'github-copilot CLI (copilot) not on PATH',
         'Install options (win32):',
-        '  • winget install --id GitHub.cli && gh extension install github/gh-copilot',
-        '  • gh extension install github/gh-copilot',
-        'Docs: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli',
+        '  • winget install GitHub.Copilot',
+        '  • npm install -g @github/copilot',
+        'Docs: https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
       ].join('\n')
     );
   });

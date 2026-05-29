@@ -5,6 +5,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
+import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import { pathIsDirectory, pathIsWritable } from '@src/integration/io/fs.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -18,12 +19,6 @@ import {
   type ProbeResult,
 } from '@src/application/flows/doctor/ctx.ts';
 import type { DoctorDeps } from '@src/application/flows/doctor/deps.ts';
-
-const PROVIDER_BINARY: Record<AiProvider, string> = {
-  'claude-code': 'claude',
-  'github-copilot': 'copilot',
-  'openai-codex': 'codex',
-};
 
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   'claude-code': 'Claude Code',

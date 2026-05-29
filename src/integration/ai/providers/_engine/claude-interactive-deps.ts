@@ -12,6 +12,8 @@ export interface InteractiveClaudeDeps {
   readonly spawn?: InteractiveSpawn;
   /** Override the binary name for tests / packaging. Defaults to `'claude'`. */
   readonly command?: string;
+  /** Test seam for prompt-file reads. Defaults to `fs.readFile`. */
+  readonly readFile?: (path: string) => Promise<string>;
   /**
    * Test seam: generate the UUID passed to Claude's `--session-id <uuid>` flag. Production
    * uses {@link uuidv7}; tests stub a deterministic value so argv assertions stay stable.
