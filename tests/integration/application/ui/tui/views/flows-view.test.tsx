@@ -15,7 +15,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const FIXED_PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;
@@ -91,7 +91,9 @@ const makeProjectSprintDeps = (
 describe('FlowsView', () => {
   it('renders the eligibility card with (none) badges on a fresh install', async () => {
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    await tick(40);
+    // Wait for the async deps load + Ink render to settle rather than a fixed tick — under
+    // coverage instrumentation a fixed delay can capture a pre-settle frame (flaky).
+    await waitFor(() => (result.lastFrame() ?? '').includes('Eligibility'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Eligibility');
     expect(frame).toContain('(none)');
@@ -102,7 +104,9 @@ describe('FlowsView', () => {
     // Sprint-state-machine visibility: with no project loaded, the project-scoped section is
     // hidden too; the user is meant to land here only after picking or creating a project.
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    await tick(40);
+    // Anchor on the always-rendered eligibility card so the absence assertions below run
+    // against a fully-settled frame — otherwise an early empty frame passes them trivially.
+    await waitFor(() => (result.lastFrame() ?? '').includes('Eligibility'));
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('Create sprint');
     expect(frame).not.toContain('Refine');
@@ -113,7 +117,7 @@ describe('FlowsView', () => {
 
   it('publishes the r reload-state hint', async () => {
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    await tick(40);
+    await waitFor(() => /reload/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/reload/);
     result.unmount();
@@ -131,7 +135,9 @@ describe('FlowsView', () => {
       initial: { id: 'flows' },
       selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    await tick(40);
+    // Wait for the async project + sprint load to settle so the dimmed sprint-scoped rows are
+    // rendered before asserting — a fixed tick can capture a pre-load frame under coverage.
+    await waitFor(() => /pending ticket|approved ticket/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     // At least one trigger reason should be visible — both Refine and Plan are dimmed.
     // Use a forgiving check: the reason text may be truncated on narrow test terminals.
@@ -148,7 +154,10 @@ describe('FlowsView', () => {
       initial: { id: 'flows' },
       selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    await tick(40);
+    // Wait for the async project + sprint load to settle so the sprint-scoped "Add tickets" row
+    // is rendered. This was the flake source: a fixed tick(40) under coverage instrumentation
+    // could capture the frame before the load resolved, so "Add tickets" was absent.
+    await waitFor(() => (result.lastFrame() ?? '').includes('Add tickets'));
     const frame = result.lastFrame() ?? '';
     // The "Add tickets" row should appear.
     expect(frame).toContain('Add tickets');
