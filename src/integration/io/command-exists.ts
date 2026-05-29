@@ -1,22 +1,32 @@
 import { spawn } from 'node:child_process';
 
 /**
- * Check whether a named executable resolves on the current `PATH`. Implementation: spawn
- * `<name> --version` with stdio fully suppressed; resolution depends on the spawn outcome:
+ * Check whether a named executable resolves on the current `PATH`. Cross-platform — the single
+ * detection mechanism both the doctor probes and the launch-time fail-fast route through, so the
+ * two surfaces can never disagree about whether a CLI is installed.
  *
- *   - `error` event with `ENOENT`     → not on PATH (resolves `false`)
- *   - `error` event with anything else → resolves `false` (treat as missing)
- *   - process exits cleanly            → resolves `true`
- *   - process exits non-zero           → resolves `true` (the binary exists; `--version`
- *                                        may not be supported but the executable was found)
+ *   - Windows: spawn `where <name>`. `where.exe` is a real System32 binary (so no shell is
+ *     needed) and it resolves every executable kind on `PATHEXT` — `.exe`, `.cmd`, `.ps1`,
+ *     `.bat` — which is what npm / winget shims install (`claude.cmd`, `gh.cmd`, …). A bare
+ *     `spawn(name)` cannot launch a `.cmd` shim, and the POSIX `command -v` builtin does not
+ *     exist in `cmd.exe`, so neither is safe here.
+ *   - POSIX: spawn `command -v <name>` under a shell. `command` is a POSIX shell builtin
+ *     (hence `shell: true`) mandated to report PATH presence without executing the target.
  *
- * This is intentionally lightweight — no `which` shelling, no PATH parsing, no Windows fork.
- * Doctor uses it to tell the user "you don't have <provider> CLI installed" before they try
- * to run a flow that depends on it.
+ * Resolution policy (identical on both platforms):
+ *
+ *   - exit code 0       → on PATH (resolves `true`)
+ *   - exit code non-zero → not on PATH (resolves `false`)
+ *   - `error` event      → treat as missing (resolves `false`)
+ *
+ * No version check, no auth probe, no execution of the target binary — just presence.
  */
 export const commandExists = (name: string): Promise<boolean> =>
   new Promise((resolve) => {
-    const child = spawn(name, ['--version'], { stdio: 'ignore' });
+    const child =
+      process.platform === 'win32'
+        ? spawn('where', [name], { stdio: 'ignore' })
+        : spawn('command', ['-v', name], { stdio: 'ignore', shell: true });
     let settled = false;
     const settle = (value: boolean): void => {
       if (settled) return;
@@ -24,5 +34,5 @@ export const commandExists = (name: string): Promise<boolean> =>
       resolve(value);
     };
     child.on('error', () => settle(false));
-    child.on('exit', () => settle(true));
+    child.on('exit', (code) => settle(code === 0));
   });

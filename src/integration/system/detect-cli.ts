@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { commandExists } from '@src/integration/io/command-exists.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type {
   DetectInstalledProvidersOptions,
@@ -134,35 +134,20 @@ export const renderProviderInstallGuidance = (
 };
 
 /**
- * Default `which`-equivalent. Spawns `command -v <binary>` with `stdio: 'pipe'` (suppressing
- * output) and resolves based on the exit code. POSIX-portable: `command -v` is a shell builtin
- * mandated by the spec, available in every POSIX shell.
+ * Default `which`-equivalent — delegates to the shared cross-platform {@link commandExists}
+ * probe (`where` on Windows, `command -v` on POSIX). Routing provider detection and the
+ * doctor's PATH checks through one mechanism guarantees they can never disagree — notably on
+ * Windows, where the POSIX `command -v` builtin is absent from `cmd.exe` and a bare spawn
+ * cannot launch the `.cmd` / `.ps1` shims that npm / winget install.
  *
- * Resolution policy:
- *   - exit code 0      → true (binary exists on PATH)
- *   - exit code non-0  → false (not on PATH)
- *   - spawn error      → false (treat as missing)
- *
- * No version check, no auth probe — just presence.
+ * Resolution policy: on PATH → true; absent or spawn error → false. No version / auth probe.
  */
-const defaultWhich: WhichFn = (binary) =>
-  new Promise((resolve) => {
-    const child = spawn('command', ['-v', binary], { stdio: 'pipe', shell: true });
-    let settled = false;
-    const settle = (value: boolean): void => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-    child.on('error', () => settle(false));
-    child.on('exit', (code) => settle(code === 0));
-  });
+const defaultWhich: WhichFn = commandExists;
 
 /**
  * Probe PATH for every supported provider's CLI binary; return the set of providers whose
  * binary resolves. Pure (no logging, no side effects beyond the `which` calls). Probes run in
- * parallel — three lightweight `command -v` invocations land well under any user-perceptible
- * threshold.
+ * parallel — three lightweight PATH lookups land well under any user-perceptible threshold.
  *
  * Used at three sites:
  *   - fresh-install seeding (welcome view) — pick a preset from the single / zero / 2+ result
