@@ -2027,4 +2027,259 @@ describe('createImplementFlow — gen-eval loop', () => {
     // Sprint advanced to review (≥1 task done).
     expect(sprintRepo.current().status).toBe('review');
   });
+
+  // ─── B3: outer attempt loop (up to maxAttempts attempts per launch) ─────────────────
+  //
+  // The per-task sub-chain wraps `start-attempt → … → settle → journal` in an outer
+  // `loop('task-attempts-<id>', …)`. A single launch now runs up to `task.maxAttempts`
+  // attempts instead of one. The loop stops when the settled task reaches a terminal status
+  // (`done`/`blocked`) or the cap fires. These tests fence the new cadence: the escalation
+  // path produces a genuine second attempt; `maxAttempts === 1` collapses to one iteration;
+  // an abort propagates verbatim with no extra iteration.
+
+  it('escalation across attempts: attempt 1 plateaus + escalates → attempt 2 runs (settle fires again) → 2nd plateau blocks', async () => {
+    // maxAttempts 3 so the escalation budget doesn't pre-empt the policy. Generator on a model
+    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`); without a
+    // rung the policy would `no-mapping`-block on the first plateau and never reach attempt 2.
+    const f = await buildFixture(1, 3);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    // Same failed dimension + identical critique every evaluator turn → plateau fires once the
+    // window of `plateauThreshold` (2) consecutive turns agrees. Each attempt re-plateaus on
+    // its own two turns because `start-attempt` clears `plateauHistory` per attempt.
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: [taskVerified('change made')],
+        evaluate: [evaluationFailed('correctness: the same unchanged complaint about the parser')],
+      },
+    });
+
+    const deps: ImplementDeps = {
+      ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      config: {
+        harness: {
+          maxTurns: 3,
+          maxAttempts: 3,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: true,
+          escalationMap: {},
+        },
+      },
+    };
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-sonnet-4-6',
+      evaluatorProviderId: 'claude-code',
+      evaluatorModel: 'claude-opus-4-8',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-escalate-loop',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    // Two attempts ran in ONE launch — the outer loop re-entered after the escalation kept the
+    // task in_progress. Attempt 1 settled `failed` (escalation), attempt 2 settled into the
+    // block. Both attempts are recorded on the task.
+    const finalTask = taskRepo.tasks()[0];
+    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.attempts).toHaveLength(2);
+
+    // The settle leaf ran once per attempt — exactly two `settle-attempt-<id>` trace entries.
+    // This is the load-bearing assertion that the 2ND iteration's settle actually executed,
+    // not merely that escalation was stamped.
+    const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
+    expect(settleEntries).toHaveLength(2);
+    // start-attempt fired twice too — once per loop iteration.
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(2);
+
+    // Escalation stamped exactly once: from the configured sonnet to the opus rung. A second
+    // escalation on the second plateau is suppressed (once-per-task cap) — the task blocks
+    // instead, with the already-escalated reason.
+    expect(finalTask?.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(finalTask?.escalatedToModel).toBe('claude-opus-4-8');
+    if (finalTask?.status === 'blocked') {
+      expect(finalTask.blockedReason).toContain('plateau persists after escalation');
+    }
+
+    // Attempt 2's generator spawned on the ESCALATED model — proof the second iteration didn't
+    // just re-run identical work. The first generator sessions ran on sonnet; a later one ran
+    // on opus.
+    const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
+    expect(generatorModels).toContain('claude-sonnet-4-6');
+    expect(generatorModels).toContain('claude-opus-4-8');
+
+    // No `done` task → sprint stays `active`, re-runnable after the operator addresses the block.
+    expect(sprintRepo.current().status).toBe('active');
+  });
+
+  it('maxAttempts === 1: the outer loop runs exactly one iteration (single-attempt-per-launch parity)', async () => {
+    // Regression guard for the byte-for-byte parity claim. Even with escalation ON and a model
+    // that has a rung, a `maxAttempts` of 1 must collapse the outer loop to a single iteration:
+    // attempt 1 plateaus, the escalation budget is already exhausted (attempts === maxAttempts),
+    // the task blocks, and the loop stops. The escalated model is never spawned.
+    const f = await buildFixture(1, 1);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: [taskVerified('change made')],
+        evaluate: [evaluationFailed('correctness: the same unchanged complaint about the parser')],
+      },
+    });
+
+    const deps: ImplementDeps = {
+      ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      config: {
+        harness: {
+          maxTurns: 3,
+          maxAttempts: 1,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: true,
+          escalationMap: {},
+        },
+      },
+    };
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-sonnet-4-6',
+      evaluatorProviderId: 'claude-code',
+      evaluatorModel: 'claude-opus-4-8',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-single-attempt',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    const finalTask = taskRepo.tasks()[0];
+    // Exactly one attempt — the loop did not re-enter.
+    expect(finalTask?.attempts).toHaveLength(1);
+    const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
+    expect(settleEntries).toHaveLength(1);
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(1);
+
+    // The task blocked at the cap (plateau + budget-exhausted), never escalated, and the
+    // escalated model was never spawned — only sonnet ran.
+    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.escalatedToModel).toBeUndefined();
+    const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
+    expect(generatorModels.every((m) => m === 'claude-sonnet-4-6')).toBe(true);
+
+    expect(sprintRepo.current().status).toBe('active');
+  });
+
+  it('abort mid-loop: AbortError propagates and no second attempt iteration starts', async () => {
+    // The outer attempt loop must propagate AbortError verbatim and never start another
+    // iteration after a cancellation. We trip the abort from inside the FIRST generator spawn
+    // (the runner owns the AbortController; the fake provider triggers `runner.abort()`), which
+    // the generator leaf observes as `signal.aborted` immediately after its use case returns.
+    const f = await buildFixture(1, 3);
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    // A const holder lets the fake provider reach the runner that is constructed later. The
+    // first generator spawn aborts; if any second iteration were to start, a second generator
+    // spawn would fire and we'd see implCalls climb past 1.
+    const runnerHolder: { current: ReturnType<typeof createRunner<ImplementCtx>> | undefined } = {
+      current: undefined,
+    };
+    let implCalls = 0;
+    let evalCalls = 0;
+    const provider = createFakeAiProvider({
+      signals: {
+        implement: () => {
+          implCalls += 1;
+          runnerHolder.current?.abort('test-abort');
+          return [taskVerified('change made')];
+        },
+        evaluate: () => {
+          evalCalls += 1;
+          return [evaluationPassed()];
+        },
+      },
+    });
+
+    const deps: ImplementDeps = {
+      ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      config: {
+        harness: {
+          maxTurns: 3,
+          maxAttempts: 3,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: false,
+          escalationMap: {},
+        },
+      },
+    };
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-opus-4-8',
+      evaluatorProviderId: 'claude-code',
+      evaluatorModel: 'claude-opus-4-8',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-abort-loop',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    runnerHolder.current = runner;
+    await runner.start();
+
+    // The runner surfaces the AbortError as `aborted` status (caller-driven abort).
+    expect(runner.status).toBe('aborted');
+    // An `aborted` trace entry carrying an AbortError is present — propagated verbatim from the
+    // generator leaf up through the inner sequential, the attempt loop, and the runner. (The
+    // trace tail after it is `skipped` entries for the remaining same-attempt siblings, which is
+    // how the sequential primitive records the short-circuit — not a second iteration.)
+    const abortedEntries = runner.trace.filter((e) => e.status === 'aborted');
+    expect(abortedEntries.length).toBeGreaterThanOrEqual(1);
+    expect(abortedEntries.every((e) => e.error?.code === 'aborted')).toBe(true);
+
+    // The generator spawned exactly once and the evaluator never ran — the abort hit before the
+    // evaluator step and, crucially, BEFORE any second loop iteration. A second iteration would
+    // have re-run `start-attempt` and the generator, climbing these counters past 1 / above 0.
+    expect(implCalls).toBe(1);
+    expect(evalCalls).toBe(0);
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(f.tasks[0]?.id)}`);
+    expect(startEntries).toHaveLength(1);
+    // No second attempt's gen-eval ran: the generator leaf appears at most once (the iteration
+    // that aborted). A leaked second loop iteration would re-emit it.
+    const generatorEntries = runner.trace.filter((e) => e.elementName === `generator-${String(f.tasks[0]?.id)}`);
+    expect(generatorEntries.length).toBeLessThanOrEqual(1);
+  });
 });

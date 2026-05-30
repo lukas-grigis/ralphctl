@@ -96,8 +96,10 @@ export interface CreateImplementFlowOpts {
 }
 
 /**
- * Build the implement chain. One invocation runs at most one attempt per task and transitions
- * the sprint into `review` once every todo task has settled.
+ * Build the implement chain. One invocation runs up to `task.maxAttempts` attempts per task —
+ * the per-task sub-chain wraps the attempt segment in an inner `loop` that re-enters until the
+ * task settles `done`/`blocked` or the cap fires — and transitions the sprint into `review` once
+ * every todo task has settled.
  *
  * Shape:
  *
@@ -164,9 +166,14 @@ export interface CreateImplementFlowOpts {
  * ## Per-attempt vs per-task budgets
  *
  * - `config.harness.maxTurns` bounds the gen-eval inner loop (turns per attempt).
- * - `task.maxAttempts` bounds attempts per task. The chain only runs ONE attempt per task per
- *   invocation; a task that settled `in_progress` (more attempts available) is picked up by
- *   re-running the chain.
+ * - `task.maxAttempts` bounds attempts per task. A single launch now runs up to `maxAttempts`
+ *   attempts: the per-task sub-chain's inner `loop('task-attempts-<id>', …)` re-enters the
+ *   start-attempt → … → settle segment until the task settles `done`/`blocked` or the cap
+ *   fires (the domain transitions a budget-exhausted task to `blocked`, never silently drops
+ *   it). When `maxAttempts === 1` the loop runs exactly once — byte-for-byte with the prior
+ *   single-attempt-per-launch behaviour. A task left `in_progress` after the loop (e.g. the
+ *   launch ended before the cap because the operator aborted) is still picked up by re-running
+ *   the chain.
  */
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
   // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's
