@@ -1,7 +1,7 @@
 /**
  * `distill-learnings` prompt: one-shot documentation edit that folds a curated set of
  * machine-collected learnings into an existing project context file's own idempotent
- * `## Learnings (ralphctl)` section (Theme 6 / B5).
+ * `## Learnings (ralphctl)` section.
  *
  * The AI is an editor, not a researcher — every learning was produced and reviewed by an earlier
  * session and confirmed by the operator before this call. The prompt instructs the AI to write
@@ -10,7 +10,7 @@
  *
  * One real file is written per distinct provider's native context file name (CLAUDE.md /
  * `.github/copilot-instructions.md` / AGENTS.md) — `targetFilename` carries that name so the
- * prompt copy and the AI's write target agree. The distill sub-chain (T14b) supplies the per-
+ * prompt copy and the AI's write target agree. The distill sub-chain supplies the per-
  * provider value.
  */
 
@@ -93,7 +93,7 @@ export interface BuildDistillLearningsPromptInput {
 }
 
 /**
- * Top-level builder — the T14b distill sub-chain consumes this to render the prompt before the
+ * Top-level builder — the distill sub-chain consumes this to render the prompt before the
  * AI spawn. Exported ahead of that caller landing.
  *
  * @public

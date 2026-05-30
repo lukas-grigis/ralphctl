@@ -1,8 +1,8 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, mkdtempSync, rmSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -51,10 +51,12 @@ import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
 // Theme 6 learnings-ledger opts every `createImplementFlow` call threads through. The append
-// leaf only writes when a `<learning>` signal lands, so a fake root is inert for the tests here
-// that exercise the gen-eval / verify / commit paths.
-const FAKE_MEMORY_ROOT = absolutePath('/tmp/ralph/memory');
+// leaf only writes when a `<learning>` signal lands. Use a per-file-run unique root (the real
+// AppendFile adapter writes the ledger here) so concurrent vitest workers / repeated execs never
+// collide on a shared `/tmp` path; torn down in afterAll.
+const FAKE_MEMORY_ROOT = absolutePath(mkdtempSync(join(tmpdir(), 'ralphctl-implement-e2e-memory-')));
 const FAKE_PROJECT_ID = 'proj-implement-e2e';
+afterAll(() => rmSync(String(FAKE_MEMORY_ROOT), { recursive: true, force: true }));
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current: Sprint = initial;
@@ -2081,7 +2083,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(sprintRepo.current().status).toBe('review');
   });
 
-  // ─── B3: outer attempt loop (up to maxAttempts attempts per launch) ─────────────────
+  // ─── outer attempt loop (up to maxAttempts attempts per launch) ─────────────────
   //
   // The per-task sub-chain wraps `start-attempt → … → settle → journal` in an outer
   // `loop('task-attempts-<id>', …)`. A single launch now runs up to `task.maxAttempts`

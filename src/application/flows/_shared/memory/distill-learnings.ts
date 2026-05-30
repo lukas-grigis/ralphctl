@@ -25,7 +25,7 @@ import type { DistillLearningsCtx } from '@src/application/flows/_shared/memory/
 
 /**
  * Slim dependency contract for the self-contained distill sub-chain — the subset of `AppDeps` the
- * sub-chain needs. The host flow (T15: close-sprint / review) constructs these from the
+ * sub-chain needs. The host flow (close-sprint / review) constructs these from the
  * composition root and hands them to {@link createDistillLearningsSubChain}.
  *
  *  - `interactiveAiFor` — per-provider interactive AI adapter factory. The distill prompt is a

@@ -1,5 +1,5 @@
 /**
- * Integration test for append-learnings-leaf (Theme 6 / B5 — WRITE side).
+ * Integration test for append-learnings-leaf (procedural-memory WRITE side).
  *
  * The leaf persists the just-settled attempt's `<learning>` signals to the project's append-only
  * NDJSON ledger BEFORE `progress-journal` clears the `currentAttemptLearnings` accumulator. It is

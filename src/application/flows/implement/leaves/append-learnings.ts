@@ -19,7 +19,7 @@ import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledge
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * WRITE side of the Theme 6 learnings pipeline (audit-[B5]). Persists the `<learning>` signals the
+ * WRITE side of the procedural-memory learnings pipeline. Persists the `<learning>` signals the
  * just-settled attempt produced to the project's append-only NDJSON ledger at
  * `<memoryRoot>/<projectId>/learnings.ndjson`, one line per learning.
  *
@@ -31,7 +31,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * NOT clear the accumulator itself — the journal still owns that, so the journal's `### Learnings`
  * subsection keeps rendering exactly the same set.
  *
- * Running once per attempt (inside the B3 attempt loop) is intentional: a learning emitted on
+ * Running once per attempt (inside the attempt loop) is intentional: a learning emitted on
  * attempt 1 and re-emitted verbatim on attempt 2 lands twice on disk, but both rows carry the
  * SAME `deriveLearningId` id, so the READ side (`loadLearningsLeaf`) dedups them back to one
  * candidate. Append-only keeps the write path crash-safe; dedup is a read-side concern.

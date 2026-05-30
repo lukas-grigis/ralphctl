@@ -43,7 +43,7 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  * exported from `flow.ts` and is what the TUI's task-completion detector keys on — it stays
  * OUTSIDE the attempt loop so it fires exactly once per task regardless of attempt count.
  *
- * ## Inner attempt loop (B3)
+ * ## Inner attempt loop
  *
  * A single launch now runs up to `task.maxAttempts` attempts per task instead of one. The outer
  * `loop` re-enters the attempt segment until {@link terminalTaskStatus} reports the just-settled
@@ -145,7 +145,7 @@ export const createPerTaskSubchain = (
       { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
       { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
     ),
-    // Inner attempt loop (B3). The body is the full per-attempt segment; the loop re-enters it
+    // Inner attempt loop. The body is the full per-attempt segment; the loop re-enters it
     // until `terminalTaskStatus` reports the settled task `done`/`blocked` or the `maxAttempts`
     // cap fires. `maxAttempts === 1` runs exactly once (single-attempt-per-launch parity); a
     // higher cap only manifests on the escalation-retry path. The 1000 ceiling on the `loop`
@@ -254,7 +254,7 @@ export const createPerTaskSubchain = (
           { cwd: repo.path },
           taskId
         ),
-        // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
+        // WRITE side of procedural memory. Reads the STILL-POPULATED `currentAttemptLearnings`
         // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
         // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
         // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).

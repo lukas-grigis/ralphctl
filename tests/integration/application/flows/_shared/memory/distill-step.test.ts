@@ -4,7 +4,7 @@
  *
  * Exercises {@link createDistillStep} via the real close-sprint / review flows against a tmpdir,
  * a fake `InteractiveAiProvider`, an on-disk `WriteFile`, and a scripted `InteractivePrompt`.
- * Asserts the four T15 acceptance fences:
+ * Asserts the four distill-composition acceptance fences:
  *  - opt-in NO (`distillRequested === false`) → the inner `distill-gate` guard skips the body
  *    (no AI spawn, no file touch) AND the sprint still transitions to `done`.
  *  - opt-in YES → the distill step fires BEFORE the transition (trace order proves it).
@@ -343,7 +343,7 @@ describe('createDistillStep composed into the close paths', () => {
 
 // ── Review AUTO-DONE path ─────────────────────────────────────────────────────────────────────
 // The review flow transitions the sprint to `done` automatically when the user submits an empty
-// round. T15 requires the distill step to fire on THAT path too — the same opt-in sub-chain runs
+// round. The distill step must fire on THAT path too — the same opt-in sub-chain runs
 // whether the user closes explicitly or lets review auto-finish.
 
 const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>

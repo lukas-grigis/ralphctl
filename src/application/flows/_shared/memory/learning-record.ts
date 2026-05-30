@@ -8,11 +8,11 @@ import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
  * One distilled learning emitted by an implement task and persisted to the project's
  * append-only NDJSON ledger at `<memoryRoot>/<projectId>/learnings.ndjson`.
  *
- * This is the SINGLE source of truth for the record shape. Both sides of the Theme 6 pipeline
- * import it:
- *  - the WRITE side (T12 `appendLearningsLeaf`) constructs one record per `<learning>` signal
+ * This is the SINGLE source of truth for the record shape. Both sides of the procedural-memory
+ * pipeline import it:
+ *  - the WRITE side (`appendLearningsLeaf`) constructs one record per `<learning>` signal
  *    and appends it with `promotedAt: null`;
- *  - the READ side (T14a `loadLearningsLeaf` / `stampPromotedLeaf`) parses every line, proposes
+ *  - the READ side (`loadLearningsLeaf` / `stampPromotedLeaf`) parses every line, proposes
  *    the not-yet-promoted ones to the operator, then stamps the accepted ids `promotedAt`.
  *
  * Do NOT redefine these fields anywhere else — both leaves depend on the exact shape staying
@@ -138,8 +138,8 @@ const normalizeForId = (text: string): string => text.trim().toLowerCase().repla
 
 /**
  * Derive the stable dedup id for a learning — `sha1(repo|taskKind|normalize(text))` truncated to
- * 16 hex chars. This is the SINGLE definition of the id scheme: the WRITE side (T12
- * `appendLearningsLeaf`) stamps it onto each appended record, and the READ side
+ * 16 hex chars. This is the SINGLE definition of the id scheme: the WRITE side
+ * (`appendLearningsLeaf`) stamps it onto each appended record, and the READ side
  * (`loadLearningsLeaf`) dedups proposals by the record's `id`. Because both sides agree on this
  * function, a learning re-emitted verbatim by a later task produces an identical id and collapses
  * onto one ledger row rather than duplicating.
