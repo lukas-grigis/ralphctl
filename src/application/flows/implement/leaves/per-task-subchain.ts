@@ -87,6 +87,19 @@ export interface PerTaskSubchainOpts {
   readonly memoryRoot: AbsolutePath;
   /** Owning project's id — selects the per-project learnings ledger subdirectory. */
   readonly projectId: string;
+  /**
+   * Whether the per-task prologue includes the `branch-preflight-<taskId>` leaf. Default `true`
+   * (the serial implement path: every per-task sub-chain re-asserts the working tree is on the
+   * resolved sprint branch before committing, so an AI generator turn that `git checkout`-ed away
+   * can't land a wrong-branch commit).
+   *
+   * The parallel launcher sets this `false`: each task runs in its own git worktree checked
+   * out on a dedicated `ralphctl/<sprintId>/wt-<taskId>` ref, so there is no shared sprint branch
+   * to drift FROM. A preflight there would compare against the wrong ref and fail spuriously —
+   * branch enforcement is moot per-worktree, the fold step is what lands commits on the shared
+   * sprint branch.
+   */
+  readonly includeBranchPreflight?: boolean;
 }
 
 // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
@@ -125,12 +138,20 @@ export const createPerTaskSubchain = (
   }>
 ): Element<ImplementCtx> => {
   const taskId = task.id;
+  // The serial path keeps `branch-preflight` (default true) so a wrong-branch commit never lands;
+  // the parallel launcher omits it (each task runs in its own dedicated worktree ref). Spliced via
+  // a conditional spread so the serial element tree is byte-for-byte unchanged when included.
+  const includeBranchPreflight = opts.includeBranchPreflight ?? true;
   return sequential<ImplementCtx>(`task-${String(taskId)}`, [
-    branchPreflightLeaf(
-      { gitRunner: deps.gitRunner, logger: deps.logger },
-      { cwd: repo.path },
-      `branch-preflight-${String(taskId)}`
-    ),
+    ...(includeBranchPreflight
+      ? [
+          branchPreflightLeaf(
+            { gitRunner: deps.gitRunner, logger: deps.logger },
+            { cwd: repo.path },
+            `branch-preflight-${String(taskId)}`
+          ),
+        ]
+      : []),
     buildTaskWorkspaceLeaf(
       { templateLoader: deps.templateLoader, logger: deps.logger },
       {
@@ -254,7 +275,7 @@ export const createPerTaskSubchain = (
           { cwd: repo.path },
           taskId
         ),
-        // WRITE side of procedural memory. Reads the STILL-POPULATED `currentAttemptLearnings`
+        // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
         // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
         // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
         // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).

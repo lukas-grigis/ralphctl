@@ -33,9 +33,23 @@ Based on the P0–P4 harness overhaul audit (2026-05-21), sections that had the 
 13. **KERNEL-DESIGN.md — Element interface** — any interface field additions (like `label?`) need to be
     reflected in both the code block and the prose; `TraceEntry` too.
 
-**Why:** These areas cluster around the observability/TUI surface and the chain framework primitives,
-both of which evolve in every sprint.
+14. **CLAUDE.md § Performance & Limits — "Implement is strictly sequential"** — was false after
+    parallel execution landed; task-graph validation wiring note also stale. Always re-read this
+    section after any implement-flow structural change.
+15. **ARCHITECTURE.md § Future Work** — tends to list items that have already shipped without
+    being removed; always cross-check against git log.
+16. **REQUIREMENTS.md § Things deliberately deferred** — same pattern: deferred items stay listed
+    after they ship. Check against the commit log for each feature branch.
+17. **ARCHITECTURE.md § Data Models — Task.dependsOn field name** — field was `blockedBy` in older
+    versions; docs had not been updated. Always grep the entity source for field names before writing.
+18. **ARCHITECTURE.md § Harness Signals table — SkillSuggestionsSignal** — said "no flow consumer
+    yet" but the readiness flow now acts on it. Signal table entries often lag behind flow changes.
+
+**Why:** These areas cluster around the observability/TUI surface, the chain framework primitives,
+and the implement-flow — all of which evolve in every sprint. Items 14–18 specifically from the
+`feat/parallelism-wiring-memory` drop (2026-05-30).
 
 **How to apply:** On the next feature drop, check these sections first before reading git log. In
 particular, always grep `events.ts` for the AppEvent union (compare to every doc that lists it),
-and diff `element.ts` + `trace.ts` against the KERNEL-DESIGN.md interface blocks.
+diff `element.ts` + `trace.ts` against KERNEL-DESIGN.md, and re-read CLAUDE.md § Performance &
+Limits after any implement-flow structural change.

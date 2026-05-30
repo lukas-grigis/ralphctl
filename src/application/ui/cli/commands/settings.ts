@@ -48,7 +48,7 @@ const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?:
  *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
  *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry
  *   logging.level                                      silent | debug | info | warn | error
- *   concurrency.maxParallelTasks                       positive integer
+ *   concurrency.maxParallelTasks                       1–5 (1 = serial; >1 = parallel, one git worktree per task)
  *   ui.notifications.enabled                           boolean
  *
  * Note: `ai.provider` and `ai.models.<flow>` (v1 grammar) are rejected as unknown keys —

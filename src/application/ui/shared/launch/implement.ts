@@ -4,8 +4,18 @@ import { createRunner, type Runner } from '@src/application/chain/run/runner.ts'
 import {
   createImplementFlow,
   IMPLEMENT_TASK_TERMINAL_LEAF,
+  planImplementWaves,
+  type CreateImplementFlowOpts,
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
+import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
+import {
+  buildWaveBranches,
+  createFoldQueue,
+  serializeAppendFile,
+  type BuildWaveBranchesDeps,
+} from '@src/application/flows/implement/wave-branch.ts';
+import { createParallelImplementElement } from '@src/application/flows/implement/parallel-element.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { Result } from '@src/domain/result.ts';
@@ -92,6 +102,70 @@ export const resolveImplementQueue = (tasks: readonly Task[]): Result<readonly T
   return Result.ok(queue);
 };
 
+/**
+ * Clamp `settings.concurrency.maxParallelTasks` to `[1,5]` — the parallel cap. `=== 1`
+ * selects the serial implement path; `> 1` selects the parallel worktree-fan-out path. The settings
+ * schema already validates `[1,5]`, but the launcher re-clamps defensively (a hand-edited settings
+ * file or a future schema change can never push the harness past the budget it was sized against).
+ *
+ * @public
+ */
+export const clampParallel = (n: number): number => {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(5, Math.max(1, Math.trunc(n)));
+};
+
+/**
+ * Build the `>1` parallel implement element. Computes the wave plan from the same deps/opts the
+ * serial path uses, then wraps the prologue → `runWaves` → epilogue orchestration in the
+ * {@link createParallelImplementElement} adapter — run on ONE outer runner under ONE held lock.
+ *
+ * `appSignals` is the launcher's app-wide harness-signal sink (NOT the serial-path-wrapped one);
+ * `buildWaveBranches` fans a per-branch sink off it keyed on each branch's `taskId`.
+ */
+const buildParallelElement = (
+  implementDeps: ImplementDeps,
+  implementOpts: CreateImplementFlowOpts,
+  appSignals: HarnessSignalSink,
+  maxParallel: number,
+  sessionId: () => string
+): Element<ImplementCtx> => {
+  const readConfig = (): Promise<{
+    readonly maxTurns: number;
+    readonly escalateOnPlateau: boolean;
+    readonly escalationMap: Readonly<Record<string, string>>;
+  }> =>
+    Promise.resolve({
+      maxTurns: implementDeps.config.harness.maxTurns,
+      escalateOnPlateau: implementDeps.config.harness.escalateOnPlateau,
+      escalationMap: implementDeps.config.harness.escalationMap,
+    });
+
+  // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue
+  // share ONE mutex. Concurrent branches append to the same `progress.md` journal and project
+  // learnings ledger; funnelling them through one queue keeps each line atomic (no torn NDJSON /
+  // journal lines under fan-out). The serial path keeps the raw port — it has no concurrency.
+  const parallelDeps: ImplementDeps = { ...implementDeps, appendFile: serializeAppendFile(implementDeps.appendFile) };
+
+  const branchDeps: BuildWaveBranchesDeps = {
+    implement: parallelDeps,
+    appSignals,
+    eventBus: parallelDeps.eventBus,
+    foldQueue: createFoldQueue(),
+  };
+  const plan = planImplementWaves(parallelDeps, implementOpts);
+
+  return createParallelImplementElement(plan, {
+    fileLocker: implementDeps.fileLocker,
+    locksRoot: implementDeps.locksRoot,
+    eventBus: implementDeps.eventBus,
+    maxConcurrency: maxParallel,
+    flowId: 'implement',
+    sessionId,
+    buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
+  });
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, skillsAdapter, skillSource, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -134,31 +208,32 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // explicitly opts in.
   const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath.value, bus: deps.app.eventBus });
 
-  // Per-task signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as
-  // structured `harness-signal` events on the EventBus so the TUI panels (and the opt-in
-  // events.ndjson tee) see them with a queryable shape. Track the current task id via the
-  // bus's `task-attempt-started` events.
-  let currentTaskId: string | undefined;
-  const unsubTaskTracker = deps.app.eventBus.subscribe((event) => {
-    if (event.type === 'task-attempt-started') currentTaskId = event.taskId;
-  });
-  const perTaskSignalBusMirror: Sink<HarnessSignal> = {
+  // Signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as structured
+  // `harness-signal` events on the EventBus so the TUI panels (and the opt-in events.ndjson tee)
+  // see them with a queryable shape.
+  //
+  // The OLD single-slot `currentTaskId` tracker (keyed off the bus's `task-attempt-started` event)
+  // is DELETED: that event has zero production publishers, so the slot was always `undefined` —
+  // every serial-path `harness-signal` was already unattributed. The parallel `>1` path attaches a
+  // PER-BRANCH sink keyed on the branch's `taskId` (see `wave-branch.ts`), the only correct model
+  // under concurrency. The serial path keeps emitting unattributed events, byte-for-byte with
+  // today's behaviour — renderers that group by task simply skip unattributed entries.
+  const serialSignalBusMirror: Sink<HarnessSignal> = {
     emit(signal) {
       if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
       deps.app.eventBus.publish({
         type: 'harness-signal',
         signalKind: signal.type,
-        ...(currentTaskId !== undefined ? { taskId: currentTaskId } : {}),
         text: signal.text,
         at: IsoTimestamp.now(),
       });
     },
   };
-  // Fan out every harness signal to the existing app sink (TUI bus + subscribers) and the
-  // per-task event-bus mirror. Decisions are now accumulated on ctx by the gen-eval leaves
-  // and rendered into `progress.md` by the journal leaf (audit-[07]) — no more on-disk
-  // decisions.log.
-  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, perTaskSignalBusMirror]);
+  // Fan out every harness signal to the existing app sink (TUI bus + subscribers) and the serial
+  // event-bus mirror. Decisions are accumulated on ctx by the gen-eval leaves and rendered into
+  // `progress.md` by the journal leaf (audit-[07]). The parallel path builds its own per-branch
+  // sinks in `wave-branch.ts` from `deps.app.signals`, so this `signals` is the serial-path sink.
+  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, serialSignalBusMirror]);
 
   const repositories = new Map<RepositoryId, RepoExecConfig>();
   for (const r of snapshot.project.repositories) {
@@ -188,45 +263,61 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const generatorEffort = resolveEffortForRow(implementPair.generator, effectiveSettings.ai.effort);
   const evaluatorEffort = resolveEffortForRow(implementPair.evaluator, effectiveSettings.ai.effort);
 
-  const element: Element<ImplementCtx> = createImplementFlow(
-    {
-      sprintRepo: deps.app.sprintRepo,
-      sprintExecutionRepo: deps.app.sprintExecutionRepo,
-      taskRepo: deps.app.taskRepo,
-      generatorProvider,
-      evaluatorProvider,
-      templateLoader: deps.app.templateLoader,
-      signals,
-      eventBus: deps.app.eventBus,
-      logger: deps.app.logger,
-      clock: deps.app.clock,
-      config: effectiveSettings,
-      gitRunner: deps.app.gitRunner,
-      shellScriptRunner: deps.app.shellScriptRunner,
-      fileLocker: deps.app.fileLocker,
-      locksRoot: deps.storage.locksRoot,
-      skillsAdapter,
-      skillSource,
-      interactive: deps.interactive,
-      writeFile: deps.app.writeFile,
-      appendFile: deps.app.appendFile,
-    },
-    {
-      sprintId: snapshot.sprint.id,
-      todoTasks,
-      repositories,
-      progressFile: progressPath.value,
-      sprintDir: sprintDirPath.value,
-      generatorProviderId: implementPair.generator.provider,
-      generatorModel: implementPair.generator.model,
-      ...(generatorEffort !== undefined ? { generatorEffort } : {}),
-      evaluatorProviderId: implementPair.evaluator.provider,
-      evaluatorModel: implementPair.evaluator.model,
-      ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
-      memoryRoot: deps.storage.memoryRoot,
-      projectId: String(snapshot.project.id),
-    }
-  );
+  const implementDeps: ImplementDeps = {
+    sprintRepo: deps.app.sprintRepo,
+    sprintExecutionRepo: deps.app.sprintExecutionRepo,
+    taskRepo: deps.app.taskRepo,
+    generatorProvider,
+    evaluatorProvider,
+    templateLoader: deps.app.templateLoader,
+    signals,
+    eventBus: deps.app.eventBus,
+    logger: deps.app.logger,
+    clock: deps.app.clock,
+    config: effectiveSettings,
+    gitRunner: deps.app.gitRunner,
+    shellScriptRunner: deps.app.shellScriptRunner,
+    fileLocker: deps.app.fileLocker,
+    locksRoot: deps.storage.locksRoot,
+    skillsAdapter,
+    skillSource,
+    interactive: deps.interactive,
+    writeFile: deps.app.writeFile,
+    appendFile: deps.app.appendFile,
+  };
+  const implementOpts = {
+    sprintId: snapshot.sprint.id,
+    todoTasks,
+    repositories,
+    progressFile: progressPath.value,
+    sprintDir: sprintDirPath.value,
+    generatorProviderId: implementPair.generator.provider,
+    generatorModel: implementPair.generator.model,
+    ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+    evaluatorProviderId: implementPair.evaluator.provider,
+    evaluatorModel: implementPair.evaluator.model,
+    ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
+    memoryRoot: deps.storage.memoryRoot,
+    projectId: String(snapshot.project.id),
+  };
+
+  // Parallel cap: clamp `settings.concurrency.maxParallelTasks` to `[1,5]`. `=== 1` →
+  // today's serial path (the chain owns its own internal `withRepoLock`); the meta-run caller
+  // (`createRunFlow`) also stays on this path — it constructs `createImplementFlow` directly and
+  // never reaches this launcher. `> 1` → the parallel path: one held lock hoisted to the launcher
+  // across prologue + waves + epilogue, one worktree per task, folds serialised onto the
+  // single shared sprint branch → one PR.
+  const maxParallel = clampParallel(effectiveSettings.concurrency.maxParallelTasks);
+
+  // Parallel path fans per-branch signal sinks off the RAW app sink (`deps.app.signals`), NOT the
+  // serial-wrapped `signals` (which carries the unattributed serial bus mirror) — so concurrent
+  // branches emit `harness-signal` events with their own `taskId` and don't also double-publish
+  // unattributed ones.
+  const element: Element<ImplementCtx> =
+    maxParallel === 1
+      ? createImplementFlow(implementDeps, implementOpts)
+      : buildParallelElement(implementDeps, implementOpts, deps.app.signals, maxParallel, sessionId);
+
   const runner = createRunner<ImplementCtx>({
     id: sessionId(),
     element,
@@ -241,7 +332,6 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
       chainLog.stop();
       void chainLog.flush();
-      unsubTaskTracker();
       unsubRunner();
     }
   });

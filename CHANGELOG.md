@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Opt-in parallel task execution via `settings.concurrency.maxParallelTasks` (1–5).** Default `1`
+  keeps the existing serial behaviour byte-for-byte. When set to `> 1`, the `runWaves` orchestrator
+  (above the chain primitives, not a new primitive) runs each dependency wave's tasks concurrently up
+  to the configured cap; waves remain strictly sequential. Each task runs in its own isolated git
+  worktree (`<sprintDir>/worktrees/wt-<taskId>`) with a fresh `setupScript` run; commits are folded
+  onto the single shared sprint branch (one PR per sprint, same as serial mode). A fold conflict when
+  two same-wave tasks edit the same file transitions the second task to `blocked`; relaunching
+  re-forks from the advanced branch tip and usually succeeds without conflict.
+
 - **Task-graph validation wired at parse + launch.** `scheduleIntoWaves`
   (Kahn's-by-level over `Task.dependsOn`, sorted by `Task.order` ASC within each level) is now the
   single topological scheduler — called at parse time in `parse-task-list.ts` (removing the

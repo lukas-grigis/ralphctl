@@ -108,12 +108,15 @@ Status flow: `draft → planned → active → review → done`.
 
 ## Implement flow
 
-- [x] **Dependency-ordered execution** — tasks are scheduled by `scheduleIntoWaves` (topological
-      Kahn's-by-level over `Task.dependsOn`, `Task.order` ASC within each level); `validateTaskGraph`
-      runs at BOTH parse time and implement-launch time, so a cyclic or dangling graph fails fast with
-      the rendered issue. The scheduled levels are flattened into one serial queue — tasks run strictly
-      one at a time, each dependency leading the tasks that rely on it. `maxParallelTasks` stays the
-      pre-existing setting (default `1`, no concurrent execution).
+- [x] **Dependency-ordered execution with opt-in parallelism** — tasks are scheduled by `scheduleIntoWaves`
+      (topological Kahn's-by-level over `Task.dependsOn`, `Task.order` ASC within each level);
+      `validateTaskGraph` runs at BOTH parse time and implement-launch time, so a cyclic or dangling
+      graph fails fast with the rendered issue. When `settings.concurrency.maxParallelTasks === 1`
+      (default), levels flatten into one serial queue — byte-for-byte the prior behaviour. When
+      `maxParallelTasks > 1` (1–5), `runWaves` runs each wave's tasks concurrently up to that cap;
+      waves stay strictly sequential. Each task runs in its own isolated git worktree
+      (`<sprintDir>/worktrees/wt-<taskId>`); commits are folded onto one sprint branch (one PR). A fold
+      conflict transitions the second task to `blocked`; relaunching re-forks from the advanced tip.
 - [x] **Per-task generator-evaluator loop** — the attempt body is
       `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
       wrapped in an outer `loop` over attempts.
@@ -288,8 +291,10 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 
 ## Things deliberately deferred
 
-- **Concurrent task fan-out** — `settings.concurrency.maxParallelTasks` is wired but only `1` is supported
-  today; tasks within a dependency level run serially. Concurrent fan-out needs a new chain primitive.
+- **File-overlap-aware wave partitioning** — today, two same-wave tasks that touch the same file resolve
+  at fold time (first folds, second's cherry-pick conflicts → `blocked`; relaunch re-forks from the
+  advanced tip and usually succeeds). Pre-partitioning waves by file overlap to eliminate the conflict
+  case is deferred.
 - **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
   providers mid-task carries auth/context/tool hazards and is deferred.
 - **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.

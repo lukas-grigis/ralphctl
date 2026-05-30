@@ -568,9 +568,24 @@ CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm
   drift will surface here first. Same gap as v0.6.x; deferred.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` would silently no-op if the
   published bin is renamed. Candidate replacement: `existsSync(<here>/manifest.json)`.
-- **Concurrency > 1** — `settings.concurrency.maxParallelTasks` is wired but the implement chain still runs
-  one task at a time (dependency-ordered, not concurrent). Concurrent per-task fan-out within a dependency
-  level needs a new chain primitive and is deferred.
+- **Parallel task execution (opt-in)** — `settings.concurrency.maxParallelTasks` (range 1–5, Zod-clamped;
+  default `1`) controls the parallel cap. `=== 1` is the serial path, byte-for-byte unchanged. `> 1`
+  activates `runWaves` (`src/application/chain/run/wave-scheduler.ts`), an above-the-chain orchestrator
+  that is NOT a new chain primitive — it sits above the five primitives and sequences whole sub-chains.
+  Each dependency wave's tasks run concurrently up to the cap; waves stay strictly sequential (wave k+1
+  starts only after every branch of wave k settled and merged). Each task runs in its own isolated git
+  worktree at `<sprintDir>/worktrees/wt-<taskId>`, forked from the sprint-branch tip. The repo's
+  `setupScript` runs inside each fresh worktree; a setup failure blocks only that task, never the wave.
+  Each worktree's commit is folded onto the shared sprint branch via one serialised fold queue (`git merge
+--ff-only` else `cherry-pick`), so multi-task parallel sprints land as one PR. A fold conflict (two
+  same-wave tasks touching the same file) transitions the second task to `blocked`; a relaunch
+  re-forks from the advanced tip and usually succeeds. Waves partition on dependency edges, not file
+  overlap. The sprint lock spans prologue + waves + epilogue with the same lock key as the serial path.
+  Commits durably folded before an abort are preserved and never re-executed on relaunch. Concurrent
+  `progress.md` / learnings-ledger appends are serialised through one in-process mutex. New files:
+  `src/application/chain/run/wave-scheduler.ts`,
+  `src/application/flows/implement/{parallel-element,wave-branch,merge-wave}.ts`,
+  plus git worktree verbs in `src/integration/io/git-operations.ts`.
 - **Cross-provider escalation** — plateau escalation today stays within a provider (e.g. Sonnet → Opus);
   switching providers mid-task carries auth/context/tool hazards and is deferred.
 - **Learning-ledger retrieval / embeddings** — the distill step reads the full ledger (no retrieval engine).
