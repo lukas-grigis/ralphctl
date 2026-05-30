@@ -36,6 +36,7 @@ export const CONFIG_SUBDIR = 'config';
 export const STATE_SUBDIR = 'state';
 export const LOCKS_SUBDIR = 'locks';
 export const RUNS_SUBDIR = 'runs';
+export const MEMORY_SUBDIR = 'memory';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
 
 export interface StoragePaths {
@@ -55,6 +56,12 @@ export interface StoragePaths {
    * `runsRoot` covers the one-shot flows that previously left nothing on disk.
    */
   readonly runsRoot: AbsolutePath;
+  /**
+   * `<dataRoot>/memory` — durable, project-scoped learning ledger. Each project keeps its
+   * append-only NDJSON at `<dataRoot>/memory/<projectId>/learnings.ndjson`. Under `dataRoot`
+   * (not `state`) because distilled learnings survive across sprints; user-managed lifecycle.
+   */
+  readonly memoryRoot: AbsolutePath;
 }
 
 export interface ResolveStoragePathsDeps {
@@ -106,6 +113,8 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
   if (!locksRoot.ok) return Result.error(locksRoot.error);
   const runsRoot = AbsolutePath.parse(join(String(dataRoot.value), RUNS_SUBDIR));
   if (!runsRoot.ok) return Result.error(runsRoot.error);
+  const memoryRoot = AbsolutePath.parse(join(String(dataRoot.value), MEMORY_SUBDIR));
+  if (!memoryRoot.ok) return Result.error(memoryRoot.error);
   return Result.ok({
     appRoot,
     dataRoot: dataRoot.value,
@@ -113,6 +122,7 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
     stateRoot: stateRoot.value,
     locksRoot: locksRoot.value,
     runsRoot: runsRoot.value,
+    memoryRoot: memoryRoot.value,
   }) as Result<StoragePaths, ValidationError>;
 };
 
@@ -129,6 +139,7 @@ export const ensureStorageRoots = async (paths: StoragePaths): Promise<Result<vo
     String(paths.stateRoot),
     String(paths.locksRoot),
     String(paths.runsRoot),
+    String(paths.memoryRoot),
     join(String(paths.dataRoot), 'projects'),
     join(String(paths.dataRoot), 'sprints'),
   ];

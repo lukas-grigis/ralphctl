@@ -9,6 +9,7 @@ import {
   DATA_SUBDIR,
   ensureStorageRoots,
   LOCKS_SUBDIR,
+  MEMORY_SUBDIR,
   RALPHCTL_HOME_ENV,
   resolveStoragePaths,
   RUNS_SUBDIR,
@@ -26,6 +27,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.stateRoot)).toBe('/home/alice/.ralphctl/state');
     expect(String(result.value.locksRoot)).toBe('/home/alice/.ralphctl/state/locks');
     expect(String(result.value.runsRoot)).toBe('/home/alice/.ralphctl/data/runs');
+    expect(String(result.value.memoryRoot)).toBe('/home/alice/.ralphctl/data/memory');
   });
 
   it('uses os.homedir() by default', () => {
@@ -38,6 +40,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.stateRoot)).toContain(`${APP_ROOT_DIR}/${STATE_SUBDIR}`);
     expect(String(result.value.locksRoot)).toContain(`${STATE_SUBDIR}/${LOCKS_SUBDIR}`);
     expect(String(result.value.runsRoot)).toContain(`${DATA_SUBDIR}/${RUNS_SUBDIR}`);
+    expect(String(result.value.memoryRoot)).toContain(`${DATA_SUBDIR}/${MEMORY_SUBDIR}`);
   });
 
   it('returns ValidationError when homedir is not absolute', () => {
@@ -55,6 +58,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.appRoot)).toBe('/var/lib/ralphctl-test');
     expect(String(result.value.dataRoot)).toBe('/var/lib/ralphctl-test/data');
     expect(String(result.value.locksRoot)).toBe('/var/lib/ralphctl-test/state/locks');
+    expect(String(result.value.memoryRoot)).toBe('/var/lib/ralphctl-test/data/memory');
   });
 
   it('falls back to homedir layout when RALPHCTL_HOME is empty', () => {
@@ -104,6 +108,7 @@ describe('ensureStorageRoots', () => {
       `${fakeHome}/.ralphctl/data/projects`,
       `${fakeHome}/.ralphctl/data/sprints`,
       `${fakeHome}/.ralphctl/data/runs`,
+      `${fakeHome}/.ralphctl/data/memory`,
     ];
     for (const dir of expected) {
       const stat = await fs.stat(dir);

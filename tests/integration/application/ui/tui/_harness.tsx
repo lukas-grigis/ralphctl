@@ -79,6 +79,7 @@ const defaultStorage = (): StoragePaths => {
     stateRoot: absPath(cwd),
     locksRoot: absPath(cwd),
     runsRoot: absPath(cwd),
+    memoryRoot: absPath(cwd),
   };
 };
 
