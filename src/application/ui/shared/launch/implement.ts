@@ -164,6 +164,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   for (const r of snapshot.project.repositories) {
     repositories.set(r.id, {
       path: r.path,
+      name: r.name,
       ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
       ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
     });
@@ -222,6 +223,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       evaluatorProviderId: implementPair.evaluator.provider,
       evaluatorModel: implementPair.evaluator.model,
       ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
+      memoryRoot: deps.storage.memoryRoot,
+      projectId: String(snapshot.project.id),
     }
   );
   const runner = createRunner<ImplementCtx>({

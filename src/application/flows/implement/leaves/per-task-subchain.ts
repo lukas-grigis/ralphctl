@@ -7,6 +7,7 @@ import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
+import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/append-learnings.ts';
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
@@ -33,7 +34,8 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *   branch-preflight → workspace build → install-skills →           // once per task
  *   loop('task-attempts-<id>', sequential([                          // up to maxAttempts attempts
  *     start-attempt → pre-task-verify → gen-eval loop → finalize →
- *     post-task-verify → commit (guarded) → settle-attempt → progress-journal
+ *     post-task-verify → commit (guarded) → settle-attempt →
+ *     append-learnings → progress-journal
  *   ]), { maxIterations: maxAttempts, shouldStop: terminal }) →
  *   uninstall-skills                                                 // once per task
  *
@@ -77,6 +79,14 @@ export interface PerTaskSubchainOpts {
   readonly terminalLeafName: string;
   readonly generator: GenEvalLoopRoleConfig;
   readonly evaluator: GenEvalLoopRoleConfig;
+  /**
+   * `<dataRoot>/memory` — durable, project-scoped learnings root. Threaded into the
+   * `append-learnings-<taskId>` leaf so each attempt's `<learning>` signals land in the project
+   * ledger at `<memoryRoot>/<projectId>/learnings.ndjson`.
+   */
+  readonly memoryRoot: AbsolutePath;
+  /** Owning project's id — selects the per-project learnings ledger subdirectory. */
+  readonly projectId: string;
 }
 
 // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
@@ -242,6 +252,15 @@ export const createPerTaskSubchain = (
         settleAttemptLeaf(
           { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
           { cwd: repo.path },
+          taskId
+        ),
+        // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
+        // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
+        // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
+        // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).
+        appendLearningsLeaf(
+          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+          { memoryRoot: opts.memoryRoot, projectId: opts.projectId, repoPath: repo.path, repoName: repo.name },
           taskId
         ),
         // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the

@@ -49,7 +49,12 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
+const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
+// Theme 6 learnings-ledger opts every `createImplementFlow` call threads through. The append
+// leaf only writes when a `<learning>` signal lands, so a fake root is inert for the tests here
+// that exercise the gen-eval / verify / commit paths.
+const FAKE_MEMORY_ROOT = absolutePath('/tmp/ralph/memory');
+const FAKE_PROJECT_ID = 'proj-implement-e2e';
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
   let current: Sprint = initial;
@@ -427,6 +432,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -474,6 +481,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -535,6 +544,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'gpt-5.5',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-per-role',
@@ -626,6 +637,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'gpt-5.5',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-token-roles',
@@ -675,6 +688,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -749,6 +764,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
 
     const runner = createRunner({
@@ -802,6 +819,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -858,6 +877,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -962,6 +983,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'gpt-5.5',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
 
     const runner = createRunner({
@@ -1017,6 +1040,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1059,6 +1084,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1105,6 +1132,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1182,6 +1211,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1240,6 +1271,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorEffort: 'medium',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1364,6 +1397,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1430,6 +1465,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1495,6 +1532,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(f.progressFile),
         sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -1549,7 +1588,9 @@ describe('createImplementFlow — gen-eval loop', () => {
     };
 
     // Wire a verifyScript on the repo so pre/post checks actually run.
-    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
+    const reposWithCheck = new Map([
+      [FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo', verifyScript: 'pnpm test' }],
+    ]);
 
     const git = commitCapturingGit(1);
     const deps: ImplementDeps = {
@@ -1574,6 +1615,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-verify-failed',
@@ -1622,7 +1665,9 @@ describe('createImplementFlow — gen-eval loop', () => {
       },
     };
 
-    const reposWithCheck = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, verifyScript: 'pnpm test' }]]);
+    const reposWithCheck = new Map([
+      [FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo', verifyScript: 'pnpm test' }],
+    ]);
 
     const git = commitCapturingGit(1);
     // Seed the execution with the amnesty already granted — simulates the operator having
@@ -1652,6 +1697,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-baseline-broken',
@@ -1723,6 +1770,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-silent-ai',
@@ -1862,8 +1911,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintId: sprint.id,
       todoTasks: tasks,
       repositories: new Map([
-        [REPO_A_ID, { path: CWD_A, verifyScript: 'pnpm test' }],
-        [REPO_B_ID, { path: CWD_B, verifyScript: 'pnpm test' }],
+        [REPO_A_ID, { path: CWD_A, name: 'repo-a', verifyScript: 'pnpm test' }],
+        [REPO_B_ID, { path: CWD_B, name: 'repo-b', verifyScript: 'pnpm test' }],
       ]),
       generatorProviderId: 'claude-code',
       generatorModel: 'claude-opus-4-8',
@@ -1871,6 +1920,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(progressFile),
       sprintDir: absolutePath(dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
     const runner = createRunner({
       id: 'r-impl-multi-repo',
@@ -1980,13 +2031,15 @@ describe('createImplementFlow — gen-eval loop', () => {
       {
         sprintId: sprint.id,
         todoTasks: tasks, // Resume contract: in_progress tasks ride along in `todoTasks`.
-        repositories: new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]),
+        repositories: new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]),
         generatorProviderId: 'claude-code',
         generatorModel: 'claude-opus-4-8',
         evaluatorProviderId: 'claude-code',
         evaluatorModel: 'claude-opus-4-8',
         progressFile: absolutePath(progressFile),
         sprintDir: absolutePath(dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
     const runner = createRunner({
@@ -2079,6 +2132,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
 
     const runner = createRunner({
@@ -2166,6 +2221,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
 
     const runner = createRunner({
@@ -2250,6 +2307,8 @@ describe('createImplementFlow — gen-eval loop', () => {
       evaluatorModel: 'claude-opus-4-8',
       progressFile: absolutePath(f.progressFile),
       sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
     });
 
     const runner = createRunner({

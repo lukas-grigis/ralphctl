@@ -63,6 +63,13 @@ export interface CreateRunFlowOpts {
   readonly verifyScript?: string;
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
+  /**
+   * `<dataRoot>/memory` — durable, project-scoped learnings root (Theme 6). Forwarded to the
+   * implement sub-flow's `append-learnings` leaf.
+   */
+  readonly memoryRoot: AbsolutePath;
+  /** Owning project's id — selects the per-project learnings ledger subdirectory. */
+  readonly projectId: string;
 }
 
 export interface RunDeps {
@@ -89,6 +96,8 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
     generatorModel: opts.model,
     evaluatorProviderId: opts.providerId,
     evaluatorModel: opts.model,
+    memoryRoot: opts.memoryRoot,
+    projectId: opts.projectId,
   });
   const reviewFlow = createReviewFlow(deps.review, {
     sprintId: opts.sprintId,

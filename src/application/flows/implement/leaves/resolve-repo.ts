@@ -10,6 +10,12 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
  */
 export interface RepoExecConfig {
   readonly path: AbsolutePath;
+  /**
+   * Human-friendly repository name (the repo's `Repository.name`, not its path). Carried so the
+   * per-task leaves that persist repo-attributed artefacts (the Theme 6 learnings ledger via
+   * `append-learnings`) record a readable `repoName` alongside the absolute `path`.
+   */
+  readonly name: string;
   readonly verifyScript?: string;
   readonly setupScript?: string;
 }

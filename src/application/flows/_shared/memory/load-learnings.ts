@@ -29,7 +29,8 @@ export interface LoadLearningsLeafConfig<TCtx> {
 /**
  * READ side of the Theme 6 learnings pipeline. Loads the project's append-only NDJSON ledger,
  * de-dups by record `id` (keeping the FIRST occurrence — the write side stamps a stable
- * `sha1(repo|taskKind|text)` id so a re-emitted learning collapses onto one row), and filters to
+ * `deriveLearningId` id, `sha1(repo|taskKind|normalize(text))[:16]`, so a re-emitted learning
+ * collapses onto one row), and filters to
  * the records still awaiting promotion (`promotedAt === null`). Those are the candidates the
  * distill flow proposes to the operator.
  *

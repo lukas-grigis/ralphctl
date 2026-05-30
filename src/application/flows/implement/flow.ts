@@ -93,6 +93,14 @@ export interface CreateImplementFlowOpts {
    * explicitly pass `'cancel'` or `'continue'`.
    */
   readonly dirtyTreePolicy?: DirtyTreePolicy;
+  /**
+   * `<dataRoot>/memory` — durable, project-scoped learnings root (Theme 6). Threaded into each
+   * per-task sub-chain's `append-learnings` leaf so `<learning>` signals persist to
+   * `<memoryRoot>/<projectId>/learnings.ndjson`.
+   */
+  readonly memoryRoot: AbsolutePath;
+  /** Owning project's id — selects the per-project learnings ledger subdirectory. */
+  readonly projectId: string;
 }
 
 /**
@@ -213,6 +221,8 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           model: opts.evaluatorModel,
           ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
         },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),

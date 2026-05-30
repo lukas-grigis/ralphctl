@@ -42,7 +42,9 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
+const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
+const FAKE_MEMORY_ROOT = absolutePath('/tmp/ralph/memory');
+const FAKE_PROJECT_ID = 'proj-run-e2e';
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
@@ -293,6 +295,8 @@ describe('createRunFlow', () => {
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-8',
         providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -380,6 +384,8 @@ describe('createRunFlow', () => {
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-8',
         providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
         noReview: true,
       }
     );

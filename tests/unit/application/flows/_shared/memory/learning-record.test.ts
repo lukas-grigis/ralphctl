@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import {
+  deriveLearningId,
   type LearningRecord,
   parseLearningLine,
   serializeLearningRecord,
@@ -67,5 +68,25 @@ describe('parseLearningLine', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value).toEqual(record());
+  });
+});
+
+describe('deriveLearningId', () => {
+  it('is a deterministic 16-char hex digest', () => {
+    const id = deriveLearningId('/repos/app', 'feature', 'The build emits ESM only.');
+    expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(deriveLearningId('/repos/app', 'feature', 'The build emits ESM only.')).toBe(id);
+  });
+
+  it('collapses incidental formatting differences (trim / case / whitespace runs) onto one id', () => {
+    const base = deriveLearningId('/repos/app', 'feature', 'The build emits ESM only.');
+    expect(deriveLearningId('/repos/app', 'feature', '  the   build emits esm only.  ')).toBe(base);
+  });
+
+  it('distinguishes repo, taskKind, and genuinely different prose', () => {
+    const base = deriveLearningId('/repos/app', 'feature', 'The build emits ESM only.');
+    expect(deriveLearningId('/repos/other', 'feature', 'The build emits ESM only.')).not.toBe(base);
+    expect(deriveLearningId('/repos/app', 'bugfix', 'The build emits ESM only.')).not.toBe(base);
+    expect(deriveLearningId('/repos/app', 'feature', 'A different insight entirely.')).not.toBe(base);
   });
 });

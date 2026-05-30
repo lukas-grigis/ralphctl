@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { Result } from '@src/domain/result.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
@@ -125,3 +126,32 @@ export const parseLearningLine = (line: string): Result<LearningRecord | undefin
  * @public
  */
 export const serializeLearningRecord = (record: LearningRecord): string => `${JSON.stringify(record)}\n`;
+
+/**
+ * Normalize a learning's prose for hashing. Trims surrounding whitespace, lower-cases, and
+ * collapses internal runs of whitespace to a single space so two learnings that differ only by
+ * incidental formatting (a trailing newline, a double space, casing) collapse onto the SAME
+ * dedup id. Deliberately conservative — it does not strip punctuation, so two genuinely
+ * different sentences keep distinct ids.
+ */
+const normalizeForId = (text: string): string => text.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Derive the stable dedup id for a learning — `sha1(repo|taskKind|normalize(text))` truncated to
+ * 16 hex chars. This is the SINGLE definition of the id scheme: the WRITE side (T12
+ * `appendLearningsLeaf`) stamps it onto each appended record, and the READ side
+ * (`loadLearningsLeaf`) dedups proposals by the record's `id`. Because both sides agree on this
+ * function, a learning re-emitted verbatim by a later task produces an identical id and collapses
+ * onto one ledger row rather than duplicating.
+ *
+ * The `repo` and `taskKind` are folded into the key (not just `text`) so the same sentence learned
+ * in two different repos — or while doing two different kinds of work — stays distinct: an
+ * identical insight can carry repo- or kind-specific weight at distillation time.
+ *
+ * @public
+ */
+export const deriveLearningId = (repo: string, taskKind: TaskKind, text: string): string =>
+  createHash('sha1')
+    .update(`${repo}|${taskKind}|${normalizeForId(text)}`)
+    .digest('hex')
+    .slice(0, 16);
