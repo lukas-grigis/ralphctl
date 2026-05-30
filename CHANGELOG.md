@@ -7,6 +7,39 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Task-graph validation wired at parse + launch (Theme 4).** `scheduleIntoWaves`
+  (Kahn's-by-level over `Task.dependsOn`, sorted by `Task.order` ASC within each level) is now the
+  single topological scheduler — called at parse time in `parse-task-list.ts` (removing the
+  private Kahn pass) and at implement-launch time in `launch/implement.ts`. A cycle or
+  dangling-dependency reference fails fast before any task runs. Launch order is now
+  dependency-resolved then `in_progress`-first within the resumable set. Tasks still run strictly
+  one at a time (`maxParallelTasks` stays the pre-existing setting, default `1`).
+
+- **Up-to-`maxAttempts` per launch via outer `loop` (Theme 4).** `per-task-subchain.ts`
+  wraps the full per-attempt segment in a `loop('task-attempts-<id>', …, { maxIterations:
+maxAttempts, shouldStop })` so a single launch runs up to `maxAttempts` rounds per task.
+  Escalation fires within the same loop and continues without a relaunch. `maxAttempts === 1`
+  is byte-for-byte the prior one-attempt-per-launch behaviour.
+
+- **Skill suggestions acted on (Theme 4).** The `readiness` flow now acts on
+  `SkillSuggestionsSignal` via `offerSkillSuggestionsLeaf` (inserted after `write`, before
+  `install-readiness-skills`). Bundled skills get an install confirm; unknown skills get a
+  scaffold-stub confirm. Human gate mandatory — no auto-install. Accepted suggestions persist on
+  `Repository.suggestedSkills`. New `SkillSource.getByName` on the bundled skill source.
+
+- **Procedural memory — learning ledger (Theme 6).** Per-attempt `<learning>` signals are
+  appended best-effort (before `progress-journal`) to a project-scoped NDJSON ledger at
+  `<dataRoot>/memory/<projectId>/learnings.ndjson`. New `memoryRoot` storage path under
+  `dataRoot`. At sprint close (both `close-sprint` and `review` auto-done paths) a human-gated
+  distill step (opt-in, defaulting No) promotes curated learnings into each provider's native
+  context file via the per-distinct-provider fan-out — one file per provider, no symlinks, no
+  retrieval engine (full-file read-back). The distill sub-chain runs while the sprint is still
+  `review` so an abort leaves it re-runnable and the ledger un-stamped. New AI prompt flow:
+  `distill-learnings`; shared module: `flows/_shared/memory/`; pure classifier:
+  `deriveTaskKind` in `business/task/`.
+
 ## [0.8.6] - 2026-05-29
 
 ### Fixed

@@ -16,7 +16,7 @@ import type { DistillLearningsCtx } from '@src/application/flows/_shared/memory/
 
 /**
  * The minimum host-ctx shape the distill step reads. The close-sprint / review ctxs satisfy this
- * with a single `distillRequested` flag — per RULING 3 they are NOT widened with `entries` /
+ * with a single `distillRequested` flag — they are NOT widened with `entries` /
  * `candidates` / `acceptedIds`; the distill sub-chain carries its own {@link DistillLearningsCtx}
  * internally.
  */
@@ -43,7 +43,7 @@ export interface DistillStepOpts {
 }
 
 /**
- * Self-contained distill SUB-RUNNER (T15 / RULING 3) — the adapter step that composes the distill
+ * Self-contained distill SUB-RUNNER — the adapter step that composes the distill
  * sub-chain into the close-sprint and review flows. It is a thin `Element<TCtx>` over the host
  * (close / review) ctx that, at execute time:
  *
@@ -52,7 +52,7 @@ export interface DistillStepOpts {
  *  2. builds {@link createDistillLearningsSubChain} from the same `deps` + `opts`; and
  *  3. runs it through a NESTED {@link createRunner} wired to the SAME outer `AbortSignal`.
  *
- * Per RULING 3 a nested runner inside an element is NOT a sixth chain primitive — it's an adapter
+ * A nested runner inside an element is NOT a sixth chain primitive — it's an adapter
  * that lets BOTH close paths (close-sprint's explicit close + review's auto-done) reuse one distill
  * implementation without widening their ctxs with the distill-local shape.
  *

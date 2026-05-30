@@ -22,7 +22,7 @@ export interface DistillProviderEntry {
 }
 
 /**
- * Distill-LOCAL context for the self-contained distill sub-chain (T14b / RULING 3). The sub-chain
+ * Distill-LOCAL context for the self-contained distill sub-chain. The sub-chain
  * runs over THIS ctx — NOT the host close-sprint / review ctx — so composing it into both close
  * paths only widens those ctxs with a single `distillRequested` flag (the distill leaf carries its
  * own ctx internally). The readiness leaf surface stays untouched.

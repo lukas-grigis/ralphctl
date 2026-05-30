@@ -102,9 +102,16 @@ Status flow: `draft → active → review → done`.
 
 ## Implement flow
 
-- [ ] **Sequential execution** — tasks run strictly one at a time in topological order over `Task.blockedBy`.
-- [ ] **Per-task generator-evaluator loop** — `loop` primitive runs `generator → evaluator → settle-attempt`
+- [x] **Dependency-ordered execution** — tasks are scheduled by `scheduleIntoWaves` (topological
+      Kahn's-by-level over `Task.dependsOn`, `Task.order` ASC within each level); `validateTaskGraph`
+      runs at BOTH parse time and implement-launch time, so a cyclic or dangling graph fails fast with
+      the rendered issue. The scheduled levels are flattened into one serial queue — tasks run strictly
+      one at a time, each dependency leading the tasks that rely on it. `maxParallelTasks` stays the
+      pre-existing setting (default `1`, no concurrent execution).
+- [x] **Per-task generator-evaluator loop** — `loop` primitive runs `generator → evaluator → settle-attempt`
       per round. Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
+      A single launch runs the outer attempt loop up to `maxAttempts` times per task (`maxAttempts === 1`
+      preserves the prior single-attempt-per-launch behaviour).
 - [ ] **Per-flow model selection** — `settings.ai.models.implement` selects the model used for the generator;
       `settings.ai.models.implement` (same key, but evaluator may be a different ladder rung internally).
 - [x] **`setupScript` runs unconditionally once per affected repo at sprint start** — outcome recorded as a
@@ -267,8 +274,22 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 ## Things deliberately deferred
 
 - **Concurrent task fan-out** — `settings.concurrency.maxParallelTasks` is wired but only `1` is supported
-  today. Needs a new chain primitive.
-- **User-skill consumption** — `SkillSuggestionsSignal` is parsed but no flow consumes it yet.
+  today; tasks within a dependency level run serially. Concurrent fan-out needs a new chain primitive.
+- **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
+  providers mid-task carries auth/context/tool hazards and is deferred.
 - **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` is a fragile detection; a
   follow-up should switch to `existsSync(<here>/manifest.json)`.
+
+## Procedural memory
+
+- [x] **Learning ledger** — per-attempt `<learning>` signals appended (best-effort) to
+      `<dataRoot>/memory/<projectId>/learnings.ndjson`; records carry `id`, `text`, `repo`, `repoName`,
+      `taskKind`, `sprintId`, `taskId`, `timestamp`, and `promotedAt` (null until distilled).
+- [x] **Distill step (opt-in)** — at sprint close (both `close-sprint` and `review` auto-done paths) a
+      human-gated step (default: No) promotes curated learnings into each provider's native context file
+      via the per-distinct-provider fan-out (one file per provider, no symlinks). Runs while the sprint is
+      still `review` so an abort leaves it re-runnable.
+- [x] **Skill suggestions acted on** — the `readiness` flow offers to install/scaffold each
+      `SkillSuggestionsSignal` entry; human gate mandatory (no auto-install); accepted suggestions
+      persisted on `Repository.suggestedSkills`.

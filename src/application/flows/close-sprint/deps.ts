@@ -12,7 +12,7 @@ import type { DistillStepOpts } from '@src/application/flows/_shared/memory/dist
  * `ReviewDeps` because there's no AI session, no shell script, no template, no file locker —
  * close is pure state machine + persistence.
  *
- * `distill` carries the optional pre-transition distill composition (T15): the slim
+ * `distill` carries the optional pre-transition distill composition: the slim
  * {@link DistillLearningsDeps} plus the static {@link DistillStepOpts} (project + memory root +
  * sandbox + repository + AI settings). It is optional because the close path stays fully usable
  * without a project / memory context (e.g. a degenerate sprint with no resolvable repo); when

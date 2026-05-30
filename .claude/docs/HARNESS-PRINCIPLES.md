@@ -102,6 +102,11 @@ contracts define testable success up-front."_
 - `maxAttempts` setting: `src/application/chain/run/iteration-config.ts`
 - Blocked transition: `src/application/flows/implement/leaves/` (settle-attempt leaf)
 - Task status enum includes `blocked`: `src/domain/entity/task.ts`
+- **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
+  `loop('task-attempts-<id>', …, { maxIterations: maxAttempts, shouldStop: terminal })` so a single
+  launch can run up to `maxAttempts` rounds per task. Escalation fires within this outer loop
+  (at most once per task), then a second plateau blocks. `maxAttempts === 1` is byte-for-byte
+  the prior one-attempt-per-launch behaviour.
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * Integration tests for the distill SUB-RUNNER adapter (T15 / RULING 3) composed into BOTH close
+ * Integration tests for the distill SUB-RUNNER adapter composed into BOTH close
  * paths — the explicit close-sprint flow and the review flow's auto-done path.
  *
  * Exercises {@link createDistillStep} via the real close-sprint / review flows against a tmpdir,
@@ -175,7 +175,7 @@ const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current:
   };
 };
 
-describe('createDistillStep composed into the close paths (T15)', () => {
+describe('createDistillStep composed into the close paths', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
   let memoryRoot: AbsolutePath;
   let distillRoot: AbsolutePath;
@@ -416,7 +416,7 @@ const reviewInteractive = (bodies: readonly string[], confirm: boolean): Interac
   };
 };
 
-describe('createDistillStep on the review auto-done path (T15)', () => {
+describe('createDistillStep on the review auto-done path', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
   let memoryRoot: AbsolutePath;
   let distillRoot: AbsolutePath;

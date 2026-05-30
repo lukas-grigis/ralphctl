@@ -33,7 +33,7 @@ export interface ReviewDeps {
   readonly appendFile: AppendFile;
   readonly model: string;
   /**
-   * Pre-transition distill composition (T15) — fires on review's auto-done path (empty round →
+   * Pre-transition distill composition — fires on review's auto-done path (empty round →
    * transition) so the same opt-in learning-promotion runs whether the user closes explicitly or
    * lets review auto-finish. Optional: absent → the distill step is omitted from the chain.
    */

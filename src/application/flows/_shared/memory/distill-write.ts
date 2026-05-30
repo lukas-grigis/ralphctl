@@ -25,7 +25,7 @@ interface DistillWriteInput {
 
 /**
  * Distill-OWNED terminal write leaf — scoped to one {@link AssistantTool} per instance. Mirrors
- * the readiness write leaf's contract WITHOUT touching it (RULING 3):
+ * the readiness write leaf's contract WITHOUT touching it — the distill sub-chain owns its own leaves:
  *
  *  - `accepted !== true` → no-op. The trace records `completed`; no filesystem write happens.
  *  - target file already exists → a backup lands at `<targetPath>.bak.<filesystem-safe-ISO>`

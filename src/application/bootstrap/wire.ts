@@ -131,7 +131,7 @@ export interface AppDeps {
   /**
    * Per-provider interactive-AI factory — selects the concrete {@link InteractiveAiProvider} for
    * an explicit {@link AiProvider} (vs. the flow-keyed `interactiveAi` seed above). Threaded so
-   * the distill sub-chain's per-distinct-provider fan-out (T15) can spawn one interactive session
+   * the distill sub-chain's per-distinct-provider fan-out can spawn one interactive session
    * per provider it writes a native context file for. Bound to the wire-time `eventBus` so every
    * distill session logs onto the same observability pipe.
    */

@@ -27,7 +27,7 @@ import type { SettingsSetProviderDeps } from '@src/application/flows/settings-se
  * the role surfaces a `ValidationError` rather than silently rebuilding one of the two.
  *
  * Whole-record "reset every flow to this provider" is now expressible only via a settings
- * preset (T3) — this use-case does not retain that behaviour.
+ * preset — this use-case does not retain that behaviour.
  *
  * Preserves `harness`, `logging`, `concurrency`, `ui`, `developer`, and the global `ai.effort`
  * from the current record.

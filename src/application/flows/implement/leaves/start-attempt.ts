@@ -49,7 +49,7 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
         tasks: (ctx.tasks ?? []).map((t) => (t.id === inProgress.id ? inProgress : t)),
         lastVerdict: undefined,
         lastBlockReason: undefined,
-        // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop (B3) the
+        // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the
         // same ctx flows from one attempt into the next within a single launch, so the gen-eval
         // turn counter, plateau window, and round pointer MUST reset here — otherwise attempt 2's
         // inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval) and a

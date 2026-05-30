@@ -51,8 +51,8 @@ interface DistillProposeOutput {
  * to `outputFile`. The leaf reads that file back verbatim — the whole body IS the proposal.
  *
  * Mirrors the `InteractiveAiProvider` round-trip (prompt-file in, output-file out) used by plan /
- * refine, NOT the readiness propose leaf — this is intentional per RULING 3 (the distill sub-chain
- * owns its own leaves; the readiness surface stays untouched).
+ * refine, NOT the readiness propose leaf — this is intentional: the distill sub-chain
+ * owns its own leaves; the readiness surface stays untouched.
  *
  * Failure modes (each leaves disk state untouched downstream — confirm/write follow):
  *  - prompt build error → propagated.

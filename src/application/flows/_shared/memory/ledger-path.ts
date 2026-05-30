@@ -11,7 +11,7 @@ export const LEARNINGS_LEDGER_FILE = 'learnings.ndjson';
  * `<memoryRoot>/<projectId>/learnings.ndjson`.
  *
  * Project-scoped under `memoryRoot` (which itself sits under `dataRoot`, durable). Both the
- * WRITE side (T12) and the READ side (T14a) resolve the path through this one helper so the
+ * WRITE side (the appender) and the READ side (the loader) resolve the path through this one helper so the
  * layout cannot drift between the appender and the loader.
  *
  * @public

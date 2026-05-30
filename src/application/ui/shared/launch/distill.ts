@@ -5,7 +5,7 @@ import type { DistillStepOpts } from '@src/application/flows/_shared/memory/dist
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 
 /**
- * Resolve the pre-transition distill composition (T15) for the close-sprint / review launchers —
+ * Resolve the pre-transition distill composition for the close-sprint / review launchers —
  * the slim {@link DistillLearningsDeps} plus the static {@link DistillStepOpts} both flows hand to
  * their flow factory's optional `distill` field.
  *

@@ -126,11 +126,11 @@ const buildPerProviderSegment = (
 };
 
 /**
- * Build the SELF-CONTAINED distill sub-chain (T14b / RULING 3) — a reusable factory composed
+ * Build the SELF-CONTAINED distill sub-chain — a reusable factory composed
  * from `sequential` + `guard` + `leaf` ONLY (§14 five-primitive rule — no `retry` around the AI
  * spawn; retry-on-429 is an adapter concern). It runs over its OWN {@link DistillLearningsCtx} and
  * uses its OWN propose / confirm / write leaves, so composing it into the close-sprint and review
- * flows (T15) widens only their ctxs with a single `distillRequested` flag — the readiness leaf
+ * flows widens only their ctxs with a single `distillRequested` flag — the readiness leaf
  * surface stays untouched.
  *
  * Shape:

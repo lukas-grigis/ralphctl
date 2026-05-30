@@ -200,7 +200,9 @@ shared abstractions live under `_base/`.
 ```
 application/bootstrap/
 ├── wire.ts                ← createAppDeps via wire(opts: WireOptions): AppDeps
-├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath)
+├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath);
+│                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
+│                            locksRoot / runsRoot / memoryRoot
 ├── runtime-sinks.ts       ← AppSinks (HarnessSignalSink, …)
 ├── provider-factory.ts    ← createAiProvider({ ai, harnessConfig, eventBus, spawn? })
 ├── interactive-provider-factory.ts
@@ -335,6 +337,9 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 ├── data/
 │   ├── projects/
 │   │   └── <project-id>.json
+│   ├── memory/
+│   │   └── <project-id>/
+│   │       └── learnings.ndjson     ← append-only per-attempt learning ledger (procedural memory)
 │   └── sprints/
 │       └── <sprint-id>/
 │           ├── sprint.json          ← planning: tickets, requirements, status, project ref
@@ -385,7 +390,8 @@ smart constructors. Read the source for the field list; this section names each 
 and the non-obvious mutators.
 
 - **`Project`** (`project.ts`) — identified by `ProjectId`; carries an array of `Repository` value objects (each
-  with `setupScript`, `verifyScript`, `verifyTimeout`, `onboardedAt`).
+  with `setupScript`, `verifyScript`, `verifyTimeout`, `onboardedAt`, and optional `suggestedSkills`
+  — names persisted by `offerSkillSuggestionsLeaf` in the readiness flow).
 - **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → active → review → done`; carries
   `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
@@ -396,12 +402,14 @@ and the non-obvious mutators.
 - **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `requirementStatus: pending → approved`
   flipped by the refine flow.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references
-  `Sprint` via `ticketId` and DAG edges via `blockedBy`. Carries an `attempts[]` history — each `Attempt`
-  has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
+  `Sprint` via `ticketId` and DAG edges via `dependsOn` (array of `TaskId`; the planner emits them as
+  `blockedBy` and `parseTaskList` resolves them onto `dependsOn`). Carries an `attempts[]` history — each
+  `Attempt` has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
   `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
   union), and optional `recoveryContext` (resume-from-aborted metadata). Optional `extraDimensions` is the
   planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
-  Consistency). Optional `maxAttempts` overrides the global cap.
+  Consistency). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
+  `escalatedToModel` are stamped on first plateau-escalation.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion`, `ai: { provider, models }`,
   `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold }`, `logging: { level }`,
@@ -438,7 +446,7 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                                                                                                                 |
 | `AgentsMdProposalSignal`                                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)                                                                                                                                                          |
 | `SetupSkillProposalSignal` / `VerifySkillProposalSignal` | `detect-skills` flow surfaces suggestions                                                                                                                                                                                                                                   |
-| `SkillSuggestionsSignal`                                 | Parsed; no flow consumer yet (deferred — see Future Work)                                                                                                                                                                                                                   |
+| `SkillSuggestionsSignal`                                 | `readiness` flow — `offerSkillSuggestionsLeaf` presents a human-gated install/scaffold step per suggested skill; accepted names persist on `Repository.suggestedSkills`                                                                                                     |
 | `ContextCompactedSignal`                                 | TUI renders a dedented separator marker in the signal stream at the compaction boundary                                                                                                                                                                                     |
 
 EventBus events emitted by the chain runner / adapters (not parsed from AI output): `ChainStarted`,
@@ -552,7 +560,10 @@ CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm
   drift will surface here first. Same gap as v0.6.x; deferred.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` would silently no-op if the
   published bin is renamed. Candidate replacement: `existsSync(<here>/manifest.json)`.
-- **User-skill consumption** — `SkillSuggestionsSignal` is parsed but nothing consumes it yet. Out of scope
-  for v0.7.0.
 - **Concurrency > 1** — `settings.concurrency.maxParallelTasks` is wired but the implement chain still runs
-  strictly sequential. Concurrent per-task fan-out needs a new chain primitive and is deferred.
+  one task at a time (dependency-ordered, not concurrent). Concurrent per-task fan-out within a dependency
+  level needs a new chain primitive and is deferred.
+- **Cross-provider escalation** — plateau escalation today stays within a provider (e.g. Sonnet → Opus);
+  switching providers mid-task carries auth/context/tool hazards and is deferred.
+- **Learning-ledger retrieval / embeddings** — the distill step reads the full ledger (no retrieval engine).
+  A vector index would let the ledger scale to multi-sprint histories.

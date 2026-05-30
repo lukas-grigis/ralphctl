@@ -11,7 +11,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
  *    `TransitionSprintToDoneCtx` shape and defaults to `false`. No close path sets it.
  *  - `distillRequested` — opt-in gate (default `false`) set by the launcher's second HITL confirm.
  *    The pre-transition distill step reads it via the shared `DistillRequestedCtx` shape. Per
- *    RULING 3 this is the ONLY field the distill composition adds — the sub-chain carries its own
+ *    This is the ONLY field the distill composition adds — the self-contained sub-chain carries its own
  *    ctx internally, so close-sprint's ctx is NOT widened with `entries` / `candidates`.
  */
 export interface CloseSprintCtx {

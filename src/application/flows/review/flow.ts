@@ -48,7 +48,7 @@ export interface CreateReviewFlowOpts {
  *     load-and-assert-sprint(['review']),
  *     ensure-feedback-file,
  *     loop('review-loop', review-round, { shouldStop: ctx.lastReviewExit !== undefined }),
- *     distill-learnings-step,                  // opt-in; runs on the auto-done path (T15)
+ *     distill-learnings-step,                  // opt-in; runs on the auto-done path
  *     transition-sprint-to-done,
  *   ])
  *

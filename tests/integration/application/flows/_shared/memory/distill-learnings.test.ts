@@ -1,5 +1,5 @@
 /**
- * Integration tests for the self-contained distill sub-chain (T14b / RULING 3).
+ * Integration tests for the self-contained distill sub-chain.
  *
  * Exercises {@link createDistillLearningsSubChain} end-to-end via the chain runner against a real
  * tmpdir, a fake `InteractiveAiProvider` that writes the proposed context file to `outputFile`,

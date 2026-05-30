@@ -13,7 +13,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  *
  *   sequential('close-sprint', [
  *     load-and-assert-sprint(['review']),     // refuses any other status
- *     distill-learnings-step,                 // opt-in; runs while sprint still `review` (T15)
+ *     distill-learnings-step,                 // opt-in; runs while sprint still `review`
  *     transition-sprint-to-done,              // review → done; persists internally
  *   ])
  *
@@ -29,7 +29,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * `sprintId` enters via the runner's `initialCtx` (matching how `ticket-remove` is launched);
  * no opts bag is needed at the factory boundary.
  *
- * The distill step (T15) runs BEFORE the transition so the sprint is still `review` while it
+ * The distill step runs BEFORE the transition so the sprint is still `review` while it
  * works — a mid-distill abort leaves it un-closed and re-runnable. When the operator declined the
  * opt-in gate (`distillRequested === false`) the step's inner `distill-gate` guard skips the body;
  * when `deps.distill` is absent the step is omitted from the chain entirely.
