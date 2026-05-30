@@ -8,6 +8,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { scheduleIntoWaves, renderTaskGraphIssue } from '@src/domain/entity/task-graph.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { TaskImportListSchema, type TaskImportSpec } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 import type { z } from 'zod';
@@ -179,133 +180,72 @@ export const parseTaskList = (
     tasks.push(created.value);
   }
 
-  // Pass 3: topological reorder via Kahn's algorithm.
-  // Dependencies must precede dependents; emission index is the stable tiebreaker so a
-  // planner that already emitted tasks in topological order produces a strict no-op.
-  // Cycles surface as a ParseError naming the unprocessed subset.
-  const reordered = topologicallyReorder(tasks);
-  if (!reordered.ok) return Result.error(reordered.error);
-  if (reordered.value.changed) {
+  // Pass 3: dependency-wave schedule via the shared domain scheduler.
+  // `scheduleIntoWaves` validates the graph (unknown dep / self-edge / cycle) then runs
+  // Kahn-by-level so every dependency lands in an earlier wave than its dependent. We flatten
+  // the waves into a single sequence and renumber `order` to the 1-based array position.
+  const scheduled = scheduleAndFlatten(tasks);
+  if (!scheduled.ok) return Result.error(scheduled.error);
+  if (scheduled.value.changed) {
     input.logger?.info(
-      `[parseTaskList] reordered ${String(reordered.value.tasks.length)} of ${String(tasks.length)} tasks to satisfy blockedBy graph`
+      `[parseTaskList] reordered ${String(scheduled.value.tasks.length)} of ${String(tasks.length)} tasks to satisfy blockedBy graph`
     );
   }
 
-  return Result.ok(reordered.value.tasks);
+  return Result.ok(scheduled.value.tasks);
 };
 
-interface ReorderedTasks {
+interface ScheduledTasks {
   readonly tasks: readonly TodoTask[];
-  /** `true` iff Kahn's produced a different sequence vs the input emission order. */
+  /** `true` iff the wave-flattened sequence differs from the input emission order. */
   readonly changed: boolean;
 }
 
 /**
- * Kahn's algorithm — topologically order tasks so every `dependsOn` precedes its dependent.
- * Ties (multiple in-degree-zero nodes) are broken by lowest original emission index so an
- * already-sound input is preserved verbatim. The renumbered `order` field is rewritten to
- * match the post-sort 1-based array position; persistence and TUI rendering rely on that
- * equality.
+ * Schedule tasks into dependency waves via the shared domain {@link scheduleIntoWaves}, then
+ * flatten them into a single topologically-valid sequence. Every dependency lands in an earlier
+ * wave than its dependent, so the flattened order satisfies every `dependsOn` edge. The
+ * renumbered `order` field is rewritten to the post-flatten 1-based array position; persistence
+ * and TUI rendering rely on that equality.
  *
- * Cycle detection — Kahn's terminates with unprocessed nodes when a cycle exists. The result
- * names at least one task id in the cycle subset; operators can grep from there.
+ * Graph validity (unknown dependency / self-edge / cycle) is owned by `scheduleIntoWaves` →
+ * `validateTaskGraph`; any {@link TaskGraphIssue} is mapped onto a `ParseError` here so the
+ * integration boundary never leaks a domain error type upward.
  */
-const topologicallyReorder = (tasks: readonly TodoTask[]): Result<ReorderedTasks, ParseError> => {
+const scheduleAndFlatten = (tasks: readonly TodoTask[]): Result<ScheduledTasks, ParseError> => {
   if (tasks.length === 0) return Result.ok({ tasks, changed: false });
 
-  // Index by id for O(1) lookup; index by id → emission position for the tiebreaker.
-  const indexById = new Map<string, number>();
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    if (task === undefined) continue;
-    indexById.set(String(task.id), i);
-  }
-
-  // In-degree counts: how many of each task's `dependsOn` are still unsatisfied.
-  const inDegree = new Map<number, number>();
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    if (task === undefined) continue;
-    inDegree.set(i, task.dependsOn.length);
-  }
-
-  // Successor adjacency: for each task index, the list of indices that depend on it.
-  const successors = new Map<number, number[]>();
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    if (task === undefined) continue;
-    for (const depId of task.dependsOn) {
-      const depIdx = indexById.get(String(depId));
-      if (depIdx === undefined) continue; // pass 2 already validated dangling refs
-      const list = successors.get(depIdx) ?? [];
-      list.push(i);
-      successors.set(depIdx, list);
-    }
-  }
-
-  // Ready set — task indices with in-degree 0, kept sorted-ascending so we always pick the
-  // lowest emission index next. A sorted array is fine here: task lists are O(10²) at worst.
-  const ready: number[] = [];
-  for (let i = 0; i < tasks.length; i++) {
-    if ((inDegree.get(i) ?? 0) === 0) ready.push(i);
-  }
-  // Already in emission order since we pushed in ascending i; no sort needed initially.
-
-  const sortedIndices: number[] = [];
-  while (ready.length > 0) {
-    const next = ready.shift()!;
-    sortedIndices.push(next);
-    for (const succ of successors.get(next) ?? []) {
-      const remaining = (inDegree.get(succ) ?? 0) - 1;
-      inDegree.set(succ, remaining);
-      if (remaining === 0) {
-        // Insert preserving ascending emission-index order.
-        let lo = 0;
-        let hi = ready.length;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (ready[mid]! < succ) lo = mid + 1;
-          else hi = mid;
-        }
-        ready.splice(lo, 0, succ);
-      }
-    }
-  }
-
-  if (sortedIndices.length !== tasks.length) {
-    // Cycle: at least one task never reached in-degree 0. Surface the unprocessed subset.
-    const unprocessed: string[] = [];
-    for (let i = 0; i < tasks.length; i++) {
-      if (!sortedIndices.includes(i)) {
-        const t = tasks[i];
-        if (t !== undefined) unprocessed.push(String(t.id));
-      }
-    }
+  const scheduled = scheduleIntoWaves(tasks);
+  if (!scheduled.ok) {
     return Result.error(
       new ParseError({
         subCode: 'schema-mismatch',
-        message: `task-list: dependency cycle detected among tasks: ${unprocessed.join(', ')}`,
-        hint: "remove the offending blockedBy edge(s) — Kahn's could not order these tasks",
+        message: `task-list: ${renderTaskGraphIssue(scheduled.error)}`,
       })
     );
   }
 
-  // Detect whether order changed; if not, return the input unchanged so callers see a no-op.
-  let changed = false;
-  for (let i = 0; i < sortedIndices.length; i++) {
-    if (sortedIndices[i] !== i) {
-      changed = true;
-      break;
+  // Flatten waves into one sequence — wave order guarantees deps precede dependents. The
+  // entities are the same `TodoTask` objects the parser constructed (status: 'todo'), so the
+  // cast back to `TodoTask` is sound.
+  const flattened = scheduled.value.flat() as readonly TodoTask[];
+
+  // No-op detection: if the flattened sequence matches emission order task-for-task, return the
+  // input unchanged so callers (and the reorder log) see a strict no-op.
+  let changed = flattened.length !== tasks.length;
+  if (!changed) {
+    for (let i = 0; i < flattened.length; i++) {
+      if (flattened[i]?.id !== tasks[i]?.id) {
+        changed = true;
+        break;
+      }
     }
   }
   if (!changed) return Result.ok({ tasks, changed: false });
 
-  // Renumber `order` to match the post-sort 1-based position.
-  const reordered: TodoTask[] = sortedIndices.map((origIdx, newIdx) => {
-    const task = tasks[origIdx]!;
-    return { ...task, order: newIdx + 1 };
-  });
-  return Result.ok({ tasks: reordered, changed: true });
+  // Renumber `order` to match the post-flatten 1-based position.
+  const renumbered: TodoTask[] = flattened.map((task, newIdx) => ({ ...task, order: newIdx + 1 }));
+  return Result.ok({ tasks: renumbered, changed: true });
 };
 
 interface ResolvedTicketRef {
