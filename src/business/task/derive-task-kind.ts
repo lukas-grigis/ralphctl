@@ -2,7 +2,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 
 /**
  * Coarse classification of what a task *does*, derived from its prose. Used to bucket the
- * learnings a task produces (Theme 6) so the distillation step can group "what we learned
+ * learnings a task produces so the distillation step can group "what we learned
  * fixing bugs" separately from "what we learned writing docs" without the operator tagging
  * each task by hand.
  *

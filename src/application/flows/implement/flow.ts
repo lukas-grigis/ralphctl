@@ -94,7 +94,7 @@ export interface CreateImplementFlowOpts {
    */
   readonly dirtyTreePolicy?: DirtyTreePolicy;
   /**
-   * `<dataRoot>/memory` — durable, project-scoped learnings root (Theme 6). Threaded into each
+   * `<dataRoot>/memory` — durable, project-scoped learnings root. Threaded into each
    * per-task sub-chain's `append-learnings` leaf so `<learning>` signals persist to
    * `<memoryRoot>/<projectId>/learnings.ndjson`.
    */

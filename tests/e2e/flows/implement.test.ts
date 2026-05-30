@@ -50,7 +50,7 @@ import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
 const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
-// Theme 6 learnings-ledger opts every `createImplementFlow` call threads through. The append
+// The learnings-ledger opts every `createImplementFlow` call threads through. The append
 // leaf only writes when a `<learning>` signal lands. Use a per-file-run unique root (the real
 // AppendFile adapter writes the ledger here) so concurrent vitest workers / repeated execs never
 // collide on a shared `/tmp` path; torn down in afterAll.

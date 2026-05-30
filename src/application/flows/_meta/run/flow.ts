@@ -64,7 +64,7 @@ export interface CreateRunFlowOpts {
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
   /**
-   * `<dataRoot>/memory` — durable, project-scoped learnings root (Theme 6). Forwarded to the
+   * `<dataRoot>/memory` — durable, project-scoped learnings root. Forwarded to the
    * implement sub-flow's `append-learnings` leaf.
    */
   readonly memoryRoot: AbsolutePath;
