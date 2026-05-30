@@ -64,6 +64,12 @@ export const createProjectSkillSource = (deps: ProjectSkillSourceDeps): SkillSou
     if (project === undefined) return Result.ok([]);
     return Result.ok(projectSkillsFor(project));
   },
+
+  async getByName(name: string): Promise<Result<Skill | undefined, StorageError>> {
+    const project = deps.getProject();
+    if (project === undefined) return Result.ok(undefined);
+    return Result.ok(projectSkillsFor(project).find((s) => s.name === name));
+  },
 });
 
 /**
@@ -84,5 +90,16 @@ export const composeSkillSources = (...sources: readonly SkillSource[]): SkillSo
       all.push(...r.value);
     }
     return Result.ok(all);
+  },
+
+  async getByName(name: string): Promise<Result<Skill | undefined, StorageError>> {
+    // First match wins, in composition order. A hard read failure on any source short-circuits
+    // rather than being masked by a later source returning `undefined`.
+    for (const source of sources) {
+      const r = await source.getByName(name);
+      if (!r.ok) return Result.error(r.error);
+      if (r.value !== undefined) return Result.ok(r.value);
+    }
+    return Result.ok(undefined);
   },
 });

@@ -35,6 +35,21 @@ describe('createBundledSkillSource (production root)', () => {
     if (!(a.ok && b.ok)) return;
     expect(a.value.map((s) => s.name)).toEqual(b.value.map((s) => s.name));
   });
+
+  it('getByName resolves a known bundled skill by its exact folder name', async () => {
+    const result = await source.getByName('ralphctl-alignment');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value?.name).toBe('ralphctl-alignment');
+    expect(result.value?.content).toContain('# Alignment');
+  });
+
+  it('getByName returns ok(undefined) for an unknown name (not an error)', async () => {
+    const result = await source.getByName('react-patterns');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toBeUndefined();
+  });
 });
 
 describe('createBundledSkillSource (custom root)', () => {
@@ -62,6 +77,19 @@ describe('createBundledSkillSource (custom root)', () => {
     }
     const source = createBundledSkillSource({ bundledRoot: root });
     const result = await source.getForFlow('refine');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/invalid frontmatter/u);
+  });
+
+  it('getByName surfaces a StorageError when a present skill has malformed frontmatter', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
+    const skillDir = join(root, 'broken-skill');
+    await mkdir(skillDir, { recursive: true });
+    // File exists (so it is "known") but frontmatter is missing the required `name`.
+    await writeFile(join(skillDir, 'SKILL.md'), '---\ndescription: only description\n---\n\n# body\n', 'utf-8');
+    const source = createBundledSkillSource({ bundledRoot: root });
+    const result = await source.getByName('broken-skill');
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toMatch(/invalid frontmatter/u);

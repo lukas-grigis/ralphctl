@@ -99,6 +99,13 @@ interface ProposeReadinessOutput {
    * `<repo>/<parentDir>/skills/verify/SKILL.md`.
    */
   readonly proposedVerifySkillBody?: string;
+  /**
+   * Kebab-case skill names the AI recommended linking into the repo, from the optional
+   * `skill-suggestions` signal. Undefined when the AI emitted none. The downstream
+   * `offer-skill-suggestions` leaf is the human gate that turns each suggestion into an
+   * installed bundled skill (when the name is known) or a scaffolded stub (when it is not).
+   */
+  readonly proposedSkillSuggestions?: readonly string[];
 }
 
 /**
@@ -190,11 +197,18 @@ const proposeReadinessUseCase = async (
   const setupSkill = signals.find((s) => s.type === 'setup-skill-proposal');
   const verifySkill = signals.find((s) => s.type === 'verify-skill-proposal');
 
+  // Capture the optional `skill-suggestions` signal. Empty `names` is the canonical "no
+  // suggestions" state — treat it the same as a missing signal so the offer leaf no-ops.
+  const skillSuggestions = signals.find((s) => s.type === 'skill-suggestions');
+  const suggestionNames =
+    skillSuggestions !== undefined && skillSuggestions.names.length > 0 ? skillSuggestions.names : undefined;
+
   return Result.ok({
     proposedContent: proposal.content,
     targetPath: engineOut.targetPath,
     ...(setupSkill !== undefined ? { proposedSetupSkillBody: setupSkill.content } : {}),
     ...(verifySkill !== undefined ? { proposedVerifySkillBody: verifySkill.content } : {}),
+    ...(suggestionNames !== undefined ? { proposedSkillSuggestions: suggestionNames } : {}),
   });
 };
 
@@ -266,6 +280,9 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
             ...(out.proposedSetupSkillBody !== undefined ? { proposedSetupSkillBody: out.proposedSetupSkillBody } : {}),
             ...(out.proposedVerifySkillBody !== undefined
               ? { proposedVerifySkillBody: out.proposedVerifySkillBody }
+              : {}),
+            ...(out.proposedSkillSuggestions !== undefined
+              ? { proposedSkillSuggestions: out.proposedSkillSuggestions }
               : {}),
           },
         },

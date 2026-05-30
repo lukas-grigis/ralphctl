@@ -9,6 +9,7 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import type { SetupReadinessDeps } from '@src/application/flows/readiness/deps.ts';
 import { confirmReadinessLeaf } from '@src/application/flows/readiness/leaves/confirm.ts';
 import { installReadinessSkillsLeaf } from '@src/application/flows/readiness/leaves/install-readiness-skills.ts';
+import { offerSkillSuggestionsLeaf } from '@src/application/flows/readiness/leaves/offer-skill-suggestions.ts';
 import { probeReadinessLeaf } from '@src/application/flows/readiness/leaves/probe.ts';
 import { proposeReadinessLeaf } from '@src/application/flows/readiness/leaves/propose.ts';
 import { writeReadinessLeaf } from '@src/application/flows/readiness/leaves/write.ts';
@@ -162,6 +163,10 @@ const buildPerToolSubchain = (
     ),
     confirmReadinessLeaf({ interactive: deps.interactive }, tool),
     writeReadinessLeaf({ writeFile: deps.writeFile, logger: deps.logger, clock: deps.clock }, tool),
+    offerSkillSuggestionsLeaf(
+      { interactive: deps.interactive, skillSource: deps.skillSource, skillsAdapter, logger: deps.logger },
+      tool
+    ),
     installReadinessSkillsLeaf({ skillsAdapter, logger: deps.logger }, tool),
   ]);
 };
@@ -176,7 +181,8 @@ const buildPerToolSubchain = (
  *     pick-repository,                       // interactive (auto-selects single-repo projects)
  *     // one per-tool sub-chain per unique provider in settings.ai (order follows FLOW_IDS):
  *     sequential('tool-claude-code', [ probe → install-skills → propose → uninstall-skills →
- *                                       confirm → write → install-readiness-skills ]),
+ *                                       confirm → write → offer-skill-suggestions →
+ *                                       install-readiness-skills ]),
  *     sequential('tool-copilot',    [ … ]),
  *     sequential('tool-codex',      [ … ]),
  *   ])

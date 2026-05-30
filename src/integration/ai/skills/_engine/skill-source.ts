@@ -23,4 +23,12 @@ export interface SkillSource {
    * caller cannot recover from (a missing source folder is a soft-fail empty list).
    */
   getForFlow(flowId: FlowId): Promise<Result<readonly Skill[], StorageError>>;
+  /**
+   * Resolve a single skill by its exact (folder) name. Returns `ok(undefined)` when no skill
+   * of that name exists in the source — the "unknown name" case is NOT an error, it lets a
+   * caller distinguish a known bundled skill (install it) from an unrecognised suggestion
+   * (scaffold a stub). `StorageError` is reserved for a skill that exists but cannot be read
+   * or parsed (malformed frontmatter, unreadable file).
+   */
+  getByName(name: string): Promise<Result<Skill | undefined, StorageError>>;
 }

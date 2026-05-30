@@ -44,6 +44,13 @@ export interface ReadinessToolEntry {
      * `<repo>/<parentDir>/skills/verify/SKILL.md`.
      */
     readonly proposedVerifySkillBody?: string;
+    /**
+     * Kebab-case skill names the AI suggested linking into the repo (from the optional
+     * `skill-suggestions` signal). Undefined when the AI emitted none. The
+     * `offer-skill-suggestions` leaf reads this slot and human-gates each suggestion into an
+     * installed bundled skill or a scaffolded stub.
+     */
+    readonly proposedSkillSuggestions?: readonly string[];
   };
   readonly accepted?: boolean;
 }
@@ -56,7 +63,7 @@ export interface ReadinessToolEntry {
  *  - `tools`     — the unique {@link AssistantTool} set derived from `settings.ai`'s per-flow
  *                  provider rows. The chain iterates this list, running one per-tool sub-chain
  *                  per entry (probe → install-skills → propose → uninstall-skills → confirm →
- *                  write → install-readiness-skills).
+ *                  write → offer-skill-suggestions → install-readiness-skills).
  *
  * Slots populated by upstream leaves:
  *  - `project`    — by `loadProjectLeaf`.

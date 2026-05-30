@@ -229,6 +229,7 @@ describe('createReadinessFlow', () => {
       'uninstall-skills-claude-code',
       'confirm-claude-code',
       'write-claude-code',
+      'offer-skill-suggestions-claude-code',
       'install-readiness-skills-claude-code',
     ]);
 
