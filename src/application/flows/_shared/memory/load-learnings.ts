@@ -27,7 +27,7 @@ export interface LoadLearningsLeafConfig<TCtx> {
 }
 
 /**
- * READ side of the Theme 6 learnings pipeline. Loads the project's append-only NDJSON ledger,
+ * READ side of the procedural-memory learnings pipeline. Loads the project's append-only NDJSON ledger,
  * de-dups by record `id` (keeping the FIRST occurrence — the write side stamps a stable
  * `deriveLearningId` id, `sha1(repo|taskKind|normalize(text))[:16]`, so a re-emitted learning
  * collapses onto one row), and filters to

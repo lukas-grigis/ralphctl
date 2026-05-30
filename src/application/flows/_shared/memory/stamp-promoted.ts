@@ -37,7 +37,7 @@ export interface StampPromotedLeafConfig<TCtx> {
 }
 
 /**
- * Final step of the Theme 6 distill flow: durably mark accepted learnings as promoted so they are
+ * Final step of the distill flow: durably mark accepted learnings as promoted so they are
  * never proposed again. Reads the entire ledger, flips `promotedAt` from `null` to the
  * distillation timestamp for every record whose id is in the accepted set, leaves all other
  * records byte-for-byte, then rewrites the whole file atomically via the {@link WriteFile} port.

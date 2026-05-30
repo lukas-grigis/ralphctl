@@ -9,7 +9,7 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Task-graph validation wired at parse + launch (Theme 4).** `scheduleIntoWaves`
+- **Task-graph validation wired at parse + launch.** `scheduleIntoWaves`
   (Kahn's-by-level over `Task.dependsOn`, sorted by `Task.order` ASC within each level) is now the
   single topological scheduler — called at parse time in `parse-task-list.ts` (removing the
   private Kahn pass) and at implement-launch time in `launch/implement.ts`. A cycle or
@@ -17,19 +17,19 @@ to [Semantic Versioning](https://semver.org/).
   dependency-resolved then `in_progress`-first within the resumable set. Tasks still run strictly
   one at a time (`maxParallelTasks` stays the pre-existing setting, default `1`).
 
-- **Up-to-`maxAttempts` per launch via outer `loop` (Theme 4).** `per-task-subchain.ts`
+- **Up-to-`maxAttempts` per launch via outer `loop`.** `per-task-subchain.ts`
   wraps the full per-attempt segment in a `loop('task-attempts-<id>', …, { maxIterations:
 maxAttempts, shouldStop })` so a single launch runs up to `maxAttempts` rounds per task.
   Escalation fires within the same loop and continues without a relaunch. `maxAttempts === 1`
   is byte-for-byte the prior one-attempt-per-launch behaviour.
 
-- **Skill suggestions acted on (Theme 4).** The `readiness` flow now acts on
+- **Skill suggestions acted on.** The `readiness` flow now acts on
   `SkillSuggestionsSignal` via `offerSkillSuggestionsLeaf` (inserted after `write`, before
   `install-readiness-skills`). Bundled skills get an install confirm; unknown skills get a
   scaffold-stub confirm. Human gate mandatory — no auto-install. Accepted suggestions persist on
   `Repository.suggestedSkills`. New `SkillSource.getByName` on the bundled skill source.
 
-- **Procedural memory — learning ledger (Theme 6).** Per-attempt `<learning>` signals are
+- **Procedural memory — learning ledger.** Per-attempt `<learning>` signals are
   appended best-effort (before `progress-journal`) to a project-scoped NDJSON ledger at
   `<dataRoot>/memory/<projectId>/learnings.ndjson`. New `memoryRoot` storage path under
   `dataRoot`. At sprint close (both `close-sprint` and `review` auto-done paths) a human-gated
