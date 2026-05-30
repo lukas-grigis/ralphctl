@@ -8,6 +8,35 @@ import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
+/** A task as surfaced to the human approval gate — name plus optional description / tracker ref. */
+export interface PlanReviewTask {
+  readonly name: string;
+  readonly description?: string;
+  readonly ticketRef?: string;
+}
+
+/**
+ * Render the human-facing plan-approval prompt body (audit §5 human-gate). The parser has
+ * already dependency-resolved the task list before it reaches this gate, so the order shown is
+ * the execution order — the note makes that visible to the operator rather than letting the
+ * reorder happen as a silent topo-sort. Per-task reorder editing is out of scope.
+ *
+ * Pure — extracted so the rendered message (including the dependency-order note) is unit-testable
+ * without constructing a full launch context.
+ *
+ * @public
+ */
+export const buildPlanReviewMessage = (proposedTasks: readonly PlanReviewTask[]): string => {
+  const summary = proposedTasks
+    .map((t, i) => {
+      const head = `${String(i + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`;
+      const body = t.description !== undefined && t.description.length > 0 ? `\n   ${t.description}` : '';
+      return `${head}${body}`;
+    })
+    .join('\n');
+  return `Approve plan? ${String(proposedTasks.length)} task(s):\n\nTasks are shown in dependency-resolved execution order.\n\n${summary}`;
+};
+
 export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, interactiveAi, skillsAdapter, skillSource, bridge, sessionId, effort } = ctx;
   const missing = await checkCli('plan', settings, { override: ctx.extras.override });
@@ -26,16 +55,9 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   // accepts/rejects via an Ink confirm prompt. Cancel = reject; downstream save-tasks /
   // save-sprint then no-op against the unchanged draft sprint.
   const reviewBeforeApprove = async (
-    proposedTasks: ReadonlyArray<{ readonly name: string; readonly description?: string; readonly ticketRef?: string }>
+    proposedTasks: readonly PlanReviewTask[]
   ): Promise<{ readonly accept: boolean }> => {
-    const summary = proposedTasks
-      .map((t, i) => {
-        const head = `${String(i + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`;
-        const body = t.description !== undefined && t.description.length > 0 ? `\n   ${t.description}` : '';
-        return `${head}${body}`;
-      })
-      .join('\n');
-    const message = `Approve plan? ${String(proposedTasks.length)} task(s):\n\n${summary}`;
+    const message = buildPlanReviewMessage(proposedTasks);
     const answered = await deps.interactive.askConfirm({ message });
     if (!answered.ok) return { accept: false };
     return { accept: answered.value };

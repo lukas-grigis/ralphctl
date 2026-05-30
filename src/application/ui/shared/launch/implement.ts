@@ -8,6 +8,9 @@ import {
 } from '@src/application/flows/implement/flow.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import { Result } from '@src/domain/result.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import { renderTaskGraphIssue, scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -59,6 +62,36 @@ const applyImplementRoleOverrides = (
   return next;
 };
 
+/**
+ * Resolve the ordered launch queue from a sprint's FULL task set (audit §5 human-gate).
+ *
+ * `scheduleIntoWaves` validates the graph first, so a cyclic / self-edge / dangling-dependency
+ * sprint fails fast here with the rendered issue — a deadlock can't hide behind an innocuous
+ * "No tasks to implement" message that only appears after unschedulable tasks are filtered out.
+ *
+ * On a sound DAG the waves are flattened (each wave already sorted by `Task.order`) and filtered
+ * to the resumable subset (`todo` + `in_progress`), so a task never leads a dependency it relies
+ * on. The in-progress-first override is then applied ON TOP via a stable sort (V8 stable) — a
+ * resumed task still leads so a relaunch picks up where the prior run died before any fresh work,
+ * while dependency order is preserved within each status group.
+ *
+ * Returns the rendered `TaskGraphIssue` string on an invalid graph, otherwise the ordered queue
+ * (possibly empty when nothing is resumable — the caller reports that separately).
+ *
+ * @public
+ */
+export const resolveImplementQueue = (tasks: readonly Task[]): Result<readonly Task[], string> => {
+  const schedule = scheduleIntoWaves(tasks);
+  if (!schedule.ok) return Result.error(renderTaskGraphIssue(schedule.error));
+  const resumableIds = new Set(tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').map((t) => t.id));
+  const scheduled = schedule.value.flat().filter((t) => resumableIds.has(t.id));
+  const queue = [...scheduled].sort((a, b) => {
+    if (a.status === b.status) return 0;
+    return a.status === 'in_progress' ? -1 : 1;
+  });
+  return Result.ok(queue);
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, skillsAdapter, skillSource, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -79,15 +112,13 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (snapshot.project.repositories.length === 0) {
     return { ok: false, reason: 'Project has no repositories — add one first.' };
   }
-  // Resume support: `in_progress` tasks from a prior aborted chain are included so the user can
-  // simply relaunch Implement and pick up where the previous run died. The start-attempt use
-  // case settles any leftover `running` attempt as `aborted` before opening a new one, so the
-  // domain stays consistent. Sort in-progress first so resume happens before any new task work.
-  const resumable = snapshot.tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress');
-  const todoTasks = [...resumable].sort((a, b) => {
-    if (a.status === b.status) return 0;
-    return a.status === 'in_progress' ? -1 : 1;
-  });
+  // Human-gate (audit §5): validate + dependency-schedule the FULL task set before launch, then
+  // derive the resumable queue with the in-progress-first override applied. A cyclic / dangling
+  // graph fails fast here with the rendered issue rather than silently surfacing as an empty
+  // queue once the unschedulable tasks are filtered out.
+  const queue = resolveImplementQueue(snapshot.tasks);
+  if (!queue.ok) return { ok: false, reason: queue.error };
+  const todoTasks = queue.value;
   if (todoTasks.length === 0) return { ok: false, reason: 'No tasks to implement or resume.' };
   const sprintDirPath = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id)));
   if (!sprintDirPath.ok) return { ok: false, reason: sprintDirPath.error.message };
