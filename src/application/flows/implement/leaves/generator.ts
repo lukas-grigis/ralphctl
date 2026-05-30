@@ -16,7 +16,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { AiSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -146,11 +146,12 @@ interface GeneratorOutput {
    */
   readonly changesEmitted: readonly string[];
   /**
-   * Learning-signal bodies emitted by this turn — accumulates onto
-   * `ctx.currentAttemptLearnings` so the journal leaf can render the per-attempt
-   * `### Learnings` subsection.
+   * Structured learnings emitted by this turn — each a {@link LearningEntry} (Insight + optional
+   * Context + optional Applies-to). Accumulates onto `ctx.currentAttemptLearnings` so the journal
+   * leaf can render the per-attempt `### Learnings` subsection and `append-learnings` can persist
+   * the procedural-memory ledger rows.
    */
-  readonly learningsEmitted: readonly string[];
+  readonly learningsEmitted: readonly LearningEntry[];
   /**
    * Note-signal bodies emitted by this turn — accumulates onto `ctx.currentAttemptNotes`
    * so the journal leaf can render the per-attempt `### Notes` subsection.
@@ -223,7 +224,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         // across all gen-eval rounds for the attempt.
         const decisionsEmitted: string[] = [];
         const changesEmitted: string[] = [];
-        const learningsEmitted: string[] = [];
+        const learningsEmitted: LearningEntry[] = [];
         const notesEmitted: string[] = [];
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const priorCritique = latestCritique(task);
@@ -286,7 +287,12 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
             if (sig.type === 'decision') decisionsEmitted.push(sig.text);
             else if (sig.type === 'change') changesEmitted.push(sig.text);
-            else if (sig.type === 'learning') learningsEmitted.push(sig.text);
+            else if (sig.type === 'learning')
+              learningsEmitted.push({
+                text: sig.text,
+                ...(sig.context !== undefined ? { context: sig.context } : {}),
+                ...(sig.appliesTo !== undefined ? { appliesTo: sig.appliesTo } : {}),
+              });
             else if (sig.type === 'note') notesEmitted.push(sig.text);
           }
 

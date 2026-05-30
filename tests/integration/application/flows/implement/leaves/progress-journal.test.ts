@@ -158,7 +158,7 @@ describe('progressJournalLeaf', () => {
       currentRoundNum: 1,
       currentAttemptChanges: ['added src/foo.ts', 'renamed bar → baz'],
       currentAttemptDecisions: ['use json on-disk'],
-      currentAttemptLearnings: ['providers ship different flags'],
+      currentAttemptLearnings: [{ text: 'providers ship different flags' }],
       currentAttemptNotes: ['follow-up: trim retry log lines'],
     };
     const result = await leaf.execute(ctx);
@@ -170,7 +170,7 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain('### Decisions');
     expect(written).toContain('- use json on-disk');
     expect(written).toContain('### Learnings');
-    expect(written).toContain('- providers ship different flags');
+    expect(written).toContain('- **providers ship different flags**');
     expect(written).toContain('### Notes');
     expect(written).toContain('- follow-up: trim retry log lines');
   });
@@ -212,7 +212,7 @@ describe('progressJournalLeaf', () => {
       currentRoundNum: 1,
       currentAttemptDecisions: ['d'],
       currentAttemptChanges: ['c'],
-      currentAttemptLearnings: ['l'],
+      currentAttemptLearnings: [{ text: 'l' }],
       currentAttemptNotes: ['n'],
     };
     const result = await leaf.execute(ctx);

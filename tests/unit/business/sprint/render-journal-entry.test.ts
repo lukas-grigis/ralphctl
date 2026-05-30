@@ -54,7 +54,7 @@ describe('renderJournalEntry', () => {
       baseInput({
         changes: ['added foo.ts'],
         decisions: ['use json on-disk'],
-        learnings: ['providers differ on flags'],
+        learnings: [{ text: 'providers differ on flags' }],
         notes: ['follow-up: tighten retry log'],
       })
     );
@@ -63,7 +63,7 @@ describe('renderJournalEntry', () => {
     expect(out).toContain('### Decisions');
     expect(out).toContain('- use json on-disk');
     expect(out).toContain('### Learnings');
-    expect(out).toContain('- providers differ on flags');
+    expect(out).toContain('- **providers differ on flags**');
     expect(out).toContain('### Notes');
     expect(out).toContain('- follow-up: tighten retry log');
     // Order: Changes < Decisions < Learnings < Notes.
@@ -74,6 +74,26 @@ describe('renderJournalEntry', () => {
     expect(idxChanges).toBeLessThan(idxDecisions);
     expect(idxDecisions).toBeLessThan(idxLearnings);
     expect(idxLearnings).toBeLessThan(idxNotes);
+  });
+
+  it('renders a learning with Context and Applies-to as indented sub-bullets', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        learnings: [
+          { text: 'prefer the injected port', context: 'adding a CLI prompt', appliesTo: 'src/application/ui' },
+        ],
+      })
+    );
+    expect(out).toContain('- **prefer the injected port**');
+    expect(out).toContain('  - Context: adding a CLI prompt');
+    expect(out).toContain('  - Applies to: src/application/ui');
+  });
+
+  it('renders an insight-only learning (no Context / Applies-to sub-bullets)', () => {
+    const out = renderJournalEntry(baseInput({ learnings: [{ text: 'run the verify gate before committing' }] }));
+    expect(out).toContain('- **run the verify gate before committing**');
+    expect(out).not.toContain('  - Context:');
+    expect(out).not.toContain('  - Applies to:');
   });
 
   it('omits a subsection entirely when its list is empty (no orphan heading-with-no-bullets)', () => {

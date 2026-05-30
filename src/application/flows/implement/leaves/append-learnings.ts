@@ -16,6 +16,8 @@ import {
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
+import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -73,25 +75,6 @@ interface AppendLearningsInput {
 }
 
 /**
- * Trim + dedupe a per-attempt signal-text accumulator. Mirrors the journal leaf's `dedupeTexts`
- * (intentionally duplicated rather than shared — the two leaves keep independent control over
- * what they persist). Returns the deduped list in first-seen order; empty / undefined → `[]`.
- */
-const dedupeTexts = (texts: readonly string[] | undefined): readonly string[] => {
-  if (texts === undefined || texts.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const t of texts) {
-    const trimmed = t.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-};
-
-/**
  * Build one {@link LearningRecord} per deduped learning text. The record `id` is the stable
  * `deriveLearningId(repo, taskKind, text)` so the read side dedups a re-emitted learning onto one
  * row; `promotedAt` is always `null` on write (the distill flow stamps it later).
@@ -101,16 +84,18 @@ const buildRecords = (
   opts: AppendLearningsLeafOpts,
   task: Task,
   sprintId: string,
-  learnings: readonly string[]
+  learnings: readonly LearningEntry[]
 ): readonly LearningRecord[] => {
   const taskKind = deriveTaskKind(task);
   const repo = String(opts.repoPath);
   const timestamp = String(deps.clock());
   return learnings.map(
-    (text): LearningRecord => ({
+    (entry): LearningRecord => ({
       v: 1,
-      id: deriveLearningId(repo, taskKind, text),
-      text,
+      id: deriveLearningId(repo, taskKind, entry.text),
+      text: entry.text,
+      ...(entry.context !== undefined ? { context: entry.context } : {}),
+      ...(entry.appliesTo !== undefined ? { appliesTo: entry.appliesTo } : {}),
       repo,
       repoName: opts.repoName,
       taskKind,
@@ -176,7 +161,7 @@ export const appendLearningsLeaf = (
       }
       // Read the STILL-POPULATED accumulator (progress-journal clears it AFTER us). Dedupe so an
       // identical learning emitted twice in one attempt produces one row.
-      const learnings = dedupeTexts(ctx.currentAttemptLearnings);
+      const learnings = dedupeLearnings(ctx.currentAttemptLearnings ?? []);
       const records = buildRecords(deps, opts, task, String(ctx.sprintId), learnings);
       return { ledgerPath: ledgerResult.value, records };
     },

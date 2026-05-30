@@ -29,8 +29,12 @@ export interface LearningRecord {
    * re-emitted by a later task collapses onto the same ledger row rather than duplicating.
    */
   readonly id: string;
-  /** The learning prose itself — the `<learning>` signal body, verbatim. */
+  /** The learning prose itself — the `<learning>` signal body (the Insight), verbatim. */
   readonly text: string;
+  /** Optional Context — when / why the insight arose. Absent on legacy (v1) rows. */
+  readonly context?: string | undefined;
+  /** Optional Applies-to — where it applies (repo area, task kind, subsystem). Absent on legacy rows. */
+  readonly appliesTo?: string | undefined;
   /** Absolute path of the repository the learning was produced in. */
   readonly repo: string;
   /** Human-friendly repository name (the repo's `name`, not its path). */
@@ -65,6 +69,8 @@ export const learningRecordSchema = z.object({
   v: z.number().int(),
   id: z.string().min(1),
   text: z.string(),
+  context: z.string().optional(),
+  appliesTo: z.string().optional(),
   repo: z.string(),
   repoName: z.string(),
   taskKind: taskKindSchema,

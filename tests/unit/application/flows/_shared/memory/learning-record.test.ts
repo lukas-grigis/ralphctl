@@ -46,6 +46,23 @@ describe('parseLearningLine', () => {
     expect(parsed.value?.promotedAt).toBe('2026-05-30T12:00:00.000Z');
   });
 
+  it('round-trips the structured context + applies-to fields', () => {
+    const structured = record({ context: 'wiring the config reader', appliesTo: 'config / io layer' });
+    const parsed = parseLearningLine(serializeLearningRecord(structured));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value).toEqual(structured);
+  });
+
+  it('parses a legacy row that omits context / applies-to (back-compat)', () => {
+    // record() builds a v1-shaped row without the structured fields.
+    const parsed = parseLearningLine(serializeLearningRecord(record()));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.context).toBeUndefined();
+    expect(parsed.value?.appliesTo).toBeUndefined();
+  });
+
   it('rejects invalid JSON with a ParseError (invalid-json)', () => {
     const parsed = parseLearningLine('{ not json');
     expect(parsed.ok).toBe(false);

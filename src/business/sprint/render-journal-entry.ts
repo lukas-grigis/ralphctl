@@ -1,4 +1,5 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { LearningEntry } from '@src/domain/signal.ts';
 
 /**
  * Render a single task-attempt section into the append-only `<sprintDir>/progress.md`
@@ -51,8 +52,8 @@ export interface JournalEntryInput {
   readonly changes: readonly string[];
   /** Deduped decision-signal bodies emitted across the attempt. Empty → no `### Decisions` subsection. */
   readonly decisions: readonly string[];
-  /** Deduped learning-signal bodies emitted across the attempt. Empty → no `### Learnings` subsection. */
-  readonly learnings: readonly string[];
+  /** Deduped structured learnings emitted across the attempt. Empty → no `### Learnings` subsection. */
+  readonly learnings: readonly LearningEntry[];
   /** Deduped note-signal bodies emitted across the attempt. Empty → no `### Notes` subsection. */
   readonly notes: readonly string[];
   /** Commit sha that landed (truncated). Missing when the attempt blocked. */
@@ -100,6 +101,26 @@ const appendSubsection = (lines: string[], heading: string, entries: readonly st
 };
 
 /**
+ * Append the `### Learnings` subsection. Each learning renders as a bold Insight bullet with
+ * optional `Context:` / `Applies to:` sub-bullets (emitted only when the learning carries them),
+ * so a human reads the structure fluently. No-op when there are no learnings.
+ */
+const appendLearningsSubsection = (lines: string[], entries: readonly LearningEntry[]): void => {
+  if (entries.length === 0) return;
+  lines.push('### Learnings');
+  for (const entry of entries) {
+    lines.push(`- **${entry.text}**`);
+    if (entry.context !== undefined && entry.context.trim().length > 0) {
+      lines.push(`  - Context: ${entry.context.trim()}`);
+    }
+    if (entry.appliesTo !== undefined && entry.appliesTo.trim().length > 0) {
+      lines.push(`  - Applies to: ${entry.appliesTo.trim()}`);
+    }
+  }
+  lines.push('');
+};
+
+/**
  * Render one journal section. The string is intended to be appended verbatim to an existing
  * journal file via the `AppendFile` port — it carries its own leading + trailing whitespace
  * so consecutive sections never abut.
@@ -122,7 +143,7 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
   lines.push('');
   appendSubsection(lines, 'Changes', input.changes);
   appendSubsection(lines, 'Decisions', input.decisions);
-  appendSubsection(lines, 'Learnings', input.learnings);
+  appendLearningsSubsection(lines, input.learnings);
   appendSubsection(lines, 'Notes', input.notes);
   return lines.join('\n');
 };

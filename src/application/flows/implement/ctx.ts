@@ -5,7 +5,7 @@ import type { AttemptWarning, VerifyRunOutcome } from '@src/domain/entity/attemp
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { EvaluationSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
@@ -142,10 +142,12 @@ export interface ImplementCtx {
   readonly currentAttemptChanges?: readonly string[] | undefined;
   /**
    * Per-attempt `learning` signal accumulator — same lifecycle as `currentAttemptDecisions`.
-   * Read by `progress-journal-<taskId>` to render the `### Learnings` subsection. Cleared by
-   * the journal leaf after the attempt settles.
+   * Each entry is a structured {@link LearningEntry} (Insight + optional Context + optional
+   * Applies-to). Read by `progress-journal-<taskId>` to render the `### Learnings` subsection
+   * and by `append-learnings-<taskId>` to persist the procedural-memory ledger rows. Cleared
+   * by the journal leaf after the attempt settles.
    */
-  readonly currentAttemptLearnings?: readonly string[] | undefined;
+  readonly currentAttemptLearnings?: readonly LearningEntry[] | undefined;
   /**
    * Per-attempt `note` signal accumulator — same lifecycle as `currentAttemptDecisions`.
    * Read by `progress-journal-<taskId>` to render the `### Notes` subsection. Cleared by

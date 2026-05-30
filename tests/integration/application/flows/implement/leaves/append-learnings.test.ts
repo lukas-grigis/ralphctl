@@ -73,7 +73,7 @@ describe('appendLearningsLeaf', () => {
     const ctx: ImplementCtx = {
       sprintId: SPRINT_ID,
       tasks: [task],
-      currentAttemptLearnings: ['providers ship different flags', 'codex caps effort at high'],
+      currentAttemptLearnings: [{ text: 'providers ship different flags' }, { text: 'codex caps effort at high' }],
     };
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -105,7 +105,7 @@ describe('appendLearningsLeaf', () => {
     const ctx: ImplementCtx = {
       sprintId: SPRINT_ID,
       tasks: [task],
-      currentAttemptLearnings: ['same insight', '  same insight  ', 'distinct insight'],
+      currentAttemptLearnings: [{ text: 'same insight' }, { text: '  same insight  ' }, { text: 'distinct insight' }],
     };
     const result = await leaf.execute(ctx);
     expect(result.ok).toBe(true);
@@ -125,7 +125,7 @@ describe('appendLearningsLeaf', () => {
     const result = await leaf.execute({
       sprintId: SPRINT_ID,
       tasks: [task],
-      currentAttemptLearnings: ['a learning the disk refused'],
+      currentAttemptLearnings: [{ text: 'a learning the disk refused' }],
     });
     expect(result.ok).toBe(true);
   });
@@ -156,7 +156,7 @@ describe('appendLearningsLeaf', () => {
     const result = await leaf.execute({
       sprintId: SPRINT_ID,
       tasks: [task],
-      currentAttemptLearnings: ['   ', ''],
+      currentAttemptLearnings: [{ text: '   ' }, { text: '' }],
     });
     expect(result.ok).toBe(true);
     expect(append.read(ledgerPath)).toBeUndefined();
@@ -185,21 +185,21 @@ describe('appendLearningsLeaf', () => {
       sprintId: SPRINT_ID,
       tasks: [task],
       currentRoundNum: 1,
-      currentAttemptLearnings: ['ordering matters here'],
+      currentAttemptLearnings: [{ text: 'ordering matters here' }],
     };
 
     // append-learnings runs first.
     const afterAppend = await appendLeaf.execute(ctx);
     if (!afterAppend.ok) throw afterAppend.error;
     // It left the accumulator populated for the journal to read.
-    expect(afterAppend.value.ctx.currentAttemptLearnings).toEqual(['ordering matters here']);
+    expect(afterAppend.value.ctx.currentAttemptLearnings).toEqual([{ text: 'ordering matters here' }]);
     // The ledger has the line.
     expect(parseLedger(append.read(ledgerPath)).map((r) => r.text)).toEqual(['ordering matters here']);
 
     // Journal runs next on the (still-populated) ctx and renders + clears the learnings.
     const afterJournal = await journalLeaf.execute(afterAppend.value.ctx);
     if (!afterJournal.ok) throw afterJournal.error;
-    expect(journalAppend.read(PROGRESS_FILE) ?? '').toContain('- ordering matters here');
+    expect(journalAppend.read(PROGRESS_FILE) ?? '').toContain('- **ordering matters here**');
     expect(afterJournal.value.ctx.currentAttemptLearnings).toBeUndefined();
   });
 
@@ -211,7 +211,7 @@ describe('appendLearningsLeaf', () => {
       { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
       task.id
     );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [], currentAttemptLearnings: ['x'] });
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [], currentAttemptLearnings: [{ text: 'x' }] });
     expect(result.ok).toBe(false);
   });
 
@@ -244,13 +244,13 @@ describe('appendLearningsLeaf', () => {
       const attempt1 = await leaf.execute({
         sprintId: SPRINT_ID,
         tasks: [task],
-        currentAttemptLearnings: ['the same exact learning'],
+        currentAttemptLearnings: [{ text: 'the same exact learning' }],
       });
       expect(attempt1.ok).toBe(true);
       const attempt2 = await leaf.execute({
         sprintId: SPRINT_ID,
         tasks: [task],
-        currentAttemptLearnings: ['the same exact learning'],
+        currentAttemptLearnings: [{ text: 'the same exact learning' }],
       });
       expect(attempt2.ok).toBe(true);
 

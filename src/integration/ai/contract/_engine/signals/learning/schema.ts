@@ -4,12 +4,15 @@ import { IsoTimestampSchema } from '@src/integration/persistence/shared/value-sc
 import type { Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
 /**
- * Zod schema for the `learning` AI signal — a cross-task insight pinned under `## Learnings`
- * in `progress.md`.
+ * Zod schema for the `learning` AI signal — a structured insight pinned under `## Learnings`
+ * in `progress.md`. `text` is the required Insight; `context` (when / why it arose) and
+ * `appliesTo` (where it applies) are optional. Old rows omitting them still parse.
  */
 export const learningSignalSchema = z.object({
   type: z.literal('learning'),
   text: z.string(),
+  context: z.string().optional(),
+  appliesTo: z.string().optional(),
   timestamp: IsoTimestampSchema,
 });
 

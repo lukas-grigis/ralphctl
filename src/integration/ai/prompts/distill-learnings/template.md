@@ -55,9 +55,16 @@ second time:
 edited for clarity and tense, but do not change its claim. Do not add learnings that are not in the
 candidate list.
 
-**Format.** Each learning is one markdown bullet — a single sentence or two, present tense, second-person
-or imperative voice ("Prefer X over Y", "The build emits Z"). Group closely-related bullets under a short
-bold lead-in (`- **Build:** …`) only when it improves scannability — otherwise keep a flat list.
+**Format.** Each learning is a bold Insight bullet — a single sentence, present tense, second-person or
+imperative voice ("Prefer X over Y", "The build emits Z") — optionally followed by indented `Context:` and
+`Applies to:` sub-bullets when the candidate supplies them:
+
+- **The build emits ESM only; no CJS entrypoint.**
+  - Context: wiring a downstream require()
+  - Applies to: packaging
+
+Carry a candidate's context / applies-to into the sub-bullets when it has them; omit a sub-bullet when the
+candidate omits it. Keep the Insight bold so the section scans at a glance.
 
 **Conciseness.** Drop a candidate that is vague, project-agnostic, or already implied by the file's
 hand-authored guidance — "be careful" is noise. A learning earns its bullet only by telling the next

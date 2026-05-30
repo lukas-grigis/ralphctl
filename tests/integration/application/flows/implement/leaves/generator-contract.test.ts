@@ -168,7 +168,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
     // `### Changes` / `### Decisions` / `### Learnings` / `### Notes` subsections.
     expect(result.value.ctx.currentAttemptChanges).toEqual(['added foo']);
     expect(result.value.ctx.currentAttemptDecisions).toEqual(['use json on-disk']);
-    expect(result.value.ctx.currentAttemptLearnings).toEqual(['providers differ on flags']);
+    expect(result.value.ctx.currentAttemptLearnings).toEqual([{ text: 'providers differ on flags' }]);
     expect(result.value.ctx.currentAttemptNotes).toEqual(['follow-up: tighten log']);
   });
 
