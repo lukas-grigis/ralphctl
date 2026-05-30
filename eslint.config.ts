@@ -166,6 +166,7 @@ const PROMPTS = [
   'create-pr',
   'detect-scripts',
   'detect-skills',
+  'distill-learnings',
   'evaluate',
   'ideate',
   'implement',

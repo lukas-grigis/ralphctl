@@ -1,0 +1,127 @@
+import { z } from 'zod';
+import { Result } from '@src/domain/result.ts';
+import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
+
+/**
+ * One distilled learning emitted by an implement task and persisted to the project's
+ * append-only NDJSON ledger at `<memoryRoot>/<projectId>/learnings.ndjson`.
+ *
+ * This is the SINGLE source of truth for the record shape. Both sides of the Theme 6 pipeline
+ * import it:
+ *  - the WRITE side (T12 `appendLearningsLeaf`) constructs one record per `<learning>` signal
+ *    and appends it with `promotedAt: null`;
+ *  - the READ side (T14a `loadLearningsLeaf` / `stampPromotedLeaf`) parses every line, proposes
+ *    the not-yet-promoted ones to the operator, then stamps the accepted ids `promotedAt`.
+ *
+ * Do NOT redefine these fields anywhere else — both leaves depend on the exact shape staying
+ * identical so a record round-trips through the ledger untouched.
+ *
+ * @public
+ */
+export interface LearningRecord {
+  /** Schema version of the record on disk. Bumped only on a breaking field change. */
+  readonly v: number;
+  /**
+   * Stable dedup key — `sha1(repo|taskKind|normalize(text))[:16]` (computed by the write side).
+   * The read side dedups proposals by this id and stamps `promotedAt` keyed on it, so a learning
+   * re-emitted by a later task collapses onto the same ledger row rather than duplicating.
+   */
+  readonly id: string;
+  /** The learning prose itself — the `<learning>` signal body, verbatim. */
+  readonly text: string;
+  /** Absolute path of the repository the learning was produced in. */
+  readonly repo: string;
+  /** Human-friendly repository name (the repo's `name`, not its path). */
+  readonly repoName: string;
+  /** Coarse classification of the producing task — buckets learnings at distillation time. */
+  readonly taskKind: TaskKind;
+  /** Id of the sprint whose implement run produced the learning. */
+  readonly sprintId: string;
+  /** Id of the task that produced the learning. */
+  readonly taskId: string;
+  /** ISO-8601 timestamp the learning was appended to the ledger. */
+  readonly timestamp: string;
+  /**
+   * ISO-8601 timestamp the learning was folded into a project context file by the distill flow,
+   * or `null` while it is still a pending proposal. `loadLearningsLeaf` filters to `null`;
+   * `stampPromotedLeaf` flips it to the distillation timestamp for accepted ids.
+   */
+  readonly promotedAt: string | null;
+}
+
+const taskKindSchema = z.enum(['feature', 'bugfix', 'refactor', 'test', 'docs', 'chore', 'other']);
+
+/**
+ * Zod schema for a single NDJSON line. Co-located with the interface so a drift between the two
+ * surfaces at typecheck (`satisfies` below). `.strict()` is intentionally NOT used — a future
+ * record may grow fields, and an older reader should tolerate (ignore) them rather than reject
+ * the whole ledger line.
+ *
+ * @public
+ */
+export const learningRecordSchema = z.object({
+  v: z.number().int(),
+  id: z.string().min(1),
+  text: z.string(),
+  repo: z.string(),
+  repoName: z.string(),
+  taskKind: taskKindSchema,
+  sprintId: z.string(),
+  taskId: z.string(),
+  timestamp: z.string(),
+  promotedAt: z.string().nullable(),
+});
+
+// Compile-time guard: the schema's inferred output must exactly match the interface. A field
+// added to one but not the other fails typecheck here, so the two cannot silently drift.
+type _SchemaMatchesInterface =
+  z.infer<typeof learningRecordSchema> extends LearningRecord
+    ? LearningRecord extends z.infer<typeof learningRecordSchema>
+      ? true
+      : never
+    : never;
+const _schemaMatchesInterface: _SchemaMatchesInterface = true;
+void _schemaMatchesInterface;
+
+/**
+ * Parse one NDJSON line into a {@link LearningRecord}. Blank lines yield `Result.ok(undefined)`
+ * (a trailing newline is normal for an append-only ledger). A malformed line yields a
+ * `ParseError` carrying the offending line — the caller decides whether to skip or fail.
+ *
+ * @public
+ */
+export const parseLearningLine = (line: string): Result<LearningRecord | undefined, ParseError> => {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return Result.ok(undefined);
+
+  let json: unknown;
+  try {
+    json = JSON.parse(trimmed);
+  } catch (cause) {
+    return Result.error(
+      new ParseError({ subCode: 'invalid-json', message: 'learnings.ndjson line is not valid JSON', cause })
+    );
+  }
+
+  const parsed = learningRecordSchema.safeParse(json);
+  if (!parsed.success) {
+    return Result.error(
+      new ParseError({
+        subCode: 'schema-mismatch',
+        message: 'learnings.ndjson line does not match the LearningRecord schema',
+        cause: parsed.error,
+      })
+    );
+  }
+  return Result.ok(parsed.data);
+};
+
+/**
+ * Serialize a {@link LearningRecord} to a single NDJSON line (JSON + trailing newline). The
+ * inverse of {@link parseLearningLine}. Both sides of the pipeline use this so the on-disk
+ * encoding is owned in one place.
+ *
+ * @public
+ */
+export const serializeLearningRecord = (record: LearningRecord): string => `${JSON.stringify(record)}\n`;
