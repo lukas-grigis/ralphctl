@@ -197,7 +197,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -247,7 +247,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-abort',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -324,7 +324,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-multi',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -391,7 +391,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-empty',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 

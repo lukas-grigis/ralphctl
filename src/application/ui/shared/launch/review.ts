@@ -7,6 +7,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
 
 /**
  * Derive the set of repositories the sprint actually touches — `Project.repositories`
@@ -31,13 +32,20 @@ const sprintAffectedRepositories = (
 const renderRepositoriesBlock = (affected: readonly Repository[]): string =>
   affected.map((r) => `- \`${String(r.path)}\` (${r.name})`).join('\n');
 
-export const launchReview = (ctx: LaunchContext): LaunchResult => {
+export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, settings, provider, bridge, sessionId } = ctx;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
   if (snapshot.project.repositories.length === 0) {
     return { ok: false, reason: 'Project has no repositories — add one first.' };
   }
+  // Opt-in, default-NO HITL — symmetric with close-sprint. Review's auto-done path (empty round →
+  // transition) runs the SAME distill step, so the user gets the same prompt whether they close
+  // explicitly or let review auto-finish. Any non-true answer keeps `distillRequested` false.
+  const distillConfirm = await deps.interactive.askConfirm({
+    message: "Distill this sprint's learnings into project context files when review finishes? [y/N]",
+  });
+  const distillRequested = distillConfirm.ok && distillConfirm.value === true;
   const sprintDir = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id)));
   if (!sprintDir.ok) return { ok: false, reason: sprintDir.error.message };
   const feedbackPath = AbsolutePath.parse(join(String(sprintDir.value), 'feedback.md'));
@@ -68,6 +76,7 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
   // implement did — keeps the "done means green" invariant intact across the two phases.
   const verifyScript = commitRepo.verifyScript;
 
+  const distill = resolveDistillComposition(ctx, String(sprintDir.value));
   const element: Element<ReviewCtx> = createReviewFlow(
     {
       sprintRepo: deps.app.sprintRepo,
@@ -89,6 +98,7 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
       // through ctx.settings (launcher applied it to ai.implement.generator when the picker
       // emitted a non-empty override), so per-field fallback is automatic.
       model: settings.ai.implement.generator.model,
+      ...(distill !== undefined ? { distill } : {}),
     },
     {
       sprintId: snapshot.sprint.id,
@@ -104,7 +114,7 @@ export const launchReview = (ctx: LaunchContext): LaunchResult => {
   const runner = createRunner<ReviewCtx>({
     id: sessionId(),
     element,
-    initialCtx: { sprintId: snapshot.sprint.id },
+    initialCtx: { sprintId: snapshot.sprint.id, distillRequested },
   });
   return { ok: true, runner: bridge(runner) as Runner<unknown>, title: `Review — ${snapshot.sprint.name}` };
 };

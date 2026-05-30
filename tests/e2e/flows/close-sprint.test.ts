@@ -45,7 +45,7 @@ describe('createCloseSprintFlow', () => {
     const runner = createRunner<CloseSprintCtx>({
       id: 'r-close-happy',
       element: flow,
-      initialCtx: { sprintId: sprint.id },
+      initialCtx: { sprintId: sprint.id, distillRequested: false },
     });
     await runner.start();
 
@@ -73,7 +73,7 @@ describe('createCloseSprintFlow', () => {
     const runner = createRunner<CloseSprintCtx>({
       id: 'r-close-wrong-status',
       element: flow,
-      initialCtx: { sprintId: sprint.id },
+      initialCtx: { sprintId: sprint.id, distillRequested: false },
     });
     await runner.start();
 

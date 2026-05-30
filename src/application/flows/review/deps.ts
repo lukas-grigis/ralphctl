@@ -12,6 +12,8 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
+import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 
 export interface ReviewDeps {
   readonly sprintRepo: SprintRepository;
@@ -30,4 +32,10 @@ export interface ReviewDeps {
   /** Append adapter — threaded into `reviewRoundLeaf` to grow `feedback.md` per round. */
   readonly appendFile: AppendFile;
   readonly model: string;
+  /**
+   * Pre-transition distill composition (T15) — fires on review's auto-done path (empty round →
+   * transition) so the same opt-in learning-promotion runs whether the user closes explicitly or
+   * lets review auto-finish. Optional: absent → the distill step is omitted from the chain.
+   */
+  readonly distill?: { readonly deps: DistillLearningsDeps; readonly opts: DistillStepOpts };
 }

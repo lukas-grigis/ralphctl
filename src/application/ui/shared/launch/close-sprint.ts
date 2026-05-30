@@ -6,6 +6,7 @@ import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { resolveDistillComposition } from '@src/application/ui/shared/launch/distill.ts';
 
 export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, bridge, sessionId } = ctx;
@@ -17,21 +18,32 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   if (!confirmed.ok || confirmed.value !== true) {
     return { ok: false, reason: 'Cancelled.' };
   }
-  const progressPath = AbsolutePath.parse(
-    join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'progress.md')
-  );
+  // Second HITL, opt-in and defaulting NO: promoting learnings rewrites the project's native
+  // context files (CLAUDE.md / AGENTS.md / …) — never auto-accept. The `[y/N]` copy signals the
+  // default; ANY non-true answer (No, cancel, error) leaves `distillRequested` false so the
+  // in-chain `distill-gate` guard skips the body entirely.
+  const distillConfirm = await deps.interactive.askConfirm({
+    message: "Distill this sprint's learnings into project context files? [y/N]",
+  });
+  const distillRequested = distillConfirm.ok && distillConfirm.value === true;
+
+  const sprintDir = join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id));
+  const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
+
+  const distill = resolveDistillComposition(ctx, sprintDir);
   const element: Element<CloseSprintCtx> = createCloseSprintFlow({
     sprintRepo: deps.app.sprintRepo,
     clock: deps.app.clock,
     logger: deps.app.logger,
     appendFile: deps.app.appendFile,
     progressFile: progressPath.value,
+    ...(distill !== undefined ? { distill } : {}),
   });
   const runner = createRunner<CloseSprintCtx>({
     id: sessionId(),
     element,
-    initialCtx: { sprintId: snapshot.sprint.id },
+    initialCtx: { sprintId: snapshot.sprint.id, distillRequested },
   });
   return {
     ok: true,
