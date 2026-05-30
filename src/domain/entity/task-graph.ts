@@ -107,3 +107,96 @@ export const validateTaskGraph = (tasks: readonly Task[]): Result<undefined, Tas
 
   return Result.ok(undefined);
 };
+
+/**
+ * Render a {@link TaskGraphIssue} as a single human-readable line. Pure — used by callers
+ * that surface the issue through their own error envelope (e.g. the parser maps it onto a
+ * `ParseError` message). Kept here so the wording stays adjacent to the issue shape it
+ * describes and both producers and consumers share one phrasing.
+ *
+ * @public
+ */
+export const renderTaskGraphIssue = (issue: TaskGraphIssue): string => {
+  switch (issue.kind) {
+    case 'unknown-dependency':
+      return `task ${issue.task} depends on unknown task ${issue.missing}`;
+    case 'self-edge':
+      return `task ${issue.task} depends on itself`;
+    case 'cycle':
+      return `dependency cycle: ${issue.cycle.join(' → ')}`;
+  }
+};
+
+/**
+ * Schedule a sprint's task set into dependency waves for parallel execution.
+ *
+ * Validates the graph first via {@link validateTaskGraph}; any {@link TaskGraphIssue}
+ * (unknown dependency, self-edge, cycle) short-circuits and propagates unchanged. On a sound
+ * DAG, runs Kahn's algorithm by level:
+ *  - wave 0 = every in-degree-0 node (no `dependsOn`), sorted by `Task.order` ASC;
+ *  - decrement the in-degree of each scheduled node's successors;
+ *  - the next wave = all nodes whose in-degree just hit 0, again sorted by `order` ASC;
+ *  - repeat until every node is scheduled.
+ *
+ * Each returned wave is internally independent — no task in a wave depends on another in the
+ * same wave — so the launcher can run a wave's tasks concurrently. Waves are strictly ordered:
+ * every dependency of a task in wave `k` was scheduled in some wave `< k`.
+ *
+ * Empty input yields an empty schedule. Pure — no mutation of inputs, no I/O.
+ *
+ * @public
+ */
+/**
+ * Build the in-degree counts + successor adjacency for Kahn's algorithm. In-degree is the
+ * count of a task's dependencies that resolve to a task in this set; `validateTaskGraph`
+ * already guarantees every `dependsOn` id resolves, so the `byId.has` filter is belt-and-braces.
+ */
+const buildGraph = (
+  tasks: readonly Task[],
+  byId: ReadonlyMap<TaskId, Task>
+): { readonly inDegree: Map<TaskId, number>; readonly successors: ReadonlyMap<TaskId, TaskId[]> } => {
+  const inDegree = new Map<TaskId, number>();
+  const successors = new Map<TaskId, TaskId[]>();
+  for (const t of tasks) {
+    inDegree.set(t.id, 0);
+    successors.set(t.id, []);
+  }
+  for (const t of tasks) {
+    for (const dep of t.dependsOn) {
+      if (!byId.has(dep)) continue;
+      inDegree.set(t.id, (inDegree.get(t.id) ?? 0) + 1);
+      successors.get(dep)?.push(t.id);
+    }
+  }
+  return { inDegree, successors };
+};
+
+export const scheduleIntoWaves = (tasks: readonly Task[]): Result<ReadonlyArray<readonly Task[]>, TaskGraphIssue> => {
+  const validation = validateTaskGraph(tasks);
+  if (!validation.ok) return Result.error(validation.error);
+
+  const byId = new Map<TaskId, Task>();
+  for (const t of tasks) byId.set(t.id, t);
+
+  const { inDegree, successors } = buildGraph(tasks, byId);
+  const byOrderAsc = (a: Task, b: Task): number => a.order - b.order;
+
+  const waves: Task[][] = [];
+  let frontier = tasks.filter((t) => (inDegree.get(t.id) ?? 0) === 0).sort(byOrderAsc);
+
+  while (frontier.length > 0) {
+    waves.push(frontier);
+    const next: Task[] = [];
+    for (const t of frontier) {
+      for (const succId of successors.get(t.id) ?? []) {
+        const remaining = (inDegree.get(succId) ?? 0) - 1;
+        inDegree.set(succId, remaining);
+        const succ = byId.get(succId);
+        if (remaining === 0 && succ !== undefined) next.push(succ);
+      }
+    }
+    frontier = next.sort(byOrderAsc);
+  }
+
+  return Result.ok(waves);
+};
